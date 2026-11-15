@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_duration_chart.dart';
@@ -63,7 +61,7 @@ Future<void> _tap(WidgetTester tester, String suffix) async {
 }
 
 void main() {
-  testWidgets('滚动离开图表再返回时保留周期和环形标注', (tester) async {
+  testWidgets('滚动离开图表再返回时保留周期和下方图书列表', (tester) async {
     final controller = ScrollController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(
@@ -194,7 +192,7 @@ void main() {
     expect(_text(tester, 'range'), '今天 · 2026年11月15日');
   });
 
-  testWidgets('环形图与五个标注互不遮挡，其他入口可点开列表', (tester) async {
+  testWidgets('四本书和其他按顺序左对齐排列在圆环下方，时长占比可见', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2026, 11, 15, 8), 100),
       _session('b', DateTime(2026, 11, 15, 9), 80),
@@ -204,11 +202,29 @@ void main() {
         _session('small$i', DateTime(2026, 11, 15, 12 + i ~/ 2), 10),
     ]);
     final ring = tester.getRect(_key('ring'));
-    for (final id in ['a', 'b', 'c', 'd', 'other']) {
+    final list = tester.getRect(_key('legend'));
+    expect(list.top, greaterThanOrEqualTo(ring.bottom));
+    final rows = find.descendant(
+      of: _key('legend'),
+      matching: find.byType(InkWell),
+    );
+    expect(rows, findsNWidgets(5));
+    var previousBottom = ring.bottom;
+    for (final (id, share) in [
+      ('a', '29.4%'),
+      ('b', '23.5%'),
+      ('c', '17.6%'),
+      ('d', '11.8%'),
+      ('other', '17.6%'),
+    ]) {
       final tag = tester.getRect(_key('tag-$id'));
-      expect(tag.overlaps(ring), isFalse, reason: '$id 标注压住环形图');
-      expect(tag.left >= 0 && tag.right <= 360, isTrue, reason: '$id 标注越界');
+      expect(tag.top, greaterThanOrEqualTo(previousBottom));
+      expect(tag.left, list.left);
+      expect(tag.right, list.right);
+      expect(_text(tester, 'share-$id'), '占比 $share');
+      previousBottom = tag.bottom;
     }
+    expect(_text(tester, 'value-other'), '1 小时');
     final other = _key('tag-other');
     await tester.ensureVisible(other);
     await tester.tap(other);
@@ -217,57 +233,32 @@ void main() {
     expect(_text(tester, 'list-summary'), '10 本书 · 合计 5 小时 40 分');
   });
 
-  testWidgets('标签按扇区方位分组并按扇区上下顺序排列，且不压住环体', (tester) async {
-    await _pump(tester, [
-      _session('a', DateTime(2026, 11, 15, 8), 52),
-      _session('b', DateTime(2026, 11, 15, 9), 25),
-      _session('c', DateTime(2026, 11, 15, 10), 14),
-      _session('d', DateTime(2026, 11, 15, 11), 6),
-      for (var i = 1; i <= 4; i++)
-        _session('small$i', DateTime(2026, 11, 15, 12 + i ~/ 2), 1),
-    ]);
-    final ring = tester.getRect(_key('ring'));
-    const durations = [52, 25, 14, 6, 4];
-    const total = 101;
-    final angles = <double>[];
-    var angle = -math.pi / 2;
-    for (final minutes in durations) {
-      final sweep = minutes / total * 2 * math.pi;
-      angles.add(angle + sweep / 2);
-      angle += sweep;
-    }
-    final tags = [
-      for (final id in ['a', 'b', 'c', 'd', 'other']) _key('tag-$id'),
-    ];
-    final centers = [for (final tag in tags) tester.getCenter(tag)];
-    final leftIndices = <int>[];
-    final rightIndices = <int>[];
-    for (var index = 0; index < tags.length; index++) {
-      final tag = tester.getRect(tags[index]);
-      expect(tag.overlaps(ring), isFalse);
-      final labelIsRight = centers[index].dx > ring.center.dx;
-      final segmentIsRight = math.cos(angles[index]) >= 0;
-      expect(labelIsRight, segmentIsRight);
-      (labelIsRight ? rightIndices : leftIndices).add(index);
-    }
-    final expectedLeft = [...leftIndices]
-      ..sort(
-        (left, right) =>
-            math.sin(angles[left]).compareTo(math.sin(angles[right])),
+  for (final count in [4, 5, 6]) {
+    testWidgets('$count 本书最多展示四本书名，第五本起合并为其他', (tester) async {
+      await _pump(tester, [
+        for (var i = 1; i <= count; i++)
+          _session('$i', DateTime(2026, 11, 15, 8), (count + 1 - i) * 10),
+      ]);
+      final rows = find.descendant(
+        of: _key('legend'),
+        matching: find.byType(InkWell),
       );
-    final expectedRight = [...rightIndices]
-      ..sort(
-        (left, right) =>
-            math.sin(angles[left]).compareTo(math.sin(angles[right])),
-      );
-    final actualLeft = [...leftIndices]
-      ..sort((left, right) => centers[left].dy.compareTo(centers[right].dy));
-    final actualRight = [...rightIndices]
-      ..sort((left, right) => centers[left].dy.compareTo(centers[right].dy));
-    expect(actualLeft, expectedLeft);
-    expect(actualRight, expectedRight);
-    expect(tester.takeException(), isNull);
-  });
+      expect(rows, findsNWidgets(count == 4 ? 4 : 5));
+      for (var i = 1; i <= 4; i++) {
+        expect(_key('tag-$i'), findsOneWidget);
+      }
+      expect(_key('tag-5'), findsNothing);
+      if (count == 4) {
+        expect(_key('tag-other'), findsNothing);
+      } else {
+        expect(find.text('其他${count - 4}本'), findsOneWidget);
+        expect(_text(tester, 'value-other'), count == 5 ? '10 分钟' : '30 分钟');
+        await _tap(tester, 'tag-other');
+        expect(find.text('书籍 5'), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('少于六本书也能打开完整列表，长书名与占比可查看', (tester) async {
     const title = '一本需要完整显示的很长很长的中文图书名称';

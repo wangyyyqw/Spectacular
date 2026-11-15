@@ -57,7 +57,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       date: _date ?? _now,
       bookTitles: widget.bookTitles,
     ).entries;
-    final visible = entries.take(entries.length > 5 ? 4 : entries.length);
+    final visible = entries.take(4);
     if (!visible.any((entry) => entry.bookId == _selectedBookId)) {
       _selectedBookId = null;
     }
@@ -346,100 +346,31 @@ class _BookDurationChartState extends State<BookDurationChart>
   );
 
   Widget _breakdown(BuildContext context, BookDurationSummary summary) {
-    final scheme = Theme.of(context).colorScheme;
-    final colors = _chartColors(scheme);
-    final slices = _slices(summary, colors);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 280 ||
-            MediaQuery.textScalerOf(context).scale(14) > 19) {
-          return _accessibleBreakdown(summary, slices);
-        }
-        final geometry = _CalloutGeometry(
-          width: constraints.maxWidth,
-          slices: slices,
-          total: summary.total,
-          labelHeightForWidth: (width) => _tagHeight(slices, width),
-        );
-        return _calloutLayout(summary, slices, geometry);
-      },
+    final slices = _slices(
+      summary,
+      _chartColors(Theme.of(context).colorScheme),
     );
-  }
-
-  double _tagHeight(List<_DurationSlice> slices, double width) {
-    var height = 48.0;
-    for (final slice in slices) {
-      final titleWidth = width - 12 - 9 - (slice.id == null ? 16 : 0);
-      final title = _textHeight(slice.title, _tagTitleStyle, titleWidth);
-      final duration = _textHeight(
-        formatReadingDuration(slice.duration),
-        _tagDurationStyle,
-        width - 12,
-      );
-      height = math.max(height, 18 + math.max(18, title) + duration);
-    }
-    return height.ceilToDouble();
-  }
-
-  double _textHeight(String text, TextStyle style, double width) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: Theme.of(context).textTheme.bodyMedium!.merge(style),
-      ),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-      maxLines: 2,
-    )..layout(maxWidth: width);
-    final height = painter.height;
-    painter.dispose();
-    return height;
-  }
-
-  Widget _calloutLayout(
-    BookDurationSummary summary,
-    List<_DurationSlice> slices,
-    _CalloutGeometry geometry,
-  ) => Padding(
-    padding: const EdgeInsets.only(top: 10, bottom: 16),
-    child: SizedBox(
-      key: const ValueKey('stats-book-duration-callouts'),
-      height: geometry.height,
-      child: Stack(
-        clipBehavior: Clip.none,
+    return Padding(
+      padding: const EdgeInsets.only(top: 20, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _calloutLines(summary, slices, geometry),
-          for (var index = 0; index < slices.length; index++)
-            Positioned.fromRect(
-              rect: geometry.labels[index],
-              child: _calloutTag(summary, slices[index]),
+          Center(
+            child: SizedBox.square(
+              dimension: 160,
+              child: _ring(summary, slices),
             ),
-          Positioned(
-            left: geometry.ringRect.left,
-            top: geometry.ringRect.top,
-            width: geometry.ringRect.width,
-            height: geometry.ringRect.height,
-            child: _ring(summary, slices),
+          ),
+          const SizedBox(height: 16),
+          Column(
+            key: const ValueKey('stats-book-duration-legend'),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [for (final slice in slices) _legendRow(summary, slice)],
           ),
         ],
       ),
-    ),
-  );
-
-  Widget _calloutLines(
-    BookDurationSummary summary,
-    List<_DurationSlice> slices,
-    _CalloutGeometry geometry,
-  ) => Positioned.fill(
-    child: CustomPaint(
-      painter: _DurationCalloutPainter(
-        slices: slices,
-        total: summary.total,
-        geometry: geometry,
-        lineColor: Theme.of(context).colorScheme.outline.withValues(alpha: .55),
-      ),
-    ),
-  );
+    );
+  }
 
   Widget _ring(BookDurationSummary summary, List<_DurationSlice> slices) =>
       _DurationRing(
@@ -449,25 +380,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         onSelected: (slice) => _selectSlice(slice, summary),
       );
 
-  Widget _accessibleBreakdown(
-    BookDurationSummary summary,
-    List<_DurationSlice> slices,
-  ) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 20),
-    child: Column(
-      children: [
-        SizedBox.square(dimension: 160, child: _ring(summary, slices)),
-        const SizedBox(height: 16),
-        for (final slice in slices) _calloutTag(summary, slice, expanded: true),
-      ],
-    ),
-  );
-
-  Widget _calloutTag(
-    BookDurationSummary summary,
-    _DurationSlice slice, {
-    bool expanded = false,
-  }) {
+  Widget _legendRow(BookDurationSummary summary, _DurationSlice slice) {
     final isOther = slice.id == null;
     final selected = !isOther && _selectedBookId == slice.id;
     final duration = formatReadingDuration(slice.duration);
@@ -488,51 +401,64 @@ class _BookDurationChartState extends State<BookDurationChart>
           key: ValueKey('stats-book-duration-tag-${slice.id ?? 'other'}'),
           onTap: () => _selectSlice(slice, summary),
           borderRadius: BorderRadius.circular(4),
-          child: _tagContent(slice, duration, expanded: expanded),
+          child: _legendContent(slice, summary.total),
         ),
       ),
     );
   }
 
-  Widget _tagContent(
-    _DurationSlice slice,
-    String duration, {
-    required bool expanded,
-  }) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 6, vertical: expanded ? 12 : 6),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _tagTitle(slice, expanded: expanded),
-          const SizedBox(height: 6),
-          Text(
-            duration,
-            key: ValueKey('stats-book-duration-value-${slice.id ?? 'other'}'),
-            maxLines: expanded ? null : 2,
-            style: _tagDurationStyle.copyWith(color: muted),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _legendContent(_DurationSlice slice, Duration total) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 3,
+          height: 16,
+          margin: const EdgeInsets.only(top: 2, right: 9),
+          color: slice.color,
+        ),
+        Expanded(child: _legendText(slice, total)),
+      ],
+    ),
+  );
 
-  Widget _tagTitle(_DurationSlice slice, {required bool expanded}) => Row(
+  Widget _legendText(_DurationSlice slice, Duration total) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Container(
-        width: 3,
-        height: 16,
-        margin: const EdgeInsets.only(top: 2, right: 6),
-        color: slice.color,
+      _legendTitle(slice),
+      const SizedBox(height: 4),
+      DefaultTextStyle(
+        style: Theme.of(context).textTheme.bodyMedium!.merge(
+          _tagDurationStyle.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        child: Wrap(
+          spacing: 8,
+          children: [
+            Text(
+              formatReadingDuration(slice.duration),
+              key: ValueKey('stats-book-duration-value-${slice.id ?? 'other'}'),
+            ),
+            Text(
+              '占比 ${_share(slice.duration, total)}',
+              key: ValueKey('stats-book-duration-share-${slice.id ?? 'other'}'),
+            ),
+          ],
+        ),
       ),
+    ],
+  );
+
+  Widget _legendTitle(_DurationSlice slice) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
       Expanded(
         child: Text(
           slice.title,
-          maxLines: expanded ? null : 2,
-          overflow: expanded ? null : TextOverflow.ellipsis,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: _tagTitleStyle,
         ),
       ),
@@ -816,7 +742,7 @@ List<Color> _chartColors(ColorScheme scheme) => [
 ];
 
 List<_DurationSlice> _slices(BookDurationSummary summary, List<Color> colors) {
-  final count = summary.entries.length > 5 ? 4 : summary.entries.length;
+  final count = math.min(4, summary.entries.length);
   return [
     for (var index = 0; index < count; index++)
       (
@@ -825,7 +751,7 @@ List<_DurationSlice> _slices(BookDurationSummary summary, List<Color> colors) {
         duration: summary.entries[index].duration,
         color: colors[index],
       ),
-    if (summary.entries.length > 5)
+    if (summary.entries.length > 4)
       (
         id: null,
         title: '其他${summary.entries.length - 4}本',
@@ -835,167 +761,6 @@ List<_DurationSlice> _slices(BookDurationSummary summary, List<Color> colors) {
         color: colors.last,
       ),
   ];
-}
-
-/// 五段标注的布局几何：标签跟随扇区方位放在左右，引线连接对应扇区中心。
-class _CalloutGeometry {
-  _CalloutGeometry({
-    required double width,
-    required List<_DurationSlice> slices,
-    required Duration total,
-    required double Function(double) labelHeightForWidth,
-  }) {
-    final compact = width < 380;
-    final ringSize = (width * .32).clamp(96.0, 166.0);
-    final labelWidth = ((width - ringSize - 20) / 2).clamp(0.0, 150.0);
-    final labelHeight = labelHeightForWidth(labelWidth);
-    final leftX = 0.0;
-    final rightX = width - labelWidth;
-    final angles = <double>[];
-    var angle = -math.pi / 2;
-    for (final slice in slices) {
-      final sweep =
-          slice.duration.inMicroseconds / total.inMicroseconds * 2 * math.pi;
-      angles.add(angle + sweep / 2);
-      angle += sweep;
-    }
-    final leftIndices = <int>[];
-    final rightIndices = <int>[];
-    for (var index = 0; index < angles.length; index++) {
-      (math.cos(angles[index]) < 0 ? leftIndices : rightIndices).add(index);
-    }
-    int topToBottom(int left, int right) {
-      final vertical = math
-          .sin(angles[left])
-          .compareTo(math.sin(angles[right]));
-      return vertical == 0 ? left.compareTo(right) : vertical;
-    }
-
-    leftIndices.sort(topToBottom);
-    rightIndices.sort(topToBottom);
-    final rowCount = math.max(leftIndices.length, rightIndices.length);
-    final requiredHeight =
-        rowCount * labelHeight + (rowCount - 1) * (compact ? 8 : 16);
-    final ringTop = math.max(12.0, (requiredHeight - ringSize) / 2);
-    final height = math.max(requiredHeight, ringTop * 2 + ringSize) + 4;
-    final centerY = ringTop + ringSize / 2;
-    final ringCenter = Offset(width / 2, centerY);
-    final cappedRing = ringSize.clamp(0.0, height);
-    ringRect = Rect.fromCenter(
-      center: ringCenter,
-      width: cappedRing,
-      height: cappedRing,
-    );
-    final gap = (height - rowCount * labelHeight) / (rowCount + 1);
-    final labelInset = math.max(2.0, (height - requiredHeight) / 3);
-    final yPositions = <double>[
-      for (var row = 0; row < rowCount; row++)
-        (gap + row * (labelHeight + gap)).clamp(
-          labelInset,
-          height - labelHeight - labelInset,
-        ),
-    ];
-    centerAngle = -math.pi / 2;
-    labels = List<Rect>.filled(slices.length, Rect.zero);
-    labelOnRight = List<bool>.filled(slices.length, false);
-    for (final indices in <(List<int>, bool)>[
-      (leftIndices, false),
-      (rightIndices, true),
-    ]) {
-      for (var row = 0; row < indices.$1.length; row++) {
-        final index = indices.$1[row];
-        labels[index] = Rect.fromLTWH(
-          indices.$2 ? rightX : leftX,
-          yPositions[row],
-          labelWidth,
-          labelHeight,
-        );
-        labelOnRight[index] = indices.$2;
-      }
-    }
-    this.height = height;
-  }
-
-  late final Rect ringRect;
-  late final List<Rect> labels;
-  late final List<bool> labelOnRight;
-  late final double height;
-  late final double centerAngle;
-}
-
-class _DurationCalloutPainter extends CustomPainter {
-  const _DurationCalloutPainter({
-    required this.slices,
-    required this.total,
-    required this.geometry,
-    required this.lineColor,
-  });
-
-  final List<_DurationSlice> slices;
-  final Duration total;
-  final _CalloutGeometry geometry;
-  final Color lineColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (slices.isEmpty) return;
-    final center = geometry.ringRect.center;
-    final radius = geometry.ringRect.width / 2;
-    final paint = Paint()
-      ..color = lineColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    var angle = geometry.centerAngle;
-    for (var index = 0; index < slices.length; index++) {
-      final sweep =
-          slices[index].duration.inMicroseconds /
-          total.inMicroseconds *
-          2 *
-          math.pi;
-      final mid = angle + sweep / 2;
-      final start = Offset(
-        center.dx + math.cos(mid) * (radius + 3),
-        center.dy + math.sin(mid) * (radius + 3),
-      );
-      final label = geometry.labels[index];
-      final end = Offset(
-        geometry.labelOnRight[index] ? label.left - 4 : label.right + 4,
-        label.center.dy,
-      );
-      final path = Path()
-        ..moveTo(start.dx, start.dy)
-        ..lineTo(end.dx, end.dy);
-      _dashed(canvas, path, paint);
-      angle += sweep;
-    }
-  }
-
-  void _dashed(Canvas canvas, Path path, Paint paint) {
-    const dash = 4.0;
-    const gap = 5.0;
-    for (final metric in path.computeMetrics()) {
-      for (
-        var distance = 0.0;
-        distance < metric.length;
-        distance += dash + gap
-      ) {
-        canvas.drawPath(
-          metric.extractPath(
-            distance,
-            math.min(distance + dash, metric.length),
-          ),
-          paint,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DurationCalloutPainter oldDelegate) =>
-      oldDelegate.slices != slices ||
-      oldDelegate.total != total ||
-      oldDelegate.geometry != geometry ||
-      oldDelegate.lineColor != lineColor;
 }
 
 class _DurationRing extends StatelessWidget {
