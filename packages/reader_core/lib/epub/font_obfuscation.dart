@@ -60,7 +60,11 @@ class FontEncryptionMap {
   /// 只认 EncryptedData → CipherReference/@URI + EncryptionMethod/@Algorithm
   /// 的扁平结构；EncryptedKey 包裹的密文（真加密 DRM）不在此列，其
   /// EncryptionMethod 不带 CipherReference 子结构时自然跳过。
-  static FontEncryptionMap parse(String xml) {
+  /// [resolvePath] 由容器资源索引解析 URI，复用根相对及百分号解码规则。
+  static FontEncryptionMap parse(
+    String xml, {
+    String? Function(String uri)? resolvePath,
+  }) {
     try {
       final document = XmlDocument.parse(xml);
       final entries = <String, FontObfuscationAlgorithm>{};
@@ -84,10 +88,10 @@ class FontEncryptionMap {
           continue;
         }
         for (final uri in reference) {
-          // CipherReference URI 以 '/' 开头表示 ZIP 根路径；否则同样
-          // 相对根（OCF 规范），统一去头。
-          final path = uri.startsWith('/') ? uri.substring(1) : uri;
-          entries[path] = algorithm;
+          final path = resolvePath == null
+              ? (uri.startsWith('/') ? uri.substring(1) : uri)
+              : resolvePath(uri);
+          if (path != null) entries[path] = algorithm;
         }
       }
       return FontEncryptionMap._(

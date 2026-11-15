@@ -32,6 +32,8 @@ Uint8List _buildEncryptedEpub({
   required Uint8List obfuscatedFont,
   required String algorithmUri,
   bool sinf = false,
+  String fontName = 'test.otf',
+  String? cipherReference,
 }) {
   final archive = Archive();
   archive.addFile(
@@ -51,7 +53,7 @@ Uint8List _buildEncryptedEpub({
     xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
   <enc:EncryptedData>
     <enc:EncryptionMethod Algorithm="$algorithmUri"/>
-    <enc:CipherData><enc:CipherReference URI="OEBPS/Fonts/test.otf"/></enc:CipherData>
+    <enc:CipherData><enc:CipherReference URI="${cipherReference ?? 'OEBPS/Fonts/$fontName'}"/></enc:CipherData>
   </enc:EncryptedData>
 </encryption>''');
   if (sinf) {
@@ -66,7 +68,7 @@ Uint8List _buildEncryptedEpub({
   </metadata>
   <manifest>
     <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
-    <item id="font1" href="Fonts/test.otf" media-type="font/otf"/>
+    <item id="font1" href="Fonts/${Uri.encodeComponent(fontName)}" media-type="font/otf"/>
   </manifest>
   <spine><itemref idref="c1"/></spine>
 </package>''');
@@ -75,7 +77,7 @@ Uint8List _buildEncryptedEpub({
     '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>正文</p></body></html>',
   );
   archive.addFile(
-    ArchiveFile('OEBPS/Fonts/test.otf', obfuscatedFont.length, obfuscatedFont),
+    ArchiveFile('OEBPS/Fonts/$fontName', obfuscatedFont.length, obfuscatedFont),
   );
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
 }
@@ -323,6 +325,34 @@ void main() {
       expect(FontCoverage.parse(restored!), isNotNull, reason: '解出的字体可解析（可渲染）');
       // ZIP 内原始条目保持混淆态：原书不被改写。
       expect(doc.archive.readBytes('OEBPS/Fonts/test.otf'), obfuscated);
+    });
+
+    test('转义字体路径与根相对混淆声明命中实际 ZIP 条目', () async {
+      final obfuscated = FontObfuscator.obfuscate(
+        fontBytes,
+        identifier: _identifier,
+        algorithm: FontObfuscationAlgorithm.idpf,
+      );
+      for (final fontName in ['test font.otf', 'test%20font.otf']) {
+        final encodedName = Uri.encodeComponent(fontName);
+        final result = await openEpub(
+          _buildEncryptedEpub(
+            obfuscatedFont: obfuscated,
+            algorithmUri: 'http://www.idpf.org/2008/embedding',
+            fontName: fontName,
+            cipherReference: '/OEBPS/Fonts/$encodedName',
+          ),
+        );
+        expect(result.ok, isTrue, reason: result.report.message);
+        final doc = result.document!;
+        addTearDown(doc.archive.close);
+        expect(
+          await doc.readFontBytes('Fonts/$encodedName'),
+          fontBytes,
+          reason: '混淆声明必须与资源查找采用相同的 URI 解析：$fontName',
+        );
+        expect(doc.archive.readBytes('OEBPS/Fonts/$fontName'), obfuscated);
+      }
     });
 
     test('Adobe 算法同样解出可渲染字体', () async {
