@@ -288,7 +288,7 @@ void main() {
         _session('a', DateTime(2026, 11, 14, 8), 5),
       ]);
       await _tap(tester, 'tag-a');
-      expect(_text(tester, 'ring-value'), '75.0%');
+      expect(_text(tester, 'ring-value'), '本书占比 75.0%');
       expect(find.text('30 分钟 · 占比 75.0%'), findsOneWidget);
       expect(
         tester.getSemantics(_key('tag-a')),
@@ -306,7 +306,7 @@ void main() {
       final ring = tester.getRect(_key('ring'));
       await tester.tapAt(Offset(ring.right - 9, ring.center.dy));
       await tester.pumpAndSettle();
-      expect(_text(tester, 'ring-value'), '75.0%');
+      expect(_text(tester, 'ring-value'), '本书占比 75.0%');
       await _tap(tester, 'previous');
       expect(_key('selection'), findsNothing);
       expect(_text(tester, 'total'), '5 分钟');
@@ -360,7 +360,7 @@ void main() {
     await _tap(tester, 'tag-f');
     await _pump(tester, sessions, titles: titles);
     expect(_key('selection'), findsOneWidget);
-    expect(_text(tester, 'ring-value'), '16.7%');
+    expect(_text(tester, 'ring-value'), '本书占比 16.7%');
     await _pump(tester, sessions);
     expect(_key('tag-f'), findsNothing);
     expect(_key('selection'), findsNothing);
@@ -413,12 +413,20 @@ void main() {
         final longTag = tester.getRect(_key('tag-long'));
         final ring = tester.getRect(_key('ring'));
         expect(longTag.overlaps(ring), isFalse);
+        expect(_key('total'), findsOneWidget);
+        final timeRect = tester.getRect(_key('total'));
+        expect(timeRect.center.dx, closeTo(ring.center.dx, .01));
+        expect(timeRect.left, greaterThan(ring.left + 18));
+        expect(timeRect.right, lessThan(ring.right - 18));
+        expect(timeRect.top, greaterThan(ring.top + 18));
+        expect(timeRect.bottom, lessThan(ring.bottom - 18));
         await _tap(tester, 'tag-long');
         expect(
           find.descendant(of: _key('selection'), matching: find.text(title)),
           findsOneWidget,
         );
-        expect(_text(tester, 'ring-value'), '100.0%');
+        expect(_text(tester, 'ring-value'), '本书占比 100.0%');
+        expect(_text(tester, 'total'), '10 小时 1 分');
         expect(
           tester.getSemantics(find.bySemanticsLabel('日')),
           matchesSemantics(

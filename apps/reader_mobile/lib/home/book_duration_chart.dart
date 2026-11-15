@@ -143,7 +143,10 @@ class _BookDurationChartState extends State<BookDurationChart>
         if (summary.entries.isEmpty)
           _emptyState(context)
         else ...[
-          _summaryHeader(summary),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: _summaryActions(summary),
+          ),
           _breakdown(context, summary),
           _selectionDetail(summary),
         ],
@@ -243,26 +246,6 @@ class _BookDurationChartState extends State<BookDurationChart>
     style: const TextStyle(fontSize: 13, height: 1.5),
   );
 
-  Widget _summaryHeader(BookDurationSummary summary) => Padding(
-    padding: const EdgeInsets.only(top: 8),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _summaryActions(summary),
-        Text(
-          formatReadingDuration(summary.total),
-          key: const ValueKey('stats-book-duration-total'),
-          style: const TextStyle(
-            fontSize: 28,
-            height: 1.25,
-            fontWeight: FontWeight.w600,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    ),
-  );
-
   Widget _summaryActions(BookDurationSummary summary) => SizedBox(
     width: double.infinity,
     child: Wrap(
@@ -357,7 +340,8 @@ class _BookDurationChartState extends State<BookDurationChart>
         children: [
           Center(
             child: SizedBox.square(
-              dimension: 160,
+              dimension: (160 * MediaQuery.textScalerOf(context).scale(14) / 14)
+                  .clamp(160, 240),
               child: _ring(summary, slices),
             ),
           ),
@@ -831,12 +815,11 @@ class _DurationRing extends StatelessWidget {
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            _selected == null
-                ? '${summary.entries.length} 本书'
-                : _share(_selected!.duration, summary.total),
-            key: const ValueKey('stats-book-duration-ring-value'),
+            formatReadingDuration(summary.total),
+            key: const ValueKey('stats-book-duration-total'),
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 24,
+              height: 1.25,
               fontWeight: FontWeight.w600,
               fontFeatures: [FontFeature.tabularFigures()],
             ),
@@ -846,10 +829,14 @@ class _DurationRing extends StatelessWidget {
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            _selected == null ? '本期阅读' : '本书占比',
+            _selected == null
+                ? '${summary.entries.length} 本书'
+                : '本书占比 ${_share(_selected!.duration, summary.total)}',
+            key: const ValueKey('stats-book-duration-ring-value'),
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 12,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ),
