@@ -39,7 +39,7 @@ class BookReadingTotals {
   }
 }
 
-/// 由有效会话构建的统计快照，UI 的概览、趋势与日详情共用同一口径。
+/// 由有效会话构建的统计快照，保留逐日明细和阅读习惯接口供统计功能复用。
 class ReadingInsights {
   ReadingInsights(Iterable<ReadingSession> input, {required DateTime now}) {
     sessions = input

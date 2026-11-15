@@ -117,7 +117,7 @@ Future<void> _openEditor(WidgetTester tester, BookEntry book) async {
 }
 
 void main() {
-  testWidgets('统计在窄屏保留数字、图书时长五种周期和热力详情', (tester) async {
+  testWidgets('统计在窄屏保留图书时长五种周期和按书明细', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final library = LibraryStore.memory();
@@ -163,32 +163,14 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     }
-    final date =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final day = find.byKey(ValueKey<String>('stats-heatmap-day-$date'));
-    await _scrollTo(tester, day);
-    await tester.tap(find.descendant(of: day, matching: find.byType(InkWell)));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey<String>('stats-day-detail')),
-      findsOneWidget,
-    );
+    final ranking = find.byKey(ValueKey('stats-ranking-${book.id}'));
+    await _scrollTo(tester, ranking);
     expect(find.text('新的阅读记录'), findsWidgets);
     expect(
       tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-day-detail-page-turns')),
-          )
+          .widget<Text>(find.byKey(ValueKey('stats-ranking-counts-${book.id}')))
           .data,
-      '4',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-day-detail-characters')),
-          )
-          .data,
-      '80',
+      '1 次 · 4 次翻页 · 80 字',
     );
     expect(tester.takeException(), isNull);
   });
