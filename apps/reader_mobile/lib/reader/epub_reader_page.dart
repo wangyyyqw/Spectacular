@@ -146,7 +146,7 @@ class EpubReaderPage extends StatefulWidget {
   /// 目标正文和进度数字已绘制，或打开失败可以展示错误时通知宿主。
   final VoidCallback? onReady;
 
-  /// 阅读页退出动画结束后，进度已落盘且章节源已释放。
+  /// 阅读页退出动画结束后，保存检查已完成且章节源已释放。
   final VoidCallback? onClosed;
 
   @override
@@ -159,6 +159,14 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   final _backgroundStore = ReaderBackgroundStore();
   String _contentRevision = '';
   List<ReaderFontOption> _customFonts = const [];
+  ScaffoldMessengerState? _progressMessenger;
+  bool _reportedClosingProgressFailure = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _progressMessenger = ScaffoldMessenger.maybeOf(context);
+  }
 
   Future<void> _prepareInitialSettings() async {
     final pending = widget.settingsFuture;
@@ -434,9 +442,27 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     } catch (error) {
       await ReaderLog.instance.log(
         'progress_save_error',
-        fields: {'bookId': widget.bookId, 'error': '$error'},
+        fields: {'bookId': widget.bookId, 'error': error},
       );
+      if (_closing) _reportClosingProgressError(error);
     }
+  }
+
+  void _reportClosingProgressError(Object error) {
+    if (_reportedClosingProgressFailure) return;
+    final messenger = _progressMessenger;
+    if (messenger == null || !messenger.mounted) return;
+    _reportedClosingProgressFailure = true;
+    final message = error is ReaderProgressSaveException
+        ? error.message
+        : '本次位置未保存，保留上次保存位置，请稍后重试';
+    // 退出后的提示交给仍在显示书架的根消息层，不能依赖已销毁阅读页。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (messenger.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   @override

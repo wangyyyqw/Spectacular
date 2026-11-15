@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
 import 'package:reader_core/position/location_anchor.dart';
@@ -16,6 +18,39 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 import '../reader/support/css_chapter_book.dart';
+
+class _DelayedAnchorSource extends Fake implements EpubChapterSource {
+  _DelayedAnchorSource(this.source, {this.failure});
+
+  final EpubChapterSource source;
+  final Object? failure;
+  final started = Completer<void>();
+  final resume = Completer<void>();
+
+  @override
+  bool get isClosed => source.isClosed;
+
+  @override
+  int get chapterCount => source.chapterCount;
+
+  @override
+  bool isChapterMissing(int spineIndex) => source.isChapterMissing(spineIndex);
+
+  @override
+  Future<AnchorChapter> loadAnchorChapter(int spineIndex) async {
+    started.complete();
+    await resume.future;
+    if (failure != null) throw failure!;
+    return source.loadAnchorChapter(spineIndex);
+  }
+}
+
+Matcher _saveFailure(ReaderProgressSaveResult result) =>
+    isA<ReaderProgressSaveException>().having(
+      (error) => error.result,
+      '保存结果',
+      result,
+    );
 
 Uint8List _imageBook() {
   final archive = ZipDecoder().decodeBytes(buildTestEpub(title: '纯图片进度'));
@@ -66,9 +101,12 @@ void main() {
 
   test('保存后读回：spine/page 与 updated_at 落库（P4-10）', () async {
     final entry = await library.importBytes(buildTestEpub(title: '进度书'));
-    await store.save(
-      entry.id,
-      const ReaderProgress(spineIndex: 1, pageIndex: 3),
+    expect(
+      await store.saveResult(
+        entry.id,
+        const ReaderProgress(spineIndex: 1, pageIndex: 3),
+      ),
+      ReaderProgressSaveResult.saved,
     );
 
     final loaded = await store.load(entry.id);
@@ -88,6 +126,146 @@ void main() {
     expect(row.locatorCfi, isEmpty);
     expect(row.updatedAt, greaterThan(0));
   });
+
+  test('未知与软删除书籍明确拒绝进度，旧位置保留', () async {
+    const progress = ReaderProgress(spineIndex: 0, pageIndex: 7);
+    expect(
+      await store.saveResult('missing-book', progress),
+      ReaderProgressSaveResult.bookMissing,
+    );
+    final entry = await library.importBytes(buildTestEpub());
+    await store.save(entry.id, progress);
+    final before = (await db.select(db.readingProgress).get()).single.toJson();
+    await (db.update(db.books)..where((table) => table.uuid.equals(entry.id)))
+        .write(const BooksCompanion(deletedAt: Value(2)));
+
+    expect(
+      await store.saveResult(
+        entry.id,
+        const ReaderProgress(spineIndex: 1, pageIndex: 99),
+      ),
+      ReaderProgressSaveResult.bookMissing,
+    );
+    await expectLater(
+      store.save(entry.id, progress),
+      throwsA(_saveFailure(ReaderProgressSaveResult.bookMissing)),
+    );
+    expect((await db.select(db.readingProgress).get()).single.toJson(), before);
+  });
+
+  test('过期保存明确失败并计数，诊断不记录书名和 CFI', () async {
+    ReaderLog.instance.resetForTest();
+    addTearDown(ReaderLog.instance.resetForTest);
+    const title = '私密进度书名';
+    final entry = await library.importBytes(buildTestEpub(title: title));
+    await store.save(
+      entry.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 7),
+    );
+    final before = (await db.select(db.readingProgress).get()).single.toJson();
+    const stale = ReaderProgress(
+      spineIndex: 1,
+      pageIndex: 99,
+      cfi: 'epubcfi(/6/2!/4/2/1:3)',
+      contentRevision: 'outdated-content',
+    );
+
+    expect(
+      await store.saveResult(entry.id, stale),
+      ReaderProgressSaveResult.stale,
+    );
+    await expectLater(
+      store.save(entry.id, stale),
+      throwsA(_saveFailure(ReaderProgressSaveResult.stale)),
+    );
+    expect((await db.select(db.readingProgress).get()).single.toJson(), before);
+    final text = await ReaderLog.instance.exportText();
+    expect(text, contains('progress_save_rejected'));
+    expect(text, contains('status=stale | count=2'));
+    expect(text, isNot(contains(title)));
+    expect(text, isNot(contains(stale.cfi!)));
+  });
+
+  test('旧身份仅剩改版别名时返回过期，不能写入当前版本', () async {
+    final entry = await library.importBytes(buildTestEpub());
+    final book = (await db.select(db.books).get()).single;
+    await db.transaction(() async {
+      await (db.update(db.books)..where((table) => table.id.equals(book.id)))
+          .write(const BooksCompanion(uuid: Value('rekeyed-book')));
+      await db
+          .into(db.bookIdAliases)
+          .insert(
+            BookIdAliasesCompanion.insert(aliasId: entry.id, bookId: book.id),
+          );
+    });
+
+    expect(
+      await store.saveResult(
+        entry.id,
+        const ReaderProgress(spineIndex: 0, pageIndex: 99),
+      ),
+      ReaderProgressSaveResult.stale,
+    );
+    expect(await db.select(db.readingProgress).get(), isEmpty);
+  });
+
+  for (final (result, prepareFails) in [
+    (ReaderProgressSaveResult.stale, false),
+    (ReaderProgressSaveResult.bookMissing, false),
+    (ReaderProgressSaveResult.stale, true),
+    (ReaderProgressSaveResult.bookMissing, true),
+  ]) {
+    test(
+      '锚点异步准备${prepareFails ? '失败' : '结束'}期间书籍变为 ${result.name}，拒绝晚到写入',
+      () async {
+        final entry = await library.importBytes(buildTestEpub());
+        await store.save(
+          entry.id,
+          const ReaderProgress(spineIndex: 0, pageIndex: 7),
+        );
+        final before = (await db.select(db.readingProgress).get()).single
+            .toJson();
+        final source = await EpubChapterSource.openFile(File(entry.filePath));
+        addTearDown(source.close);
+        final chapter = await source.loadAnchorChapter(0);
+        final delayed = _DelayedAnchorSource(
+          source,
+          failure: prepareFails ? StateError('章节准备已取消') : null,
+        );
+        final release = await store.bindSource(
+          entry.id,
+          delayed,
+          entry.contentRevision!,
+        );
+        addTearDown(release);
+        final pending = store.saveResult(
+          entry.id,
+          ReaderProgress(
+            spineIndex: 0,
+            pageIndex: 99,
+            cfi: chapter.cfiAt(chapter.text.length ~/ 2),
+            contentRevision: entry.contentRevision,
+            readingPercent: 0.5,
+          ),
+        );
+        await delayed.started.future.timeout(const Duration(seconds: 5));
+        await (db.update(
+          db.books,
+        )..where((table) => table.uuid.equals(entry.id))).write(
+          result == ReaderProgressSaveResult.stale
+              ? const BooksCompanion(contentRevision: Value('new-content'))
+              : const BooksCompanion(deletedAt: Value(2)),
+        );
+        delayed.resume.complete();
+
+        expect(await pending, result);
+        expect(
+          (await db.select(db.readingProgress).get()).single.toJson(),
+          before,
+        );
+      },
+    );
+  }
 
   test('重复保存是 upsert，不产生第二行', () async {
     final entry = await library.importBytes(buildTestEpub(title: '进度书2'));

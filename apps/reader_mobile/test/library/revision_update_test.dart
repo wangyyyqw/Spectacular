@@ -949,14 +949,23 @@ void main() {
     final bookmark = (await bookmarks.list()).single;
     await library.importBytes(updated);
     final before = await _snapshot(db);
-    await DriftProgressStore(db).save(
-      old.id,
-      ReaderProgress(
-        spineIndex: 0,
-        pageIndex: 99,
-        cfi: _quoteAnchor(oldIndex).start.cfi,
-        contentRevision: oldIndex.revision,
-        finished: true,
+    await expectLater(
+      DriftProgressStore(db).save(
+        old.id,
+        ReaderProgress(
+          spineIndex: 0,
+          pageIndex: 99,
+          cfi: _quoteAnchor(oldIndex).start.cfi,
+          contentRevision: oldIndex.revision,
+          finished: true,
+        ),
+      ),
+      throwsA(
+        isA<ReaderProgressSaveException>().having(
+          (error) => error.result,
+          '保存结果',
+          ReaderProgressSaveResult.stale,
+        ),
       ),
     );
     await annotations.update(note.id, note: '旧会话错误回写的内容');

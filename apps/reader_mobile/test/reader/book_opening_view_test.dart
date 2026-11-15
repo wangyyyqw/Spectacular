@@ -217,11 +217,14 @@ void main() {
         .widget<ReaderSemanticsLayer>(find.byType(ReaderSemanticsLayer))
         .page;
     expect(page.spineIndex, 1);
-    await tester.runAsync(() async {
-      final saved = await library.bookById(entry.id);
-      expect(newReader.contentRevision, saved!.contentRevision);
-      final before = (await db.select(db.readingProgress).getSingle()).toJson();
-      await progress.save(
+    final saved = await pumpReaderTask(tester, library.bookById(entry.id));
+    expect(newReader.contentRevision, saved!.contentRevision);
+    final before = (await pumpReaderTask(
+      tester,
+      db.select(db.readingProgress).getSingle(),
+    )).toJson();
+    final rejected = expectLater(
+      progress.save(
         entry.id,
         ReaderProgress(
           spineIndex: 0,
@@ -229,21 +232,28 @@ void main() {
           cfi: 'epubcfi(/6/2!/4/2/1:0)',
           contentRevision: entry.contentRevision,
         ),
-      );
-      expect(
-        (await db.select(db.readingProgress).getSingle()).toJson(),
-        before,
-        reason: '旧会话晚到的保存不能覆盖新版迁移位置',
-      );
-      expect(
-        (await progress.load(entry.id))!.contentRevision,
-        saved.contentRevision,
-      );
-      expect(
-        (await library.bookmarkStore(entry.id)!.list()).single.label,
-        '保存后仍在原章',
-      );
-    });
+      ),
+      throwsA(
+        isA<ReaderProgressSaveException>().having(
+          (error) => error.result,
+          '保存结果',
+          ReaderProgressSaveResult.stale,
+        ),
+      ),
+    );
+    await pumpReaderTask(tester, rejected);
+    final after = await pumpReaderTask(
+      tester,
+      db.select(db.readingProgress).getSingle(),
+    );
+    expect(after.toJson(), before, reason: '旧会话晚到的保存不能覆盖新版迁移位置');
+    final restored = await pumpReaderTask(tester, progress.load(entry.id));
+    expect(restored!.contentRevision, saved.contentRevision);
+    final bookmarks = await pumpReaderTask(
+      tester,
+      library.bookmarkStore(entry.id)!.list(),
+    );
+    expect(bookmarks.single.label, '保存后仍在原章');
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _pumpFrames(tester);
     await pumpReaderTask(tester, opened);

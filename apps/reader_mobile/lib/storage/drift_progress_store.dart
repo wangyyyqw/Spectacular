@@ -4,6 +4,7 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
+import '../diagnostics/reader_log.dart';
 import '../library/revision_anchor_store.dart';
 
 import 'package:reader_core/epub/epub_chapter_source.dart';
@@ -19,6 +20,7 @@ class DriftProgressStore implements ReaderProgressStore {
   DriftProgressStore(this._db);
 
   final AppDatabase _db;
+  final _rejectedSaves = <ReaderProgressSaveResult, int>{};
 
   /// 阅读期间借用现有章节源，避免保存进度和笔记时重新打开整本 EPUB。
   Future<void Function()> bindSource(
@@ -39,9 +41,55 @@ class DriftProgressStore implements ReaderProgressStore {
   /// 真实 CFI 与内容版本一起保存；旧阅读会话不得回写新版。
   @override
   Future<void> save(String bookId, ReaderProgress progress) async {
+    final result = await saveResult(bookId, progress);
+    if (result != ReaderProgressSaveResult.saved) {
+      throw ReaderProgressSaveException(result);
+    }
+  }
+
+  /// 返回成功、过期或书籍不存在；其他存储异常仍向调用方抛出。
+  Future<ReaderProgressSaveResult> saveResult(
+    String bookId,
+    ReaderProgress progress,
+  ) async {
     final book = await resolveBookRow(_db, bookId, allowAliases: false);
-    if (book == null || book.deletedAt != null) return;
-    if (!_matchesRevision(book, progress)) return;
+    if (book == null) {
+      final alias = await resolveBookRow(_db, bookId);
+      return _rejectSave(
+        bookId,
+        alias != null && alias.deletedAt == null
+            ? ReaderProgressSaveResult.stale
+            : ReaderProgressSaveResult.bookMissing,
+      );
+    }
+    if (book.deletedAt != null) {
+      return _rejectSave(bookId, ReaderProgressSaveResult.bookMissing);
+    }
+    final result = _matchesRevision(book, progress)
+        ? await _saveCurrent(book, progress)
+        : ReaderProgressSaveResult.stale;
+    return result == ReaderProgressSaveResult.saved
+        ? result
+        : _rejectSave(bookId, result);
+  }
+
+  Future<ReaderProgressSaveResult> _saveCurrent(
+    BookRow book,
+    ReaderProgress progress,
+  ) async {
+    try {
+      return await _prepareAndWriteProgress(book, progress);
+    } catch (error, stack) {
+      final result = await _currentSaveResult(book, progress);
+      if (result != ReaderProgressSaveResult.saved) return result;
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
+
+  Future<ReaderProgressSaveResult> _prepareAndWriteProgress(
+    BookRow book,
+    ReaderProgress progress,
+  ) async {
     final prior = await _rowFor(book.id);
     final record = progress.cfi == null
         ? null
@@ -59,29 +107,60 @@ class DriftProgressStore implements ReaderProgressStore {
     final percent = readingPercent == null
         ? await _percentOf(book, record)
         : (readingPercent * 100).clamp(0.0, 100.0);
-    await _db.transaction(
+    return _db.transaction(
       () => _writeProgress(book, progress, record, percent),
     );
   }
 
-  Future<void> _writeProgress(
+  Future<ReaderProgressSaveResult> _writeProgress(
     BookRow book,
     ReaderProgress progress,
     AnchorRecord? record,
     double percent,
   ) async {
-    final current = await resolveBookRow(_db, book.uuid, allowAliases: false);
-    if (current == null ||
-        current.deletedAt != null ||
-        !_sameContent(book, current)) {
-      return;
-    }
+    final result = await _currentSaveResult(book, progress);
+    if (result != ReaderProgressSaveResult.saved) return result;
     final saved = await _rowFor(book.id);
     await _db
         .into(_db.readingProgress)
         .insertOnConflictUpdate(
           _progressValues(book.id, progress, record, saved, percent),
         );
+    return ReaderProgressSaveResult.saved;
+  }
+
+  Future<ReaderProgressSaveResult> _currentSaveResult(
+    BookRow book,
+    ReaderProgress progress,
+  ) async {
+    final current = await (_db.select(
+      _db.books,
+    )..where((table) => table.id.equals(book.id))).getSingleOrNull();
+    if (current == null || current.deletedAt != null) {
+      return ReaderProgressSaveResult.bookMissing;
+    }
+    return _sameContent(book, current) && _matchesRevision(current, progress)
+        ? ReaderProgressSaveResult.saved
+        : ReaderProgressSaveResult.stale;
+  }
+
+  Future<ReaderProgressSaveResult> _rejectSave(
+    String bookId,
+    ReaderProgressSaveResult result,
+  ) async {
+    final count = (_rejectedSaves[result] ?? 0) + 1;
+    _rejectedSaves[result] = count;
+    await ReaderLog.instance.log(
+      'progress_save_rejected',
+      fields: {
+        'book_id': bookId,
+        'status': result == ReaderProgressSaveResult.stale
+            ? 'stale'
+            : 'missing',
+        'count': count,
+      },
+    );
+    return result;
   }
 
   ReadingProgressCompanion _progressValues(
