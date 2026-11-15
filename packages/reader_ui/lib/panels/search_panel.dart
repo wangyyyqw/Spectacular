@@ -103,6 +103,7 @@ class _SearchPanelState extends State<SearchPanel> {
 
   void _onChanged(String value) {
     _debounceTimer?.cancel();
+    _requestToken += 1;
     final query = value.trim();
     if (query.isEmpty) {
       setState(() {

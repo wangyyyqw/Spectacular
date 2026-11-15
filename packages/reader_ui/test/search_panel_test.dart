@@ -118,6 +118,75 @@ void main() {
     expect(find.text('没有找到「zzz」'), findsOneWidget);
   });
 
+  testWidgets('输入变化立即使旧查询失效，不等待新查询防抖结束', (tester) async {
+    final oldQuery = Completer<List<SearchPanelResult>>();
+    final newQuery = Completer<List<SearchPanelResult>>();
+    final queries = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SearchPanel(
+            onSearch: (query) {
+              queries.add(query);
+              return query == '旧词' ? oldQuery.future : newQuery.future;
+            },
+            onSelect: (_) {},
+          ),
+        ),
+      ),
+    );
+    final input = find.byKey(const ValueKey<String>('search-input'));
+    await tester.enterText(input, '旧词');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.enterText(input, '新词');
+    await tester.pump(const Duration(milliseconds: 100));
+    oldQuery.complete(_results());
+    await tester.pump();
+
+    expect(queries, ['旧词']);
+    expect(find.byKey(const ValueKey<String>('search-results')), findsNothing);
+    expect(find.byKey(const ValueKey<String>('search-loading')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 250));
+    newQuery.complete(const []);
+    await tester.pumpAndSettle();
+    expect(queries, ['旧词', '新词']);
+    expect(find.text('没有找到「新词」'), findsOneWidget);
+  });
+
+  testWidgets('清空输入后旧流式批次不能恢复到下一次输入', (tester) async {
+    final oldQuery = StreamController<SearchProgress>.broadcast();
+    final newQuery = StreamController<SearchProgress>.broadcast();
+    addTearDown(oldQuery.close);
+    addTearDown(newQuery.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SearchPanel(
+            onSearch: (_) async => const [],
+            onSearchStream: (query) =>
+                query == '旧词' ? oldQuery.stream : newQuery.stream,
+            onSelect: (_) {},
+          ),
+        ),
+      ),
+    );
+    final input = find.byKey(const ValueKey<String>('search-input'));
+    await tester.enterText(input, '旧词');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.enterText(input, '');
+    oldQuery.add(SearchProgress(results: _results(), scanned: 1, total: 1));
+    await tester.pump();
+    await tester.enterText(input, '新词');
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byKey(const ValueKey<String>('search-results')), findsNothing);
+    expect(find.byKey(const ValueKey<String>('search-loading')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 250));
+    newQuery.add(const SearchProgress(results: [], scanned: 1, total: 1));
+    await tester.pumpAndSettle();
+    expect(find.text('没有找到「新词」'), findsOneWidget);
+  });
+
   testWidgets('100 条结果用 builder 懒构建（滚动不卡）', (tester) async {
     final many = <SearchPanelResult>[
       for (var i = 0; i < 100; i++)
