@@ -143,21 +143,10 @@ class _BookDurationChartState extends State<BookDurationChart>
         if (summary.entries.isEmpty)
           _emptyState(context)
         else ...[
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: _summaryActions(summary),
-          ),
           _breakdown(context, summary),
           _selectionDetail(summary),
+          _summaryActions(summary),
         ],
-        const SizedBox(height: 12),
-        Text(
-          '按实际前台阅读时长统计',
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
       ],
     );
   }
@@ -246,28 +235,32 @@ class _BookDurationChartState extends State<BookDurationChart>
     style: const TextStyle(fontSize: 13, height: 1.5),
   );
 
-  Widget _summaryActions(BookDurationSummary summary) => SizedBox(
-    width: double.infinity,
-    child: Wrap(
-      alignment: WrapAlignment.spaceBetween,
-      spacing: 12,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        Text(
-          '合计阅读',
+  Widget _summaryActions(BookDurationSummary summary) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          '按实际前台阅读时长统计',
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11,
+            height: 1.4,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
-        TextButton(
-          key: const ValueKey('stats-book-duration-all'),
-          onPressed: () => _openAll(context, _period, summary.start),
-          style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-          child: Text('全部 ${summary.entries.length} 本 ›'),
+      ),
+      const SizedBox(width: 8),
+      TextButton.icon(
+        key: const ValueKey('stats-book-duration-all'),
+        onPressed: () => _openAll(context, _period, summary.start),
+        style: TextButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          textStyle: const TextStyle(fontSize: 12),
         ),
-      ],
-    ),
+        iconAlignment: IconAlignment.end,
+        icon: const Icon(Icons.chevron_right_rounded, size: 16),
+        label: Text('全部 ${summary.entries.length} 本'),
+      ),
+    ],
   );
 
   Widget _selectionDetail(BookDurationSummary summary) {
@@ -275,13 +268,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         .where((entry) => entry.bookId == _selectedBookId)
         .firstOrNull;
     if (entry == null) {
-      return Text(
-        '点选书名或圆环，查看时长与占比',
-        style: TextStyle(
-          fontSize: 12,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
+      return const SizedBox.shrink();
     }
     return _selectedEntryDetail(entry, summary.total);
   }
@@ -334,7 +321,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       _chartColors(Theme.of(context).colorScheme),
     );
     return Padding(
-      padding: const EdgeInsets.only(top: 20, bottom: 12),
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -345,7 +332,7 @@ class _BookDurationChartState extends State<BookDurationChart>
               child: _ring(summary, slices),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Column(
             key: const ValueKey('stats-book-duration-legend'),
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -391,49 +378,78 @@ class _BookDurationChartState extends State<BookDurationChart>
     );
   }
 
-  Widget _legendContent(_DurationSlice slice, Duration total) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+  Widget _legendContent(_DurationSlice slice, Duration total) => Container(
+    constraints: const BoxConstraints(minHeight: 52),
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
     child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          width: 3,
-          height: 16,
-          margin: const EdgeInsets.only(top: 2, right: 9),
-          color: slice.color,
+          width: 6,
+          height: 6,
+          margin: const EdgeInsets.only(right: 10),
+          decoration: BoxDecoration(
+            color: slice.color,
+            borderRadius: BorderRadius.circular(2),
+          ),
         ),
         Expanded(child: _legendText(slice, total)),
       ],
     ),
   );
 
-  Widget _legendText(_DurationSlice slice, Duration total) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _legendTitle(slice),
-      const SizedBox(height: 4),
-      DefaultTextStyle(
-        style: Theme.of(context).textTheme.bodyMedium!.merge(
-          _tagDurationStyle.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-        child: Wrap(
-          spacing: 8,
+  Widget _legendText(_DurationSlice slice, Duration total) => LayoutBuilder(
+    builder: (context, constraints) {
+      final stacked =
+          constraints.maxWidth < 280 ||
+          MediaQuery.textScalerOf(context).scale(14) > 18;
+      if (stacked) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              formatReadingDuration(slice.duration),
-              key: ValueKey('stats-book-duration-value-${slice.id ?? 'other'}'),
-            ),
-            Text(
-              '占比 ${_share(slice.duration, total)}',
-              key: ValueKey('stats-book-duration-share-${slice.id ?? 'other'}'),
-            ),
+            _legendTitle(slice),
+            const SizedBox(height: 4),
+            _legendValues(slice, total, inline: true),
           ],
+        );
+      }
+      return Row(
+        children: [
+          Expanded(child: _legendTitle(slice)),
+          const SizedBox(width: 16),
+          _legendValues(slice, total, inline: false),
+        ],
+      );
+    },
+  );
+
+  Widget _legendValues(
+    _DurationSlice slice,
+    Duration total, {
+    required bool inline,
+  }) {
+    final style = _tagDurationStyle.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
+    final values = [
+      Text(
+        formatReadingDuration(slice.duration),
+        key: ValueKey('stats-book-duration-value-${slice.id ?? 'other'}'),
+        style: style.copyWith(
+          color: Theme.of(context).colorScheme.onSurface,
+          fontWeight: FontWeight.w500,
         ),
       ),
-    ],
-  );
+      Text(
+        '占比 ${_share(slice.duration, total)}',
+        key: ValueKey('stats-book-duration-share-${slice.id ?? 'other'}'),
+        style: style.copyWith(fontSize: 11),
+      ),
+    ];
+    return inline
+        ? Wrap(spacing: 8, children: values)
+        : Column(crossAxisAlignment: CrossAxisAlignment.end, children: values);
+  }
 
   Widget _legendTitle(_DurationSlice slice) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,

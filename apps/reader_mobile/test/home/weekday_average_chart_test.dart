@@ -58,7 +58,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-weekday-petal-value-1')),
           )
           .data,
-      '1 小时',
+      '1\n小时',
     );
     expect(
       tester
@@ -66,7 +66,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-weekday-petal-value-2')),
           )
           .data,
-      '30 分钟',
+      '30\n分钟',
     );
     final label = find.byKey(const ValueKey<String>('stats-weekday-label-2'));
     await tester.tap(label);
@@ -114,7 +114,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-weekday-petal-value-0')),
           )
           .data,
-      '1 小时',
+      '1\n小时',
     );
     expect(
       tester
@@ -122,7 +122,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-weekday-petal-value-1')),
           )
           .data,
-      '1 小时',
+      '1\n小时',
     );
     expect(
       find.byKey(const ValueKey<String>('stats-weekday-petal-value-2')),
@@ -235,5 +235,37 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
     }
+  });
+
+  testWidgets('窄屏双倍字号下小时分布入口随选中星期切换并打开最近阅读日', (tester) async {
+    const duration = Duration(hours: 12, minutes: 34);
+    final insights = ReadingInsights([
+      _session(DateTime(2026, 11, 2, 9), duration),
+      _session(DateTime(2026, 11, 9, 9), duration),
+      _session(DateTime(2026, 11, 10, 9), const Duration(minutes: 30)),
+    ], now: DateTime(2026, 11, 15));
+    await _pumpChart(tester, insights, width: 320, textScale: 2);
+    final action = find.byKey(const ValueKey('stats-weekday-open-hourly'));
+    await tester.tap(find.byKey(const ValueKey('stats-weekday-label-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('最近阅读日 11月10日'), findsOneWidget);
+    expect(action, findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('stats-weekday-label-3')));
+    await tester.pumpAndSettle();
+    expect(action, findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('stats-weekday-label-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('最近阅读日 11月9日'), findsOneWidget);
+    expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(find.byType(HourlyReadingPage), findsOneWidget);
+    expect(find.text('2026年11月9日 · 周一'), findsOneWidget);
+    expect(find.text('合计 12 小时 34 分'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

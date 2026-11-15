@@ -96,17 +96,26 @@ class BookReadingRanking extends StatelessWidget {
         ),
       );
     }
+    final visible = ranked.take(3).toList();
     return Column(
       children: [
-        for (final book in ranked.take(3))
+        for (var index = 0; index < visible.length; index++) ...[
+          if (index > 0) const Divider(height: 1),
           _RankingRow(
-            book: book,
-            onOpen: book.book == null ? null : () => onOpen(book.book!),
+            book: visible[index],
+            onOpen: visible[index].book == null
+                ? null
+                : () => onOpen(visible[index].book!),
           ),
+        ],
         if (ranked.length > 3)
           TextButton(
             key: const ValueKey('stats-ranking-all'),
             onPressed: () => _showAll(context, ranked),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+              textStyle: const TextStyle(fontSize: 12),
+            ),
             child: Text('查看全部 ${ranked.length} 本'),
           ),
       ],
@@ -122,8 +131,8 @@ class _RankingRow extends StatelessWidget {
 
   Widget _cover(BuildContext context) => book.book == null
       ? Container(
-          width: 36,
-          height: 48,
+          width: 40,
+          height: 54,
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
           child: Icon(
             Icons.menu_book_outlined,
@@ -131,19 +140,24 @@ class _RankingRow extends StatelessWidget {
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         )
-      : BookCoverImage(book: book.book!, width: 36, height: 48);
+      : BookCoverImage(book: book.book!, width: 40, height: 54);
 
-  Widget _details(BuildContext context) {
+  Widget _details(BuildContext context, {required bool showDuration}) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           book.title,
-          maxLines: 1,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            height: 1.35,
+          ),
         ),
+        if (showDuration) ...[const SizedBox(height: 4), _duration()],
         const SizedBox(height: 5),
         Text(
           '${book.totals.sessions} 次 · ${book.totals.pageTurns} 次翻页 · ${book.totals.charactersRead} 字',
@@ -157,27 +171,38 @@ class _RankingRow extends StatelessWidget {
     );
   }
 
+  Widget _duration() => Text(
+    formatReadingDuration(book.totals.duration),
+    key: ValueKey('stats-ranking-duration-${book.id}'),
+    style: const TextStyle(
+      fontSize: 13,
+      height: 1.4,
+      fontWeight: FontWeight.w600,
+      fontFeatures: [FontFeature.tabularFigures()],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => InkWell(
     key: ValueKey('stats-ranking-${book.id}'),
     onTap: onOpen,
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          _cover(context),
-          const SizedBox(width: 12),
-          Expanded(child: _details(context)),
-          const SizedBox(width: 10),
-          Text(
-            formatReadingDuration(book.totals.duration),
-            key: ValueKey('stats-ranking-duration-${book.id}'),
-            style: const TextStyle(
-              fontSize: 12,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked =
+              constraints.maxWidth < 300 ||
+              MediaQuery.textScalerOf(context).scale(13) > 17;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _cover(context),
+              const SizedBox(width: 12),
+              Expanded(child: _details(context, showDuration: stacked)),
+              if (!stacked) ...[const SizedBox(width: 12), _duration()],
+            ],
+          );
+        },
       ),
     ),
   );
