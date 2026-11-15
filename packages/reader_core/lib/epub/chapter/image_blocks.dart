@@ -6,6 +6,7 @@ typedef _Dimensions = (double? width, double? height);
 typedef _Limits = (double width, double height);
 
 /// 图片显示尺寸：CSS 优先于表现属性，缺边按比例补齐，再限制页高。
+/// 未声明宽高时保留自然尺寸，仅在超过上限时等比缩小。
 ///
 /// 公开入口保留原有命名参数，内部按声明解析与缺边补齐分段。
 (double, double) resolveImageDisplaySize(
@@ -64,7 +65,10 @@ double? _attributeLength(String? raw, double percentBase) {
 ) {
   var (width, height) = declared;
   if (width == null && height == null) {
-    if (intrinsic == null && aspectRatio == null) {
+    if (intrinsic != null) {
+      return _naturalDimensions(intrinsic, limits, aspectRatio);
+    }
+    if (aspectRatio == null) {
       return (limits.$1, limits.$2 * 0.6);
     }
     width = limits.$1;
@@ -86,4 +90,20 @@ double? _attributeLength(String? raw, double percentBase) {
   height ??= aspectRatio == null ? width * 0.75 : width / aspectRatio;
   if (height > limits.$2) height = limits.$2;
   return (width, height);
+}
+
+(double, double) _naturalDimensions(
+  ImageIntrinsicSize intrinsic,
+  _Limits limits,
+  double? aspectRatio,
+) {
+  final size = ImageDisplaySizing.compute(
+    maxWidth: limits.$1,
+    maxHeight: limits.$2,
+    cssWidth: intrinsic.width.toDouble(),
+    cssHeight: aspectRatio == null
+        ? intrinsic.height.toDouble()
+        : intrinsic.width / aspectRatio,
+  );
+  return (size.width, size.height);
 }
