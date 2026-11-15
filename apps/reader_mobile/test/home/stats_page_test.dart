@@ -178,7 +178,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('已移出书架的书保留名称与时长，并进入排行和日详情', (tester) async {
+  testWidgets('已移出书架的书保留名称与时长，并进入阅读排行', (tester) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     await tester.pumpWidget(
@@ -213,99 +213,63 @@ void main() {
       findsOneWidget,
     );
     expect(tester.widget<InkWell>(ranking).onTap, isNull);
-    final day = find.byKey(ValueKey('stats-heatmap-day-${_dateKey(today)}'));
-    await _scrollTo(tester, day, -180);
-    await tester.ensureVisible(day);
-    await tester.pumpAndSettle();
-    await tester.tap(day);
-    await tester.pumpAndSettle();
-    final detail = find.byKey(const ValueKey('stats-day-detail'));
-    expect(_valueOf(tester, 'stats-day-detail-duration'), '40 分钟');
-    expect(
-      find.descendant(of: detail, matching: find.text('历史保留的书')),
-      findsNWidgets(2),
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('小屏大字号下每日平均直接衔接排行，移除热力图和阅读习惯', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(1.6)),
+          child: child!,
+        ),
+        home: StatsPage(
+          library: _FakeLibrary([_book('a', '一本较长书名的阅读记录')], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore([
+            ReadingSession(
+              bookId: 'a',
+              startedAt: today.add(const Duration(hours: 9)),
+              endedAt: today.add(const Duration(hours: 10)),
+              duration: const Duration(hours: 1),
+              pageTurns: 123,
+              charactersRead: 54321,
+            ),
+          ]),
+        ),
+      ),
     );
-    expect(
-      tester
-          .widget<InkWell>(
-            find.byKey(const ValueKey('stats-day-book-archived')),
-          )
-          .onTap,
-      isNull,
+    await tester.pumpAndSettle();
+    expect(_valueOf(tester, 'stats-book-duration-total'), '1 小时');
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('stats-weekday-latest-date')),
+      180,
+    );
+    expect(find.text('阅读热力图'), findsNothing);
+    expect(find.text('阅读习惯'), findsNothing);
+    expect(find.byKey(const ValueKey('stats-heatmap')), findsNothing);
+    expect(find.byKey(const ValueKey('stats-current-streak')), findsNothing);
+    final averageBottom = tester.getBottomLeft(
+      find.byKey(const ValueKey('stats-weekday-average-chart')),
+    );
+    final rankingTop = tester.getTopLeft(find.text('阅读排行'));
+    expect(rankingTop.dy - averageBottom.dy, inExclusiveRange(0, 90));
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('stats-ranking-counts-a')),
+      180,
     );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('小屏大字号可查看图书时长、习惯、排行和日期详情', (tester) async {
-    tester.view.physicalSize = const Size(320, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final handle = tester.ensureSemantics();
-    try {
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      await tester.pumpWidget(
-        MaterialApp(
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: const TextScaler.linear(1.6)),
-            child: child!,
-          ),
-          home: StatsPage(
-            library: _FakeLibrary([_book('a', '一本较长书名的阅读记录')], const {}),
-            progressStore: _FakeProgressStore(const {}),
-            sessionStore: _FakeSessionStore([
-              ReadingSession(
-                bookId: 'a',
-                startedAt: today.add(const Duration(hours: 9)),
-                endedAt: today.add(const Duration(hours: 10)),
-                duration: const Duration(hours: 1),
-                pageTurns: 123,
-                charactersRead: 54321,
-              ),
-            ]),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      await _scrollTo(
-        tester,
-        find.byKey(const ValueKey('stats-book-duration-total')),
-        180,
-      );
-      expect(_valueOf(tester, 'stats-book-duration-total'), '1 小时');
-      final weekdayChart = find.byKey(
-        const ValueKey('stats-weekday-average-chart'),
-      );
-      await _scrollTo(tester, weekdayChart, 180);
-      expect(weekdayChart, findsOneWidget);
-      expect(
-        find.byKey(ValueKey('stats-weekday-petal-value-${today.weekday % 7}')),
-        findsOneWidget,
-      );
-      expect(tester.takeException(), isNull);
-      for (final key in ['stats-current-streak', 'stats-ranking-counts-a']) {
-        await _scrollTo(tester, find.byKey(ValueKey(key)), 180);
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-      }
-      final day = find.byKey(ValueKey('stats-heatmap-day-${_dateKey(today)}'));
-      await _scrollTo(tester, day, -180);
-      await tester.ensureVisible(day);
-      await tester.pumpAndSettle();
-      expect(tester.getSize(day), const Size(48, 48));
-      expect(find.bySemanticsLabel(RegExp('今天，1 小时，1次阅读')), findsOneWidget);
-      await tester.tap(day);
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('stats-day-detail')), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    } finally {
-      handle.dispose();
-    }
-  });
-
-  testWidgets('阅读习惯和按书排行显示有效会话的详细数据', (tester) async {
+  testWidgets('按书排行显示有效会话的详细数据', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final now = DateTime.now();
@@ -338,19 +302,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    for (final entry in const {
-      'stats-current-streak': '2 天',
-      'stats-sessions': '2 次',
-      'stats-average-day': '25 分钟',
-      'stats-longest-session': '30 分钟',
-      'stats-reading-speed': '平均 10 字/分',
-      'stats-ranking-duration-a': '50 分钟',
-    }.entries) {
-      final target = find.byKey(ValueKey(entry.key));
-      await _scrollTo(tester, target, 180);
-      await tester.pumpAndSettle();
-      expect(tester.widget<Text>(target).data, entry.value);
-    }
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('stats-ranking-duration-a')),
+      180,
+    );
+    expect(_valueOf(tester, 'stats-ranking-duration-a'), '50 分钟');
     expect(
       find.byKey(const ValueKey('stats-ranking-counts-a')),
       findsOneWidget,
@@ -557,84 +514,6 @@ void main() {
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
   });
 
-  testWidgets('点击阅读热力图查看当日详细数据', (tester) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final sessions = <ReadingSession>[
-      ReadingSession(
-        bookId: 'a',
-        startedAt: today.add(const Duration(hours: 9)),
-        endedAt: today.add(const Duration(hours: 9, minutes: 30)),
-        duration: const Duration(minutes: 30),
-        pageTurns: 12,
-        charactersRead: 400,
-      ),
-      ReadingSession(
-        bookId: 'b',
-        startedAt: today.add(const Duration(hours: 14)),
-        endedAt: today.add(const Duration(hours: 14, minutes: 15)),
-        duration: const Duration(minutes: 15),
-        pageTurns: 3,
-        charactersRead: 100,
-      ),
-    ];
-    final library = _FakeLibrary([
-      _book('a', '第一本'),
-      _book('b', '第二本'),
-    ], const {});
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: StatsPage(
-          library: library,
-          progressStore: _FakeProgressStore(const {}),
-          sessionStore: _FakeSessionStore(sessions),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final dayKey = ValueKey<String>('stats-heatmap-day-${_dateKey(today)}');
-    await _scrollTo(tester, find.byKey(dayKey), 300);
-    await tester.ensureVisible(find.byKey(dayKey));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(dayKey));
-    await tester.pumpAndSettle();
-
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-day-detail-duration')),
-          )
-          .data,
-      '45 分钟',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-day-detail-sessions')),
-          )
-          .data,
-      '2',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-day-detail-page-turns')),
-          )
-          .data,
-      '15',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-day-detail-characters')),
-          )
-          .data,
-      '500',
-    );
-    expect(find.text('第一本'), findsWidgets);
-  });
-
   testWidgets('首次加载失败时显示重试入口', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -649,9 +528,4 @@ void main() {
     expect(find.text('统计加载失败'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('stats-retry')), findsOneWidget);
   });
-}
-
-String _dateKey(DateTime date) {
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${date.year}-${two(date.month)}-${two(date.day)}';
 }

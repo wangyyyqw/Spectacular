@@ -143,9 +143,46 @@ void main() {
     expect(stats.averageSession, const Duration(minutes: 20));
     expect(stats.longestSession, const Duration(minutes: 30));
     expect(stats.preferredPeriod, 3);
+    expect(stats.readingPeriods, [
+      Duration.zero,
+      Duration.zero,
+      Duration.zero,
+      const Duration(hours: 1),
+    ]);
     expect(stats.charactersPerMinute, 15);
     expect(stats.byBook['a']!.sessions, 2);
     expect(stats.byBook['a']!.duration, const Duration(minutes: 30));
+  });
+
+  test('热力图移除后逐日片段仍保留书籍、时段、次数来源与阅读计数', () {
+    final date = DateTime(2026, 11, 15);
+    final first = _session(
+      'a',
+      DateTime(2026, 11, 15, 9),
+      const Duration(minutes: 30),
+      pages: 12,
+      characters: 400,
+    );
+    final second = _session(
+      'b',
+      DateTime(2026, 11, 15, 14),
+      const Duration(minutes: 15),
+      pages: 3,
+      characters: 100,
+    );
+    final stats = ReadingInsights([first, second], now: date);
+    final portions = stats.portions.where((part) => part.date == date).toList();
+    expect(stats.byDay[date], const Duration(minutes: 45));
+    expect(portions.map((part) => part.session).toSet(), {first, second});
+    expect(portions.map((part) => part.bookId), ['a', 'b']);
+    expect(portions.first.startedAt, first.startedAt);
+    expect(portions.first.endedAt, first.endedAt);
+    expect(portions.first.duration, first.duration);
+    expect(portions.fold<int>(0, (sum, part) => sum + part.pageTurns), 15);
+    expect(
+      portions.fold<int>(0, (sum, part) => sum + part.charactersRead),
+      500,
+    );
   });
 
   test('无效会话不污染时长，未翻页时不显示虚假的速度', () {
