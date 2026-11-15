@@ -1090,18 +1090,10 @@ abstract final class FootnoteParser {
   static String _normalizeText(String text) =>
       text.replaceAll('\uFFFC', '').replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  // XML 保留实体必须交给解析器解码，提前展开会把正文变成标签或截断属性。
+  // 这里只兼容 XML 未内建的 HTML 空格实体，沿用原来的空格口径。
   static String _sanitizeEntities(String text) =>
-      text.replaceAllMapped(RegExp(r'&([a-zA-Z][a-zA-Z0-9]+);'), (match) {
-        const known = <String, String>{
-          'amp': '&',
-          'lt': '<',
-          'gt': '>',
-          'quot': '"',
-          'apos': "'",
-          'nbsp': ' ',
-        };
-        return known[match[1]] ?? match[0]!;
-      });
+      text.replaceAll('&nbsp;', ' ');
 
   static String _stripBom(String text) =>
       text.startsWith('\uFEFF') ? text.substring(1) : text;
