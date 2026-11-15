@@ -230,14 +230,19 @@ class _CalendarWeek extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    final lineHeight = 22 * scale;
+    final lineHeight = 18 * scale;
     final spans = month.spansForWeek(week);
     final lanes = spans.fold(
       1,
       (count, span) => math.max(count, span.lane + 1),
     );
-    final height =
-        12 + 3 * lineHeight + 28 * scale + (lanes > 3 ? 18 * scale : 0);
+    final height = math.max(
+      48.0 * scale,
+      8 +
+          math.min(lanes, 3) * lineHeight +
+          18 * scale +
+          (lanes > 3 ? 12 * scale : 0),
+    );
     return SizedBox(
       height: height,
       child: LayoutBuilder(
@@ -263,7 +268,7 @@ class _CalendarWeek extends StatelessWidget {
     double lineHeight,
   ) => Positioned(
     left: span.firstColumn * columnWidth + 2,
-    top: 6 + span.lane * lineHeight,
+    top: 4 + span.lane * lineHeight,
     width: (span.lastColumn - span.firstColumn + 1) * columnWidth - 4,
     height: lineHeight - 2,
     child: _CalendarBar(span: span, week: week),
@@ -326,6 +331,7 @@ class _CalendarWeek extends StatelessWidget {
     maxLines: 1,
     style: TextStyle(
       fontSize: 10,
+      height: 1.2,
       color: Theme.of(context).colorScheme.onSurfaceVariant,
     ),
   );
