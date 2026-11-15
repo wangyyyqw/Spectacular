@@ -1,16 +1,18 @@
-import 'package:flutter/foundation.dart';
-
+import '../diagnostics/reader_log.dart';
 import '../storage/reading_session_store.dart';
 
 /// 跟踪阅读页前台停留时间，应用进入后台时自动暂停。
 class ReadingSessionTracker {
   /// 创建跟踪器。
   ReadingSessionTracker({
-    required this.store,
+    required ReadingSessionStore store,
     required this.bookId,
     DateTime Function()? now,
     this.minimumDuration = const Duration(seconds: 1),
-  }) : _now = now ?? DateTime.now;
+  }) : store = store is DriftReadingSessionStore
+           ? store.bindBook(bookId)
+           : store,
+       _now = now ?? DateTime.now;
 
   /// 会话存储。
   final ReadingSessionStore store;
@@ -73,7 +75,14 @@ class ReadingSessionTracker {
         );
       } catch (error) {
         // 就地处理本段写失败，避免错误链跳过下一段或逸出生命周期回调。
-        debugPrint('阅读时长记录失败：$error');
+        await ReaderLog.instance.log(
+          'reading_session_save_error',
+          fields: {
+            'status': 'failed',
+            if (error is ReadingSessionSaveException) 'reason': error.reason,
+            'error': error,
+          },
+        );
       }
     });
     return _pending;
