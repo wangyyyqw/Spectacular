@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/api.dart' show TocEntry;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -23,11 +26,18 @@ import 'package:reader_core/source/chapter_source.dart';
 
 const _padding = EdgeInsets.fromLTRB(40, 70, 40, 40);
 const _cfi = 'epubcfi(/6/2!/4/2/1:0)';
+const _delayedSearchResult = SearchPanelResult(
+  spineIndex: 0,
+  charOffset: 200,
+  chapterTitle: '第一章',
+  context: 'word',
+  matchLength: 4,
+);
 
 class _Source implements ReaderChapterSource {
-  _Source({int baseOffset = 0}) {
-    final style = ComputedStyle(const {
-      'font-size': '16px',
+  _Source({int baseOffset = 0, double fontSize = 16}) {
+    final style = ComputedStyle({
+      'font-size': '${fontSize}px',
       'line-height': '1.5',
       'font-family': 'Ahem',
     });
@@ -54,6 +64,69 @@ class _Source implements ReaderChapterSource {
 
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async => pages;
+}
+
+class _SelectionReflowSource implements RestylableChapterSource {
+  double fontSize = 16;
+  bool fail = false;
+
+  @override
+  int get chapterCount => 1;
+
+  @override
+  Future<void> applyOverrides(ReaderOverrides overrides) async {
+    fontSize = overrides.fontSize ?? fontSize;
+  }
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (fail) throw StateError('重排失败');
+    return _Source(fontSize: fontSize).pages;
+  }
+}
+
+class _ScrollTurnWindowSource implements ReaderChapterSource {
+  final started = Completer<void>();
+  final resume = Completer<void>();
+
+  @override
+  int get chapterCount => 3;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (spineIndex == 2) {
+      if (!started.isCompleted) started.complete();
+      await resume.future;
+    }
+    final style = ComputedStyle(const {
+      'font-size': '16px',
+      'line-height': '1.5',
+      'font-family': 'Ahem',
+    });
+    final words = switch (spineIndex) {
+      0 => 72,
+      1 => 16,
+      _ => 120,
+    };
+    final layout = TextLayoutEngine.layout(
+      text: 'word ' * words,
+      style: style,
+      maxWidth: 320,
+    );
+    return Paginator(pageHeight: 200)
+        .measureChapter(
+          blocks: [
+            PageBlock.styled(
+              layout: layout,
+              style: style,
+              containingWidth: 320,
+              startCfi: 'epubcfi(/6/${(spineIndex + 1) * 2}!/4/2/1:0)',
+            ),
+          ],
+          spineIndex: spineIndex,
+        )
+        .pages;
+  }
 }
 
 class _NavigationObserver extends NavigatorObserver {
@@ -239,6 +312,27 @@ SelectionLayer _selectionLayer(WidgetTester tester) =>
 
 Finder _handle(String end) => find.byKey(ValueKey('selection-handle-$end'));
 
+Future<void> _extendSelection(WidgetTester tester, bool forward) async {
+  final bounds = tester.getRect(find.byType(ReaderView));
+  final gesture = await tester.startGesture(
+    tester.getCenter(_handle(forward ? 'end' : 'start')),
+  );
+  await gesture.moveTo(
+    Offset(bounds.center.dx, forward ? bounds.bottom - 4 : bounds.top + 4),
+  );
+  await tester.pump(const Duration(milliseconds: 350));
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _dragHandle(WidgetTester tester, String end, Offset target) async {
+  final origin = tester.getTopLeft(find.byType(ReaderView));
+  final gesture = await tester.startGesture(tester.getCenter(_handle(end)));
+  await gesture.moveTo(origin + _padding.topLeft + target);
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
 String? Function() _captureClipboard(WidgetTester tester) {
   String? text;
   final messenger = tester.binding.defaultBinaryMessenger;
@@ -266,6 +360,49 @@ Future<void> _openSearch(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
 }
+
+Future<({ReaderSession session, Completer<String?> resolved})>
+_showDelayedSearchReader(
+  WidgetTester tester, {
+  ReaderChapterSource? source,
+  PageTurnMode mode = PageTurnMode.cover,
+}) async {
+  late ReaderSession session;
+  final resolved = Completer<String?>();
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: ReaderPage(
+          source: source ?? _Source(),
+          store: MemoryReaderProgressStore(),
+          bookId: 'delayed-search',
+          padding: _padding,
+          overrides: const ReaderOverrides(),
+          showPageFooter: false,
+          pageTurnMode: mode,
+          onSessionReady: (value) => session = value,
+          onSearch: (_) async => const [_delayedSearchResult],
+          onResolveSearchCfi: (_) => resolved.future,
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return (session: session, resolved: resolved);
+}
+
+Future<({ReaderSession session, Completer<String?> resolved})>
+_startDelayedSearch(WidgetTester tester) async {
+  final pending = await _showDelayedSearchReader(tester);
+  await _openSearch(tester);
+  await tester.tap(find.byType(ListTile));
+  await tester.pumpAndSettle();
+  return pending;
+}
+
+bool _hasSearchHighlight(WidgetTester tester) => tester
+    .widgetList<AnnotationLayer>(find.byType(AnnotationLayer))
+    .any((layer) => layer.annotations.any((item) => item.id == 'search-hit'));
 
 ReaderPage _searchReader({bool elementAnchor = false}) {
   final result = SearchPanelResult(
@@ -551,6 +688,115 @@ void main() {
   });
 
   for (final forward in [true, false]) {
+    testWidgets('跨页扩选后拖${forward ? '终点' : '起点'}保留另一页端点并支持交叉归一', (tester) async {
+      final session = await _showReader(tester);
+      if (!forward) {
+        await session.next();
+        await tester.pumpAndSettle();
+      }
+      await _selectWord(tester, session.page!);
+      final original = _selectionLayer(tester).selection;
+      await _extendSelection(tester, forward);
+      expect(session.page!.pageIndex, forward ? 1 : 0);
+      final line = TextHitTester.lineBoxes(session.page!).first;
+      final firstTarget = Offset(line.rect.left + 110, line.rect.center.dy);
+      await _dragHandle(tester, forward ? 'end' : 'start', firstTarget);
+      final spanning = _selectionLayer(tester).selection;
+      expect(spanning.startPageIndex, 0);
+      expect(spanning.endPageIndex, 1);
+      expect(
+        forward ? spanning.start : spanning.end,
+        same(forward ? original.start : original.end),
+      );
+      final fixed = forward ? spanning.end : spanning.start;
+      final crossingTarget = Offset(
+        line.rect.left + (forward ? 150 : 30),
+        line.rect.center.dy,
+      );
+      await _dragHandle(tester, forward ? 'start' : 'end', crossingTarget);
+      final crossed = _selectionLayer(tester).selection;
+      expect(crossed.startPageIndex, session.page!.pageIndex);
+      expect(crossed.endPageIndex, session.page!.pageIndex);
+      expect(forward ? crossed.start : crossed.end, same(fixed));
+      expect(crossed.start.charOffset, lessThan(crossed.end.charOffset));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('跨页拖柄跨过另一端后，同一手势继续移动仍保留固定端点', (tester) async {
+    final session = await _showReader(tester);
+    await _selectWord(tester, session.page!);
+    await _extendSelection(tester, true);
+    final line = TextHitTester.lineBoxes(session.page!).first;
+    await _dragHandle(
+      tester,
+      'end',
+      Offset(line.rect.left + 110, line.rect.center.dy),
+    );
+    final fixed = _selectionLayer(tester).selection.end;
+    final origin = tester.getTopLeft(find.byType(ReaderView));
+    final gesture = await tester.startGesture(
+      tester.getCenter(_handle('start')),
+    );
+    await gesture.moveTo(
+      origin +
+          _padding.topLeft +
+          Offset(line.rect.left + 150, line.rect.center.dy),
+    );
+    await tester.pump();
+    final crossed = _selectionLayer(tester).selection;
+    final target = Offset(line.rect.left + 160, line.rect.center.dy);
+    await gesture.moveTo(origin + _padding.topLeft + target);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    final continued = _selectionLayer(tester).selection;
+
+    expect(crossed.isMultiPage, isFalse);
+    expect(crossed.start, same(fixed));
+    expect(
+      continued.start.charOffset,
+      fixed.charOffset,
+      reason: '固定端点不能随继续拖动移动',
+    );
+    expect(continued.start, same(fixed));
+    expect(continued.startPageIndex, 1);
+    expect(continued.endPageIndex, 1);
+    expect(
+      continued.end.charOffset,
+      TextHitTester.hitTest(session.page!, target)!.charOffset,
+    );
+  });
+
+  for (final fail in [false, true]) {
+    testWidgets('同章重排${fail ? '失败保留' : '成功清除'}仍在旧页范围内的选区', (tester) async {
+      final source = _SelectionReflowSource();
+      final session = await _showReader(tester, source: source);
+      await _selectWord(tester, session.page!);
+      await _extendSelection(tester, true);
+      final oldPage = session.page!;
+      final selection = _selectionLayer(tester).selection;
+      expect(selection.startPageIndex, 0);
+      expect(selection.endPageIndex, 1);
+      source.fail = fail;
+      await session.applyOverrides(const ReaderOverrides(fontSize: 15));
+      await tester.pumpAndSettle();
+
+      expect(session.page!.pageIndex, 1, reason: '新页仍在旧选区范围内');
+      expect(identical(session.page, oldPage), fail);
+      if (fail) {
+        expect(session.error, isNotNull);
+        expect(_selectionLayer(tester).selection, same(selection));
+        expect(find.byType(SelectionMenu), findsOneWidget);
+      } else {
+        expect(session.error, isNull);
+        expect(find.byType(SelectionLayer), findsNothing);
+        expect(find.byType(SelectionMenu), findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final forward in [true, false]) {
     testWidgets('向${forward ? '后' : '前'}扩选在章边界停止并复制本章文字', (tester) async {
       final clipboardText = _captureClipboard(tester);
       final session = await _showReader(
@@ -734,6 +980,131 @@ void main() {
       isFalse,
     );
     expect(find.byType(AnnotationLayer), findsNothing);
+  });
+
+  for (final navigation in [
+    '翻页',
+    '翻回原页',
+    '目录跳转',
+    '同页滚动',
+    '动画翻页',
+    '失败翻页',
+    '失败 CFI 跳转',
+    '缺失目录项',
+  ]) {
+    testWidgets('搜索 CFI 延迟解析不能覆盖$navigation', (tester) async {
+      final pending = await _startDelayedSearch(tester);
+      final session = pending.session;
+      switch (navigation) {
+        case '翻页':
+          await session.next();
+        case '翻回原页':
+          await session.next();
+          await session.previous();
+        case '目录跳转':
+          await session.jumpToTocEntry(
+            TocEntry(
+              title: '目录位置',
+              spineIndex: 0,
+              cfi: EpubCfi.parse(cfiWithCharOffset(_cfi, 100)),
+            ),
+          );
+        case '同页滚动':
+          await session.commitScrollPosition(
+            0,
+            0,
+            12,
+            cfi: cfiWithCharOffset(_cfi, 5),
+          );
+        case '动画翻页':
+          final turn = await session.preparePageTurn(true);
+          expect(turn, isNotNull);
+          expect(session.commitPageTurn(turn!), isTrue);
+        case '失败翻页':
+          expect(await session.previous(), isFalse);
+        case '失败 CFI 跳转':
+          expect(await session.jumpToCfi('invalid'), isFalse);
+        case '缺失目录项':
+          expect(
+            await session.jumpToTocEntry(
+              const TocEntry(title: '缺失', spineIndex: -1, missing: true),
+            ),
+            isFalse,
+          );
+      }
+      final expected = session.progress;
+      pending.resolved.complete(cfiWithCharOffset(_cfi, 200));
+      await tester.pumpAndSettle();
+      final actual = session.progress;
+      final highlighted = _hasSearchHighlight(tester);
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+
+      expect(actual, expected);
+      expect(highlighted, isFalse);
+    });
+  }
+
+  testWidgets('搜索 CFI 延迟解析未被新导航取代时正常跳转，邻页预热不取消', (tester) async {
+    final pending = await _startDelayedSearch(tester);
+    final turn = await pending.session.preparePageTurn(true, prefetch: true);
+    expect(turn, isNotNull);
+    pending.session.releasePageTurn(turn!);
+    pending.resolved.complete(cfiWithCharOffset(_cfi, 200));
+    await tester.pumpAndSettle();
+    final pageIndex = pending.session.page!.pageIndex;
+    final highlighted = _hasSearchHighlight(tester);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+
+    expect(pageIndex, 4);
+    expect(highlighted, isTrue);
+  });
+
+  testWidgets('连续滚动翻屏请求等待补章时，旧搜索解析不得发起跳转', (tester) async {
+    final source = _ScrollTurnWindowSource();
+    addTearDown(() {
+      if (!source.resume.isCompleted) source.resume.complete();
+    });
+    final pending = await _showDelayedSearchReader(
+      tester,
+      source: source,
+      mode: PageTurnMode.scroll,
+    );
+    final scroll = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const ValueKey('continuous-scroll')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    scroll.position.jumpTo(scroll.position.maxScrollExtent);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+    expect(source.started.isCompleted, isTrue);
+    await _openSearch(tester);
+    await tester.tap(find.byType(ListTile));
+    await tester.pumpAndSettle();
+    final expected = pending.session.progress;
+    final expectedCfi = pending.session.readingCfi;
+    final before = scroll.position.pixels;
+    final bounds = tester.getRect(find.byType(ReaderView));
+    await tester.tapAt(bounds.centerRight - const Offset(20, 0));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(scroll.position.pixels, before, reason: '补章完成前翻屏仍在等待');
+    pending.resolved.complete(cfiWithCharOffset(_cfi, 200));
+    await tester.pumpAndSettle();
+    final actual = pending.session.progress;
+    final actualCfi = pending.session.readingCfi;
+    final highlighted = _hasSearchHighlight(tester);
+    source.resume.complete();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+
+    expect(actual, expected);
+    expect(actualCfi, expectedCfi);
+    expect(highlighted, isFalse);
+    expect(scroll.position.pixels, greaterThan(before));
   });
 
   for (final baseOffset in [0, 7]) {

@@ -451,6 +451,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 搜索命中的临时高亮（P4-26，§29.4：3 秒后消失）。
   ReaderAnnotation? _tempHighlight;
   Timer? _tempHighlightTimer;
+  int _searchRequest = 0;
 
   /// 当前阅读环境（P4-23）。
   ReaderEnvironment get _environment => ReaderEnvironment(isEink: _inkMode);
@@ -811,6 +812,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 当前页选区（P4-15）；翻页/点菜单时清除。
   ReaderSelection? _selection;
+  int? _selectionLayoutRevision;
+
+  bool get _selectionMatchesLayout =>
+      _selectionLayoutRevision == _session.layoutRevision;
 
   /// 连续滚动长按命中的页片段；分页模式保持为空。
   PageContent? _selectionPage;
@@ -1130,20 +1135,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _showToast(created == null ? '该位置已有书签' : '已添加书签');
   }
 
-  /// 拖拽产生的页内局部选区 → 全局跨页选区（P4-19）。
-  void _applyLocalSelection(ReaderSelection local) {
-    final page = _selectionPage ?? _session.page;
-    if (page == null || _selection == null) {
+  /// 拖拽只替换被拖动的一端；跨页范围由选区层保留另一端的页码。
+  void _applySelection(ReaderSelection selection) {
+    if (_selection == null || !_selectionMatchesLayout) {
       return;
     }
-    setState(() {
-      _selection = ReaderSelection.spanning(
-        start: local.start,
-        startPageIndex: page.pageIndex,
-        end: local.end,
-        endPageIndex: page.pageIndex,
-      );
-    });
+    setState(() => _selection = selection);
   }
 
   /// 拖到页边 → 延时 300ms 在当前章内翻页并扩展选区（§63.5）。
@@ -1165,7 +1162,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     final changed = await _session.next();
-    if (!changed || !mounted) {
+    if (!changed ||
+        !mounted ||
+        !identical(selection, _selection) ||
+        !_selectionMatchesLayout) {
       return;
     }
     final nextPage = _session.page;
@@ -1201,7 +1201,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     final changed = await _session.previous();
-    if (!changed || !mounted) {
+    if (!changed ||
+        !mounted ||
+        !identical(selection, _selection) ||
+        !_selectionMatchesLayout) {
       return;
     }
     final prevPage = _session.page;
@@ -1253,21 +1256,38 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 应用搜索结果（P4-26，§29.4）：跳到命中位置并临时高亮 3 秒。
   Future<void> _applySearchResult(SearchPanelResult result) async {
+    final request = ++_searchRequest;
+    final generation = _session.generation;
+    final navigation = _session.navigationRevision;
     // 扫描式搜索不给每条命中算 CFI，这里按点击结果现场排版这一章。
     var cfi = result.cfi;
     cfi ??= await widget.onResolveSearchCfi?.call(result);
-    if (cfi == null || !mounted) {
+    if (cfi == null ||
+        !mounted ||
+        request != _searchRequest ||
+        generation != _session.generation ||
+        navigation != _session.navigationRevision) {
       return;
     }
-    final resolvedCfi = cfi;
-    final offset = cfiCharOffset(resolvedCfi);
-    await _session.jumpToCfi(
-      resolvedCfi,
+    final jump = _session.jumpToCfi(
+      cfi,
       title: result.chapterTitle,
       continuous: _effectiveTurnMode == PageTurnMode.scroll,
     );
+    final jumpNavigation = _session.navigationRevision;
+    await jump;
+    if (!mounted ||
+        request != _searchRequest ||
+        jumpNavigation != _session.navigationRevision) {
+      return;
+    }
+    _highlightSearchResult(cfi, result);
+  }
+
+  void _highlightSearchResult(String resolvedCfi, SearchPanelResult result) {
+    final offset = cfiCharOffset(resolvedCfi);
     // 表格只能提供精确元素页锚点时，不伪造文本节点的字符高亮区间。
-    if (!mounted || offset == null) {
+    if (offset == null) {
       return;
     }
     final endCfi = cfiWithCharOffset(resolvedCfi, offset + result.matchLength);
@@ -1809,6 +1829,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _selectionPage = _effectiveTurnMode == PageTurnMode.scroll ? page : null;
       _selection = SelectionOps.wordAt(page, hit);
+      _selectionLayoutRevision = _session.layoutRevision;
       _selectionSpineIndex = page.spineIndex;
       _selectionMore = false;
     });
@@ -1829,6 +1850,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _selectionPage = _effectiveTurnMode == PageTurnMode.scroll ? page : null;
       _selection = SelectionOps.sentenceAt(page, hit);
+      _selectionLayoutRevision = _session.layoutRevision;
       _selectionSpineIndex = page.spineIndex;
       _selectionMore = false;
     });
@@ -2097,6 +2119,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final last = boxes.last;
     setState(() {
       _selectionSpineIndex = page.spineIndex;
+      _selectionLayoutRevision = _session.layoutRevision;
       _selection = ReaderSelection.normalized(
         TextHit(
           lineBox: first,
@@ -2123,6 +2146,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (_selection != null) {
       setState(() {
         _selection = null;
+        _selectionLayoutRevision = null;
         _selectionPage = null;
         _selectionSpineIndex = null;
         _hideSelectionMenu = false;
@@ -2291,16 +2315,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       });
     }
 
-    // 页面不在选区范围内（翻章/跳转）→ 下一帧清除；跨页选区范围内保留。
+    // 新分页快照或页面离开选区范围时，下一帧清除旧选区。
     // 回调里重新取最新状态：边缘翻页会先翻页再扩展选区，两者不能互相打断。
-    if (page != null && _selection != null) {
+    if (_selection != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) {
           return;
         }
         final current = _selection;
         final currentPage = _session.page;
-        if (current == null || currentPage == null) {
+        if (current == null) {
+          return;
+        }
+        if (!_selectionMatchesLayout) {
+          _clearSelection();
+          return;
+        }
+        if (currentPage == null) {
           return;
         }
         if (_effectiveTurnMode == PageTurnMode.scroll) {
@@ -2371,7 +2402,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
-            if (_selection != null) ...[
+            if (_selection != null && _selectionMatchesLayout) ...[
               Builder(
                 builder: (context) {
                   final selectionPage =
@@ -2394,7 +2425,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       selection: _selection!,
                       inkMode: _inkMode,
                       contentPadding: selectionPadding,
-                      onChanged: _applyLocalSelection,
+                      onChanged: _applySelection,
                       onEdgeDrag: _effectiveTurnMode == PageTurnMode.scroll
                           ? null
                           : _handleSelectionEdgeDrag,
@@ -2691,6 +2722,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   );
 
   void _requestPageTurn(bool next) {
+    _searchRequest += 1;
     _clearSelection();
     _log('user_page', {
       'dir': next ? 'next' : 'prev',

@@ -30,7 +30,7 @@ class SelectionLayer extends StatefulWidget {
   /// 当前选区。
   final ReaderSelection selection;
 
-  /// 选区变化回调（拖拽手柄，参数是该页的局部选区）。
+  /// 选区变化回调；跨页时保留另一端的命中点和页码，单页仍回传局部选区。
   final ValueChanged<ReaderSelection> onChanged;
 
   /// 拖到页边超时触发翻页（§63.5：延时 300ms 避免误触）。
@@ -69,6 +69,8 @@ class _SelectionLayerState extends State<SelectionLayer>
   late final AnimationController _entranceController;
   late final Animation<double> _entrance;
   late final Animation<double> _handleScale;
+  // 跨页手势归一化后端点可能交换，继续移动时仍保留原来的固定端点。
+  final _dragOrigins = <bool, ReaderSelection>{};
 
   @override
   void initState() {
@@ -145,8 +147,7 @@ class _SelectionLayerState extends State<SelectionLayer>
             scaleKey: const ValueKey<String>('selection-handle-start-scale'),
             center: geometry.startHandle + origin,
             hotSize: hotSize,
-            onDrag: (local) =>
-                _drag(widget.selection, start: true, local: local),
+            start: true,
           ),
           _handle(
             context,
@@ -154,8 +155,7 @@ class _SelectionLayerState extends State<SelectionLayer>
             scaleKey: const ValueKey<String>('selection-handle-end-scale'),
             center: geometry.endHandle + origin,
             hotSize: hotSize,
-            onDrag: (local) =>
-                _drag(widget.selection, start: false, local: local),
+            start: false,
           ),
         ],
       ),
@@ -168,7 +168,7 @@ class _SelectionLayerState extends State<SelectionLayer>
     required Key scaleKey,
     required Offset center,
     required double hotSize,
-    required ValueChanged<Offset> onDrag,
+    required bool start,
   }) {
     return Positioned(
       left: center.dx - hotSize / 2,
@@ -178,6 +178,15 @@ class _SelectionLayerState extends State<SelectionLayer>
       child: GestureDetector(
         key: key,
         behavior: HitTestBehavior.opaque,
+        onPanStart: (_) {
+          if (widget.selection.isMultiPage) {
+            _dragOrigins[start] = widget.selection;
+          } else {
+            _dragOrigins.remove(start);
+          }
+        },
+        onPanEnd: (_) => _dragOrigins.remove(start),
+        onPanCancel: () => _dragOrigins.remove(start),
         onPanUpdate: (details) {
           final box = context.findRenderObject();
           if (box is! RenderBox) {
@@ -196,8 +205,11 @@ class _SelectionLayerState extends State<SelectionLayer>
               return;
             }
           }
-          onDrag(
-            local -
+          _drag(
+            widget.selection,
+            start: start,
+            local:
+                local -
                 Offset(widget.contentPadding.left, widget.contentPadding.top),
           );
         },
@@ -227,12 +239,35 @@ class _SelectionLayerState extends State<SelectionLayer>
     required bool start,
     required Offset local,
   }) {
+    final next = _selectionAfterDrag(current, start: start, local: local);
+    if (next.start != current.start ||
+        next.end != current.end ||
+        next.startPageIndex != current.startPageIndex ||
+        next.endPageIndex != current.endPageIndex) {
+      widget.onChanged(next);
+    }
+  }
+
+  ReaderSelection _selectionAfterDrag(
+    ReaderSelection current, {
+    required bool start,
+    required Offset local,
+  }) {
     // 拖拽是字符级（§63.2），命中已钳制在页内；跨页由边缘翻页扩展。
+    final hit = SelectionOps.charAt(widget.page, local);
+    final origin = _dragOrigins[start] ?? current;
+    if (origin.isMultiPage) {
+      return ReaderSelection.spanning(
+        start: start ? hit : origin.start,
+        startPageIndex: start ? widget.pageIndex : origin.startPageIndex,
+        end: start ? origin.end : hit,
+        endPageIndex: start ? origin.endPageIndex : widget.pageIndex,
+      );
+    }
     final localSelection =
         SelectionOps.localSelectionOf(widget.page, widget.pageIndex, current) ??
         current;
-    final hit = SelectionOps.charAt(widget.page, local);
-    final next = start
+    return start
         ? ReaderSelection.normalized(
             hit,
             localSelection.end,
@@ -243,9 +278,6 @@ class _SelectionLayerState extends State<SelectionLayer>
             hit,
             pageIndex: widget.pageIndex,
           );
-    if (next.start != current.start || next.end != current.end) {
-      widget.onChanged(next);
-    }
   }
 }
 
