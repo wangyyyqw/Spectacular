@@ -724,8 +724,8 @@ class _FloatPagination {
               ? lastBottomMargin
               : parents.collapseWith(lastBottomMargin));
     }
-    // 后继在流块已经消费父边距，不能再次折叠负值；没有后继时才直接使用。
-    return (nextFlowLeading[index] ?? parents?.extent ?? 0) +
+    // 父边距已与后继在流块折叠；不能再计入后继自身的内边距。
+    return (parents?.extent ?? nextFlowLeading[index] ?? 0) +
         block.containerTopInset(0);
   }
 
@@ -976,7 +976,9 @@ class _FloatPagination {
   Future<void> _applyClear(PageBlock block) async {
     final clear = block.style?.clear ?? CssClear.none;
     if (clear == CssClear.none) return;
-    var bottom = y;
+    // clear 比较外边距后的边框顶，内边距仍由正文布局消费。
+    final borderTop = y + block.spaceBefore;
+    var bottom = borderTop;
     if (clear == CssClear.left || clear == CssClear.both) {
       bottom = math.max(bottom, await _maxBottom(FloatSide.left));
     }
@@ -984,8 +986,8 @@ class _FloatPagination {
       bottom = math.max(bottom, await _maxBottom(FloatSide.right));
     }
     await _removeSatisfied(bottom);
-    if (bottom > y) {
-      final delta = bottom - y;
+    if (bottom > borderTop) {
+      final delta = bottom - borderTop;
       slices.add(
         PageBlockSlice(
           block: _clearSpacer(block, delta),
@@ -994,7 +996,7 @@ class _FloatPagination {
           height: delta,
         ),
       );
-      y = bottom;
+      y += delta;
     }
   }
 

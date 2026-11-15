@@ -438,34 +438,16 @@ Future<void> wrapContainerBlocks(
       break;
     }
   }
-  final hasTopSpacer = hasFloatChild && top > 0;
-  if (hasTopSpacer) {
-    blocks.insert(
-      start,
-      PageBlock(
-        layout: TextLayoutResult(
-          text: '',
-          lines: const <LineBox>[],
-          width: container.contentWidth,
-          height: top,
-          maxWidth: container.contentWidth,
-          runs: const <StyledRun>[],
-        ),
-        containers: <PageContainerFragment>[
-          PageContainerFragment(container: container, startsHere: true),
-        ],
-      ),
-    );
-    start += 1;
-  }
   // 容器上内边距必须落在第一个在流块上：浮动块由独立覆盖层绘制，
   // 把顶部留白挂在浮动上只会推移覆盖层，不会推进正文游标，标题/名字
   // 会和头像错位。下内边距同理优先交给最后一个在流块。
   var topTarget = start;
+  var hasFlowChild = false;
   for (var i = start; i < blocks.length; i++) {
     await checkpoint?.call();
     if (blocks[i].floatSide == null && !blocks[i].absolute) {
       topTarget = i;
+      hasFlowChild = true;
       break;
     }
   }
@@ -483,6 +465,36 @@ Future<void> wrapContainerBlocks(
       paragraphSpacing == null && containerCollapsesMargins(style);
   final collapseTop = top == 0 && containerCollapses;
   final collapseBottom = bottom == 0 && containerCollapses;
+  final startsWithFloat = blocks[start].floatSide != null;
+  // clear 隔断父子上边距折叠。先在流中消费父边距，所有浮动共享同一
+  // 静态位置，后面的 clear 只补足浮动高度，不再次消费这段父留白。
+  final separatesFloatMargin =
+      startsWithFloat &&
+      hasFlowChild &&
+      style.margin.top != 0 &&
+      (blocks[topTarget].style?.clear ?? CssClear.none) != CssClear.none;
+  final hasTopSpacer = hasFloatChild && (top > 0 || separatesFloatMargin);
+  if (hasTopSpacer) {
+    blocks.insert(
+      start,
+      _floatContainerTopSpacer(container, paragraphSpacing ?? style.margin.top),
+    );
+    start += 1;
+    topTarget += 1;
+    bottomTarget += 1;
+  }
+  final floatParentTop = !hasTopSpacer && startsWithFloat && collapseTop;
+  final floatParentBottom = floatParentTop && !hasFlowChild && collapseBottom;
+  if (floatParentTop) {
+    await _retainLeadingFloatMargins(
+      blocks,
+      start,
+      const FloatParentMargins()
+          .include(style.margin.top)
+          .include(floatParentBottom ? style.margin.bottom : 0),
+      checkpoint,
+    );
+  }
   final separateExternalMargins =
       paragraphSpacing == null &&
       !hasOutOfFlowChild &&
@@ -502,14 +514,14 @@ Future<void> wrapContainerBlocks(
       breakAfterAvoid:
           block.breakAfterAvoid ||
           (first && !last && isContainerHeading(block)),
-      spaceBefore: first && separateTop
+      spaceBefore: first && separateTop && !hasTopSpacer
           ? style.margin.top
-          : first && collapseTop
+          : first && collapseTop && !hasTopSpacer && !floatParentTop
           ? collapseMargins(style.margin.top, block.spaceBefore)
           : block.spaceBefore,
       spaceAfter: last && separateBottom
           ? style.margin.bottom
-          : last && collapseBottom
+          : last && collapseBottom && !floatParentBottom
           ? collapseMargins(block.spaceAfter, style.margin.bottom)
           : block.spaceAfter,
       topInset:
@@ -518,7 +530,7 @@ Future<void> wrapContainerBlocks(
               ? (hasTopSpacer ? 0 : top) +
                     (separateTop
                         ? block.spaceBefore
-                        : collapseTop
+                        : hasTopSpacer || collapseTop
                         ? 0
                         : (paragraphSpacing ?? style.margin.top))
               : 0),
@@ -546,6 +558,40 @@ Future<void> wrapContainerBlocks(
         ),
         ...block.containers,
       ],
+    );
+  }
+}
+
+PageBlock _floatContainerTopSpacer(PageContainer container, double margin) =>
+    PageBlock(
+      spaceBefore: margin,
+      layout: TextLayoutResult(
+        text: '',
+        lines: const <LineBox>[],
+        width: container.contentWidth,
+        height: container.topDecoration,
+        maxWidth: container.contentWidth,
+        runs: const <StyledRun>[],
+      ),
+      containers: <PageContainerFragment>[
+        PageContainerFragment(container: container, startsHere: true),
+      ],
+    );
+
+/// 父边距与浮动自己的段距分开，折叠阶段再与首个在流子块一起解算。
+Future<void> _retainLeadingFloatMargins(
+  List<PageBlock> blocks,
+  int start,
+  FloatParentMargins parents,
+  Future<void> Function()? checkpoint,
+) async {
+  for (var index = start; index < blocks.length; index++) {
+    await checkpoint?.call();
+    final block = blocks[index];
+    if (block.floatSide == null && !block.absolute) break;
+    if (block.floatSide == null) continue;
+    blocks[index] = block.withSpacing(
+      floatParentMargins: block.floatParentMargins?.merge(parents) ?? parents,
     );
   }
 }

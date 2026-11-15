@@ -24,6 +24,22 @@ const _solidBoxes =
     '<div class="row"><div class="blue">&#160;</div>'
     '<div class="green">&#160;</div><div class="red">&#160;</div></div>'
     '<p class="clear">后续正文</p>';
+const _headingCss = '''
+body {margin:0 1%;}
+.row {margin:10% auto 0 0;}
+.badge {float:left; width:3em; height:.8em; font-size:.4em;
+  margin:0 3px 0 0; padding:3px 5px; line-height:130%; background:blue;}
+.titles {float:left; width:40%; margin:0; border-left:1px solid black;
+  padding-right:3px;}
+.chapter {font-size:.6em; line-height:100%; margin:0 auto 0 3px;}
+.subtitle {font-size:.5em; line-height:100%; margin:4px auto 0 3px;}
+''';
+const _headingBody =
+    '<div class="row"><p class="badge">书名</p>'
+    '<div class="titles"><p class="chapter">第一章</p>'
+    '<p class="subtitle">章序</p><div class="clear"></div></div>'
+    '<div class="clear"></div></div><p>后续正文</p>';
+const _headingTop = 35.93333333333334;
 
 Uint8List _epub(String css, String body) => auditZip({
   'mimetype': 'application/epub+zip',
@@ -149,6 +165,107 @@ String _floatDetails(PageContent page) => page.slices
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('章首段落浮动与两行容器浮动共享父上边距，clear 不重复增加留白', () async {
+    final source = await _open(_headingCss, _headingBody);
+    final page = (await source.loadChapter(0)).single;
+    final floats = page.slices.where((slice) => slice.overlay).toList();
+    expect(floats.map((slice) => slice.block.layout.text), ['书名', '第一章', '章序']);
+    expect(floats[0].absoluteTop, closeTo(_headingTop, .001));
+    expect(floats[1].absoluteTop, closeTo(_headingTop, .001));
+    expect(floats[2].absoluteTop, closeTo(_headingTop + 16.6, .001));
+    final badge = _bounds(
+      await _paint(page),
+      (r, g, b) => r < 20 && g < 20 && b > 230,
+    );
+    expect(badge.top, closeTo(_insets.top + _headingTop, 1));
+    final body = page.slices.singleWhere(
+      (slice) => slice.block.layout.text == '后续正文',
+    );
+    final bodyTop = page.slices
+        .takeWhile((slice) => !identical(slice, body))
+        .where((slice) => !slice.overlay)
+        .fold<double>(
+          page.topPadding,
+          (height, slice) => height + slice.height,
+        );
+    // 正文保留阅读设置中的 10px 段前距。
+    expect(
+      bodyTop + body.leadingExtent,
+      closeTo(_headingTop + 27.1 + 10, .001),
+    );
+  });
+
+  test('父上边距不折叠浮动自身上边距，前一段底距只消费一次', () async {
+    final source = await _open(
+      '$_headingCss .before {height:20px; margin:0 0 42px;}'
+          '.badge {margin-top:9px;}',
+      '<p class="before">前文</p>$_headingBody',
+    );
+    final page = (await source.loadChapter(0)).single;
+    final floats = page.slices.where((slice) => slice.overlay).toList();
+    expect(floats[0].absoluteTop, closeTo(20 + 42 + 9, .001));
+    expect(floats[1].absoluteTop, closeTo(20 + 42, .001));
+    expect(floats[2].absoluteTop, closeTo(20 + 42 + 16.6, .001));
+  });
+
+  test('无 clear 的首个在流子块与父上距折叠，嵌套外层边距不重复相加', () async {
+    final source = await _open(
+      '$_headingCss .outer {margin-top:60px;}'
+          '.body {margin-top:50px; line-height:21px;}'
+          '.blue {margin-top:9px;}',
+      '<div class="outer"><div class="row"><div class="blue"></div>'
+          '<div class="green"></div><p class="body">正文</p></div></div>',
+    );
+    final page = (await source.loadChapter(0)).single;
+    final floats = page.slices.where((slice) => slice.overlay).toList();
+    expect(floats[0].absoluteTop, closeTo(60 + 9, .001));
+    expect(floats[1].absoluteTop, closeTo(60, .001));
+    final body = page.slices.singleWhere(
+      (slice) => slice.block.layout.text == '正文',
+    );
+    expect(body.leadingExtent, closeTo(60, .001));
+  });
+
+  test('带边框与内边距的浮动父盒只在开头消费一次父上距', () async {
+    final source = await _open(
+      '.row {margin-top:30px; padding-top:7px; border-top:2px solid black;}',
+      _solidBoxes,
+    );
+    final page = (await source.loadChapter(0)).single;
+    for (final slice in page.slices.where((slice) => slice.overlay)) {
+      expect(slice.absoluteTop, closeTo(30 + 7 + 2, .001));
+    }
+    final boxes = _solidBounds(await _paint(page));
+    for (final box in boxes) {
+      expect(box.top, closeTo(_insets.top + 30 + 7 + 2, 1));
+    }
+  });
+
+  test('只含浮动的父盒保留各自边距，后续 clear 在边距后的边框顶补足高度', () async {
+    final source = await _open(
+      '.row {margin:30px 0 20px;}'
+          '.blue {margin-top:9px;}'
+          '.clear {margin-top:10px; padding-top:4px;}',
+      '<div class="row"><div class="blue"></div>'
+          '<div class="green"></div></div><p class="clear">后续正文</p>',
+    );
+    final page = (await source.loadChapter(0)).single;
+    final floats = page.slices.where((slice) => slice.overlay).toList();
+    expect(floats[0].absoluteTop, closeTo(30 + 9, .001));
+    expect(floats[1].absoluteTop, closeTo(30, .001));
+    final body = page.slices.singleWhere(
+      (slice) => slice.block.layout.text == '后续正文',
+    );
+    final bodyTop = page.slices
+        .takeWhile((slice) => !identical(slice, body))
+        .where((slice) => !slice.overlay)
+        .fold<double>(
+          page.topPadding,
+          (height, slice) => height + slice.height,
+        );
+    expect(bodyTop + body.leadingExtent, closeTo(30 + 9 + 50 + 4, .001));
+  });
 
   test('三个 50px 空浮动色块经正式入口同排，clear 后正文位于其下方', () async {
     final source = await _open('', _solidBoxes);
