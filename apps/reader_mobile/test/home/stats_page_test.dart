@@ -216,7 +216,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('小屏大字号下每日平均直接衔接排行，移除热力图和阅读习惯', (tester) async {
+  testWidgets('小屏双倍字号下长书名、排行与最近阅读不溢出，保留精简后的区块', (tester) async {
     tester.view.physicalSize = const Size(320, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -226,11 +226,13 @@ void main() {
       MaterialApp(
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context)
-              .copyWith(textScaler: const TextScaler.linear(1.6)),
+              .copyWith(textScaler: const TextScaler.linear(2)),
           child: child!,
         ),
         home: StatsPage(
-          library: _FakeLibrary([_book('a', '一本较长书名的阅读记录')], const {}),
+          library: _FakeLibrary([
+            _book('a', '一本包含很长很长中文书名的阅读记录和统计样本', lastReadAt: now),
+          ], const {}),
           progressStore: _FakeProgressStore(const {}),
           sessionStore: _FakeSessionStore([
             ReadingSession(
@@ -266,6 +268,10 @@ void main() {
       find.byKey(const ValueKey('stats-ranking-counts-a')),
       180,
     );
+    expect(_valueOf(tester, 'stats-ranking-duration-a'), '1 小时');
+    await _scrollTo(tester, find.byKey(const ValueKey('stats-open-a')), 180);
+    expect(find.text('最近阅读'), findsOneWidget);
+    expect(_valueOf(tester, 'stats-book-a'), '--');
     expect(tester.takeException(), isNull);
   });
 

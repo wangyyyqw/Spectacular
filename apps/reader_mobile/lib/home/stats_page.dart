@@ -267,39 +267,44 @@ class _StatsPageState extends State<StatsPage> {
                 : _StatsError(onRetry: _reload)
           : RefreshIndicator(
               onRefresh: _reload,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-                children: [
-                  _Section(
-                    title: '图书时长',
-                    showDivider: false,
-                    child: BookDurationChart(
-                      insights: stats.insights,
-                      bookTitles: {
-                        for (final row in stats.rows)
-                          row.book.id: row.book.title,
-                      },
-                    ),
+              child: Center(
+                child: SizedBox(
+                  width: 680,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+                    children: [
+                      _Section(
+                        title: '图书时长',
+                        showDivider: false,
+                        child: BookDurationChart(
+                          insights: stats.insights,
+                          bookTitles: {
+                            for (final row in stats.rows)
+                              row.book.id: row.book.title,
+                          },
+                        ),
+                      ),
+                      _Section(
+                        title: '每日平均',
+                        detail: '按星期',
+                        caption: '仅计有阅读记录的日期',
+                        child: WeekdayAverageChart(insights: stats.insights),
+                      ),
+                      _Section(
+                        title: '阅读排行',
+                        detail: '按累计时长',
+                        child: BookReadingRanking(
+                          books: [for (final row in stats.rows) row.book],
+                          totals: stats.insights.byBook,
+                          bookTitles: stats.insights.bookTitles,
+                          onOpen: _openBook,
+                        ),
+                      ),
+                      _RecentSection(stats: stats, onOpenBook: _openBook),
+                    ],
                   ),
-                  _Section(
-                    title: '每日平均',
-                    detail: '按星期',
-                    caption: '按星期汇总全部阅读记录，均值只计算有阅读的日期。',
-                    child: WeekdayAverageChart(insights: stats.insights),
-                  ),
-                  _Section(
-                    title: '阅读排行',
-                    detail: '按累计时长',
-                    child: BookReadingRanking(
-                      books: [for (final row in stats.rows) row.book],
-                      totals: stats.insights.byBook,
-                      bookTitles: stats.insights.bookTitles,
-                      onOpen: _openBook,
-                    ),
-                  ),
-                  _RecentSection(stats: stats, onOpenBook: _openBook),
-                ],
+                ),
               ),
             ),
     );
@@ -411,9 +416,9 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (showDivider) ...[
-          const SizedBox(height: 30),
+          const SizedBox(height: 24),
           Container(height: 1, color: theme.colorScheme.outlineVariant),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
         ],
         SizedBox(
           width: double.infinity,
@@ -426,7 +431,7 @@ class _Section extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   height: 1.3,
                 ),
@@ -446,7 +451,7 @@ class _Section extends StatelessWidget {
             style: TextStyle(fontSize: 12, color: muted, height: 1.4),
           ),
         ],
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         child,
       ],
     );
@@ -468,22 +473,28 @@ class _StatsSkeleton extends StatelessWidget {
         borderRadius: BorderRadius.circular(3),
       ),
     );
-    return ListView(
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-      children: [
-        block(12, width: 64),
-        const SizedBox(height: 16),
-        block(48),
-        const SizedBox(height: 12),
-        block(48),
-        const SizedBox(height: 24),
-        Center(child: block(160, width: 160)),
-        const SizedBox(height: 24),
-        block(56),
-        const SizedBox(height: 16),
-        block(56),
-      ],
+    return Center(
+      child: SizedBox(
+        width: 680,
+        child: ListView(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+          children: [
+            Align(alignment: Alignment.centerLeft, child: block(20, width: 64)),
+            const SizedBox(height: 12),
+            block(48),
+            const SizedBox(height: 12),
+            block(48),
+            const SizedBox(height: 12),
+            Center(child: block(160, width: 160)),
+            const SizedBox(height: 12),
+            for (var index = 0; index < 5; index++) ...[
+              block(44),
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -533,7 +544,6 @@ class _RecentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final rows = stats.rows
         .where((row) => row.book.lastReadAt != null)
         .toList();
@@ -542,28 +552,16 @@ class _RecentSection extends StatelessWidget {
       detail: rows.isEmpty ? null : '按最后阅读排序',
       child: rows.isEmpty
           ? const _NoReadingCard()
-          : Container(
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Column(
-                children: [
-                  for (var index = 0; index < rows.length; index++) ...[
-                    if (index > 0)
-                      Container(
-                        height: 1,
-                        color: theme.colorScheme.outlineVariant,
-                      ),
-                    _RecentBookRow(
-                      stat: rows[index],
-                      onOpen: () => onOpenBook(rows[index].book),
-                    ),
-                  ],
+          : Column(
+              children: [
+                for (var index = 0; index < rows.length; index++) ...[
+                  if (index > 0) const Divider(height: 1),
+                  _RecentBookRow(
+                    stat: rows[index],
+                    onOpen: () => onOpenBook(rows[index].book),
+                  ),
                 ],
-              ),
+              ],
             ),
     );
   }
@@ -576,92 +574,102 @@ class _RecentBookRow extends StatelessWidget {
   final VoidCallback onOpen;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    final book = stat.book;
-    final percent = stat.percent;
-    return InkWell(
-      key: ValueKey<String>('stats-open-${book.id}'),
-      onTap: onOpen,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 11),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Hero(
-              tag: bookCoverHeroTag(book.id),
-              transitionOnUserGestures: true,
-              child: BookCoverImage(book: book, width: 42, height: 56),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    book.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                    ),
-                  ),
-                  if (book.author.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      book.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: muted),
-                    ),
-                  ],
-                  const SizedBox(height: 6),
-                  Text(
-                    _positionLabel(book, stat.progress),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: muted),
-                  ),
-                  const SizedBox(height: 9),
-                  _ProgressLine(percent: percent),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  percent == null ? '--' : '$percent%',
-                  key: ValueKey<String>('stats-book-${book.id}'),
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: _tabularFigures,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _relativeTime(book.lastReadAt),
-                      style: TextStyle(fontSize: 11, color: muted),
-                    ),
-                    const SizedBox(width: 2),
-                    Icon(Icons.chevron_right, size: 14, color: muted),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
+  Widget build(BuildContext context) => InkWell(
+    key: ValueKey<String>('stats-open-${stat.book.id}'),
+    onTap: onOpen,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Hero(
+            tag: bookCoverHeroTag(stat.book.id),
+            transitionOnUserGestures: true,
+            child: BookCoverImage(book: stat.book, width: 40, height: 54),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: _details(context)),
+        ],
       ),
+    ),
+  );
+
+  Widget _details(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _headline(),
+        if (stat.book.author.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            stat.book.author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: muted),
+          ),
+        ],
+        const SizedBox(height: 6),
+        Text(
+          _positionLabel(stat.book, stat.progress),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11, height: 1.4, color: muted),
+        ),
+        const SizedBox(height: 8),
+        _footer(context),
+      ],
     );
   }
+
+  Widget _headline() => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Text(
+          stat.book.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            height: 1.35,
+          ),
+        ),
+      ),
+      const SizedBox(width: 12),
+      Text(
+        stat.percent == null ? '--' : '${stat.percent}%',
+        key: ValueKey<String>('stats-book-${stat.book.id}'),
+        style: const TextStyle(
+          fontSize: 13,
+          height: 1.4,
+          fontWeight: FontWeight.w600,
+          fontFeatures: _tabularFigures,
+        ),
+      ),
+    ],
+  );
+
+  Widget _footer(BuildContext context) => Row(
+    children: [
+      Expanded(child: _ProgressLine(percent: stat.percent)),
+      const SizedBox(width: 12),
+      Text(
+        _relativeTime(stat.book.lastReadAt),
+        style: TextStyle(
+          fontSize: 11,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+      const SizedBox(width: 2),
+      Icon(
+        Icons.chevron_right_rounded,
+        size: 14,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    ],
+  );
 }
 
 /// 进度条：零值不留填充，极小进度保留 2% 可见宽度。
