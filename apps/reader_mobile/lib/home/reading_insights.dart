@@ -54,6 +54,8 @@ class ReadingInsights {
       totalReading += session.duration;
       if (session.duration > longestSession) longestSession = session.duration;
       byBook.putIfAbsent(session.bookId, BookReadingTotals.new).add(session);
+      final title = session.bookTitle?.trim();
+      if (title != null && title.isNotEmpty) bookTitles[session.bookId] = title;
       _addReadingPeriods(session);
     }
     for (final portion in portions) {
@@ -71,6 +73,7 @@ class ReadingInsights {
   late final List<ReadingDayPortion> portions;
   final Map<DateTime, Duration> byDay = {};
   final Map<String, BookReadingTotals> byBook = {};
+  final Map<String, String> bookTitles = {};
   final List<Duration> readingPeriods = List.filled(4, Duration.zero);
   Duration totalReading = Duration.zero;
   Duration todayReading = Duration.zero;

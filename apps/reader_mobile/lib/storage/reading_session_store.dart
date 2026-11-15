@@ -11,6 +11,7 @@ class ReadingSession {
     required this.duration,
     this.pageTurns = 0,
     this.charactersRead = 0,
+    this.bookTitle,
   });
 
   /// 书籍 uuid。
@@ -30,6 +31,9 @@ class ReadingSession {
 
   /// 本段阅读翻过页面的非空白字符数。
   final int charactersRead;
+
+  /// 读取时附带的书名，让已移出书架的历史记录仍能识别书籍。
+  final String? bookTitle;
 }
 
 /// 阅读会话存储接口，便于统计页与测试替换实现。
@@ -43,7 +47,7 @@ abstract interface class ReadingSessionStore {
     int charactersRead = 0,
   });
 
-  /// 全部会话，按开始时间升序。
+  /// 全部已保存会话，包含移出书架的书籍，按开始时间升序。
   Future<List<ReadingSession>> list();
 }
 
@@ -86,33 +90,32 @@ class DriftReadingSessionStore implements ReadingSessionStore {
 
   @override
   Future<List<ReadingSession>> list() async {
-    final books = await (_db.select(
-      _db.books,
-    )..where((table) => table.deletedAt.isNull())).get();
-    final uuidById = <int, String>{
-      for (final book in books) book.id: book.uuid,
-    };
-    final rows =
-        await (_db.select(_db.readingSessions)..orderBy([
-              (table) => OrderingTerm(
-                expression: table.startedAt,
-                mode: OrderingMode.asc,
-              ),
-            ]))
-            .get();
-    return <ReadingSession>[
+    final sessions = _db.readingSessions;
+    final books = _db.books;
+    final query =
+        _db.select(sessions).join([
+          innerJoin(books, books.id.equalsExp(sessions.bookId)),
+        ])..orderBy([
+          OrderingTerm.asc(sessions.startedAt),
+          OrderingTerm.asc(sessions.id),
+        ]);
+    final rows = await query.get();
+    return [
       for (final row in rows)
-        if (uuidById[row.bookId] != null)
-          ReadingSession(
-            bookId: uuidById[row.bookId]!,
-            startedAt: DateTime.fromMillisecondsSinceEpoch(row.startedAt),
-            endedAt: DateTime.fromMillisecondsSinceEpoch(row.endedAt),
-            duration: Duration(milliseconds: row.durationMs),
-            pageTurns: row.pageTurns,
-            charactersRead: row.charactersRead,
-          ),
+        _toSession(row.readTable(sessions), row.readTable(books)),
     ];
   }
+
+  ReadingSession _toSession(ReadingSessionRow row, BookRow book) =>
+      ReadingSession(
+        bookId: book.uuid,
+        bookTitle: book.title,
+        startedAt: DateTime.fromMillisecondsSinceEpoch(row.startedAt),
+        endedAt: DateTime.fromMillisecondsSinceEpoch(row.endedAt),
+        duration: Duration(milliseconds: row.durationMs),
+        pageTurns: row.pageTurns,
+        charactersRead: row.charactersRead,
+      );
 
   Future<int?> _bookIdOf(String bookId) async {
     final rows = await (_db.select(

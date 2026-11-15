@@ -121,7 +121,235 @@ Future<void> _scrollTo(
   await tester.pumpAndSettle();
 }
 
+String _valueOf(WidgetTester tester, String key) =>
+    tester.widget<Text>(find.byKey(ValueKey(key))).data!;
+
+Future<void> _tapControl(WidgetTester tester, String key) async {
+  final target = find.byKey(ValueKey(key));
+  await _scrollTo(tester, target, 180);
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  await tester.tap(target);
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  for (final period in [
+    ('day', '日'),
+    ('week', '周'),
+    ('month', '月'),
+    ('year', '年'),
+  ]) {
+    testWidgets('${period.$2}趋势可浏览历史、刷新汇总并回到当前，历史数据不重复累计', (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final old = switch (period.$1) {
+        'day' => DateTime(today.year, today.month, today.day - 7, 9),
+        'week' => DateTime(today.year, today.month, today.day - 56, 9),
+        'month' => DateTime(today.year, today.month - 12, 1, 9),
+        _ => DateTime(today.year - 5, 1, 1, 9),
+      };
+      final sessions = [
+        ReadingSession(
+          bookId: 'current',
+          startedAt: today.add(const Duration(hours: 9)),
+          endedAt: today.add(const Duration(hours: 9, minutes: 10)),
+          duration: const Duration(minutes: 10),
+        ),
+        ReadingSession(
+          bookId: 'archived',
+          bookTitle: '历史保留的书',
+          startedAt: old,
+          endedAt: old.add(const Duration(minutes: 35)),
+          duration: const Duration(minutes: 35),
+        ),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.6)),
+            child: child!,
+          ),
+          home: StatsPage(
+            library: _FakeLibrary([_book('current', '当前书籍')], const {}),
+            progressStore: _FakeProgressStore(const {}),
+            sessionStore: _FakeSessionStore(sessions),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(_valueOf(tester, 'stats-total-reading'), '累计 45 分钟');
+      await _tapControl(tester, 'stats-chart-period-${period.$1}');
+      final currentRange = _valueOf(tester, 'stats-chart-window-range');
+      expect(_valueOf(tester, 'stats-activity-summary'), '10 分钟 · 1 天');
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byKey(const ValueKey('stats-chart-window-next')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await _tapControl(tester, 'stats-chart-window-previous');
+      expect(_valueOf(tester, 'stats-chart-window-range'), isNot(currentRange));
+      expect(_valueOf(tester, 'stats-activity-summary'), '35 分钟 · 1 天');
+      expect(_valueOf(tester, 'stats-chart-bucket-duration'), '35 分钟');
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('stats-chart-book-archived')),
+          matching: find.text('历史保留的书'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byKey(const ValueKey('stats-chart-window-previous')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(tester.takeException(), isNull);
+
+      sessions.add(
+        ReadingSession(
+          bookId: 'archived',
+          bookTitle: '历史保留的书',
+          startedAt: old.add(const Duration(hours: 1)),
+          endedAt: old.add(const Duration(hours: 1, minutes: 5)),
+          duration: const Duration(minutes: 5),
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+      await tester.pumpAndSettle();
+      expect(_valueOf(tester, 'stats-activity-summary'), '40 分钟 · 1 天');
+      expect(_valueOf(tester, 'stats-chart-bucket-duration'), '40 分钟');
+      await _tapControl(tester, 'stats-chart-window-current');
+      expect(_valueOf(tester, 'stats-chart-window-range'), currentRange);
+      expect(_valueOf(tester, 'stats-activity-summary'), '10 分钟 · 1 天');
+      expect(
+        find.byKey(const ValueKey('stats-chart-window-current')),
+        findsNothing,
+      );
+      await _scrollTo(
+        tester,
+        find.byKey(const ValueKey('stats-total-reading')),
+        -180,
+      );
+      expect(_valueOf(tester, 'stats-total-reading'), '累计 50 分钟');
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('日周月年摘要按自然日去重，跨日会话的时长与计数守恒', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([_book('a', '跨日阅读')], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore([
+            ReadingSession(
+              bookId: 'a',
+              startedAt: DateTime(
+                today.year,
+                today.month,
+                today.day - 1,
+                23,
+                50,
+              ),
+              endedAt: today.add(const Duration(minutes: 10)),
+              duration: const Duration(minutes: 20),
+              pageTurns: 5,
+              charactersRead: 101,
+            ),
+            ReadingSession(
+              bookId: 'a',
+              startedAt: today.add(const Duration(hours: 9)),
+              endedAt: today.add(const Duration(hours: 9, minutes: 10)),
+              duration: const Duration(minutes: 10),
+              pageTurns: 3,
+              charactersRead: 99,
+            ),
+          ]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final period in ['day', 'week', 'month', 'year']) {
+      await _tapControl(tester, 'stats-chart-period-$period');
+      expect(_valueOf(tester, 'stats-activity-summary'), '30 分钟 · 2 天');
+    }
+    expect(
+      _valueOf(tester, 'stats-chart-bucket-counts'),
+      '2 次阅读 · 8 次翻页 · 200 字',
+    );
+  });
+
+  testWidgets('已移出书架的书保留名称并进入排行和日详情，书架数量保持真实', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([_book('current', '当前书籍')], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore([
+            for (final record in [('current', 10), ('archived', 30)])
+              ReadingSession(
+                bookId: record.$1,
+                bookTitle: record.$1 == 'archived' ? '历史保留的书' : '当前书籍',
+                startedAt: today.add(const Duration(hours: 9)),
+                endedAt: today.add(Duration(hours: 9, minutes: record.$2)),
+                duration: Duration(minutes: record.$2),
+              ),
+          ]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_valueOf(tester, 'stats-total-books'), '1');
+    expect(_valueOf(tester, 'stats-total-reading'), '累计 40 分钟');
+    final ranking = find.byKey(const ValueKey('stats-ranking-archived'));
+    await _scrollTo(tester, ranking, 180);
+    expect(_valueOf(tester, 'stats-ranking-duration-archived'), '30 分钟');
+    expect(
+      find.descendant(of: ranking, matching: find.text('历史保留的书')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: ranking, matching: find.text('已移出书架')),
+      findsOneWidget,
+    );
+    expect(tester.widget<InkWell>(ranking).onTap, isNull);
+    final day = find.byKey(ValueKey('stats-heatmap-day-${_dateKey(today)}'));
+    await _scrollTo(tester, day, -180);
+    await tester.ensureVisible(day);
+    await tester.pumpAndSettle();
+    await tester.tap(day);
+    await tester.pumpAndSettle();
+    final detail = find.byKey(const ValueKey('stats-day-detail'));
+    expect(_valueOf(tester, 'stats-day-detail-duration'), '40 分钟');
+    expect(
+      find.descendant(of: detail, matching: find.text('历史保留的书')),
+      findsNWidgets(2),
+    );
+    expect(
+      tester
+          .widget<InkWell>(
+            find.byKey(const ValueKey('stats-day-book-archived')),
+          )
+          .onTap,
+      isNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('小屏大字号可查看习惯、排行和日期详情，图表按钮支持逐日切换', (tester) async {
     tester.view.physicalSize = const Size(320, 800);
     tester.view.devicePixelRatio = 1;
