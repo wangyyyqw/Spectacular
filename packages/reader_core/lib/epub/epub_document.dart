@@ -233,7 +233,7 @@ Future<EpubOpenResult> _finishOpen({
     );
     warnings.addAll(tocResult.warnings);
     // 字体混淆信息（P3-05）：encryption.xml + FairPlay 检测。
-    final fontEncryption = _parseFontEncryption(archive, warnings);
+    final fontEncryption = _parseFontEncryption(archive, resources, warnings);
     final extensionConfig = DuokanExtensionParser.parse(
       archive.readString(DuokanExtensionParser.path),
     );
@@ -301,6 +301,7 @@ abstract final class EpubDocumentFactory {
 /// `E_FONT_OBFUSCATION_FAILED` 不在此处（读取期失败才升码）。
 FontEncryptionMap _parseFontEncryption(
   EpubArchive archive,
+  ResourceIndex resources,
   List<String> warnings,
 ) {
   final encryptionXml = archive.readString('META-INF/encryption.xml');
@@ -313,7 +314,10 @@ FontEncryptionMap _parseFontEncryption(
       '（META-INF/sinf.xml），不支持解密，相关资源按原样读取',
     );
   }
-  final map = FontEncryptionMap.parse(encryptionXml);
+  final map = FontEncryptionMap.parse(
+    encryptionXml,
+    resolvePath: (uri) => resources.resolve(uri, baseDir: ''),
+  );
   if (map.isEmpty) {
     warnings.add(
       'E_FONT_OBFUSCATION_FAILED: encryption.xml 解析失败，'
