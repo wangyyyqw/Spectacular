@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 打包 Android release APK：构建 → 落到 dist/ → 复制到下载文件夹（后缀改大写 .APK）→ 打印 SHA-256。
-# 用法：tool/build_apk.sh
+# 使用本地缓存打包 Android Release APK，并保存到 dist/ 与下载文件夹。
+# 用法：tool/build_apk.sh [--allow-downloads]；缓存缺失时才允许下载。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,7 +11,33 @@ dist="$app/dist"
 build_apk="$app/build/app/outputs/flutter-apk/app-release.apk"
 downloads="${HOME}/Downloads"
 
-(cd "$app" && flutter build apk --release)
+cache_option=--offline
+if [ "${1:-}" = --allow-downloads ] && [ "$#" -eq 1 ]; then
+  cache_option=
+elif [ "$#" -ne 0 ]; then
+  echo '用法：tool/build_apk.sh [--allow-downloads]' >&2
+  exit 2
+fi
+flutter_sdk="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent.parent)' "$(command -v flutter)")"
+
+if [ ! -f "$app/.dart_tool/package_config.json" ] || [ -z "$cache_option" ]; then
+  (cd "$app" && flutter pub get ${cache_option:+"$cache_option"})
+fi
+if [ -z "${JAVA_HOME:-}" ] && [ -d '/Applications/Android Studio.app/Contents/jbr/Contents/Home' ]; then
+  export JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home'
+fi
+
+(
+  cd "$app"
+  flutter build apk --release --no-pub --config-only --target-platform=android-arm64
+  dart --packages="$flutter_sdk/packages/flutter_tools/.dart_tool/package_config.json" \
+    ../../tool/generate_release_plugins.dart "$flutter_sdk"
+  cd android
+  ./gradlew ${cache_option:+"$cache_option"} --console=plain :app:assembleRelease \
+    -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
+    -Pbase-application-name=android.app.Application \
+    -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true
+)
 
 [ -f "$build_apk" ] || { echo "构建产物缺失：$build_apk" >&2; exit 1; }
 
