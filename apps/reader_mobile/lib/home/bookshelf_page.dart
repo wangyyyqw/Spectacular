@@ -36,6 +36,7 @@ class BookshelfPage extends StatefulWidget {
     required this.library,
     required this.progressStore,
     this.refreshToken = 0,
+    this.allowImport = true,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
   });
@@ -48,6 +49,9 @@ class BookshelfPage extends StatefulWidget {
 
   /// 外部切换页面时递增，用于重新读取排序设置。
   final int refreshToken;
+
+  /// 临时模式暂停新增与更新导入，避免将内存内容误认为已保存。
+  final bool allowImport;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;
@@ -560,6 +564,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
+    if (!widget.allowImport) return;
     // ignore: avoid_print
     print('[import] 开始选择文件');
     if (mounted) {
@@ -583,7 +588,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     // ignore: avoid_print
     print('[import] 选中 ${paths.length} 个文件');
-    if (paths.isEmpty || !mounted) {
+    if (paths.isEmpty || !mounted || !widget.allowImport) {
       return;
     }
     setState(() {
@@ -648,9 +653,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _pickBookUpdate(BookEntry entry) async {
+    if (!widget.allowImport) return;
     try {
       final paths = await widget.pickEpubFiles();
-      if (!mounted || paths.isEmpty) return;
+      if (!mounted || paths.isEmpty || !widget.allowImport) return;
       if (paths.length != 1) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('更新时请选择一本 EPUB')));
@@ -952,7 +958,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               IconButton(
                 key: const ValueKey<String>('bookshelf-import'),
                 tooltip: busy ? '导入中…' : '导入 EPUB',
-                onPressed: busy ? null : _import,
+                onPressed: busy || !widget.allowImport ? null : _import,
                 icon: busy
                     ? const SizedBox(
                         width: 18,
@@ -1010,13 +1016,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   Widget _buildLibraryBody(List<_ShelfItem>? items, List<_ShelfItem>? visible) {
     if (_error != null) {
-      return _ErrorPane(message: _error!, onRetry: _import);
+      return _ErrorPane(
+        message: _error!,
+        onRetry: widget.allowImport ? _import : null,
+      );
     }
     if (items == null) {
       return const Center(child: CircularProgressIndicator());
     }
     if (items.isEmpty) {
-      return const _EmptyPane();
+      return _EmptyPane(allowImport: widget.allowImport);
     }
     final books = visible!;
     if (books.isEmpty) {
@@ -1668,7 +1677,9 @@ String _shelfMetaLabel(BookEntry entry, int? percentInt, bool finished) {
 }
 
 class _EmptyPane extends StatelessWidget {
-  const _EmptyPane();
+  const _EmptyPane({required this.allowImport});
+
+  final bool allowImport;
 
   @override
   Widget build(BuildContext context) {
@@ -1682,9 +1693,15 @@ class _EmptyPane extends StatelessWidget {
             color: Theme.of(context).colorScheme.outline,
           ),
           const SizedBox(height: 12),
-          Text('书架还是空的', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            allowImport ? '书架还是空的' : '书库暂时不可用',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 4),
-          Text('点击右上角导入按钮添加第一本书', style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            allowImport ? '点击右上角导入按钮添加第一本书' : '请先重试本地数据库，恢复后再导入书籍',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );
@@ -1753,7 +1770,7 @@ class _ErrorPane extends StatelessWidget {
   const _ErrorPane({required this.message, required this.onRetry});
 
   final String message;
-  final Future<void> Function() onRetry;
+  final Future<void> Function()? onRetry;
 
   @override
   Widget build(BuildContext context) {

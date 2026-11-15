@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../storage/startup_storage.dart';
 import 'bookshelf_page.dart';
 import 'profile_page.dart';
 import 'reviews_page.dart';
@@ -14,6 +15,7 @@ class HomeShell extends StatefulWidget {
     super.key,
     required this.library,
     required this.progressStore,
+    this.storageRecovery,
   });
 
   /// 书架存储。
@@ -21,6 +23,9 @@ class HomeShell extends StatefulWidget {
 
   /// 进度存储。
   final ReaderProgressStore progressStore;
+
+  /// 数据库不可用时的恢复入口；正常页面与测试可省略。
+  final StartupStorage? storageRecovery;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -30,6 +35,83 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   int _bookshelfRefreshToken = 0;
   int _statsRefreshToken = 0;
+  bool _exportingDiagnostics = false;
+
+  Future<void> _retryStorage() async {
+    if (_exportingDiagnostics) return;
+    final restored = await widget.storageRecovery!.retry();
+    if (mounted && !restored) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本地数据库仍不可用，请稍后重试')),
+      );
+    }
+  }
+
+  Future<void> _exportDiagnostics() async {
+    if (_exportingDiagnostics || widget.storageRecovery!.isOpening) return;
+    setState(() => _exportingDiagnostics = true);
+    final exported = await widget.storageRecovery!.exportDiagnostics();
+    if (!mounted) return;
+    setState(() => _exportingDiagnostics = false);
+    if (!exported) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('诊断导出失败，请稍后重试')),
+      );
+    }
+  }
+
+  Widget _buildBody(List<Widget> pages) {
+    final content = IndexedStack(index: _index, children: pages);
+    final recovery = widget.storageRecovery;
+    if (recovery == null) return content;
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          _buildStorageBanner(recovery),
+          Expanded(child: content),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStorageBanner(StartupStorage recovery) {
+    final theme = Theme.of(context);
+    final busy = recovery.isOpening || _exportingDiagnostics;
+    return MaterialBanner(
+      key: const ValueKey<String>('temporary-storage-banner'),
+      backgroundColor: theme.colorScheme.errorContainer,
+      leading: Icon(Icons.warning_amber, color: theme.colorScheme.error),
+      forceActionsBelow: true,
+      content: _buildStorageMessage(theme),
+      actions: [
+        TextButton(
+          key: const ValueKey<String>('storage-retry'),
+          onPressed: busy ? null : _retryStorage,
+          child: Text(recovery.isOpening ? '正在重试…' : '重试'),
+        ),
+        TextButton(
+          key: const ValueKey<String>('storage-export-diagnostics'),
+          onPressed: busy ? null : _exportDiagnostics,
+          child: Text(_exportingDiagnostics ? '正在导出…' : '导出诊断'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStorageMessage(ThemeData theme) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        '本地数据库不可用，当前为临时模式',
+        style: theme.textTheme.titleSmall,
+      ),
+      const SizedBox(height: 4),
+      const Text(
+        '持久化不可用，原书库与阅读记录暂时无法读取。原有文件已保留，恢复前已暂停导入。',
+      ),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +129,7 @@ class _HomeShellState extends State<HomeShell> {
         library: widget.library,
         progressStore: widget.progressStore,
         refreshToken: _bookshelfRefreshToken,
+        allowImport: widget.storageRecovery == null,
       ),
       StatsPage(
         library: widget.library,
@@ -58,7 +141,7 @@ class _HomeShellState extends State<HomeShell> {
       ProfilePage(library: widget.library),
     ];
     return Scaffold(
-      body: IndexedStack(index: _index, children: pages),
+      body: _buildBody(pages),
       bottomNavigationBar: DecoratedBox(
         decoration: BoxDecoration(
           border: Border(

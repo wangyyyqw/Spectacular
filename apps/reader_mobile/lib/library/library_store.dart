@@ -269,6 +269,9 @@ class LibraryStore {
 
   bool get _isMemory => _db == null;
 
+  /// 是否连接了可持久化的数据库；临时模式不得执行磁盘清理。
+  bool get supportsPersistence => _db != null;
+
   Future<T> _enqueueOperation<T>(Future<T> Function() operation) {
     final db = _db;
     final previous = db == null ? _importQueue : _databaseImportQueues[db];
