@@ -51,7 +51,7 @@ class FootnoteAnchor {
   /// 注释类型。
   final NoteKind kind;
 
-  /// 引用元素的 id。
+  /// 引用元素或紧邻前置空锚点的 id。
   final String? sourceId;
 
   /// 目标所在 spine；未解析为 -1。
@@ -335,7 +335,7 @@ abstract final class FootnoteParser {
           : null;
       final fragment = hasFragment ? href.substring(hash + 1) : '';
       final label = _normalizeText(element.innerText);
-      final sourceId = element.getAttribute('id')?.trim();
+      final sourceId = _referenceId(element);
       final kind = _kindOf(element, fragment, null);
       final imageNote = directImage ? attributes['alt']?.trim() : null;
       final directText = directContent ?? imageNote;
@@ -467,19 +467,25 @@ abstract final class FootnoteParser {
       }
 
       final targetKind = _kindOfElement(element, fragment);
+      final pairedContainer =
+          targetKind == NoteKind.link &&
+              anchor.kind == NoteKind.link &&
+              anchor.heuristicReference
+          ? _pairedNoteContainer(source, anchor, target, element)
+          : null;
       final kind = targetKind == NoteKind.endnote
           ? NoteKind.endnote
           : anchor.kind != NoteKind.link
           ? anchor.kind
           : targetKind != NoteKind.link
           ? targetKind
-          : anchor.heuristicReference && _isLikelyNoteTarget(element)
+          : anchor.heuristicReference &&
+                (_isLikelyNoteTarget(element) || pairedContainer != null)
           ? NoteKind.footnote
           : NoteKind.link;
-      final container = _noteContainer(
-        element,
-        allowEnclosingBlock: kind != NoteKind.link,
-      );
+      final container =
+          pairedContainer ??
+          _noteContainer(element, allowEnclosingBlock: kind != NoteKind.link);
       final definitionId = _definitionContainerId(element);
       final noteText = _noteText(container, anchor.label);
       final noteImages = _noteImages(container, target.path);
@@ -563,6 +569,76 @@ abstract final class FootnoteParser {
     return _hasAncestor(element, 'sup') ||
         RegExp(r'^[\[\(（]?\d+[\]\)）]?$').hasMatch(label) ||
         (tag == 'img' && RegExp(r'^\d+$').hasMatch(alt));
+  }
+
+  /// 一些 EPUB 将返回位置写在注号之前的独立空 a 元素上。
+  static String? _referenceId(XmlElement element) {
+    final own = element.getAttribute('id')?.trim();
+    if (own != null && own.isNotEmpty) return own;
+    final siblings = element.parent?.children;
+    if (siblings == null) return null;
+    for (var index = siblings.indexOf(element) - 1; index >= 0; index--) {
+      final sibling = siblings[index];
+      if (sibling is XmlText && sibling.value.trim().isEmpty) continue;
+      if (sibling is! XmlElement ||
+          sibling.name.local != 'a' ||
+          sibling.getAttribute('href') != null ||
+          sibling.children.any(
+            (child) => child is! XmlText || child.value.trim().isNotEmpty,
+          )) {
+        return null;
+      }
+      final id = sibling.getAttribute('id')?.trim();
+      return id == null || id.isEmpty ? null : id;
+    }
+    return null;
+  }
+
+  /// 无注释语义时，以段首定义锚点、相同注号和精确返回位置确认注文。
+  /// 普通正文中的双向链接不能仅凭数字或目标 id 被隐藏。
+  static XmlElement? _pairedNoteContainer(
+    FootnoteDocument source,
+    FootnoteAnchor anchor,
+    FootnoteDocument target,
+    XmlElement element,
+  ) {
+    final sourceId = anchor.sourceId;
+    if (sourceId == null || anchor.label.isEmpty) return null;
+    final container = _noteContainerOrNull(element, allowEnclosingBlock: true);
+    if (container == null ||
+        !_startsContainer(element, container) ||
+        _noteText(container, anchor.label) == null) {
+      return null;
+    }
+    for (final backlink in container.descendants.whereType<XmlElement>()) {
+      if (backlink.name.local != 'a' ||
+          _normalizeText(backlink.innerText) != anchor.label) {
+        continue;
+      }
+      final href = backlink.getAttribute('href')?.trim() ?? '';
+      final hash = href.indexOf('#');
+      if (hash < 0 || _decode(href.substring(hash + 1)) != sourceId) continue;
+      final path = _resolvePath(
+        href.substring(0, hash),
+        _dirOf(target.path),
+        target.path,
+      );
+      if (path == source.path) return container;
+    }
+    return null;
+  }
+
+  static bool _startsContainer(XmlElement element, XmlElement container) {
+    if (identical(element, container)) return true;
+    for (final node in container.descendants) {
+      if (identical(node, element)) return true;
+      if (node is XmlText && node.value.trim().isNotEmpty) return false;
+      if (node is XmlElement &&
+          const {'img', 'image', 'svg', 'object'}.contains(node.name.local)) {
+        return false;
+      }
+    }
+    return false;
   }
 
   static bool _isLikelyNoteTarget(XmlElement element) {
