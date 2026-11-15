@@ -166,6 +166,7 @@ class ChapterLayoutPipeline {
       flow.blocks,
       checkpoint: budget.checkpoint,
     );
+    _expandPageBackground(input, resolver, flow);
     await budget.checkpoint();
     return (
       flow: flow.blocks,
@@ -178,6 +179,22 @@ class ChapterLayoutPipeline {
       ),
       warning: image.warning,
     );
+  }
+
+  void _expandPageBackground(
+    PreparedChapterLayout input,
+    ChapterStyleResolver resolver,
+    ChapterFlow flow,
+  ) {
+    if (flow.blocks.length != 1 || flow.fixedBlocks.isNotEmpty) return;
+    final root = input.selectors.htmlElement?.childElements.singleOrNull;
+    if (root?.tag != 'body' || root!.childElements.length != 1) return;
+    final authored = resolver.chainStyle([root, root.childElements.single]);
+    flow.blocks[0] = FullPageChapterLayout(
+      resources,
+      input.snapshot,
+      input.imageCfi,
+    ).expandBackground(flow.blocks.single, authored);
   }
 
   static void _trace(ReaderTraceName name, Stopwatch watch, String? book) {
