@@ -13,16 +13,17 @@ class StartupStorage extends ChangeNotifier {
     ReaderLog? log,
     Future<AppDatabase?> Function()? openDatabase,
     LibraryStore Function(AppDatabase)? createLibrary,
-    Future<void> Function()? exportDiagnostics,
+    this.onExportDiagnostics,
   }) : _log = log ?? ReaderLog.instance,
        _openDatabase = openDatabase ?? AppDatabase.openDefault,
-       _createLibrary = createLibrary ?? _defaultLibrary,
-       _exportDiagnostics = exportDiagnostics;
+       _createLibrary = createLibrary ?? _defaultLibrary;
 
   final ReaderLog _log;
   final Future<AppDatabase?> Function() _openDatabase;
   final LibraryStore Function(AppDatabase) _createLibrary;
-  final Future<void> Function()? _exportDiagnostics;
+
+  /// 可注入的系统诊断导出动作；为空时使用默认分享入口。
+  final Future<void> Function()? onExportDiagnostics;
   LibraryStore _library = LibraryStore.memory();
   ReaderProgressStore _progressStore = MemoryReaderProgressStore();
   Future<bool>? _openTask;
@@ -120,10 +121,10 @@ class StartupStorage extends ChangeNotifier {
   Future<bool> exportDiagnostics() async {
     try {
       await _log.log('storage_diagnostics_export');
-      if (_exportDiagnostics == null) {
+      if (onExportDiagnostics == null) {
         await _log.share();
       } else {
-        await _exportDiagnostics();
+        await onExportDiagnostics!();
       }
       return true;
     } catch (error, stack) {

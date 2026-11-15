@@ -1328,7 +1328,7 @@ class LibraryStore {
   }
 
   Future<void> _markBookRemoved(int bookId) => _db!.transaction(() async {
-    final db = _db!;
+    final db = _db;
     // 软删除保留阅读数据；编辑记录与文件指针在同一事务中清理。
     await (db.update(
       db.books,
