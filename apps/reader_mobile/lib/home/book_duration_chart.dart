@@ -591,7 +591,7 @@ List<_DurationSlice> _slices(
   ];
 }
 
-/// 五段标注的布局几何：左三、右二，引线连接每个扇区的中心。
+/// 五段标注的布局几何：标签跟随扇区方位放在左右，引线连接对应扇区中心。
 class _CalloutGeometry {
   _CalloutGeometry({
     required double width,
@@ -609,9 +609,29 @@ class _CalloutGeometry {
     final labelHeight = (compact ? 66.0 : 62.0) * scale;
     final leftX = 0.0;
     final rightX = width - labelWidth;
-    final leftCount = slices.length >= 3 ? (slices.length + 1) ~/ 2 : 1;
-    final rightCount = slices.length - leftCount;
-    final rowCount = math.max(leftCount, rightCount);
+    final angles = <double>[];
+    var angle = -math.pi / 2;
+    for (final slice in slices) {
+      final sweep =
+          slice.duration.inMicroseconds / total.inMicroseconds * 2 * math.pi;
+      angles.add(angle + sweep / 2);
+      angle += sweep;
+    }
+    final leftIndices = <int>[];
+    final rightIndices = <int>[];
+    for (var index = 0; index < angles.length; index++) {
+      (math.cos(angles[index]) < 0 ? leftIndices : rightIndices).add(index);
+    }
+    int topToBottom(int left, int right) {
+      final vertical = math
+          .sin(angles[left])
+          .compareTo(math.sin(angles[right]));
+      return vertical == 0 ? left.compareTo(right) : vertical;
+    }
+
+    leftIndices.sort(topToBottom);
+    rightIndices.sort(topToBottom);
+    final rowCount = math.max(leftIndices.length, rightIndices.length);
     final requiredHeight =
         rowCount * labelHeight + (rowCount - 1) * (compact ? 8 : 16);
     final ringTop = math.max(12.0, (requiredHeight - ringSize) / 2);
@@ -624,7 +644,6 @@ class _CalloutGeometry {
       width: cappedRing,
       height: cappedRing,
     );
-    final ringRadius = ringSize / 2;
     final gap = (height - rowCount * labelHeight) / (rowCount + 1);
     final labelInset = math.max(2.0, (height - requiredHeight) / 3);
     final yPositions = <double>[
@@ -634,48 +653,30 @@ class _CalloutGeometry {
           height - labelHeight - labelInset,
         ),
     ];
-    final angles = <double>[];
-    var angle = -math.pi / 2;
-    for (final slice in slices) {
-      final sweep =
-          slice.duration.inMicroseconds / total.inMicroseconds * 2 * math.pi;
-      angles.add(angle + sweep / 2);
-      angle += sweep;
-    }
     centerAngle = -math.pi / 2;
-    labels = [];
-    anchorPoints = [];
-    elbowPoints = [];
-    for (var index = 0; index < slices.length; index++) {
-      final onLeft = index < leftCount;
-      final row = onLeft ? index : index - leftCount;
-      final left = onLeft ? leftX : rightX;
-      final rect = Rect.fromLTWH(
-        left,
-        yPositions[row],
-        labelWidth,
-        labelHeight,
-      );
-      labels.add(rect);
-      final sliceAngle = angles[index];
-      final anchor = Offset(
-        ringCenter.dx + math.cos(sliceAngle) * (ringRadius + 4),
-        ringCenter.dy + math.sin(sliceAngle) * (ringRadius + 4),
-      );
-      anchorPoints.add(anchor);
-      final startX = onLeft ? rect.right : rect.left;
-      final elbowX = onLeft
-          ? startX + (anchor.dx - startX) * .55
-          : startX + (anchor.dx - startX) * .55;
-      elbowPoints.add(Offset(elbowX, rect.center.dy));
+    labels = List<Rect>.filled(slices.length, Rect.zero);
+    labelOnRight = List<bool>.filled(slices.length, false);
+    for (final indices in <(List<int>, bool)>[
+      (leftIndices, false),
+      (rightIndices, true),
+    ]) {
+      for (var row = 0; row < indices.$1.length; row++) {
+        final index = indices.$1[row];
+        labels[index] = Rect.fromLTWH(
+          indices.$2 ? rightX : leftX,
+          yPositions[row],
+          labelWidth,
+          labelHeight,
+        );
+        labelOnRight[index] = indices.$2;
+      }
     }
     this.height = height;
   }
 
   late final Rect ringRect;
   late final List<Rect> labels;
-  late final List<Offset> anchorPoints;
-  late final List<Offset> elbowPoints;
+  late final List<bool> labelOnRight;
   late final double height;
   late final double centerAngle;
 }
@@ -716,24 +717,20 @@ class _DurationCalloutPainter extends CustomPainter {
       );
       final label = geometry.labels[index];
       final end = Offset(
-        index < (slices.length + 1) ~/ 2 ? label.right - 4 : label.left + 4,
+        geometry.labelOnRight[index] ? label.left - 4 : label.right + 4,
         label.center.dy,
       );
-      final root = label.center.dy;
-      final bendX = (start.dx + end.dx) / 2;
       final path = Path()
         ..moveTo(start.dx, start.dy)
-        ..lineTo(bendX, start.dy)
-        ..lineTo(bendX, root)
-        ..lineTo(end.dx, root);
+        ..lineTo(end.dx, end.dy);
       _dashed(canvas, path, paint);
       angle += sweep;
     }
   }
 
   void _dashed(Canvas canvas, Path path, Paint paint) {
-    const dash = 5.0;
-    const gap = 4.0;
+    const dash = 4.0;
+    const gap = 5.0;
     for (final metric in path.computeMetrics()) {
       for (
         var distance = 0.0;
