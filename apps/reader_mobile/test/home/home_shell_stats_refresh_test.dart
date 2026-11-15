@@ -62,8 +62,10 @@ void main() {
     final navigation = tester.widget<BottomNavigationBar>(
       find.byType(BottomNavigationBar),
     );
-    expect(navigation.items[2].icon, isNot(isA<Icon>()));
-    expect(navigation.items[2].activeIcon, isNot(isA<Icon>()));
+    for (final index in <int>[0, 2, 3]) {
+      expect(navigation.items[index].icon, isNot(isA<Icon>()));
+      expect(navigation.items[index].activeIcon, isNot(isA<Icon>()));
+    }
 
     final now = DateTime.now();
     library.sessions.add(
