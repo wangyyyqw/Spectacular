@@ -49,18 +49,6 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   void _shiftMonth(int offset) =>
       _showMonth(DateTime(_visibleMonth.year, _visibleMonth.month + offset));
 
-  Future<void> _pickMonth() async {
-    final selected = await showModalBottomSheet<DateTime>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) =>
-          _CalendarMonthPicker(selected: _visibleMonth, current: _currentMonth),
-    );
-    if (mounted && selected != null) _showMonth(selected);
-  }
-
   void _openDay(DateTime date, List<BookDurationEntry> books) {
     setState(() => _selectedDate = date);
     showModalBottomSheet<void>(
@@ -131,24 +119,13 @@ class _ReadingCalendarState extends State<ReadingCalendar>
     ],
   );
 
-  Widget _monthButton() => TextButton(
-    key: const ValueKey('stats-calendar-month-picker'),
-    onPressed: _pickMonth,
-    style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Flexible(
-          child: Text(
-            '${_visibleMonth.year}年${_visibleMonth.month}月',
-            key: const ValueKey('stats-calendar-month'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-        ),
-        const SizedBox(width: 4),
-        const Icon(Icons.expand_more_rounded, size: 18),
-      ],
+  Widget _monthButton() => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 15),
+    child: Text(
+      '${_visibleMonth.year}年${_visibleMonth.month}月',
+      key: const ValueKey('stats-calendar-month'),
+      textAlign: TextAlign.center,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
     ),
   );
 
@@ -376,126 +353,6 @@ class _CalendarBar extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(fontSize: 10, height: 1.3, color: color),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CalendarMonthPicker extends StatefulWidget {
-  const _CalendarMonthPicker({required this.selected, required this.current});
-  final DateTime selected;
-  final DateTime current;
-
-  @override
-  State<_CalendarMonthPicker> createState() => _CalendarMonthPickerState();
-}
-
-class _CalendarMonthPickerState extends State<_CalendarMonthPicker> {
-  late int _year = widget.selected.year;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    height: MediaQuery.sizeOf(context).height * 0.6,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _heading(),
-        _yearNavigation(),
-        Expanded(child: _monthGrid()),
-      ],
-    ),
-  );
-
-  Widget _heading() => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 0, 12, 4),
-    child: Row(
-      children: [
-        const Expanded(
-          child: Text(
-            '选择月份',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-        ),
-        TextButton(
-          key: const ValueKey('stats-calendar-current-month'),
-          onPressed: () => Navigator.of(context).pop(widget.current),
-          child: const Text('回到本月'),
-        ),
-      ],
-    ),
-  );
-
-  Widget _yearNavigation() => Row(
-    children: [
-      IconButton(
-        key: const ValueKey('stats-calendar-previous-year'),
-        tooltip: '上一年',
-        onPressed: () => setState(() => _year--),
-        icon: const Icon(Icons.chevron_left_rounded),
-      ),
-      Expanded(
-        child: Text(
-          '$_year年',
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
-      ),
-      IconButton(
-        key: const ValueKey('stats-calendar-next-year'),
-        tooltip: '下一年',
-        onPressed: () => setState(() => _year++),
-        icon: const Icon(Icons.chevron_right_rounded),
-      ),
-    ],
-  );
-
-  Widget _monthGrid() => LayoutBuilder(
-    builder: (context, constraints) {
-      final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
-      final columns = ((constraints.maxWidth - 40) / (64 * scale))
-          .floor()
-          .clamp(1, 3);
-      return GridView.builder(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns,
-          mainAxisExtent: 64 * scale,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-        ),
-        itemCount: 12,
-        itemBuilder: (context, index) => _monthTile(index + 1),
-      );
-    },
-  );
-
-  Widget _monthTile(int month) {
-    final date = DateTime(_year, month);
-    final scheme = Theme.of(context).colorScheme;
-    final selected = date == widget.selected;
-    return Semantics(
-      selected: selected,
-      child: OutlinedButton(
-        key: ValueKey('stats-calendar-month-${_dateKey(date)}'),
-        onPressed: () => Navigator.of(context).pop(date),
-        style: OutlinedButton.styleFrom(
-          backgroundColor: selected ? scheme.surfaceContainerHighest : null,
-          side: BorderSide(
-            color: selected ? scheme.onSurface : scheme.outlineVariant,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('$month月', style: const TextStyle(fontSize: 14)),
-            if (date == widget.current)
-              Text(
-                '本月',
-                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
-              ),
-          ],
         ),
       ),
     );
