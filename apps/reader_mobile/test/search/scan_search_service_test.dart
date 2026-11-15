@@ -194,6 +194,26 @@ void main() {
     expect(await service.resolveCfi(hits.last), isNotNull);
   });
 
+  test('搜索诊断只记录查询长度和扫描统计', () async {
+    const query = '私密检索意图';
+    final source = await openTestChapterSource(
+      buildTestEpub(title: '私密书名', paragraphs: const ['$query 出现一次']),
+    );
+    addTearDown(source.close);
+    final records = <Map<String, Object?>>[];
+    final service = ScanSearchService(
+      source: source,
+      onLog: (_, fields) => records.add(fields),
+    );
+    addTearDown(service.dispose);
+    expect(await service.search(query), hasLength(1));
+    expect(records.single['query_length'], query.length);
+    expect(records.single['hits'], 1);
+    expect(records.single.toString(), isNot(contains(query)));
+    expect(records.single.toString(), isNot(contains('私密书名')));
+    expect(records.single, isNot(contains('query')));
+  });
+
   test('多段落重复命中的CFI分别落在真实命中文字', () async {
     final source = await openTestChapterSource(
       buildTestEpub(paragraphs: const ['甲段重复词甲尾', '乙段重复词乙尾', '丙段重复词丙尾']),
