@@ -470,6 +470,40 @@ void main() {
     expect(await second.bookTags(secondBook.id), hasLength(1));
   });
 
+  test('同数据库跨实例并发创建同名标签，返回唯一已持久化标签', () async {
+    final dir = Directory.systemTemp.createTempSync('library_concurrent_tags');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final second = LibraryStore(
+      database: opened.db,
+      directoryProvider: () async => dir,
+    );
+
+    final tags = await Future.wait([
+      opened.store.createTag(' 并发标签 '),
+      second.createTag('并发标签'),
+      opened.store.createTag('并发标签'),
+    ]);
+
+    expect(tags.map((tag) => tag.id).toSet(), hasLength(1));
+    expect(tags.map((tag) => tag.name).toSet(), {'并发标签'});
+    final stored = (await second.listTags()).single;
+    expect(stored.id, tags.first.id);
+    expect(stored.createdAt, tags.first.createdAt);
+  });
+
+  test('内存模式并发创建同名标签，查重与写入之间不让出执行', () async {
+    final store = LibraryStore.memory();
+
+    final tags = await Future.wait([
+      store.createTag(' 内存并发标签 '),
+      store.createTag('内存并发标签'),
+    ]);
+
+    expect(tags.map((tag) => tag.id).toSet(), hasLength(1));
+    expect((await store.listTags()).single.name, '内存并发标签');
+  });
+
   test('内存模式编辑资料和阅读时间保留内容摘要及标签', () async {
     final store = LibraryStore.memory();
     final book = await store.importBytes(
