@@ -140,4 +140,42 @@ void main() {
       containsAll(['第一段[1]', '第二段[1]', '普通章节正文。']),
     );
   });
+
+  const definitions = {
+    '显式 aside 定义':
+        '<aside id="definition-a" epub:type="footnote">容器内的注释。</aside>',
+    '带返回链接的块级定义':
+        '<p id="definition-a">容器内的注释。'
+        '<a role="doc-backlink" href="#reference-a">返回</a></p>',
+    '带返回链接的行内定义锚点':
+        '<p><a id="definition-a"></a>容器内的注释。'
+        '<a role="doc-backlink" href="#reference-a">返回</a></p>',
+  };
+  for (final definition in definitions.entries) {
+    test('${definition.key}只隐藏定义，保留同一容器内的正文', () async {
+      final pages = await _pages(
+        '<h2><span style="display:block">第五章</span></h2>'
+        '<h2><span style="display:block">为了那点子弹</span></h2>'
+        '<div class="content"><p>正文开头。</p>'
+        '<p>中间正文<a id="reference-a" epub:type="noteref" '
+        'href="#definition-a">[1]</a>继续正文。</p>'
+        '${definition.value}<p>正文结尾。</p></div>',
+      );
+      final blocks = pages
+          .expand((page) => page.slices)
+          .map((slice) => slice.block);
+      expect(
+        blocks.map((block) => block.layout.text),
+        containsAll(['第五章', '为了那点子弹', '正文开头。', '中间正文[1]继续正文。', '正文结尾。']),
+      );
+      expect(
+        blocks.map((block) => block.layout.text).join('\n'),
+        isNot(contains('容器内的注释。')),
+      );
+      expect(
+        blocks.expand((block) => block.footnotes).map((note) => note.text),
+        ['容器内的注释。'],
+      );
+    });
+  }
 }

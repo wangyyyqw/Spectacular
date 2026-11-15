@@ -59,6 +59,10 @@ class _FootnoteVisibility {
   final List<ParsedElement> ancestors = [];
 
   bool walk(ParsedElement element) {
+    if (FootnoteParser.isDefinitionElement(element.tag, element.attributes)) {
+      hidden.add(element);
+      return false;
+    }
     var hasBacklink = false;
     ancestors.add(element);
     for (final child in element.children.whereType<ParsedElement>()) {
@@ -70,11 +74,14 @@ class _FootnoteVisibility {
         hasBacklink && _definitionContainers.contains(element.tag);
     if (hiddenIds.contains(element.id) || definition) {
       hidden.add(_ownerOf(element));
+      // 定义已归属到当前块，返回链接不再传播到承载正文的外层容器。
+      return false;
     }
     return backlink || hasBacklink;
   }
 
   ParsedElement _ownerOf(ParsedElement element) {
+    if (_definitionContainers.contains(element.tag)) return element;
     for (final parent in ancestors.reversed) {
       if (_definitionContainers.contains(parent.tag)) return parent;
     }
