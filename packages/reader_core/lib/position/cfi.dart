@@ -82,14 +82,21 @@ class CfiSegment {
   }
 }
 
-/// 去掉 CFI 末尾的字符偏移，得到块级 CFI（标注区间端点比对用）。
-String cfiBase(String cfi) =>
-    cfi.trim().replaceFirst(RegExp(r':[0-9]+\)$'), ')');
+/// 去掉点 CFI 的终止偏移及侧向断言，得到块级 CFI。
+String cfiBase(String cfi) {
+  final trimmed = cfi.trim();
+  final parsed = EpubCfi.parse(trimmed);
+  if (parsed == null || parsed.isRange) return trimmed;
+  return EpubCfi([
+    ...parsed.segments.take(parsed.segments.length - 1),
+    CfiSegment(parsed.segments.last.steps),
+  ]).serialize();
+}
 
 /// 取 CFI 末尾的字符偏移；没有偏移时返回 null。
 int? cfiCharOffset(String cfi) {
-  final match = RegExp(r':([0-9]+)\)$').firstMatch(cfi.trim());
-  return match == null ? null : int.tryParse(match.group(1)!);
+  final parsed = EpubCfi.parse(cfi.trim());
+  return parsed == null || parsed.isRange ? null : parsed.charOffset;
 }
 
 /// 给块级 CFI 追加/替换字符偏移（标注区间端点用，§30.2）。
@@ -98,13 +105,11 @@ int? cfiCharOffset(String cfi) {
 /// 输入不是 `epubcfi(...)` 形态时原样返回。
 String cfiWithCharOffset(String cfi, int charOffset) {
   final trimmed = cfi.trim();
-  if (!trimmed.startsWith('epubcfi(') || !trimmed.endsWith(')')) {
+  final parsed = EpubCfi.parse(trimmed);
+  if (parsed == null || parsed.isRange || charOffset < 0) {
     return cfi;
   }
-  return trimmed.replaceFirstMapped(
-    RegExp(r'(:[0-9]+)?\)$'),
-    (_) => ':$charOffset)',
-  );
+  return parsed.withCharOffset(charOffset).serialize();
 }
 
 /// CFI → spine 序号（§34.2）。

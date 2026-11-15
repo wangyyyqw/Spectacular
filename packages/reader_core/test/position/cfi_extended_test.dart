@@ -71,6 +71,25 @@ void main() {
     expect(after.compareTo(before), greaterThan(0));
   });
 
+  test('块级辅助函数支持侧向及时间空间偏移，替换偏移保留侧向', () {
+    const base = 'epubcfi(/6/4[chap^/01]!/4/2/1)';
+    for (final suffix in [':3[;s=b]', ':3[;s=a]', ':3~3.5', ':3@2:1']) {
+      final point = '${base.substring(0, base.length - 1)}$suffix)';
+      expect(cfiBase(point), base);
+      expect(cfiCharOffset(point), 3);
+      final replaced = EpubCfi.parse(cfiWithCharOffset(point, 7))!;
+      expect(replaced.charOffset, 7);
+      expect(replaced.side, EpubCfi.parse(point)!.side);
+      expect(cfiBase(replaced.serialize()), base);
+    }
+    const range = 'epubcfi(/6/4!/4/2,/2/1:0,/3/1:5)';
+    expect(cfiBase(range), range);
+    expect(cfiCharOffset(range), isNull);
+    expect(cfiWithCharOffset(range, 7), range);
+    expect(cfiWithCharOffset('非法 CFI', 7), '非法 CFI');
+    expect(cfiWithCharOffset(base, -1), base);
+  });
+
   test('20 个畸形输入返回 null', () {
     const invalid = <String>[
       '',
