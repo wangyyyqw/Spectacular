@@ -632,7 +632,7 @@ class PageBlock {
     return extent;
   }
 
-  /// 复制块并替换段距、浮动方向或容器分页占位（其余字段共享引用）。
+  /// 复制块并替换段距、出血方向、浮动或容器分页占位（其余字段共享引用）。
   PageBlock withSpacing({
     double? spaceBefore,
     double? spaceAfter,
@@ -645,6 +645,7 @@ class PageBlock {
     FloatParentMargins? floatParentMargins,
     double? floatContainingLeft,
     double? floatContainingWidth,
+    CssBleed? bleed,
   }) => PageBlock(
     layout: layout,
     pageBreakBefore: pageBreakBefore,
@@ -678,10 +679,10 @@ class PageBlock {
     absolute: absolute,
     absoluteTop: absoluteTop,
     absoluteLeft: absoluteLeft,
-    bleedLeft: bleedLeft,
-    bleedRight: bleedRight,
-    bleedTop: bleedTop,
-    bleedBottom: bleedBottom,
+    bleedLeft: bleed?.left ?? bleedLeft,
+    bleedRight: bleed?.right ?? bleedRight,
+    bleedTop: bleed?.top ?? bleedTop,
+    bleedBottom: bleed?.bottom ?? bleedBottom,
     containerSides: containerSides,
     containers: containers ?? this.containers,
     declaredContentHeight: declaredContentHeight,

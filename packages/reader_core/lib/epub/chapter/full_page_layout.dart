@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/api.dart' show EpubLayoutType;
+import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/full_bleed.dart';
@@ -20,7 +21,7 @@ class FullPageLayoutOptions {
 
 typedef FullPageLayoutDecision = ({PageBlock? block, String? warning});
 
-/// 已确认单图的整页快路，和普通正文共用后续分页与缓存提交。
+/// 单图与独立整页背景的布局，和普通正文共用后续分页与缓存提交。
 class FullPageChapterLayout {
   FullPageChapterLayout(this.resources, this.snapshot, this.imageCfi);
   final BookResources resources;
@@ -28,6 +29,48 @@ class FullPageChapterLayout {
 
   /// 结构准备时确认的唯一可见图片叶位置，不按资源地址反查隐藏元素。
   final String? imageCfi;
+
+  /// 独立且占满页面的 cover 背景盒沿用整页绘制口径，保留文字和定位载荷。
+  PageBlock expandBackground(PageBlock block, ComputedStyle authored) {
+    final style = block.style;
+    if (style == null ||
+        block.isReplaced ||
+        block.absolute ||
+        block.floatSide != null ||
+        block.containers.isNotEmpty ||
+        !_isPageBackground(style, authored)) {
+      return block;
+    }
+    final model = BoxModel.fromStyle(style, containingWidth: snapshot.width);
+    final boxWidth = model.borderBoxWidth(
+      model.resolveContentWidth(snapshot.width),
+    );
+    final boxHeight = block.leadingExtent + block.height + block.trailingExtent;
+    if ((boxWidth - snapshot.width).abs() > 0.01 ||
+        (boxHeight - snapshot.height).abs() > 0.01) {
+      return block;
+    }
+    return block.withSpacing(
+      bleed: const CssBleed(left: true, right: true, top: true, bottom: true),
+    );
+  }
+
+  bool _isPageBackground(ComputedStyle style, ComputedStyle authored) {
+    final margin = style.margin;
+    return authored.height != null &&
+        authored.backgroundImage != null &&
+        authored.backgroundSize.mode == CssBackgroundSizeMode.cover &&
+        style.backgroundImage == authored.backgroundImage &&
+        [
+          margin.top,
+          margin.right,
+          margin.bottom,
+          margin.left,
+        ].every((value) => value == 0) &&
+        !style.borders.hasRadius &&
+        style.transforms.isEmpty &&
+        style.clipPath == null;
+  }
 
   FullPageLayoutDecision build(
     FullBleedChapter analysis,
