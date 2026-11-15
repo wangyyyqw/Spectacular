@@ -171,6 +171,94 @@ void main() {
     expect(pages[1].slices.first.continuesBefore, isFalse);
   });
 
+  test('多列首页可用高度为零时强制容行且不丢正文', () {
+    final style = _style(const {'column-count': '2', 'column-gap': '20px'});
+    final block = _block('abcdefghij' * 20, style);
+    final result = Paginator(
+      pageHeight: 120,
+      topPadding: 120,
+    ).measureChapter(blocks: [block], maxPages: 10);
+
+    expect(result.truncated, isFalse);
+    expect(result.pages.length, lessThanOrEqualTo(10));
+    expect(result.pages.every((page) => page.slices.isNotEmpty), isTrue);
+    expect(
+      result.pages
+          .expand((page) => page.slices)
+          .map((slice) => slice.block.layout.text)
+          .join(),
+      block.layout.text,
+      reason: '空页仍至少推进一行，超出页面的部分交由绘制层裁切',
+    );
+  });
+
+  test('多列段前留白超过页高时强制推进首行', () {
+    final style = _style(const {
+      'column-count': '2',
+      'column-gap': '20px',
+      'padding-top': '160px',
+    });
+    final block = _block('abcdefghij' * 20, style);
+    final result = Paginator(
+      pageHeight: 120,
+    ).measureChapter(blocks: [block], maxPages: 10);
+
+    expect(result.truncated, isFalse);
+    expect(result.pages.length, lessThanOrEqualTo(10));
+    expect(
+      result.pages
+          .expand((page) => page.slices)
+          .map((slice) => slice.block.layout.text)
+          .join(),
+      block.layout.text,
+    );
+  });
+
+  test('多列列流达到页数上限后保留已有页并截断', () {
+    final style = _style(const {'column-count': '2', 'column-gap': '20px'});
+    final block = _block('abcdefghij' * 20, style);
+    final result = Paginator(
+      pageHeight: 120,
+    ).measureChapter(blocks: [block], maxPages: 1);
+
+    expect(result.pages, hasLength(1));
+    expect(result.pages.single.slices, hasLength(2));
+    expect(result.truncated, isTrue);
+    expect(
+      result.pages.single.slices
+          .map((slice) => slice.block.layout.text)
+          .join(),
+      block.layout.text.substring(0, 80),
+    );
+  });
+
+  test('不可容行的多列列流在有限检查点内完成流式分页', () async {
+    final style = _style(const {'column-count': '2', 'column-gap': '20px'});
+    final block = _block('abcdefghij' * 20, style);
+    final paginator = Paginator(pageHeight: 1);
+    var checkpoints = 0;
+    final pages = await paginator
+        .paginate(
+          blocks: [block],
+          maxPages: 3,
+          budgetCheck: () async {
+            expect(++checkpoints, lessThanOrEqualTo(10));
+          },
+        )
+        .toList();
+
+    expect(pages, hasLength(3));
+    expect(pages.every((page) => page.slices.isNotEmpty), isTrue);
+    final synchronous = paginator.measureChapter(blocks: [block], maxPages: 3);
+    expect(synchronous.truncated, isTrue);
+    expect(
+      pages.expand((page) => page.slices).map((slice) => slice.block.layout.text),
+      synchronous.pages
+          .expand((page) => page.slices)
+          .map((slice) => slice.block.layout.text),
+    );
+  });
+
   test('列内保留行内样式 runs（加粗/斜体不丢）', () {
     final style = _style(const {'column-count': '2', 'column-gap': '20px'});
     final block = PageBlock.styled(

@@ -2449,9 +2449,15 @@ class Paginator {
           var cursor = 0;
           while (cursor < relaid.lineCount) {
             if (token?.isCancelled ?? false) return;
+            if (progress.pageCount >= maxPages) {
+              progress.truncated = true;
+              return;
+            }
+            yield const _PaginationStep.checkpoint();
             final leading = cursor == 0 ? block.leadingExtent : 0.0;
             final usable = available - leading;
-            if (usable <= tolerance) {
+            // 空页收页不会重置可用高；继续走强制容一行的分支，保证游标推进。
+            if (usable <= tolerance && slices.isNotEmpty) {
               final page = record();
               if (page != null) yield _PaginationStep.page(page);
               continue;
