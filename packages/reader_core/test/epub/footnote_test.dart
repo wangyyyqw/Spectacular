@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/footnote.dart';
+import 'package:xml/xml.dart';
 
 import '../support/corpus.dart';
 
@@ -57,6 +58,26 @@ void main() {
     expect(anchor.strategy, AnchorStrategy.directId);
     expect(anchor.noteText, contains('第一段注释'));
     expect(anchor.crossDocument, isFalse);
+  });
+
+  test('XML 保留实体由解析器解码，不破坏正文、属性或注释定义', () {
+    final source = _doc('''
+<html><body>
+<p>正文&lt;医师&gt;与 A&amp;B&nbsp;<a role="doc-noteref" href="#fn1">[1]</a></p>
+<aside id="fn1" role="doc-footnote"><p>&lt;说明&gt; &amp; &quot;双引号&quot;</p></aside>
+<p><span data-wr-footernote="&lt;铰链&gt; &amp; &quot;hinge&quot; &apos;注释&apos;">[2]</span></p>
+<p><span data-wr-footernote='&apos;单引号&apos;'>[3]</span></p>
+</body></html>
+''');
+    final anchors = _resolve(source, [source]);
+    expect(anchors, hasLength(3));
+    expect(anchors[0].noteText, '<说明> & "双引号"');
+    expect(anchors[1].noteText, '<铰链> & "hinge" \'注释\'');
+    expect(anchors[2].noteText, "'单引号'");
+    expect(
+      source.elements.map((element) => element.innerText),
+      contains('正文<医师>与 A&B [1]'),
+    );
   });
 
   test('EPUB2 sup 数字链接识别为脚注', () {
