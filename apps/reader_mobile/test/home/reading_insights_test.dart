@@ -18,6 +18,41 @@ ReadingSession _session(
 );
 
 void main() {
+  test('摘要界面移除后仍可读取今日、累计、逐日时长和翻页字数接口', () {
+    final stats = ReadingInsights([
+      _session(
+        'a',
+        DateTime(2026, 11, 15, 9),
+        const Duration(minutes: 12),
+        pages: 12,
+        characters: 400,
+      ),
+      _session(
+        'a',
+        DateTime(2026, 11, 14, 9),
+        const Duration(minutes: 30),
+        pages: 8,
+        characters: 300,
+      ),
+      _session(
+        'b',
+        DateTime(2026, 11, 5, 9),
+        const Duration(minutes: 45),
+        pages: 5,
+        characters: 200,
+      ),
+    ], now: DateTime(2026, 11, 15));
+    expect(stats.todayReading, const Duration(minutes: 12));
+    expect(stats.totalReading, const Duration(minutes: 87));
+    expect(stats.byDay, {
+      DateTime(2026, 11, 15): const Duration(minutes: 12),
+      DateTime(2026, 11, 14): const Duration(minutes: 30),
+      DateTime(2026, 11, 5): const Duration(minutes: 45),
+    });
+    expect(stats.pageTurns, 25);
+    expect(stats.charactersRead, 900);
+  });
+
   test('一小时及跨多日会话分段不溢出，日统计和时段统计与累计守恒', () {
     for (final duration in [
       const Duration(hours: 1),
