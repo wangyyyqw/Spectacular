@@ -57,27 +57,23 @@ class ReadingCalendarMonth {
   DateTime dateAt(int week, int column) =>
       DateTime(start.year, start.month, week * 7 + column - offset + 1);
 
-  /// 连续条带先按起始日、长度和书籍身份排序，再放入最早可用行。
+  /// 单日最多显示四本；超过四本保留时长前三本，连续日期尽量沿用原行。
   List<ReadingCalendarSpan> spansForWeek(int week) {
-    final columns = <String, List<int>>{};
-    final titles = <String, String>{};
+    final spans = <ReadingCalendarSpan>[];
+    var previous = <String, ReadingCalendarSpan>{};
     for (var column = 0; column < 7; column++) {
-      for (final book in days[dateAt(week, column)] ?? <BookDurationEntry>[]) {
-        columns.putIfAbsent(book.bookId, () => []).add(column);
-        titles[book.bookId] = book.title;
+      final current = _daySpans(
+        days[dateAt(week, column)] ?? const [],
+        column,
+        previous,
+      );
+      for (final span in current) {
+        if (span.firstColumn < column) spans.remove(previous[span.bookId]);
+        spans.add(span);
       }
+      previous = {for (final span in current) span.bookId: span};
     }
-    final runs =
-        <({String id, int first, int last})>[
-          for (final entry in columns.entries) ..._runs(entry.key, entry.value),
-        ]..sort((a, b) {
-          final first = a.first.compareTo(b.first);
-          if (first != 0) return first;
-          final length = (b.last - b.first).compareTo(a.last - a.first);
-          return length == 0 ? a.id.compareTo(b.id) : length;
-        });
-    final laneEnds = <int>[];
-    return [for (final run in runs) _place(run, titles[run.id]!, laneEnds)];
+    return spans;
   }
 }
 
@@ -98,39 +94,33 @@ List<BookDurationEntry> _entries(
   }),
 );
 
-Iterable<({String id, int first, int last})> _runs(
-  String id,
-  List<int> columns,
-) sync* {
-  var first = columns.first;
-  var last = first;
-  for (final column in columns.skip(1)) {
-    if (column != last + 1) {
-      yield (id: id, first: first, last: last);
-      first = column;
-    }
-    last = column;
-  }
-  yield (id: id, first: first, last: last);
-}
-
-ReadingCalendarSpan _place(
-  ({String id, int first, int last}) run,
-  String title,
-  List<int> laneEnds,
+List<ReadingCalendarSpan> _daySpans(
+  List<BookDurationEntry> books,
+  int column,
+  Map<String, ReadingCalendarSpan> previous,
 ) {
-  var lane = laneEnds.indexWhere((last) => last < run.first);
-  if (lane == -1) {
-    lane = laneEnds.length;
-    laneEnds.add(run.last);
-  } else {
-    laneEnds[lane] = run.last;
+  final limit = books.length > 4 ? 3 : 4;
+  final visible = books.take(limit);
+  final available = {for (var lane = 0; lane < limit; lane++) lane};
+  final lanes = <String, int>{};
+  for (final book in visible) {
+    final lane = previous[book.bookId]?.lane;
+    if (lane != null && available.remove(lane)) lanes[book.bookId] = lane;
   }
-  return ReadingCalendarSpan(
-    bookId: run.id,
-    title: title,
-    firstColumn: run.first,
-    lastColumn: run.last,
-    lane: lane,
-  );
+  for (final book in visible.where((book) => !lanes.containsKey(book.bookId))) {
+    lanes[book.bookId] = available.first;
+    available.remove(available.first);
+  }
+  return [
+    for (final book in visible)
+      ReadingCalendarSpan(
+        bookId: book.bookId,
+        title: book.title,
+        firstColumn: previous[book.bookId]?.lane == lanes[book.bookId]
+            ? previous[book.bookId]!.firstColumn
+            : column,
+        lastColumn: column,
+        lane: lanes[book.bookId]!,
+      ),
+  ];
 }
