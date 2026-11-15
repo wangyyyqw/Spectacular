@@ -610,6 +610,55 @@ void main() {
     }
   });
 
+  for (final fromFile in [false, true]) {
+    test('${fromFile ? '文件导入改版' : '强制改版'}提交前暂存内容变化，原书与阅读数据不变', () async {
+      final old = await library.importBytes(original);
+      await _seedData(db, library, old, original);
+      final before = await _snapshot(db);
+      final input = File(p.join(directory.path, 'incoming.epub'));
+      if (fromFile) await input.writeAsBytes(updated);
+      void changeSnapshot(double value) {
+        if (value != 0.85) return;
+        final snapshot = directory
+            .listSync(recursive: true)
+            .whereType<File>()
+            .singleWhere(
+              (file) =>
+                  p.basename(file.path) == 'source.epub' &&
+                  file.path != old.filePath,
+            );
+        snapshot.writeAsBytesSync(original);
+      }
+
+      final operation = fromFile
+          ? library.importFile(input.path, onProgress: changeSnapshot)
+          : library.updateBytes(old.id, updated, onProgress: changeSnapshot);
+
+      await expectLater(
+        operation,
+        throwsA(
+          isA<LibraryImportException>().having(
+            (error) => error.errorCode,
+            '错误码',
+            'E_IMPORT_SOURCE_CHANGED',
+          ),
+        ),
+      );
+
+      expect(await _snapshot(db), before);
+      expect(await File(old.filePath).readAsBytes(), orderedEquals(original));
+      expect(
+        directory
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((file) => p.basename(file.path) == 'source.epub')
+            .map((file) => file.path),
+        [old.filePath],
+      );
+      if (fromFile) expect(await input.readAsBytes(), orderedEquals(updated));
+    });
+  }
+
   test('事务内部写入后取消仍整体回滚，保留旧文件和所有用户数据', () async {
     final old = await library.importBytes(original);
     await _seedData(db, library, old, original);

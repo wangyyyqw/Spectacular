@@ -1042,10 +1042,12 @@ class LibraryStore {
     final existing = _isMemory ? null : await _bookRowOfUuid(id);
     // 同版本缺失文件只补回原书，不能重写位置锚点与版式恢复提示。
     if (existing != null && existing.contentRevision != analysis.revision) {
+      final updateBytes = await payload.readBytes(analysis.revision);
+      _checkImportCancelled(isCancelled);
       final openTrace = readerTraceEnabled
           ? ReaderTrace.instance.start(ReaderTraceName.import)
           : null;
-      final result = await payload.open(analysis);
+      final result = await openAnalyzed(updateBytes, analysis);
       openTrace?.stop();
       final document = result.document;
       if (document == null) {
@@ -1057,7 +1059,6 @@ class LibraryStore {
         );
       }
       try {
-        final updateBytes = await payload.readBytes();
         return await _replaceRevision(
           existing,
           updateBytes,
@@ -1185,6 +1186,8 @@ class LibraryStore {
           ),
           deletedAt: const Value<int?>(null),
         );
+        await _verifyImportSnapshot(File(filePath), sourceRevision);
+        _checkImportCancelled(isCancelled);
         await db.transaction(() async {
           _checkImportCancelled(isCancelled);
           final int bookId;
@@ -1709,16 +1712,13 @@ class _ImportPayload {
     return analyzeImportUnlessKnown(_bytes!, shouldSkip: shouldSkip);
   }
 
-  Future<EpubOpenResult> open(ImportAnalysis analysis) {
+  Future<Uint8List> readBytes(String expectedRevision) async {
     final path = _path;
-    if (path != null) {
-      return openAnalyzedFile(path, analysis);
-    }
-    return openAnalyzed(_bytes!, analysis);
+    if (path == null) return _bytes!;
+    final snapshot = await readRevisionFileSnapshot(path);
+    if (snapshot.revision != expectedRevision) throw _changedImportSource;
+    return snapshot.bytes;
   }
-
-  Future<Uint8List> readBytes() async =>
-      _bytes ?? await File(_path!).readAsBytes();
 
   Future<void> writeTo(File target) async {
     final path = _path;

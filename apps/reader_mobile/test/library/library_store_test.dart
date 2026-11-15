@@ -65,6 +65,82 @@ void main() {
     );
   });
 
+  test('分析后源文件被替换时拒绝导入，摘要不与其他内容一起落库', () async {
+    final dir = Directory.systemTemp.createTempSync('library_changed_input');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final original = buildTestEpub(title: '分析时的书', identifier: 'analyzed-book');
+    final changed = buildTestEpub(title: '替换后的书', identifier: 'replaced-book');
+    final source = File(p.join(dir.path, 'incoming.epub'))
+      ..writeAsBytesSync(original);
+
+    await expectLater(
+      opened.store.importFile(
+        source.path,
+        onProgress: (value) {
+          if (value == 0.45) source.writeAsBytesSync(changed);
+        },
+      ),
+      throwsA(
+        isA<LibraryImportException>().having(
+          (error) => error.errorCode,
+          '错误码',
+          'E_IMPORT_SOURCE_CHANGED',
+        ),
+      ),
+    );
+
+    expect(await opened.store.list(), isEmpty);
+    expect(await opened.db.select(opened.db.books).get(), isEmpty);
+    expect(source.readAsBytesSync(), orderedEquals(changed));
+    expect(
+      Directory(p.join(dir.path, 'books'))
+          .listSync(recursive: true)
+          .whereType<File>(),
+      isEmpty,
+    );
+  });
+
+  test('提交前检查实际暂存副本，源文件未变但副本被修改也拒绝导入', () async {
+    final dir = Directory.systemTemp.createTempSync('library_changed_snapshot');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final original = buildTestEpub(identifier: 'staged-analysis');
+    final changed = buildTestEpub(identifier: 'staged-replacement');
+    final source = File(p.join(dir.path, 'incoming.epub'))
+      ..writeAsBytesSync(original);
+
+    await expectLater(
+      opened.store.importFile(
+        source.path,
+        onProgress: (value) {
+          if (value != 0.95) return;
+          final snapshot = Directory(p.join(dir.path, 'books'))
+              .listSync(recursive: true)
+              .whereType<File>()
+              .singleWhere((file) => p.basename(file.path) == 'source.epub');
+          snapshot.writeAsBytesSync(changed);
+        },
+      ),
+      throwsA(
+        isA<LibraryImportException>().having(
+          (error) => error.errorCode,
+          '错误码',
+          'E_IMPORT_SOURCE_CHANGED',
+        ),
+      ),
+    );
+
+    expect(await opened.store.list(), isEmpty);
+    expect(source.readAsBytesSync(), orderedEquals(original));
+    expect(
+      Directory(p.join(dir.path, 'books'))
+          .listSync(recursive: true)
+          .whereType<File>(),
+      isEmpty,
+    );
+  });
+
   test('条目跨实例持久化；删除后目录与条目都消失', () async {
     final dir = Directory.systemTemp.createTempSync('library_persist');
     addTearDown(() => dir.deleteSync(recursive: true));

@@ -69,13 +69,17 @@ class ImportAnalysis {
 /// isolate 启动与字节复制有固定成本；小文件留在当前线程更快。
 const int importAnalysisIsolateThreshold = 256 * 1024;
 
-/// 旧版迁移仍需要整本字节；读取与哈希均在后台完成，并返回同一份内容。
+/// 改版比较与迁移需要整本字节；读取与哈希均在后台完成，并返回同一份内容。
 Future<({Uint8List bytes, String revision})> readRevisionFileSnapshot(
   String path,
 ) => Isolate.run(() async {
   final bytes = await File(path).readAsBytes();
   return (bytes: bytes, revision: sha256.convert(bytes).toString());
 });
+
+/// 对待提交文件流式计算哈希，主 isolate 不执行整本计算。
+Future<String> hashImportFile(String path) =>
+    Isolate.run(() => _sha256File(path));
 
 /// 在后台 isolate 完成整本哈希、CRC 校验与字数统计，导入大书不卡界面。
 /// 输入字节会复制一份进 isolate；结果只带基础数据，不复制文档对象。

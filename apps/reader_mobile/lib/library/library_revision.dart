@@ -6,6 +6,17 @@ void _checkImportCancelled(bool Function()? cancelled) {
   }
 }
 
+const _changedImportSource = LibraryImportException(
+  '导入文件内容已变化，请重新选择文件重试',
+  errorCode: 'E_IMPORT_SOURCE_CHANGED',
+);
+
+Future<void> _verifyImportSnapshot(File file, String expectedRevision) async {
+  if (await hashImportFile(file.path) != expectedRevision) {
+    throw _changedImportSource;
+  }
+}
+
 BookEntry _withImportOutcome(BookEntry book, BookImportOutcome outcome) =>
     BookEntry(
       id: book.id,
@@ -164,6 +175,7 @@ extension LibraryRevisionOperations on LibraryStore {
         excluded: document.progressExcludedSpineIndexes,
       );
       onProgress?.call(0.85);
+      _checkImportCancelled(isCancelled);
       await _commitRevision(
         migration,
         _RevisionCommit(parsed, file, weights, counts, restoredCover),
@@ -370,6 +382,8 @@ extension LibraryRevisionOperations on LibraryStore {
     String id,
     String identifier,
   ) async {
+    // 改版与编辑共用此文件切换入口，实际副本必须与已分析版本一致。
+    await _verifyImportSnapshot(commit.file, migration.newBook.revision);
     final db = _db!;
     final old = migration.old;
     await _rekeyBook(db, old, id, identifier);
