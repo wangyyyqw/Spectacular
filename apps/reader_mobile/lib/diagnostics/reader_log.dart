@@ -49,6 +49,7 @@ class ReaderLog {
 
   /// 初始化：建立文件并写入环境头。
   Future<void> initialize() {
+    if (_ready) return Future<void>.value();
     return _initializing ??= _initialize();
   }
 

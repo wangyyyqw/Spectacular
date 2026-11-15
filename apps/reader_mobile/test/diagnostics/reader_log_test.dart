@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -30,6 +31,7 @@ void _expectNoReadingContent(String text) {
 }
 
 void main() {
+  final sharedClockLog = ReaderLog();
   test('日志初始化、追加、导出文件', () async {
     final dir = Directory.systemTemp.createTempSync('reader_log_test');
     final log = ReaderLog(
@@ -268,5 +270,27 @@ void main() {
     expect(await log.exportText(), contains('memory_fallback'));
     expect(prints.join('\n'), contains('FileSystemException'));
     _expectNoReadingContent(prints.join('\n'));
+  });
+
+  testWidgets('共享日志首次初始化并完成追加', (tester) async {
+    var completed = false;
+    unawaited(
+      sharedClockLog.log('first_test_clock').then((_) => completed = true),
+    );
+    await tester.pump();
+
+    expect(sharedClockLog.isReady, isTrue);
+    expect(completed, isTrue);
+  });
+
+  testWidgets('共享日志在新测试时钟中仍完成追加', (tester) async {
+    var completed = false;
+    unawaited(
+      sharedClockLog.log('second_test_clock').then((_) => completed = true),
+    );
+    await tester.pump();
+
+    expect(completed, isTrue);
+    expect(await sharedClockLog.exportText(), contains('second_test_clock'));
   });
 }
