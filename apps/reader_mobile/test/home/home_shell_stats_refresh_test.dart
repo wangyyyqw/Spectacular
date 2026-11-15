@@ -78,7 +78,7 @@ void main() {
     expect(
       tester
           .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-today-reading')),
+            find.byKey(const ValueKey<String>('stats-book-duration-total')),
           )
           .data,
       '3 分钟',

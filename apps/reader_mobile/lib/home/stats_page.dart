@@ -24,7 +24,7 @@ enum _ProgressBand {
   final String label;
 }
 
-/// 统计页：书架概览、图书时长、习惯与按书排行。
+/// 统计页：图书时长、习惯与按书排行，保留完整统计数据汇总。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
 class StatsPage extends StatefulWidget {
@@ -285,13 +285,9 @@ class _StatsPageState extends State<StatsPage> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
                 children: [
-                  _TodayHero(stats: stats),
-                  _Section(
-                    title: '概览',
-                    child: _OverviewGrid(stats: stats),
-                  ),
                   _Section(
                     title: '图书时长',
+                    showDivider: false,
                     child: BookDurationChart(
                       insights: stats.insights,
                       bookTitles: {
@@ -334,6 +330,7 @@ class _StatsPageState extends State<StatsPage> {
   }
 }
 
+/// 统计数据接口继续保留，顶部摘要与概览移除后仍按原口径填充全部字段。
 class _LibraryStats {
   const _LibraryStats({
     required this.rows,
@@ -440,12 +437,14 @@ class _Section extends StatelessWidget {
     required this.title,
     this.detail,
     this.caption,
+    this.showDivider = true,
     required this.child,
   });
 
   final String title;
   final String? detail;
   final String? caption;
+  final bool showDivider;
   final Widget child;
 
   @override
@@ -455,9 +454,11 @@ class _Section extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 30),
-        Container(height: 1, color: theme.colorScheme.outlineVariant),
-        const SizedBox(height: 14),
+        if (showDivider) ...[
+          const SizedBox(height: 30),
+          Container(height: 1, color: theme.colorScheme.outlineVariant),
+          const SizedBox(height: 14),
+        ],
         SizedBox(
           width: double.infinity,
           child: Wrap(
@@ -496,281 +497,6 @@ class _Section extends StatelessWidget {
   }
 }
 
-/// 英雄区：今天已读 + 累计上下文 + 七日节奏条。
-class _TodayHero extends StatelessWidget {
-  const _TodayHero({required this.stats});
-
-  final _LibraryStats stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    final hasSessions = stats.hasReadingSessions;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '今天',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: muted,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      hasSessions
-                          ? formatReadingDuration(stats.todayReading)
-                          : '--',
-                      key: const ValueKey<String>('stats-today-reading'),
-                      maxLines: 1,
-                      style: const TextStyle(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w600,
-                        height: 1.05,
-                        letterSpacing: -0.8,
-                        fontFeatures: _tabularFigures,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            Flexible(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 1),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      hasSessions
-                          ? '累计 ${formatReadingDuration(stats.totalReading)}'
-                          : '累计 --',
-                      key: const ValueKey<String>('stats-total-reading'),
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: theme.colorScheme.onSurface,
-                        fontFeatures: _tabularFigures,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      hasSessions ? '共 ${stats.readingDays} 天' : '只记录前台阅读',
-                      key: const ValueKey<String>('stats-reading-days'),
-                      style: TextStyle(fontSize: 12, color: muted),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        _WeekRhythm(stats: stats),
-      ],
-    );
-  }
-}
-
-/// 签名细节：近七日阅读节奏，今天为实心墨条。
-class _WeekRhythm extends StatelessWidget {
-  const _WeekRhythm({required this.stats});
-
-  final _LibraryStats stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final activity = stats.activity;
-    final values = <double>[
-      for (final day in activity) day.duration.inSeconds.toDouble(),
-    ];
-    final maxValue = values.fold<double>(0, (max, value) {
-      return value > max ? value : max;
-    });
-    const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
-    return SizedBox(
-      height: 32 + MediaQuery.textScalerOf(context).scale(10) * 1.2,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          for (var index = 0; index < activity.length; index++)
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    width: 6,
-                    height: maxValue == 0
-                        ? 2
-                        : values[index] > 0
-                        ? 5 + (values[index] / maxValue) * 17
-                        : 2,
-                    decoration: BoxDecoration(
-                      color: index == 6
-                          ? theme.colorScheme.primary
-                          : values[index] > 0
-                          ? theme.colorScheme.primary.withValues(alpha: 0.26)
-                          : theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(1.5),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    index == 6
-                        ? '今'
-                        : weekdays[activity[index].date.weekday - 1],
-                    style: TextStyle(
-                      fontSize: 10,
-                      height: 1.2,
-                      fontWeight: index == 6
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                      color: index == 6
-                          ? theme.colorScheme.onSurface
-                          : theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 概览指标：2 列 × 4 行细线网格。
-class _OverviewGrid extends StatelessWidget {
-  const _OverviewGrid({required this.stats});
-
-  final _LibraryStats stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final line = Theme.of(context).colorScheme.outlineVariant;
-    final cells = <Widget>[
-      _MetricCell(
-        label: '总书数',
-        value: '${stats.rows.length}',
-        valueKey: const ValueKey<String>('stats-total-books'),
-      ),
-      _MetricCell(label: '已开始', value: '${stats.started} 本'),
-      _MetricCell(label: '已读完', value: '${stats.finished} 本'),
-      _MetricCell(
-        label: '平均进度',
-        value: stats.averageProgress == null
-            ? '--'
-            : '${stats.averageProgress}%',
-        valueKey: const ValueKey<String>('stats-average-progress'),
-      ),
-      _MetricCell(
-        label: '书库字数',
-        value: _formatCharacters(stats.totalCharacters),
-        valueKey: const ValueKey<String>('stats-total-characters'),
-      ),
-      _MetricCell(
-        label: '近 7 天阅读',
-        value: '${stats.weekReadingDays} 天',
-        valueKey: const ValueKey<String>('stats-recent-7-days'),
-      ),
-      _MetricCell(
-        label: '翻页次数',
-        value: '${stats.pageTurns}',
-        valueKey: const ValueKey<String>('stats-page-turns'),
-      ),
-      _MetricCell(
-        label: '阅读字数',
-        value: _formatMetricCharacters(stats.charactersRead),
-        valueKey: const ValueKey<String>('stats-characters-read'),
-      ),
-    ];
-    return Column(
-      children: [
-        for (var row = 0; row < cells.length ~/ 2; row++) ...[
-          if (row > 0) Container(height: 1, color: line),
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 68),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: cells[row * 2],
-                    ),
-                  ),
-                  Container(width: 1, color: line),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: cells[row * 2 + 1],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _MetricCell extends StatelessWidget {
-  const _MetricCell({required this.label, required this.value, this.valueKey});
-
-  final String label;
-  final String value;
-  final Key? valueKey;
-
-  @override
-  Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(label, style: TextStyle(fontSize: 12, color: muted)),
-          const SizedBox(height: 6),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              key: valueKey,
-              maxLines: 1,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.3,
-                height: 1.1,
-                fontFeatures: _tabularFigures,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 加载骨架：几何结构与最终页面一致，避免布局跳变。
 class _StatsSkeleton extends StatelessWidget {
   const _StatsSkeleton();
@@ -790,19 +516,17 @@ class _StatsSkeleton extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
       children: [
-        block(12, width: 40),
-        const SizedBox(height: 10),
-        block(34, width: 220),
-        const SizedBox(height: 20),
-        block(40),
-        const SizedBox(height: 42),
         block(12, width: 64),
         const SizedBox(height: 16),
-        block(256),
-        const SizedBox(height: 42),
-        block(12, width: 64),
+        block(48),
+        const SizedBox(height: 12),
+        block(48),
+        const SizedBox(height: 24),
+        Center(child: block(160, width: 160)),
+        const SizedBox(height: 24),
+        block(56),
         const SizedBox(height: 16),
-        block(190),
+        block(56),
       ],
     );
   }
