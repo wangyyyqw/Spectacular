@@ -228,20 +228,9 @@ class _CalendarWeek extends StatelessWidget {
     final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
     final lineHeight = 18 * scale;
     final spans = month.spansForWeek(week);
-    final lanes = spans.fold(
-      1,
-      (count, span) => math.max(count, span.lane + 1),
-    );
-    final hasOverflow = Iterable<int>.generate(7).any(
-      (column) => (month.days[month.dateAt(week, column)]?.length ?? 0) > 4,
-    );
-    final contentHeight = math.max(
-      lanes * lineHeight,
-      hasOverflow ? 3 * lineHeight + 12 * scale : 0.0,
-    );
-    final height = math.max(48.0 * scale, 8 + contentHeight + 18 * scale);
+    final padding = 4 * scale;
     return SizedBox(
-      height: height,
+      height: 92 * scale,
       child: LayoutBuilder(
         builder: (context, constraints) => Stack(
           children: [
@@ -253,7 +242,7 @@ class _CalendarWeek extends StatelessWidget {
               ],
             ),
             for (final span in spans)
-              _bar(span, constraints.maxWidth / 7, lineHeight),
+              _bar(span, constraints.maxWidth / 7, lineHeight, padding),
           ],
         ),
       ),
@@ -264,11 +253,12 @@ class _CalendarWeek extends StatelessWidget {
     ReadingCalendarSpan span,
     double columnWidth,
     double lineHeight,
+    double padding,
   ) => Positioned(
-    left: span.firstColumn * columnWidth + 2,
-    top: 4 + span.lane * lineHeight,
-    width: (span.lastColumn - span.firstColumn + 1) * columnWidth - 4,
-    height: lineHeight - 2,
+    left: span.firstColumn * columnWidth + padding / 2,
+    top: padding + span.lane * lineHeight,
+    width: (span.lastColumn - span.firstColumn + 1) * columnWidth - padding,
+    height: lineHeight - padding / 2,
     child: _CalendarBar(span: span, week: week),
   );
 
@@ -307,7 +297,7 @@ class _CalendarWeek extends StatelessWidget {
             : null,
         border: Border.all(color: scheme.outlineVariant, width: 0.5),
       ),
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
       child: Stack(
         children: [
           if (extra > 0)
