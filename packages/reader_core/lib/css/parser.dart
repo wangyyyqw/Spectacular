@@ -161,7 +161,8 @@ abstract final class CssParser {
         value = value.substring(0, value.length - '!important'.length).trim();
       }
       final property = part.substring(0, colon).trim();
-      if (property.isNotEmpty && value.isNotEmpty) {
+      if (property.isNotEmpty &&
+          (value.isNotEmpty || property.startsWith('--'))) {
         declarations.add(
           CssDeclaration(
             property: property,
@@ -632,7 +633,7 @@ abstract final class CssParser {
             )
             .trim();
       }
-      if (value.isEmpty) {
+      if (value.isEmpty && !property.startsWith('--')) {
         warnings.add('跳过空值声明：$property');
         continue;
       }
