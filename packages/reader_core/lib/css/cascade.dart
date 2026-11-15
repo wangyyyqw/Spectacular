@@ -269,9 +269,7 @@ abstract final class Cascade {
     }
     return <String, String>{
       for (final entry in variables.entries)
-        if (_substituteVars(entry.value, variables, {entry.key})
-            case final resolved?)
-          entry.key: resolved,
+        entry.key: ?_substituteVars(entry.value, variables, {entry.key}),
     };
   }
 
