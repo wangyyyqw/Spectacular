@@ -120,7 +120,7 @@ void main() {
         if (attempts == 1) throw StateError('测试数据库打不开');
         return retry.future;
       },
-      exportDiagnostics: () => ++exports == 1
+      onExportDiagnostics: () => ++exports == 1
           ? diagnostic.future
           : Future<void>.value(),
     );

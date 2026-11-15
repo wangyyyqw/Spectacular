@@ -62,28 +62,23 @@ class ReaderApp extends StatelessWidget {
   /// 创建应用。
   const ReaderApp({
     super.key,
-    required LibraryStore library,
-    required ReaderProgressStore progressStore,
-  }) : _library = library,
-       _progressStore = progressStore,
-       _startupStorage = null;
+    required this.library,
+    required this.progressStore,
+  }) : _startupStorage = null;
 
   /// 正式启动入口，监听数据库失败与恢复后的存储替换。
   ReaderApp.withStorage({super.key, required StartupStorage storage})
-    : _library = storage.library,
-      _progressStore = storage.progressStore,
+    : library = storage.library,
+      progressStore = storage.progressStore,
       _startupStorage = storage;
 
-  final LibraryStore _library;
-  final ReaderProgressStore _progressStore;
+  /// 构造时传入的书架存储；正式恢复入口在监听中使用最新启动存储。
+  final LibraryStore library;
+
+  /// 构造时传入的进度存储，与对应书库绑定同一数据库。
+  final ReaderProgressStore progressStore;
+
   final StartupStorage? _startupStorage;
-
-  /// 当前书架存储，恢复成功后随启动存储更新。
-  LibraryStore get library => _startupStorage?.library ?? _library;
-
-  /// 当前进度存储，与恢复后的书库绑定同一数据库。
-  ReaderProgressStore get progressStore =>
-      _startupStorage?.progressStore ?? _progressStore;
 
   @override
   Widget build(BuildContext context) {
