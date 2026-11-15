@@ -144,7 +144,9 @@ void main() {
     (const Size(1200, 900), 1.0, 1080000),
     (const Size(400, 800), 0.5, 1280000),
   ]) {
-    test('合法稠密背景 ${area.width}×${area.height}/$edge 不因数量消失', () {
+    test('稠密背景 ${area.width}×${area.height}/$edge 超预算后只铺一张', () {
+      final before = BackgroundTileDiagnostics.fallbackCount;
+      final diagnostics = <BackgroundTileLimitDiagnostic>[];
       final tiles = backgroundTileRects(
         Offset.zero & area,
         CssBackgroundLayer(
@@ -154,24 +156,82 @@ void main() {
           ),
         ),
         intrinsicSize: const Size(1, 1),
-      );
-      expect(tiles.take(2), [
-        Rect.fromLTWH(0, 0, edge, edge),
-        Rect.fromLTWH(edge, 0, edge, edge),
-      ]);
-      var count = 0;
-      Rect? last;
-      for (final tile in tiles) {
-        count++;
-        last = tile;
-      }
-      expect(count, expectedCount);
+        onLimitExceeded: diagnostics.add,
+      ).toList();
+      expect(tiles, [Offset.zero & area]);
+      expect(diagnostics, hasLength(1));
       expect(
-        last,
-        Rect.fromLTWH(area.width - edge, area.height - edge, edge, edge),
+        diagnostics.single.columns * diagnostics.single.rows,
+        expectedCount,
       );
+      expect(diagnostics.single.maximumTiles, defaultBackgroundTileLimit);
+      expect(
+        diagnostics.single.message,
+        startsWith('W_BACKGROUND_TILE_LIMIT:'),
+      );
+      expect(BackgroundTileDiagnostics.fallbackCount, before + 1);
+      expect(BackgroundTileDiagnostics.lastFallback, same(diagnostics.single));
     });
   }
+
+  test('上限边界包含最后一张，允许调用方调整预算', () {
+    const layer = CssBackgroundLayer(
+      size: CssBackgroundSize.explicit(
+        width: CssLength(1),
+        height: CssLength(1),
+      ),
+    );
+    const bounds = Rect.fromLTWH(0, 0, 3, 2);
+    final before = BackgroundTileDiagnostics.fallbackCount;
+    expect(backgroundTileRects(bounds, layer, maximumTiles: 6), hasLength(6));
+    expect(BackgroundTileDiagnostics.fallbackCount, before);
+    expect(backgroundTileRects(bounds, layer, maximumTiles: 5), [bounds]);
+    expect(BackgroundTileDiagnostics.fallbackCount, before + 1);
+    expect(BackgroundTileDiagnostics.lastFallback?.maximumTiles, 5);
+    expect(
+      () => backgroundTileRects(bounds, layer, maximumTiles: 0).toList(),
+      throwsArgumentError,
+    );
+  });
+
+  test('每轴未超限但乘积超限时仍降级到完整绘制区', () {
+    const painting = Rect.fromLTWH(-10, -10, 100, 100);
+    final tiles = backgroundTileRects(
+      const Rect.fromLTWH(0, 0, 10, 10),
+      const CssBackgroundLayer(),
+      intrinsicSize: const Size(1, 1),
+      paintingBounds: painting,
+    ).toList();
+    expect(tiles, [painting]);
+    expect(BackgroundTileDiagnostics.lastFallback?.columns, 100);
+    expect(BackgroundTileDiagnostics.lastFallback?.rows, 100);
+  });
+
+  test('极小尺寸与无法表达的轴计数在循环前降级', () {
+    for (final mode in [
+      CssBackgroundRepeatMode.repeat,
+      CssBackgroundRepeatMode.space,
+      CssBackgroundRepeatMode.round,
+    ]) {
+      for (final edge in [1e-10, 1e-300, 1e-320]) {
+        const bounds = Rect.fromLTWH(0, 0, 100, 100);
+        expect(
+          backgroundTileRects(
+            bounds,
+            CssBackgroundLayer(
+              repeat: CssBackgroundRepeat.axes(mode, mode),
+              size: CssBackgroundSize.explicit(
+                width: CssLength(edge),
+                height: CssLength(edge),
+              ),
+            ),
+          ),
+          [bounds],
+          reason: '${mode.name}/$edge 只产生一张有限矩形',
+        );
+      }
+    }
+  });
 
   test('坐标精度不足以继续前进时停止该轴，不重复生成同一位置', () {
     final tiles = backgroundTileRects(
@@ -222,8 +282,8 @@ void main() {
     );
   });
 
-  test('空区域、非有限尺寸和不可分辨的极端密度不会产生无界序列', () {
-    for (final width in [0.0, double.infinity, 1e-300]) {
+  test('空区域和非有限尺寸不会产生瓦片', () {
+    for (final width in [0.0, double.infinity]) {
       final tiles = backgroundTileRects(
         const Rect.fromLTWH(0, 0, 100, 100),
         CssBackgroundLayer(
