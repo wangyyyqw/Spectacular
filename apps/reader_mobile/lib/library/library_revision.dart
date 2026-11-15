@@ -121,9 +121,13 @@ extension LibraryRevisionOperations on LibraryStore {
         BookImportOutcome.unchanged,
       );
     }
-    final oldBytes = oldExists ? await oldFile.readAsBytes() : null;
     _checkImportCancelled(isCancelled);
-    if (oldBytes != null && sha256.convert(oldBytes).toString() == revision) {
+    final oldSnapshot = oldExists
+        ? await readRevisionFileSnapshot(oldFile.path)
+        : null;
+    final oldBytes = oldSnapshot?.bytes;
+    _checkImportCancelled(isCancelled);
+    if (oldSnapshot?.revision == revision) {
       return _withImportOutcome(
         _entryFromRow(old),
         BookImportOutcome.unchanged,
@@ -151,6 +155,7 @@ extension LibraryRevisionOperations on LibraryStore {
         oldBytes,
         bytes,
         revision: revision,
+        oldRevision: oldSnapshot?.revision,
       );
       _checkImportCancelled(isCancelled);
       final counts = analysis.charCounts!;
@@ -210,6 +215,7 @@ extension LibraryRevisionOperations on LibraryStore {
     Uint8List? oldBytes,
     Uint8List bytes, {
     required String revision,
+    required String? oldRevision,
   }) async {
     final db = _db!;
     final annotations = await (db.select(
@@ -237,8 +243,8 @@ extension LibraryRevisionOperations on LibraryStore {
     // 有旧文件却无法解析时拒绝更新，不能把异常当作正常的待确认结果。
     final oldBook = oldBytes == null
         ? null
-        : await buildRevisionAnchorBook(oldBytes);
-    final newBook = await buildRevisionAnchorBook(bytes);
+        : await buildRevisionAnchorBook(oldBytes, revision: oldRevision);
+    final newBook = await buildRevisionAnchorBook(bytes, revision: revision);
     final migrated = _migrateRevisionAnnotations(annotations, oldBook, newBook);
     final position = _migrateRevisionProgress(progress, oldBook, newBook);
     return _RevisionMigration(
