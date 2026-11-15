@@ -316,7 +316,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('统计页保留进度与字数查询接口，分布和最近阅读显示真实进度', (tester) async {
+  testWidgets('阅读排行直接衔接最近阅读，保留进度与字数查询接口', (tester) async {
     final now = DateTime.now();
     final books = [
       _book(
@@ -356,32 +356,15 @@ void main() {
 
     expect(library.progressWeightCalls, 0, reason: '统计页应批量读取进度权重');
     expect(library.batchProgressWeightCalls, 1);
-    await _scrollTo(
-      tester,
-      find.byKey(const ValueKey<String>('stats-band-unread')),
-      300,
+    await _scrollTo(tester, find.text('开始阅读后，这里会按投入时长列出书目。'), 300);
+    expect(find.text('阅读分布'), findsNothing);
+    expect(find.byKey(const ValueKey('stats-band-unread')), findsNothing);
+    expect(find.byKey(const ValueKey('stats-band-finished')), findsNothing);
+    final rankingBottom = tester.getBottomLeft(
+      find.text('开始阅读后，这里会按投入时长列出书目。'),
     );
-    expect(find.text('已开始 2 本 · 已读完 0 本'), findsOneWidget);
-    expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey<String>('stats-band-unread')))
-          .data,
-      '未开始 1 本',
-    );
-    expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey<String>('stats-band-early')))
-          .data,
-      '0-25% 1 本',
-    );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-band-advanced')),
-          )
-          .data,
-      '51-75% 1 本',
-    );
+    final recentTop = tester.getTopLeft(find.text('最近阅读'));
+    expect(recentTop.dy - rankingBottom.dy, inExclusiveRange(0, 90));
     await _scrollTo(
       tester,
       find.byKey(const ValueKey<String>('stats-book-a')),
@@ -431,44 +414,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_valueOf(tester, 'stats-book-duration-total'), '2 分钟');
-  });
-
-  testWidgets('统计页单独展示已读完书籍', (tester) async {
-    final now = DateTime.now();
-    final books = [
-      _book('done', '读完的书', lastReadAt: now, spineCount: 2),
-      _book('reading', '在读的书', lastReadAt: now, spineCount: 2),
-    ];
-    final library = _FakeLibrary(books, {
-      'done': ProgressWeights.fromCharCounts([50, 50]),
-      'reading': ProgressWeights.fromCharCounts([50, 50]),
-    });
-    final progress = _FakeProgressStore({
-      'done': const ReaderProgress(spineIndex: 1, pageIndex: 0, finished: true),
-      'reading': const ReaderProgress(spineIndex: 0, pageIndex: 0),
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: StatsPage(library: library, progressStore: progress),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await _scrollTo(
-      tester,
-      find.byKey(const ValueKey<String>('stats-band-finished')),
-      300,
-    );
-    expect(find.text('已开始 2 本 · 已读完 1 本'), findsOneWidget);
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('stats-band-finished')),
-          )
-          .data,
-      '已读完 1 本',
-    );
   });
 
   testWidgets('点击最近阅读卡片可直接续读', (tester) async {

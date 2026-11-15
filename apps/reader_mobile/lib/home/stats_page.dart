@@ -10,19 +10,6 @@ import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
 
-enum _ProgressBand {
-  unread('未开始'),
-  finished('已读完'),
-  early('0-25%'),
-  middle('26-50%'),
-  advanced('51-75%'),
-  late('76-100%');
-
-  const _ProgressBand(this.label);
-
-  final String label;
-}
-
 /// 统计页：图书时长、每日平均与按书排行，保留完整统计数据汇总。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
@@ -311,11 +298,6 @@ class _StatsPageState extends State<StatsPage> {
                       onOpen: _openBook,
                     ),
                   ),
-                  _Section(
-                    title: '阅读分布',
-                    detail: '已开始 ${stats.started} 本 · 已读完 ${stats.finished} 本',
-                    child: _DistributionCard(stats: stats),
-                  ),
                   _RecentSection(stats: stats, onOpenBook: _openBook),
                 ],
               ),
@@ -389,26 +371,6 @@ class _BookReadingStat {
   final BookEntry book;
   final ReaderProgress? progress;
   final int? percent;
-}
-
-_ProgressBand _progressBand(_BookReadingStat stat) {
-  if (stat.progress == null) {
-    return _ProgressBand.unread;
-  }
-  if (stat.progress!.finished) {
-    return _ProgressBand.finished;
-  }
-  final percent = stat.percent ?? 0;
-  if (percent <= 25) {
-    return _ProgressBand.early;
-  }
-  if (percent <= 50) {
-    return _ProgressBand.middle;
-  }
-  if (percent <= 75) {
-    return _ProgressBand.advanced;
-  }
-  return _ProgressBand.late;
 }
 
 /// 数字统一使用等宽字形，避免刷新时左右跳动。
@@ -559,138 +521,6 @@ class _StatsError extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _DistributionCard extends StatelessWidget {
-  const _DistributionCard({required this.stats});
-
-  final _LibraryStats stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final total = stats.rows.length;
-    int count(_ProgressBand band) =>
-        stats.rows.where((row) => _progressBand(row) == band).length;
-    final bands = <(_ProgressBand, Color, int)>[
-      (
-        _ProgressBand.unread,
-        theme.colorScheme.surfaceContainerHighest,
-        count(_ProgressBand.unread),
-      ),
-      (
-        _ProgressBand.early,
-        theme.colorScheme.primary.withValues(alpha: 0.14),
-        count(_ProgressBand.early),
-      ),
-      (
-        _ProgressBand.middle,
-        theme.colorScheme.primary.withValues(alpha: 0.34),
-        count(_ProgressBand.middle),
-      ),
-      (
-        _ProgressBand.advanced,
-        theme.colorScheme.primary.withValues(alpha: 0.56),
-        count(_ProgressBand.advanced),
-      ),
-      (
-        _ProgressBand.late,
-        theme.colorScheme.primary.withValues(alpha: 0.8),
-        count(_ProgressBand.late),
-      ),
-      (
-        _ProgressBand.finished,
-        theme.colorScheme.primary,
-        count(_ProgressBand.finished),
-      ),
-    ];
-    final present = bands.where((band) => band.$3 > 0).toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: SizedBox(
-            height: 12,
-            child: total == 0
-                ? ColoredBox(color: theme.colorScheme.surfaceContainerHighest)
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (var index = 0; index < present.length; index++) ...[
-                        if (index > 0)
-                          SizedBox(
-                            width: 2,
-                            child: ColoredBox(
-                              color: theme.scaffoldBackgroundColor,
-                            ),
-                          ),
-                        Expanded(
-                          flex: present[index].$3,
-                          child: ColoredBox(color: present[index].$2),
-                        ),
-                      ],
-                    ],
-                  ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 18,
-          runSpacing: 10,
-          children: [
-            for (final band in bands)
-              _Legend(
-                color: band.$2,
-                label: '${band.$1.label} ${band.$3} 本',
-                textKey: ValueKey<String>('stats-band-${band.$1.name}'),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _Legend extends StatelessWidget {
-  const _Legend({
-    required this.color,
-    required this.label,
-    required this.textKey,
-  });
-
-  final Color color;
-  final String label;
-  final Key textKey;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          key: textKey,
-          style: TextStyle(
-            fontSize: 12,
-            color: theme.colorScheme.onSurfaceVariant,
-            fontFeatures: _tabularFigures,
-          ),
-        ),
-      ],
     );
   }
 }
