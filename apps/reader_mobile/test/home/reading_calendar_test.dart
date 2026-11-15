@@ -267,7 +267,7 @@ void main() {
     }
   });
 
-  testWidgets('跨年可浏览最早记录之前的空月，过去日期仍可打开明细', (tester) async {
+  testWidgets('箭头可浏览空月和跨年月份，月份标题不打开选择面板', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2025, 12, 31, 9), 10),
     ], now: DateTime(2026, 2, 15));
@@ -280,12 +280,12 @@ void main() {
     await _tap(tester, 'previous');
     expect(find.text('2025年11月'), findsOneWidget);
     expect(find.text('本月暂无阅读记录'), findsOneWidget);
-    await _tap(tester, 'month-picker');
-    await _tap(tester, 'next-year');
-    await _tap(tester, 'month-2026-2-1');
+    for (var index = 0; index < 3; index++) {
+      await _tap(tester, 'next');
+    }
     expect(find.text('2026年2月'), findsOneWidget);
-    await _tap(tester, 'day-2026-2-1');
-    expect(find.text('这一天没有阅读记录'), findsOneWidget);
+    expect(find.byType(TextButton), findsNothing);
+    expect(find.text('选择月份'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -309,34 +309,6 @@ void main() {
     expect(find.text('2026年12月'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-
-  for (final scale in [1.0, 2.0]) {
-    testWidgets('年月入口可跨年选择无记录月份并回到本月，字号 $scale 倍', (tester) async {
-      await _pump(tester, [], width: 320, scale: scale);
-      await _tap(tester, 'month-picker');
-      expect(find.text('2026年'), findsOneWidget);
-      await _tap(tester, 'next-year');
-      expect(find.text('2027年'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        _key('month-2027-12-1'),
-        160,
-        scrollable: find.descendant(
-          of: find.byType(GridView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await _tap(tester, 'month-2027-12-1');
-      expect(find.text('2027年12月'), findsOneWidget);
-      expect(find.text('本月暂无阅读记录'), findsOneWidget);
-      await _tap(tester, 'month-picker');
-      expect(find.text('2027年'), findsOneWidget);
-      await _tap(tester, 'previous-year');
-      expect(find.text('2026年'), findsOneWidget);
-      await _tap(tester, 'current-month');
-      expect(find.text('2026年11月'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   testWidgets('窄屏双倍字号可横向浏览周末并打开明细，刷新保留所选月份', (tester) async {
     final sessions = [_session('a', DateTime(2026, 10, 31, 9), 30)];
