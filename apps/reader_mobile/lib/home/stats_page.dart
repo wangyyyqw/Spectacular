@@ -23,7 +23,7 @@ enum _ProgressBand {
   final String label;
 }
 
-/// 统计页：书量、阅读进度、近七日阅读与最近阅读。
+/// 统计页：书架概览、历史阅读趋势、习惯与按书排行。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
 class StatsPage extends StatefulWidget {
@@ -307,6 +307,7 @@ class _StatsPageState extends State<StatsPage> {
                     child: BookReadingRanking(
                       books: [for (final row in stats.rows) row.book],
                       totals: stats.insights.byBook,
+                      bookTitles: stats.insights.bookTitles,
                       onOpen: _openBook,
                     ),
                   ),
@@ -866,6 +867,7 @@ class _ReadingBucket {
   final String rangeLabel;
   Duration duration = Duration.zero;
   final Set<ReadingSession> participatingSessions = {};
+  final Set<DateTime> readingDates = {};
   int get sessionCount => participatingSessions.length;
   int pageTurns = 0;
   int charactersRead = 0;
@@ -885,16 +887,44 @@ class _TrendSection extends StatefulWidget {
 class _TrendSectionState extends State<_TrendSection> {
   _ChartPeriod _period = _ChartPeriod.day;
   int _selectedIndex = 6;
+  int _windowOffset = 0;
+  (ReadingInsights, _ChartPeriod, DateTime, int)? _bucketsKey;
+  List<_ReadingBucket> _buckets = [];
+
+  List<_ReadingBucket> _readingBuckets(DateTime today) {
+    final key = (widget.stats.insights, _period, today, _windowOffset);
+    if (_bucketsKey != key) {
+      _buckets = _buildReadingBuckets(
+        _period,
+        _windowAnchor(_period, today, _windowOffset),
+      );
+      for (final bucket in _buckets) {
+        _fillReadingBucket(bucket, widget.stats.insights.portions);
+      }
+      _bucketsKey = key;
+    }
+    return _buckets;
+  }
+
+  void _changeWindow(int offset) => setState(() {
+    _windowOffset = offset;
+    _selectedIndex = _bucketCount(_period) - 1;
+  });
+
+  bool _hasEarlierRecords(DateTime start) => widget.stats.hasReadingSessions
+      ? widget.stats.insights.byDay.keys.any((day) => day.isBefore(start))
+      : widget.stats.rows.any(
+          (row) => row.book.lastReadAt?.isBefore(start) ?? false,
+        );
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final useDuration = widget.stats.hasReadingSessions;
-    final buckets = _buildReadingBuckets(_period, DateTime.now());
-    for (final bucket in buckets) {
-      _fillReadingBucket(bucket, widget.stats.insights.portions);
-    }
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final buckets = _readingBuckets(today);
     final selectedIndex = _selectedIndex.clamp(0, buckets.length - 1);
     final selected = buckets[selectedIndex];
     final values = <double>[
@@ -911,14 +941,14 @@ class _TrendSectionState extends State<_TrendSection> {
       Duration.zero,
       (sum, bucket) => sum + bucket.duration,
     );
-    final readingDays = buckets
-        .where((bucket) => bucket.duration > Duration.zero)
+    final readingDays = {for (final bucket in buckets) ...bucket.readingDates}
         .length;
     final summary = _period == _ChartPeriod.day && !useDuration
-        ? '${widget.stats.activeDays} 天活跃 · ${widget.stats.recent} 本书'
-        : '${formatReadingDuration(total)} · '
-              '$readingDays ${_period == _ChartPeriod.day ? '天' : '段'}';
-    final title = _period == _ChartPeriod.day && !useDuration
+        ? _bookActivitySummary(buckets)
+        : '${formatReadingDuration(total)} · $readingDays 天';
+    final title = _windowOffset > 0
+        ? '历史阅读${useDuration ? '时长' : ''}'
+        : _period == _ChartPeriod.day && !useDuration
         ? '近 7 天阅读'
         : '${_period.rangeLabel}阅读时长';
 
@@ -943,6 +973,7 @@ class _TrendSectionState extends State<_TrendSection> {
                       ),
                       onTap: () => setState(() {
                         _period = period;
+                        _windowOffset = 0;
                         _selectedIndex = _bucketCount(period) - 1;
                       }),
                       child: Container(
@@ -980,6 +1011,7 @@ class _TrendSectionState extends State<_TrendSection> {
                 ),
             ],
           ),
+          _windowNavigation(buckets, today),
           const SizedBox(height: 12),
           SizedBox(
             height: MediaQuery.textScalerOf(context).scale(10) * 1.2 + 4,
@@ -1132,12 +1164,68 @@ class _TrendSectionState extends State<_TrendSection> {
           _ReadingBucketDetail(
             bucket: selected,
             books: widget.stats.rows,
+            bookTitles: widget.stats.insights.bookTitles,
             onOpenBook: widget.onOpenBook,
           ),
         ],
       ),
     );
   }
+
+  String _bookActivitySummary(List<_ReadingBucket> buckets) {
+    final counts = [
+      for (final bucket in buckets) _booksReadOnDay(widget.stats, bucket.start),
+    ];
+    final days = counts.where((count) => count > 0).length;
+    final books = counts.fold(0, (sum, count) => sum + count);
+    return '$days 天活跃 · $books 本书';
+  }
+
+  Widget _windowNavigation(List<_ReadingBucket> buckets, DateTime today) =>
+      Column(
+        children: [
+          _windowArrows(buckets, today),
+          if (_windowOffset > 0)
+            TextButton(
+              key: const ValueKey('stats-chart-window-current'),
+              onPressed: () => _changeWindow(0),
+              child: const Text('回到当前'),
+            ),
+        ],
+      );
+
+  Widget _windowArrows(List<_ReadingBucket> buckets, DateTime today) => Row(
+    children: [
+      IconButton(
+        key: const ValueKey('stats-chart-window-previous'),
+        tooltip: '查看更早记录',
+        onPressed: _hasEarlierRecords(buckets.first.start)
+            ? () => _changeWindow(_windowOffset + 1)
+            : null,
+        icon: const Icon(Icons.keyboard_double_arrow_left_rounded),
+      ),
+      Expanded(
+        child: Text(
+          _windowRangeLabel(buckets, today),
+          key: const ValueKey('stats-chart-window-range'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontFeatures: _tabularFigures,
+          ),
+        ),
+      ),
+      IconButton(
+        key: const ValueKey('stats-chart-window-next'),
+        tooltip: '查看较新记录',
+        onPressed: _windowOffset > 0
+            ? () => _changeWindow(_windowOffset - 1)
+            : null,
+        icon: const Icon(Icons.keyboard_double_arrow_right_rounded),
+      ),
+    ],
+  );
 
   String _valueLabel(_ReadingBucket bucket, int index, bool useDuration) {
     final useBooks = _period == _ChartPeriod.day && !useDuration;
@@ -1155,7 +1243,7 @@ class _TrendSectionState extends State<_TrendSection> {
   String _barLabel(_ChartPeriod period, _ReadingBucket bucket, int index) {
     switch (period) {
       case _ChartPeriod.day:
-        if (index == 6) {
+        if (_windowOffset == 0 && index == 6) {
           return '今天';
         }
         const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
@@ -1169,13 +1257,13 @@ class _TrendSectionState extends State<_TrendSection> {
 }
 
 int _booksReadOnDay(_LibraryStats stats, DateTime date) {
-  final day = DateTime(date.year, date.month, date.day);
-  return stats.activity
-      .where(
-        (item) =>
-            item.date.isAtSameMomentAs(day) && item.duration == Duration.zero,
-      )
-      .fold<int>(0, (total, item) => total + item.books);
+  return stats.rows.where((row) {
+    final lastRead = row.book.lastReadAt;
+    return lastRead != null &&
+        lastRead.year == date.year &&
+        lastRead.month == date.month &&
+        lastRead.day == date.day;
+  }).length;
 }
 
 /// 面积图：单条墨色曲线 + 15% -> 0 的填充，选中点带光晕。
@@ -1286,11 +1374,13 @@ class _ReadingBucketDetail extends StatelessWidget {
   const _ReadingBucketDetail({
     required this.bucket,
     required this.books,
+    required this.bookTitles,
     required this.onOpenBook,
   });
 
   final _ReadingBucket bucket;
   final List<_BookReadingStat> books;
+  final Map<String, String> bookTitles;
   final ValueChanged<BookEntry> onOpenBook;
 
   @override
@@ -1369,7 +1459,9 @@ class _ReadingBucketDetail extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          byId[entry.key]?.title ?? '已移除的书籍',
+                          byId[entry.key]?.title ??
+                              bookTitles[entry.key] ??
+                              '已移出书架的书籍',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -1407,6 +1499,33 @@ int _bucketCount(_ChartPeriod period) => switch (period) {
   _ChartPeriod.month => 12,
   _ChartPeriod.year => 5,
 };
+
+DateTime _windowAnchor(_ChartPeriod period, DateTime today, int offset) {
+  final shift = _bucketCount(period) * offset;
+  return switch (period) {
+    _ChartPeriod.day => DateTime(today.year, today.month, today.day - shift),
+    _ChartPeriod.week => DateTime(
+      today.year,
+      today.month,
+      today.day - shift * 7,
+    ),
+    _ChartPeriod.month => DateTime(today.year, today.month - shift),
+    _ChartPeriod.year => DateTime(today.year - shift),
+  };
+}
+
+String _windowRangeLabel(List<_ReadingBucket> buckets, DateTime today) {
+  final start = buckets.first.start;
+  final end = buckets.last.end;
+  final lastDay = end.isAfter(today)
+      ? today
+      : DateTime(end.year, end.month, end.day - 1);
+  String label(DateTime date) =>
+      start.year == today.year && lastDay.year == today.year
+      ? '${date.month}月${date.day}日'
+      : '${date.year}/${date.month}/${date.day}';
+  return '${label(start)}–${label(lastDay)}';
+}
 
 List<_ReadingBucket> _buildReadingBuckets(_ChartPeriod period, DateTime now) {
   final today = DateTime(now.year, now.month, now.day);
@@ -1481,6 +1600,7 @@ void _fillReadingBucket(
       continue;
     }
     bucket.duration += portion.duration;
+    if (portion.duration > Duration.zero) bucket.readingDates.add(portion.date);
     bucket.bookDurations[portion.bookId] =
         (bucket.bookDurations[portion.bookId] ?? Duration.zero) +
         portion.duration;
@@ -1652,6 +1772,7 @@ class _HeatmapSection extends StatelessWidget {
       builder: (_) => _DayReadingSheet(
         day: day,
         books: titles,
+        bookTitles: stats.insights.bookTitles,
         onOpenBook: (book) {
           Navigator.of(context).pop();
           onOpenBook(book);
@@ -1732,11 +1853,13 @@ class _DayReadingSheet extends StatelessWidget {
   const _DayReadingSheet({
     required this.day,
     required this.books,
+    required this.bookTitles,
     required this.onOpenBook,
   });
 
   final _HeatmapDay day;
   final Map<String, BookEntry> books;
+  final Map<String, String> bookTitles;
   final ValueChanged<BookEntry> onOpenBook;
 
   @override
@@ -1872,7 +1995,9 @@ class _DayReadingSheet extends StatelessWidget {
                       children: <Widget>[
                         Expanded(
                           child: Text(
-                            books[entry.key]?.title ?? '已移除的书籍',
+                            books[entry.key]?.title ??
+                                bookTitles[entry.key] ??
+                                '已移出书架的书籍',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 13),
@@ -1920,7 +2045,9 @@ class _DayReadingSheet extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          books[segment.bookId]?.title ?? '已移除的书籍',
+                          books[segment.bookId]?.title ??
+                              bookTitles[segment.bookId] ??
+                              '已移出书架的书籍',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 12),
