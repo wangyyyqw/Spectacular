@@ -142,6 +142,28 @@ Future<void> _expectUnchanged(_Fixture f, BookRow before) async {
   }
 }
 
+Future<BookEntry> _rekey(_Fixture f) => f.library.updateBytes(
+  f.entry.id,
+  buildRevisionTestEpub(
+    identifier: 'urn:uuid:editing-new-identity',
+    chapters: revisionUpdatedChapters,
+  ),
+);
+
+Future<void> _removeReimportedOriginal(_Fixture f, BookEntry current) async {
+  final reimported = await f.library.importBytes(
+    _styled('p { color: black; }'),
+  );
+  expect(reimported.id, f.entry.id);
+  expect(current.id, isNot(reimported.id));
+  expect(await f.library.list(), hasLength(2));
+
+  await f.library.remove(reimported.id);
+
+  expect((await f.library.list()).single.id, current.id);
+  expect(await File(current.filePath).exists(), isTrue);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -439,5 +461,71 @@ void main() {
       ),
     );
     expect((await f.book).contentRevision, updated.contentRevision);
+  });
+
+  test('改版重键后删除再次导入的原书，保留另一记录在旧目录中的编辑历史', () async {
+    final f = await _fixture(css: true);
+    final edited = await f.repository.commitEditedFile(
+      f.entry.id,
+      f.entry.contentRevision!,
+      await f.file(_styled('p { color: red; }')),
+      _cssChange,
+    );
+    expect(edited.importOutcome, BookImportOutcome.updated);
+    final current = await _rekey(f);
+    final before = await f.repository.versions(current.id);
+    expect(
+      before.map((version) => version.kind),
+      containsAll(['original', 'previous']),
+    );
+    expect(await f.db.select(f.db.editDrafts).get(), isEmpty);
+
+    await _removeReimportedOriginal(f, current);
+
+    final retained = await f.repository.versions(current.id);
+    expect(
+      retained.map((version) => version.sourceFile.path),
+      before.map((version) => version.sourceFile.path),
+    );
+    for (final version in retained) {
+      expect(await version.sourceFile.exists(), isTrue);
+    }
+    final restored = await f.repository.restoreOriginal(
+      current.id,
+      current.contentRevision!,
+    );
+    expect(restored.contentRevision, f.entry.contentRevision);
+  });
+
+  test('改版重键后删除再次导入的原书，保留另一记录在旧目录中的草稿和基线', () async {
+    final f = await _fixture(css: true);
+    final session = await EpubEditSession.open(File(f.entry.filePath));
+    addTearDown(session.close);
+    session.transaction(
+      '保留的草稿样式',
+      (tx) => tx.writeText('OEBPS/style.css', 'p { color: green; }'),
+    );
+    await f.repository.saveDraft(
+      f.entry.id,
+      f.entry.contentRevision!,
+      (blob) => session.toDraft(storeBlob: blob),
+    );
+    final current = await _rekey(f);
+    final before = (await f.repository.readDraftForRecovery(current.id))!;
+    expect(await f.repository.versions(current.id), isEmpty);
+
+    await _removeReimportedOriginal(f, current);
+
+    final retained = (await f.repository.readDraftForRecovery(current.id))!;
+    expect(retained.directory.path, before.directory.path);
+    expect(retained.sourceFile.path, before.sourceFile.path);
+    expect(await retained.sourceFile.exists(), isTrue);
+    final recovered = await EpubEditSession.open(
+      retained.sourceFile,
+      draft: retained.data,
+      readBlob: retained.readBlob,
+    );
+    addTearDown(recovered.close);
+    expect(recovered.readText('OEBPS/style.css'), 'p { color: green; }');
   });
 }

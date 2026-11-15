@@ -154,6 +154,53 @@ void main() {
     expect(sentinel.existsSync(), isTrue);
   });
 
+  test('不存在的书籍标识不证明目录归属，删除不清理同名目录', () async {
+    final dir = Directory.systemTemp.createTempSync('library_missing_id');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final directory = Directory(p.join(dir.path, 'books', 'missing-book'))
+      ..createSync(recursive: true);
+    final retained = File(p.join(directory.path, 'retained.epub'))
+      ..writeAsStringSync('无法证明属于待删除书籍的文件');
+
+    await store.remove('missing-book');
+
+    expect(retained.readAsStringSync(), '无法证明属于待删除书籍的文件');
+  });
+
+  test('目录没有本书文件指针时，删除记录不凭标识清理同名目录', () async {
+    final dir = Directory.systemTemp.createTempSync(
+      'library_unowned_directory',
+    );
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    const id = 'unowned-book';
+    final source = File(p.join(dir.path, 'external.epub'))
+      ..writeAsStringSync('外部文件');
+    final directory = Directory(p.join(dir.path, 'books', id))
+      ..createSync(recursive: true);
+    final retained = File(p.join(directory.path, 'retained.epub'))
+      ..writeAsStringSync('没有本书引用的文件');
+    await opened.db
+        .into(opened.db.books)
+        .insert(
+          BooksCompanion.insert(
+            uuid: id,
+            contentRevision: 'test-content',
+            title: '目录归属异常',
+            contentDir: 'books/$id',
+            sourcePath: Value(source.path),
+            createdAt: 0,
+          ),
+        );
+
+    await opened.store.remove(id);
+
+    expect(await opened.store.list(), isEmpty);
+    expect(retained.readAsStringSync(), '没有本书引用的文件');
+    expect(source.readAsStringSync(), '外部文件');
+  });
+
   test('导入报告落库：诊断码与分级（P4-06）', () async {
     final dir = Directory.systemTemp.createTempSync('library_reports');
     addTearDown(() => dir.deleteSync(recursive: true));
