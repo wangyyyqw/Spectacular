@@ -11,9 +11,42 @@ import 'package:reader_core/epub/epub_exception.dart';
 import '../support/broken_samples.dart';
 import '../support/corpus.dart';
 
+class _LengthFailureHandle extends Fake implements RandomAccessFile {
+  bool closed = false;
+  final failure = StateError('文件长度读取失败');
+
+  @override
+  Future<int> length() async => throw failure;
+
+  @override
+  Future<RandomAccessFile> close() async {
+    closed = true;
+    return this;
+  }
+}
+
+class _LengthFailureFile extends Fake implements File {
+  _LengthFailureFile(this.handle);
+
+  final RandomAccessFile handle;
+
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) async =>
+      handle;
+}
+
 void main() {
   final corpus = findCorpusRoot();
   final skip = corpus == null ? '本地样本库缺失（test_corpus/ 不入库）' : null;
+
+  test('打开文件后读取长度失败，关闭句柄并保留原始异常', () async {
+    final handle = _LengthFailureHandle();
+    await expectLater(
+      EpubArchive.fromFile(_LengthFailureFile(handle)),
+      throwsA(same(handle.failure)),
+    );
+    expect(handle.closed, isTrue);
+  });
 
   test('合规样本通过 OCF 校验（含真实 EPUB2 诸神愚戏）', () {
     for (final name in <String>[
