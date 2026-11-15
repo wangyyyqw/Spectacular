@@ -126,9 +126,9 @@ void main() {
     expect(pages.single.usedHeight, closeTo(500, 0.01));
   });
 
-  test('SVG 封面页：显式 meet 在整页视口内等比完整显示', () async {
+  test('全屏 SVG 封面：显式 meet 仍等比裁切铺满整页', () async {
     // 页面 320x711（比例约 0.45），图片 561x799（比例约 0.702）。
-    // 作者要求 meet 时不能为了铺满而裁掉封面左右内容。
+    // 全屏模式统一按 cover 绘制，图片比例与屏幕不同时裁切左右内容。
     final png = await _pngBytes(561, 799);
     final source = await openCssChapter(
       body:
@@ -146,8 +146,8 @@ void main() {
     final block = pages.single.slices.single.block;
     expect(
       block.style!.backgroundSize.mode,
-      CssBackgroundSizeMode.contain,
-      reason: '作者声明 meet 时按 contain 完整显示',
+      CssBackgroundSizeMode.cover,
+      reason: '全屏模式等比裁切铺满，不因 SVG meet 留白',
     );
     const pageSize = Size(320, 711);
     final band = await _renderCoverBand(
@@ -156,10 +156,10 @@ void main() {
       pageSize: pageSize,
     );
     final drawnHeight = band.bottom - band.top + 1;
-    expect(drawnHeight, closeTo(799 * 320 / 561, 2), reason: '保持封面宽高比');
-    expect(band.top, greaterThan(100), reason: '上下居中留白');
-    expect(band.bottom, lessThan(610), reason: '上下居中留白');
-    expect(band.leftEdge, isTrue, reason: '封面宽度完整显示到左右边缘');
+    expect(drawnHeight, 711, reason: '封面覆盖整页高度');
+    expect(band.top, 0, reason: '顶部无留白');
+    expect(band.bottom, 710, reason: '底部无留白');
+    expect(band.leftEdge, isTrue, reason: '图片裁切后覆盖左右边缘');
     expect(band.rightEdge, isTrue);
     expect(block.bleedLeft, isTrue);
     expect(block.bleedRight, isTrue);
@@ -270,7 +270,7 @@ void main() {
     expect(pages.single.slices.first.block.style!.backgroundImage, isNull);
   });
 
-  test('真书取证：mj-003 / zhushen-yuxi 的 SVG 封面遵守 meet', () async {
+  test('真书取证：mj-003 / zhushen-yuxi 的全屏 SVG 封面裁切铺满', () async {
     // 语料：两本多看书的 OPF 都把封面章标成
     // `<itemref idref="cover.xhtml" properties="duokan-page-fullscreen"/>`。
     for (final name in <String>['mj-003.epub', 'zhushen-yuxi.epub']) {
@@ -294,8 +294,8 @@ void main() {
       expect(block.bleedRight, isTrue);
       expect(
         block.style!.backgroundSize.mode,
-        CssBackgroundSizeMode.contain,
-        reason: '$name 的 SVG 声明 meet，封面应完整显示',
+        CssBackgroundSizeMode.cover,
+        reason: '$name 的全屏封面统一裁切铺满',
       );
       // 整页尺寸 = 页宽/页高（不被正文样式或页边距裁小）。
       expect(block.layout.width, closeTo(320, 0.01));

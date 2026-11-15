@@ -43,8 +43,8 @@ Future<ui.Image> _image(int width, int height, Color color) async {
 }
 
 Future<void> _prepareImages() async {
-  _original = await _image(1000, 1333, _originalColor);
-  _slim = await _image(1080, 2400, _slimColor);
+  _original = await _image(1042, 1498, _originalColor);
+  _slim = await _image(1042, 2293, _slimColor);
   _originalBytes = (await _original.toByteData(format: ui.ImageByteFormat.png))!
       .buffer
       .asUint8List();
@@ -73,8 +73,8 @@ Uint8List _bookBytes(String properties, bool withSlim) => auditZip({
       '<div style="text-align:center;padding:0pt;margin:0pt">'
       '<svg xmlns="http://www.w3.org/2000/svg" height="100%" width="100%" '
       'xmlns:xlink="http://www.w3.org/1999/xlink" '
-      'viewBox="0 0 1000 1333" preserveAspectRatio="xMidYMid meet">'
-      '<image width="1000" height="1333" '
+      'viewBox="0 0 1042 1498" preserveAspectRatio="xMidYMid meet">'
+      '<image width="1042" height="1498" '
       'xlink:href="../Images/cover.png"/></svg></div></body></html>',
   _originalPath: _originalBytes,
   if (withSlim) _slimPath: _slimBytes,
@@ -125,32 +125,51 @@ void main() {
     _slim.dispose();
   });
 
-  for (final (name, properties, withSlim, expected) in [
-    ('全屏 SVG meet 选择匹配手机比例的窄版封面', 'duokan-page-fullscreen', true, _slimPath),
-    ('全屏 SVG meet 缺少窄版时完整显示原图', 'duokan-page-fullscreen', false, _originalPath),
-    ('窗口适配不替换原图', 'duokan-page-fitwindow', true, _originalPath),
+  for (final (name, properties, withSlim, expected, mode) in [
+    (
+      '全屏 SVG meet 的窄版比例略有差异时仍裁切铺满',
+      'duokan-page-fullscreen',
+      true,
+      _slimPath,
+      CssBackgroundSizeMode.cover,
+    ),
+    (
+      '全屏 SVG meet 缺少窄版时裁切原图铺满',
+      'duokan-page-fullscreen',
+      false,
+      _originalPath,
+      CssBackgroundSizeMode.cover,
+    ),
+    (
+      '窗口适配完整显示原图',
+      'duokan-page-fitwindow',
+      true,
+      _originalPath,
+      CssBackgroundSizeMode.contain,
+    ),
     (
       '窗口适配优先于全屏图片选择',
       'duokan-page-fullscreen duokan-page-fitwindow',
       true,
       _originalPath,
+      CssBackgroundSizeMode.contain,
     ),
   ]) {
     test(name, () async {
       final page = await _coverPage(properties, withSlim);
       final block = page.slices.single.block;
       expect(block.style!.backgroundImage, expected);
-      expect(block.style!.backgroundSize.mode, CssBackgroundSizeMode.contain);
+      expect(block.style!.backgroundSize.mode, mode);
       expect(block.startCfi, 'epubcfi(/6/2!/4/2/2/2)');
       final pixels = await _paint(page);
-      final edgeColor = expected == _slimPath ? 0x7353A5FF : 0xFFFFFFFF;
+      final imageColor = expected == _slimPath ? 0x7353A5FF : 0x386641FF;
+      final edgeColor = mode == CssBackgroundSizeMode.cover
+          ? imageColor
+          : 0xFFFFFFFF;
       for (final (x, y) in [(4, 4), (379, 4), (4, 849), (379, 849)]) {
         expect(_pixel(pixels, x, y), edgeColor, reason: '封面四边的实际绘制结果');
       }
-      expect(
-        _pixel(pixels, 192, 426),
-        expected == _slimPath ? 0x7353A5FF : 0x386641FF,
-      );
+      expect(_pixel(pixels, 192, 426), imageColor);
     });
   }
 }
