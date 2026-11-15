@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'hourly_reading_chart.dart';
 import 'reading_insights.dart';
 
 /// 按星期展示平均阅读时长的七瓣图。
@@ -58,6 +59,20 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     ];
   }
 
+  Map<int, List<DateTime>> _buildReadingDates() {
+    final dates = <int, Set<DateTime>>{
+      for (var index = 0; index < 7; index++) index: <DateTime>{},
+    };
+    for (final portion in widget.insights.portions) {
+      dates[portion.date.weekday % 7]!.add(portion.date);
+    }
+    return <int, List<DateTime>>{
+      for (final entry in dates.entries)
+        entry.key: entry.value.toList()
+          ..sort((left, right) => right.compareTo(left)),
+    };
+  }
+
   int? _defaultWeekday(List<_WeekdayAverage> averages) {
     final todayIndex = DateTime.now().weekday % 7;
     if (averages[todayIndex].readingDays > 0) {
@@ -78,6 +93,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final averages = _buildAverages();
+    final readingDates = _buildReadingDates();
     _WeekdayAverage? selected;
     for (final average in averages) {
       if (average.weekday == _selectedWeekday) {
@@ -116,7 +132,10 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
                     '还没有阅读记录，开始阅读后会在这里按星期汇总。',
                     style: TextStyle(fontSize: 12, color: muted, height: 1.4),
                   )
-                : _WeekdayDetail(average: selected),
+                : _WeekdayDetail(
+                    average: selected,
+                    readingDates: readingDates[selected.weekday] ?? const [],
+                  ),
           ),
         ],
       ),
@@ -153,6 +172,19 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
               selectedWeekday: _selectedWeekday,
               petalColor: theme.colorScheme.primary,
               ghostColor: theme.colorScheme.surfaceContainerHighest,
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: GestureDetector(
+            key: const ValueKey<String>('stats-weekday-petal-surface'),
+            behavior: HitTestBehavior.opaque,
+            excludeFromSemantics: true,
+            onTapUp: (details) => _tapFlower(
+              details.localPosition,
+              Size.square(size),
+              averages,
+              _buildReadingDates(),
             ),
           ),
         ),
@@ -207,6 +239,39 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
           _weekdayLabel(context, averages[index], center, size, index),
         ],
       ],
+    );
+  }
+
+  void _tapFlower(
+    Offset position,
+    Size size,
+    List<_WeekdayAverage> averages,
+    Map<int, List<DateTime>> readingDates,
+  ) {
+    final center = size.center(Offset.zero);
+    final dx = position.dx - center.dx;
+    final dy = position.dy - center.dy;
+    final radius = math.sqrt(dx * dx + dy * dy);
+    final innerRadius = math.max(28.0, size.width * 0.115);
+    final maxLength = math.max(76.0, size.width * 0.27);
+    if (radius < innerRadius * 0.5 || radius > innerRadius + maxLength + 12) {
+      return;
+    }
+    final angle = (math.atan2(dx, -dy) + 2 * math.pi) % (2 * math.pi);
+    final index = (angle / (2 * math.pi / 7)).round() % averages.length;
+    final weekday = averages[index].weekday;
+    setState(() => _selectedWeekday = weekday);
+    final dates = readingDates[weekday];
+    if (dates == null || dates.isEmpty) return;
+    _openHourlyPage(context, dates.first);
+  }
+
+  void _openHourlyPage(BuildContext context, DateTime date) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            HourlyReadingPage(insights: widget.insights, date: date),
+      ),
     );
   }
 
@@ -317,55 +382,70 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
 }
 
 class _WeekdayDetail extends StatelessWidget {
-  const _WeekdayDetail({required this.average});
+  const _WeekdayDetail({required this.average, required this.readingDates});
 
   final _WeekdayAverage average;
+  final List<DateTime> readingDates;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${average.label}日均',
-                key: const ValueKey<String>('stats-weekday-detail-label'),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${average.label}日均',
+                    key: const ValueKey<String>('stats-weekday-detail-label'),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    average.readingDays == 0
+                        ? '暂无阅读记录'
+                        : '${average.readingDays} 个阅读日',
+                    key: const ValueKey<String>('stats-weekday-detail-days'),
+                    style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                  ),
+                ],
               ),
-              const SizedBox(height: 3),
-              Text(
-                average.readingDays == 0
-                    ? '暂无阅读记录'
-                    : '${average.readingDays} 个阅读日',
-                key: const ValueKey<String>('stats-weekday-detail-days'),
-                style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              average.readingDays == 0
+                  ? '--'
+                  : formatReadingDuration(average.average),
+              key: const ValueKey<String>('stats-weekday-detail-value'),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+                color: theme.colorScheme.onSurface,
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
-        Text(
-          average.readingDays == 0
-              ? '--'
-              : formatReadingDuration(average.average),
-          key: const ValueKey<String>('stats-weekday-detail-value'),
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            height: 1.2,
-            color: theme.colorScheme.onSurface,
-            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+        if (readingDates.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            '最近阅读日 ${readingDates.first.month}月${readingDates.first.day}日，'
+            '点击花瓣查看小时分布',
+            key: const ValueKey<String>('stats-weekday-latest-date'),
+            style: TextStyle(fontSize: 11, color: muted, height: 1.4),
           ),
-        ),
+        ],
       ],
     );
   }
