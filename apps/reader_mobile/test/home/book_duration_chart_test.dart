@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_duration_chart.dart';
@@ -213,6 +215,58 @@ void main() {
     await tester.pumpAndSettle();
     expect(_key('list-page'), findsOneWidget);
     expect(_text(tester, 'list-summary'), '10 本书 · 合计 5 小时 40 分');
+  });
+
+  testWidgets('标签按扇区方位分组并按扇区上下顺序排列，且不压住环体', (tester) async {
+    await _pump(tester, [
+      _session('a', DateTime(2026, 11, 15, 8), 52),
+      _session('b', DateTime(2026, 11, 15, 9), 25),
+      _session('c', DateTime(2026, 11, 15, 10), 14),
+      _session('d', DateTime(2026, 11, 15, 11), 6),
+      for (var i = 1; i <= 4; i++)
+        _session('small$i', DateTime(2026, 11, 15, 12 + i ~/ 2), 1),
+    ]);
+    final ring = tester.getRect(_key('ring'));
+    const durations = [52, 25, 14, 6, 4];
+    const total = 101;
+    final angles = <double>[];
+    var angle = -math.pi / 2;
+    for (final minutes in durations) {
+      final sweep = minutes / total * 2 * math.pi;
+      angles.add(angle + sweep / 2);
+      angle += sweep;
+    }
+    final tags = [
+      for (final id in ['a', 'b', 'c', 'd', 'other']) _key('tag-$id'),
+    ];
+    final centers = [for (final tag in tags) tester.getCenter(tag)];
+    final leftIndices = <int>[];
+    final rightIndices = <int>[];
+    for (var index = 0; index < tags.length; index++) {
+      final tag = tester.getRect(tags[index]);
+      expect(tag.overlaps(ring), isFalse);
+      final labelIsRight = centers[index].dx > ring.center.dx;
+      final segmentIsRight = math.cos(angles[index]) >= 0;
+      expect(labelIsRight, segmentIsRight);
+      (labelIsRight ? rightIndices : leftIndices).add(index);
+    }
+    final expectedLeft = [...leftIndices]
+      ..sort(
+        (left, right) =>
+            math.sin(angles[left]).compareTo(math.sin(angles[right])),
+      );
+    final expectedRight = [...rightIndices]
+      ..sort(
+        (left, right) =>
+            math.sin(angles[left]).compareTo(math.sin(angles[right])),
+      );
+    final actualLeft = [...leftIndices]
+      ..sort((left, right) => centers[left].dy.compareTo(centers[right].dy));
+    final actualRight = [...rightIndices]
+      ..sort((left, right) => centers[left].dy.compareTo(centers[right].dy));
+    expect(actualLeft, expectedLeft);
+    expect(actualRight, expectedRight);
+    expect(tester.takeException(), isNull);
   });
 
   for (final (width, scale) in [(320.0, 2.0), (800.0, 1.0)]) {
