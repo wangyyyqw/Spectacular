@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/import_analysis.dart';
 
@@ -123,5 +124,25 @@ void main() {
     expect(analysis.summary?.meta.title, '文件摘要书');
     expect(analysis.summary?.coverBytes, isNotEmpty);
     expect(analysis.report.ok, isTrue);
+  });
+
+  test('后台旧版快照返回与迁移字节一致的哈希', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'revision-snapshot-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final bytes = Uint8List.fromList(
+      List.generate(
+        importAnalysisIsolateThreshold + 17,
+        (index) => index % 251,
+      ),
+    );
+    final file = File('${directory.path}/old.epub');
+    await file.writeAsBytes(bytes);
+
+    final snapshot = await readRevisionFileSnapshot(file.path);
+
+    expect(snapshot.bytes, orderedEquals(bytes));
+    expect(snapshot.revision, sha256.convert(snapshot.bytes).toString());
   });
 }
