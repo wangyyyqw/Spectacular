@@ -106,13 +106,16 @@ class _CountingStore extends MemoryReaderProgressStore {
 
 class _SlowStore extends MemoryReaderProgressStore {
   Completer<void>? gate;
+  ReaderProgressSaveResult? rejection;
   int writes = 0;
 
   @override
   Future<void> save(String bookId, ReaderProgress progress) async {
     writes += 1;
     final pending = gate;
+    final result = rejection;
     if (pending != null) await pending.future;
+    if (result != null) throw ReaderProgressSaveException(result);
     await super.save(bookId, progress);
   }
 }
@@ -137,6 +140,59 @@ Future<ReaderSession> _openSession(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final result in [
+    ReaderProgressSaveResult.stale,
+    ReaderProgressSaveResult.bookMissing,
+  ]) {
+    test('延迟保存被 $result 拒绝后保留原位置，成功重试才清除错误', () async {
+      const bookId = 'rejected-progress';
+      final store = _SlowStore();
+      final session = await _openSession(
+        _ParagraphSource(pageHeight: 120),
+        store: store,
+        bookId: bookId,
+      );
+      addTearDown(session.dispose);
+      await session.next();
+      await session.flushProgress();
+      final saved = await store.load(bookId);
+      final writes = store.writes;
+      final persisted = session.persistWriteCount;
+      final errors = <Object?>[];
+      session.addListener(() => errors.add(session.progressSaveError));
+      store.gate = Completer<void>();
+      store.rejection = result;
+      await session.next();
+      final pending = expectLater(
+        session.flushProgress(),
+        throwsA(
+          isA<ReaderProgressSaveException>().having(
+            (error) => error.result,
+            '保存结果',
+            result,
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(session.progressSaveError, isNull);
+      store.gate!.complete();
+      await pending;
+
+      expect(session.progressSaveError, isA<ReaderProgressSaveException>());
+      expect(errors.last, same(session.progressSaveError));
+      expect(await store.load(bookId), saved);
+      expect(session.persistWriteCount, persisted);
+      store.gate = null;
+      store.rejection = null;
+      await session.flushProgress();
+      expect(store.writes, writes + 2, reason: '失败位置仍待保存，重试必须再次写入');
+      expect(await store.load(bookId), session.progress);
+      expect(session.persistWriteCount, persisted + 1);
+      expect(session.progressSaveError, isNull);
+      expect(errors.last, isNull);
+    });
+  }
 
   test('分页下反复调整字号/字体/行高/段距/边距/尺寸不漂移原始 CFI', () async {
     final source = _ParagraphSource();

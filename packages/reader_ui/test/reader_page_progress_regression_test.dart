@@ -92,10 +92,16 @@ class _ReflowSource
 
 class _TrackingStore extends MemoryReaderProgressStore {
   int writes = 0;
+  Completer<void>? gate;
+  ReaderProgressSaveResult? rejection;
 
   @override
   Future<void> save(String bookId, ReaderProgress progress) async {
     writes += 1;
+    final pending = gate;
+    final result = rejection;
+    if (pending != null) await pending.future;
+    if (result != null) throw ReaderProgressSaveException(result);
     await super.save(bookId, progress);
   }
 }
@@ -226,6 +232,93 @@ Future<void> _jumpScroll(WidgetTester tester, double offset) async {
 }
 
 void main() {
+  testWidgets('自动进度保存延迟被拒绝时提示旧位置保留，重试成功后清错', (tester) async {
+    const bookId = 'reader-save-rejected';
+    const saved = ReaderProgress(
+      spineIndex: 0,
+      pageIndex: 0,
+      contentRevision: 'r1',
+    );
+    const rejection = ReaderProgressSaveException(
+      ReaderProgressSaveResult.stale,
+    );
+    final store = _TrackingStore();
+    await store.save(bookId, saved);
+    late ReaderSession session;
+    await tester.pumpWidget(
+      _readerPage(
+        _FixedPages(),
+        store: store,
+        bookId: bookId,
+        mode: PageTurnMode.cover,
+        onSessionReady: (value) => session = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    store.gate = Completer<void>();
+    store.rejection = rejection.result;
+    await session.next();
+    await tester.pump();
+    expect(store.writes, 2);
+    expect(session.progressSaveError, isNull);
+    store.gate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text(rejection.message), findsOneWidget);
+    expect(await store.load(bookId), saved);
+    expect(session.persistWriteCount, 0);
+    expect(session.progressSaveError, isA<ReaderProgressSaveException>());
+    store.gate = null;
+    store.rejection = null;
+    await session.flushProgress();
+    await tester.pumpAndSettle();
+    expect(store.writes, 3);
+    expect(session.persistWriteCount, 1);
+    expect(await store.load(bookId), session.progress);
+    expect(session.progressSaveError, isNull);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('生命周期落盘拒绝已由会话提示，不再成为未处理异步异常', (tester) async {
+    const bookId = 'lifecycle-save-rejected';
+    const rejection = ReaderProgressSaveException(
+      ReaderProgressSaveResult.bookMissing,
+    );
+    final store = _TrackingStore();
+    late ReaderSession session;
+    await tester.pumpWidget(
+      _readerPage(
+        _FixedPages(),
+        store: store,
+        bookId: bookId,
+        mode: PageTurnMode.cover,
+        onSessionReady: (value) => session = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await session.next();
+    await session.flushProgress();
+    final saved = await store.load(bookId);
+    store.gate = Completer<void>();
+    store.rejection = rejection.result;
+    await session.next();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    store.gate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text(rejection.message), findsOneWidget);
+    expect(await store.load(bookId), saved);
+    expect(session.progressSaveError, isA<ReaderProgressSaveException>());
+    expect(tester.takeException(), isNull);
+    store.gate = null;
+    store.rejection = null;
+    await session.flushProgress();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('预热、落页和回翻都显示各自页面的原文百分比', (tester) async {
     final source = _PositionedPages();
     late ReaderSession session;

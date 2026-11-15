@@ -132,6 +132,25 @@ abstract interface class ReaderProgressStore {
   Future<Map<String, ReaderProgress>> snapshot();
 }
 
+/// 进度存储核对书籍身份后的保存结果。
+enum ReaderProgressSaveResult { saved, stale, bookMissing }
+
+/// 存储拒绝当前会话的位置；保留原有进度，供阅读页明确提示。
+class ReaderProgressSaveException implements Exception {
+  const ReaderProgressSaveException(this.result);
+
+  final ReaderProgressSaveResult result;
+
+  String get message => switch (result) {
+    ReaderProgressSaveResult.saved => '阅读位置已保存',
+    ReaderProgressSaveResult.stale => '本次位置未保存，保留上次保存位置：书籍已更新',
+    ReaderProgressSaveResult.bookMissing => '本次位置未保存，未覆盖上次保存位置：书籍已不存在',
+  };
+
+  @override
+  String toString() => message;
+}
+
 /// 内存进度存储（测试/未接持久化时使用）。
 class MemoryReaderProgressStore implements ReaderProgressStore {
   final Map<String, ReaderProgress> _items = <String, ReaderProgress>{};
@@ -658,6 +677,11 @@ class ReaderSession extends ChangeNotifier {
   /// 当前正文区高度（分页依据；测试与诊断用）。
   double? get contentHeight => _contentHeight;
   Object? _error;
+  Object? _progressSaveError;
+
+  /// 最近一次进度保存失败；成功写入后清空，正文继续保留当前页。
+  Object? get progressSaveError => _progressSaveError;
+
   bool _restoredFinished = false;
   // 更新后的未读完进度可能仍落在末页；恢复和重排不能代替真实导航。
   bool _suppressRestoredFinished = false;
@@ -2209,27 +2233,35 @@ class ReaderSession extends ChangeNotifier {
                 _flushProgress().ignore();
               }
             });
-      final task = store.save(bookId, value);
-      _persistTask = task;
-      try {
-        await task;
-        _lastPersisted = value;
-        _persistWrites += 1;
-        if (_progressToPersist == value) {
-          _dirty = false;
-        }
-      } catch (_) {
-        _dirty = true;
-        _scheduleRetry();
-        rethrow;
-      } finally {
-        _persistTask = null;
-      }
+      await _saveProgress(value);
     } finally {
       _flushingProgress = false;
       if (_dirty) {
         _scheduleRetry();
       }
+    }
+  }
+
+  Future<void> _saveProgress(ReaderProgress value) async {
+    try {
+      final task = store.save(bookId, value);
+      _persistTask = task;
+      await task;
+      _lastPersisted = value;
+      _persistWrites += 1;
+      if (_progressToPersist == value) _dirty = false;
+      if (_progressSaveError != null) {
+        _progressSaveError = null;
+        _notify();
+      }
+    } catch (error) {
+      _dirty = true;
+      _progressSaveError = error;
+      _notify();
+      _scheduleRetry();
+      rethrow;
+    } finally {
+      _persistTask = null;
     }
   }
 

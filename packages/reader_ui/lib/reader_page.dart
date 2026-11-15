@@ -306,6 +306,7 @@ class ReaderPage extends StatefulWidget {
 
 class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late final ReaderSession _session;
+  String? _reportedProgressSaveMessage;
   late final ParagraphCache _paragraphCache =
       widget.paragraphCache ?? ParagraphCache(maxEntries: 128);
   late final bool _ownsParagraphCache = widget.paragraphCache == null;
@@ -889,6 +890,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       bookId: widget.bookId,
       contentRevision: widget.contentRevision,
     );
+    _session.addListener(_reportProgressSaveError);
     widget.onSessionReady?.call(_session);
     final source = widget.source;
     if (source is PreparedChapterSource) {
@@ -2172,6 +2174,27 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
   }
 
+  void _reportProgressSaveError() {
+    final error = _session.progressSaveError;
+    if (error == null) {
+      _reportedProgressSaveMessage = null;
+      return;
+    }
+    final message = error is ReaderProgressSaveException
+        ? error.message
+        : '本次位置未保存，保留上次保存位置，请稍后重试';
+    if (_reportedProgressSaveMessage == message) return;
+    _reportedProgressSaveMessage = message;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _session.progressSaveError == null ||
+          _reportedProgressSaveMessage != message) {
+        return;
+      }
+      _showToast(message);
+    });
+  }
+
   /// 切后台/失去焦点时立即落盘（P4-10）：系统回收不丢最后一次翻页。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -2193,7 +2216,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _scrollKey.currentState?.captureLatestPosition();
       await _scrollKey.currentState?.flushVisiblePosition();
     }
-    await _session.flushProgress();
+    try {
+      await _session.flushProgress();
+    } on ReaderProgressSaveException {
+      // 会话已通知保存失败；生命周期回调不能再次抛出预期的存储拒绝。
+    }
   }
 
   @override
@@ -2206,6 +2233,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     // 退出阅读页：恢复系统栏（edge-to-edge），并复位到浅色图标语义。
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     _scrollKey.currentState?.captureLatestPosition();
+    _session.removeListener(_reportProgressSaveError);
     // 先同步取得最新视口并启动最后一次保存，再取消在途排版；这样即使
     // 本轮排版被丢弃，退出保存仍读到旧的可见位置而不是已失效的页号。
     _session.flushProgress().ignore();
