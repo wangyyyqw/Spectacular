@@ -4,7 +4,7 @@
 用法：
     python3 tool/device_engine_verify.py                 # 自动取唯一设备
     python3 tool/device_engine_verify.py --device <序列号>
-    python3 tool/device_engine_verify.py --skip-build --apk <已构建 APK>
+    python3 tool/device_engine_verify.py --apk <已构建 APK>  # 复用隔离包并跳过构建
 
 流程：生成 fixtures（缺失时）→ 构建 engine_test 隔离包 → adb 安装启动 →
 App 内跑章节加载/目录/翻页/滚动/字体排版/图片/容错场景 → 检查点截图与
