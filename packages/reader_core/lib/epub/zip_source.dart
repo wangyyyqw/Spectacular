@@ -36,7 +36,12 @@ abstract class ZipByteSource {
   /// 从文件打开。
   static Future<ZipByteSource> fromFile(File file) async {
     final handle = await file.open();
-    return _FileZipSource(file, handle, await handle.length());
+    try {
+      return _FileZipSource(file, handle, await handle.length());
+    } catch (_) {
+      await handle.close();
+      rethrow;
+    }
   }
 }
 
