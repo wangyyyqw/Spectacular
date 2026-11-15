@@ -291,6 +291,16 @@ class ReaderSession extends ChangeNotifier {
   /// 版面或外部定位变化时递增，供动画丢弃过期准备结果。
   int get generation => _generation;
 
+  int _navigationRevision = 0;
+
+  /// 用户导航请求开始或有效滚动位置变化时递增；邻页预热不递增。
+  int get navigationRevision => _navigationRevision;
+
+  int _layoutRevision = 0;
+
+  /// 成功换入新分页快照时递增；重排失败仍沿用旧快照。
+  int get layoutRevision => _layoutRevision;
+
   /// 已加载的真实邻页；预热不触发正文重新测量。
   List<PageContent> get adjacentPages => [
     for (final page in _pager?.prefetchedPages ?? const <VirtualPage>[])
@@ -340,6 +350,7 @@ class ReaderSession extends ChangeNotifier {
     int distance = 1,
     bool Function()? shouldContinue,
   }) async {
+    if (!prefetch) _navigationRevision += 1;
     final pager = _pager;
     final origin = page;
     final generation = _generation;
@@ -388,6 +399,7 @@ class ReaderSession extends ChangeNotifier {
       releasePageTurn(turn);
       return false;
     }
+    _navigationRevision += 1;
     _recordPageTurn(turn.origin);
     _clearScrollPosition();
     _readingAnchor = _anchorOf(page);
@@ -505,11 +517,17 @@ class ReaderSession extends ChangeNotifier {
       generation: snapshot.generation,
       cfi: snapshot.cfi,
     );
+    final cfi = staged.cfi;
+    final positionChanged =
+        staged.spineIndex != (_scrollSpineIndex ?? page?.spineIndex) ||
+        staged.pageIndex != (_scrollPageIndex ?? page?.pageIndex) ||
+        staged.scrollOffset != (_scrollOffset ?? 0) ||
+        (cfi != null && cfi.isNotEmpty && cfi != readingCfi);
+    if (userNavigation && positionChanged) _navigationRevision += 1;
     _stagedViewport = staged;
     _scrollSpineIndex = staged.spineIndex;
     _scrollPageIndex = staged.pageIndex;
     _scrollOffset = staged.scrollOffset;
-    final cfi = staged.cfi;
     if (cfi != null && cfi.isNotEmpty) {
       _readingAnchor = ReaderAnchor(cfi: cfi);
     }
@@ -814,6 +832,7 @@ class ReaderSession extends ChangeNotifier {
 
   /// 按全书进度跳转到章内 CFI。
   Future<bool> seekToReadingPercent(double percent, {bool? continuous}) async {
+    _navigationRevision += 1;
     final source = this.source;
     if (source is! PositionedChapterSource) {
       return jumpToChapter(
@@ -861,6 +880,7 @@ class ReaderSession extends ChangeNotifier {
 
   /// 目录项跳转：优先目录 CFI，其次 fragment，最后章首。
   Future<bool> jumpToTocEntry(TocEntry entry, {bool? continuous}) async {
+    _navigationRevision += 1;
     if (entry.missing || _disposed || _pager == null) return false;
     final source = this.source;
     if (source is! AnchorChapterSource) {
@@ -918,6 +938,7 @@ class ReaderSession extends ChangeNotifier {
     String? title,
     bool continuous = false,
   }) async {
+    _navigationRevision += 1;
     if (_pager == null) {
       return false;
     }
@@ -1032,6 +1053,7 @@ class ReaderSession extends ChangeNotifier {
     String? title,
     int emptyDirection = 1,
   }) async {
+    _navigationRevision += 1;
     if (_pager == null) {
       return false;
     }
@@ -1299,6 +1321,7 @@ class ReaderSession extends ChangeNotifier {
         _scrollOffset = saved.scrollOffset;
       }
       _pager = pager;
+      _layoutRevision += 1;
       _readingAnchor =
           savedCfi == null ||
               savedSpine == null ||
@@ -1391,6 +1414,7 @@ class ReaderSession extends ChangeNotifier {
 
   /// 下一页。
   Future<bool> next() async {
+    _navigationRevision += 1;
     final pager = _pager;
     if (pager == null) {
       return false;
@@ -1413,6 +1437,7 @@ class ReaderSession extends ChangeNotifier {
 
   /// 上一页。
   Future<bool> previous() async {
+    _navigationRevision += 1;
     final pager = _pager;
     if (pager == null) {
       return false;
@@ -1796,6 +1821,7 @@ class ReaderSession extends ChangeNotifier {
         return;
       }
       _pager = pager;
+      _layoutRevision += 1;
       final current = pager.current?.content;
       final effectiveAnchor = anchor.isEmpty || current?.spineIndex != spine
           ? _anchorOf(current)
