@@ -635,35 +635,50 @@ class LibraryStore {
     if (normalized.isEmpty) {
       throw const LibraryImportException('标签名称不能为空');
     }
-    for (final tag in await listTags()) {
-      if (tag.name == normalized) {
-        return tag;
+    if (_isMemory) {
+      for (final tag in _memoryTags.values) {
+        if (tag.name == normalized) return tag;
       }
+      final tag = _newTag(normalized);
+      _memoryTags[tag.id] = tag;
+      _notify();
+      return tag;
     }
+    return _createStoredTag(_newTag(normalized));
+  }
+
+  BookTag _newTag(String name) {
     final now = DateTime.now();
-    final tag = BookTag(
+    return BookTag(
       id:
           'tag-${now.microsecondsSinceEpoch}-'
           '${math.Random().nextInt(0x7fffffff)}',
-      name: normalized,
+      name: name,
       createdAt: now,
     );
-    if (_isMemory) {
-      _memoryTags[tag.id] = tag;
-    } else {
-      final db = _db!;
-      await db
-          .into(db.bookTags)
-          .insert(
-            BookTagsCompanion.insert(
-              id: tag.id,
-              name: tag.name,
-              createdAt: now.millisecondsSinceEpoch,
-            ),
-          );
-    }
-    _notify();
-    return tag;
+  }
+
+  Future<BookTag> _createStoredTag(BookTag candidate) async {
+    final db = _db!;
+    await db
+        .into(db.bookTags)
+        .insert(
+          BookTagsCompanion.insert(
+            id: candidate.id,
+            name: candidate.name,
+            createdAt: candidate.createdAt.millisecondsSinceEpoch,
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+    final row = await (db.select(
+      db.bookTags,
+    )..where((table) => table.name.equals(candidate.name))).getSingle();
+    if (row.id == candidate.id) _notify();
+    return BookTag(
+      id: row.id,
+      name: row.name,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
+    );
   }
 
   /// 给书籍添加标签；重复添加保持幂等。
