@@ -65,6 +65,44 @@ void main() {
     );
   });
 
+  test('合法空变量保留空值，普通属性替换为空时不启用回退', () {
+    final style = compute('--empty: ; color: var(--empty, red)');
+    expect(style.customProperties['--empty'], '');
+    expect(style.color, const Color(0xFF000000));
+    expect(compute('color: blue; color: ;').color, const Color(0xFF0000FF));
+    expect(
+      CssParser.parseInlineDeclarations('--empty: ; color: ;')
+          .map((declaration) => (declaration.property, declaration.value)),
+      [('--empty', '')],
+    );
+  });
+
+  test('合法空变量可继承并嵌入其他值，空回退同样有效', () {
+    final parent = compute('--empty: ; --alias: var(--empty)');
+    final inherited = compute(
+      'width: calc(20px var(--alias, + 10px))',
+      parent: parent,
+    );
+    expect(inherited.customProperties['--alias'], '');
+    expect(inherited.width!.value, 20);
+    expect(compute('width: calc(20px var(--missing,))').width!.value, 20);
+  });
+
+  test('真正替换失败与 initial 保持无效，允许上层使用回退', () {
+    final invalid = compute(
+      '--bad: prefix var(--missing); --alias: var(--bad); '
+      'color: var(--alias, red)',
+    );
+    expect(invalid.customProperties.containsKey('--bad'), isFalse);
+    expect(invalid.customProperties.containsKey('--alias'), isFalse);
+    expect(invalid.color, const Color(0xFFFF0000));
+    final parent = compute('--empty: ;');
+    expect(
+      compute('--empty: initial; color: var(--empty, red)', parent: parent).color,
+      const Color(0xFFFF0000),
+    );
+  });
+
   test('calc() 数值运算与百分比', () {
     expect(
       compute('width: calc(100% - 20px)').width!.value,

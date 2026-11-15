@@ -269,7 +269,9 @@ abstract final class Cascade {
     }
     return <String, String>{
       for (final entry in variables.entries)
-        entry.key: _substituteVars(entry.value, variables, {entry.key}),
+        if (_substituteVars(entry.value, variables, {entry.key})
+            case final resolved?)
+          entry.key: resolved,
     };
   }
 
@@ -281,7 +283,7 @@ abstract final class Cascade {
         !declaration.value.contains('var(')) {
       return declaration;
     }
-    final value = _substituteVars(declaration.value, variables);
+    final value = _substituteVars(declaration.value, variables) ?? '';
     // 变量替换后无效时按 unset 处理，不能恢复被级联覆盖的旧声明。
     final valid =
         value.isNotEmpty &&
@@ -590,8 +592,8 @@ abstract final class Cascade {
     }
   }
 
-  /// 解析 `var(--token[, fallback])`（P9-14）：支持嵌套、回退值、循环保护。
-  static String _substituteVars(
+  /// 解析 `var(--token[, fallback])`；null 表示替换失败，空串是合法空值。
+  static String? _substituteVars(
     String value,
     Map<String, String> variables, [
     Set<String>? stack,
@@ -611,8 +613,7 @@ abstract final class Cascade {
       result.write(value.substring(index, start));
       final end = _functionEnd(value, start + 3);
       if (end < 0) {
-        result.write(value.substring(start));
-        break;
+        return null;
       }
       final inner = value.substring(start + 4, end);
       final comma = _topLevelComma(inner);
@@ -627,10 +628,11 @@ abstract final class Cascade {
           active.remove(name);
         }
       }
-      if ((resolved == null || resolved.trim().isEmpty) && fallback != null) {
+      if (resolved == null && fallback != null) {
         resolved = _substituteVars(fallback, variables, active);
       }
-      result.write(resolved ?? '');
+      if (resolved == null) return null;
+      result.write(resolved);
       index = end + 1;
     }
     return result.toString();
@@ -768,7 +770,8 @@ abstract final class Cascade {
     final propertyKey = property.startsWith('--')
         ? property.trim()
         : property.trim().toLowerCase();
-    if (propertyKey.isEmpty || value.trim().isEmpty) {
+    if (propertyKey.isEmpty ||
+        (value.trim().isEmpty && !propertyKey.startsWith('--'))) {
       return;
     }
     final candidate = _Winner(
