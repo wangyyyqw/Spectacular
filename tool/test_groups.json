@@ -203,6 +203,8 @@
         "packages/reader_core/test/pagination/*_test.dart",
         "packages/reader_core/test/table/*_test.dart",
         "packages/reader_core/test/text/segmenter_test.dart",
+        "packages/reader_core/test/text/font_punctuation_metrics_test.dart",
+        "apps/reader_mobile/test/reader/block_border_text_clearance_test.dart",
         "apps/reader_mobile/test/reader/boxes_test.dart",
         "apps/reader_mobile/test/reader/chapter_layout_baseline_test.dart",
         "apps/reader_mobile/test/reader/cjk_spacing_parity_test.dart",
