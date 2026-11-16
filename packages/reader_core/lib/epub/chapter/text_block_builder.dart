@@ -1375,8 +1375,11 @@ class TextBlockBuilder {
     ];
   }
 
+  /// 纯空行只占布局高度，不能把源码空白节点作为可保存的正文锚点。
   String? _contentCfi(_BlockContext context, _InlineParagraph paragraph) =>
-      paragraph.dropped.paragraph.textCfis?.cfiAt(0) ?? context.cfi;
+      paragraph.dropped.paragraph.text.isEmpty
+      ? null
+      : paragraph.dropped.paragraph.textCfis?.cfiAt(0) ?? context.cfi;
 
   Future<_MeasuredParagraph> _measureParagraph(
     _BlockContext context,

@@ -420,6 +420,24 @@ List<PageFootnote> _imageFootnotes(
   return incoming.isNotEmpty ? incoming : [?direct];
 }
 
+/// 纯图折叠移除了祖先盒，仍须在唯一图片的边界执行祖先强制分页。
+/// 只恢复被折叠的盒边界，保留容器的声明不重复施加到内部图片。
+({bool before, bool after}) _foldedPageBreaks(_ImageDescription input) {
+  var before = false;
+  var after = false;
+  if (input.node.containerChain.isEmpty) return (before: before, after: after);
+  for (var index = 0; index < input.chain.length; index++) {
+    if (input.styles.retainedContainers.containsKey(input.chain[index])) {
+      continue;
+    }
+    final style = input.styles.chainStyle(input.chain.sublist(0, index + 1));
+    if (style.isOutOfFlow || style.cssFloat != CssFloat.none) continue;
+    before |= style.pageBreakBefore;
+    after |= style.pageBreakAfter;
+  }
+  return (before: before, after: after);
+}
+
 PageBlock _imageBlock(
   _ImageDescription input,
   _ImageGeometry geometry,
@@ -431,13 +449,14 @@ PageBlock _imageBlock(
     containingWidth: input.styles.snapshot.width,
   );
   final layout = _imageLayout(geometry);
+  final breaks = _foldedPageBreaks(input);
   return PageBlock(
     layout: layout,
     isReplaced: true,
     startCfi: input.styles.selectorIndex.imageCfiOf(input.node),
     style: style,
-    pageBreakBefore: style.pageBreakBefore,
-    pageBreakAfter: style.pageBreakAfter,
+    pageBreakBefore: style.pageBreakBefore || breaks.before,
+    pageBreakAfter: style.pageBreakAfter || breaks.after,
     breakInsideAvoid: style.breakInsideAvoid,
     breakAfterAvoid: style.breakAfterAvoid,
     spaceBefore: style.margin.top,
