@@ -521,6 +521,11 @@ Future<void> wrapContainerBlocks(
           style.display == CssDisplay.listItem);
   final separateTop = separateExternalMargins && top > 0;
   final separateBottom = separateExternalMargins && bottom > 0;
+  // 绝对定位子块不决定父盒首尾；含浮动的容器继续保留浮动包围范围。
+  final boxStart = hasFlowChild && !hasFloatChild ? topTarget : start;
+  final boxEnd = hasFlowChild && !hasFloatChild
+      ? bottomTarget
+      : blocks.length - 1;
   for (var i = start; i < blocks.length; i++) {
     await checkpoint?.call();
     final block = blocks[i];
@@ -564,10 +569,12 @@ Future<void> wrapContainerBlocks(
         _ExternalMarginFragment(
           PageContainerFragment(
             container: container,
-            startsHere: first && !hasTopSpacer,
-            endsHere: last,
-            topInset: first && !hasTopSpacer ? block.leadingExtent + top : 0,
-            bottomInset: last ? block.trailingExtent + bottom : 0,
+            startsHere: i == boxStart && !hasTopSpacer,
+            endsHere: i == boxEnd,
+            topInset: i == boxStart && !hasTopSpacer
+                ? block.leadingExtent + top
+                : 0,
+            bottomInset: i == boxEnd ? block.trailingExtent + bottom : 0,
           ),
           separateTop,
           separateBottom,

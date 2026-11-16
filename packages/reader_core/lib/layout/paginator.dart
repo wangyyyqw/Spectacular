@@ -1621,8 +1621,7 @@ class Paginator {
       source,
       containingWidth: pageSize.width,
       containingHeight: pageSize.height,
-      staticTop: position.top,
-      staticLeft: position.left,
+      staticPosition: position,
     );
     final block = resolved.block;
     return PageBlockSlice(
@@ -1705,7 +1704,126 @@ class Paginator {
     ];
   }
 
-  /// 绝对定位解算（CSS 2.1 §10.3.7/§10.6.4 的扁平管线口径）。
+  /// 在分页完成、父盒实际高度已知后，以最近的定位祖先重新放置覆盖层。
+  /// 普通静态祖先不建立包含块；固定定位继续使用页面坐标。
+  static PageContent positionContainerOverlays(PageContent page) {
+    final bounds = _positionedContainerBounds(page);
+    if (bounds.isEmpty) return page;
+    final slices = <PageBlockSlice>[];
+    var changed = false;
+    for (final slice in page.slices) {
+      final container = slice.block.containers.reversed
+          .map((fragment) => fragment.container)
+          .where((container) => _establishesContainingBlock(container.style))
+          .firstOrNull;
+      final rect = bounds[container];
+      if (!slice.overlay ||
+          slice.block.style?.position != CssPosition.absolute ||
+          rect == null) {
+        slices.add(slice);
+        continue;
+      }
+      final box = _containerPaddingBox(container!, rect, page.pageHeight);
+      slices.add(_positionContainerOverlay(slice, box));
+      changed = true;
+    }
+    return changed
+        ? PageContent(
+            spineIndex: page.spineIndex,
+            pageIndex: page.pageIndex,
+            slices: slices,
+            usedHeight: page.usedHeight,
+            pageHeight: page.pageHeight,
+            topPadding: page.topPadding,
+            background: page.background,
+          )
+        : page;
+  }
+
+  static bool _establishesContainingBlock(ComputedStyle style) =>
+      style.position != CssPosition.static || style.transforms.isNotEmpty;
+
+  /// 父盒范围仅由在流后代决定，定位子项不得反过来撑高包含块。
+  static Map<PageContainer, Rect> _positionedContainerBounds(PageContent page) {
+    final bounds = <PageContainer, Rect>{};
+    var y = page.topPadding;
+    for (final slice in page.slices) {
+      final top = slice.overlay ? (slice.absoluteTop ?? y) : y;
+      if (!(slice.block.style?.isOutOfFlow ?? false)) {
+        for (final fragment in slice.block.containers) {
+          final container = fragment.container;
+          if (!_establishesContainingBlock(container.style)) continue;
+          final rect = Rect.fromLTRB(
+            container.left,
+            fragment.startsHere && slice.startLine == 0
+                ? top + slice.leadingExtent - fragment.topInset
+                : top,
+            container.left + container.width,
+            fragment.endsHere && slice.endLine == slice.block.layout.lineCount
+                ? top +
+                      slice.height -
+                      slice.trailingExtent +
+                      fragment.bottomInset
+                : top + slice.height,
+          );
+          bounds[container] = bounds[container]?.expandToInclude(rect) ?? rect;
+        }
+      }
+      if (!slice.overlay) y += slice.height;
+    }
+    return bounds;
+  }
+
+  static Rect _containerPaddingBox(
+    PageContainer container,
+    Rect rect,
+    double pageHeight,
+  ) {
+    final model = BoxModel.fromStyle(
+      container.style,
+      containingWidth: container.width,
+    );
+    final contentHeight = model.resolveContentHeight(
+      math.max(0, rect.height - model.verticalInset),
+      containingHeight: pageHeight,
+    );
+    return Rect.fromLTWH(
+      rect.left + model.borders.left,
+      rect.top + model.borders.top,
+      rect.width - model.borders.horizontal,
+      contentHeight + model.padding.vertical,
+    );
+  }
+
+  static PageBlockSlice _positionContainerOverlay(
+    PageBlockSlice slice,
+    Rect box,
+  ) {
+    final resolved = _resolveAbsolute(
+      slice.block,
+      containingWidth: box.width,
+      containingHeight: box.height,
+      staticPosition: (
+        top: (slice.absoluteTop ?? 0) - box.top,
+        left: slice.leftInset - box.left,
+      ),
+      resolveStyleOffsets: true,
+    );
+    final block = resolved.block;
+    return PageBlockSlice(
+      block: block,
+      startLine: 0,
+      endLine: block.layout.lineCount,
+      height: block.leadingExtent + block.height + block.trailingExtent,
+      leadingExtent: block.leadingExtent,
+      trailingExtent: block.trailingExtent,
+      overlay: true,
+      absoluteTop: box.top + resolved.top,
+      leftInset: box.left + resolved.left,
+    );
+  }
+
+  /// 绝对定位解算（CSS 2.1 §10.3.7/§10.6.4）。
   ///
   /// - 包含块 = 页面内容盒；百分比按包含块宽/高解算；
   /// - `left` 优先于 `right`、`top` 优先于 `bottom`（over-constrained 时忽略
@@ -1716,8 +1834,8 @@ class Paginator {
     PageBlock block, {
     required double containingWidth,
     required double containingHeight,
-    required double staticTop,
-    required double staticLeft,
+    required ({double top, double left}) staticPosition,
+    bool resolveStyleOffsets = false,
   }) {
     final style = block.style;
     var prepared = style == null
@@ -1750,8 +1868,8 @@ class Paginator {
         prepared.height +
         (model?.verticalInset ?? 0) +
         (model?.margin.vertical ?? 0);
-    double? left = block.absoluteLeft;
-    double? top = block.absoluteTop;
+    double? left = resolveStyleOffsets ? null : block.absoluteLeft;
+    double? top = resolveStyleOffsets ? null : block.absoluteTop;
     if (style != null) {
       final leftSpec = style.left?.resolve(containingWidth);
       final rightSpec = style.right?.resolve(containingWidth);
@@ -1768,8 +1886,8 @@ class Paginator {
     }
     return _AbsolutePlacement(
       block: prepared,
-      top: top ?? staticTop,
-      left: left ?? staticLeft,
+      top: top ?? staticPosition.top,
+      left: left ?? staticPosition.left,
     );
   }
 
@@ -2241,8 +2359,7 @@ class Paginator {
           block,
           containingWidth: containingWidth,
           containingHeight: containingHeight,
-          staticTop: used,
-          staticLeft: 0,
+          staticPosition: (top: used, left: 0),
         );
         final top = resolved.top
             .clamp(0.0, math.max(0.0, pageHeight - 1))
