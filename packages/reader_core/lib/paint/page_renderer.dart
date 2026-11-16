@@ -6069,15 +6069,15 @@ class _SliceGeometry {
   }
 
   Rect _decorationClip(Rect clip) {
-    // 负外边距可把首尾边框移到切片流占位之外；只扩展真实块首尾，
-    // 续页仍沿分页切口裁剪，完整边框最多画到整页边界。
+    // 负外边距可把背景和边框移到切片流占位之外；横向保留作者盒范围，
+    // 纵向只扩展真实块首尾，续页仍沿分页切口裁剪，最多画到整页边界。
     final box = borderBox;
     return Rect.fromLTRB(
-      clip.left,
+      math.min(clip.left, math.max(-pageInsets.left, box.left)),
       startsBlock
           ? math.min(clip.top, math.max(-pageInsets.top, box.top))
           : clip.top,
-      clip.right,
+      math.max(clip.right, math.min(pageWidth + pageInsets.right, box.right)),
       endsBlock
           ? math.max(
               clip.bottom,
