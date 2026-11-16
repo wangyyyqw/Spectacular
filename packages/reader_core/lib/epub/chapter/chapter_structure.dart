@@ -343,8 +343,14 @@ bool _hasImageLayout(ComputedStyle style) =>
     style.margin.horizontal != 0 ||
     style.margin.vertical != 0;
 
-bool _hasImageSize(ComputedStyle style) =>
-    (style.width != null && !style.width!.isAuto) ||
-    (style.height != null && !style.height!.isAuto) ||
-    (style.maxWidth != null && style.values['max-width'] != '100%') ||
-    style.maxHeight != null;
+bool _hasImageSize(ComputedStyle style) {
+  // 100%×100% 是单图封面的铺页声明，不应把它当成缩略图尺寸而保留正文边距。
+  // HTML 宽高属性仍由结构分析排除，其他 CSS 尺寸和定位约束继续走普通路径。
+  const full = CssLength(100, isPercent: true);
+  final fillsPage = style.width == full && style.height == full;
+  return (!fillsPage &&
+          ((style.width != null && !style.width!.isAuto) ||
+              (style.height != null && !style.height!.isAuto))) ||
+      (style.maxWidth != null && style.values['max-width'] != '100%') ||
+      style.maxHeight != null;
+}
