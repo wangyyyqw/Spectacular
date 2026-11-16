@@ -28,10 +28,7 @@ abstract final class FontCoverageRegistry {
 /// 字体字形覆盖检测（P3-04）。
 ///
 /// 从字体字节解析 OpenType `cmap` 表（format 4 覆盖 BMP、format 12
-/// 覆盖全平面），支持逐码点查询与缺失字符清单导出。定位是**诊断级
-/// 工具**：运行期缺字仍由 `fontFamilyFallback` 兜底（技术方案 §28.4
-/// 决策——不做逐字覆盖检测进排版热路径），本工具供缺失字符记录、
-/// 书籍详情展示与清单导出使用。
+/// 覆盖全平面），用于书内 face 的逐码点选择与缺失字符清单导出。
 ///
 /// 参考：OpenType OS/2 的 ulUnicodeRange 只给类级提示，逐字覆盖以
 /// cmap 为准，故不解析 OS/2。
@@ -43,6 +40,44 @@ class FontCoverage {
 
   /// format 4 段（升序，互不重叠）：[startCode, endCode]（BMP）。
   final Uint32List _format4Segments;
+
+  /// 与 CSS 声明范围相交，禁止借用字库中范围以外的字形。
+  FontCoverage restricted(List<(int, int)> ranges) {
+    final intersections = <(int, int)>[];
+    for (final pair in _pairs) {
+      for (final range in ranges) {
+        final start = pair.$1 > range.$1 ? pair.$1 : range.$1;
+        final end = pair.$2 < range.$2 ? pair.$2 : range.$2;
+        if (start <= end) intersections.add((start, end));
+      }
+    }
+    return _fromPairs(intersections);
+  }
+
+  /// 诊断组合族的覆盖；实际排版仍先选定样式与字重，逐 face 查询。
+  static FontCoverage union(Iterable<FontCoverage> coverages) =>
+      _fromPairs([for (final coverage in coverages) ...coverage._pairs]);
+
+  Iterable<(int, int)> get _pairs sync* {
+    for (final values in [_format12Groups, _format4Segments]) {
+      for (var index = 0; index + 1 < values.length; index += 2) {
+        yield (values[index], values[index + 1]);
+      }
+    }
+  }
+
+  static FontCoverage _fromPairs(List<(int, int)> pairs) {
+    pairs.sort((a, b) => a.$1.compareTo(b.$1));
+    final merged = <int>[];
+    for (final (start, end) in pairs) {
+      if (merged.isNotEmpty && start <= merged.last + 1) {
+        if (end > merged.last) merged[merged.length - 1] = end;
+      } else {
+        merged.addAll([start, end]);
+      }
+    }
+    return FontCoverage._(Uint32List.fromList(merged), Uint32List(0));
+  }
 
   /// 依赖键只包含实际覆盖数据，不包含注册次数或对象身份。
   late final String fingerprint = _coverageFingerprint();

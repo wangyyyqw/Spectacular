@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:reader_core/api.dart' show CancelToken;
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/source/chapter_source.dart';
@@ -29,6 +30,7 @@ class LayoutSnapshot {
     required this.fontDependency,
     required this.fonts,
     required this.fontFamilies,
+    this.fontFaces = const [],
     required this.trimTextEdges,
   }) : sideInsets =
            sideInsets ??
@@ -52,6 +54,9 @@ class LayoutSnapshot {
   final String fontDependency;
   final BookFontView fonts;
   final Set<String> fontFamilies;
+
+  /// 作业只读 face 声明集合；依赖检查与级联改写使用同一章节范围。
+  final List<CssFontFace> fontFaces;
   final bool trimTextEdges;
   late final String overrideFingerprint = overrides.fingerprint;
   late final String typographyFingerprint = textOverlays.typographyFingerprint;

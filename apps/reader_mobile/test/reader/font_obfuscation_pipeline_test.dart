@@ -10,6 +10,7 @@ import 'package:reader_core/epub/font_obfuscation.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
+
 import 'package:reader_core/source/chapter_source.dart';
 
 Uint8List _fallbackFontBook(Uint8List font) {
@@ -257,7 +258,7 @@ void main() {
     expect(await _pixels(nameB), isNot(before));
   });
 
-  test('后续章节新增字重后旧章分页缓存改用完整的新字体族', () async {
+  test('后续章节独立声明字重不改变旧章字体和分页缓存', () async {
     final source = await EpubChapterSource.open(
       _incrementalFontBook(
         font,
@@ -266,14 +267,16 @@ void main() {
     );
     addTearDown(source.close);
     final first = await source.loadChapter(0);
+    final dependency = source.layoutDependencyForSpine(0);
     final original = first.first.slices.first.block.style!.fontFamily!;
     final added = await source.loadChapter(1);
     final expanded = added.first.slices.first.block.style!.fontFamily!;
     expect(expanded, isNot(original));
     final reloaded = await source.loadChapter(0);
-    expect(reloaded, isNot(same(first)), reason: '旧样式缓存不能沿用少字重的引擎族');
-    expect(reloaded.first.slices.first.block.style!.fontFamily, expanded);
-    expect(await _pixels(expanded), await _pixels(original));
+    expect(reloaded, same(first), reason: '后章的字重声明不属于前章字体集合');
+    expect(source.layoutDependencyForSpine(0), dependency);
+    expect(reloaded.first.slices.first.block.style!.fontFamily, original);
+    expect(await _pixels(expanded), isNot(await _pixels(original)));
     expect(
       source.invalidationLog.any(
         (entry) => entry.startsWith('fontFacesChanged'),

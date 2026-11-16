@@ -50,8 +50,7 @@ void main() {
 }
 ''';
       final sheet = CssParser.parse(css);
-      expect(sheet.fontFaces.map((f) => f.family),
-          ['三极花朝体', '手写体']);
+      expect(sheet.fontFaces.map((f) => f.family), ['三极花朝体', '手写体']);
       expect(sheet.fontFaces.first.sources.first.isLocal, isTrue);
     });
 
@@ -107,10 +106,7 @@ p::before { content: "@font-face"; }
 ''';
       final sheet = CssParser.parse(css);
       expect(sheet.fontFaces, isEmpty);
-      expect(
-        sheet.warnings.any((w) => w.contains('缺少 font-family')),
-        isTrue,
-      );
+      expect(sheet.warnings.any((w) => w.contains('缺少 font-family')), isTrue);
       expect(sheet.warnings.any((w) => w.contains('未闭合')), isTrue);
     });
 
@@ -157,8 +153,10 @@ p { margin: 0; }
 
     test('未命中原样保留（显式回退）', () {
       expect(FontFamilyAliases.resolve('三极花朝体'), isNull);
-      expect(FontFamilyAliases.mapFamilies(['三极花朝体', '宋体']),
-          ['三极花朝体', FontFamilyAliases.song]);
+      expect(FontFamilyAliases.mapFamilies(['三极花朝体', '宋体']), [
+        '三极花朝体',
+        FontFamilyAliases.song,
+      ]);
     });
 
     test('textStyleFor 集成：主族与 fallback 都映射', () {
@@ -191,8 +189,16 @@ p { margin: 0; }
 
     test('10 组常见字体名全部能映射或显式回退', () {
       const samples = <String>[
-        '宋体', '黑体', '楷体', '仿宋', '微软雅黑', '苹方',
-        'Source Han Serif CN', 'Noto Sans CJK SC', 'serif', 'sans-serif',
+        '宋体',
+        '黑体',
+        '楷体',
+        '仿宋',
+        '微软雅黑',
+        '苹方',
+        'Source Han Serif CN',
+        'Noto Sans CJK SC',
+        'serif',
+        'sans-serif',
       ];
       final mapped = <String, String?>{
         for (final name in samples) name: FontFamilyAliases.resolve(name),
@@ -234,7 +240,7 @@ p { margin: 0; }
   });
 
   group('CssFontFaceRegistry 去重与注册任务', () {
-    test('同一 family 重复声明按顺序覆盖', () {
+    test('同一 family 不同来源保持声明顺序', () {
       const first = '''
 @font-face { font-family: Song; src: url("old.ttf"); }
 ''';
@@ -244,8 +250,11 @@ p { margin: 0; }
       final registry = CssFontFaceRegistry()
         ..registerAll(CssParser.parse(first).fontFaces)
         ..registerAll(CssParser.parse(second).fontFaces);
-      expect(registry.faces, hasLength(1));
-      expect(registry.faces.single.sources.single.ref, 'new.ttf');
+      expect(registry.faces, hasLength(2));
+      expect(registry.faces.map((face) => face.sources.single.ref), [
+        'old.ttf',
+        'new.ttf',
+      ]);
     });
 
     test('不同字重的同族 face 共存（P3-02 多字重依赖）', () {
@@ -294,8 +303,10 @@ p { margin: 0; }
       const css = '@font-face { font-family: F; src: url("../x.ttf"); }';
       final registry = CssFontFaceRegistry()
         ..registerAll(CssParser.parse(css).fontFaces);
-      expect(registry.registrationTasks().single.sources.single.ref,
-          '../x.ttf');
+      expect(
+        registry.registrationTasks().single.sources.single.ref,
+        '../x.ttf',
+      );
     });
   });
 }

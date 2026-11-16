@@ -24,7 +24,7 @@ Future<Uint8List> _fileBytes(String path) => File(path).readAsBytes();
 List<CssFontFace> _parse(String css) => CssParser.parse(css).fontFaces;
 
 void main() {
-  group('BookFontLoader 多字重注册（方案 A）', () {
+  group('BookFontLoader 独立 face 与规范匹配', () {
     test('同一 family 的 regular/bold 注册后按 fontWeight 正确选中', () async {
       final loader = BookFontLoader(bookId: 't1');
       final faces = _parse('''
@@ -37,17 +37,20 @@ void main() {
       );
       expect(result.warnings, isEmpty);
       final engine = loader.engineFamily('songti');
-      expect(engine, 'bi_t1_songti');
-      expect(loader.facesOf('songti').keys.toSet(), {'w400i0', 'w700i0'});
+      expect(engine, startsWith('bi_'));
       expect(
-        FontMetricsRegistry.xHeightRatio(engine),
-        closeTo(0.514, 0.0001),
+        loader.facesOf('songti').values.map((face) => face.weight).toSet(),
+        {400, 700},
       );
+      expect(FontMetricsRegistry.xHeightRatio(engine), closeTo(0.514, 0.0001));
 
       final regular = await _render(engine!, 400);
       final bold = await _render(engine, 700);
-      expect(_diffBytes(regular, bold), greaterThan(0),
-          reason: 'S5 口径：bold face 生效应产生像素差异');
+      expect(
+        _diffBytes(regular, bold),
+        greaterThan(0),
+        reason: 'S5 口径：bold face 生效应产生像素差异',
+      );
     });
 
     test('书间族名隔离：不同 bookId 同族名互不影响', () async {
@@ -58,8 +61,8 @@ void main() {
       );
       await a.load(faces, resolveBytes: _fileBytes);
       await b.load(faces, resolveBytes: _fileBytes);
-      expect(a.engineFamily('F'), 'bi_a_F');
-      expect(b.engineFamily('F'), 'bi_b_F');
+      expect(a.engineFamily('F'), isNotNull);
+      expect(b.engineFamily('F'), isNotNull);
       expect(a.engineFamily('F'), isNot(b.engineFamily('F')));
     });
 
@@ -91,10 +94,10 @@ void main() {
       expect(result.engineFamilies, isA<Map<String, String>>());
     });
 
-    test('local-only face 暂不可加载，告警且族不可用', () async {
+    test('未知 local-only face 告警且族不可用', () async {
       final loader = BookFontLoader(bookId: 't4');
       final faces = _parse(
-        '@font-face { font-family: OnlyLocal; src: local("Song"); }',
+        '@font-face { font-family: OnlyLocal; src: local("UnknownLocalFace"); }',
       );
       final result = await loader.load(faces, resolveBytes: _fileBytes);
       expect(loader.engineFamily('OnlyLocal'), isNull);
@@ -109,9 +112,7 @@ void main() {
       final result = await loader.load(faces, resolveBytes: _fileBytes);
       expect(loader.engineFamily('Fallback'), isNotNull);
       expect(
-        result.warnings.any(
-          (w) => w.contains('格式不支持') && w.contains('woff2'),
-        ),
+        result.warnings.any((w) => w.contains('格式不支持') && w.contains('woff2')),
         isTrue,
       );
     });
@@ -214,17 +215,25 @@ void main() {
         _parse('@font-face { font-family: Chunked; src: url("font.otf"); }'),
         resolveBytes: (_) async => bytes,
       );
-      final signature = 'w400i0:${sha256.convert(bytes)}';
+      final face = _parse(
+        '@font-face { font-family: Chunked; src: url("font.otf"); }',
+      ).single;
+      final signature = jsonEncode([
+        'chunked',
+        face.dedupKey,
+        sha256.convert(bytes).toString(),
+      ]);
       final digest = sha256.convert(utf8.encode(signature));
-      expect(loader.engineFamily('Chunked'), 'bi_chunked_${digest}_Chunked');
+      expect(loader.registeredFace(face)!.selection.alias, 'bi_face_$digest');
     });
 
     test('大字体摘要期间可处理事件并在关闭后停止注册', () async {
       final bytes = await _fileBytes(_regularPath);
-      final signature = 'w400i0:${sha256.convert(bytes)}';
-      final digest = sha256.convert(utf8.encode(signature));
-      final engine = 'bi_hash_cancel_${digest}_HashCancel';
-      final loader = BookFontLoader(bookId: 'hash_cancel', contentAddressed: true);
+      final before = BookFontLoader.engineLoadCountForTest;
+      final loader = BookFontLoader(
+        bookId: 'hash_cancel',
+        contentAddressed: true,
+      );
       addTearDown(loader.clear);
       final result = await loader.load(
         _parse('@font-face { font-family: HashCancel; src: url("font.otf"); }'),
@@ -236,12 +245,18 @@ void main() {
       expect(result.engineFamilies, isEmpty);
       expect(loader.engineFamily('HashCancel'), isNull);
       expect(loader.facesOf('HashCancel'), isEmpty);
-      expect(FontMetricsRegistry.xHeightRatio(engine), isNull,
-          reason: '事件循环中的关闭必须早于字库度量与引擎注册');
+      expect(
+        BookFontLoader.engineLoadCountForTest,
+        before,
+        reason: '事件循环中的关闭必须早于引擎注册',
+      );
     });
 
     test('内容寻址增量与并发注册保留所有字重且不重复读取', () async {
-      final loader = BookFontLoader(bookId: 'incremental', contentAddressed: true);
+      final loader = BookFontLoader(
+        bookId: 'incremental',
+        contentAddressed: true,
+      );
       addTearDown(loader.clear);
       final regular = _parse(
         '@font-face { font-family: Incremental; src: url("$_regularPath"); }',
@@ -264,20 +279,39 @@ void main() {
       ]);
       final combined = loader.engineFamily('Incremental')!;
       expect(combined, isNot(firstName));
-      expect(loader.facesOf('Incremental').keys.toSet(), {'w400i0', 'w700i0'});
+      expect(
+        loader.facesOf('Incremental').values.map((face) => face.weight).toSet(),
+        {400, 700},
+      );
       expect(reads, 2);
       final regularPixels = await _render(combined, 400);
-      expect(_diffBytes(regularPixels, await _render(combined, 700)), greaterThan(0));
-      expect(_diffBytes(regularPixels, await _render(firstName, 400)), 0,
-          reason: '新增字重不能丢失已经加载的 regular face');
+      expect(
+        _diffBytes(regularPixels, await _render(combined, 700)),
+        greaterThan(0),
+      );
+      expect(
+        _diffBytes(regularPixels, await _render(firstName, 400)),
+        0,
+        reason: '新增字重不能丢失已经加载的 regular face',
+      );
 
-      final concurrent = BookFontLoader(bookId: 'parallel', contentAddressed: true);
+      final concurrent = BookFontLoader(
+        bookId: 'parallel',
+        contentAddressed: true,
+      );
       addTearDown(concurrent.clear);
       await Future.wait([
         concurrent.load(regular, resolveBytes: resolve),
         concurrent.load(bold, resolveBytes: resolve),
       ]);
-      expect(concurrent.facesOf('Incremental').keys.toSet(), {'w400i0', 'w700i0'});
+      expect(
+        concurrent
+            .facesOf('Incremental')
+            .values
+            .map((face) => face.weight)
+            .toSet(),
+        {400, 700},
+      );
     });
 
     test('clear取消在途注册，异步完成后不恢复字体字节缓存', () async {
@@ -299,16 +333,20 @@ void main() {
       expect(loader.facesOf('Closed'), isEmpty);
     });
 
-    test('同键去重在 registry 层完成，loader 收到即去重后的 faces', () async {
-      // registry：同 family+字重+斜体 后声明覆盖先声明（P3-01）。
+    test('同属性不同来源共存，重叠字符选最后声明的 face', () async {
+      // 不同来源保留；相同属性的重叠字符按后声明优先选择。
       final registry = CssFontFaceRegistry();
-      registry.registerAll(_parse(
-        '@font-face { font-family: D; src: url("$_regularPath"); font-weight: normal; }',
-      ));
-      registry.registerAll(_parse(
-        '@font-face { font-family: D; src: url("$_boldPath"); font-weight: 400; }',
-      ));
-      expect(registry.faces, hasLength(1));
+      registry.registerAll(
+        _parse(
+          '@font-face { font-family: D; src: url("$_regularPath"); font-weight: normal; }',
+        ),
+      );
+      registry.registerAll(
+        _parse(
+          '@font-face { font-family: D; src: url("$_boldPath"); font-weight: 400; }',
+        ),
+      );
+      expect(registry.faces, hasLength(2));
 
       final loader = BookFontLoader(bookId: 't7');
       var calls = 0;
@@ -319,9 +357,13 @@ void main() {
           return _fileBytes(url);
         },
       );
-      expect(calls, 1);
-      expect(loader.facesOf('D').keys, ['w400i0']);
-      expect(result.engineFamilies['D'], 'bi_t7_D');
+      expect(calls, 2);
+      expect(loader.facesOf('D'), hasLength(2));
+      final family = result.engineFamilies['D']!;
+      expect(
+        ComputedStyle({'font-family': family}).fontFamily,
+        loader.registeredFace(registry.faces.last)!.selection.nativeFamily,
+      );
     });
   });
 
@@ -374,14 +416,18 @@ void main() {
         isEmpty,
         reason: '同一 (族,原因) 只提示一次',
       );
-      expect(loader.degradationLog.length, firstWarnings.length * 2,
-          reason: 'degradationLog 保留全量记录');
+      expect(
+        loader.degradationLog.length,
+        firstWarnings.length * 2,
+        reason: 'degradationLog 保留全量记录',
+      );
     });
   });
 }
 
 /// 与生产同路径的 TextStyle 构造（经别名映射与回退链）。
-TextStyle _textStyleOf(ComputedStyle style) => TextLayoutEngine.textStyleFor(style);
+TextStyle _textStyleOf(ComputedStyle style) =>
+    TextLayoutEngine.textStyleFor(style);
 
 Future<ByteData> _render(String fontFamily, int weight) async {
   final size = const Size(240, 160);
@@ -410,9 +456,9 @@ Future<ByteData> _render(String fontFamily, int weight) async {
   final canvas = Canvas(recorder);
   const PagePainter().paint(canvas, page, pageSize: size);
   final image = await recorder.endRecording().toImage(
-        size.width.round(),
-        size.height.round(),
-      );
+    size.width.round(),
+    size.height.round(),
+  );
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
   return data!;

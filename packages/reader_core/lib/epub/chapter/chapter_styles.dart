@@ -223,19 +223,22 @@ class ChapterStyles {
   }
 
   /// 字体映射变化只改写声明，作者选择器与声明顺序继续复用。
-  ChapterCascadePreparation prepare(List<CssStylesheet> sheets) {
+  ChapterCascadePreparation prepare(
+    List<CssStylesheet> sheets, {
+    BookFontView? fonts,
+  }) {
     final base = prepareBase(sheets);
-    if (_fonts.engineFamilies.isEmpty) return base;
-    final key = _CssSheetSetKey(sheets, _fonts.revision);
-    return _fontCache.putIfAbsent(
-      key,
-      () => _rewriteFonts(base, _fonts.freeze()),
-    );
+    final view =
+        fonts ??
+        _fonts.freezeFor([for (final sheet in sheets) ...sheet.fontFaces]);
+    if (!view.hasBookFonts) return base;
+    final key = _CssSheetSetKey(sheets, view.mappingDependency);
+    return _fontCache.putIfAbsent(key, () => _rewriteFonts(base, view));
   }
 
   /// 无字体注册依赖的作者级联；可供原文核验和字体使用分析直接复用。
   ChapterCascadePreparation prepareBase(List<CssStylesheet> sheets) {
-    return _baseCache.putIfAbsent(_CssSheetSetKey(sheets, 0), () {
+    return _baseCache.putIfAbsent(_CssSheetSetKey(sheets, ''), () {
       final pseudoRules = Map<String, List<AuxiliaryCssRule>>.unmodifiable({
         for (final pseudo in ['::before', '::after'])
           pseudo: List<AuxiliaryCssRule>.unmodifiable(
@@ -598,17 +601,17 @@ typedef AuxiliaryCssRule = ({
 
 /// 以规则和字体列表的身份跨章节共享准备结果，字体修订只影响声明改写层。
 class _CssSheetSetKey {
-  _CssSheetSetKey(List<CssStylesheet> sheets, this.fontRevision)
+  _CssSheetSetKey(List<CssStylesheet> sheets, this.fontDependency)
     : rules = List.unmodifiable(sheets.map((sheet) => sheet.rules)),
       fontFaces = List.unmodifiable(sheets.map((sheet) => sheet.fontFaces));
 
   final List<List<CssRule>> rules;
   final List<List<CssFontFace>> fontFaces;
-  final int fontRevision;
+  final String fontDependency;
 
   @override
   int get hashCode => Object.hash(
-    fontRevision,
+    fontDependency,
     Object.hashAll(rules.map(identityHashCode)),
     Object.hashAll(fontFaces.map(identityHashCode)),
   );
@@ -616,7 +619,7 @@ class _CssSheetSetKey {
   @override
   bool operator ==(Object other) {
     if (other is! _CssSheetSetKey ||
-        fontRevision != other.fontRevision ||
+        fontDependency != other.fontDependency ||
         rules.length != other.rules.length ||
         fontFaces.length != other.fontFaces.length) {
       return false;

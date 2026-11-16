@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -818,7 +819,7 @@ class EpubChapterSource
       ?_overrides.fontFamily,
       ..._chapterOverlays.familiesFor(spine),
       for (final face in faces) face.family.toLowerCase(),
-    });
+    }, faces);
   }
 
   Future<void> _prepareChapterDecoration(int spine, String preparationKey) {
@@ -831,8 +832,13 @@ class EpubChapterSource
     );
   }
 
-  LayoutSnapshot _freezeLayout(int spine, Set<String> families) {
-    final fonts = _fonts.freeze();
+  LayoutSnapshot _freezeLayout(
+    int spine,
+    Set<String> families,
+    List<CssFontFace> faces,
+  ) {
+    final fontFaces = List<CssFontFace>.unmodifiable(faces);
+    final fonts = _fonts.freezeFor(fontFaces);
     final dependency = fonts.dependency(families);
     return LayoutSnapshot(
       spineIndex: spine,
@@ -850,6 +856,7 @@ class EpubChapterSource
       fontDependency: dependency,
       fonts: fonts,
       fontFamilies: Set.unmodifiable(families),
+      fontFaces: fontFaces,
       trimTextEdges: trimTextEdges,
     );
   }
@@ -866,7 +873,7 @@ class EpubChapterSource
       snapshot: snapshot,
       document: structure.document,
       selectors: structure.selectors,
-      styles: _styles.prepare(sheets),
+      styles: _styles.prepare(sheets, fonts: snapshot.fonts),
       footnotes: structure.footnotes,
       imageAnalysis: imageAnalysis,
       imageCfi: imageAnalysis.singleImageCfi,
@@ -895,7 +902,7 @@ class EpubChapterSource
       _snapshotFontsCurrent(snapshot);
 
   bool _snapshotFontsCurrent(LayoutSnapshot snapshot) {
-    final fonts = _fonts.freeze();
+    final fonts = _fonts.freezeFor(snapshot.fontFaces);
     return identical(fonts, snapshot.fonts) ||
         snapshot.fontDependency == fonts.dependency(snapshot.fontFamilies);
   }
