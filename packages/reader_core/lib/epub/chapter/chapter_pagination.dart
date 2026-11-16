@@ -243,10 +243,12 @@ class ChapterPageLayout {
           block: block,
           startLine: 0,
           endLine: block.layout.lineCount,
-          height: block.height,
+          height: block.leadingExtent + block.height + block.trailingExtent,
+          leadingExtent: block.leadingExtent,
+          trailingExtent: block.trailingExtent,
           overlay: true,
-          absoluteTop: box?.top ?? 0,
-          leftInset: box?.left ?? 0,
+          absoluteTop: block.absoluteTop ?? box?.top ?? 0,
+          leftInset: block.absoluteLeft ?? box?.left ?? 0,
         ),
       );
     }
