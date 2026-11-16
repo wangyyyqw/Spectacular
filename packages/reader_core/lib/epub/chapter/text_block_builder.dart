@@ -144,13 +144,17 @@ class TextBlockBuilder {
     final listIndent = context.isListItem
         ? styles.listIndentOf(position.ancestors)
         : 0.0;
-    final relative = styles.styleForChain(
+    final projected = styles.styleForChain(
       position.ancestors,
       quoteDepth: position.quoteDepth,
       firstInContainer: position.firstInContainer,
       lastInContainer: position.lastInContainer,
       listIndent: listIndent,
     );
+    // 定位块的祖先内缩由包含块原点消费，不能再次投影到自身 margin。
+    final relative = projected.isOutOfFlow
+        ? styles.chainStyle(position.ancestors)
+        : projected;
     final isRelative = relative.position == CssPosition.relative;
     final offsets = (
       left: isRelative ? relative.left?.resolve(contentWidth) ?? 0.0 : 0.0,

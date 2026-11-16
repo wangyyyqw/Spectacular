@@ -397,13 +397,16 @@ class PagePainter {
   Rect _containerBounds(_PaintGroup group, int depth, double pageHeight) {
     final container = group.container!;
     // 页首浮动已避让续框内边距，祖先外框仍应从在流片段的页首起画。
-    final first = container.cloneDecoration
-        ? group.geometries.firstWhere(
-            (geometry) => !geometry.slice.overlay,
-            orElse: () => group.geometries.first,
-          )
-        : group.geometries.first;
-    final last = group.geometries.last;
+    final first = group.geometries.firstWhere(
+      (geometry) =>
+          !geometry.style.isOutOfFlow &&
+          (!container.cloneDecoration || !geometry.slice.overlay),
+      orElse: () => group.geometries.first,
+    );
+    final last = group.geometries.lastWhere(
+      (geometry) => !geometry.style.isOutOfFlow,
+      orElse: () => group.geometries.last,
+    );
     final flow = _containerFlowBounds(first, last, (
       container: container,
       depth: depth,
@@ -495,11 +498,19 @@ class PagePainter {
     int depth,
     double pageHeight,
   ) {
-    final first = group.geometries.first;
-    final last = group.geometries.last;
+    final container = group.container!;
+    final first = group.geometries.firstWhere(
+      (geometry) =>
+          !geometry.style.isOutOfFlow &&
+          (!container.cloneDecoration || !geometry.slice.overlay),
+      orElse: () => group.geometries.first,
+    );
+    final last = group.geometries.lastWhere(
+      (geometry) => !geometry.style.isOutOfFlow,
+      orElse: () => group.geometries.last,
+    );
     final start = first.slice.block.containers[depth];
     final end = last.slice.block.containers[depth];
-    final container = group.container!;
     final bounds = _containerBounds(group, depth, pageHeight);
     return _SliceGeometry(
       slice: first.slice,
@@ -6005,6 +6016,10 @@ class _SliceGeometry {
 
   double _contentBoxWidth(BoxModel model) {
     final block = slice.block;
+    // 绝对定位文字已经按包含块完成收缩，transform 百分比须使用自身盒宽。
+    if (style.isOutOfFlow && block.layout.maxWidth.isFinite) {
+      return block.layout.maxWidth;
+    }
     // 浮动和普通横排内在宽度已在测量时解算，绘制直接使用最终内容宽。
     final intrinsicText =
         style.intrinsicWidth != null &&

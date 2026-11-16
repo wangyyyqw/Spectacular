@@ -270,11 +270,13 @@ class ChapterPageLayout {
             ),
           ]
         : source;
-    if (background == null) return pages;
     final result = <PageContent>[];
     for (final page in pages) {
       await budget.checkpoint();
-      result.add(page.withBackground(background));
+      final positioned = Paginator.positionContainerOverlays(page);
+      result.add(
+        background == null ? positioned : positioned.withBackground(background),
+      );
     }
     return result;
   }
