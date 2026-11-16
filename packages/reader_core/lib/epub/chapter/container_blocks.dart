@@ -8,6 +8,15 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 
+/// 纯行内浮动段落的独立格式化上下文；分页时保留内部浮动与段落高度。
+class InlineFloatContainer extends PageContainer {
+  const InlineFloatContainer({
+    required super.style,
+    required super.left,
+    required super.width,
+  });
+}
+
 /// 相邻外边距折叠，但浮动/绝对定位块不参与（CSS 2.1 §8.3.1：浮动元素
 /// 的 margin 不与任何相邻 margin 折叠），也不打断相邻在流兄弟的折叠
 ///——把它们先摘出来，只折叠连续的在流块，再放回原位。
@@ -351,12 +360,18 @@ class _ContainerDecorationWork {
       final container = fragment.container;
       final sliced = _replacements.putIfAbsent(
         container,
-        () => PageContainer(
-          style: container.style,
-          left: container.left,
-          width: container.width,
-          isPageRoot: container.isPageRoot,
-        ),
+        () => container is InlineFloatContainer
+            ? InlineFloatContainer(
+                style: container.style,
+                left: container.left,
+                width: container.width,
+              )
+            : PageContainer(
+                style: container.style,
+                left: container.left,
+                width: container.width,
+                isPageRoot: container.isPageRoot,
+              ),
       );
       target.add(
         _preserveExternalMarginEdges(
@@ -498,7 +513,7 @@ Future<void> wrapContainerBlocks(
   }
   final separateExternalMargins =
       paragraphSpacing == null &&
-      !hasOutOfFlowChild &&
+      (!hasOutOfFlowChild || container is InlineFloatContainer) &&
       style.writingMode == CssWritingMode.horizontalTb &&
       (style.columnCount ?? 1) <= 1 &&
       (style.columnWidth == null || style.columnWidth!.isAuto) &&
@@ -575,7 +590,11 @@ PageBlock _floatContainerTopSpacer(PageContainer container, double margin) =>
         runs: const <StyledRun>[],
       ),
       containers: <PageContainerFragment>[
-        PageContainerFragment(container: container, startsHere: true),
+        _ExternalMarginFragment(
+          PageContainerFragment(container: container, startsHere: true),
+          container is InlineFloatContainer,
+          false,
+        ),
       ],
     );
 

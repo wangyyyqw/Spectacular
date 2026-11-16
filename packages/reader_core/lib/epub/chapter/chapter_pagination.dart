@@ -13,7 +13,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 
 import 'chapter_layout_job.dart';
-import 'container_blocks.dart' show containerFragmentsFor;
+import 'container_blocks.dart' show InlineFloatContainer, containerFragmentsFor;
 import 'text_coordinates.dart' show sliceTextRuns;
 
 /// 一次分页的纯结果；宿主决定是否保留页面与索引，不在此写入章节缓存。
@@ -417,10 +417,11 @@ typedef _TableFit = ({PageBlock? block, int end, double leading});
 
 /// 一次浮动分页的局部流状态；退出或取消后整份状态随作业释放。
 class _FloatPagination {
-  _FloatPagination(this.layout, this.blocks);
+  _FloatPagination(this.layout, this.blocks, {this.floatContext});
 
   final ChapterPageLayout layout;
   final List<PageBlock> blocks;
+  final InlineFloatContainer? floatContext;
   final pages = <PageContent>[];
   var slices = <PageBlockSlice>[];
   final occupancy = FloatOccupancy();
@@ -436,10 +437,15 @@ class _FloatPagination {
   LayoutBudget get budget => layout.budget;
 
   Future<List<PageContent>> run() async {
-    topPadding = await layout._chapterTopPadding(blocks);
+    topPadding = floatContext == null
+        ? await layout._chapterTopPadding(blocks)
+        : 0;
     nextFlowLeading = await _nextLeading();
     for (var index = 0; index < blocks.length; index++) {
       await budget.checkpoint();
+      if (floatContext != null && index == blocks.length - 1) {
+        await _containInlineFloats(blocks[index]);
+      }
       index += await _layoutBlock(blocks[index], index);
     }
     if (slices.isNotEmpty || pages.isEmpty) await closePage();
@@ -448,6 +454,10 @@ class _FloatPagination {
   }
 
   Future<int> _layoutBlock(PageBlock block, int index) async {
+    final context = _inlineFloatContext(block);
+    if (context != null) {
+      return _layoutInlineFloatContext(context, index);
+    }
     if (block.absolute) {
       _addAbsolute(block);
     } else if (block.floatSide != null) {
@@ -467,6 +477,87 @@ class _FloatPagination {
       await _layoutFlowBlock(block, index);
     }
     return 0;
+  }
+
+  InlineFloatContainer? _inlineFloatContext(PageBlock block) {
+    for (final fragment in block.containers) {
+      final container = fragment.container;
+      if (fragment.startsHere &&
+          container is InlineFloatContainer &&
+          !identical(container, floatContext)) {
+        return container;
+      }
+    }
+    return null;
+  }
+
+  Future<int> _layoutInlineFloatContext(
+    InlineFloatContainer container,
+    int index,
+  ) async {
+    final children = <PageBlock>[];
+    for (var next = index; next < blocks.length; next++) {
+      await budget.checkpoint();
+      final block = blocks[next];
+      children.add(block);
+      if (block.containers.any(
+        (fragment) =>
+            identical(fragment.container, container) && fragment.endsHere,
+      )) {
+        break;
+      }
+    }
+    final inner = _FloatPagination(layout, children, floatContext: container);
+    final pieces = await inner.run();
+    for (var piece = 0; piece < pieces.length; piece++) {
+      await _appendInlineFloatPage(pieces[piece]);
+      if (piece + 1 < pieces.length) await closePage();
+    }
+    return children.length - 1;
+  }
+
+  Future<void> _appendInlineFloatPage(PageContent page) async {
+    if (y > 0 && y + page.usedHeight > height) await closePage();
+    final top = y + topPadding;
+    for (final slice in page.slices) {
+      await budget.checkpoint();
+      slices.add(
+        PageBlockSlice(
+          block: slice.block,
+          startLine: slice.startLine,
+          endLine: slice.endLine,
+          height: slice.height,
+          leadingExtent: slice.leadingExtent,
+          trailingExtent: slice.trailingExtent,
+          leftInset: slice.leftInset,
+          overlay: slice.overlay,
+          absoluteTop: slice.overlay ? top + (slice.absoluteTop ?? 0) : null,
+          textTopTrim: slice.textTopTrim,
+          textBottomTrim: slice.textBottomTrim,
+        ),
+      );
+    }
+    y += page.usedHeight;
+    noteFlow(y, 0);
+  }
+
+  Future<void> _containInlineFloats(PageBlock end) async {
+    final bottom = math.max(
+      await _maxBottom(FloatSide.left),
+      await _maxBottom(FloatSide.right),
+    );
+    if (bottom <= y) return;
+    final extent = bottom - y;
+    slices.add(
+      PageBlockSlice(
+        block: _clearSpacer(end, extent),
+        startLine: 0,
+        endLine: 1,
+        height: extent,
+      ),
+    );
+    y = bottom;
+    noteFlow(y, 0);
   }
 
   Future<void> _layoutFlowBlock(PageBlock block, int index) async {

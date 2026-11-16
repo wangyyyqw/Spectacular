@@ -1695,7 +1695,7 @@ class TextBlockBuilder {
     _BlockMetrics metrics,
     _MeasuredParagraph paragraph,
   ) async {
-    await _appendLeadingBlocks(context, body, paragraph);
+    await _appendLeadingBlocks(context, body, metrics, paragraph);
     measure.budget.check();
     if (paragraph.layout.lineCount == 0) return;
     final side =
@@ -1740,6 +1740,7 @@ class TextBlockBuilder {
   Future<void> _appendLeadingBlocks(
     _BlockContext context,
     _BodyStyle body,
+    _BlockMetrics metrics,
     _MeasuredParagraph paragraph,
   ) async {
     final leading = List<PageBlock>.of(paragraph.inline.elements.floats);
@@ -1760,9 +1761,75 @@ class TextBlockBuilder {
         ),
       );
     }
+    if (_retainsInlineFloatParagraph(context, body, paragraph, leading)) {
+      await _wrapInlineFloatParagraph(context, body, metrics, leading);
+    }
     measure.budget.check();
     flow.blocks.addAll(leading);
   }
+
+  bool _retainsInlineFloatParagraph(
+    _BlockContext context,
+    _BodyStyle body,
+    _MeasuredParagraph paragraph,
+    List<PageBlock> leading,
+  ) =>
+      leading.isNotEmpty &&
+      paragraph.layout.lineCount == 0 &&
+      !body.style.isOutOfFlow &&
+      body.style.cssFloat == CssFloat.none &&
+      context.position.containerFloat == null &&
+      body.style.writingMode == CssWritingMode.horizontalTb &&
+      const {
+        CssOverflow.hidden,
+        CssOverflow.auto,
+        CssOverflow.scroll,
+      }.contains(body.style.overflow);
+
+  Future<void> _wrapInlineFloatParagraph(
+    _BlockContext context,
+    _BodyStyle body,
+    _BlockMetrics metrics,
+    List<PageBlock> leading,
+  ) async {
+    final raw = styles
+        .chainStyle(context.ancestors)
+        .scaleRelativeTypography(body.style.fontSize);
+    final spacing = _blockSpacing(body, metrics, 0);
+    final style = raw.withMargins(
+      CssEdges(
+        top: spacing.before,
+        bottom: spacing.after,
+        left: raw.margin.left,
+        right: raw.margin.right,
+      ),
+    );
+    final width = _inlineContext(context, body).width;
+    final model = BoxModel.fromStyle(style, containingWidth: width);
+    final container = InlineFloatContainer(
+      style: style,
+      left: body.style.margin.left,
+      width: model.borderBoxWidth(width),
+    );
+    leading.insert(0, _inlineFloatSpacer(width));
+    leading.add(_inlineFloatSpacer(width));
+    await wrapContainerBlocks(
+      leading,
+      0,
+      container,
+      checkpoint: measure.budget.checkpoint,
+    );
+  }
+
+  static PageBlock _inlineFloatSpacer(double width) => PageBlock(
+    layout: TextLayoutResult(
+      text: '',
+      lines: const [],
+      width: width,
+      height: 0,
+      maxWidth: width,
+    ),
+  );
 
   PageBlock _floatBlock(
     _BlockContext context,
