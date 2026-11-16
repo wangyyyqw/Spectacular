@@ -175,17 +175,25 @@ class ChapterStyleResolver {
     );
   }
 
-  /// 先缩放块自身的相对边距，再把变化量叠加到祖先的页面投影。
+  /// 正文相对列宽与字号一起求解，再把 auto 边距的变化叠加到页面投影。
   ComputedStyle scaleBlockTypography(
     ComputedStyle computed,
     List<SelectorElement> chain,
-    double fontSize,
-  ) {
+    double fontSize, {
+    bool scaleTextWidth = false,
+  }) {
     final authored = chainStyle(chain);
-    final scaled = authored.scaleRelativeTypography(fontSize);
-    final margins = _scaledBlockMargins(scaled, _containingWidthFor(chain));
+    final containingWidth = _containingWidthFor(chain);
+    final width = scaleTextWidth
+        ? _textWidthAtFontSize(authored, fontSize, containingWidth)
+        : null;
+    final scaled = authored.scaleRelativeTypography(
+      fontSize,
+      resolvedWidth: width,
+    );
+    final margins = _scaledBlockMargins(scaled, containingWidth);
     return computed
-        .scaleRelativeTypography(fontSize)
+        .scaleRelativeTypography(fontSize, resolvedWidth: width)
         .withMargins(
           CssEdges(
             top: computed.margin.top + margins.top - authored.margin.top,
@@ -200,6 +208,19 @@ class ChapterStyleResolver {
         );
   }
 
+  static double? _textWidthAtFontSize(
+    ComputedStyle style,
+    double fontSize,
+    double containingWidth,
+  ) => ChapterTextMeasurer.isOrdinaryHorizontalBlock(style)
+      ? resolveCssNumericLength(
+          style.values['width'] ?? '',
+          fontSize: fontSize,
+          rootFontSize: style.cssRootFontSize,
+          percentBase: containingWidth,
+        )
+      : null;
+
   static CssEdges _scaledBlockMargins(ComputedStyle style, double width) {
     final leftAuto = style.marginLeftIsAuto;
     final rightAuto = style.marginRightIsAuto;
@@ -209,7 +230,7 @@ class ChapterStyleResolver {
         (!leftAuto && !rightAuto)) {
       return style.margin;
     }
-    // 内容宽、内边距和边框沿用作者盒；auto 吸收外边距缩放后的剩余空间。
+    // 在原父内容盒中按最终列宽重分配 auto 边距，内边距与边框不随正文缩放。
     final model = BoxModel.fromStyle(style, containingWidth: width);
     final remaining = math.max(
       0.0,
