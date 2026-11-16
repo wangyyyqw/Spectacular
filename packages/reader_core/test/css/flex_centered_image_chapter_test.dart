@@ -32,7 +32,12 @@ Future<ui.Image> _cover() async {
   }
 }
 
-Uint8List _book(Uint8List image, String extraCss) => auditZip({
+Uint8List _book(
+  Uint8List image,
+  String extraCss, {
+  String leadingContent = '',
+  String author = 'AUTHOR',
+}) => auditZip({
   'mimetype': 'application/epub+zip',
   'META-INF/container.xml':
       '<container><rootfiles><rootfile full-path="book.opf"/>'
@@ -57,18 +62,24 @@ Uint8List _book(Uint8List image, String extraCss) => auditZip({
       '.card img {width:50%; margin-bottom:20px; border-radius:7px;} '
       '.title {font-size:24px; margin:15px 0;} '
       '.author {font-size:16px;} '
-      '$extraCss</style></head><body><div class="card">'
+      '$extraCss</style></head><body>$leadingContent<div class="card">'
       '<img src="cover.png"/><div class="title">TITLE</div>'
-      '<div class="author">AUTHOR</div></div></body></html>',
+      '<div class="author">$author</div></div></body></html>',
   'cover.png': image,
 });
 
-Future<PageContent> _page(ui.Image image, String extraCss) async {
+Future<PageContent> _page(
+  ui.Image image,
+  String extraCss, {
+  String leadingContent = '',
+  String author = 'AUTHOR',
+  double fontSize = 21,
+}) async {
   final imageBytes = (await image.toByteData(format: ui.ImageByteFormat.png))!
       .buffer
       .asUint8List();
   final source = await const EpubFormatOpener().openBytes(
-    _book(imageBytes, extraCss),
+    _book(imageBytes, extraCss, leadingContent: leadingContent, author: author),
     options: ReaderOpenOptions(
       contentWidth: _pageSize.width - _insets.horizontal,
       contentHeight: _pageSize.height - _insets.vertical,
@@ -76,7 +87,7 @@ Future<PageContent> _page(ui.Image image, String extraCss) async {
   );
   addTearDown(source.close);
   await source.applyOverrides(
-    const ReaderOverrides(fontSize: 21, lineHeight: 1.6, paragraphSpacing: 10),
+    ReaderOverrides(fontSize: fontSize, lineHeight: 1.6, paragraphSpacing: 10),
   );
   await source.applyContentSize(
     width: _pageSize.width - _insets.horizontal,
@@ -128,15 +139,43 @@ void _expectCentered(List<TableCellRender> cells, Rect card) {
   expect(cover.center.dx, closeTo(card.center.dx, .01));
   expect(cover.top - card.top, closeTo(20, .01));
   for (final cell in cells.skip(2)) {
-    final line = cell.layout.lines.single;
-    final center = cell.textOrigin.dx + line.offsetX + line.advanceWidth / 2;
-    expect(center, closeTo(card.center.dx, .01), reason: '文字与封面共用卡片中心');
+    for (final line in cell.layout.lines) {
+      final center = cell.textOrigin.dx + line.offsetX + line.advanceWidth / 2;
+      expect(center, closeTo(card.center.dx, .01), reason: '文字与封面共用卡片中心');
+    }
   }
   expect(card.bottom - cells.last.rect.bottom, closeTo(20, .01));
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('隐藏兄弟不参与 Flex 子项计数，封面与换行作者使用收缩后的卡片宽', () async {
+    final cover = await _cover();
+    addTearDown(cover.dispose);
+    const author = 'AUTHOR NAME TRANSLATOR NAME';
+    final page = await _page(
+      cover,
+      'h2 {display:none;} div {margin-top:10px;}',
+      leadingContent: '<h2>HIDDEN</h2>',
+      author: author,
+      fontSize: 18,
+    );
+    final cells = page.slices.single.block.table!.cells;
+    final card = cells.first.rect;
+    expect(
+      card.width,
+      closeTo(_pageSize.width - _insets.horizontal - 100, .01),
+    );
+    _expectCentered(cells, card);
+    final authorCell = cells.last;
+    expect(authorCell.layout.text, author);
+    expect(authorCell.layout.lines.length, greaterThan(1));
+    expect(authorCell.layout.maxWidth, closeTo(card.width - 40, .01));
+    for (final line in authorCell.layout.lines) {
+      expect(line.advanceWidth, lessThanOrEqualTo(authorCell.rect.width));
+    }
+    expect(authorCell.startCfi, isNotNull, reason: '换行不丢失原文位置');
+  });
   test('Flex 卡片使用不对称外边距和 border-box 时，内容仍沿卡片中心对齐', () async {
     final cover = await _cover();
     addTearDown(cover.dispose);
