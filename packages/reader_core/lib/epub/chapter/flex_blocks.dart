@@ -6,6 +6,7 @@ import 'package:reader_core/layout/box_model.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 
 import 'container_blocks.dart';
 
@@ -168,6 +169,7 @@ class _FlexRowLayout {
   final rowTops = <double>[];
   final cells = <TableCellRender>[];
   final text = StringBuffer();
+  final textCfis = TextCfiMapBuilder();
   PageBlock? first;
   PageBlock? last;
   String? startCfi;
@@ -208,6 +210,10 @@ class _FlexRowLayout {
         first ??= block;
         last = block;
         startCfi ??= block.startCfi;
+        final coordinates = block.textCoordinates;
+        if (coordinates != null) {
+          textCfis.addMap(coordinates, offset: text.length);
+        }
         text.write(block.layout.text);
         width = math.max(width, _baseWidth(block));
         height +=
@@ -533,6 +539,7 @@ class _FlexRowLayout {
           layout: cell.layout,
           style: cell.style,
           startCfi: cell.startCfi,
+          textCfis: cell.textCfis,
           footnotes: cell.footnotes,
         ),
       );
@@ -599,6 +606,7 @@ class _FlexRowLayout {
       layout: _cellTextLayout(block.layout, style, ownWidth),
       style: style,
       startCfi: block.startCfi,
+      textCfis: block.textCfis,
       footnotes: block.footnotes,
     );
   }
@@ -639,6 +647,7 @@ class _FlexRowLayout {
       layout: _cellTextLayout(block.layout, style, width),
       style: style,
       startCfi: block.startCfi,
+      textCfis: block.textCfis,
       footnotes: block.footnotes,
     );
   }
@@ -653,6 +662,7 @@ class _FlexRowLayout {
           containingWidth: size.containing,
           groupId: groupId,
           startCfi: startCfi,
+          textCfis: textCfis.build(value.length),
           endCfi: last!.endCfi,
           table: TableRenderSpec(
             cells: cells,
@@ -726,6 +736,7 @@ TextLayoutResult _cellTextLayout(
     isRtl: layout.isRtl,
     writingMode: layout.writingMode,
     plainTextLayout: layout.plainTextLayout,
+    inputOffsets: layout.inputOffsets,
   );
 }
 

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
@@ -106,6 +107,16 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
           block.cfi,
           block.text,
           [
+            for (final run in block.textCfis?.runs ?? const <TextCfiRun>[])
+              [
+                run.start,
+                run.end,
+                run.cfi.serialize(),
+                run.sourceStart,
+                run.sourceEnd,
+              ],
+          ],
+          [
             for (final range in block.excluded) [range.$1, range.$2],
           ],
         ],
@@ -176,22 +187,27 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
       blocks: blocks,
       limit: limit,
     );
-    return [
-      for (final hit in hits)
+    final matches = <ReaderDecorationRuleMatch>[];
+    for (final hit in hits) {
+      final block = blocks[hit.block];
+      final start = block.cfiAt(hit.start);
+      final end = block.cfiAt(hit.end, end: true);
+      if (start == null ||
+          end == null ||
+          EpubCfi.parse(start)!.compareTo(EpubCfi.parse(end)!) >= 0) {
+        continue;
+      }
+      matches.add(
         ReaderDecorationRuleMatch(
           ruleId: rule.id,
-          startCfi: cfiWithCharOffset(
-            blocks[hit.block].cfi,
-            (cfiCharOffset(blocks[hit.block].cfi) ?? 0) + hit.start,
-          ),
-          endCfi: cfiWithCharOffset(
-            blocks[hit.block].cfi,
-            (cfiCharOffset(blocks[hit.block].cfi) ?? 0) + hit.end,
-          ),
-          text: blocks[hit.block].text.substring(hit.start, hit.end),
+          startCfi: start,
+          endCfi: end,
+          text: block.text.substring(hit.start, hit.end),
           style: rule.style,
         ),
-    ];
+      );
+    }
+    return matches;
   }
 
   static String _fingerprint(ReaderDecorationRule rule) =>
@@ -223,14 +239,14 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
 
   /// 正文和标题匹配；跳过脚注、表格、图片、注音与页家具。
   static List<DecorationRuleTextBlock> textBlocks(List<PageContent> pages) {
-    final seen = <String>{};
-    final segments = <String, List<DecorationRuleTextBlock>>{};
+    final seen = <PageBlock>{};
+    final segments = <Object, List<DecorationRuleTextBlock>>{};
     for (final page in pages) {
       for (final slice in page.slices) {
         final block = slice.block;
         final cfi = block.startCfi;
         if (cfi == null ||
-            !seen.add(cfi) ||
+            !seen.add(block) ||
             !block.textRuleEligible ||
             block.table != null ||
             block.layout.text.isEmpty) {
@@ -240,6 +256,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
         final item = DecorationRuleTextBlock(
           cfi: cfi,
           text: text,
+          textCfis: block.textCoordinates,
           excluded: [
             for (final footnote in block.footnotes)
               (footnote.start, footnote.end),
@@ -247,7 +264,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
               if (text.codeUnitAt(index) == 0xFFFC) (index, index + 1),
           ],
         );
-        (segments[cfiBase(cfi)] ??= []).add(item);
+        (segments[block.textCfis?.origin ?? cfiBase(cfi)] ??= []).add(item);
       }
     }
     return [for (final parts in segments.values) ..._mergeSegments(parts)];
@@ -257,43 +274,70 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     List<DecorationRuleTextBlock> parts,
   ) {
     parts.sort(
-      (left, right) => (cfiCharOffset(left.cfi) ?? 0).compareTo(
-        cfiCharOffset(right.cfi) ?? 0,
-      ),
+      (left, right) =>
+          EpubCfi.parse(left.cfiAt(0) ?? left.cfi)!
+              .compareTo(EpubCfi.parse(right.cfiAt(0) ?? right.cfi)!),
     );
     final result = <DecorationRuleTextBlock>[];
     for (final part in parts) {
-      if (result.isEmpty) {
+      final merged = result.isEmpty ? null : _mergeSegment(result.last, part);
+      if (merged == null) {
         result.add(part);
-        continue;
+      } else {
+        result[result.length - 1] = merged;
       }
-      final previous = result.last;
-      final offset =
-          (cfiCharOffset(part.cfi) ?? 0) - (cfiCharOffset(previous.cfi) ?? 0);
-      if (offset < 0 || offset > previous.text.length) {
-        result.add(part);
-        continue;
-      }
-      final overlap = previous.text.length - offset;
-      final shared = overlap < part.text.length ? overlap : part.text.length;
-      if (previous.text.substring(offset, offset + shared) !=
-          part.text.substring(0, shared)) {
-        result.add(part);
-        continue;
-      }
-      final suffix = overlap >= part.text.length
-          ? ''
-          : part.text.substring(overlap);
-      result[result.length - 1] = DecorationRuleTextBlock(
-        cfi: previous.cfi,
-        text: previous.text + suffix,
-        excluded: [
-          ...previous.excluded,
-          for (final range in part.excluded)
-            (range.$1 + offset, range.$2 + offset),
-        ],
-      );
     }
     return result;
+  }
+
+  static DecorationRuleTextBlock? _mergeSegment(
+    DecorationRuleTextBlock previous,
+    DecorationRuleTextBlock part,
+  ) {
+    final offset = part.textCoordinates?.offsetFrom(previous.textCoordinates!);
+    if (offset == null || offset < 0 || offset > previous.text.length) {
+      return null;
+    }
+    final overlap = previous.text.length - offset;
+    final shared = overlap < part.text.length ? overlap : part.text.length;
+    if (previous.text.substring(offset, offset + shared) !=
+        part.text.substring(0, shared)) {
+      return null;
+    }
+    final suffix = overlap >= part.text.length
+        ? ''
+        : part.text.substring(overlap);
+    return DecorationRuleTextBlock(
+      cfi: previous.cfi,
+      text: previous.text + suffix,
+      textCfis: _joinedMap(previous, part, overlap),
+      excluded: [
+        ...previous.excluded,
+        for (final range in part.excluded)
+          (range.$1 + offset, range.$2 + offset),
+      ],
+    );
+  }
+
+  static TextCfiMap? _joinedMap(
+    DecorationRuleTextBlock first,
+    DecorationRuleTextBlock next,
+    int overlap,
+  ) {
+    final previous = first.textCoordinates;
+    final incoming = next.textCoordinates;
+    if (previous == null || incoming == null) return null;
+    final appended = overlap.clamp(0, next.text.length);
+    final builder = TextCfiMapBuilder()
+      ..addMap(previous)
+      ..addMap(
+        incoming.slice(appended, next.text.length),
+        offset: first.text.length,
+      );
+    return builder.build(
+      first.text.length + next.text.length - appended,
+      parent: previous.origin,
+      originStart: previous.originStart,
+    );
   }
 }

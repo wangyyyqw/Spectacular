@@ -12,6 +12,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 
 import 'chapter_flow.dart';
 import 'chapter_layout_job.dart';
@@ -183,6 +184,7 @@ typedef _CellContent = ({
   String text,
   List<InlineMark> marks,
   List<InlineImageMark> images,
+  TextCfiMap? textCfis,
 });
 typedef _TableWidth = ({double? pixels, double? fraction});
 typedef _CellInput = ({
@@ -267,6 +269,7 @@ class _CellContentCollector {
   final buffer = StringBuffer();
   final marks = <InlineMark>[];
   final images = <InlineImageMark>[];
+  final textCfis = TextCfiMapBuilder();
 
   Future<_CellContent> collect(
     BlockNode cell,
@@ -278,7 +281,13 @@ class _CellContentCollector {
       ancestors.add(_subject(element.tag, element.attributes));
     }
     await _walk(cell, ancestors);
-    return (text: buffer.toString(), marks: marks, images: images);
+    final coordinates = textCfis.build(buffer.length);
+    return (
+      text: buffer.toString(),
+      marks: marks,
+      images: images,
+      textCfis: coordinates.runs.isEmpty ? null : coordinates,
+    );
   }
 
   Future<void> _walk(EpubNode node, List<MarkSubject> ancestors) async {
@@ -356,6 +365,13 @@ class _CellContentCollector {
     if (text.isEmpty && node.inlineMarks.isEmpty) return;
     final leading = hasEmptyBox ? 0 : raw.length - raw.trimLeft().length;
     final offset = _appendText(text);
+    textCfis.addMap(
+      (node.textCfis ?? TextCfiMap.linear(node.cfi, raw.length)).slice(
+        leading,
+        leading + text.length,
+      ),
+      offset: offset,
+    );
     for (final mark in node.inlineMarks) {
       await budget.checkpoint();
       final start = math.max(0, mark.start - leading);
@@ -402,6 +418,7 @@ class _CellContentCollector {
 
   int _appendImage(InlineNode node, List<MarkSubject> chain) {
     final offset = _appendText('\uFFFC');
+    textCfis.addMap(TextCfiMap.linear(node.cfi, 1), offset: offset);
     images.add(InlineImageMark(offset: offset, node: node));
     _addMark(node.tag, chain, offset, offset + 1);
     return offset;
@@ -465,6 +482,7 @@ class _TableCell {
         style,
         math.max(8.0, width - inset.horizontal),
         images: content.images,
+        textCfis: content.textCfis,
       );
     }
     return Future.value(
@@ -910,13 +928,18 @@ class _TableBuild {
         final rect = grid.cellRectAt(row, column);
         if (rect == null) continue;
         final cell = cells[row][column];
+        final layout = await cell.layout(rect.rect.width);
         result.add(
           TableCellRender(
             row: row,
             rect: rect.rect,
-            layout: await cell.layout(rect.rect.width),
+            layout: layout,
             style: cell.style,
             startCfi: cell.node.cfi.serialize(),
+            textCfis: await cell.content.textCfis?.transformedAsync(
+              layout.inputOffsets,
+              checkpoint: budget.checkpoint,
+            ),
           ),
         );
       }
@@ -945,11 +968,16 @@ class _TableBuild {
         width - tableCellInsetFor(style, collapse: table.collapse).horizontal,
       ),
       images: content.images,
+      textCfis: content.textCfis,
     );
     return PageBlock.styled(
       layout: layout,
       style: style,
       startCfi: node.cfi.serialize(),
+      textCfis: await content.textCfis?.transformedAsync(
+        layout.inputOffsets,
+        checkpoint: budget.checkpoint,
+      ),
       containingWidth: width,
       spaceBefore:
           style.margin.top + (_captionOnTop ? table.style.margin.top : 0),
@@ -997,6 +1025,7 @@ class _TableBuild {
           layout: cell.layout,
           style: cell.style,
           startCfi: cell.startCfi,
+          textCfis: cell.textCfis,
           footnotes: cell.footnotes,
         ),
       );

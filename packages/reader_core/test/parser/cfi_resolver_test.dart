@@ -39,7 +39,7 @@ void main() {
     expect(result.cfi!.serialize(), 'epubcfi(/6/2!/4/2[p1]/1)');
   });
 
-  test('文本节点删除时回退到元素起点', () {
+  test('文本删除后保留元素内的合法空字符槽', () {
     final target = _p2TextCfi();
     final result = CfiResolver.resolve(
       xhtml: '<html><body><p id="p1">Hello</p><p id="p2"></p></body></html>',
@@ -47,8 +47,9 @@ void main() {
       expectedSpineIndex: 0,
     );
     expect(result.ok, isTrue);
-    expect(result.adjusted, isTrue);
-    expect(result.cfi!.serialize(), 'epubcfi(/6/2!/4/4[p2])');
+    expect(result.exact, isTrue);
+    expect(result.adjusted, isFalse);
+    expect(result.cfi!.serialize(), 'epubcfi(/6/2!/4/4[p2]/1)');
     expect(result.textOffset, isNull);
   });
 

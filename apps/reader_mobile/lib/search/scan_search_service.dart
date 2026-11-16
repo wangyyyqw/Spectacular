@@ -141,7 +141,7 @@ class ScanSearchService {
       // 单元格聚合了多个文本节点及原子盒，只返回精确元素页锚点，不能把
       // 显示串偏移冒充某个原始文本节点的字符偏移。
       if (located!.block.cell != null) return base;
-      return cfiWithCharOffset(base, located.localOffset);
+      return located.block.block.cfiAt(located.localOffset);
     } catch (_) {
       return null;
     }

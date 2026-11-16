@@ -1,5 +1,6 @@
 import '../css/computed_style.dart';
 import '../position/cfi.dart';
+import '../position/text_cfi_map.dart';
 import '../src/api/models.dart';
 import 'block_builder.dart';
 import 'document_parser.dart';
@@ -117,6 +118,7 @@ class TextContentNode implements TextBlockNode {
     this.rubies = const <RubyMark>[],
     this.inlineImages = const <InlineImageMark>[],
     this.leadingBreakCount = 0,
+    this.textCfis,
   });
 
   @override
@@ -130,6 +132,9 @@ class TextContentNode implements TextBlockNode {
 
   /// 块首显式换行占用的空行，不写入正文以保留既有 UTF-16 与 CFI 坐标。
   final int leadingBreakCount;
+
+  /// 显示文字到原始字符块的映射；空白折叠与行内合并共用同一坐标。
+  final TextCfiMap? textCfis;
 
   /// 行内样式标记（真实书适配）。
   final List<InlineMark> inlineMarks;
@@ -398,7 +403,7 @@ abstract final class TextAggregator {
       // 当成容器边界拆开段落，否则段落的相对字号和上下边距会只作用于部分
       // 文本片段。
       if (node.tag == 'br') {
-        accumulator.addBreak();
+        accumulator.addBreak(node.cfi);
         return;
       }
       if (display == CssDisplay.block) {
@@ -505,7 +510,7 @@ abstract final class TextAggregator {
               PromotedBlockNode(aggregated, List<InlineNode>.of(activeInline)),
             );
           } else if (child is TextBlockNode) {
-            accumulator.addRawText(child.text);
+            accumulator.addRawText(child);
           }
         }
       }
@@ -551,7 +556,7 @@ abstract final class TextAggregator {
       } else if (child is ParsedText) {
         accumulator.addText(child);
       } else if (child is TextBlockNode) {
-        accumulator.addRawText(child.text);
+        accumulator.addRawText(child);
       }
     }
     // 折叠判定必须在 flush（take 会清空缓冲）之前做，否则缓冲已空、
@@ -684,6 +689,8 @@ class _TextAccumulator {
   final List<String> _rubyTextParts = <String>[];
   List<MarkSubject> _rubyChain = const [];
   bool _pendingSpace = false;
+  final _pendingCfiSpaces = <({EpubCfi cfi, int start, int end})>[];
+  final _textCfis = TextCfiMapBuilder();
   int? _lastCodeUnit;
   ParsedText? _firstText;
   ParsedText? _lastText;
@@ -750,9 +757,45 @@ class _TextAccumulator {
     if ((_buffer.isNotEmpty || marks.isNotEmpty) &&
         _lastCodeUnit != 10 &&
         _lastCodeUnit != 32) {
+      final start = _buffer.length;
       _buffer.write(' ');
       _lastCodeUnit = 32;
+      for (final source in _pendingCfiSpaces) {
+        _textCfis.add(
+          start,
+          start + 1,
+          cfi: source.cfi,
+          sourceStart: source.start,
+          sourceEnd: source.end,
+        );
+      }
     }
+    _pendingCfiSpaces.clear();
+  }
+
+  void _queueSpace(EpubCfi cfi, int offset) {
+    _pendingSpace = true;
+    final previous = _pendingCfiSpaces.lastOrNull;
+    if (previous != null &&
+        identical(previous.cfi, cfi) &&
+        previous.end == offset) {
+      _pendingCfiSpaces.removeLast();
+      _pendingCfiSpaces.add((cfi: cfi, start: previous.start, end: offset + 1));
+    } else {
+      _pendingCfiSpaces.add((cfi: cfi, start: offset, end: offset + 1));
+    }
+  }
+
+  void _writeSourceChar(String char, EpubCfi cfi, int offset) {
+    final start = _buffer.length;
+    _buffer.write(char);
+    _textCfis.add(
+      start,
+      _buffer.length,
+      cfi: cfi,
+      sourceStart: offset,
+      sourceEnd: offset + char.length,
+    );
   }
 
   void addText(ParsedText node, {_WhiteSpaceMode? whiteSpaceMode}) {
@@ -766,26 +809,27 @@ class _TextAccumulator {
     final runStart = _buffer.length;
     var emitted = 0;
 
-    for (final char in value.split('')) {
+    for (var offset = 0; offset < value.length; offset++) {
+      final char = value[offset];
       if (_isCollapsibleWhitespace(char)) {
         if (char == '\n' && effective.keepNewlines) {
           _flushPendingSpace();
-          _writeBreak();
+          _writeBreak(node.cfi, offset);
           emitted += 1;
           continue;
         }
         if (effective.collapseSpaces) {
-          _pendingSpace = true;
+          _queueSpace(node.cfi, offset);
           continue;
         }
         _flushPendingSpace();
-        _buffer.write(char);
+        _writeSourceChar(char, node.cfi, offset);
         _lastCodeUnit = char.codeUnitAt(0);
         emitted += 1;
         continue;
       }
       _flushPendingSpace();
-      _buffer.write(char);
+      _writeSourceChar(char, node.cfi, offset);
       _lastCodeUnit = char.codeUnitAt(0);
       emitted += 1;
     }
@@ -794,34 +838,50 @@ class _TextAccumulator {
     }
   }
 
-  void addRawText(String value) {
+  void addRawText(TextBlockNode node) {
+    final value = node.text;
     if (value.isEmpty) {
       return;
     }
+    final offset = _buffer.length;
     _buffer.write(value);
+    final coordinates = node is TextContentNode
+        ? node.textCfis ?? TextCfiMap.linear(node.cfi, value.length)
+        : TextCfiMap.linear(fallbackCfi, value.length);
+    _textCfis.addMap(coordinates, offset: offset);
     _runs.add(
       TextRun(start: _buffer.length - value.length, end: _buffer.length),
     );
   }
 
-  void addBreak() {
+  void addBreak([EpubCfi? cfi]) {
     _pendingSpace = false;
+    _pendingCfiSpaces.clear();
     if (_buffer.isEmpty && marks.isEmpty) {
       _leadingBreakCount += 1;
       return;
     }
-    _writeBreak();
+    _writeBreak(cfi);
   }
 
   /// 盒内尾部折叠空白不泄漏；盒后的空格按新的原子边界保留。
   void endInlineBox() {
     _pendingSpace = false;
+    _pendingCfiSpaces.clear();
     _lastCodeUnit = 0xFFFC;
   }
 
-  void addPlaceholder() {
+  void addPlaceholder([EpubCfi? cfi]) {
     _pendingSpace = false;
+    _pendingCfiSpaces.clear();
     _buffer.write('\uFFFC');
+    _textCfis.add(
+      _buffer.length - 1,
+      _buffer.length,
+      cfi: cfi ?? fallbackCfi,
+      sourceStart: 0,
+      sourceEnd: 0,
+    );
     _lastCodeUnit = 0xFFFC;
     _runs.add(TextRun(start: _buffer.length - 1, end: _buffer.length));
   }
@@ -829,7 +889,7 @@ class _TextAccumulator {
   /// 行内图片：占位符照写（保持 CFI/选区语义），同时记录节点供纯图
   /// 块折叠（图片属性在 InlineNode.attributes 上）。
   void addImage(InlineNode node) {
-    addPlaceholder();
+    addPlaceholder(node.cfi);
     images.add(InlineImageMark(offset: _buffer.length - 1, node: node));
   }
 
@@ -856,11 +916,18 @@ class _TextAccumulator {
   }
 
   /// 写一个换行并记录强制换行位置（块首源码换行忽略）。
-  void _writeBreak() {
+  void _writeBreak([EpubCfi? cfi, int? offset]) {
     if (_buffer.isEmpty && marks.isEmpty) {
       return;
     }
     _buffer.write('\n');
+    _textCfis.add(
+      _buffer.length - 1,
+      _buffer.length,
+      cfi: cfi ?? fallbackCfi,
+      sourceStart: offset ?? 0,
+      sourceEnd: offset == null ? 0 : offset + 1,
+    );
     _lastCodeUnit = 10;
     _hardBreaks.add(_buffer.length - 1);
   }
@@ -883,6 +950,7 @@ class _TextAccumulator {
                 ? const <InlineImageMark>[]
                 : List<InlineImageMark>.unmodifiable(images),
             cfi: _firstText?.cfi ?? fallbackCfi,
+            textCfis: _textCfis.build(_buffer.length),
             start: _firstText?.start ?? fallbackStart,
             end: _lastText?.end ?? fallbackEnd,
           );
@@ -894,6 +962,8 @@ class _TextAccumulator {
     rubies.clear();
     images.clear();
     _pendingSpace = false;
+    _pendingCfiSpaces.clear();
+    _textCfis.clear();
     _lastCodeUnit = null;
     _firstText = null;
     _lastText = null;

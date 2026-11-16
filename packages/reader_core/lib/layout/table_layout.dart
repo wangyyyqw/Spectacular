@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import '../css/computed_style.dart';
+import '../position/cfi.dart';
+import '../position/text_cfi_map.dart';
 import 'line_breaker.dart';
 import 'paginator.dart' show PageFootnote;
 
@@ -17,6 +19,7 @@ class TableCellRender {
     required this.layout,
     required this.style,
     this.startCfi,
+    this.textCfis,
     this.footnotes = const <PageFootnote>[],
   });
 
@@ -34,6 +37,24 @@ class TableCellRender {
 
   /// 来源单元格元素（或 Flex 子块）的稳定 CFI，用于定位载荷所在页。
   final String? startCfi;
+  final TextCfiMap? textCfis;
+
+  TextCfiMap? get textCoordinates {
+    if (textCfis != null) return textCfis;
+    final point = startCfi == null ? null : EpubCfi.parse(startCfi!);
+    return point == null
+        ? null
+        : TextCfiMap.linear(
+            point,
+            layout.inputOffsets?.inputLength ?? layout.text.length,
+          ).transformed(layout.inputOffsets);
+  }
+
+  String? cfiAt(int offset, {bool end = false}) =>
+      textCoordinates?.cfiAt(offset, end: end);
+
+  int? offsetForCfi(String cfi, {bool end = false}) =>
+      textCoordinates?.offsetFor(cfi, end: end);
 
   /// 注号区间沿用格内文本坐标；布局和分页转换不能丢失弹窗数据。
   final List<PageFootnote> footnotes;

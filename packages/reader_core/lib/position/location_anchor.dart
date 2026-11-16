@@ -3,19 +3,33 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import 'cfi.dart';
+import 'text_cfi_map.dart';
 
 /// 当前正文聚合与锚点坐标语义版本。
 ///
 /// 记录只使用当前格式；解析、行内块提升或空白处理变化时同步更新
 /// 编解码与行为测试，不在读取时转换坐标语义。
-const String currentAnchorSemanticVersion = 'text-2';
+const String currentAnchorSemanticVersion = 'text-3';
 
-/// 阅读器实际使用的文本块；CFI 偏移沿用现有块内 UTF-16 坐标。
+/// 阅读器实际使用的文本块；显示 UTF-16 偏移通过映射定位原 XML 字符块。
 class AnchorBlock {
-  const AnchorBlock({required this.cfi, required this.text});
+  const AnchorBlock({required this.cfi, required this.text, this.textCfis});
 
   final String cfi;
   final String text;
+  final TextCfiMap? textCfis;
+
+  TextCfiMap? get _coordinates {
+    if (textCfis != null) return textCfis;
+    final point = EpubCfi.parse(cfi);
+    return point == null ? null : TextCfiMap.linear(point, text.length);
+  }
+
+  String? cfiAt(int offset, {bool end = false}) =>
+      _coordinates?.cfiAt(offset, end: end);
+
+  int? offsetFor(String cfi, {bool end = false}) =>
+      _coordinates?.offsetFor(cfi, end: end);
 }
 
 /// 匹配文本与原始阅读文本之间的偏移映射。
@@ -110,19 +124,17 @@ class AnchorChapter {
   late final List<String> paragraphFingerprints;
 
   int? offsetFor(String cfi) {
-    final base = cfiBase(cfi);
     final offset = cfiCharOffset(cfi) ?? 0;
     for (var i = 0; i < blocks.length; i++) {
       final block = blocks[i];
-      if (cfiBase(block.cfi) != base) continue;
-      final local = offset - (cfiCharOffset(block.cfi) ?? 0);
-      if (local >= 0 && local <= block.text.length) {
+      final local = block.offsetFor(cfi);
+      if (local != null) {
         return blockStarts[i] + local;
       }
     }
     // 纯图章另按真实图片叶顺序定位；元素不接受非零字符偏移。
     if (text.isEmpty || offset != 0) return null;
-    return elementOffsets[base];
+    return elementOffsets[cfiBase(cfi)];
   }
 
   String? cfiAt(int offset, {bool end = false}) {
@@ -133,10 +145,7 @@ class AnchorChapter {
       final local = safe - blockStarts[i];
       if (local < 0 || local > length) continue;
       if (local == length && !end && i + 1 < blocks.length) continue;
-      return cfiWithCharOffset(
-        blocks[i].cfi,
-        local + (cfiCharOffset(blocks[i].cfi) ?? 0),
-      );
+      return blocks[i].cfiAt(local, end: end);
     }
     return null;
   }

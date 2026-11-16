@@ -361,12 +361,7 @@ extension _ReaderDecorationController on _ReaderPageState {
   bool _currentPageContainsCfi(String cfi) {
     final page = _session.page;
     if (page == null) return false;
-    final offset = cfiCharOffset(cfi) ?? 0;
-    return ReaderTextRangeGeometry.linesFor(
-      page,
-      startCfi: cfi,
-      endCfi: cfiWithCharOffset(cfi, offset + 1),
-    ).isNotEmpty;
+    return ReaderTextRangeGeometry.containsPoint(page, cfi);
   }
 
   Future<void> _loadDecorationFonts(int generation, {int? spineIndex}) async {

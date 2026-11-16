@@ -4,6 +4,7 @@ import 'dart:ui' show Offset, Rect;
 import '../css/computed_style.dart';
 import '../epub/footnote.dart' show NoteKind;
 import '../position/cfi.dart';
+import '../position/text_cfi_map.dart';
 import '../src/api/models.dart' show CancelToken, PageSlice;
 import 'block_flow.dart' show collapseMargins;
 import 'box_model.dart';
@@ -216,6 +217,7 @@ class PageBlock {
     this.pageBreakAfter = false,
     this.startCfi,
     this.endCfi,
+    this.textCfis,
     this.style,
     this.spaceBefore = 0,
     this.spaceAfter = 0,
@@ -267,6 +269,7 @@ class PageBlock {
     bool? pageBreakAfter,
     String? startCfi,
     String? endCfi,
+    TextCfiMap? textCfis,
     double? spaceBefore,
     double? spaceAfter,
     int groupId = 0,
@@ -305,6 +308,7 @@ class PageBlock {
       breakAfterAvoid: style.breakAfterAvoid,
       startCfi: startCfi,
       endCfi: endCfi,
+      textCfis: textCfis,
       // 调用方没给段距时按自身 margin 折（表格/图片块走这里；正文块显式传）。
       spaceBefore: spaceBefore ?? style.margin.top,
       spaceAfter: spaceAfter ?? style.margin.bottom,
@@ -360,6 +364,32 @@ class PageBlock {
 
   /// 块结束 CFI（可选）。
   final String? endCfi;
+
+  /// 块显示文字到原始字符块的双向映射；分页和绘制共享此坐标。
+  final TextCfiMap? textCfis;
+
+  TextCfiMap? get textCoordinates {
+    if (textCfis != null) return textCfis;
+    final point = EpubCfi.parse(startCfi ?? '');
+    return point == null
+        ? null
+        : TextCfiMap.linear(
+            point,
+            layout.inputOffsets?.inputLength ?? layout.text.length,
+          ).transformed(layout.inputOffsets);
+  }
+
+  /// 块内 UTF-16 偏移对应的标准 CFI。
+  String? cfiAt(int offset, {bool end = false}) =>
+      textCoordinates?.cfiAt(offset, end: end);
+
+  /// 标准 CFI 在本块显示文字中的偏移。
+  int? offsetForCfi(String cfi, {bool end = false}) =>
+      textCoordinates?.offsetFor(cfi, end: end);
+
+  /// 半开原文区间与本块显示文字的交集。
+  (int, int)? rangeForCfis(String start, String end) =>
+      textCoordinates?.rangeFor(start, end);
 
   /// 块样式（绘制用；P1-28 起可选）。
   final ComputedStyle? style;
@@ -652,6 +682,7 @@ class PageBlock {
     pageBreakAfter: pageBreakAfter,
     startCfi: startCfi,
     endCfi: endCfi,
+    textCfis: textCfis,
     style: style,
     spaceBefore: spaceBefore ?? this.spaceBefore,
     spaceAfter: spaceAfter ?? this.spaceAfter,
@@ -1332,10 +1363,13 @@ class Paginator {
     List<PageContainerFragment>? containers,
   }) => PageBlock(
     layout: layout,
-    startCfi: _columnCfi(source.startCfi, textRange?.$1),
+    startCfi: textRange == null ? source.startCfi : source.cfiAt(textRange.$1),
     endCfi: textRange == null
         ? source.endCfi
-        : _columnCfi(source.startCfi, textRange.$2) ?? source.endCfi,
+        : source.cfiAt(textRange.$2, end: true) ?? source.endCfi,
+    textCfis: textRange == null
+        ? source.textCfis
+        : source.textCoordinates?.slice(textRange.$1, textRange.$2),
     textRuleEligible: source.textRuleEligible,
     isReplaced: source.isReplaced,
     style: source.style,
@@ -1412,15 +1446,6 @@ class Paginator {
     absoluteTop: absoluteTop,
     absoluteLeft: absoluteLeft,
   );
-
-  static String? _columnCfi(String? cfi, int? relativeOffset) {
-    if (cfi == null || relativeOffset == null) return cfi;
-    final parsed = EpubCfi.parse(cfi);
-    return parsed
-            ?.withCharOffset((parsed.charOffset ?? 0) + relativeOffset)
-            .serialize() ??
-        cfi;
-  }
 
   /// 列区间在原文里的起止偏移（用于切片注音/行内图片）。
   static (int, int) _columnTextRange(
@@ -1815,6 +1840,7 @@ class Paginator {
     pageBreakAfter: source.pageBreakAfter,
     startCfi: source.startCfi,
     endCfi: source.endCfi,
+    textCfis: source.textCfis,
     textRuleEligible: source.textRuleEligible,
     isReplaced: source.isReplaced,
     style: source.style,
@@ -2044,9 +2070,11 @@ class Paginator {
         isRtl: layout.isRtl,
         writingMode: layout.writingMode,
         plainTextLayout: layout.plainTextLayout,
+        inputOffsets: layout.inputOffsets,
       ),
       startCfi: source.startCfi,
       endCfi: source.endCfi,
+      textCfis: source.textCfis,
       textRuleEligible: source.textRuleEligible,
       isReplaced: source.isReplaced,
       style: source.style,
@@ -3040,6 +3068,7 @@ class _TablePieceWork {
     layout: cell.layout,
     style: cell.style,
     startCfi: cell.startCfi,
+    textCfis: cell.textCfis,
     footnotes: cell.footnotes,
   );
 
@@ -3054,6 +3083,7 @@ class _TablePieceWork {
     layout: cell.layout,
     style: cell.style,
     startCfi: cell.startCfi,
+    textCfis: cell.textCfis,
     footnotes: cell.footnotes,
   );
 
@@ -3075,6 +3105,7 @@ class _TablePieceWork {
       height: height,
       maxWidth: source.layout.maxWidth,
       runs: const <StyledRun>[],
+      inputOffsets: source.layout.inputOffsets,
     );
     return PageBlock(
       layout: layout,
@@ -3082,6 +3113,7 @@ class _TablePieceWork {
       pageBreakAfter: endRow == rowCount && source.pageBreakAfter,
       startCfi: source.startCfi,
       endCfi: source.endCfi,
+      textCfis: source.textCfis,
       textRuleEligible: source.textRuleEligible,
       isReplaced: source.isReplaced,
       style: source.style,

@@ -194,6 +194,60 @@ void main() {
     expect(await service.resolveCfi(hits.last), isNotNull);
   });
 
+  test('正式搜索命中映射到段内元素及其后的 /5 字符块', () async {
+    final source = await openCssChapter(
+      body: '<p id="p">lead<b id="b">A</b><i id="i">B</i>tail</p>',
+    );
+    addTearDown(source.close);
+    final service = ScanSearchService(source: source);
+    addTearDown(service.dispose);
+    final chapter = ChapterText.fromPages(await source.loadChapter(0));
+    final parsed = source.document.parseDocument(0);
+    for (final (query, expected) in [
+      ('tail', 'epubcfi(/6/2!/4/2[p]/5:0)'),
+      ('A', 'epubcfi(/6/2!/4/2[p]/2[b]/1:0)'),
+    ]) {
+      final hit = (await service.search(query)).single;
+      final cfi = (await service.resolveCfi(hit))!;
+      expect(cfi, expected);
+      final point = EpubCfi.parse(cfi)!;
+      expect((parsed.nodeAtCfi(point) as ParsedText).text, query);
+      expect(source.document.resolveCfi(0, point).exact, isTrue);
+      final block = chapter.blocks.single.block;
+      final offset = block.offsetForCfi(cfi)!;
+      expect(block.layout.text.substring(offset), startsWith(query));
+    }
+  });
+
+  test('多列后方搜索命中保留切片前的来源字符偏移', () async {
+    final prefix = 'text ' * 80;
+    final source = await openCssChapter(
+      body: '<p id="p">lead<b>A</b><i>B</i>${prefix}needle</p>',
+      css:
+          'body,p{margin:0;padding:0;}p{column-count:2;column-gap:16px;'
+          'font-family:Ahem;font-size:16px;line-height:1.5;}',
+      contentWidth: 200,
+      contentHeight: 120,
+    );
+    addTearDown(source.close);
+    final service = ScanSearchService(source: source);
+    addTearDown(service.dispose);
+    final hit = (await service.search('needle')).single;
+    final cfi = (await service.resolveCfi(hit))!;
+    expect(cfi, 'epubcfi(/6/2!/4/2[p]/5:${prefix.length})');
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    final block = ChapterText.fromPages(pages).blocks.last.block;
+    final offset = block.offsetForCfi(cfi)!;
+    expect(block.layout.text.substring(offset), startsWith('needle'));
+    final point = EpubCfi.parse(cfi)!;
+    expect(source.document.resolveCfi(0, point).exact, isTrue);
+    expect(
+      (source.document.parseDocument(0).nodeAtCfi(point) as ParsedText).text,
+      '${prefix}needle',
+    );
+  });
+
   test('搜索诊断只记录查询长度和扫描统计', () async {
     const query = '私密检索意图';
     final source = await openTestChapterSource(
@@ -231,7 +285,7 @@ void main() {
       final block = chapter.blocks.singleWhere(
         (block) => cfiBase(block.block.startCfi!) == cfiBase(cfi),
       );
-      final local = cfiCharOffset(cfi)!;
+      final local = block.block.offsetForCfi(cfi)!;
       expect(block.block.layout.text.substring(local, local + 3), '重复词');
     }
     expect(results, hasLength(3));
@@ -257,7 +311,7 @@ void main() {
       final block = chapter.blocks.singleWhere(
         (block) => cfiBase(block.block.startCfi!) == cfiBase(cfi),
       );
-      final local = cfiCharOffset(cfi)!;
+      final local = block.block.offsetForCfi(cfi)!;
       expect(block.block.layout.text.substring(local, local + 3), '重复词');
       expect(
         block.block.layout.text.substring(local + 3),
@@ -292,7 +346,7 @@ void main() {
         (item) => cfiBase(item.block.startCfi!) == cfiBase(cfi!),
       );
       expect(
-        block.block.layout.text.substring(cfiCharOffset(cfi!)!),
+        block.block.layout.text.substring(block.block.offsetForCfi(cfi!)!),
         startsWith(expected),
       );
     });

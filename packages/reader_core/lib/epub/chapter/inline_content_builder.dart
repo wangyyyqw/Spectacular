@@ -10,6 +10,8 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/paint/image_size.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
+import 'package:reader_core/text/text_offsets.dart';
 
 import 'book_resources.dart';
 import 'chapter_style_resolver.dart';
@@ -165,13 +167,20 @@ class InlineContentBuilder {
     required List<InlineMark> marks,
     required List<InlineImageMark> images,
     required InlineStyleContext context,
+    TextCfiMap? textCfis,
   }) async {
     if (marks.isEmpty) return null;
     for (final mark in marks) {
       await measure.budget.checkpoint();
       final candidate = await _atomicCandidate(mark, marks, context);
       if (candidate == null) continue;
-      final atom = await _atomicText(text, marks, candidate, context);
+      final atom = await _atomicText(
+        text,
+        marks,
+        candidate,
+        context,
+        textCfis: textCfis,
+      );
       if (atom != null) return _extractAtomicText(text, marks, atom, context);
     }
     return _extractImageFloat(text, marks, images, context);
@@ -225,8 +234,9 @@ class InlineContentBuilder {
     String text,
     List<InlineMark> marks,
     _AtomicCandidate candidate,
-    InlineStyleContext context,
-  ) async {
+    InlineStyleContext context, {
+    TextCfiMap? textCfis,
+  }) async {
     final mark = candidate.mark;
     final raw = text.substring(mark.start, mark.end);
     final children = <InlineMark>[];
@@ -243,13 +253,13 @@ class InlineContentBuilder {
     if (content.isEmpty && !candidate.inlineBlock) return null;
     final start = mark.start + raw.length - leftTrimmed.length;
     final contentMarks = await _atomicMarks(children, start, content.length);
-    return _AtomicText(
-      candidate,
-      raw,
-      content,
-      contentMarks,
-      BoxModel.fromStyle(candidate.style, containingWidth: context.width),
-    );
+    return _AtomicText(candidate, raw, content, contentMarks, (
+      model: BoxModel.fromStyle(
+        candidate.style,
+        containingWidth: context.width,
+      ),
+      textCfis: textCfis?.slice(start, start + content.length),
+    ));
   }
 
   Future<bool> _hasBoxAt(
@@ -347,7 +357,7 @@ class InlineContentBuilder {
           _atomicContext(atom, context, width),
         );
       }
-      return _AtomicPayload(null, _atomicInlineBox(atom, layout, width));
+      return _AtomicPayload(null, await _atomicInlineBox(atom, layout, width));
     }
     if (candidate.style.width == null) {
       layout = pageBlockWithLayoutWidth(layout, maxWidth: layout.width);
@@ -360,6 +370,11 @@ class InlineContentBuilder {
       spaceAfter: candidate.style.margin.bottom,
       containingLeft: _containingLeft(context),
       containingWidth: context.width,
+      startCfi: atom.textCfis?.cfiAt(0),
+      textCfis: await atom.textCfis?.transformedAsync(
+        layout.inputOffsets,
+        checkpoint: measure.budget.checkpoint,
+      ),
     );
     return _AtomicPayload(block, null);
   }
@@ -397,7 +412,12 @@ class InlineContentBuilder {
     _AtomicText atom,
     InlineStyleContext context,
   ) async {
-    final flow = await _extractFlowBoxes(atom.text, atom.marks, context);
+    final flow = await _extractFlowBoxes(
+      atom.text,
+      atom.marks,
+      context,
+      textCfis: atom.textCfis,
+    );
     final runs = await styles.resolveInlineRuns(
       flow.marks,
       context,
@@ -410,25 +430,31 @@ class InlineContentBuilder {
         width: 0,
         height: 0,
         maxWidth: context.width,
+        inputOffsets: flow.inputOffsets,
       );
     }
-    return measure.layout(
+    final layout = await measure.layout(
       text: flow.text,
       style: context.style,
       maxWidth: context.width,
       runs: runs,
       inlineBoxes: flow.boxes,
     );
+    return layout.withInputOffsets(
+      composeTextOffsets(flow.inputOffsets, layout.inputOffsets),
+    );
   }
 
   Future<_InlineBoxFlow> _extractFlowBoxes(
     String text,
     List<InlineMark> marks,
-    InlineStyleContext context,
-  ) async {
+    InlineStyleContext context, {
+    TextCfiMap? textCfis,
+  }) async {
     var remainingText = text;
     var remainingMarks = marks;
     var boxes = <InlineBoxSpec>[];
+    TextOffsetMap? inputOffsets;
     for (var index = 0; index < marks.length; index++) {
       await measure.budget.checkpoint();
       final extracted = await extractInlineFloat(
@@ -436,21 +462,32 @@ class InlineContentBuilder {
         marks: remainingMarks,
         images: const [],
         context: context,
+        textCfis: textCfis,
       );
       // 内盒与格内浮动沿用原文字近似，不丢弃脱流内容。
       if (extracted == null || extracted.block != null) break;
+      final offsets = TextOffsetMap.removal(
+        remainingText.length,
+        extracted.removeStart,
+        extracted.removeEnd,
+      );
+      inputOffsets = composeTextOffsets(inputOffsets, offsets);
+      textCfis = await textCfis?.transformedAsync(
+        offsets,
+        checkpoint: measure.budget.checkpoint,
+      );
       remainingText = extracted.text;
       remainingMarks = extracted.marks;
       boxes = appendInlineBox(boxes, extracted);
     }
-    return _InlineBoxFlow(remainingText, remainingMarks, boxes);
+    return _InlineBoxFlow(remainingText, remainingMarks, boxes, inputOffsets);
   }
 
-  InlineBoxSpec _atomicInlineBox(
+  Future<InlineBoxSpec> _atomicInlineBox(
     _AtomicText atom,
     TextLayoutResult layout,
     double width,
-  ) {
+  ) async {
     final model = atom.model;
     final style = atom.candidate.style;
     final height = model.resolveContentHeight(
@@ -472,6 +509,11 @@ class InlineContentBuilder {
         layout: layout,
         style: style,
         containingWidth: contentWidth,
+        startCfi: atom.textCfis?.cfiAt(0),
+        textCfis: await atom.textCfis?.transformedAsync(
+          layout.inputOffsets,
+          checkpoint: measure.budget.checkpoint,
+        ),
       ),
     );
   }
@@ -674,8 +716,9 @@ class InlineContentBuilder {
     ComputedStyle cellStyle,
     double width, {
     List<InlineImageMark> images = const [],
+    TextCfiMap? textCfis,
   }) => _layoutCellFlow(
-    (text: text, marks: marks, images: images),
+    (text: text, marks: marks, images: images, textCfis: textCfis),
     (
       ancestors: ancestors,
       style: cellStyle,
@@ -689,20 +732,28 @@ class InlineContentBuilder {
     InlineStyleContext context,
   ) async {
     final flow = content.images.isEmpty
-        ? await _extractFlowBoxes(content.text, content.marks, context)
+        ? await _extractFlowBoxes(
+            content.text,
+            content.marks,
+            context,
+            textCfis: content.textCfis,
+          )
         : await _extractCellImageFlow(content, context);
     final runs = await styles.resolveInlineRuns(
       flow.marks,
       context,
       checkpoint: measure.budget.checkpoint,
     );
-    final layout = await measure.layout(
+    var layout = await measure.layout(
       text: flow.text,
       style: context.style,
       maxWidth: context.width,
       runs: runs,
       inlineBoxes: flow.boxes,
       preserveContentWidth: true,
+    );
+    layout = layout.withInputOffsets(
+      composeTextOffsets(flow.inputOffsets, layout.inputOffsets),
     );
     return flow.boxes.any((box) => box is _CellBlockBox)
         ? _positionCellBlockBoxes(layout)
@@ -753,6 +804,7 @@ class InlineContentBuilder {
     firstLineStyle: layout.firstLineStyle,
     firstLineRuns: layout.firstLineRuns,
     sourceRuns: layout.sourceRuns,
+    inputOffsets: layout.inputOffsets,
   );
 
   static InlineBoxPlacement _cellBlockPlacement(InlineBoxPlacement placement) {
@@ -777,14 +829,25 @@ class InlineContentBuilder {
   ) async {
     var remaining = initial;
     var boxes = <InlineBoxSpec>[];
+    TextOffsetMap? inputOffsets;
     for (var guard = 0; guard < initial.marks.length; guard++) {
       await measure.budget.checkpoint();
       final extracted = await _extractCellAtomic(remaining, context);
       if (extracted == null) break;
+      final offsets = TextOffsetMap.removal(
+        remaining.text.length,
+        extracted.removeStart,
+        extracted.removeEnd,
+      );
+      inputOffsets = composeTextOffsets(inputOffsets, offsets);
       remaining = (
         text: extracted.text,
         marks: extracted.marks,
         images: await _remapCellImages(remaining.images, extracted),
+        textCfis: await remaining.textCfis?.transformedAsync(
+          offsets,
+          checkpoint: measure.budget.checkpoint,
+        ),
       );
       boxes = appendInlineBox(boxes, extracted);
     }
@@ -793,7 +856,7 @@ class InlineContentBuilder {
       final box = await _cellImageBox(image, remaining.marks, context);
       if (box != null) boxes.add(box);
     }
-    return _InlineBoxFlow(remaining.text, remaining.marks, boxes);
+    return _InlineBoxFlow(remaining.text, remaining.marks, boxes, inputOffsets);
   }
 
   Future<InlineFloatExtraction?> _extractCellAtomic(
@@ -812,6 +875,7 @@ class InlineContentBuilder {
         content.marks,
         candidate,
         context,
+        textCfis: content.textCfis,
       );
       if (atom == null) continue;
       final images = await _cellAtomicImages(content.images, atom);
@@ -913,7 +977,12 @@ class InlineContentBuilder {
     InlineStyleContext context,
   ) async {
     var width = math.max(1.0, atom.model.resolveContentWidth(context.width));
-    final content = (text: atom.text, marks: atom.marks, images: images);
+    final content = (
+      text: atom.text,
+      marks: atom.marks,
+      images: images,
+      textCfis: atom.textCfis,
+    );
     var layout = await _layoutCellFlow(
       content,
       _atomicContext(atom, context, width),
@@ -926,7 +995,7 @@ class InlineContentBuilder {
         _atomicContext(atom, context, width),
       );
     }
-    final box = _atomicInlineBox(atom, layout, width);
+    final box = await _atomicInlineBox(atom, layout, width);
     if (!ChapterTextMeasurer.isOrdinaryHorizontalBlock(atom.candidate.style)) {
       return box;
     }
@@ -1033,6 +1102,7 @@ typedef _CellInlineContent = ({
   String text,
   List<InlineMark> marks,
   List<InlineImageMark> images,
+  TextCfiMap? textCfis,
 });
 
 /// 格内块盒沿用真实尺寸与级联解算的 auto 外边距，重映射时保留块标记。
@@ -1115,13 +1185,15 @@ class _AtomicText {
     this.raw,
     this.text,
     this.marks,
-    this.model,
+    this.coordinates,
   );
   final _AtomicCandidate candidate;
   final String raw;
   final String text;
   final List<InlineMark> marks;
-  final BoxModel model;
+  final ({BoxModel model, TextCfiMap? textCfis}) coordinates;
+  BoxModel get model => coordinates.model;
+  TextCfiMap? get textCfis => coordinates.textCfis;
 }
 
 class _AtomicPayload {
@@ -1131,10 +1203,11 @@ class _AtomicPayload {
 }
 
 class _InlineBoxFlow {
-  const _InlineBoxFlow(this.text, this.marks, this.boxes);
+  const _InlineBoxFlow(this.text, this.marks, this.boxes, this.inputOffsets);
   final String text;
   final List<InlineMark> marks;
   final List<InlineBoxSpec> boxes;
+  final TextOffsetMap? inputOffsets;
 }
 
 class _TextRemoval {

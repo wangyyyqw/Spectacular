@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:isolate';
 
+import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
+
 /// 正文匹配输入，不携带 UI 或数据库对象。
 class DecorationRuleTextBlock {
   /// 创建文本块，排除区间使用块内 UTF-16 偏移。
@@ -8,6 +11,7 @@ class DecorationRuleTextBlock {
     required this.cfi,
     required this.text,
     this.excluded = const [],
+    this.textCfis,
   });
 
   /// 原文块起点。
@@ -18,6 +22,16 @@ class DecorationRuleTextBlock {
 
   /// 脚注引用、图片占位等不可匹配区间。
   final List<(int, int)> excluded;
+  final TextCfiMap? textCfis;
+
+  TextCfiMap? get textCoordinates {
+    if (textCfis != null) return textCfis;
+    final point = EpubCfi.parse(cfi);
+    return point == null ? null : TextCfiMap.linear(point, text.length);
+  }
+
+  String? cfiAt(int offset, {bool end = false}) =>
+      textCoordinates?.cfiAt(offset, end: end);
 }
 
 /// 单条命中的输入块与偏移。
@@ -52,14 +66,14 @@ class DecorationRuleMatcher {
     _runs.add(run);
     try {
       final completed = await run.start(
-        _RuleRequest(
-          run.messages.sendPort,
-          pattern,
-          isRegex,
-          caseSensitive,
-          blocks,
-          limit,
-        ),
+        _RuleRequest(run.messages.sendPort, pattern, isRegex, caseSensitive, [
+          for (final block in blocks)
+            DecorationRuleTextBlock(
+              cfi: block.cfi,
+              text: block.text,
+              excluded: block.excluded,
+            ),
+        ], limit),
         timeout,
       );
       if (completed.error != null) throw FormatException(completed.error!);

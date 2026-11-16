@@ -77,12 +77,13 @@ abstract final class ThoughtMarkerGeometry {
   }
 
   static bool _endsOnThisPage(AnnotationLine line) {
-    final base = EpubCfi.parse(line.line.slice.block.startCfi ?? '');
-    final end = EpubCfi.parse(line.annotation.endCfi);
-    if (base == null || end == null) return false;
-    final lineEnd = base.withCharOffset(
-      (base.charOffset ?? 0) + line.line.blockTextOffset + line.endOffset,
+    final cfi = line.line.slice.block.cfiAt(
+      line.line.blockTextOffset + line.endOffset,
+      end: true,
     );
+    final lineEnd = EpubCfi.parse(cfi ?? '');
+    final end = EpubCfi.parse(line.annotation.endCfi);
+    if (lineEnd == null || end == null) return false;
     return lineEnd.compareTo(end) >= 0;
   }
 

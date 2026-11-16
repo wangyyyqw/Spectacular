@@ -18,6 +18,7 @@ import '../text/font_metrics.dart';
 import '../text/font_coverage.dart';
 import '../text/script.dart';
 import '../text/script_fallback.dart';
+import '../text/text_offsets.dart';
 
 export 'text_spacing.dart' show LineSpacing, GlyphSpacing, textSpacingRevision;
 
@@ -578,6 +579,7 @@ String expandTabs(
   int tabSize, {
   double Function(String prefix)? measureWidth,
   double? spaceWidth,
+  TextOffsetMapBuilder? offsets,
 }) {
   if (tabSize <= 0 || !text.contains('\t')) {
     return text;
@@ -604,14 +606,17 @@ String expandTabs(
       buffer.write(' ' * spaces);
       line.write(' ' * spaces);
       column += spaces;
+      offsets?.add(char.length, spaces);
     } else if (char == '\n') {
       buffer.write(char);
       line.clear();
       column = 0;
+      offsets?.add(char.length, char.length);
     } else {
       buffer.write(char);
       line.write(char);
       column += 1;
+      offsets?.add(char.length, char.length);
     }
   }
   return buffer.toString();
@@ -620,28 +625,44 @@ String expandTabs(
 /// 按 CSS `text-transform` 变换文本（P2-16）。
 ///
 /// `capitalize` 按空白分词，把每个词的首字符转大写（标点边界按空白近似）。
-String applyTextTransform(String text, CssTextTransform transform) =>
-    switch (transform) {
-      CssTextTransform.none => text,
-      CssTextTransform.uppercase => text.toUpperCase(),
-      CssTextTransform.lowercase => text.toLowerCase(),
-      CssTextTransform.capitalize => _capitalizeWords(text),
-    };
-
-String _capitalizeWords(String text) {
+String applyTextTransform(
+  String text,
+  CssTextTransform transform, {
+  TextOffsetMapBuilder? offsets,
+}) {
+  if (transform == CssTextTransform.none) return text;
   final buffer = StringBuffer();
   var atWordStart = true;
   for (final rune in text.runes) {
     final char = String.fromCharCode(rune);
-    if (char.trim().isEmpty) {
-      buffer.write(char);
-      atWordStart = true;
-    } else {
-      buffer.write(atWordStart ? char.toUpperCase() : char);
-      atWordStart = false;
-    }
+    final transformed = switch (transform) {
+      CssTextTransform.uppercase => char.toUpperCase(),
+      CssTextTransform.lowercase => char.toLowerCase(),
+      CssTextTransform.capitalize => atWordStart ? char.toUpperCase() : char,
+      CssTextTransform.none => char,
+    };
+    buffer.write(transformed);
+    offsets?.add(char.length, transformed.length);
+    atWordStart = char.trim().isEmpty;
   }
   return buffer.toString();
+}
+
+/// 样式范围沿用同次文字变换的边界，字体分段仍在显示文字上执行。
+List<StyledRun> remapStyledRuns(List<StyledRun> runs, TextOffsetMap? offsets) {
+  if (offsets == null || runs.isEmpty) return runs;
+  return [
+    for (final run in runs)
+      StyledRun(
+        start: offsets.at(run.start),
+        end: offsets.at(run.end),
+        style: run.style,
+        baselineShift: run.baselineShift,
+        syntheticFontFallback: run.syntheticFontFallback,
+        inlineLeadingInset: run.inlineLeadingInset,
+        inlineTrailingInset: run.inlineTrailingInset,
+      ),
+  ];
 }
 
 /// 内置宋体是否需要用合成小型大写。
@@ -848,10 +869,14 @@ class TextLayoutResult implements TextLayout {
     this.firstLineStyle,
     this.firstLineRuns,
     this.sourceRuns,
+    this.inputOffsets,
   });
 
-  /// 原始文本。
+  /// 测量及绘制使用的显示文字。
   final String text;
+
+  /// 输入文字到 [text] 的边界；恒等变换为 null。
+  final TextOffsetMap? inputOffsets;
 
   /// 行列表。
   final List<LineBox> lines;
@@ -936,6 +961,27 @@ class TextLayoutResult implements TextLayout {
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
       sourceRuns: sourceRuns,
+      inputOffsets: inputOffsets,
+    );
+  }
+
+  /// 载荷摘取与测量变换合并为同一输入坐标，几何和字体分段保持原样。
+  TextLayoutResult withInputOffsets(TextOffsetMap? offsets) {
+    if (identical(offsets, inputOffsets)) return this;
+    return TextLayoutResult(
+      text: text,
+      lines: lines,
+      width: width,
+      height: height,
+      maxWidth: maxWidth,
+      runs: runs,
+      isRtl: isRtl,
+      writingMode: writingMode,
+      plainTextLayout: plainTextLayout,
+      firstLineStyle: firstLineStyle,
+      firstLineRuns: firstLineRuns,
+      sourceRuns: sourceRuns,
+      inputOffsets: offsets,
     );
   }
 
@@ -1207,8 +1253,17 @@ abstract final class TextLayoutEngine {
     ComputedStyle? firstLineStyle,
     List<StyledRun>? firstLineRuns,
     int firstLineEnd = 0,
+    bool transformText = true,
   }) {
-    text = applyTextTransform(text, style.textTransform);
+    if (transformText) {
+      final offsets = TextOffsetMapBuilder();
+      text = applyTextTransform(text, style.textTransform, offsets: offsets);
+      final mapping = offsets.build();
+      runs = remapStyledRuns(runs, mapping);
+      if (firstLineRuns != null) {
+        firstLineRuns = remapStyledRuns(firstLineRuns, mapping);
+      }
+    }
     if (firstLineStyle != null && firstLineEnd > 0) {
       runs = _runsWithFirstLine(
         text.length,
@@ -1266,12 +1321,18 @@ abstract final class TextLayoutEngine {
     ComputedStyle style,
     ({List<StyledRun> runs, bool Function(String, int)? hasGlyph}) context,
   ) sync* {
-    text = _intrinsicMeasurementText(text, style, context.runs.isEmpty);
+    final prepared = _measurementText(text, style, (
+      tabs: context.runs.isEmpty,
+      scale: 1,
+      leading: TextLeadingDistribution.even,
+    ));
+    text = prepared.text;
     final styled = styledRuns(
       text: text,
       style: style,
-      runs: context.runs,
+      runs: remapStyledRuns(context.runs, prepared.offsets),
       hasGlyph: context.hasGlyph,
+      transformText: false,
     );
     final breaks = _TextLayoutWork<SoftBreakPlan>(work.painters);
     yield* _intrinsicBreakSteps(breaks, text, style);
@@ -1434,21 +1495,34 @@ abstract final class TextLayoutEngine {
       style.overflowWrap == CssOverflowWrap.anywhere ||
       style.lineBreak == CssLineBreak.anywhere;
 
-  static String _intrinsicMeasurementText(
+  static ({String text, TextOffsetMap? offsets}) _measurementText(
     String text,
     ComputedStyle style,
-    bool plain,
+    ({bool tabs, double scale, TextLeadingDistribution leading}) options,
   ) {
-    final transformed = applyTextTransform(text, style.textTransform);
-    if (!plain || !transformed.contains('\t') || style.tabSize <= 0) {
-      return transformed;
+    final transformOffsets = TextOffsetMapBuilder();
+    text = applyTextTransform(
+      text,
+      style.textTransform,
+      offsets: transformOffsets,
+    );
+    final transformed = transformOffsets.build();
+    if (!options.tabs || !text.contains('\t') || style.tabSize <= 0) {
+      return (text: text, offsets: transformed);
     }
-    return expandTabs(
-      transformed,
+    final tabOffsets = TextOffsetMapBuilder();
+    text = expandTabs(
+      text,
       style.tabSize,
       measureWidth: (prefix) =>
-          _measureTextWidth(prefix, style, 1, TextLeadingDistribution.even),
-      spaceWidth: _measureChar(' ', style, 1),
+          _measureTextWidth(prefix, style, options.scale, options.leading),
+      spaceWidth: _measureChar(' ', style, options.scale),
+      offsets: tabOffsets,
+    );
+    final tabs = tabOffsets.build();
+    return (
+      text: text,
+      offsets: tabs == null ? transformed : transformed?.then(tabs) ?? tabs,
     );
   }
 
@@ -1651,26 +1725,34 @@ abstract final class TextLayoutEngine {
     ComputedStyle? firstLineStyle,
     List<StyledRun>? firstLineRuns,
   }) sync* {
-    // text-transform 在测量前应用：layout.text 即变换后的文本，绘制直接用。
-    text = applyTextTransform(text, style.textTransform);
     // tab-size（CSS Text 3）：`white-space: pre*` 里的制表符按制表位展开成
     // 空格。展开会改变字符下标，因此只在「纯文本段」（无行内样式区间/行内盒）
     // 做；带行内标记的 pre 文本保留原样（已知限制）。
-    if (text.contains('\t') &&
-        runs.isEmpty &&
-        inlineBoxes.isEmpty &&
-        style.tabSize > 0) {
-      text = expandTabs(
-        text,
-        style.tabSize,
-        measureWidth: (prefix) => _measureTextWidth(
-          prefix,
-          style,
-          textScaleFactor,
-          leadingDistribution,
-        ),
-        spaceWidth: _measureChar(' ', style, textScaleFactor),
-      );
+    final prepared = _measurementText(text, style, (
+      tabs: runs.isEmpty && inlineBoxes.isEmpty,
+      scale: textScaleFactor,
+      leading: leadingDistribution,
+    ));
+    text = prepared.text;
+    final inputOffsets = prepared.offsets;
+    runs = remapStyledRuns(runs, inputOffsets);
+    if (firstLineRuns != null) {
+      firstLineRuns = remapStyledRuns(firstLineRuns, inputOffsets);
+    }
+    if (inputOffsets != null) {
+      inlineBoxes = [
+        for (final box in inlineBoxes)
+          box.atOffset(inputOffsets.at(box.offset)),
+      ];
+      rubies = [
+        for (final ruby in rubies)
+          RubyAnnotation(
+            start: inputOffsets.at(ruby.start),
+            end: inputOffsets.at(ruby.end),
+            text: ruby.text,
+            style: ruby.style,
+          ),
+      ];
     }
     // 内容宽恒为「有限」值，用于缩进/对齐/诊断；软换行关闭时只把 TextPainter
     // 的排版宽放开到无限，让整段排成一行（硬换行仍生效）。
@@ -1702,6 +1784,7 @@ abstract final class TextLayoutEngine {
       runs: runs,
       hasGlyph: hasGlyph,
       leadingDistribution: leadingDistribution,
+      transformText: false,
     );
     final headRuns = firstLineStyle == null
         ? runs
@@ -1714,6 +1797,7 @@ abstract final class TextLayoutEngine {
             runs: headRuns,
             hasGlyph: hasGlyph,
             leadingDistribution: leadingDistribution,
+            transformText: false,
           );
     // 段尾换行不产生空行（与阅微一致：content 末尾的 '\n' 先剥离）。
     var measuredEnd = text.length;
@@ -1898,11 +1982,13 @@ abstract final class TextLayoutEngine {
                   firstLineStyle: firstLineStyle,
                   firstLineRuns: firstLineRuns,
                   firstLineEnd: measured.first.end,
+                  transformText: false,
                 ),
           isRtl: style.isRtl,
           firstLineStyle: firstLineStyle,
           firstLineRuns: firstLineRuns,
           sourceRuns: firstLineStyle == null ? null : runs,
+          inputOffsets: inputOffsets,
         );
         return;
       }
@@ -1952,6 +2038,7 @@ abstract final class TextLayoutEngine {
         firstLineStyle: firstLineStyle,
         firstLineRuns: firstLineRuns,
         firstLineEnd: measured.first.end,
+        transformText: false,
       );
     }
     final aligned = <LineBox>[];
@@ -1978,6 +2065,7 @@ abstract final class TextLayoutEngine {
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
       sourceRuns: firstLineStyle == null ? null : runs,
+      inputOffsets: inputOffsets,
     );
   }
 
@@ -4979,6 +5067,7 @@ abstract final class TextLayoutEngine {
     ComputedStyle? firstLineStyle,
     List<StyledRun>? firstLineRuns,
     List<StyledRun>? sourceRuns,
+    TextOffsetMap? inputOffsets,
   }) {
     // 列宽 = 行高：优先用实测行高（`line-height: normal` 时由字体度量决定，
     // 不能拿 1.2em 之类的常数近似）；无行时退回字号。
@@ -5032,6 +5121,7 @@ abstract final class TextLayoutEngine {
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
       sourceRuns: sourceRuns,
+      inputOffsets: inputOffsets,
     );
   }
 
@@ -5046,6 +5136,7 @@ abstract final class TextLayoutEngine {
     ComputedStyle? firstLineStyle,
     List<StyledRun>? firstLineRuns,
     List<StyledRun>? sourceRuns,
+    TextOffsetMap? inputOffsets,
   }) {
     var maxLineWidth = 0.0;
     for (final line in lines) {
@@ -5064,6 +5155,7 @@ abstract final class TextLayoutEngine {
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
       sourceRuns: sourceRuns,
+      inputOffsets: inputOffsets,
     );
   }
 

@@ -26,7 +26,7 @@ void main() {
       'epubcfi(/6/2!/4/2[p1]/2[b1]/1)',
       'epubcfi(/6/2!/4/2[p1]/3)',
       'epubcfi(/6/2!/4/4[p2]/1)',
-      'epubcfi(/6/2!/4/3)',
+      'epubcfi(/6/2!/4/5)',
     ]);
     for (final node in doc.textNodes) {
       final parsed = EpubCfi.parse(node.baseCfi.serialize());
