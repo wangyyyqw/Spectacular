@@ -11,6 +11,8 @@ import 'package:reader_mobile/library/revision_anchor_store.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/api.dart' show TocEntry;
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_format_opener.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -77,6 +79,54 @@ Uint8List _imageBook() {
   );
   archive.addFile(ArchiveFile('OEBPS/content.opf', opf.length, opf));
   return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
+}
+
+Uint8List _imageBreakBook() => buildCssChapterBook(
+  body:
+      '<p>前页提示</p>'
+      '<div style="page-break-after:always">'
+      '<img src="../Images/spacer.png" width="20" height="20"/></div>'
+      '<div>\n    <br/>\n  </div><h1>内容简介</h1><p>简介正文</p>',
+  css:
+      'h1 { font-size:1em; width:1.1em; text-align:center; '
+      'margin:-5.5em auto 2em; padding:5em .1em 4em; '
+      'color:white; background:black; }',
+  binaryFiles: {
+    'OEBPS/Images/spacer.png': base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aCZkAAAAASUVORK5CYII=',
+    ),
+  },
+);
+
+Future<ReaderSession> _openImageBreakSession(
+  String bookId,
+  String sourcePath,
+  String revision,
+  DriftProgressStore store,
+) async {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final source = await const EpubFormatOpener().openFile(File(sourcePath));
+  addTearDown(source.close);
+  addTearDown(await store.bindSource(bookId, source, revision));
+  final session = ReaderSession(
+    source: source,
+    store: store,
+    bookId: bookId,
+    contentRevision: revision,
+  );
+  addTearDown(session.dispose);
+  await session.open(
+    overrides: const ReaderOverrides(
+      fontSize: 21,
+      lineHeight: 1.6,
+      paragraphSpacing: 10,
+    ),
+    contentWidth: 366.6666666666667,
+    contentHeight: 773.1694444444443,
+    contentTopInset: 56.075,
+    contentSideInsets: (left: 8.8, right: 8.53333333333336),
+  );
+  return session;
 }
 
 void main() {
@@ -429,6 +479,38 @@ void main() {
     expect(
       (await db.select(db.readingProgress).get()).single.toJson(),
       saved.toJson(),
+    );
+  });
+
+  test('强制分页后以显式空行开头的简介页可保存并精确续读', () async {
+    final entry = await library.importBytes(_imageBreakBook());
+    final session = await _openImageBreakSession(
+      entry.id,
+      entry.filePath,
+      entry.contentRevision!,
+      store,
+    );
+    expect(session.chapterPageCount, 2);
+    expect(await session.next(), isTrue);
+    final cfi = session.progress!.cfi;
+    expect(cfi, isNotNull);
+    await session.flushProgress();
+    expect(session.progressSaveError, isNull);
+    final saved = (await store.load(entry.id))!;
+    expect(saved.pageIndex, 1);
+    expect(saved.cfi, cfi);
+    expect(saved.approximate, isFalse);
+    final reopened = await _openImageBreakSession(
+      entry.id,
+      entry.filePath,
+      entry.contentRevision!,
+      store,
+    );
+    expect(reopened.progress!.pageIndex, 1);
+    expect(reopened.progress!.cfi, cfi);
+    expect(
+      reopened.currentText.replaceAll(RegExp(r'\s+'), ''),
+      contains('内容简介'),
     );
   });
 
