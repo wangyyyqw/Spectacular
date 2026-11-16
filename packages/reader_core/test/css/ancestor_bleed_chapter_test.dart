@@ -78,6 +78,7 @@ Future<({PageContent page, ByteData pixels})> _render({
   String extraCss = '',
   String? body,
   int pageIndex = 0,
+  double fontSize = 21,
 }) async {
   final source = await const EpubFormatOpener().openBytes(
     await _epub(extraCss, body: body),
@@ -88,7 +89,7 @@ Future<({PageContent page, ByteData pixels})> _render({
   );
   addTearDown(source.close);
   await source.applyOverrides(
-    const ReaderOverrides(fontSize: 21, lineHeight: 1.6, paragraphSpacing: 10),
+    ReaderOverrides(fontSize: fontSize, lineHeight: 1.6, paragraphSpacing: 10),
   );
   await source.applyContentSize(
     width: _pageSize.width - _insets.horizontal,
@@ -208,6 +209,49 @@ void main() {
     expect(_pixel(result.pixels, 1, 1), 0x00aa00ff);
     expect(_pixel(result.pixels, _width - 2, 1), 0x00aa00ff);
   });
+
+  for (final (limit, expectedWidth) in [
+    ('100%', _pageSize.width),
+    ('80%', _pageSize.width * .8),
+    ('300px', 300.0),
+  ]) {
+    test('真机18字号下出血头图的max-width:$limit与测量共用整页宽', () async {
+      final result = await _render(
+        fontSize: 18,
+        body:
+            '<div class="banner"><img src="banner.png"/></div>'
+            '<p>头图后的正文保持完整。</p>',
+        extraCss:
+            'body {margin:0 10px; font-size:97%;} '
+            '.banner {margin:0; padding:0; text-align:center; '
+            'duokan-bleed:lefttopright;} '
+            'img {max-width:$limit; max-height:100%;}',
+      );
+      final image = result.page.slices.first.block;
+      expect(image.style!.width!.resolve(1), closeTo(expectedWidth, .001));
+      expect(image.layout.height, closeTo(expectedWidth * 9 / 16, .001));
+      final bounds = _colorBounds(result.pixels, 0x00aa00ff);
+      expect(bounds.width / _ratio, closeTo(expectedWidth, 1));
+      expect(bounds.height / _ratio, closeTo(expectedWidth * 9 / 16, 1));
+      expect(bounds.center.dx / _ratio, closeTo(_pageSize.width / 2, 1));
+      expect(bounds.top, 0);
+      if (limit == '100%') {
+        expect(
+          _pixel(result.pixels, _width - 2, 1),
+          0x00aa00ff,
+          reason: '右缘不能因绘制时重复按正文区限宽而留白',
+        );
+      }
+      expect(result.page.slices.last.block.layout.text, '头图后的正文保持完整。');
+      final hit = result.page.hitTest(
+        Offset(
+          bounds.right / _ratio - _insets.left - 2,
+          bounds.center.dy / _ratio - _insets.top,
+        ),
+      );
+      expect(hit?.slice.block, same(image), reason: '右缘绘制与命中范围一致');
+    });
+  }
 
   test('标题自身声明出血时仍扩展背景及白框', () async {
     final result = await _render(extraCss: '.number {duokan-bleed:leftright;}');
