@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart' show StringCharacters;
 
 import '../css/computed_style.dart';
 import '../css/font_face.dart';
+import '../css/font_face_selection.dart';
 import '../src/api/models.dart' show TextLayout;
 import 'cjk_justify.dart';
 import 'autospace.dart';
@@ -14,6 +15,7 @@ import 'punctuation_spacing.dart';
 import 'spaced_paragraph.dart';
 import 'text_spacing.dart';
 import '../text/font_metrics.dart';
+import '../text/font_coverage.dart';
 import '../text/script.dart';
 import '../text/script_fallback.dart';
 
@@ -1221,14 +1223,16 @@ abstract final class TextLayoutEngine {
       style,
       leadingDistribution,
     );
-    if (hasGlyph == null) {
+    if (hasGlyph == null &&
+        !style.hasBookFontFaces &&
+        !ordered.any((run) => run.style.hasBookFontFaces)) {
       return ordered;
     }
     return _applyScriptFallback(
       text: text,
       runs: ordered,
       baseStyle: style,
-      hasGlyph: hasGlyph,
+      hasGlyph: (family, codePoint) => _covers(family, codePoint, hasGlyph),
     );
   }
 
@@ -1519,14 +1523,7 @@ abstract final class TextLayoutEngine {
     };
     final joined = originals.map((text) => measured[text]!).join('\n');
     final baseStyle = textStyleFor(style);
-    final styled = hasGlyph == null
-        ? const <StyledRun>[]
-        : _applyScriptFallback(
-            text: joined,
-            runs: const <StyledRun>[],
-            baseStyle: style,
-            hasGlyph: hasGlyph,
-          );
+    final styled = styledRuns(text: joined, style: style, hasGlyph: hasGlyph);
     final painter = TextPainter(
       text: _measurementSpan(
         joined,
@@ -2779,17 +2776,32 @@ abstract final class TextLayoutEngine {
       }
     }
 
-    for (final family in style.fontFamilies) {
+    for (final family in style.fontFaceFamilies) {
       // 这里同样要走别名映射：`仿宋`、`宋体` 等主族保留原名时，
       // hasGlyph 能识别别名，但最终 run 仍写原名，引擎找不到对应字库
       // 就画豆腐块。映射后选中项与实际可使用的主族一致。
       add(FontFamilyAliases.resolve(family) ?? family);
     }
-    for (final family in _fallbackChain(style) ?? const <String>[]) {
+    final primary =
+        FontFamilyAliases.resolve(style.fontFamily ?? '') ?? style.fontFamily;
+    final fallback = primary == FontFamilyAliases.hei
+        ? FontFamilyAliases.sansChain
+        : FontFamilyAliases.defaultChain;
+    for (final family in fallback) {
       add(family);
     }
     return families;
   }
+
+  static bool _covers(
+    String family,
+    int codePoint,
+    bool Function(String, int)? hasGlyph,
+  ) =>
+      BookFontFaceRegistry.covers(family, codePoint) ??
+      hasGlyph?.call(family, codePoint) ??
+      FontCoverageRegistry.covers(family, codePoint) ??
+      (family != FontFamilyAliases.kai);
 
   static String? _scriptFamilyAt(List<ScriptFontRun>? runs, int offset) {
     if (runs == null) {

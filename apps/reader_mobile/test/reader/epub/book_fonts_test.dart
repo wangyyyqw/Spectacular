@@ -83,6 +83,11 @@ void main() {
     final bookDependency = empty.userFontDependency({'more', 'alias'});
     await fonts.ensure(_local('Alias', '宋体'));
     final frozen = fonts.freeze();
+    final alias = fonts.engineFamilies['alias']!;
+    expect(
+      ComputedStyle({'font-family': alias}).fontFamily,
+      FontFamilyAliases.song,
+    );
     expect(frozen, isNot(same(empty)));
     expect(fonts.freeze(), same(frozen));
     expect(
@@ -94,7 +99,7 @@ void main() {
     expect(changes, [
       {'alias'},
     ]);
-    expect(fonts.engineFamilies, {'alias': FontFamilyAliases.song});
+    expect(fonts.engineFamilies, {'alias': alias});
     expect(fonts.embeddedEngineFamilies, isEmpty);
     expect(() => fonts.engineFamilies.clear(), throwsUnsupportedError);
     expect(
@@ -103,13 +108,10 @@ void main() {
     );
     await fonts.ensure(_local('More', '黑体'));
     expect(empty.dependency({'alias'}), 'alias=alias');
-    expect(
-      frozen.dependency({'more', 'alias'}),
-      'alias=builtin_song,more=more',
-    );
+    expect(frozen.dependency({'more', 'alias'}), 'alias=$alias,more=more');
     expect(
       fonts.freeze().dependency({'more', 'alias'}),
-      'alias=builtin_song,more=builtin_hei',
+      'alias=$alias,more=${fonts.engineFamilies['more']}',
     );
     expect(
       fonts.freeze().userFontDependency({'alias', 'more'}),
@@ -123,7 +125,7 @@ void main() {
       {'more'},
     ]);
     expect(fonts.engineFamilies, isEmpty);
-    expect(frozen.dependency({'alias'}), 'alias=builtin_song');
+    expect(frozen.dependency({'alias'}), 'alias=$alias');
     expect(resources.isClosed, isFalse, reason: '字体服务不能关闭共享归档');
   });
 
@@ -145,7 +147,8 @@ void main() {
     final computed = ComputedStyle({
       for (final item in rewritten) item.property: item.value,
     });
-    expect(computed.fontFamilies, ['builtin_song', 'serif']);
+    expect(computed.fontFamilies, [fonts.engineFamilies['alias'], 'serif']);
+    expect(computed.fontFamily, FontFamilyAliases.song);
     expect(computed.fontSize, 21);
     expect(computed.fontWeight, 700);
     expect(computed.values['font-style'], 'italic');

@@ -405,7 +405,7 @@ void main() {
     );
     expect(
       rewritten.pseudoRules['::before']!.single.declarations.last.value,
-      '"builtin_song"',
+      '"${fonts.engineFamilies['pseudo_font']}"',
     );
     expect(
       base.pseudoRules['::before']!.single.declarations.last.value,
@@ -413,7 +413,7 @@ void main() {
     );
     expect(
       rewritten.auxiliaryRules.single.declarations.first.value,
-      '"builtin_song"',
+      '"${fonts.engineFamilies['rule_font']}"',
     );
   });
 }

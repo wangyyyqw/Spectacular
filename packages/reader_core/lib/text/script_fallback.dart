@@ -1,9 +1,11 @@
 /// 按「字形覆盖」选择字体族的字符分段（P2-12）。
 ///
 /// 参考阅微 `ContentDom.applyScriptFontFallback()` + `buildScriptRanges()`：
-/// 逐字符按 font-family 声明顺序找第一个有字形的族，连续同族合并成一段；
+/// 先选择能覆盖完整字簇的族，无法覆盖时逐码点回退，连续同族合并成一段；
 /// 没有命中任何族的字符不产出区间，继续沿用块的字体。
 library;
+
+import 'package:flutter/widgets.dart' show StringCharacters;
 
 /// 一段使用指定字体族的字符区间（参考阅微 buildScriptRanges）。
 class ScriptFontRun {
@@ -27,7 +29,7 @@ class ScriptFontRun {
   String toString() => 'ScriptFontRun($start..$end, $family)';
 }
 
-/// 逐字符按 [families] 顺序找第一个 [hasGlyph] 命中的族，连续同族合并成区间。
+/// 按 [families] 顺序优先选择完整字簇，避免拆开组合附加符的定位与塑形。
 ///
 /// - [text] 或 [families] 为空时返回空列表；
 /// - 无命中的字符不产出区间，相邻两段之间因此可能空出字符；
@@ -36,36 +38,66 @@ class ScriptFontRun {
 List<ScriptFontRun> buildScriptFontRuns(
   String text,
   List<String> families, {
-  required bool Function(String family, int codeUnit) hasGlyph,
+  required bool Function(String family, int codePoint) hasGlyph,
 }) {
   if (text.isEmpty || families.isEmpty) {
     return const <ScriptFontRun>[];
   }
-  final runs = <ScriptFontRun>[];
-  var runStart = -1;
-  String? runFamily;
-  for (var i = 0; i < text.length; i++) {
-    final codeUnit = text.codeUnitAt(i);
-    String? chosen;
-    for (final family in families) {
-      if (hasGlyph(family, codeUnit)) {
-        chosen = family;
-        break;
-      }
+  final runs = _ScriptFontRuns();
+  var offset = 0;
+  for (final cluster in text.characters) {
+    final points = cluster.runes;
+    final family = _fontFor(points, families, hasGlyph);
+    final firstLength = points.first > 0xffff ? 2 : 1;
+    if (family != null || cluster.length == firstLength) {
+      runs.add(offset, offset + cluster.length, family);
+      offset += cluster.length;
+      continue;
     }
-    if (chosen == runFamily) {
-      continue; // 同族继续延伸
+    for (final point in points) {
+      final end = offset + (point > 0xffff ? 2 : 1);
+      runs.add(offset, end, _fontFor([point], families, hasGlyph));
+      offset = end;
     }
-    if (runFamily != null) {
-      runs.add(ScriptFontRun(start: runStart, end: i, family: runFamily));
-    }
-    runStart = chosen == null ? -1 : i;
-    runFamily = chosen;
   }
-  if (runFamily != null) {
-    runs.add(
-      ScriptFontRun(start: runStart, end: text.length, family: runFamily),
-    );
+  return runs.finish();
+}
+
+String? _fontFor(
+  Iterable<int> points,
+  List<String> families,
+  bool Function(String, int) hasGlyph,
+) {
+  for (final family in families) {
+    if (points.every((point) => hasGlyph(family, point))) return family;
   }
-  return runs;
+  return null;
+}
+
+class _ScriptFontRuns {
+  final List<ScriptFontRun> _runs = [];
+  String? _family;
+  int _start = 0;
+  int _end = 0;
+
+  void add(int start, int end, String? family) {
+    if (family != _family) {
+      _flush();
+      _family = family;
+      _start = start;
+    }
+    _end = end;
+  }
+
+  void _flush() {
+    final family = _family;
+    if (family != null) {
+      _runs.add(ScriptFontRun(start: _start, end: _end, family: family));
+    }
+  }
+
+  List<ScriptFontRun> finish() {
+    _flush();
+    return _runs;
+  }
 }

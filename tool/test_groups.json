@@ -94,6 +94,7 @@
         "apps/reader_mobile/test/library/book_identity_test.dart",
         "apps/reader_mobile/test/library/import_analysis_test.dart",
         "apps/reader_mobile/test/reader/book_font_family_test.dart",
+        "apps/reader_mobile/test/reader/book_font_subsets_pipeline_test.dart",
         "apps/reader_mobile/test/reader/bundled_font_test.dart",
         "apps/reader_mobile/test/reader/bounded_cache_test.dart",
         "apps/reader_mobile/test/reader/epub_format_opener_test.dart",

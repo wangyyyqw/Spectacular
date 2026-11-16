@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:reader_core/css/book_font_loader.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
+import 'package:reader_core/css/font_face_selection.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/text/font_coverage.dart';
@@ -30,6 +31,8 @@ class BookFonts {
   int _frozenBookRevision = -1;
   int _frozenAvailabilityRevision = -1;
   int _frozenCoverageRevision = -1;
+  final _frozenSets =
+      BoundedCache<(List<CssFontFace>, int, int, int), BookFontView>(8);
   bool _closed = false;
 
   /// 只有 CSS 族到引擎族的映射真正变化时递增，不参与稳定字体依赖键。
@@ -59,10 +62,7 @@ class BookFonts {
     _syncEngines(loader, requestedFaces);
     final pending = <CssFontFace>[
       for (final face in requestedFaces)
-        if (_facesSeen.add(
-          '${face.family}|${face.normalizedWeight}|${face.normalizedStyle}',
-        ))
-          face,
+        if (_facesSeen.add(face.dedupKey)) face,
     ];
     if (pending.isEmpty) return;
     final registration = loader
@@ -93,25 +93,12 @@ class BookFonts {
           _embeddedEngineFamilies.add(engine);
           _coverages[engine] = coverage;
         }
-      } else {
-        _syncLocalAlias(face, changed);
       }
     }
     if (changed.isNotEmpty) {
       _revision += 1;
       // 这里只报告依赖变化；宿主决定哪些布局失效，注册作业不自行取消。
       onFontsChanged(Set<String>.unmodifiable(changed));
-    }
-  }
-
-  void _syncLocalAlias(CssFontFace face, Set<String> changed) {
-    for (final source in face.sources) {
-      final alias = source.isLocal
-          ? FontFamilyAliases.resolve(source.ref)
-          : null;
-      if (alias == null) continue;
-      _putEngine(face.family, alias, changed);
-      break;
     }
   }
 
@@ -158,6 +145,45 @@ class BookFonts {
     );
   }
 
+  /// 作业传入只读声明列表；依赖检查直接复用视图，不在逐行预算中重算覆盖。
+  BookFontView freezeFor(List<CssFontFace> faces) => _frozenSets.putIfAbsent((
+    faces,
+    _revision,
+    _availabilityRevision,
+    FontCoverageRegistry.revision,
+  ), () => _freezeFaces(faces));
+
+  /// 全局加载缓存可累积，章节视图只使用本章的声明及顺序。
+  BookFontView _freezeFaces(List<CssFontFace> faces) {
+    final grouped = <String, List<CssFontFace>>{};
+    for (final face in faces) {
+      grouped.putIfAbsent(face.family.toLowerCase(), () => []).add(face);
+    }
+    final engines = <String, String>{};
+    final embedded = <String>{};
+    final coverages = <String, FontCoverage>{};
+    for (final entry in grouped.entries) {
+      final engine = _loader?.familyFor(entry.key, entry.value);
+      if (engine == null) continue;
+      engines[entry.key] = engine;
+      final loaded = entry.value
+          .map((face) => _loader!.registeredFace(face))
+          .whereType<RegisteredFontFace>();
+      final detected = [for (final face in loaded) ?face.selection.coverage];
+      if (detected.isNotEmpty) {
+        embedded.add(engine);
+        coverages[engine] = FontCoverage.union(detected);
+      }
+    }
+    return BookFontView._(
+      engines,
+      embedded,
+      coverages,
+      FontCoverageRegistry.snapshot(),
+      _userFontAvailability,
+    );
+  }
+
   /// 只释放 Dart 侧字体字节与状态；Flutter 已注册字形由引擎持有。
   void close() {
     if (_closed) return;
@@ -172,6 +198,7 @@ class BookFonts {
     _revision = 0;
     _availabilityRevision = 0;
     _frozen = null;
+    _frozenSets.clear();
   }
 }
 
@@ -194,6 +221,10 @@ class BookFontView {
   final Map<String, FontCoverage> _coverages;
   final Map<String, FontCoverage> _userCoverages;
   final Map<String, bool> _userFontAvailability;
+  bool get hasBookFonts => _engineFamilies.isNotEmpty;
+  late final String mappingDependency = dependency(
+    _engineFamilies.keys.toSet(),
+  );
   // 原始族名保留用户覆盖的精确匹配；策略只依赖当前冻结视图。
   final _coverageStrategies = BoundedCache<String, _CoverageStrategy>(64);
 
@@ -211,6 +242,8 @@ class BookFontView {
   }
 
   bool hasGlyph(String family, int codePoint) {
+    final faceCovered = BookFontFaceRegistry.covers(family, codePoint);
+    if (faceCovered != null) return faceCovered;
     final strategy = _coverageStrategies.putIfAbsent(
       family,
       () => _coverageStrategy(family),

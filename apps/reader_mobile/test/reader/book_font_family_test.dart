@@ -5,9 +5,7 @@ import 'package:reader_core/css/font_face.dart';
 
 import 'support/css_chapter_book.dart';
 
-/// 书内 `@font-face` 整链（P0）：注册成 `bi_<bookId>_<族>` 后，作者声明里的
-/// 书内字族必须改写成引擎族名，否则 TextPainter 找不到族、整段画成缺字方块
-/// （真书 zhushen-yuxi 第 61 章 `font-family: "mm"` 的章号）。
+/// 书内字体正式管线：作者声明保留组合族，测量与绘制使用独立 face 的原生族。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -46,7 +44,7 @@ void main() {
       startsWith('bi_'),
       reason: '块字体族应改写成 BookFontLoader 的引擎族名',
     );
-    expect(engineFamily, endsWith('_mm'));
+    expect(bulk.style!.fontFamilies.first, endsWith('_mm'));
     // 回退链保留：serif 原样跟在后面。
     expect(bulk.style!.fontFamilies.last, 'serif');
 
@@ -55,7 +53,7 @@ void main() {
       (block) => block.layout.text.startsWith('内联字体段落'),
     );
     expect(inlineDecl.style!.fontFamily, startsWith('bi_'));
-    expect(inlineDecl.style!.fontFamily, endsWith('_mm'));
+    expect(inlineDecl.style!.fontFamilies.first, endsWith('_mm'));
     expect(inlineDecl.style!.fontFamilies.last, 'serif');
 
     final inline = blocks.firstWhere(
@@ -70,7 +68,8 @@ void main() {
       startsWith('bi_'),
       reason: '行内 style 的 font-family 同样要改写',
     );
-    expect(inlineRun.style.fontFamily, endsWith('_mm'));
+    expect(inlineRun.style.fontFamily, engineFamily);
+    expect(inlineRun.style.fontFamilies.single, startsWith('bi_face_'));
   }, skip: skip);
 
   test('并发章节请求共同等待字体注册，不先缓存回退字体的排版', () async {
@@ -89,7 +88,7 @@ void main() {
     for (final pages in results) {
       final block = pages.first.slices.first.block;
       expect(block.style!.fontFamily, startsWith('bi_'));
-      expect(block.style!.fontFamily, endsWith('_concurrent'));
+      expect(block.style!.fontFamilies.first, endsWith('_concurrent'));
       expect(
         block.layout.height,
         results.first.first.slices.first.block.layout.height,

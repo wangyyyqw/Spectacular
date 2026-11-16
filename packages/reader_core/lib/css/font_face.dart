@@ -1,4 +1,8 @@
+import 'dart:convert';
+
+import 'font_face_selection.dart';
 import 'parser.dart';
+import 'value_tokens.dart';
 
 /// `@font-face` 的一个字体来源：`local(名字)` 或 `url(地址)`。
 ///
@@ -61,10 +65,10 @@ class CssFontFace {
   /// `font-display` 原始值，未声明为 null。
   final String? display;
 
-  /// `unicode-range` 原始值。记录但不生效（技术方案 §68.1）。
+  /// `unicode-range` 原始值；实际覆盖是此范围与字体 cmap 的交集。
   final String? unicodeRange;
 
-  /// 字重归一化：normal→400、bold→700、数字原样；无法解析为 null。
+  /// 字重归一化：normal→400、bold→700，其余接受 100 至 900 的整百值。
   int? get normalizedWeight {
     final w = weight?.trim().toLowerCase();
     if (w == null || w.isEmpty) {
@@ -76,20 +80,34 @@ class CssFontFace {
     if (w == 'bold') {
       return 700;
     }
-    return int.tryParse(w);
+    final numeric = int.tryParse(w);
+    return numeric != null &&
+            numeric >= 100 &&
+            numeric <= 900 &&
+            numeric % 100 == 0
+        ? numeric
+        : null;
   }
 
-  /// 斜体归一化：italic/oblique→italic，其余→normal。
+  /// 样式归一化；italic 与 oblique 在族内匹配时分别处理。
   String get normalizedStyle {
     final s = style?.trim().toLowerCase();
-    return (s == 'italic' || s == 'oblique') ? 'italic' : 'normal';
+    return switch (s) {
+      'italic' => 'italic',
+      'oblique' => 'oblique',
+      _ => 'normal',
+    };
   }
 
-  /// 去重键：族名小写 + 字重 + 斜体。同键的后声明覆盖先声明；
-  /// 不同字重/斜体是不同 face，可共存（P3-02 多字重注册依赖此语义）。
-  String get dedupKey => '${family.toLowerCase()}|'
-      '${normalizedWeight ?? weight?.trim().toLowerCase() ?? '400'}|'
-      '$normalizedStyle';
+  /// 只去重完全相同的 face；来源与有效范围共同参与身份。
+  String get dedupKey => jsonEncode([
+    family.toLowerCase(),
+    normalizedWeight ?? 400,
+    normalizedStyle,
+    CssUnicodeRange.parse(unicodeRange).fingerprint,
+    for (final source in sources)
+      [source.isLocal, source.ref, source.format?.toLowerCase()],
+  ]);
 }
 
 /// 生成给字体注册器（P3-02）的任务。
@@ -124,8 +142,7 @@ class CssFontFaceRegistry {
     final index =
         _faces.indexWhere((item) => item.dedupKey == face.dedupKey);
     if (index >= 0) {
-      _faces[index] = face;
-      return;
+      _faces.removeAt(index);
     }
     _faces.add(face);
   }
@@ -257,7 +274,10 @@ abstract final class CssFontFaceExtractor {
     final bodies = _blockBodies(css, warnings);
     for (final body in bodies) {
       final declarations = CssParser.parseStyleAttribute(body);
-      final face = fromDeclarations(declarations);
+      final face = fromDeclarations(
+        declarations,
+        rawUnicodeRange: _unicodeRangeOf(body),
+      );
       if (face == null) {
         warnings.add('@font-face 缺少 font-family 描述符，跳过');
         continue;
@@ -268,7 +288,10 @@ abstract final class CssFontFaceExtractor {
   }
 
   /// 从声明列表组装 face；缺 font-family 返回 null。
-  static CssFontFace? fromDeclarations(List<CssDeclaration> declarations) {
+  static CssFontFace? fromDeclarations(
+    List<CssDeclaration> declarations, {
+    String? rawUnicodeRange,
+  }) {
     String? family;
     final sources = <CssFontSource>[];
     String? weight;
@@ -288,7 +311,9 @@ abstract final class CssFontFaceExtractor {
         case 'font-display':
           display = declaration.value;
         case 'unicode-range':
-          unicodeRange = declaration.value;
+          if (CssUnicodeRange.tryParse(declaration.value) != null) {
+            unicodeRange = declaration.value;
+          }
       }
     }
     if (family == null || family.isEmpty) {
@@ -300,8 +325,32 @@ abstract final class CssFontFaceExtractor {
       weight: weight,
       style: style,
       display: display,
-      unicodeRange: unicodeRange,
+      unicodeRange: rawUnicodeRange ?? unicodeRange,
     );
+  }
+
+  static final _commentPattern = RegExp(r'/\*.*?\*/', dotAll: true);
+
+  /// csslib 会截断 U+0-FF 等以零开头的范围，直接保留原始描述符。
+  static String? _unicodeRangeOf(String body) {
+    String? value;
+    for (final part
+        in cssValueTokens(body, separator: ';') ?? const <String>[]) {
+      final colon = part.indexOf(':');
+      if (colon < 0) continue;
+      final property = part
+          .substring(0, colon)
+          .replaceAll(_commentPattern, ' ')
+          .trim();
+      if (property.toLowerCase() == 'unicode-range') {
+        final candidate = part
+            .substring(colon + 1)
+            .replaceAll(_commentPattern, ' ')
+            .trim();
+        if (CssUnicodeRange.tryParse(candidate) != null) value = candidate;
+      }
+    }
+    return value;
   }
 
   /// 扫描顶层 `@font-face {…}` 块体。跳过注释与字符串；

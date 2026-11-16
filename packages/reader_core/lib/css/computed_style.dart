@@ -6,6 +6,7 @@ import 'package:csslib/parser.dart' as csslib;
 import 'fragmentation.dart';
 import 'length.dart';
 import 'font_size.dart';
+import 'font_face_selection.dart';
 import 'intrinsic_width.dart';
 import 'background_values.dart';
 import 'background_declarations.dart';
@@ -1968,9 +1969,10 @@ class ComputedStyle {
               parentWeight;
 
     final rawStyle = fontValue('font-style');
-    final italic = rawStyle == null
-        ? (parent?.italic ?? false)
-        : _isItalic(rawStyle);
+    final fontFaceStyle = rawStyle == null
+        ? (parent?.fontFaceStyle ?? 'normal')
+        : (_isItalic(rawStyle) ? rawStyle.trim().toLowerCase() : 'normal');
+    final italic = fontFaceStyle != 'normal';
 
     final rawFamily = fontValue('font-family');
     final fontFamilies = rawFamily == null
@@ -2583,6 +2585,7 @@ class ComputedStyle {
       color: color,
       fontWeight: weight,
       italic: italic,
+      fontFaceStyle: fontFaceStyle,
       fontFamilies: fontFamilies,
       textAlign: textAlign,
       textIndent: textIndent,
@@ -2935,6 +2938,9 @@ class ComputedStyle {
       color: color ?? this.color,
       fontWeight: fontWeight ?? this.fontWeight,
       italic: italic ?? this.italic,
+      fontFaceStyle: italic == null
+          ? fontFaceStyle
+          : (italic ? 'italic' : 'normal'),
       fontFamilies: nextFontFamilies,
       textAlign: textAlign ?? this.textAlign,
       textIndent: textIndent ?? this.textIndent,
@@ -3073,6 +3079,7 @@ class ComputedStyle {
     required this.color,
     required this.fontWeight,
     required this.italic,
+    required this.fontFaceStyle,
     required this.fontFamilies,
     required this.textAlign,
     required this.textIndent,
@@ -3246,16 +3253,40 @@ class ComputedStyle {
   /// 是否斜体。
   final bool italic;
 
+  /// 族内匹配保留 normal、italic、oblique，原生绘制仍使用 [italic]。
+  final String fontFaceStyle;
+
   /// 字体族列表（font-family 声明顺序，首项优先）。
   final List<String> fontFamilies;
 
-  /// 首选字体族；未声明时为 null。
-  String? get fontFamily => fontFamilies.isEmpty ? null : fontFamilies.first;
+  bool get hasBookFontFaces => fontFamilies.any(BookFontFaceRegistry.contains);
+
+  /// 当前样式与字重的候选 face；保留声明族供子元素继承后重新匹配。
+  List<String> get fontFaceFamilies => !hasBookFontFaces
+      ? fontFamilies
+      : List.unmodifiable([
+          for (final family in fontFamilies)
+            ...BookFontFaceRegistry.match(family, fontWeight, fontFaceStyle),
+        ]);
+
+  /// 首选原生字体族；组合族不会直接交给 Flutter。
+  String? get fontFamily {
+    final families = fontFaceFamilies;
+    return families.isEmpty
+        ? null
+        : BookFontFaceRegistry.nativeFamily(families.first);
+  }
 
   /// fallback 链（首项之后的家族）。
-  List<String> get fontFamilyFallback => fontFamilies.length <= 1
-      ? const <String>[]
-      : List<String>.unmodifiable(fontFamilies.sublist(1));
+  List<String> get fontFamilyFallback {
+    final families = fontFaceFamilies;
+    return families.length <= 1
+        ? const []
+        : List.unmodifiable([
+            for (final family in families.skip(1))
+              BookFontFaceRegistry.nativeFamily(family),
+          ]);
+  }
 
   /// 文本对齐。
   final CssTextAlign textAlign;
@@ -3800,6 +3831,7 @@ class ComputedStyle {
       'ta=${textAlign.name};ti=$textIndent;tt=${textTransform.name};'
       'wsp=${whiteSpace.name};fw=$fontWeight;it=$italic;'
       'ff=${fontFamilies.join(",")};'
+      'faceStyle=$fontFaceStyle;faces=${fontFaceFamilies.join(",")};'
       'vc=${fontVariantCaps.name};vl=${fontVariantLigatures.name};'
       'fk=${fontKerning.name};ffs=$fontFeatureSettingsValue;'
       'fst=$fontStretch;fsa=${fontSizeAdjust ?? 0};'
