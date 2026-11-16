@@ -285,6 +285,7 @@ class ChapterBlockWalker {
     if (scope.position.containerFloat != null ||
         !(isBodyRoot ||
             isFloating ||
+            scope.isFixedContainer ||
             scope.isFlexRow ||
             scope.pseudos.isNotEmpty ||
             retainsContainer(scope.node, style))) {
@@ -294,8 +295,20 @@ class ChapterBlockWalker {
         .map((view) => styles.retainedContainers[view])
         .nonNulls;
     final parent = parents.lastOrNull;
-    final available = parent?.flowWidth ?? width;
+    final fixedWidth =
+        width +
+        styles.snapshot.sideInsets.left +
+        styles.snapshot.sideInsets.right;
+    final available = scope.isFixedContainer
+        ? fixedWidth
+        : parent?.flowWidth ?? width;
     final model = BoxModel.fromStyle(style, containingWidth: available);
+    final positioned = scope.isFixedContainer
+        ? style.resolveAbsoluteBox(
+            containingWidth: fixedWidth,
+            containingHeight: height,
+          )
+        : null;
     final intrinsic =
         style.intrinsicWidth != null &&
             ChapterTextMeasurer.isOrdinaryHorizontalBlock(style)
@@ -310,7 +323,15 @@ class ChapterBlockWalker {
       scope,
       parent,
       model,
-      model.resolveContentWidth(available, intrinsicWidths: intrinsic),
+      positioned?.width == null
+          ? model.resolveContentWidth(available, intrinsicWidths: intrinsic)
+          : math.max(
+              0,
+              positioned!.width! -
+                  (style.boxSizing == CssBoxSizing.borderBox
+                      ? model.horizontalInset
+                      : 0),
+            ),
     );
     final usedStyle = intrinsic == null
         ? style
@@ -320,12 +341,16 @@ class ChapterBlockWalker {
           );
     final retained = PageContainer(
       style: isBodyRoot ? usedStyle.withoutBackground() : usedStyle,
-      left: _containerLeft(
-        parent,
-        usedStyle,
-        model.borderBoxWidth(resolvedWidth),
-        scope.ancestors.lastOrNull,
-      ),
+      left:
+          (positioned?.left == null
+              ? null
+              : positioned!.left! - styles.snapshot.sideInsets.left) ??
+          _containerLeft(
+            parent,
+            usedStyle,
+            model.borderBoxWidth(resolvedWidth),
+            scope.ancestors.lastOrNull,
+          ),
       width: model.borderBoxWidth(resolvedWidth),
       cloneDecoration: clonesContainerDecoration(style),
       isPageRoot: isRoot,
@@ -591,6 +616,41 @@ class ChapterBlockWalker {
       );
     }
     await _alignPageTableCell(scope);
+    if (scope.isFixedContainer) await _finishFixedContainer(scope);
+  }
+
+  /// 固定定位父盒作为完整覆盖层绘制；子项只保留各自文字和装饰，不占正文流。
+  Future<void> _finishFixedContainer(_ContainerScope scope) async {
+    var top =
+        scope.style
+            .resolveAbsoluteBox(
+              containingWidth:
+                  width +
+                  styles.snapshot.sideInsets.left +
+                  styles.snapshot.sideInsets.right,
+              containingHeight: height,
+            )
+            ?.top ??
+        0;
+    // 固定容器锚定整页，绘制器添加阅读内缩前先还原其页面坐标。
+    top -= styles.snapshot.topInset;
+    final children = flow.blocks.sublist(scope.start);
+    flow.blocks.removeRange(scope.start, flow.blocks.length);
+    for (final block in children) {
+      await inline.measure.budget.checkpoint();
+      flow.fixedBlocks.add(
+        block.absolute
+            ? block
+            : block.withSpacing(
+                absolute: true,
+                absoluteTop: top,
+                absoluteLeft: 0,
+              ),
+      );
+      if (!block.absolute) {
+        top += block.leadingExtent + block.height + block.trailingExtent;
+      }
+    }
   }
 
   Future<bool> _finishMulticol(
@@ -714,6 +774,9 @@ class _ContainerScope {
   bool get isFlexRow =>
       style.display == CssDisplay.flex &&
       style.flexDirection == CssFlexDirection.row;
+  bool get isFixedContainer =>
+      style.position == CssPosition.fixed &&
+      node.children.any((child) => child is BlockNode);
   bool get isPageRootFlexColumn =>
       style.display == CssDisplay.flex &&
       style.flexDirection == CssFlexDirection.column &&
