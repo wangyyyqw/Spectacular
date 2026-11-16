@@ -100,10 +100,10 @@ class FullPageChapterLayout {
         warning: warning,
       );
     }
-    // 自动单图页没有作者的裁切声明，等比完整显示，避免窄页裁掉图内文字。
+    // 自动单图页和阅微一样取消阅读边距；没有裁切声明时仍完整等比显示。
     return (
       block: analysis.isFullBleed
-          ? _block(source, (contain: true, bleed: false, aspect: null))
+          ? _block(source, (contain: true, bleed: true, aspect: null))
           : null,
       warning: warning,
     );
