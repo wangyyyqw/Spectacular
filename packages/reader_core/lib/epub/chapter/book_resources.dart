@@ -360,6 +360,7 @@ class BookResources {
   /// 图片压缩区间异步读盘，解压与 CRC 在共享 worker 执行。
   Future<Uint8List?> readImage(String url) async {
     if (_closed) return null;
+    if (url.startsWith('data:')) return _inlineImageBytes(url);
     final tried = <String>{};
     try {
       for (final path in _imagePaths(url)) {
@@ -376,6 +377,17 @@ class BookResources {
       // 关闭书籍或准备作业被取消后，旧图片不能回写到新阅读页。
     }
     return null;
+  }
+
+  /// 内嵌图片不属于归档条目；与包内图片共用上层解码和缓存。
+  Uint8List? _inlineImageBytes(String url) {
+    try {
+      final data = UriData.parse(url);
+      if (!data.mimeType.toLowerCase().startsWith('image/')) return null;
+      return data.contentAsBytes();
+    } on FormatException {
+      return null;
+    }
   }
 
   Iterable<String> _imagePaths(String url) sync* {
@@ -436,7 +448,9 @@ class BookResources {
     if (_imageIntrinsicMiss.containsKey(url)) {
       return null;
     }
-    final bytes = document.archive.readHead(url, imageHeaderProbeBytes);
+    final bytes = url.startsWith('data:')
+        ? _inlineImageBytes(url)
+        : document.archive.readHead(url, imageHeaderProbeBytes);
     final size = bytes == null ? null : ImageSizeParser.readImageSize(bytes);
     if (size == null) {
       _imageIntrinsicMiss[url] = true;
