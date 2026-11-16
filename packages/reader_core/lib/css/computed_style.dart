@@ -2804,6 +2804,28 @@ class ComputedStyle {
     return value * factor;
   }
 
+  /// 本元素的字体相关缩进随文字更新；继承值仍沿用父元素已求解的长度。
+  double _textIndentAtFontSize(double nextFontSize) {
+    final declaration = values['text-indent'];
+    if (nextFontSize == fontSize ||
+        !explicitProperties.contains('text-indent') ||
+        declaration == null) {
+      return textIndent;
+    }
+    // 两次使用同一有效百分比基准，差值只包含字号变化，保留原已解算的长度。
+    double? indentAt(double size) => resolveCssNumericLength(
+      declaration,
+      fontSize: size,
+      rootFontSize: cssRootFontSize,
+      percentBase: 1,
+    );
+    final before = indentAt(fontSize);
+    final after = indentAt(nextFontSize);
+    return before == null || after == null
+        ? textIndent
+        : textIndent + after - before;
+  }
+
   /// 覆盖选区的字体与文字色，保留作者背景、边框、盒尺寸及非继承属性。
   ///
   /// 字号和字距采用逻辑像素；颜色不参与排版指纹。未提供的属性原样继承。
@@ -2856,6 +2878,7 @@ class ComputedStyle {
       return this;
     }
     final nextFontSize = fontSize ?? this.fontSize;
+    final nextTextIndent = textIndent ?? _textIndentAtFontSize(nextFontSize);
     final nextFontFamilies =
         fontFamilyList ??
         (fontFamily == null ? fontFamilies : <String>[fontFamily]);
@@ -2943,7 +2966,7 @@ class ComputedStyle {
           : (italic ? 'italic' : 'normal'),
       fontFamilies: nextFontFamilies,
       textAlign: textAlign ?? this.textAlign,
-      textIndent: textIndent ?? this.textIndent,
+      textIndent: nextTextIndent,
       letterSpacing: letterSpacing ?? this.letterSpacing,
       margin: marginOverride ?? margin,
       position: position,

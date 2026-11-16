@@ -40,11 +40,11 @@ void main() {
     expect(decoded.entries, index.entries);
   });
 
-  test('分页语义换代拒绝 v4/v5/v6/v7/v8 索引，书签位置不属于页索引结构', () {
+  test('分页语义换代拒绝 v4/v5/v6/v7/v8/v9 索引，书签位置不属于页索引结构', () {
     final blocks = blocksOf(['正文旧页边界不能重用。']);
     final index = PageIndex.from(paginate(blocks), blocks);
-    expect(PageIndex.currentSchemaVersion, 9);
-    for (final version in [4, 5, 6, 7, 8]) {
+    expect(PageIndex.currentSchemaVersion, 10);
+    for (final version in [4, 5, 6, 7, 8, 9]) {
       final old = PageIndex(schemaVersion: version, entries: index.entries);
       expect(PageIndex.decode(old.encode()), isNull);
       expect(PageIndex.apply(old, blocks, spineIndex: 0), isNull);
