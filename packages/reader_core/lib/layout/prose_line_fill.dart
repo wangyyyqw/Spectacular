@@ -44,6 +44,7 @@ TextLayoutResult _withLines(TextLayoutResult layout, List<LineBox> lines) =>
       firstLineStyle: layout.firstLineStyle,
       firstLineRuns: layout.firstLineRuns,
       sourceRuns: layout.sourceRuns,
+      inputOffsets: layout.inputOffsets,
     );
 
 LineBox _fillLine(TextLayoutResult layout, LineBox line, double em) {

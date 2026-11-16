@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/line_breaker.dart' show LineBox;
 import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
 import 'package:reader_core/perf/trace.dart';
@@ -234,15 +235,15 @@ abstract interface class ReaderBookmarkStore {
   Future<void> remove(String id);
 }
 
-/// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
+/// 重排锚点（P2-31）：来源字符块 CFI，可附加同一字符块内的 UTF-16 偏移。
 class ReaderAnchor {
   /// 创建锚点；[cfi] 为空表示没有可恢复位置。
   const ReaderAnchor({this.cfi, this.charOffset = 0});
 
-  /// 块级 CFI。
+  /// 原 XML 元素或字符块 CFI，可直接包含字符偏移。
   final String? cfi;
 
-  /// 块内字符偏移（首行起点）。
+  /// 在 CFI 已含偏移上追加的来源字符块偏移；会话内部直接保存完整 CFI。
   final int charOffset;
 
   /// 是否为空锚点。
@@ -788,13 +789,11 @@ class ReaderSession extends ChangeNotifier {
   String? cfiAtPageOffset(PageContent value, double? scrollOffset) {
     final resolved = _flowHitAtPageOffset(value, scrollOffset);
     final hit = resolved?.hit;
-    final blockCfi = hit?.slice.block.startCfi;
-    if (hit != null && blockCfi != null) {
-      return cfiWithCharOffset(
-        blockCfi,
-        (cfiCharOffset(blockCfi) ?? 0) +
-            (resolved!.afterText ? hit.line.end : hit.line.start),
-      );
+    if (hit != null) {
+      final cfi = resolved!.afterText
+          ? hit.slice.block.cfiAt(hit.line.end, end: true)
+          : _cfiAtLineStart(hit.slice.block, hit.line);
+      if (cfi != null) return cfi;
     }
     final anchor = _anchorOf(value);
     final anchorCfi = anchor.cfi;
@@ -1520,21 +1519,21 @@ class ReaderSession extends ChangeNotifier {
     ].join(';');
   }
 
-  /// 重排锚点（P2-31）：块级 CFI + 块内字符偏移（近似行）。
+  /// 重排锚点使用可见行对应的来源字符块 CFI。
   ReaderAnchor _anchorOf(PageContent? page) {
     for (final slice in page?.slices ?? const <PageBlockSlice>[]) {
       if (slice.startLine != 0) {
         continue;
       }
-      final cfi = _firstCfi(slice.block);
+      final cfi = _cfiAtSliceStart(slice);
       if (cfi != null && cfi.isNotEmpty) {
-        return ReaderAnchor(cfi: cfi, charOffset: _lineStartOffset(slice));
+        return ReaderAnchor(cfi: cfi);
       }
     }
     for (final slice in page?.slices ?? const <PageBlockSlice>[]) {
-      final cfi = _firstCfi(slice.block);
+      final cfi = _cfiAtSliceStart(slice);
       if (cfi != null && cfi.isNotEmpty) {
-        return ReaderAnchor(cfi: cfi, charOffset: _lineStartOffset(slice));
+        return ReaderAnchor(cfi: cfi);
       }
     }
     return const ReaderAnchor();
@@ -1542,19 +1541,33 @@ class ReaderSession extends ChangeNotifier {
 
   static String? _firstCfi(PageBlock block) {
     final table = block.table;
-    if (table == null) return block.startCfi;
-    for (final cell in table.cells) {
-      if (cell.startCfi != null) return cell.startCfi;
+    if (table != null) {
+      for (final cell in table.cells) {
+        final cfi = cell.cfiAt(0) ?? cell.startCfi;
+        if (cfi != null) return cfi;
+      }
     }
-    return block.startCfi;
+    return block.cfiAt(0) ?? block.startCfi;
   }
 
-  static int _lineStartOffset(PageBlockSlice slice) {
+  static String? _cfiAtSliceStart(PageBlockSlice slice) {
     final layout = slice.block.layout;
     if (slice.startLine < 0 || slice.startLine >= layout.lines.length) {
-      return 0;
+      return _firstCfi(slice.block);
     }
-    return layout.lines[slice.startLine].start;
+    return _cfiAtLineStart(slice.block, layout.lines[slice.startLine]) ??
+        _firstCfi(slice.block);
+  }
+
+  static String? _cfiAtLineStart(PageBlock block, LineBox line) {
+    for (final box in line.inlineBoxes) {
+      final payload = box.spec.payload;
+      if (box.offset == line.start && payload is PageBlock) {
+        final cfi = _firstCfi(payload);
+        if (cfi != null) return cfi;
+      }
+    }
+    return block.cfiAt(line.start);
   }
 
   /// 应用阅读器设置：指纹变化时重排章节并按锚点恢复位置（§21、§17.4）。
@@ -1930,20 +1943,17 @@ class ReaderSession extends ChangeNotifier {
     final parsedTarget = cfi == null ? null : EpubCfi.parse(cfi);
     if (parsedTarget == null) return false;
     final target = parsedTarget.rangeStart ?? parsedTarget;
-    final targetPath = _cfiPath(target);
-    final targetOffset = (target.segments.last.offset ?? 0) + anchor.charOffset;
+    final point = target.withCharOffset(
+      (target.charOffset ?? 0) + anchor.charOffset,
+    );
     for (final slice in page.slices) {
       if (slice.block.gallery?.frameIndexForCfi(cfi) != null) return true;
-      if (_tableContainsCfi(slice.block, targetPath, targetOffset)) {
+      if (_tableContainsCfi(slice.block, point) ||
+          _inlineContainsCfi(slice, point)) {
         return true;
       }
-      final value = slice.block.startCfi;
-      final parsed = value == null ? null : EpubCfi.parse(value);
-      if (parsed == null || _cfiPath(parsed).compareTo(targetPath) != 0) {
-        continue;
-      }
-      final offset = targetOffset - (parsed.segments.last.offset ?? 0);
-      if (_sliceContainsOffset(slice, offset)) {
+      final offset = slice.block.offsetForCfi(point.serialize());
+      if (offset != null && _sliceContainsOffset(slice, offset)) {
         return true;
       }
     }
@@ -1953,21 +1963,36 @@ class ReaderSession extends ChangeNotifier {
   static EpubCfi _cfiPath(EpubCfi cfi) =>
       cfi.withCharOffset(0).copyWithSide(CfiSide.none);
 
-  static bool _tableContainsCfi(PageBlock block, EpubCfi path, int offset) {
+  static bool _tableContainsCfi(PageBlock block, EpubCfi point) {
     final table = block.table;
     if (table == null) return false;
     for (final cell in table.cells) {
-      final parsed = cell.startCfi == null
-          ? null
-          : EpubCfi.parse(cell.startCfi!);
-      if (parsed == null || _cfiPath(parsed).compareTo(path) != 0) continue;
-      final local = offset - (parsed.segments.last.offset ?? 0);
-      // 单元格是不可分文本载荷，行内盒文字不在 layout.text 中；路径精确
-      // 命中后，格内偏移不会改变所在页，不能用空占位串长度拒绝它。
-      if (local >= 0) return true;
+      if (cell.offsetForCfi(point.serialize()) != null) return true;
+      for (final line in cell.layout.lines) {
+        if (_inlineLineContainsCfi(line, point)) return true;
+      }
     }
     return false;
   }
+
+  static bool _inlineContainsCfi(PageBlockSlice slice, EpubCfi point) => slice
+      .block
+      .layout
+      .lines
+      .skip(slice.startLine)
+      .take(slice.endLine - slice.startLine)
+      .any((line) => _inlineLineContainsCfi(line, point));
+
+  static bool _inlineLineContainsCfi(LineBox line, EpubCfi point) =>
+      line.inlineBoxes.any((box) {
+        final block = box.spec.payload;
+        return block is PageBlock &&
+            (block.offsetForCfi(point.serialize()) != null ||
+                _tableContainsCfi(block, point) ||
+                block.layout.lines.any(
+                  (line) => _inlineLineContainsCfi(line, point),
+                ));
+      });
 
   static bool _sliceContainsOffset(PageBlockSlice slice, int offset) {
     return _lineIndexForOffset(slice, offset) != null;
@@ -2058,20 +2083,17 @@ class ReaderSession extends ChangeNotifier {
       return null;
     }
     final target = parsedTarget.rangeStart ?? parsedTarget;
-    final targetPath = _cfiPath(target);
-    final targetOffset = (target.segments.last.offset ?? 0) + anchor.charOffset;
+    final point = target.withCharOffset(
+      (target.charOffset ?? 0) + anchor.charOffset,
+    );
     var flowY = page.topPadding;
     for (final slice in page.slices) {
       final sliceTop = slice.overlay ? (slice.absoluteTop ?? flowY) : flowY;
       if (slice.block.gallery?.frameIndexForCfi(cfi) != null) {
         return math.max(0.0, sliceTop + slice.leadingExtent);
       }
-      final baseCfi = slice.block.startCfi;
-      final parsedBase = baseCfi == null ? null : EpubCfi.parse(baseCfi);
-      if (parsedBase != null &&
-          _cfiPath(parsedBase).compareTo(targetPath) == 0) {
-        final localOffset =
-            targetOffset - (parsedBase.segments.last.offset ?? 0);
+      final localOffset = slice.block.offsetForCfi(point.serialize());
+      if (localOffset != null) {
         final lineIndex = _lineIndexForOffset(slice, localOffset);
         if (lineIndex != null) {
           var lineY = sliceTop + slice.leadingExtent;
@@ -2080,6 +2102,10 @@ class ReaderSession extends ChangeNotifier {
           }
           return math.max(0.0, lineY);
         }
+      }
+      if (_tableContainsCfi(slice.block, point) ||
+          _inlineContainsCfi(slice, point)) {
+        return math.max(0.0, sliceTop + slice.leadingExtent);
       }
       if (!slice.overlay) {
         flowY += slice.height;

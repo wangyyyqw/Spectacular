@@ -1109,6 +1109,7 @@ class PagePainter {
     final runs = ReaderTextOverlayResolver(textOverlays, typography: false)
         .resolve(
           blockCfi: block.startCfi,
+          textCfis: block.textCoordinates,
           text: layout.text,
           style: block.style ?? ComputedStyle(const {}),
           runs: layout.runs,
@@ -1124,6 +1125,7 @@ class PagePainter {
       isRtl: layout.isRtl,
       writingMode: layout.writingMode,
       plainTextLayout: layout.plainTextLayout,
+      inputOffsets: layout.inputOffsets,
     );
   }
 

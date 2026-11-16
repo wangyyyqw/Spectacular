@@ -52,23 +52,14 @@ abstract final class ReaderTextRangeGeometry {
   }
 
   static ReaderRangeLine? _inLine(PageLineBox box, EpubCfi start, EpubCfi end) {
-    final raw = box.slice.block.startCfi;
-    final block = raw == null ? null : EpubCfi.parse(raw);
-    if (block == null) return null;
-    final base = block.withCharOffset(0);
-    if (base.compareTo(start.withCharOffset(0)) < 0 ||
-        base.compareTo(end.withCharOffset(0)) > 0) {
-      return null;
-    }
-    final from = base.compareTo(start.withCharOffset(0)) == 0
-        ? (start.charOffset ?? 0) - (block.charOffset ?? 0)
-        : 0;
-    final to = base.compareTo(end.withCharOffset(0)) == 0
-        ? (end.charOffset ?? 0) - (block.charOffset ?? 0)
-        : box.slice.block.layout.text.length;
+    final range = box.slice.block.rangeForCfis(
+      start.serialize(),
+      end.serialize(),
+    );
+    if (range == null) return null;
     final lineStart = box.blockTextOffset;
-    final overlapStart = math.max(from, lineStart);
-    final overlapEnd = math.min(to, lineStart + box.text.length);
+    final overlapStart = math.max(range.$1, lineStart);
+    final overlapEnd = math.min(range.$2, lineStart + box.text.length);
     return overlapStart >= overlapEnd
         ? null
         : ReaderRangeLine(
@@ -77,4 +68,16 @@ abstract final class ReaderTextRangeGeometry {
             end: overlapEnd - lineStart,
           );
   }
+
+  /// 只核验可见行中的真实点位置，避免为页尾凭空增加字符偏移。
+  static bool containsPoint(PageContent page, String cfi) =>
+      TextHitTester.lineBoxes(page).any((box) {
+        final offset = box.slice.block.offsetForCfi(cfi);
+        if (offset == null) return false;
+        final start = box.blockTextOffset;
+        final end = start + box.text.length;
+        return offset >= start &&
+            (offset < end ||
+                offset == end && end == box.slice.block.layout.text.length);
+      });
 }

@@ -14,7 +14,7 @@ import 'package:reader_core/layout/intrinsic_widths.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
-import 'package:reader_core/position/cfi.dart' show cfiWithCharOffset;
+import 'package:reader_core/position/text_cfi_map.dart';
 
 import 'prose_spacing_defaults.dart';
 import 'block_style_helpers.dart';
@@ -115,6 +115,7 @@ class TextBlockBuilder {
     if (letter != null) measuredRuns.add(letter);
     return styles.snapshot.textOverlays.resolve(
       blockCfi: context.cfi,
+      textCfis: paragraph.textCfis,
       text: paragraph.text,
       style: body.style,
       runs: measuredRuns,
@@ -672,15 +673,10 @@ class TextBlockBuilder {
     if (insertions.isNotEmpty ||
         generated.prefix.isNotEmpty ||
         generated.suffix.isNotEmpty) {
-      int boundary(int offset, bool opening) =>
-          _quoteBoundary(insertions, offset, generated.prefix.length, opening);
       paragraph = await _remapParagraph(
         paragraph,
         '${generated.prefix}$quoted${generated.suffix}',
-        _CoordinateMapping(
-          (offset) => boundary(offset, true),
-          (offset) => boundary(offset, false),
-        ),
+        await _quoteCoordinates(insertions, generated.prefix.length),
       );
     }
     return _ParagraphText(
@@ -689,6 +685,7 @@ class TextBlockBuilder {
       paragraph.images,
       paragraph.rubies,
       await _pseudoImages(generated, paragraph.text),
+      textCfis: paragraph.textCfis,
     );
   }
 
@@ -793,20 +790,54 @@ class TextBlockBuilder {
     return quoted.toString();
   }
 
-  static int _quoteBoundary(
+  Future<_CoordinateMapping> _quoteCoordinates(
     List<QuoteInsertion> insertions,
-    int offset,
     int prefixLength,
-    bool opening,
-  ) {
+  ) async {
+    final boundaries = <(int, int, int)>[];
     var inserted = 0;
-    for (final insertion in insertions) {
-      if (insertion.offset < offset ||
-          (opening && insertion.opening && insertion.offset == offset)) {
-        inserted += insertion.text.length;
+    var cursor = 0;
+    while (cursor < insertions.length) {
+      await measure.budget.checkpoint();
+      final offset = insertions[cursor].offset;
+      var atOffset = 0;
+      while (cursor < insertions.length &&
+          insertions[cursor].offset == offset) {
+        final insertion = insertions[cursor++];
+        atOffset += insertion.text.length;
+      }
+      inserted += atOffset;
+      boundaries.add((offset, inserted, atOffset));
+    }
+    return _CoordinateMapping(
+      (offset) => _quoteOffset(boundaries, offset, prefixLength, start: true),
+      (offset) => _quoteOffset(boundaries, offset, prefixLength, start: false),
+    );
+  }
+
+  static int _quoteOffset(
+    List<(int, int, int)> boundaries,
+    int offset,
+    int prefixLength, {
+    required bool start,
+  }) {
+    var low = 0;
+    var high = boundaries.length;
+    while (low < high) {
+      final middle = (low + high) ~/ 2;
+      if (boundaries[middle].$1 < offset) {
+        low = middle + 1;
+      } else {
+        high = middle;
       }
     }
-    return prefixLength + offset + inserted;
+    final before = low == 0 ? 0 : boundaries[low - 1].$2;
+    // 起点跳过此处关闭及开启的引号，终点停在它们之前。
+    final insertedHere =
+        start && low < boundaries.length && boundaries[low].$1 == offset
+        ? boundaries[low].$3
+        : 0;
+    return prefixLength + offset + before + insertedHere;
   }
 
   Future<List<PseudoImageMark>> _pseudoImages(
@@ -874,6 +905,7 @@ class TextBlockBuilder {
       paragraph.text.substring(letter.start, end),
       letter.style,
       lines,
+      paragraph.textCfis?.slice(letter.start, end),
     );
     final mapping = _CoordinateMapping.removal(letter.start, end);
     final remaining = await _remapParagraph(
@@ -897,6 +929,12 @@ class TextBlockBuilder {
         ? await _remapRubies(paragraph.rubies, mapping)
         : paragraph.rubies,
     await _remapPseudoImages(paragraph.pseudoImages, mapping),
+    textCfis: await paragraph.textCfis?.remapAsync(
+      length: text.length,
+      start: mapping.start,
+      end: mapping.end,
+      checkpoint: measure.budget.checkpoint,
+    ),
   );
 
   Future<List<InlineMark>> _remapMarks(
@@ -1053,6 +1091,7 @@ class TextBlockBuilder {
         marks: paragraph.marks,
         images: paragraph.images,
         context: inlineContext,
+        textCfis: paragraph.textCfis,
       );
       if (extracted == null) break;
       _recordExtractedElements(elements, extracted);
@@ -1269,6 +1308,7 @@ class TextBlockBuilder {
     }
     return styles.snapshot.textOverlays.resolve(
       blockCfi: _contentCfi(context, paragraph),
+      textCfis: paragraph.dropped.paragraph.textCfis,
       text: paragraph.dropped.paragraph.text,
       style: firstLine?.style ?? metrics.list.measureStyle,
       runs: runs,
@@ -1335,12 +1375,8 @@ class TextBlockBuilder {
     ];
   }
 
-  String? _contentCfi(_BlockContext context, _InlineParagraph paragraph) {
-    final cap = paragraph.dropped.cap;
-    return cap == null || context.cfi == null
-        ? context.cfi
-        : cfiWithCharOffset(context.cfi!, cap.text.length);
-  }
+  String? _contentCfi(_BlockContext context, _InlineParagraph paragraph) =>
+      paragraph.dropped.paragraph.textCfis?.cfiAt(0) ?? context.cfi;
 
   Future<_MeasuredParagraph> _measureParagraph(
     _BlockContext context,
@@ -1398,7 +1434,13 @@ class TextBlockBuilder {
       paragraph,
       notes,
       rubies,
-      _contentCfi(context, paragraph),
+      (
+        cfi: _contentCfi(context, paragraph),
+        map: await text.textCfis?.transformedAsync(
+          layout.inputOffsets,
+          checkpoint: measure.budget.checkpoint,
+        ),
+      ),
     );
   }
 
@@ -1523,6 +1565,7 @@ class TextBlockBuilder {
       firstLineStyle: layout.firstLineStyle,
       firstLineRuns: layout.firstLineRuns,
       sourceRuns: layout.sourceRuns,
+      inputOffsets: layout.inputOffsets,
     );
   }
 
@@ -1713,6 +1756,7 @@ class TextBlockBuilder {
           gap: body.style.fontSize * 0.25,
           effectiveOpacity: body.authored.container.opacity,
           startCfi: context.cfi,
+          textCfis: cap.textCfis,
         ),
       );
     }
@@ -1732,10 +1776,11 @@ class TextBlockBuilder {
     side: side,
     spaceBefore: spacing.before,
     spaceAfter: spacing.after,
-    inlineImages: paragraph.inline.images,
+    inlineImages: paragraph.images,
     footnotes: paragraph.footnotes,
     rubies: paragraph.rubies.isEmpty ? null : paragraph.rubies,
     startCfi: paragraph.contentCfi,
+    textCfis: paragraph.textCfis,
     textRuleEligible: context.textRuleEligible,
     groupId:
         side == context.position.containerFloat &&
@@ -1761,13 +1806,14 @@ class TextBlockBuilder {
     ),
     containingWidth: contentWidth,
     startCfi: paragraph.contentCfi,
+    textCfis: paragraph.textCfis,
     textRuleEligible: context.textRuleEligible,
     groupId: context.position.groupId,
     listMarker: metrics.list.marker,
     spaceBefore: spacing.before,
     spaceAfter: spacing.after,
     rubies: paragraph.rubies.isEmpty ? null : paragraph.rubies,
-    inlineImages: paragraph.inline.images,
+    inlineImages: paragraph.images,
     footnotes: paragraph.footnotes,
     absolute: body.style.isOutOfFlow,
     absoluteTop: metrics.absoluteBox?.top,
@@ -1796,6 +1842,7 @@ class TextBlockBuilder {
       leftInset: block.leftInset + relative.left,
       startCfi: block.startCfi,
       endCfi: block.endCfi,
+      textCfis: block.textCfis,
       textRuleEligible: block.textRuleEligible,
       groupId: block.groupId,
       listMarker: block.listMarker,
@@ -1915,8 +1962,9 @@ class _ParagraphText {
     this.marks,
     this.images,
     this.rubies,
-    this.pseudoImages,
-  );
+    this.pseudoImages, {
+    this.textCfis,
+  });
   factory _ParagraphText.fromNode(TextBlockNode node) => node is TextContentNode
       ? _ParagraphText(
           node.text,
@@ -1924,6 +1972,8 @@ class _ParagraphText {
           node.inlineImages,
           node.rubies,
           const [],
+          textCfis:
+              node.textCfis ?? TextCfiMap.linear(node.cfi, node.text.length),
         )
       : _ParagraphText(node.text, const [], const [], const [], const []);
   final String text;
@@ -1931,6 +1981,7 @@ class _ParagraphText {
   final List<InlineImageMark> images;
   final List<RubyMark> rubies;
   final List<PseudoImageMark> pseudoImages;
+  final TextCfiMap? textCfis;
 }
 
 class _CoordinateMapping {
@@ -1962,10 +2013,11 @@ class _CoordinateMapping {
 }
 
 class _DropCap {
-  const _DropCap(this.text, this.style, this.lines);
+  const _DropCap(this.text, this.style, this.lines, this.textCfis);
   final String text;
   final ComputedStyle style;
   final double lines;
+  final TextCfiMap? textCfis;
 }
 
 class _DropCapResult {
@@ -2026,13 +2078,60 @@ class _MeasuredParagraph {
   const _MeasuredParagraph(
     this.layout,
     this.inline,
-    this.footnotes,
-    this.rubies,
-    this.contentCfi,
+    this._footnotes,
+    this._rubies,
+    this.coordinates,
   );
   final TextLayoutResult layout;
   final _InlineParagraph inline;
-  final List<PageFootnote> footnotes;
-  final List<RubyAnnotation> rubies;
-  final String? contentCfi;
+  final List<PageFootnote> _footnotes;
+  final List<RubyAnnotation> _rubies;
+  final ({String? cfi, TextCfiMap? map}) coordinates;
+  String? get contentCfi => coordinates.cfi;
+  TextCfiMap? get textCfis => coordinates.map;
+
+  List<InlineImageSpec> get images {
+    final offsets = layout.inputOffsets;
+    if (offsets == null) return inline.images;
+    return [
+      for (final image in inline.images)
+        InlineImageSpec(
+          offset: offsets.at(image.offset),
+          url: image.url,
+          width: image.width,
+          height: image.height,
+          aspectRatio: image.aspectRatio,
+        ),
+    ];
+  }
+
+  List<PageFootnote> get footnotes {
+    final offsets = layout.inputOffsets;
+    if (offsets == null) return _footnotes;
+    return [
+      for (final note in _footnotes)
+        PageFootnote(
+          start: offsets.at(note.start),
+          end: offsets.at(note.end),
+          label: note.label,
+          kind: note.kind,
+          text: note.text,
+          imageUrls: note.imageUrls,
+        ),
+    ];
+  }
+
+  List<RubyAnnotation> get rubies {
+    final offsets = layout.inputOffsets;
+    if (offsets == null) return _rubies;
+    return [
+      for (final ruby in _rubies)
+        RubyAnnotation(
+          start: offsets.at(ruby.start),
+          end: offsets.at(ruby.end),
+          text: ruby.text,
+          style: ruby.style,
+        ),
+    ];
+  }
 }

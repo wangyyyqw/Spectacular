@@ -1,20 +1,16 @@
 import 'package:html/dom.dart' as dom;
-import 'package:html/parser.dart' as html_parser;
-import 'package:xml/xml.dart' as xml;
 
 import '../position/cfi.dart';
 import '../src/api/interfaces.dart';
 import '../src/api/models.dart';
+import 'cfi_children.dart';
 import 'cfi_resolver.dart';
-import 'html5_input.dart';
+import 'xhtml_input.dart';
 
 /// 解析路径选择（P7-11 双路径）。
 ///
-/// 严格 XML 解析作为**校验闸门**：合法 XHTML 命中 [strict]（命名空间
-/// 与 `epub:type` 语义可用）；失败自动回退 html5lib 容错解析
-/// （[tolerantFallback]），带降级诊断。转换层始终走 html5lib——它提供
-/// sourceSpan 源偏移，是 CFI 绑定与失效容错的坐标基础；`package:xml`
-/// 不带偏移，直接转换会破坏 CFI（对照 Reeden 双路径动机，500 号 §1）。
+/// 合法 XHTML 使用带源位置的 XML 事件树，CFI 结构与原文一致；失败自动
+/// 回退 html5lib 容错解析（[tolerantFallback]），带降级诊断。
 enum DocumentParserChoice { strict, tolerantFallback }
 
 /// 解析后的节点基类。
@@ -125,7 +121,7 @@ class ParsedDocument implements SpineDocument {
   /// 按 id 取元素。
   ParsedElement? elementById(String id) => elementsById[id];
 
-  /// 按路径精确定位节点；路径不存在返回 null。
+  /// 按路径精确定位节点；路径不存在或字符槽没有实际文本节点时返回 null。
   ParsedNode? nodeAtCfi(EpubCfi cfi) {
     if (cfi.isRange) {
       return null;
@@ -140,42 +136,39 @@ class ParsedDocument implements SpineDocument {
         return null;
       }
       if (step.index.isEven) {
-        final elements = current.children.whereType<ParsedElement>().toList(
-          growable: false,
-        );
-        final index = step.index ~/ 2;
-        ParsedElement? next;
-        if (index >= 1 && index <= elements.length) {
-          next = elements[index - 1];
-        }
-        final assertion = step.assertion;
-        if (next == null ||
-            (assertion != null &&
-                assertion.isNotEmpty &&
-                next.id != assertion)) {
-          if (assertion != null && assertion.isNotEmpty) {
-            final byId = elementsById[assertion];
-            if (byId != null) {
-              next = byId;
-            }
-          }
-        }
+        final next = _elementAtStep(current, step);
         if (next == null) {
           return null;
         }
         current = next;
       } else {
-        final texts = current.children.whereType<ParsedText>().toList(
-          growable: false,
-        );
-        final index = (step.index + 1) ~/ 2;
-        if (index < 1 || index > texts.length) {
-          return null;
+        for (final text in current.children.whereType<ParsedText>()) {
+          if (text.cfi.steps.last.index == step.index) {
+            return text;
+          }
         }
-        return texts[index - 1];
+        return null;
       }
     }
     return current;
+  }
+
+  ParsedElement? _elementAtStep(ParsedElement parent, CfiStep step) {
+    final elements = parent.children.whereType<ParsedElement>().toList(
+      growable: false,
+    );
+    final index = step.index ~/ 2;
+    var next = index >= 1 && index <= elements.length
+        ? elements[index - 1]
+        : null;
+    final assertion = step.assertion;
+    if (next == null ||
+        (assertion != null && assertion.isNotEmpty && next.id != assertion)) {
+      if (assertion != null && assertion.isNotEmpty) {
+        next = elementsById[assertion] ?? next;
+      }
+    }
+    return next;
   }
 
   /// 容错解析失效 CFI。
@@ -198,7 +191,7 @@ abstract final class DocumentParser {
 
   /// 解析 XHTML。
   ///
-  /// 先用严格 XML 校验（P7-11 双路径）：合法命中 [DocumentParserChoice.strict]；
+  /// 先用严格 XML 转换（P7-11 双路径）：合法命中 [DocumentParserChoice.strict]；
   /// 失败回退 html5lib 容错解析并记录降级诊断（诊断码
   /// `E_DOCUMENT_TOLERANT_FALLBACK`）。压力防护（P7-16）：嵌套超
   /// [maxDomDepth] 的子树展平为文本（`E_DOM_NESTING_TOO_DEEP`），
@@ -209,20 +202,16 @@ abstract final class DocumentParser {
   }) {
     var choice = DocumentParserChoice.strict;
     final diagnostics = <String>[];
+    late final XhtmlInput input;
     try {
-      xml.XmlDocument.parse(xhtml);
-    } on xml.XmlException catch (error) {
+      input = parseStrictXhtmlInput(xhtml);
+    } on FormatException catch (error) {
       choice = DocumentParserChoice.tolerantFallback;
       diagnostics.add(
         'E_DOCUMENT_TOLERANT_FALLBACK: 严格 XML 解析失败（${error.message}），'
         '已回退容错解析',
       );
-    }
-    final prepared = prepareHtml5InputWithOffsets(xhtml);
-    final document = html_parser.parse(prepared.xhtml, generateSpans: true);
-    final body = document.body;
-    if (body == null) {
-      throw const FormatException('XHTML 缺少 body');
+      input = parseTolerantXhtmlInput(xhtml);
     }
     var depthClamped = 0;
     var attributesTruncated = 0;
@@ -237,11 +226,8 @@ abstract final class DocumentParser {
       return builder.build();
     }
 
-    int offsetStart(dom.Node node) =>
-        prepared.originalOffset(node.sourceSpan?.start.offset ?? 0);
-    int offsetEnd(dom.Node node) => prepared.originalOffset(
-      node.sourceSpan?.end.offset ?? offsetStart(node),
-    );
+    final offsetStart = input.startOf;
+    final offsetEnd = input.endOf;
 
     ParsedElement convert(dom.Element element, List<CfiStep> path, int depth) {
       final attributes = <String, String>{
@@ -281,26 +267,27 @@ abstract final class DocumentParser {
         return node;
       }
 
-      var elementIndex = 0;
-      var textIndex = 0;
-      for (final child in element.nodes) {
-        if (child is dom.Element) {
-          elementIndex += 1;
-          final childId = child.attributes['id'];
+      for (final child in cfiChildren(
+        element.nodes,
+        isElement: (node) => node is dom.Element,
+        textOf: (node) => node is dom.Text ? node.text : null,
+      )) {
+        final childElement = child.element;
+        if (childElement is dom.Element) {
+          final childId = childElement.attributes['id'];
           final step = CfiStep(
-            elementIndex * 2,
+            child.index,
             assertion: childId == null || childId.isEmpty ? null : childId,
           );
           node.children.add(
-            convert(child, <CfiStep>[...path, step], depth + 1),
+            convert(childElement, <CfiStep>[...path, step], depth + 1),
           );
-        } else if (child is dom.Text) {
-          textIndex += 1;
-          final step = CfiStep(textIndex * 2 - 1);
+        } else if (child.text.isNotEmpty) {
+          final step = CfiStep(child.index);
           final text = ParsedText(
             text: child.text,
-            start: offsetStart(child),
-            end: offsetEnd(child),
+            start: offsetStart(child.characters.first),
+            end: offsetEnd(child.characters.last),
             cfi: build(<CfiStep>[...path, step]),
           );
           node.children.add(text);
@@ -310,9 +297,9 @@ abstract final class DocumentParser {
       return node;
     }
 
-    final root = convert(body, const <CfiStep>[], 0);
+    final root = convert(input.body, const <CfiStep>[], 0);
     final htmlAttributes = <String, String>{
-      for (final entry in document.documentElement!.attributes.entries)
+      for (final entry in input.htmlAttributes.entries)
         entry.key.toString(): _capAttributeValue(
           entry.value,
           () => attributesTruncated += 1,

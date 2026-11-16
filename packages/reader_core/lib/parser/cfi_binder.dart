@@ -1,8 +1,9 @@
 import 'package:xml/xml.dart';
 
 import '../position/cfi.dart';
+import 'cfi_children.dart';
 
-/// 绑定到 CFI 的文本节点。
+/// 绑定到 CFI 的逻辑字符块。
 class BoundTextNode {
   /// 创建文本节点。
   const BoundTextNode({
@@ -13,7 +14,7 @@ class BoundTextNode {
     this.elementId,
   });
 
-  /// 文本内容。
+  /// 同一元素间普通文本与 CDATA 合并后的内容。
   final String text;
 
   /// 不含字符偏移的 base CFI。
@@ -63,13 +64,16 @@ class BoundDocument {
   }
 }
 
-/// 解析 XHTML 时为每个文本节点构造 base CFI。
+/// 解析 XHTML 时为每个非空逻辑字符块构造 base CFI。
 abstract final class CfiBinder {
   /// 绑定一章；XHTML 解析失败时返回空节点并记录 warning。
   static BoundDocument bind({required String xhtml, required int spineIndex}) {
     final XmlDocument document;
     try {
-      document = XmlDocument.parse(_sanitize(_stripBom(xhtml)));
+      document = XmlDocument.parse(
+        _stripBom(xhtml),
+        entityMapping: cfiEntityMapping,
+      );
     } on FormatException catch (error) {
       return BoundDocument(
         spineIndex: spineIndex,
@@ -107,14 +111,12 @@ abstract final class CfiBinder {
     }
 
     void visit(XmlElement parent, List<CfiStep> path) {
-      var elementIndex = 0;
-      var textIndex = 0;
-      for (final node in parent.children) {
+      for (final child in xmlCfiChildren(parent)) {
+        final node = child.element;
         if (node is XmlElement) {
-          elementIndex += 1;
           final id = node.getAttribute('id')?.trim();
           final step = CfiStep(
-            elementIndex * 2,
+            child.index,
             assertion: id == null || id.isEmpty ? null : id,
           );
           final nextPath = <CfiStep>[...path, step];
@@ -123,12 +125,11 @@ abstract final class CfiBinder {
             elementCfi.putIfAbsent(id, () => cfi);
           }
           visit(node, nextPath);
-        } else if (node is XmlText) {
-          textIndex += 1;
-          final textStep = CfiStep(textIndex * 2 - 1);
+        } else if (child.text.isNotEmpty) {
+          final textStep = CfiStep(child.index);
           textNodes.add(
             BoundTextNode(
-              text: node.value,
+              text: child.text,
               baseCfi: build(<CfiStep>[...path, textStep]),
               elementSteps: List<CfiStep>.unmodifiable(path),
               textStep: textStep,
@@ -152,19 +153,6 @@ abstract final class CfiBinder {
       elementCfi: Map<String, EpubCfi>.unmodifiable(elementCfi),
     );
   }
-
-  static String _sanitize(String text) =>
-      text.replaceAllMapped(RegExp(r'&([a-zA-Z][a-zA-Z0-9]+);'), (match) {
-        final name = match[1]!;
-        if (name == 'nbsp') {
-          return ' ';
-        }
-        const xmlKnown = <String>['amp', 'lt', 'gt', 'quot', 'apos'];
-        if (xmlKnown.contains(name)) {
-          return match[0]!;
-        }
-        return ' ';
-      });
 
   static String _stripBom(String text) =>
       text.startsWith('\uFEFF') ? text.substring(1) : text;

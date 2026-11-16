@@ -4,6 +4,7 @@ import 'dart:ui';
 import '../css/computed_style.dart';
 import '../layout/line_breaker.dart';
 import '../position/cfi.dart';
+import '../position/text_cfi_map.dart';
 
 /// 基于原文 CFI 的文字覆盖；字体属性参与测量，颜色仅参与绘制。
 class ReaderTextOverlay {
@@ -121,6 +122,7 @@ class ReaderTextOverlayResolver {
   /// 新合成区间不代表行内元素，禁止重复绘制作者块级背景与边框。
   List<StyledRun> resolve({
     required String? blockCfi,
+    TextCfiMap? textCfis,
     required String text,
     required ComputedStyle style,
     required List<StyledRun> runs,
@@ -128,7 +130,7 @@ class ReaderTextOverlayResolver {
     final block = blockCfi == null ? null : EpubCfi.parse(blockCfi);
     if (block == null || text.isEmpty) return runs;
     final ranges = [
-      for (final range in _ranges) ?range.inBlock(block, text.length),
+      for (final range in _ranges) ?range.inBlock(block, text.length, textCfis),
     ];
     if (ranges.isEmpty) return runs;
     final boundaries = <int>{0, text.length};
@@ -235,22 +237,14 @@ class _TextOverlayRange {
     return _TextOverlayRange(overlay, start, end);
   }
 
-  _LocalOverlayRange? inBlock(EpubCfi block, int length) {
-    final offset = block.charOffset ?? 0;
-    final blockStart = block.withCharOffset(offset);
-    final blockEnd = block.withCharOffset(offset + length);
-    if (end.compareTo(blockStart) <= 0 || start.compareTo(blockEnd) >= 0) {
-      return null;
-    }
-    final startOffset = start.compareTo(blockStart) <= 0
-        ? 0
-        : (start.charOffset ?? offset) - offset;
-    final endOffset = end.compareTo(blockEnd) >= 0
-        ? length
-        : (end.charOffset ?? offset) - offset;
-    final from = startOffset.clamp(0, length);
-    final until = endOffset.clamp(from, length);
-    return until > from ? _LocalOverlayRange(overlay, from, until) : null;
+  _LocalOverlayRange? inBlock(EpubCfi block, int length, TextCfiMap? textCfis) {
+    final mapped = (textCfis ?? TextCfiMap.linear(block, length)).rangeFor(
+      start.serialize(),
+      end.serialize(),
+    );
+    return mapped == null
+        ? null
+        : _LocalOverlayRange(overlay, mapped.$1, mapped.$2);
   }
 }
 

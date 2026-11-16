@@ -408,6 +408,7 @@ TextLayoutResult pageBlockWithLayoutWidth(
   firstLineStyle: source.firstLineStyle,
   firstLineRuns: source.firstLineRuns,
   sourceRuns: source.sourceRuns,
+  inputOffsets: source.inputOffsets,
 );
 
 /// 容器垂直占位按预算挂到首末后代，保留原有 margin 折叠顺序。

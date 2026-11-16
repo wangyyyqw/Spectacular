@@ -1,7 +1,6 @@
 import 'package:flutter/painting.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/hit_test.dart';
-import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/text/segmenter.dart';
 
 /// 页内选区（P4-15）：起止命中点，按阅读顺序归一。
@@ -354,27 +353,20 @@ abstract final class SelectionOps {
     return buffer.toString();
   }
 
-  /// 选区起止 CFI（标注存储用，§30.2）：块级 CFI + 块内字符偏移。
+  /// 选区起止分别映射到各自的来源字符块，终点沿用半开区间亲和。
   static ({String start, String end})? cfiOf(ReaderSelection selection) {
-    final startCfi = selection.start.lineBox.slice.block.startCfi;
-    final endCfi = selection.end.lineBox.slice.block.startCfi;
-    if (startCfi == null || startCfi.isEmpty) {
-      return null;
-    }
-    final startBaseOffset = cfiCharOffset(startCfi) ?? 0;
-    final endBaseOffset = cfiCharOffset(endCfi ?? startCfi) ?? 0;
-    final startOffset =
-        startBaseOffset +
-        selection.start.lineBox.blockTextOffset +
-        selection.start.charOffset;
-    final endOffset =
-        endBaseOffset +
-        selection.end.lineBox.blockTextOffset +
-        selection.end.charOffset;
-    return (
-      start: cfiWithCharOffset(startCfi, startOffset),
-      end: cfiWithCharOffset(endCfi ?? startCfi, endOffset),
+    final start = selection.start;
+    final end = selection.end;
+    final startCfi = start.lineBox.slice.block.cfiAt(
+      start.lineBox.blockTextOffset + start.charOffset,
     );
+    final endCfi = end.lineBox.slice.block.cfiAt(
+      end.lineBox.blockTextOffset + end.charOffset,
+      end: true,
+    );
+    return startCfi == null || endCfi == null
+        ? null
+        : (start: startCfi, end: endCfi);
   }
 
   /// 选区前后文（各约 20 字，重定位兜底用，§30.2）。

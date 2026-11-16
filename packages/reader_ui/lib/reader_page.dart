@@ -1283,16 +1283,51 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         jumpNavigation != _session.navigationRevision) {
       return;
     }
-    _highlightSearchResult(cfi, result);
-  }
-
-  void _highlightSearchResult(String resolvedCfi, SearchPanelResult result) {
-    final offset = cfiCharOffset(resolvedCfi);
-    // 表格只能提供精确元素页锚点时，不伪造文本节点的字符高亮区间。
-    if (offset == null) {
+    final highlightGeneration = _session.generation;
+    final endCfi = await _searchResultEnd(cfi, result);
+    if (!mounted ||
+        request != _searchRequest ||
+        jumpNavigation != _session.navigationRevision ||
+        highlightGeneration != _session.generation ||
+        endCfi == null) {
       return;
     }
-    final endCfi = cfiWithCharOffset(resolvedCfi, offset + result.matchLength);
+    _highlightSearchResult(cfi, endCfi, result);
+  }
+
+  Future<String?> _searchResultEnd(String cfi, SearchPanelResult result) async {
+    if (cfiCharOffset(cfi) == null) return null;
+    try {
+      final source = _session.source;
+      if (source is AnchorChapterSource) {
+        final chapter = await source.loadAnchorChapter(result.spineIndex);
+        final offset = chapter.offsetFor(cfi);
+        return offset == null
+            ? null
+            : chapter.cfiAt(offset + result.matchLength, end: true);
+      }
+      for (final page in await _session.chapterPages()) {
+        for (final slice in page.slices) {
+          final block = slice.block;
+          final offset = block.offsetForCfi(cfi);
+          if (offset != null &&
+              offset + result.matchLength <= block.layout.text.length) {
+            final end = block.cfiAt(offset + result.matchLength, end: true);
+            if (end != cfi) return end;
+          }
+        }
+      }
+    } catch (_) {
+      // 导航已完成；原文端点补算失败或取消时只跳过临时高亮。
+    }
+    return null;
+  }
+
+  void _highlightSearchResult(
+    String resolvedCfi,
+    String endCfi,
+    SearchPanelResult result,
+  ) {
     _tempHighlightTimer?.cancel();
     setState(() {
       _tempHighlight = ReaderAnnotation(
@@ -1997,7 +2032,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         ),
       );
       if (bounds.contains(position)) {
-        _requestTextEdit(page.spineIndex, block.startCfi!);
+        _requestTextEdit(page.spineIndex, block.cfiAt(0) ?? block.startCfi!);
         return true;
       }
     }
@@ -2012,7 +2047,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             !_insideEditableLineGap(page, hit.lineBox, position))) {
       return false;
     }
-    final cfi = hit.lineBox.slice.block.startCfi;
+    final cfi = hit.lineBox.slice.block.cfiAt(
+      hit.lineBox.blockTextOffset + hit.charOffset,
+    );
     if (cfi == null) return false;
     _requestTextEdit(page.spineIndex, cfi);
     return true;

@@ -8,6 +8,7 @@ import 'package:reader_core/layout/intrinsic_widths.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/paint/image_size.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 
 import '../../util/bounded_cache.dart';
 import 'chapter_layout_job.dart';
@@ -169,6 +170,7 @@ class ChapterTextMeasurer {
     bool textRuleEligible = true,
     List<RubyAnnotation>? rubies,
     String? startCfi,
+    TextCfiMap? textCfis,
     int groupId = 0,
     bool containerSides = false,
     double effectiveOpacity = 1,
@@ -198,6 +200,7 @@ class ChapterTextMeasurer {
           ? model.resolveContentWidth(contentWidth)
           : null,
       startCfi: startCfi,
+      textCfis: textCfis,
       groupId: groupId,
       containerSides: containerSides,
       floatContainingLeft: containingLeft,
@@ -215,6 +218,7 @@ class ChapterTextMeasurer {
     required double gap,
     required double effectiveOpacity,
     String? startCfi,
+    TextCfiMap? textCfis,
   }) async {
     final extent = bodyLineHeight * lineCount;
     final declarations = <String, String>{
@@ -255,6 +259,10 @@ class ChapterTextMeasurer {
       spaceBefore: 0,
       spaceAfter: 0,
       startCfi: startCfi,
+      textCfis: await textCfis?.transformedAsync(
+        measured.inputOffsets,
+        checkpoint: budget.checkpoint,
+      ),
       effectiveOpacity: effectiveOpacity,
     );
   }

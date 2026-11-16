@@ -7,6 +7,9 @@ import 'package:reader_core/api.dart' show PageGallery, PageGalleryFrame;
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
+import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
+import 'package:reader_core/text/text_offsets.dart';
 
 /// 一个完成结果只持有纯布局产物，不持有文档、字体加载器或归档句柄。
 class CompletedChapterLayout {
@@ -295,9 +298,24 @@ class _LayoutMemoryWork {
       value.layout,
       value.style,
       value.startCfi,
+      value.textCfis,
       value.footnotes,
     ]),
     StyledRun() => _add(64, [value.style]),
+    TextCfiMap() => _add(64, [value.runs, value.parent]),
+    TextCfiRun() => _add(64, [value.cfi]),
+    TextOffsetMap() => _add(64, [value.spans, value.previous, value.following]),
+    TextOffsetSpan() => _add(48),
+    EpubCfi() => _add(64, [
+      value.segments,
+      value.rangeParentBody,
+      value.rangeStartBody,
+      value.rangeEndBody,
+      value.rangeStart,
+      value.rangeEnd,
+    ]),
+    CfiSegment() => _add(48, [value.steps]),
+    CfiStep() => _add(32, [value.assertion]),
     _ => _background(value),
   };
 
@@ -361,6 +379,7 @@ class _LayoutMemoryWork {
       block.style,
       block.startCfi,
       block.endCfi,
+      block.textCfis,
       block.listMarker,
       block.table,
       block.gallery,
@@ -373,7 +392,12 @@ class _LayoutMemoryWork {
 
   Iterable<int> _text(TextLayoutResult layout) sync* {
     bytes += 256;
-    yield* _references([layout.text, layout.lines, layout.runs]);
+    yield* _references([
+      layout.text,
+      layout.lines,
+      layout.runs,
+      layout.inputOffsets,
+    ]);
   }
 
   Iterable<int> _line(LineBox line) sync* {

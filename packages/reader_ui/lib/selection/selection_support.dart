@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 
 import 'selection.dart';
 
@@ -78,12 +79,8 @@ abstract final class ReaderSelectionSupport {
     EpubCfi endpoint, {
     required bool isEnd,
   }) => blocks.any((block) {
-    final parsed = EpubCfi.parse(block.startCfi!);
-    if (parsed == null ||
-        parsed.withCharOffset(0).compareTo(endpoint.withCharOffset(0)) != 0) {
-      return false;
-    }
-    final offset = (endpoint.charOffset ?? 0) - (parsed.charOffset ?? 0);
+    final offset = block.offsetForCfi(endpoint.serialize(), end: isEnd);
+    if (offset == null) return false;
     return isEnd
         ? offset > 0 && offset <= block.layout.text.length
         : offset >= 0 && offset < block.layout.text.length;
@@ -126,73 +123,66 @@ abstract final class ReaderSelectionSupport {
   }
 
   static String? _quoteOf(List<PageBlock> blocks, EpubCfi start, EpubCfi end) {
-    final pieces = <(String, int, String)>[];
+    final pieces = <(TextCfiMap, String)>[];
     for (final block in blocks) {
       final range = _range(block, start, end);
       if (range == null) continue;
       if (!_supported(block, range.$1, range.$2)) return null;
-      final offset = (cfiCharOffset(block.startCfi!) ?? 0) + range.$1;
       final text = block.layout.text.substring(range.$1, range.$2);
-      final piece = (cfiBase(block.startCfi!), offset, text);
+      final map = block.textCoordinates?.slice(range.$1, range.$2);
+      if (map == null) return null;
+      final piece = (map, text);
       if (!_appendPiece(pieces, piece)) return null;
     }
-    return pieces.map((piece) => piece.$3).join();
+    return pieces.map((piece) => piece.$2).join();
   }
 
   static bool _appendPiece(
-    List<(String, int, String)> pieces,
-    (String, int, String) piece,
+    List<(TextCfiMap, String)> pieces,
+    (TextCfiMap, String) piece,
   ) {
-    if (pieces.isEmpty || pieces.last.$1 != piece.$1) {
+    final offset = pieces.isEmpty ? null : piece.$1.offsetFrom(pieces.last.$1);
+    if (offset == null) {
       pieces.add(piece);
       return true;
     }
     final previous = pieces.last;
-    final offset = piece.$2 - previous.$2;
-    if (offset < 0 || offset > previous.$3.length) return false;
-    final overlap = math.min(previous.$3.length - offset, piece.$3.length);
-    if (previous.$3.substring(offset, offset + overlap) !=
-        piece.$3.substring(0, overlap)) {
+    if (offset < 0 || offset > previous.$2.length) return false;
+    final overlap = math.min(previous.$2.length - offset, piece.$2.length);
+    if (previous.$2.substring(offset, offset + overlap) !=
+        piece.$2.substring(0, overlap)) {
       return false;
     }
     pieces[pieces.length - 1] = (
       previous.$1,
-      previous.$2,
-      previous.$3 + piece.$3.substring(overlap),
+      previous.$2 + piece.$2.substring(overlap),
     );
     return true;
   }
 
   static List<PageBlock> _blocks(List<PageContent> pages) {
-    final unique = <String, PageBlock>{};
+    final unique = <PageBlock>{};
     for (final page in pages) {
       for (final slice in page.slices) {
         final cfi = slice.block.startCfi;
         if (cfi != null && EpubCfi.parse(cfi) != null) {
-          unique.putIfAbsent(cfi, () => slice.block);
+          unique.add(slice.block);
         }
       }
     }
-    return unique.values.toList()..sort(
+    return unique.toList()..sort(
       (left, right) =>
-          EpubCfi.parse(left.startCfi!)!
-              .compareTo(EpubCfi.parse(right.startCfi!)!),
+          EpubCfi.parse(left.cfiAt(0) ?? left.startCfi!)!
+              .compareTo(EpubCfi.parse(right.cfiAt(0) ?? right.startCfi!)!),
     );
   }
 
   static (int, int)? _range(PageBlock block, EpubCfi start, EpubCfi end) {
-    final parsed = EpubCfi.parse(block.startCfi!);
-    if (parsed == null) return null;
-    final base = parsed.withCharOffset(0);
-    final fromStart = base.compareTo(start.withCharOffset(0));
-    final toEnd = base.compareTo(end.withCharOffset(0));
-    if (fromStart < 0 || toEnd > 0) return null;
-    final offset = parsed.charOffset ?? 0;
+    final range = block.rangeForCfis(start.serialize(), end.serialize());
+    if (range == null) return null;
     final length = block.layout.text.length;
-    final from = fromStart == 0 ? (start.charOffset ?? 0) - offset : 0;
-    final to = toEnd == 0 ? (end.charOffset ?? 0) - offset : length;
-    final clippedFrom = from.clamp(0, length);
-    final clippedTo = to.clamp(0, length);
+    final clippedFrom = range.$1.clamp(0, length);
+    final clippedTo = range.$2.clamp(0, length);
     return clippedFrom >= clippedTo ? null : (clippedFrom, clippedTo);
   }
 

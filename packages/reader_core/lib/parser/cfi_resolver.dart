@@ -1,6 +1,7 @@
 import 'package:xml/xml.dart';
 
 import '../position/cfi.dart';
+import 'cfi_children.dart';
 
 /// 失效 CFI 的容错结果。
 class CfiResolution {
@@ -60,7 +61,10 @@ abstract final class CfiResolver {
         );
       }
 
-      final document = XmlDocument.parse(_sanitize(xhtml));
+      final document = XmlDocument.parse(
+        xhtml,
+        entityMapping: cfiEntityMapping,
+      );
       final body = _firstElement(document, 'body');
       if (body == null) {
         return const CfiResolution(warnings: <String>['XHTML 缺少 body']);
@@ -68,8 +72,7 @@ abstract final class CfiResolver {
 
       var current = body;
       var adjusted = false;
-      XmlText? textNode;
-      var textStep = 0;
+      CfiChild<XmlNode>? textChunk;
 
       for (final step in point.steps) {
         if (step.index.isEven) {
@@ -103,22 +106,22 @@ abstract final class CfiResolver {
           }
           current = candidate;
         } else {
-          final texts = current.children.whereType<XmlText>().toList(
-            growable: false,
-          );
+          final texts = xmlCfiChildren(current)
+              .where((child) => child.index.isOdd)
+              .toList(growable: false);
           final desired = (step.index + 1) ~/ 2;
           if (desired >= 1 && desired <= texts.length) {
-            textNode = texts[desired - 1];
+            textChunk = texts[desired - 1];
           } else {
             adjusted = true;
             warnings.add('文本节点不存在，回退到最近文本或元素');
-            if (texts.isNotEmpty) {
-              textNode = texts.last;
+            for (final text in texts.reversed) {
+              if (text.text.isNotEmpty) {
+                textChunk = text;
+                break;
+              }
             }
           }
-          textStep = textNode == null
-              ? 0
-              : (texts.indexOf(textNode) + 1) * 2 - 1;
           break;
         }
       }
@@ -129,14 +132,14 @@ abstract final class CfiResolver {
       }
 
       int? offset;
-      if (textNode != null && point.charOffset != null) {
+      if (textChunk != null && point.charOffset != null) {
         final rawOffset = point.charOffset!;
-        if (rawOffset < 0 || rawOffset > textNode.value.length) {
+        if (rawOffset < 0 || rawOffset > textChunk.text.length) {
           adjusted = true;
-          warnings.add('字符偏移越界（$rawOffset/${textNode.value.length}），已钳制');
+          warnings.add('字符偏移越界（$rawOffset/${textChunk.text.length}），已钳制');
         }
-        offset = rawOffset.clamp(0, textNode.value.length);
-      } else if (point.charOffset != null && textNode == null) {
+        offset = rawOffset.clamp(0, textChunk.text.length);
+      } else if (point.charOffset != null && textChunk == null) {
         adjusted = true;
         warnings.add('目标不是文本节点，忽略字符偏移');
       }
@@ -145,8 +148,8 @@ abstract final class CfiResolver {
       for (final step in path) {
         builder.step(step.index, assertion: step.assertion);
       }
-      if (textNode != null && textStep > 0) {
-        builder.step(textStep);
+      if (textChunk != null) {
+        builder.step(textChunk.index);
         if (offset != null) {
           builder.charOffset(offset);
         }
@@ -213,17 +216,4 @@ abstract final class CfiResolver {
     final path = <CfiStep>[];
     return search(body, path) ? path : null;
   }
-
-  static String _sanitize(String text) =>
-      text.replaceAllMapped(RegExp(r'&([a-zA-Z][a-zA-Z0-9]+);'), (match) {
-        final name = match[1]!;
-        if (name == 'nbsp') {
-          return ' ';
-        }
-        const xmlKnown = <String>['amp', 'lt', 'gt', 'quot', 'apos'];
-        if (xmlKnown.contains(name)) {
-          return match[0]!;
-        }
-        return ' ';
-      });
 }

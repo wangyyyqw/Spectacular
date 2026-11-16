@@ -71,15 +71,18 @@ class TextLayoutCache {
     );
     final cached = _take(
       key.value,
-      (end) => TextLayoutEngine.styledRuns(
-        text: text,
+      (cached) => TextLayoutEngine.styledRuns(
+        text: cached.text,
         style: style,
-        runs: runs,
+        runs: remapStyledRuns(runs, cached.inputOffsets),
         hasGlyph: hasGlyph,
         leadingDistribution: leadingDistribution,
         firstLineStyle: firstLineStyle,
-        firstLineRuns: firstLineRuns,
-        firstLineEnd: end,
+        firstLineRuns: firstLineRuns == null
+            ? null
+            : remapStyledRuns(firstLineRuns, cached.inputOffsets),
+        firstLineEnd: cached.lines.firstOrNull?.end ?? 0,
+        transformText: false,
       ),
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
@@ -147,15 +150,18 @@ class TextLayoutCache {
     );
     final cached = _take(
       key.value,
-      (end) => TextLayoutEngine.styledRuns(
-        text: text,
+      (cached) => TextLayoutEngine.styledRuns(
+        text: cached.text,
         style: style,
-        runs: runs,
+        runs: remapStyledRuns(runs, cached.inputOffsets),
         hasGlyph: hasGlyph,
         leadingDistribution: leadingDistribution,
         firstLineStyle: firstLineStyle,
-        firstLineRuns: firstLineRuns,
-        firstLineEnd: end,
+        firstLineRuns: firstLineRuns == null
+            ? null
+            : remapStyledRuns(firstLineRuns, cached.inputOffsets),
+        firstLineEnd: cached.lines.firstOrNull?.end ?? 0,
+        transformText: false,
       ),
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
@@ -201,7 +207,7 @@ class TextLayoutCache {
 
   TextLayoutResult? _take(
     String key,
-    List<StyledRun> Function(int firstLineEnd) currentRuns, {
+    List<StyledRun> Function(TextLayoutResult cached) currentRuns, {
     ComputedStyle? firstLineStyle,
     List<StyledRun>? firstLineRuns,
     List<StyledRun>? sourceRuns,
@@ -214,10 +220,14 @@ class TextLayoutCache {
     _entries[key] = cached;
     _hits += 1;
     final result = cached.withRuns(
-      currentRuns(cached.lines.firstOrNull?.end ?? 0),
+      currentRuns(cached),
       firstLineStyle: firstLineStyle,
-      firstLineRuns: firstLineRuns,
-      sourceRuns: sourceRuns,
+      firstLineRuns: firstLineRuns == null
+          ? null
+          : remapStyledRuns(firstLineRuns, cached.inputOffsets),
+      sourceRuns: sourceRuns == null
+          ? null
+          : remapStyledRuns(sourceRuns, cached.inputOffsets),
     );
     reuseTextLineEdges(cached, result);
     _measurements[result] = _measurements[cached];

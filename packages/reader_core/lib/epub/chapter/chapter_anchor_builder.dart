@@ -6,6 +6,7 @@ import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 
 import 'chapter_raw_styles.dart';
 
@@ -139,8 +140,8 @@ class _AnchorBlocks {
       _recordElementPath(node.cfi, _offset);
       if (const {'td', 'th', 'caption'}.contains(node.tag)) {
         final text = _cellText(node);
-        if (text.isNotEmpty) {
-          _appendBlock(node.cfi, text);
+        if (text.text.isNotEmpty) {
+          _appendBlock(node.cfi, text.text, text.textCfis);
         }
       } else {
         final imageCfi =
@@ -183,11 +184,25 @@ class _AnchorBlocks {
         _recordElementPath(element.cfi, _offset + (hasText ? mark.start : 0));
       }
     }
-    if (hasText) _appendBlock(node.cfi, node.text);
+    if (hasText) {
+      blocks.add(
+        AnchorBlock(
+          cfi: node.textCfis?.cfiAt(0) ?? node.cfi.serialize(),
+          text: node.text,
+          textCfis: node.textCfis,
+        ),
+      );
+      _offset += node.text.length;
+    }
   }
 
-  void _appendBlock(EpubCfi cfi, String text) {
-    blocks.add(AnchorBlock(cfi: cfi.serialize(), text: text));
+  void _appendBlock(EpubCfi cfi, String text, TextCfiMap textCfis) {
+    blocks.add(
+      AnchorBlock(cfi: cfi.serialize(), text: text, textCfis: textCfis),
+    );
+    for (final run in textCfis.runs) {
+      _recordElementPath(run.cfi, _offset + run.start);
+    }
     _offset += text.length;
   }
 
@@ -208,14 +223,29 @@ class _AnchorBlocks {
     }
   }
 
-  String _cellText(EpubNode root) {
+  ({String text, TextCfiMap textCfis}) _cellText(EpubNode root) {
     final parts = <String>[];
+    final coordinates = TextCfiMapBuilder();
+    var offset = 0;
     void walk(EpubNode node) {
       if (node is TextBlockNode && node.text.trim().isNotEmpty) {
         final emptyBox =
             node is TextContentNode &&
             node.inlineMarks.any((mark) => mark.start == mark.end);
-        parts.add(emptyBox ? node.text : node.text.trim());
+        final text = emptyBox ? node.text : node.text.trim();
+        if (parts.isNotEmpty) offset += 1;
+        if (node is TextContentNode) {
+          final leading = emptyBox
+              ? 0
+              : node.text.length - node.text.trimLeft().length;
+          coordinates.addMap(
+            (node.textCfis ?? TextCfiMap.linear(node.cfi, node.text.length))
+                .slice(leading, leading + text.length),
+            offset: offset,
+          );
+        }
+        parts.add(text);
+        offset += text.length;
       } else if (node is BlockNode) {
         node.children.forEach(walk);
       } else if (node is InlineNode) {
@@ -224,6 +254,6 @@ class _AnchorBlocks {
     }
 
     walk(root);
-    return parts.join('\n');
+    return (text: parts.join('\n'), textCfis: coordinates.build(offset));
   }
 }
