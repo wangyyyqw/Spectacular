@@ -255,7 +255,8 @@ class _ImageSizing {
 
   _ImageSize _declaredSize(double width) {
     final height = input.styles.snapshot.height;
-    final style = input.style;
+    // 页面投影可能已按整列冻结百分比尺寸；测量仍须按实际父内容盒解算。
+    final style = input.styles.chainStyle(input.imageChain);
     return resolveImageDisplaySize(
       input.node.attributes,
       input.intrinsic,
@@ -272,9 +273,10 @@ class _ImageSizing {
   }
 
   _ImageSize _constrainMaxWidth(_ImageSize size, double width) {
-    if (input.style.maxWidth == null) return size;
+    final style = input.styles.chainStyle(input.imageChain);
+    if (style.maxWidth == null) return size;
     final constrained = BoxModel.fromStyle(
-      input.style,
+      style,
       containingWidth: width,
     ).resolveContentWidth(width);
     return _fitWidth(size, constrained);
