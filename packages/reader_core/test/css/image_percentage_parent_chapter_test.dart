@@ -20,18 +20,22 @@ const _pageInsets = EdgeInsets.fromLTRB(
 );
 const _imageColor = Color(0xFF008800);
 
-Future<ui.Image> _image() async {
+Future<ui.Image> _image({Size size = const Size(432, 576)}) async {
   final recorder = ui.PictureRecorder();
   Canvas(recorder).drawColor(_imageColor, BlendMode.src);
   final picture = recorder.endRecording();
   try {
-    return await picture.toImage(432, 576);
+    return await picture.toImage(size.width.round(), size.height.round());
   } finally {
     picture.dispose();
   }
 }
 
-Uint8List _bookBytes(Uint8List imageBytes) => auditZip({
+Uint8List _bookBytes(
+  Uint8List imageBytes, {
+  String? body,
+  String extraCss = '',
+}) => auditZip({
   'mimetype': 'application/epub+zip',
   'META-INF/container.xml':
       '<container><rootfiles><rootfile full-path="book.opf"/>'
@@ -51,15 +55,19 @@ Uint8List _bookBytes(Uint8List imageBytes) => auditZip({
       '.copyright { width:80%; margin:0 auto; padding:32px 12px; } '
       '.cover-wrapper img { width:40%; height:auto; margin:0 auto 20px; '
       'display:block; } '
-      '</style></head><body><div class="copyright">'
-      '<div class="cover-wrapper"><img src="cover.png"/></div>'
-      '<p>封面后的书名</p></div></body></html>',
+      '$extraCss</style></head><body>'
+      '${body ?? '<div class="copyright"><div class="cover-wrapper"><img src="cover.png"/></div><p>封面后的书名</p></div>'}'
+      '</body></html>',
   'cover.png': imageBytes,
 });
 
-Future<PageContent> _page(Uint8List imageBytes) async {
+Future<PageContent> _page(
+  Uint8List imageBytes, {
+  String? body,
+  String extraCss = '',
+}) async {
   final source = await const EpubFormatOpener().openBytes(
-    _bookBytes(imageBytes),
+    _bookBytes(imageBytes, body: body, extraCss: extraCss),
     options: ReaderOpenOptions(
       contentWidth: _pageSize.width - _pageInsets.horizontal,
       contentHeight: _pageSize.height - _pageInsets.vertical,
@@ -67,7 +75,7 @@ Future<PageContent> _page(Uint8List imageBytes) async {
   );
   addTearDown(source.close);
   await source.applyOverrides(
-    const ReaderOverrides(fontSize: 21, lineHeight: 1.6, paragraphSpacing: 10),
+    const ReaderOverrides(fontSize: 18, lineHeight: 1.6, paragraphSpacing: 10),
   );
   await source.applyContentSize(
     width: _pageSize.width - _pageInsets.horizontal,
@@ -133,13 +141,9 @@ void main() {
     final imageBlock = page.slices
         .map((slice) => slice.block)
         .singleWhere((block) => block.isReplaced);
-    final parentContentWidth =
-        (_pageSize.width - _pageInsets.horizontal) * 0.8;
+    final parentContentWidth = (_pageSize.width - _pageInsets.horizontal) * 0.8;
     final expectedWidth = parentContentWidth * 0.4;
-    expect(
-      imageBlock.style!.width!.resolve(1),
-      closeTo(expectedWidth, 0.001),
-    );
+    expect(imageBlock.style!.width!.resolve(1), closeTo(expectedWidth, 0.001));
     final bounds = _imageBounds(await _render(page, image));
     expect(
       bounds.width,
@@ -149,10 +153,40 @@ void main() {
     expect(bounds.height, closeTo(expectedWidth * 4 / 3, 2));
     final center =
         _pageInsets.left + (_pageSize.width - _pageInsets.horizontal) / 2;
-    expect(
-      bounds.center.dx,
-      closeTo(center, 1),
-      reason: '图片应在居中的父内容盒内水平居中',
-    );
+    expect(bounds.center.dx, closeTo(center, 1), reason: '图片应在居中的父内容盒内水平居中');
   });
+
+  for (final percent in [60, 100]) {
+    test('纯图容器折叠后，$percent% 头图仍以父盒宽度解算并居中', () async {
+      final image = await _image(size: const Size(1024, 631));
+      addTearDown(image.dispose);
+      final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!
+          .buffer
+          .asUint8List();
+      final page = await _page(
+        bytes,
+        body: '<div class="head-box"><img src="cover.png"/></div><p>后续正文</p>',
+        extraCss:
+            'div.head-box {margin:1em 25% 0;text-align:center;text-indent:0;}'
+            'div.head-box img {display:block;width:$percent%;height:auto;margin:2em auto 0;}',
+      );
+      final block = page.slices.first.block;
+      final parentWidth = (_pageSize.width - _pageInsets.horizontal) * .5;
+      final expectedWidth = parentWidth * percent / 100;
+      expect(block.style!.width!.value, closeTo(expectedWidth, .01));
+      expect(block.height, closeTo(expectedWidth * 631 / 1024, .01));
+      expect(block.spaceBefore, 32, reason: '父子上边距按原书字号折叠为2em');
+      expect(block.startCfi, isNotNull);
+      final bounds = _imageBounds(await _render(page, image));
+      expect(
+        bounds.width,
+        closeTo(expectedWidth, 2),
+        reason: '非整数边缘每侧可有一个抗锯齿像素',
+      );
+      expect(bounds.height, closeTo(expectedWidth * 631 / 1024, 2));
+      expect(bounds.center.dx, closeTo(_pageInsets.left + parentWidth, 1));
+      expect(bounds.top, closeTo(_pageInsets.top + 32, 1));
+      expect(page.slices.last.block.layout.text, '后续正文');
+    });
+  }
 }
