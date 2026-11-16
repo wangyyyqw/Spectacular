@@ -3174,8 +3174,9 @@ abstract final class TextLayoutEngine {
         mode == CssTextJustify.justifyAll ||
         style.textAlignLast == CssTextAlign.justify;
     for (final line in lines) {
+      // 超宽内容仍需居中或贴右缘；两端对齐的拉伸另行排除负余量。
       final slack = width.isFinite
-          ? math.max(0.0, width - line.indent - line.width)
+          ? width - line.indent - line.width
           : 0.0;
       final isFinal = line.isLastLine || line.isHardBreak;
       // text-align-last:auto 语义（P7-21）：justify 文本的末行按 start；
