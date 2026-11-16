@@ -118,6 +118,10 @@ _foldedAncestorMargins(_ImageDescription input) {
       parents = const FloatParentMargins();
       continue;
     }
+    // 保留容器由首末子块消费边距；纯图路径只还原已折叠的祖先盒。
+    if (input.styles.retainedContainers.containsKey(input.chain[index])) {
+      continue;
+    }
     before = collapseMargins(before, style.margin.top);
     after = collapseMargins(after, style.margin.bottom);
     parents = parents.include(style.margin.top).include(style.margin.bottom);
