@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/epub/epub_format_opener.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/source/format_opener.dart';
@@ -13,7 +15,11 @@ const _noteText = '蝶番（takatugayi），铰链，使用于屏风或者柜门
 const _contentWidth = 366.6666666666667;
 const _contentHeight = 773.1694444444443;
 
-Uint8List _book() => auditZip({
+const _pngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+    'AAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+
+Uint8List _book({String imageUrl = 'note.png'}) => auditZip({
   'mimetype': 'application/epub+zip',
   'META-INF/container.xml': '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>',
   'book.opf':
@@ -36,12 +42,13 @@ Uint8List _book() => auditZip({
       '，脑海中浮现出两只鹰在青空下亲密地飞翔，宛如江户时代屏风绘的景象。</p>'
       '<p>顶着一头宛如&lt;医师&gt;般的漂亮银发。</p>'
       '</body></html>',
-  's.css': '''
+  's.css':
+      '''
 p { text-indent:2em; }
 h2 { color:#444; font-size:24px; text-align:center; }
 span.reader { position:relative; display:inline-block; width:19px; height:19px;
   vertical-align:sub; cursor:pointer; margin:0 3px;
-  background-image:url("note.png"); background-size:100%; background-repeat:no-repeat; }
+  background-image:url("$imageUrl"); background-size:100%; background-repeat:no-repeat; }
 ''',
   'note.png': base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
@@ -51,6 +58,42 @@ span.reader { position:relative; display:inline-block; width:19px; height:19px;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('正式 EPUB 入口可读取行内注号的 data 图片及包内图片', () async {
+    const url = 'data:image/png;base64,$_pngBase64';
+    final source = await const EpubFormatOpener().openBytes(
+      _book(imageUrl: url),
+      options: const ReaderOpenOptions(
+        contentWidth: _contentWidth,
+        contentHeight: _contentHeight,
+      ),
+    );
+    addTearDown(source.close);
+    final pages = await source.loadChapter(0);
+    final payload = pages
+        .expand((page) => page.slices)
+        .expand((slice) => slice.block.layout.lines)
+        .expand((line) => line.inlineBoxes)
+        .single
+        .spec
+        .payload;
+    final style = payload is PageBlock
+        ? payload.style
+        : payload as ComputedStyle;
+    expect(style?.backgroundImage, url);
+    expect(await source.readImageBytes(url), base64Decode(_pngBase64));
+    expect(await source.readImageBytes('note.png'), base64Decode(_pngBase64));
+    expect(await source.readImageBytes('data:image/png,%89PNG%0D%0A'), [
+      137,
+      80,
+      78,
+      71,
+      13,
+      10,
+    ]);
+    expect(await source.readImageBytes('data:image/png;base64,%%%'), isNull);
+    expect(await source.readImageBytes('data:text/plain,hello'), isNull);
+  });
 
   test('章节含转义尖括号时，空背景图片注号保留正文与实际点击区', () async {
     final source = await const EpubFormatOpener().openBytes(
