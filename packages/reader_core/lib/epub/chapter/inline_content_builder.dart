@@ -17,7 +17,6 @@ import 'book_resources.dart';
 import 'chapter_style_resolver.dart';
 import 'chapter_selectors.dart';
 import 'chapter_text_measurer.dart';
-import 'container_blocks.dart';
 import 'image_blocks.dart';
 import 'generated_chapter_content.dart';
 import 'block_style_helpers.dart';
@@ -339,28 +338,14 @@ class InlineContentBuilder {
     _AtomicText atom,
     InlineStyleContext context,
   ) async {
-    final model = atom.model;
-    var width = math.max(
-      atom.text.isEmpty ? 0.0 : 1.0,
-      model.resolveContentWidth(context.width),
-    );
-    var layout = await _layoutAtomicContent(
-      atom,
-      _atomicContext(atom, context, width),
-    );
+    final measured = await _measureAtomicContent(atom, context);
+    final layout = measured.layout;
     final candidate = atom.candidate;
     if (candidate.inlineBlock) {
-      if (model.contentWidth == null) {
-        width = _atomicPreferredWidth(atom, layout, context.width);
-        layout = await _layoutAtomicContent(
-          atom,
-          _atomicContext(atom, context, width),
-        );
-      }
-      return _AtomicPayload(null, await _atomicInlineBox(atom, layout, width));
-    }
-    if (candidate.style.width == null) {
-      layout = pageBlockWithLayoutWidth(layout, maxWidth: layout.width);
+      return _AtomicPayload(
+        null,
+        await _atomicInlineBox(atom, layout, measured.width),
+      );
     }
     final block = measure.floatedTextBlock(
       layout: layout,
@@ -377,6 +362,29 @@ class InlineContentBuilder {
       ),
     );
     return _AtomicPayload(block, null);
+  }
+
+  Future<({TextLayoutResult layout, double width})> _measureAtomicContent(
+    _AtomicText atom,
+    InlineStyleContext context,
+  ) async {
+    var width = math.max(
+      atom.text.isEmpty ? 0.0 : 1.0,
+      atom.model.resolveContentWidth(context.width),
+    );
+    var layout = await _layoutAtomicContent(
+      atom,
+      _atomicContext(atom, context, width),
+    );
+    if (atom.model.contentWidth == null) {
+      width = _atomicPreferredWidth(atom, layout, context.width);
+      // 自动宽浮动和行内块都按最终盒宽重排，行内对齐偏移不能沿用宽盒。
+      layout = await _layoutAtomicContent(
+        atom,
+        _atomicContext(atom, context, width),
+      );
+    }
+    return (layout: layout, width: width);
   }
 
   InlineStyleContext _atomicContext(
