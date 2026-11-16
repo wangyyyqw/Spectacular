@@ -357,14 +357,20 @@ class ChapterBlockWalker {
         !identical(parent, styles.retainedContainers[parentView]) ||
         parent.style.display != CssDisplay.flex ||
         parent.style.flexDirection != CssFlexDirection.row ||
-        parentView?.childElements.length != 1 ||
+        parentView?.childElements.where((child) {
+              final childStyle = styles.chainStyle([...scope.ancestors, child]);
+              return childStyle.display != CssDisplay.none &&
+                  !childStyle.isOutOfFlow;
+            }).singleOrNull ==
+            null ||
         style.flexShrink < 1 ||
         style.intrinsicWidth != null ||
         !style.flexBasis.isAuto ||
         style.flexBasisIsContent) {
       return contentWidth;
     }
-    // 单个可完全收缩的子项在测量后代前即可确定最终内容宽，
+    // 隐藏或脱离普通流的兄弟不产生 Flex 子项。单个可完全收缩的子项
+    // 在测量后代前即可确定最终内容宽，
     // 百分比图片与文字不能继续使用收缩前的包含块。
     final available = math.max(
       0.0,
