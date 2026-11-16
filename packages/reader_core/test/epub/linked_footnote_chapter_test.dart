@@ -22,7 +22,7 @@ const _insets = EdgeInsets.fromLTRB(
   24.08888888888893,
 );
 
-Uint8List _book(String body) => auditZip({
+Uint8List _book(String body, String css) => auditZip({
   'mimetype': 'application/epub+zip',
   'META-INF/container.xml':
       '<container><rootfiles><rootfile full-path="book.opf"/>'
@@ -41,12 +41,16 @@ Uint8List _book(String body) => auditZip({
       'h1 a {color:#C74331;}'
       'p {font-size:1em;text-indent:2em;}'
       '.raised {font-size:.7em;vertical-align:super;}'
-      '</style></head><body>$body</body></html>',
+      '$css</style></head><body>$body</body></html>',
 });
 
-Future<List<PageContent>> _pages(String body) async {
+Future<List<PageContent>> _pages(
+  String body, {
+  String css = '',
+  double fontSize = 21,
+}) async {
   final source = await const EpubFormatOpener().openBytes(
-    _book(body),
+    _book(body, css),
     options: const ReaderOpenOptions(
       contentWidth: _contentWidth,
       contentHeight: _contentHeight,
@@ -54,7 +58,13 @@ Future<List<PageContent>> _pages(String body) async {
   );
   addTearDown(source.close);
   await source.applyOverrides(
-    const ReaderOverrides(fontSize: 21, lineHeight: 1.6, paragraphSpacing: 10),
+    ReaderOverrides(fontSize: fontSize, lineHeight: 1.6, paragraphSpacing: 10),
+  );
+  await source.applyContentSize(
+    width: _contentWidth,
+    height: _contentHeight,
+    topInset: _insets.top,
+    sideInsets: (left: _insets.left, right: _insets.right),
   );
   return source.loadChapter(0);
 }
@@ -94,6 +104,47 @@ Future<Offset> _paintedTitleNoteCenter(PageContent page) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final type in ['footnotes', 'appendix footnotes']) {
+    test('EPUB $type 脚注集合整体移出正文，卡片不残留分隔线且注号保留内容', () async {
+      const noteText = '引自莎士比亚的《罗密欧与朱丽叶》，第三幕第三景。';
+      final page = (await _pages(
+        '<h1 class="cover">第一部分<br/>这个世界</h1><div class="card">'
+        '<div class="title">第一部分</div><div class="author">这个世界</div>'
+        '<div class="quote"><p class="quote">“不要懊恼，这是一个广大的世界。”'
+        '<sup><a id="reference-a" epub:type="noteref" href="#definition-a">'
+        '[5]</a></sup></p></div><section class="notes" epub:type="$type">'
+        '<aside id="definition-a" epub:type="footnote"><p>'
+        '<a epub:type="noteref" href="#reference-a">[5]</a>$noteText</p>'
+        '</aside></section></div>',
+        css: '''
+body {margin:0; padding:20px; height:100vh; display:flex;
+  justify-content:center; align-items:center; text-align:center;}
+.cover {display:none;}
+.card {width:100%; max-width:600px; margin:30px; padding:20px;
+  background:rgba(255,255,255,.4); border-radius:10px; display:flex;
+  flex-direction:column; align-items:center;}
+.title {font-size:24px; margin:15px 0;} .author {font-size:16px;}
+.quote {font-size:12px; text-align:center; text-indent:0;}
+.notes {font-size:.875em; line-height:1.2; margin:1em 0 0;
+  padding-top:.5em; text-align:left; text-indent:2em; border-top:gray solid 1px;}
+div {margin-top:10px;}
+''',
+        fontSize: 18,
+      )).single;
+      final cells = page.slices.single.block.table!.cells;
+      expect(
+        cells.any((cell) => cell.style.borders.hasBorder),
+        isFalse,
+        reason: '脚注集合隐藏时，边框和占位必须一并移出正文',
+      );
+      final text = cells.map((cell) => cell.layout.text).join();
+      expect(text, '第一部分这个世界“不要懊恼，这是一个广大的世界。”[5]');
+      final note = cells.expand((cell) => cell.footnotes).single;
+      expect(note.text, noteText);
+      expect(note.label, '[5]');
+    });
+  }
 
   test('标题和正文的前置空锚点配对数字回链可读取注文，定义不进入正文', () async {
     final pages = await _pages(

@@ -220,7 +220,8 @@ abstract final class FootnoteParser {
         .split(RegExp(r'\s+'))
         .where((value) => value.isNotEmpty)
         .toSet();
-    if (type.contains('endnotes') ||
+    if (type.split(RegExp(r'\s+')).contains('footnotes') ||
+        type.contains('endnotes') ||
         type == 'footnote' ||
         type == 'endnote' ||
         type == 'rearnote' ||
