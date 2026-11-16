@@ -204,6 +204,8 @@ class _MarginCollapseWork {
   var _flowCount = 0;
   int? _previous;
   FloatParentMargins? _pendingFloatParentMargins;
+  FloatParentMargins? _pendingEmptyMargins;
+  PageBlock? _lastEmptyBlock;
   final _pendingFloatIndices = <int>[];
   bool _parentMarginChanged = false;
   List<PageBlock> get result =>
@@ -222,8 +224,38 @@ class _MarginCollapseWork {
         continue;
       }
       _flowCount += 1;
+      if (_isSelfCollapsingEmptyBlock(current)) {
+        yield* _emptyBlock(current);
+        continue;
+      }
       yield* _flowBlock(current);
     }
+    if (_lastEmptyBlock case final block?) {
+      _blocks.add(
+        block.withSpacing(
+          spaceBefore: _pendingEmptyMargins!.extent,
+          spaceAfter: 0,
+        ),
+      );
+    }
+  }
+
+  Iterable<int> _emptyBlock(PageBlock block) sync* {
+    var margins = _pendingEmptyMargins ?? const FloatParentMargins();
+    if (_previous case final index?) {
+      final previous = _blocks[index];
+      final boundary = _MarginBoundary(previous, block);
+      yield* boundary.steps();
+      if (!boundary.blocked) {
+        margins = margins.include(previous.spaceAfter);
+        _blocks[index] = previous.withSpacing(spaceAfter: 0);
+      }
+    }
+    _pendingEmptyMargins = margins
+        .include(block.spaceBefore)
+        .include(block.spaceAfter);
+    _lastEmptyBlock = block;
+    _parentMarginChanged = true;
   }
 
   Iterable<int> _flowBlock(PageBlock current) sync* {
@@ -237,7 +269,11 @@ class _MarginCollapseWork {
         _blocks[previousIndex] = previous.withSpacing(spaceAfter: 0);
       }
     }
-    final parents = _pendingFloatParentMargins
+    final pending = _pendingEmptyMargins == null
+        ? _pendingFloatParentMargins
+        : _pendingFloatParentMargins?.merge(_pendingEmptyMargins!) ??
+              _pendingEmptyMargins;
+    final parents = pending
         ?.include(previousMargin ?? 0)
         .include(current.spaceBefore);
     if (parents != null) yield* _retainParentMargins(parents);
@@ -247,6 +283,8 @@ class _MarginCollapseWork {
         ? current.spaceBefore
         : collapseMargins(previousMargin, current.spaceBefore);
     _pendingFloatParentMargins = null;
+    _pendingEmptyMargins = null;
+    _lastEmptyBlock = null;
     if ((parents != null || previousMargin != null) &&
         before != current.spaceBefore) {
       current = current.withSpacing(spaceBefore: before);
@@ -268,6 +306,21 @@ class _MarginCollapseWork {
     _pendingFloatIndices.clear();
   }
 }
+
+/// 无行内容、装饰或独立高度的空块，上下外边距可穿透折叠。
+bool _isSelfCollapsingEmptyBlock(PageBlock block) =>
+    block.layout.text.isEmpty &&
+    block.layout.lines.every((line) => line.height == 0) &&
+    block.height == 0 &&
+    block.topInset == 0 &&
+    block.bottomInset == 0 &&
+    !block.pageBreakBefore &&
+    !block.pageBreakAfter &&
+    block.floatSide == null &&
+    !block.absolute &&
+    block.style != null &&
+    block.style!.clear == CssClear.none &&
+    containerCollapsesMargins(block.style!);
 
 /// 容器装饰隔断内部段距；已分离的外部兄弟边距仍参与折叠。
 class _MarginBoundary {
@@ -435,6 +488,14 @@ Future<void> wrapContainerBlocks(
   Future<void> Function()? checkpoint,
 }) async {
   if (start == blocks.length) return;
+  // 先在父内容盒内折叠空块边距，再把父装饰挂到实际首末子块上。
+  if (blocks.skip(start).any(_isSelfCollapsingEmptyBlock)) {
+    final children = await collapseMarginsIgnoringFloatsAsync(
+      blocks.sublist(start),
+      checkpoint: checkpoint,
+    );
+    blocks.replaceRange(start, blocks.length, children);
+  }
   final style = container.style;
   final top = style.padding.top + style.borders.top.width;
   final bottom = style.padding.bottom + style.borders.bottom.width;

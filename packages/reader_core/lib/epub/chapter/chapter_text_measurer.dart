@@ -284,18 +284,19 @@ class ChapterTextMeasurer {
         );
     final hasBorder = style.borders.hasBorder;
     final hasClearance = style.clear != CssClear.none;
+    final hasSpacing =
+        style.margin.top != 0 ||
+        style.margin.bottom != 0 ||
+        style.padding.vertical > 0;
     final declaredHeight = style.height?.resolve(contentWidth);
     final declaredMinHeight = style.minHeight?.resolve(contentWidth);
     if (!hasBackground &&
         !hasBorder &&
         !hasClearance &&
+        !hasSpacing &&
         (declaredHeight == null || declaredHeight <= 0) &&
         (declaredMinHeight == null || declaredMinHeight <= 0)) {
       return null;
-    }
-    var contentHeight = declaredHeight ?? 0.0;
-    if (declaredMinHeight != null && declaredMinHeight > contentHeight) {
-      contentHeight = declaredMinHeight;
     }
     final absoluteBox = style.resolveAbsoluteBox(
       containingWidth: contentWidth,
@@ -314,10 +315,16 @@ class ChapterTextMeasurer {
                     : null,
               ));
     return PageBlock.styled(
-      layout: TextLayoutEngine.layout(
+      // 空盒没有文字行高，零高行只承载盒装饰和外边距的分页占位。
+      layout: TextLayoutResult(
         text: '',
-        style: style,
+        lines: const [
+          LineBox(start: 0, end: 0, top: 0, height: 0, baseline: 0, width: 0),
+        ],
+        width: boxWidth,
+        height: 0,
         maxWidth: boxWidth,
+        runs: const [],
       ),
       style: style,
       containingWidth: contentWidth,
