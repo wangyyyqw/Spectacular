@@ -379,6 +379,10 @@ ComputedStyle _imagePaintStyle(
   return ComputedStyle({
     ...input.style.values,
     'width': '${geometry.width}px',
+    // 百分比限宽沿用测量时的包含块，出血图片不能在绘制时再按正文区收窄。
+    if (input.style.maxWidth?.resolve(geometry.containingWidth)
+        case final limit?)
+      'max-width': '${limit}px',
     // 分页盒与背景绘制共用已限制的尺寸，不能重新使用原始声明高度。
     'height': '${geometry.height}px',
     'margin-left':
