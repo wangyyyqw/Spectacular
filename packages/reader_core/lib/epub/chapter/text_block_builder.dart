@@ -318,6 +318,7 @@ class TextBlockBuilder {
           style,
           context.ancestors,
           relativeSize,
+          scaleTextWidth: true,
         );
       }
       return styles.snapshot.overrides

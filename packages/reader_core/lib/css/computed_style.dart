@@ -2763,9 +2763,15 @@ class ComputedStyle {
   /// 按阅读器字号缩放作者声明的相对字体排版。
   ///
   /// 用于标题、紧凑组件等必须保留作者相对字号的元素。字号倍数与行高一起
-  /// 调整；当前元素以 `em`/`rem` 声明的外边距也随字号缩放，其余长度不变。
-  ComputedStyle scaleRelativeTypography(double fontSize) {
-    if (fontSize <= 0 || fontSize == this.fontSize) return this;
+  /// 调整；当前元素以 `em`/`rem` 声明的外边距也随字号缩放。跟随正文设置的
+  /// 文字块可传入按最终字号重新求解的列宽，其余作者盒尺寸不变。
+  ComputedStyle scaleRelativeTypography(
+    double fontSize, {
+    double? resolvedWidth,
+  }) {
+    if (fontSize <= 0 || (fontSize == this.fontSize && resolvedWidth == null)) {
+      return this;
+    }
     final factor = fontSize / this.fontSize;
     final scaledLineHeight =
         lineHeightFactor == null || unitlessLineHeightFactor != null
@@ -2773,6 +2779,7 @@ class ComputedStyle {
         : lineHeight * factor;
     return _withTextProperties(
       fontSize: fontSize,
+      widthOverride: resolvedWidth,
       lineHeightFactor: unitlessLineHeightFactor,
       resolvedLineHeight: scaledLineHeight,
       marginOverride: CssEdges(
@@ -2859,6 +2866,7 @@ class ComputedStyle {
     double? letterSpacing,
     Color? color,
     CssEdges? marginOverride,
+    double? widthOverride,
     bool clearBackground = false,
   }) {
     if (fontSize == null &&
@@ -2874,6 +2882,7 @@ class ComputedStyle {
         letterSpacing == null &&
         color == null &&
         marginOverride == null &&
+        widthOverride == null &&
         !clearBackground) {
       return this;
     }
@@ -2907,6 +2916,7 @@ class ComputedStyle {
     final nextValues = <String, String>{
       ...values,
       if (fontSize != null) 'font-size': '${nextFontSize}px',
+      if (widthOverride != null) 'width': '${widthOverride}px',
       if (resolvedLineHeight != null)
         'line-height': '${resolvedLineHeight}px'
       else if (lineHeightFactor != null)
@@ -2931,6 +2941,7 @@ class ComputedStyle {
     final nextExplicit = <String>{
       ...explicitProperties,
       if (fontSize != null) 'font-size',
+      if (widthOverride != null) 'width',
       if (lineHeightFactor != null || resolvedLineHeight != null) 'line-height',
       if (textAlign != null) 'text-align',
       if (textSpacingTrim != null) 'text-spacing-trim',
@@ -3062,7 +3073,7 @@ class ComputedStyle {
       borderImage: _parseBorderImage(
         nextValues['border-image'] ?? nextValues['border-image-source'],
       ),
-      width: width,
+      width: widthOverride == null ? width : CssLength(widthOverride),
       intrinsicWidth: intrinsicWidth,
       height: height,
       minWidth: minWidth,
