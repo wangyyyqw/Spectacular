@@ -55,7 +55,7 @@ void main() {
 
     await tester.tap(find.text('统计'));
     await _settle(tester);
-    expect(find.text('总书数'), findsOneWidget);
+    expect(find.text('图书时长'), findsOneWidget);
 
     await tester.tap(find.text('书评'));
     await _settle(tester);
