@@ -1303,6 +1303,11 @@ class PagePainter {
           leftInset:
               slice.leftInset +
               style.margin.left +
+              (slice.overlay &&
+                      slice.block.floatSide != null &&
+                      !slice.block.isReplaced
+                  ? slice.block.leftInset
+                  : 0) +
               (slice.overlay && style.isOutOfFlow
                   ? (style.borders.left.isVisible
                             ? style.borders.left.width
@@ -5949,7 +5954,17 @@ class _SliceGeometry {
   /// margin 后的边框盒，否则会画进相邻块之间的空白带——Chromium 那里是页面
   /// 底色（10-background、26-background-gradient 的视觉差全部落在这条带上）。
   Rect get borderBox {
-    if (paintBox != null) return paintBox!;
+    final containerBox = paintBox;
+    if (containerBox != null) {
+      // 容器只扩展自身的装饰盒，子块仍使用原来的包含块与内容坐标。
+      final bleed = style.bleed;
+      return Rect.fromLTRB(
+        bleed.left ? -pageInsets.left : containerBox.left,
+        bleed.top ? -pageInsets.top : containerBox.top,
+        bleed.right ? pageWidth + pageInsets.right : containerBox.right,
+        bleed.bottom ? pageHeight + pageInsets.bottom : containerBox.bottom,
+      );
+    }
     final block = slice.block;
     final ownTop = block.containers.isEmpty
         ? block.topInset
