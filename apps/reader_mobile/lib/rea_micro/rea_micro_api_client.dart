@@ -83,6 +83,32 @@ abstract interface class ReaMicroApi {
   /// 删除一条云端标注。
   Future<void> deleteMark(String token, {required int id});
 
+  /// 读取一本书在阅微的书评。
+  Future<ReaMicroBookReview?> fetchBookReview(
+    String token, {
+    int? bookId,
+    int? cloudBookId,
+  });
+
+  /// 提交一本书的评分与书评。
+  Future<void> rateReview(
+    String token, {
+    int? bookId,
+    int? cloudBookId,
+    required int rating,
+    required String comment,
+    required bool publish,
+  });
+
+  /// 读取账号的读完里程碑。
+  Future<List<ReaMicroMilestone>> fetchMilestones(
+    String token, {
+    int pageSize = 100,
+  });
+
+  /// 删除读完里程碑。
+  Future<void> deleteMilestone(String token, {required int milestoneId});
+
   /// 释放网络客户端。
   void close();
 }
@@ -382,6 +408,87 @@ class ReaMicroApiClient implements ReaMicroApi {
   Future<void> deleteMark(String token, {required int id}) async {
     await _post('rest/read/delete-mark', <String, Object?>{
       'id': id,
+    }, token: token);
+  }
+
+  @override
+  Future<ReaMicroBookReview?> fetchBookReview(
+    String token, {
+    int? bookId,
+    int? cloudBookId,
+  }) async {
+    final data = await _post(
+      'rest/rating/get-review-by-book-id-v2',
+      <String, Object?>{
+        if (bookId != null && bookId > 0) 'bookId': bookId,
+        if (cloudBookId != null && cloudBookId > 0) 'cloudBookId': cloudBookId,
+      },
+      token: token,
+    );
+    final raw = switch (data) {
+      final Map<String, Object?> map
+          when map['review'] is Map<String, Object?> =>
+        map['review']! as Map<String, Object?>,
+      final Map<String, Object?> map when map.isNotEmpty => map,
+      _ => null,
+    };
+    if (raw == null) return null;
+    final review = ReaMicroBookReview.fromJson(raw);
+    return review.id > 0 ? review : null;
+  }
+
+  @override
+  Future<void> rateReview(
+    String token, {
+    int? bookId,
+    int? cloudBookId,
+    required int rating,
+    required String comment,
+    required bool publish,
+  }) async {
+    await _post('rest/rating/rate-review', <String, Object?>{
+      if (bookId != null && bookId > 0) 'bookId': bookId,
+      if (cloudBookId != null && cloudBookId > 0) 'cloudBookId': cloudBookId,
+      'rating': rating.clamp(1, 5),
+      'comment': comment.trim(),
+      'status': publish ? 2 : 1,
+    }, token: token);
+  }
+
+  @override
+  Future<List<ReaMicroMilestone>> fetchMilestones(
+    String token, {
+    int pageSize = 100,
+  }) async {
+    final milestones = <ReaMicroMilestone>[];
+    for (var page = 1; page <= 50; page++) {
+      final data = await _post(
+        'rest/rating/get-milestone-list-v2',
+        <String, Object?>{'pageNum': page, 'pageSize': pageSize},
+        token: token,
+      );
+      final rawItems = switch (data) {
+        final Map<String, Object?> map
+            when map['milestones'] is List<Object?> =>
+          map['milestones']! as List<Object?>,
+        _ => _responseList(data),
+      };
+      milestones.addAll(<ReaMicroMilestone>[
+        for (final item in rawItems)
+          if (item is Map<String, Object?>) ReaMicroMilestone.fromJson(item),
+      ]);
+      if (rawItems.length < pageSize) break;
+    }
+    milestones.sort(
+      (left, right) => right.ratingTime.compareTo(left.ratingTime),
+    );
+    return milestones;
+  }
+
+  @override
+  Future<void> deleteMilestone(String token, {required int milestoneId}) async {
+    await _post('rest/rating/delete-milestone', <String, Object?>{
+      'milestoneId': milestoneId,
     }, token: token);
   }
 

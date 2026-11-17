@@ -148,6 +148,10 @@ class _FakeApi implements ReaMicroApi {
   final List<ReaMicroMarkDraft> markUpserts = <ReaMicroMarkDraft>[];
   final List<int> markDeletes = <int>[];
   int nextMarkId = 500;
+  ReaMicroBookReview? bookReview;
+  List<ReaMicroMilestone> milestones = <ReaMicroMilestone>[];
+  final List<_ReviewUpload> reviewUploads = <_ReviewUpload>[];
+  final List<int> deletedMilestones = <int>[];
   ReaMicroOverview overview = const ReaMicroOverview(
     years: <int>[],
     readDays: 0,
@@ -341,7 +345,75 @@ class _FakeApi implements ReaMicroApi {
   }
 
   @override
+  Future<ReaMicroBookReview?> fetchBookReview(
+    String token, {
+    int? bookId,
+    int? cloudBookId,
+  }) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    return bookReview;
+  }
+
+  @override
+  Future<void> rateReview(
+    String token, {
+    int? bookId,
+    int? cloudBookId,
+    required int rating,
+    required String comment,
+    required bool publish,
+  }) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    reviewUploads.add(
+      _ReviewUpload(
+        cloudBookId: cloudBookId ?? 0,
+        rating: rating,
+        comment: comment,
+        publish: publish,
+      ),
+    );
+  }
+
+  @override
+  Future<List<ReaMicroMilestone>> fetchMilestones(
+    String token, {
+    int pageSize = 100,
+  }) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    return List<ReaMicroMilestone>.of(milestones);
+  }
+
+  @override
+  Future<void> deleteMilestone(String token, {required int milestoneId}) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    deletedMilestones.add(milestoneId);
+    milestones.removeWhere((item) => item.id == milestoneId);
+  }
+
+  @override
   void close() {}
+}
+
+class _ReviewUpload {
+  const _ReviewUpload({
+    required this.cloudBookId,
+    required this.rating,
+    required this.comment,
+    required this.publish,
+  });
+
+  final int cloudBookId;
+  final int rating;
+  final String comment;
+  final bool publish;
 }
 
 class _ProgressUpload {
@@ -1282,5 +1354,50 @@ void main() {
     expect(annotations.single.id, 'mark-lan-88');
     expect(annotations.single.note, '局域网想法');
     expect(annotations.single.color, 0xCC00FF00);
+  });
+
+  test('读取里程碑、发布书评并删除里程碑', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi()
+      ..bookReview = ReaMicroBookReview.fromJson(<String, Object?>{
+        'id': 21,
+        'rating': 4,
+        'comment': '旧书评',
+        'status': 2,
+        'bookName': '云端书',
+      })
+      ..milestones = <ReaMicroMilestone>[
+        ReaMicroMilestone.fromJson(<String, Object?>{
+          'id': 7,
+          'rating': 5,
+          'cloudBookId': 11,
+          'name': '云端书',
+          'comment': '读完了',
+          'totalReadTime': 7200,
+          'readDays': 3,
+        }),
+      ];
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+
+    await controller.refreshMilestones();
+    final review = await controller.loadBookReview(11);
+    final saved = await controller.saveReview(
+      cloudBookId: 11,
+      rating: 4,
+      comment: '新的书评',
+      publish: true,
+    );
+    expect(controller.milestones.single.name, '云端书');
+    final deleted = await controller.deleteMilestone(7);
+
+    expect(review?.comment, '旧书评');
+    expect(saved.success, isTrue);
+    expect(api.reviewUploads.single.rating, 4);
+    expect(api.reviewUploads.single.comment, '新的书评');
+    expect(api.reviewUploads.single.publish, isTrue);
+    expect(deleted.success, isTrue);
+    expect(api.deletedMilestones, <int>[7]);
+    expect(controller.milestones, isEmpty);
   });
 }

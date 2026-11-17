@@ -6,6 +6,7 @@ import 'rea_micro_book_link_page.dart';
 import 'rea_micro_controller.dart';
 import 'rea_micro_lan_page.dart';
 import 'rea_micro_models.dart';
+import 'rea_micro_rating_page.dart';
 import 'rea_micro_s3_page.dart';
 
 /// 阅微账号、阅读数据与同步设置页。
@@ -352,6 +353,18 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
             MaterialPageRoute<void>(
               builder: (context) =>
                   ReaMicroBookLinkPage(controller: controller),
+            ),
+          ),
+        ),
+        ListTile(
+          key: const ValueKey<String>('reamicro-ratings'),
+          leading: const Icon(Icons.workspace_premium_outlined),
+          title: const Text('书评与里程碑'),
+          subtitle: const Text('查看阅微读完记录，发布评分与书评'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (context) => ReaMicroRatingPage(controller: controller),
             ),
           ),
         ),

@@ -244,6 +244,72 @@ void main() {
     expect(progress?.readFinishTime, 1763380800000);
   });
 
+  test('书评与里程碑使用阅微评分接口并解析嵌套响应', () async {
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('get-review-by-book-id-v2')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'review': <String, Object?>{
+                'id': 21,
+                'rating': 4,
+                'comment': '旧书评',
+                'status': 2,
+                'bookName': '云端书',
+              },
+            },
+          });
+        }
+        if (request.url.path.endsWith('get-milestone-list-v2')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'milestones': <Object?>[
+                <String, Object?>{
+                  'id': 7,
+                  'rating': 5,
+                  'cloudBookId': 11,
+                  'name': '云端书',
+                  'ratingTime': 1794909600,
+                  'totalReadTime': 7200,
+                },
+              ],
+            },
+          });
+        }
+        return _json(<String, Object?>{'code': 0, 'data': true});
+      }),
+    );
+    addTearDown(api.close);
+
+    final review = await api.fetchBookReview('token', cloudBookId: 11);
+    final milestones = await api.fetchMilestones('token');
+    await api.rateReview(
+      'token',
+      cloudBookId: 11,
+      rating: 4,
+      comment: '新的书评',
+      publish: true,
+    );
+    await api.deleteMilestone('token', milestoneId: 7);
+
+    expect(review?.comment, '旧书评');
+    expect(milestones.single.name, '云端书');
+    expect(milestones.single.totalReadTimeSeconds, 7200);
+    expect(jsonDecode(requests[0].body), <String, Object?>{'cloudBookId': 11});
+    expect(jsonDecode(requests[2].body), <String, Object?>{
+      'cloudBookId': 11,
+      'rating': 4,
+      'comment': '新的书评',
+      'status': 2,
+    });
+    expect(jsonDecode(requests[3].body), <String, Object?>{'milestoneId': 7});
+  });
+
   test('读取完整阅读概览、周期统计与书籍记录', () async {
     final requests = <http.Request>[];
     final api = ReaMicroApiClient(

@@ -1138,6 +1138,215 @@ class ReaMicroLanManifest {
   }
 }
 
+/// 阅微书评。
+class ReaMicroBookReview {
+  /// 创建书评。
+  const ReaMicroBookReview({
+    required this.id,
+    required this.rating,
+    required this.comment,
+    required this.status,
+    required this.publishTime,
+    required this.commentUpdateTime,
+    required this.likeCount,
+    required this.isLiked,
+    required this.bookId,
+    required this.bookName,
+    required this.bookAuthor,
+    required this.bookCover,
+    required this.userId,
+    required this.userName,
+    required this.title,
+    required this.titleLevel,
+    required this.userAvatar,
+    required this.userRemark,
+    required this.userLevel,
+    required this.vip,
+    required this.readTotalTimeSeconds,
+    required this.style,
+    required this.seal,
+    required this.popularity,
+  });
+
+  /// 书评标识。
+  final int id;
+
+  /// 评分 1～5，0 表示未评分。
+  final int rating;
+
+  /// 书评正文。
+  final String comment;
+
+  /// 状态，1 为私有、2 为公开发布。
+  final int status;
+
+  /// 发布时间（毫秒时间戳）。
+  final int publishTime;
+
+  /// 正文更新时间（毫秒时间戳）。
+  final int commentUpdateTime;
+
+  /// 点赞数。
+  final int likeCount;
+
+  /// 当前账号是否已点赞。
+  final bool isLiked;
+
+  /// 阅微内部书籍标识。
+  final int bookId;
+
+  final String bookName;
+  final String bookAuthor;
+  final String bookCover;
+  final int userId;
+  final String userName;
+  final String title;
+  final int titleLevel;
+  final String userAvatar;
+  final String userRemark;
+  final int userLevel;
+  final bool vip;
+
+  /// 读完本书时的累计阅读时长（秒）。
+  final int readTotalTimeSeconds;
+  final String style;
+  final String seal;
+  final int popularity;
+
+  /// 是否已公开发布。
+  bool get published => status == 2;
+
+  /// 解析接口数据。
+  factory ReaMicroBookReview.fromJson(Map<String, Object?> json) {
+    return ReaMicroBookReview(
+      id: _intValue(json['id']),
+      rating: _intValue(json['rating']),
+      comment: _stringValue(json['comment']) ?? '',
+      status: _intValue(json['status']),
+      publishTime: _timestampMillis(json['publishTime']),
+      commentUpdateTime: _timestampMillis(json['commentUpdateTime']),
+      likeCount: _intValue(json['likeCount']),
+      isLiked: json['isLiked'] == true || _intValue(json['isLiked']) > 0,
+      bookId: _intValue(json['bookId']),
+      bookName: _stringValue(json['bookName']) ?? '',
+      bookAuthor: _stringValue(json['bookAuthor']) ?? '',
+      bookCover: _stringValue(json['bookCover']) ?? '',
+      userId: _intValue(json['userId']),
+      userName: _stringValue(json['userName']) ?? '',
+      title: _stringValue(json['title']) ?? '',
+      titleLevel: _intValue(json['titleLevel']),
+      userAvatar: _stringValue(json['userAvatar']) ?? '',
+      userRemark: _stringValue(json['userRemark']) ?? '',
+      userLevel: _intValue(json['userLevel']),
+      vip: json['vip'] == true || _intValue(json['vip']) > 0,
+      readTotalTimeSeconds: _intValue(json['readTotalTime']),
+      style: _stringValue(json['style']) ?? '',
+      seal: _stringValue(json['seal']) ?? '',
+      popularity: _intValue(json['popularity']),
+    );
+  }
+}
+
+/// 阅微读完里程碑。
+class ReaMicroMilestone {
+  /// 创建里程碑。
+  const ReaMicroMilestone({
+    required this.id,
+    required this.rating,
+    required this.status,
+    required this.ratingTime,
+    required this.cloudBookId,
+    required this.name,
+    required this.author,
+    required this.cover,
+    required this.comment,
+    required this.style,
+    required this.seal,
+    required this.popularity,
+    required this.totalReadTimeSeconds,
+    required this.startReadTime,
+    required this.readDays,
+    required this.lastReadTime,
+    required this.maxDayReadDurationSeconds,
+    required this.maxDayReadTime,
+    required this.immersiveReadTimeSeconds,
+    required this.fragmentReadTimeSeconds,
+    required this.deepReadTimeSeconds,
+    required this.deepFragmentReadTimeSeconds,
+    required this.listeningDurationSeconds,
+    required this.readingDurationSeconds,
+  });
+
+  final int id;
+  final int rating;
+  final int status;
+  final int ratingTime;
+  final int cloudBookId;
+  final String name;
+  final String author;
+  final String cover;
+  final String comment;
+  final String style;
+  final String seal;
+  final int popularity;
+  final int totalReadTimeSeconds;
+  final int startReadTime;
+  final int readDays;
+  final int lastReadTime;
+  final int maxDayReadDurationSeconds;
+  final int maxDayReadTime;
+  final int immersiveReadTimeSeconds;
+  final int fragmentReadTimeSeconds;
+  final int deepReadTimeSeconds;
+  final int deepFragmentReadTimeSeconds;
+  final int listeningDurationSeconds;
+  final int readingDurationSeconds;
+
+  /// 解析接口数据。
+  factory ReaMicroMilestone.fromJson(Map<String, Object?> json) {
+    return ReaMicroMilestone(
+      id: _intValue(json['id']),
+      rating: _intValue(json['rating']),
+      status: _intValue(json['status']),
+      ratingTime: _timestampMillis(json['ratingTime']),
+      cloudBookId: _intValue(json['cloudBookId']),
+      name: _stringValue(json['name']) ?? '',
+      author: _stringValue(json['author']) ?? '',
+      cover: _stringValue(json['cover']) ?? '',
+      comment: _stringValue(json['comment']) ?? '',
+      style: _stringValue(json['style']) ?? '',
+      seal: _stringValue(json['seal']) ?? '',
+      popularity: _intValue(json['popularity']),
+      totalReadTimeSeconds: _intValue(json['totalReadTime']),
+      startReadTime: _timestampMillis(json['startReadTime']),
+      readDays: _intValue(json['readDays']),
+      lastReadTime: _timestampMillis(json['lastReadTime']),
+      maxDayReadDurationSeconds: _intValue(json['maxDayReadDuration']),
+      maxDayReadTime: _timestampMillis(json['maxDayReadTime']),
+      immersiveReadTimeSeconds: _intValue(json['immersiveReadTime']),
+      fragmentReadTimeSeconds: _intValue(json['fragmentReadTime']),
+      deepReadTimeSeconds: _intValue(json['deepReadTime']),
+      deepFragmentReadTimeSeconds: _intValue(json['deepFragmentReadTime']),
+      listeningDurationSeconds: _intValue(json['listeningDuration']),
+      readingDurationSeconds: _intValue(json['readingDuration']),
+    );
+  }
+}
+
+/// 阅微写操作结果。
+class ReaMicroActionResult {
+  /// 创建结果。
+  const ReaMicroActionResult({
+    required this.success,
+    required this.message,
+    this.unauthorized = false,
+  });
+
+  final bool success;
+  final String message;
+  final bool unauthorized;
+}
+
 /// 阅微接口或网络失败。
 class ReaMicroException implements Exception {
   /// 创建异常。

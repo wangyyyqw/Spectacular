@@ -100,6 +100,9 @@ class ReaMicroController extends ChangeNotifier {
   DateTime? _cloudStatsAt;
   bool _loadingCloudStats = false;
   String? _cloudStatsError;
+  List<ReaMicroMilestone> _milestones = const <ReaMicroMilestone>[];
+  bool _loadingMilestones = false;
+  String? _milestonesError;
   Timer? _cloudSyncTimer;
   Timer? _s3SyncTimer;
   ReaMicroS3Config? _s3Config;
@@ -187,6 +190,15 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 完整阅读数据拉取失败原因。
   String? get cloudStatsError => _cloudStatsError;
+
+  /// 阅微读完里程碑。
+  List<ReaMicroMilestone> get milestones => _milestones;
+
+  /// 正在读取里程碑。
+  bool get loadingMilestones => _loadingMilestones;
+
+  /// 里程碑读取失败原因。
+  String? get milestonesError => _milestonesError;
 
   /// 是否已配置 S3 同步。
   bool get s3Configured => _s3Config?.usable ?? false;
@@ -277,6 +289,9 @@ class ReaMicroController extends ChangeNotifier {
       await _store.saveMarkIds(_markIds);
     }
     await _clearS3BookmarkBases();
+    _milestones = const <ReaMicroMilestone>[];
+    _loadingMilestones = false;
+    _milestonesError = null;
   }
 
   /// 延迟执行 S3 同步，避免启动阶段与账号刷新重叠。
@@ -596,6 +611,110 @@ class ReaMicroController extends ChangeNotifier {
     } finally {
       _loadingCloudStats = false;
       _notify();
+    }
+  }
+
+  /// 拉取阅微读完里程碑。
+  Future<void> refreshMilestones({bool silent = false}) async {
+    final token = _token;
+    if (token == null || _loadingMilestones) return;
+    _loadingMilestones = true;
+    if (!silent) _milestonesError = null;
+    _notify();
+    try {
+      final items = await _api.fetchMilestones(token);
+      if (_token != token) return;
+      _milestones = List<ReaMicroMilestone>.unmodifiable(items);
+      _milestonesError = null;
+    } catch (error) {
+      _milestonesError = _messageOf(error);
+      await _handleError(error);
+    } finally {
+      _loadingMilestones = false;
+      _notify();
+    }
+  }
+
+  /// 读取一本书在阅微的书评。
+  Future<ReaMicroBookReview?> loadBookReview(int cloudBookId) async {
+    final token = _token;
+    if (token == null || cloudBookId <= 0) return null;
+    try {
+      return await _api.fetchBookReview(token, cloudBookId: cloudBookId);
+    } catch (error) {
+      await _handleError(error);
+      return null;
+    }
+  }
+
+  /// 提交一本书的评分与书评。
+  Future<ReaMicroActionResult> saveReview({
+    required int cloudBookId,
+    required int rating,
+    required String comment,
+    required bool publish,
+  }) async {
+    final token = _token;
+    if (token == null) {
+      return const ReaMicroActionResult(
+        success: false,
+        message: '请先登录阅微账号',
+        unauthorized: true,
+      );
+    }
+    if (cloudBookId <= 0) {
+      return const ReaMicroActionResult(
+        success: false,
+        message: '当前书籍尚未关联阅微云端书籍',
+      );
+    }
+    try {
+      await _api.rateReview(
+        token,
+        cloudBookId: cloudBookId,
+        rating: rating,
+        comment: comment,
+        publish: publish,
+      );
+      await refreshMilestones(silent: true);
+      return ReaMicroActionResult(
+        success: true,
+        message: publish ? '书评已发布到阅微' : '书评已保存到阅微',
+      );
+    } catch (error) {
+      await _handleError(error);
+      return ReaMicroActionResult(
+        success: false,
+        message: _messageOf(error),
+        unauthorized: error is ReaMicroException && error.unauthorized,
+      );
+    }
+  }
+
+  /// 删除一条读完里程碑。
+  Future<ReaMicroActionResult> deleteMilestone(int milestoneId) async {
+    final token = _token;
+    if (token == null) {
+      return const ReaMicroActionResult(
+        success: false,
+        message: '请先登录阅微账号',
+        unauthorized: true,
+      );
+    }
+    if (milestoneId <= 0) {
+      return const ReaMicroActionResult(success: false, message: '当前里程碑无法删除');
+    }
+    try {
+      await _api.deleteMilestone(token, milestoneId: milestoneId);
+      await refreshMilestones(silent: true);
+      return const ReaMicroActionResult(success: true, message: '里程碑已删除');
+    } catch (error) {
+      await _handleError(error);
+      return ReaMicroActionResult(
+        success: false,
+        message: _messageOf(error),
+        unauthorized: error is ReaMicroException && error.unauthorized,
+      );
     }
   }
 
