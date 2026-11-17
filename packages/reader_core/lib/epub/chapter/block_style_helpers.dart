@@ -4,6 +4,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/layout/float_occupancy.dart';
 import 'package:reader_core/layout/page_background.dart';
+import 'package:reader_core/layout/paginator.dart';
 
 /// 从级联胜出的显式长属性或 font 简写中取字号，继承字号不当作新声明。
 String? fontSizeDeclarationOf(ComputedStyle style) {
@@ -28,6 +29,38 @@ String borderStyleName(CssBorderStyle value) => switch (value) {
 /// 颜色转 #RRGGBB（P8-05c 拼合声明用）。
 String colorToHex(Color color) {
   return (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
+}
+
+/// 章首出血图抵消阅读顶部内缩，分页和固定盒静态位置使用相同起点。
+Future<double> chapterTopPadding(
+  List<PageBlock> blocks,
+  double topInset, {
+  Future<void> Function()? checkpoint,
+}) async {
+  PageBlock? first;
+  for (final block in blocks) {
+    await checkpoint?.call();
+    if (!block.absolute &&
+        block.style?.display != CssDisplay.none &&
+        (block.layout.lineCount > 0 || block.height > 0)) {
+      first = block;
+      break;
+    }
+  }
+  final hasBackground =
+      first?.style?.backgroundLayers.any(
+        (layer) => layer.image != null || layer.gradient != null,
+      ) ??
+      false;
+  if (first == null ||
+      first.floatSide != null ||
+      !first.bleedTop ||
+      first.bleedBottom ||
+      first.layout.text.isNotEmpty ||
+      !hasBackground) {
+    return 0;
+  }
+  return -topInset - (first.isReplaced ? first.spaceBefore : 0);
 }
 
 /// 从 body 的级联结果取整页背景；书籍未声明背景色、图像或渐变时返回 null。
