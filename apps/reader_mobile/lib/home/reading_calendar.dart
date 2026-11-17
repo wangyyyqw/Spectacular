@@ -7,7 +7,7 @@ import 'book_duration_summary.dart';
 import 'reading_calendar_month.dart';
 import 'reading_insights.dart';
 
-/// 按月查看实际阅读日期，连续阅读的书目在一周内合并展示。
+/// 按月查看实际阅读日期：同一本书连续阅读的日期合并为书名色条，完读当天标记对勾。
 class ReadingCalendar extends StatefulWidget {
   const ReadingCalendar({
     super.key,
@@ -50,18 +50,14 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   void _shiftMonth(int offset) =>
       _showMonth(DateTime(_visibleMonth.year, _visibleMonth.month + offset));
 
-  void _openDay(DateTime date, List<BookDurationEntry> books) {
+  void _openDay(ReadingCalendarMonth month, DateTime date) {
     setState(() => _selectedDate = date);
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => _CalendarDaySheet(
-        date: date,
-        books: books,
-        finishedBookIds: widget.finishedBookIds,
-      ),
+      builder: (context) => _CalendarDaySheet(month: month, date: date),
     );
   }
 
@@ -72,6 +68,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
       widget.insights,
       date: _visibleMonth,
       bookTitles: widget.bookTitles,
+      finishedBookIds: widget.finishedBookIds,
     );
     return Column(
       key: const ValueKey('stats-reading-calendar'),
@@ -87,10 +84,6 @@ class _ReadingCalendarState extends State<ReadingCalendar>
             padding: EdgeInsets.only(top: 12),
             child: Text('本月暂无阅读记录', style: TextStyle(fontSize: 12)),
           ),
-        if (month.monthBooks.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          _CalendarLegend(month: month),
-        ],
       ],
     );
   }
@@ -190,9 +183,10 @@ Widget _weekdays(BuildContext context) => Padding(
   ),
 );
 
-const _weekBaseHeight = 44.0;
-const _laneHeight = 7.0;
-const _barHeight = 4.0;
+const _barHeight = 18.0;
+const _laneGap = 3.0;
+const _minLanesHeight = (_barHeight + _laneGap) * 3;
+const _doneColor = Color(0xFF4E8E47);
 
 class _CalendarWeek extends StatelessWidget {
   const _CalendarWeek({
@@ -207,53 +201,136 @@ class _CalendarWeek extends StatelessWidget {
   final int week;
   final DateTime today;
   final DateTime? selected;
-  final void Function(DateTime, List<BookDurationEntry>) onOpen;
+  final void Function(ReadingCalendarMonth month, DateTime date) onOpen;
 
   @override
   Widget build(BuildContext context) {
     final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
     final spans = month.spansForWeek(week);
-    final lanes = spans.fold(
+    final laneCount = spans.fold(
       0,
       (count, span) => math.max(count, span.lane + 1),
     );
-    return SizedBox(
-      height: (_weekBaseHeight + lanes * _laneHeight) * scale,
-      child: LayoutBuilder(
-        builder: (context, constraints) => Stack(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var column = 0; column < 7; column++)
+                Expanded(child: _cell(context, column)),
+            ],
+          ),
+        ),
+        ExcludeSemantics(
+          child: IgnorePointer(
+            child: Column(
               children: [
-                for (var column = 0; column < 7; column++)
-                  Expanded(child: _day(context, column, scale)),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: _minLanesHeight * scale,
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 4 * scale),
+                    child: Column(
+                      children: [
+                        for (var lane = 0; lane < laneCount; lane++)
+                          _lane(spans, lane, scale),
+                      ],
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    for (var column = 0; column < 7; column++)
+                      Expanded(child: _dayLabel(context, column)),
+                  ],
+                ),
               ],
             ),
-            for (final span in spans)
-              _bar(span, constraints.maxWidth / 7, scale),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _lane(List<ReadingCalendarSpan> spans, int lane, double scale) {
+    final laneSpans = [
+      for (final span in spans)
+        if (span.lane == lane) span,
+    ]..sort((a, b) => a.firstColumn.compareTo(b.firstColumn));
+    final children = <Widget>[];
+    var column = 0;
+    for (final span in laneSpans) {
+      if (span.firstColumn > column) {
+        children.add(Spacer(flex: span.firstColumn - column));
+      }
+      children.add(
+        Expanded(
+          flex: span.lastColumn - span.firstColumn + 1,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: scale),
+            child: _bar(span, scale),
+          ),
+        ),
+      );
+      column = span.lastColumn + 1;
+    }
+    if (column < 7) children.add(Spacer(flex: 7 - column));
+    return Padding(
+      padding: EdgeInsets.only(bottom: _laneGap * scale),
+      child: Row(children: children),
+    );
+  }
+
+  Widget _bar(ReadingCalendarSpan span, double scale) {
+    final color = _bookColor(span.bookId);
+    final done =
+        month.finishDays[span.bookId] == month.dateAt(week, span.lastColumn);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(5),
+      child: Container(
+        key: ValueKey(
+          'stats-calendar-bar-$week-${span.bookId}-${span.firstColumn}',
+        ),
+        constraints: BoxConstraints(minHeight: _barHeight * scale),
+        padding: EdgeInsets.fromLTRB(
+          4 * scale,
+          2 * scale,
+          3 * scale,
+          2 * scale,
+        ),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          border: Border(left: BorderSide(color: color, width: 3)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                span.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, height: 1.2, color: color),
+              ),
+            ),
+            if (done) ...[
+              const SizedBox(width: 2),
+              AppIcon(AppGlyph.check, size: 12, color: color),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _bar(ReadingCalendarSpan span, double columnWidth, double scale) {
-    final padding = 4 * scale;
-    return Positioned(
-      left: span.firstColumn * columnWidth + padding / 2,
-      top: padding + span.lane * _laneHeight * scale,
-      width: (span.lastColumn - span.firstColumn + 1) * columnWidth - padding,
-      height: _barHeight * scale,
-      child: _CalendarBar(span: span, week: week, month: month),
-    );
-  }
-
-  Widget _day(BuildContext context, int column, double scale) {
+  Widget _cell(BuildContext context, int column) {
     final date = month.dateAt(week, column);
     if (date.month != month.start.month) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
     final books = month.days[date] ?? const <BookDurationEntry>[];
     final enabled = !date.isAfter(today);
-    final extra = books.length > 4 ? books.length - 3 : 0;
+    final isToday = date == today;
     return Semantics(
       label:
           '${date.month}月${date.day}日，'
@@ -261,191 +338,78 @@ class _CalendarWeek extends StatelessWidget {
       selected: date == selected,
       child: InkWell(
         key: ValueKey('stats-calendar-day-${_dateKey(date)}'),
-        onTap: enabled ? () => onOpen(date, books) : null,
-        child: _dayCell(context, date, extra, scale),
+        onTap: enabled ? () => onOpen(month, date) : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: date == selected ? scheme.surfaceContainerHighest : null,
+            border: Border.all(
+              color: isToday ? scheme.primary : scheme.outlineVariant,
+              width: isToday ? 1.5 : 0.5,
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Widget _dayCell(
-    BuildContext context,
-    DateTime date,
-    int extra,
-    double scale,
-  ) {
+  Widget _dayLabel(BuildContext context, int column) {
+    final date = month.dateAt(week, column);
+    if (date.month != month.start.month) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: date == selected ? scheme.surfaceContainerHighest : null,
-        border: Border.all(color: scheme.outlineVariant, width: 0.5),
-      ),
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+    final books = month.days[date] ?? const <BookDurationEntry>[];
+    final extra = books.length > 4 ? books.length - 3 : 0;
+    final enabled = !date.isAfter(today);
+    final isToday = date == today;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(5, 2, 5, 4),
       child: Stack(
         children: [
-          if (extra > 0)
-            Positioned(
-              top: 3 * _laneHeight * scale,
-              left: 0,
-              right: 0,
-              child: _overflow(context, date, extra),
-            ),
           Align(
-            alignment: Alignment.bottomLeft,
-            child: _dayNumber(context, date, !date.isAfter(today)),
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '${date.day}',
+              key: ValueKey('stats-calendar-number-${_dateKey(date)}'),
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.2,
+                fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: isToday
+                    ? scheme.primary
+                    : enabled
+                    ? scheme.onSurfaceVariant
+                    : scheme.outline,
+              ),
+            ),
           ),
+          if (extra > 0)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                '+$extra',
+                key: ValueKey('stats-calendar-more-${_dateKey(date)}'),
+                style: TextStyle(
+                  fontSize: 10,
+                  height: 1.2,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
-
-  Widget _overflow(BuildContext context, DateTime date, int count) => Text(
-    '+$count 本',
-    key: ValueKey('stats-calendar-more-${_dateKey(date)}'),
-    maxLines: 1,
-    style: TextStyle(
-      fontSize: 10,
-      height: 1.2,
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-    ),
-  );
-
-  Widget _dayNumber(BuildContext context, DateTime date, bool enabled) {
-    final scheme = Theme.of(context).colorScheme;
-    final isToday = date == today;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      child: Container(
-        padding: isToday ? const EdgeInsets.symmetric(horizontal: 4) : null,
-        decoration: isToday
-            ? BoxDecoration(
-                color: scheme.primary,
-                borderRadius: BorderRadius.circular(4),
-              )
-            : null,
-        child: Text(
-          '${date.day}',
-          style: TextStyle(
-            fontSize: 11,
-            height: 1.2,
-            fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
-            fontFeatures: const [FontFeature.tabularFigures()],
-            color: isToday
-                ? scheme.onPrimary
-                : enabled
-                ? scheme.onSurfaceVariant
-                : scheme.outline,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CalendarBar extends StatelessWidget {
-  const _CalendarBar({
-    required this.span,
-    required this.week,
-    required this.month,
-  });
-  final ReadingCalendarSpan span;
-  final int week;
-  final ReadingCalendarMonth month;
-
-  @override
-  Widget build(BuildContext context) => IgnorePointer(
-    child: ExcludeSemantics(
-      child: DecoratedBox(
-        key: ValueKey(
-          'stats-calendar-bar-$week-${span.bookId}-${span.firstColumn}',
-        ),
-        decoration: BoxDecoration(
-          color: _bookColor(Theme.of(context).colorScheme, month, span.bookId),
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-    ),
-  );
-}
-
-class _CalendarLegend extends StatelessWidget {
-  const _CalendarLegend({required this.month});
-  final ReadingCalendarMonth month;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final rest = month.monthBooks.skip(_calendarColors.length);
-    return Column(
-      key: const ValueKey('stats-calendar-legend'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final entry in month.monthBooks.take(_calendarColors.length))
-          _legendRow(
-            context,
-            entry.title,
-            entry.duration,
-            _bookColor(scheme, month, entry.bookId),
-          ),
-        if (rest.isNotEmpty)
-          _legendRow(
-            context,
-            '其他 ${rest.length} 本',
-            rest.fold(Duration.zero, (sum, entry) => sum + entry.duration),
-            scheme.outline,
-          ),
-      ],
-    );
-  }
-
-  Widget _legendRow(
-    BuildContext context,
-    String title,
-    Duration duration,
-    Color color,
-  ) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 12,
-          height: 4,
-          margin: const EdgeInsets.only(top: 6, right: 8),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        Expanded(
-          child: Text(title, style: const TextStyle(fontSize: 12, height: 1.4)),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          formatReadingDuration(duration),
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.4,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 class _CalendarDaySheet extends StatelessWidget {
-  const _CalendarDaySheet({
-    required this.date,
-    required this.books,
-    required this.finishedBookIds,
-  });
+  const _CalendarDaySheet({required this.month, required this.date});
+
+  final ReadingCalendarMonth month;
   final DateTime date;
-  final List<BookDurationEntry> books;
-  final Set<String> finishedBookIds;
 
   @override
   Widget build(BuildContext context) {
+    final books = month.days[date] ?? const <BookDurationEntry>[];
     return SizedBox(
       height: MediaQuery.sizeOf(context).height * 0.6,
       child: Padding(
@@ -453,14 +417,20 @@ class _CalendarDaySheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _heading(context),
-            const SizedBox(height: 12),
+            _heading(context, books),
+            const SizedBox(height: 8),
             Expanded(
               child: books.isEmpty
-                  ? const Center(child: Text('这一天没有阅读记录'))
-                  : ListView.separated(
+                  ? Center(
+                      child: Text(
+                        '这一天没有阅读记录',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
                       itemCount: books.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (context, index) =>
                           _bookRow(context, books[index]),
                     ),
@@ -471,89 +441,116 @@ class _CalendarDaySheet extends StatelessWidget {
     );
   }
 
-  Widget _heading(BuildContext context) {
+  Widget _heading(BuildContext context, List<BookDurationEntry> books) {
+    final scheme = Theme.of(context).colorScheme;
     final total = books.fold(Duration.zero, (sum, book) => sum + book.duration);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '${date.year}年${date.month}月${date.day}日',
+          _isoDate(date),
           key: const ValueKey('stats-calendar-detail-date'),
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            color: scheme.onSurface,
+          ),
         ),
         const SizedBox(height: 6),
         Text(
           '${books.length} 本书 · 合计 ${formatReadingDuration(total)}',
           key: const ValueKey('stats-calendar-detail-total'),
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
         ),
       ],
     );
   }
 
-  Widget _bookRow(BuildContext context, BookDurationEntry book) => Padding(
-    key: ValueKey('stats-calendar-detail-${book.bookId}'),
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          book.title,
-          style: const TextStyle(
-            fontSize: 14,
-            height: 1.5,
-            fontWeight: FontWeight.w600,
+  Widget _bookRow(BuildContext context, BookDurationEntry book) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      key: ValueKey('stats-calendar-detail-${book.bookId}'),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            margin: const EdgeInsets.only(top: 6.5, right: 10),
+            decoration: BoxDecoration(
+              color: _bookColor(book.bookId),
+              shape: BoxShape.circle,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        _bookMeta(context, book),
-      ],
-    ),
-  );
-
-  Widget _bookMeta(BuildContext context, BookDurationEntry book) => Wrap(
-    spacing: 12,
-    children: [
-      Text(
-        formatReadingDuration(book.duration),
-        style: const TextStyle(
-          fontSize: 12,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    book.title,
+                    style: const TextStyle(fontSize: 15, height: 1.4),
+                  ),
+                ),
+                if (month.finishDays[book.bookId] == date) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _doneColor,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: const Text(
+                      '已读',
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.4,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            formatReadingDuration(book.duration),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
-      if (finishedBookIds.contains(book.bookId))
-        Text(
-          '当前已读完',
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-    ],
-  );
+    );
+  }
 }
 
 String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
+
+String _isoDate(DateTime date) =>
+    '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+    '${date.day.toString().padLeft(2, '0')}';
 
 const _calendarColors = [
   Color(0xFF397665),
   Color(0xFF417786),
   Color(0xFF95634F),
-  Color(0xFF87596B),
+  Color(0xFFA3413F),
   Color(0xFF70658E),
   Color(0xFF77723F),
 ];
 
-Color _bookColor(
-  ColorScheme scheme,
-  ReadingCalendarMonth month,
-  String bookId,
-) {
-  final rank = month.monthBooks.indexWhere((entry) => entry.bookId == bookId);
-  return rank >= 0 && rank < _calendarColors.length
-      ? _calendarColors[rank]
-      : scheme.outline;
+Color _bookColor(String bookId) {
+  var hash = 0;
+  for (final unit in bookId.codeUnits) {
+    hash = (hash * 31 + unit) & 0x3fffffff;
+  }
+  return _calendarColors[hash % _calendarColors.length];
 }
