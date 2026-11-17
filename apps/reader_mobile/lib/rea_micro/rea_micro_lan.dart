@@ -312,7 +312,7 @@ class ReaMicroLanClient {
   /// 从对端设备读取一本书的全部文件，并重建为 EPUB 字节。
   ///
   /// 阅微设备按解析后的目录保存书籍，`GET_FILES` 一次可读取多个相对路径。
-  /// 这里分批读取，逐文件校验大小与 MD5，再按 EPUB 要求把 `mimetype`
+  /// 这里一次请求全部路径，逐文件校验大小与 MD5，再按 EPUB 要求把 `mimetype`
   /// 作为第一个且不压缩的条目写入 ZIP。
   Future<Uint8List> downloadBookArchive(
     ReaMicroLanSyncPeer peer,
@@ -332,45 +332,38 @@ class ReaMicroLanClient {
     final contents = <String, Uint8List>{};
     var downloadedBytes = 0;
     try {
-      const batchSize = 64;
-      for (var start = 0; start < sourceFiles.length; start += batchSize) {
-        final end = start + batchSize > sourceFiles.length
-            ? sourceFiles.length
-            : start + batchSize;
-        final batch = sourceFiles.sublist(start, end);
-        final requestBytes = utf8.encode(
-          jsonEncode(<String, Object?>{
-            'uuid': book.uuid,
-            'paths': <String>[for (final file in batch) file.relativePath],
-          }),
-        );
-        socket.write('GET_FILES ${requestBytes.length}\n');
-        socket.add(requestBytes);
-        await socket.flush();
+      // 阅微服务端处理 GET_FILES 时会在 FILES 帧后额外写一帧
+      // `ERR unknown command`。分批请求时下一批会先读到上一批残留的
+      // 错误帧，因此这里一次请求全部文件，读完 FILES 后立即结束会话。
+      final requestBytes = utf8.encode(
+        jsonEncode(<String, Object?>{
+          'uuid': book.uuid,
+          'paths': <String>[for (final file in sourceFiles) file.relativePath],
+        }),
+      );
+      socket.write('GET_FILES ${requestBytes.length}\n');
+      socket.add(requestBytes);
+      await socket.flush();
 
-        final line = await reader.readLine();
-        if (line == null) {
-          throw const ReaMicroException('局域网设备未返回图书文件');
-        }
-        final parts = line.trim().split(RegExp(r'\s+'));
-        final command = parts.isEmpty ? '' : parts.first;
-        if (command == 'ERR') {
-          throw ReaMicroException('设备返回错误：${parts.skip(1).join(' ').trim()}');
-        }
-        if (command != 'FILES' || parts.length < 2) {
-          throw const ReaMicroException('设备返回了无法识别的图书文件');
-        }
-        final length = int.tryParse(parts[1]);
-        if (length == null || length < 4 || length > 512 * 1024 * 1024) {
-          throw const ReaMicroException('图书文件长度不正确');
-        }
-        final payload = await reader.readBytes(length);
-        final batchContents = decodeReaMicroLanFilesPayload(payload);
-        downloadedBytes += payload.length;
-        for (final entry in batchContents.entries) {
-          contents[entry.key] = entry.value;
-        }
+      final line = await reader.readLine();
+      if (line == null) {
+        throw const ReaMicroException('局域网设备未返回图书文件');
       }
+      final parts = line.trim().split(RegExp(r'\s+'));
+      final command = parts.isEmpty ? '' : parts.first;
+      if (command == 'ERR') {
+        throw ReaMicroException('设备返回错误：${parts.skip(1).join(' ').trim()}');
+      }
+      if (command != 'FILES' || parts.length < 2) {
+        throw const ReaMicroException('设备返回了无法识别的图书文件');
+      }
+      final length = int.tryParse(parts[1]);
+      if (length == null || length < 4 || length > 512 * 1024 * 1024) {
+        throw const ReaMicroException('图书文件长度不正确');
+      }
+      final payload = await reader.readBytes(length);
+      downloadedBytes += payload.length;
+      contents.addAll(decodeReaMicroLanFilesPayload(payload));
 
       final expectedPaths = <String>{
         for (final file in sourceFiles)
@@ -382,7 +375,7 @@ class ReaMicroLanClient {
         if (data == null) {
           throw ReaMicroException('设备未返回文件：$path');
         }
-        if (file.size >= 0 && data.length != file.size) {
+        if (file.size > 0 && data.length != file.size) {
           throw ReaMicroException('文件大小不一致：$path');
         }
         final digest = file.md5.trim().toLowerCase();
@@ -703,11 +696,10 @@ String _normalizeArchivePath(String value) =>
     value.trim().replaceAll('\\', '/');
 
 Uint8List _buildEpubArchive(Map<String, Uint8List> contents) {
-  final mimetype = contents['mimetype'];
-  if (mimetype == null ||
-      utf8.decode(mimetype, allowMalformed: true) != 'application/epub+zip') {
-    throw const ReaMicroException('设备返回的书籍缺少有效 mimetype');
-  }
+  // 部分设备导出目录时不会保留 mimetype 文件；EPUB 规范要求的这个
+  // 固定条目可以由客户端补回，不能因此判定整本书不可下载。
+  const epubMimetype = 'application/epub+zip';
+  final mimetype = utf8.encode(epubMimetype);
   final archive = Archive()
     ..addFile(ArchiveFile.noCompress('mimetype', mimetype.length, mimetype));
   final paths = contents.keys.where((path) => path != 'mimetype').toList()

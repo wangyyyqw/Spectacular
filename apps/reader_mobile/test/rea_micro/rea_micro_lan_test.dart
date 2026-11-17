@@ -225,6 +225,100 @@ void main() {
       '<html>正文</html>',
     );
   });
+
+  test('下载书籍文件忽略响应后的残留错误帧并补回 mimetype', () async {
+    final entries = <String, List<int>>{
+      'META-INF/container.xml': utf8.encode('<container/>'),
+      'OEBPS/c1.xhtml': utf8.encode('<html>正文</html>'),
+    };
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((socket) async {
+      final iterator = StreamIterator<List<int>>(socket);
+      final buffer = <int>[];
+      Future<String> nextLine() async {
+        while (!buffer.contains(10)) {
+          if (!await iterator.moveNext()) throw const FormatException('EOF');
+          buffer.addAll(iterator.current);
+        }
+        final end = buffer.indexOf(10);
+        final line = utf8.decode(buffer.sublist(0, end));
+        buffer.removeRange(0, end + 1);
+        return line;
+      }
+
+      Future<Uint8List> nextBytes(int count) async {
+        while (buffer.length < count) {
+          if (!await iterator.moveNext()) throw const FormatException('EOF');
+          buffer.addAll(iterator.current);
+        }
+        final bytes = Uint8List.fromList(buffer.sublist(0, count));
+        buffer.removeRange(0, count);
+        return bytes;
+      }
+
+      try {
+        final line = await nextLine();
+        final parts = line.split(' ');
+        await nextBytes(int.parse(parts[1]));
+        final response = _filesPayload(entries);
+        socket.write('FILES ${response.length}\n');
+        socket.add(response);
+        socket.write('ERR unknown command\n');
+        await socket.flush();
+        await nextLine();
+      } finally {
+        await iterator.cancel();
+        socket.destroy();
+      }
+    });
+
+    final client = ReaMicroLanClient(socketTimeout: const Duration(seconds: 2));
+    final archiveBytes = await client.downloadBookArchive(
+      ReaMicroLanSyncPeer(
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        userId: 7,
+        deviceId: 'device-b',
+        nickname: '同账号用户',
+        deviceName: '测试设备',
+      ),
+      ReaMicroLanBookProgress(
+        uuid: 'book-a',
+        title: '本地书',
+        author: '作者',
+        cloudId: 42,
+        cfi: 'epubcfi(/6/8!/4/2/1)',
+        chapterName: '第三章',
+        progress: 0.375,
+        updatedAt: 1763380700000,
+        finished: false,
+        files: <ReaMicroLanFile>[
+          for (final entry in entries.entries)
+            ReaMicroLanFile(
+              relativePath: entry.key,
+              size: entry.value.length,
+              md5: md5.convert(entry.value).toString(),
+              mtime: 0,
+            ),
+        ],
+      ),
+    );
+
+    final archive = ZipDecoder().decodeBytes(archiveBytes);
+    expect(archive.first.name, 'mimetype');
+    expect(
+      utf8.decode(archive.first.content as List<int>),
+      'application/epub+zip',
+    );
+    expect(
+      utf8.decode(
+        archive.firstWhere((file) => file.name == 'OEBPS/c1.xhtml').content
+            as List<int>,
+      ),
+      '<html>正文</html>',
+    );
+  });
 }
 
 Map<String, Object?> _manifestJson({Object? finished = false}) {
