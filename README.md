@@ -65,11 +65,19 @@ Android 运行与离线 Release 打包说明见 [移动端 README](apps/reader_m
 
 推送 `ReaMicro` 后「多平台自动打包」只执行构建并上传 Actions artifact，不会创建或更新 Release。
 
-需要发布时，手动运行「多平台自动打包」并勾选 `publish_release`，才会更新 [Releases 的 `ci-latest`](https://github.com/wangyyyqw/Spectacular/releases/tag/ci-latest)：
+Actions 网页下载 artifact 时，GitHub 会固定再包一层 ZIP。要用直接文件，请在本机使用已登录的 GitHub CLI 自动解压：
+
+```powershell
+gh run download <运行编号>
+```
+
+运行编号可在 Actions 运行页或 `gh run list` 中查看。下载后 Android 直接得到 `spectacular-reader-release.apk`，Windows、macOS 和 iOS 各得到一个应用 ZIP，只需解压一次。
+
+需要正式直链 Release 时，手动运行「多平台自动打包」并勾选 `publish_release`，才会更新 [Releases 的 `ci-latest`](https://github.com/wangyyyqw/Spectacular/releases/tag/ci-latest)：
 
 - Android 直接下载 `spectacular-reader-release.apk`。
 - Windows、macOS 和 iOS 下载对应的 `*.zip`，归档内就是应用文件，不再套第二层压缩包。
-- 自动构建的 Actions artifact 只作为构建中间产物，不作为正式发布入口。
+- 未勾选发布时不会创建或更新任何 Release。
 
 ## 按改动范围验证
 

@@ -191,6 +191,36 @@ jobs:
           path: apps/reader_mobile/dist/spectacular-ios-unsigned.zip
           retention-days: 14
 
+  download-hint:
+    name: 下载说明
+    needs:
+      - android
+      - windows
+      - macos
+      - ios
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 写入运行摘要
+        shell: bash
+        run: |
+          {
+            echo '## 构建产物下载'
+            echo ''
+            echo 'Actions 网页下载的 artifact 会由 GitHub 再包一层 ZIP。'
+            echo '使用下面的命令可自动解压，直接得到下列文件：'
+            echo ''
+            echo '```bash'
+            echo "gh run download ${GITHUB_RUN_ID}"
+            echo '```'
+            echo ''
+            echo '- `spectacular-reader-release.apk`：Android 安装包'
+            echo '- `spectacular-windows-x64.zip`：Windows 应用，解压一次即可'
+            echo '- `spectacular-macos-arm64-unsigned.zip`：macOS 应用，解压一次即可'
+            echo '- `spectacular-ios-unsigned.zip`：iOS 应用，解压一次即可'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   publish:
     name: 发布 CI 产物
     if: github.event_name == 'workflow_dispatch' && inputs.publish_release
