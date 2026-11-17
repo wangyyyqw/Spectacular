@@ -2421,7 +2421,11 @@ class PagePainter {
     // 表格原点与正文左缘对齐（P9-16）：列坐标是表格内的相对坐标，
     // 左内缩（容器内边距）与 margin 必须叠加，否则表格压到页边距外。
     final left = geometry.leftInset;
-    // 整表背景已由元素背景阶段绘制，此处仅绘制单元格自身背景。
+    // 行背景在单元格背景下方；按起始格裁剪，保留合并格的行背景归属。
+    for (final cell in spec.cells) {
+      _paintTableRowBackground(canvas, cell, Offset(left, top));
+    }
+    // 整表背景已由元素背景阶段绘制，此处绘制单元格自身背景。
     for (final cell in spec.cells) {
       final style = cell.style;
       final cellRect = Rect.fromLTWH(
@@ -2430,11 +2434,7 @@ class PagePainter {
         cell.rect.width,
         cell.rect.height,
       );
-      final hideEmpty =
-          cell.layout.lineCount == 0 &&
-          style.emptyCells == CssEmptyCells.hide &&
-          style.borderCollapse == CssBorderCollapse.separate;
-      if (!hideEmpty) {
+      if (!_hidesEmptyTableCell(cell)) {
         if (spec.flex) {
           _paintFlexCellBox(canvas, cellRect, style, page, pageRect);
         } else {
@@ -2560,6 +2560,37 @@ class PagePainter {
       }
       canvas.restore();
     }
+  }
+
+  bool _hidesEmptyTableCell(TableCellRender cell) =>
+      cell.layout.lineCount == 0 &&
+      cell.style.emptyCells == CssEmptyCells.hide &&
+      cell.style.borderCollapse == CssBorderCollapse.separate;
+
+  void _paintTableRowBackground(
+    Canvas canvas,
+    TableCellRender cell,
+    Offset origin,
+  ) {
+    final background = cell.rowBackground;
+    if (background == null || _hidesEmptyTableCell(cell)) return;
+    final style = background.style;
+    final clip = cell.rect.shift(origin);
+    final bounds = background.rect.shift(origin);
+    canvas.save();
+    // 相邻矩形共享小数边界；硬裁剪避免半透明底色在交界处重复抗锯齿。
+    canvas.clipRect(clip, doAntiAlias: false);
+    canvas.drawRect(
+      clip,
+      Paint()
+        ..isAntiAlias = false
+        ..color = style.backgroundColor
+        ..blendMode = _blendModeOf(style.mixBlendMode) ?? BlendMode.srcOver,
+    );
+    for (final layer in style.backgroundLayers.reversed) {
+      _paintBackgroundLayer(canvas, layer, bounds, paintingBounds: clip);
+    }
+    canvas.restore();
   }
 
   /// Flex 子项保留普通盒的装饰；真实表格仍沿用单元格边框规则。

@@ -9,6 +9,18 @@ import '../position/text_cfi_map.dart';
 import 'line_breaker.dart';
 import 'paginator.dart' show PageFootnote;
 
+/// 行背景共享原行的定位矩形，绘制范围由该行起始的单元格决定。
+/// 跨行格和分页片段只裁剪绘制范围，不重新定位背景图片。
+class TableRowBackground {
+  const TableRowBackground({required this.rect, required this.style});
+
+  final Rect rect;
+  final ComputedStyle style;
+
+  TableRowBackground shift(Offset offset) =>
+      TableRowBackground(rect: rect.shift(offset), style: style);
+}
+
 /// 表格单元格的渲染载荷（flat 管线接入）：一格的文字排版结果与
 /// 计算样式，坐标为表格局部坐标系（含跨列合并区域）。
 class TableCellRender {
@@ -21,6 +33,7 @@ class TableCellRender {
     this.startCfi,
     this.textCfis,
     this.footnotes = const <PageFootnote>[],
+    this.rowBackground,
   });
 
   /// 所在行号（全表行号）。
@@ -34,6 +47,9 @@ class TableCellRender {
 
   /// 格计算样式（对齐/字体等，绘制层消费）。
   final ComputedStyle style;
+
+  /// 独立于格样式的行背景层；背景不参与 CSS 继承。
+  final TableRowBackground? rowBackground;
 
   /// 来源单元格元素（或 Flex 子块）的稳定 CFI，用于定位载荷所在页。
   final String? startCfi;

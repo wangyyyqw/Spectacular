@@ -428,6 +428,58 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('阅读页加载并绘制行背景图，解码宽度使用完整行宽', (tester) async {
+    const color = Color(0xffcd5634);
+    final bytes = (await tester.runAsync(
+      () => _png(color, width: 1200, height: 600),
+    ))!;
+    final rowBackground = TableRowBackground(
+      rect: const Rect.fromLTWH(0, 0, 300, 60),
+      style: _imagePayload('row.png', 300, 60).style!,
+    );
+    final page = Paginator(pageHeight: 600)
+        .measureChapter(
+          blocks: [
+            PageBlock(
+              layout: _boxLayout(300, 60),
+              style: ComputedStyle({}),
+              table: TableRenderSpec(
+                cells: [
+                  for (var column = 0; column < 2; column++)
+                    TableCellRender(
+                      row: 0,
+                      rect: Rect.fromLTWH(column * 150, 0, 150, 60),
+                      layout: _boxLayout(150, 60),
+                      style: ComputedStyle({}),
+                      rowBackground: rowBackground,
+                    ),
+                ],
+                columnXs: const [0, 150, 300],
+                rowYs: const [0, 60],
+                tableWidth: 300,
+              ),
+            ),
+          ],
+        )
+        .pages
+        .single;
+    final cache = DecodedImageCache(
+      loadBytes: (url) async => url == 'row.png' ? bytes : null,
+    );
+    final key = GlobalKey();
+    await _showImagePage(tester, page, cache, key, expectedImages: 1);
+    expect(cache.protectedUrls, {'row.png'});
+    expect(
+      cache.lookup('row.png')?.width,
+      (300 * tester.view.devicePixelRatio).ceil(),
+    );
+    expect(
+      _colorPixels(await _pagePixels(tester, key), color),
+      greaterThan(17000),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('阅读页应加载边框图及所有背景层', (tester) async {
     final style = ComputedStyle({
       'font-size': '16px',

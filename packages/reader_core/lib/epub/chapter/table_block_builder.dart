@@ -579,7 +579,7 @@ class _TableBuild {
       borderSpacingY: table.spacingY,
       checkpoint: budget.checkpoint,
     );
-    final renders = await _renderCells(cells, grid);
+    final renders = await _renderCells(structure.rows, cells, grid, measured);
     final caption = await _caption(structure.caption, measured.tableWidth);
     final block = await _tableBlock(
       structure.rows,
@@ -918,33 +918,76 @@ class _TableBuild {
   }
 
   Future<List<TableCellRender>> _renderCells(
+    List<_TableRow> rows,
     List<List<_TableCell>> cells,
     TableGridLayout grid,
+    TableGridMeasureResult measured,
   ) async {
     final result = <TableCellRender>[];
+    final rowYs = grid.rowYs;
     for (var row = 0; row < cells.length; row++) {
+      await budget.checkpoint();
+      final background = _rowBackground(
+        rows[row],
+        rowYs[row] + table.spacingY,
+        measured.tableWidth,
+        measured.rowHeights[row],
+      );
       for (var column = 0; column < cells[row].length; column++) {
         await budget.checkpoint();
         final rect = grid.cellRectAt(row, column);
         if (rect == null) continue;
-        final cell = cells[row][column];
-        final layout = await cell.layout(rect.rect.width);
-        result.add(
-          TableCellRender(
-            row: row,
-            rect: rect.rect,
-            layout: layout,
-            style: cell.style,
-            startCfi: cell.node.cfi.serialize(),
-            textCfis: await cell.content.textCfis?.transformedAsync(
-              layout.inputOffsets,
-              checkpoint: budget.checkpoint,
-            ),
-          ),
-        );
+        result.add(await _renderCell(cells[row][column], rect, background));
       }
     }
     return result;
+  }
+
+  Future<TableCellRender> _renderCell(
+    _TableCell cell,
+    TableCellRect rect,
+    TableRowBackground? background,
+  ) async {
+    final layout = await cell.layout(rect.rect.width);
+    return TableCellRender(
+      row: rect.row,
+      rect: rect.rect,
+      layout: layout,
+      style: cell.style,
+      rowBackground: background,
+      startCfi: cell.node.cfi.serialize(),
+      textCfis: await cell.content.textCfis?.transformedAsync(
+        layout.inputOffsets,
+        checkpoint: budget.checkpoint,
+      ),
+    );
+  }
+
+  TableRowBackground? _rowBackground(
+    _TableRow row,
+    double top,
+    double width,
+    double height,
+  ) {
+    final chain =
+        styles.selectorIndex.chainOf(row.node) ??
+        [
+          ...table.chain,
+          ChapterNodeView(row.node.tag, row.node.attributes, const []),
+        ];
+    final style = styles.chainStyle(chain);
+    if (style.backgroundColor.a == 0 && style.backgroundLayers.isEmpty) {
+      return null;
+    }
+    return TableRowBackground(
+      rect: Rect.fromLTWH(
+        table.spacingX,
+        top,
+        width - table.spacingX * 2,
+        height,
+      ),
+      style: style,
+    );
   }
 
   Future<PageBlock?> _caption(BlockNode? node, double width) async {
@@ -1024,6 +1067,7 @@ class _TableBuild {
           ),
           layout: cell.layout,
           style: cell.style,
+          rowBackground: cell.rowBackground,
           startCfi: cell.startCfi,
           textCfis: cell.textCfis,
           footnotes: cell.footnotes,
