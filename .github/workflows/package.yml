@@ -165,6 +165,13 @@ jobs:
       - name: 准备依赖
         working-directory: apps/reader_mobile
         run: flutter pub get
+      - name: 选择支持 iOS 26 SDK 的 Xcode
+        shell: bash
+        run: |
+          xcode="$(ls -d /Applications/Xcode_26*.app | tail -n 1)"
+          test -n "$xcode"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
       - name: 构建 iOS Release
         working-directory: apps/reader_mobile
         run: |
