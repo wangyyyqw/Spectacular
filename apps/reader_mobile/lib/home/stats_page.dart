@@ -12,6 +12,9 @@ import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
 
+/// 统计页只计入不少于该时长的阅读记录，更短的记录不展示也不参与统计。
+const _minimumStatsSessionDuration = Duration(minutes: 5);
+
 /// 统计页：图书时长、阅读日历、每日平均与按书排行，保留完整统计数据汇总。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
@@ -100,9 +103,12 @@ class _StatsPageState extends State<StatsPage> {
       final weightsByBook = await widget.library.progressWeightsForBooks(
         books.map((book) => book.id),
       );
-      final recordedSessions =
+      final storedSessions =
           await (_sessionStore?.list() ??
               Future<List<ReadingSession>>.value(const []));
+      final recordedSessions = storedSessions.where(
+        (session) => session.duration >= _minimumStatsSessionDuration,
+      );
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final insights = ReadingInsights(recordedSessions, now: now);
@@ -176,7 +182,7 @@ class _StatsPageState extends State<StatsPage> {
         recent += 1;
         activityCounts[date] = (activityCounts[date] ?? 0) + 1;
       }
-      if (sessions.isNotEmpty) {
+      if (storedSessions.isNotEmpty) {
         activityCounts.clear();
         final booksByDay = <DateTime, Set<String>>{};
         final recentBooks = <String>{};
@@ -219,7 +225,7 @@ class _StatsPageState extends State<StatsPage> {
         readingDays: readingByDay.length,
         pageTurns: insights.pageTurns,
         charactersRead: insights.charactersRead,
-        hasReadingSessions: sessions.isNotEmpty,
+        hasReadingSessions: storedSessions.isNotEmpty,
       );
       if (mounted && token == _reloadToken) {
         setState(() {

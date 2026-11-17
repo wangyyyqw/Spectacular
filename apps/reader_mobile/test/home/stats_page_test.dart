@@ -421,14 +421,14 @@ void main() {
       ReadingSession(
         bookId: 'a',
         startedAt: today.add(const Duration(hours: 9)),
-        endedAt: today.add(const Duration(hours: 9, minutes: 2)),
-        duration: const Duration(minutes: 2),
+        endedAt: today.add(const Duration(hours: 9, minutes: 5)),
+        duration: const Duration(minutes: 5),
       ),
     );
     await tester.pumpWidget(buildPage(1));
     await tester.pumpAndSettle();
 
-    expect(_valueOf(tester, 'stats-book-duration-total'), '2 分钟');
+    expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
   });
 
   testWidgets('点击最近阅读卡片可直接续读', (tester) async {
@@ -472,6 +472,44 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
+  });
+
+  testWidgets('统计页不计入低于 5 分钟的阅读记录，满 5 分钟的记录保留', (tester) async {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, 8);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([
+            _book('short', '短记录样本'),
+            _book('kept', '满五分钟样本'),
+          ], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore([
+            ReadingSession(
+              bookId: 'short',
+              startedAt: start,
+              endedAt: start.add(const Duration(minutes: 4, seconds: 59)),
+              duration: const Duration(minutes: 4, seconds: 59),
+            ),
+            ReadingSession(
+              bookId: 'kept',
+              startedAt: start,
+              endedAt: start.add(const Duration(minutes: 5)),
+              duration: const Duration(minutes: 5),
+            ),
+          ]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
+    expect(_valueOf(tester, 'stats-book-duration-value-kept'), '5 分钟');
+    expect(
+      find.byKey(const ValueKey('stats-book-duration-value-short')),
+      findsNothing,
+    );
   });
 
   testWidgets('首次加载失败时显示重试入口', (tester) async {
