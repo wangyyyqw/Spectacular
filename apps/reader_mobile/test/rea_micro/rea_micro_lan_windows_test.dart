@@ -26,7 +26,7 @@ void main() {
       expect(device.nickname, '假设备');
       expect(device.port, 45678);
       expect(responder.queryPorts, isNotEmpty);
-      expect(responder.queryPorts.every((port) => port == 5353), isTrue);
+      expect(responder.queryPorts, contains(5353));
       expect(responder.sawUnicastQuery, isTrue);
     },
     skip: !Platform.isWindows ? '仅在 Windows 上验证组播发现' : false,

@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 
+import '../diagnostics/reader_log.dart';
 import 'rea_micro_cbor.dart';
 import 'rea_micro_lan_rsa.dart';
 import 'rea_micro_models.dart';
@@ -114,6 +115,15 @@ class ReaMicroLanClient {
     }
     final result = devices.values.toList(growable: false);
     result.sort((left, right) => left.nickname.compareTo(right.nickname));
+    unawaited(
+      ReaderLog.instance.log(
+        'reamicro_lan_login_discovery',
+        fields: <String, Object?>{
+          'found': result.length,
+          'services': services.length,
+        },
+      ),
+    );
     return result;
   }
 
@@ -143,6 +153,15 @@ class ReaMicroLanClient {
     }
     final result = peers.values.toList(growable: false);
     result.sort((left, right) => left.deviceName.compareTo(right.deviceName));
+    unawaited(
+      ReaderLog.instance.log(
+        'reamicro_lan_sync_discovery',
+        fields: <String, Object?>{
+          'found': result.length,
+          'services': services.length,
+        },
+      ),
+    );
     return result;
   }
 
@@ -151,6 +170,17 @@ class ReaMicroLanClient {
     ReaMicroLanLoginDevice device, {
     String? deviceModel,
   }) async {
+    unawaited(
+      ReaderLog.instance.log(
+        'reamicro_lan_login',
+        fields: <String, Object?>{
+          'phase': 'request',
+          'host': device.host,
+          'port': device.port,
+          'userId': device.userId,
+        },
+      ),
+    );
     // 2048 位密钥生成耗时较长，放到后台 isolate 避免卡住阅读界面。
     final pair = await Isolate.run(ReaMicroLanRsa.generate);
     final publicKey = ReaMicroLanRsa.encodePublicKey(pair.publicKey);
@@ -178,6 +208,17 @@ class ReaMicroLanClient {
           if (token.isEmpty) {
             throw const ReaMicroException('无法解密设备返回的授权令牌');
           }
+          unawaited(
+            ReaderLog.instance.log(
+              'reamicro_lan_login',
+              fields: <String, Object?>{
+                'phase': 'token',
+                'host': device.host,
+                'port': device.port,
+                'userId': device.userId,
+              },
+            ),
+          );
           return token;
         }
         // 兼容设备先发送 PROFILE 等附加信息，继续等待 TOKEN/REJECT。
@@ -193,6 +234,17 @@ class ReaMicroLanClient {
 
   /// 读取对端同步清单。
   Future<ReaMicroLanManifest> fetchManifest(ReaMicroLanSyncPeer peer) async {
+    unawaited(
+      ReaderLog.instance.log(
+        'reamicro_lan_manifest',
+        fields: <String, Object?>{
+          'phase': 'request',
+          'host': peer.host,
+          'port': peer.port,
+          'deviceId': peer.deviceId,
+        },
+      ),
+    );
     final socket = await _connect(peer.host, peer.port);
     final reader = _SocketFrameReader(socket, timeout: socketTimeout);
     try {
@@ -219,8 +271,31 @@ class ReaMicroLanClient {
       if (decoded is! Map<String, Object?>) {
         throw const ReaMicroException('同步清单格式不正确');
       }
-      return ReaMicroLanManifest.fromJson(decoded);
+      final manifest = ReaMicroLanManifest.fromJson(decoded);
+      unawaited(
+        ReaderLog.instance.log(
+          'reamicro_lan_manifest',
+          fields: <String, Object?>{
+            'phase': 'ok',
+            'host': peer.host,
+            'port': peer.port,
+            'bytes': payload.length,
+            'books': manifest.books.length,
+          },
+        ),
+      );
+      return manifest;
     } on FormatException {
+      unawaited(
+        ReaderLog.instance.log(
+          'reamicro_lan_manifest',
+          fields: <String, Object?>{
+            'phase': 'format_error',
+            'host': peer.host,
+            'port': peer.port,
+          },
+        ),
+      );
       throw const ReaMicroException('同步清单不是有效的 JSON 或 CBOR');
     } finally {
       try {
@@ -255,6 +330,7 @@ class ReaMicroLanClient {
     final socket = await _connect(peer.host, peer.port);
     final reader = _SocketFrameReader(socket, timeout: socketTimeout);
     final contents = <String, Uint8List>{};
+    var downloadedBytes = 0;
     try {
       const batchSize = 64;
       for (var start = 0; start < sourceFiles.length; start += batchSize) {
@@ -290,6 +366,7 @@ class ReaMicroLanClient {
         }
         final payload = await reader.readBytes(length);
         final batchContents = decodeReaMicroLanFilesPayload(payload);
+        downloadedBytes += payload.length;
         for (final entry in batchContents.entries) {
           contents[entry.key] = entry.value;
         }
@@ -315,7 +392,36 @@ class ReaMicroLanClient {
         }
       }
       contents.removeWhere((path, _) => !expectedPaths.contains(path));
-      return _buildEpubArchive(contents);
+      final archive = _buildEpubArchive(contents);
+      unawaited(
+        ReaderLog.instance.log(
+          'reamicro_lan_book',
+          fields: <String, Object?>{
+            'phase': 'ok',
+            'host': peer.host,
+            'port': peer.port,
+            'files': sourceFiles.length,
+            'payloadBytes': downloadedBytes,
+            'epubBytes': archive.length,
+          },
+        ),
+      );
+      return archive;
+    } catch (error) {
+      unawaited(
+        ReaderLog.instance.log(
+          'reamicro_lan_book',
+          fields: <String, Object?>{
+            'phase': 'error',
+            'host': peer.host,
+            'port': peer.port,
+            'files': sourceFiles.length,
+            'payloadBytes': downloadedBytes,
+            'error': error.toString(),
+          },
+        ),
+      );
+      rethrow;
     } finally {
       try {
         socket.write('BYE\n');
@@ -409,7 +515,21 @@ class ReaMicroLanClient {
       final resolved = await Future.wait(
         domains.map((domain) => _resolveService(client, domain)),
       );
-      return resolved.whereType<_DiscoveredService>().toList(growable: false);
+      final services = resolved.whereType<_DiscoveredService>().toList(
+        growable: false,
+      );
+      unawaited(
+        ReaderLog.instance.log(
+          'reamicro_lan_discovery',
+          fields: <String, Object?>{
+            'service': serviceType,
+            'pointers': pointers.length,
+            'domains': domains.length,
+            'resolved': services.length,
+          },
+        ),
+      );
+      return services;
     } finally {
       client.stop();
       windows?.close();
