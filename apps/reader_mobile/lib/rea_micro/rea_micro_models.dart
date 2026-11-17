@@ -726,6 +726,7 @@ class ReaMicroLanBookProgress {
     required this.progress,
     required this.updatedAt,
     required this.finished,
+    this.files = const <ReaMicroLanFile>[],
   });
 
   /// 书籍 UUID，与本地书库标识一致。
@@ -755,13 +756,20 @@ class ReaMicroLanBookProgress {
   /// 对方是否已读完。
   final bool finished;
 
+  /// 对方设备上的原书文件清单。
+  final List<ReaMicroLanFile> files;
+
   /// 是否包含可合并的位置。
   bool get usable => uuid.trim().isNotEmpty && cfi.trim().isNotEmpty;
+
+  /// 是否提供可重建 EPUB 的文件。
+  bool get hasFiles => files.isNotEmpty;
 
   /// 从清单条目解析。
   factory ReaMicroLanBookProgress.fromEntry(Map<String, Object?> entry) {
     final book = entry['book'];
     final snapshot = book is Map<String, Object?> ? book : entry;
+    final rawFiles = entry['files'];
     return ReaMicroLanBookProgress(
       uuid: _stringValue(entry['uuid']) ?? '',
       title: _stringValue(snapshot['title']) ?? '',
@@ -773,8 +781,45 @@ class ReaMicroLanBookProgress {
       updatedAt: _intValue(entry['progressUpdatedAt']),
       finished:
           snapshot['finished'] == true || _intValue(snapshot['finished']) > 0,
+      files: <ReaMicroLanFile>[
+        if (rawFiles is List<Object?>)
+          for (final item in rawFiles)
+            if (item is Map<String, Object?>) ReaMicroLanFile.fromJson(item),
+      ],
     );
   }
+}
+
+/// 局域网设备上的一本书内文件。
+class ReaMicroLanFile {
+  /// 创建文件信息。
+  const ReaMicroLanFile({
+    required this.relativePath,
+    required this.size,
+    required this.md5,
+    required this.mtime,
+  });
+
+  /// 相对书籍目录的路径。
+  final String relativePath;
+
+  /// 文件字节数。
+  final int size;
+
+  /// 文件 MD5。
+  final String md5;
+
+  /// 文件修改时间（毫秒时间戳）。
+  final int mtime;
+
+  /// 从清单数据解析。
+  factory ReaMicroLanFile.fromJson(Map<String, Object?> json) =>
+      ReaMicroLanFile(
+        relativePath: _stringValue(json['relativePath']) ?? '',
+        size: _intValue(json['size']),
+        md5: _stringValue(json['md5']) ?? '',
+        mtime: _timestampMillis(json['mtime']),
+      );
 }
 
 /// 局域网设备返回的同步清单。

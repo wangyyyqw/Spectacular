@@ -967,7 +967,7 @@ class ReaMicroController extends ChangeNotifier {
     );
   }
 
-  /// 合并局域网设备的阅读进度。
+  /// 从局域网设备下载缺失图书并合并阅读位置。
   Future<String> syncWithLanPeer(ReaMicroLanSyncPeer peer) async {
     if (_user == null) {
       throw const ReaMicroException('请先登录阅微账号');
@@ -984,18 +984,55 @@ class ReaMicroController extends ChangeNotifier {
       if (manifest.userId != _user!.id) {
         throw const ReaMicroException('该设备与当前阅微账号不一致');
       }
+      final device = peer.deviceName.isNotEmpty
+          ? peer.deviceName
+          : peer.nickname.isNotEmpty
+          ? peer.nickname
+          : '局域网设备';
+      final nextLinks = Map<String, ReaMicroBookLink>.of(_links);
+      var linksChanged = false;
+      var imported = 0;
+      var downloadFailed = 0;
       var applied = 0;
       var skipped = 0;
       var failed = 0;
       var unmatched = 0;
       for (final remote in manifest.books) {
-        if (!remote.usable) continue;
-        final localBook = await _matchLanBook(remote);
+        var localBook = await _matchLanBook(remote);
+        if (localBook == null && remote.hasFiles && remote.title.isNotEmpty) {
+          _lanMessage = '正在从 $device 下载《${remote.title}》…';
+          _notify();
+          try {
+            final bytes = await _lan.downloadBookArchive(peer, remote);
+            final importedBook = await _library.importBytes(
+              bytes,
+              fallbackTitle: remote.title,
+            );
+            localBook = importedBook;
+            imported += 1;
+          } catch (error) {
+            downloadFailed += 1;
+            _lanMessage = '《${remote.title}》文件下载失败：${_messageOf(error)}';
+            _notify();
+          }
+        }
         if (localBook == null) {
           unmatched += 1;
           continue;
         }
         final bookId = localBook.id;
+        if (remote.cloudId > 0 && !nextLinks.containsKey(bookId)) {
+          nextLinks[bookId] = ReaMicroBookLink(
+            cloudBookId: remote.cloudId,
+            name: remote.title,
+            author: remote.author,
+            linkedAt: DateTime.now(),
+          );
+          _links = nextLinks;
+          linksChanged = true;
+          await _seedProgressStatesForBook(bookId, markDirty: false);
+        }
+        if (!remote.usable) continue;
         final state = _progressStates[bookId];
         if (state?.dirty == true) {
           skipped += 1;
@@ -1035,22 +1072,32 @@ class ReaMicroController extends ChangeNotifier {
           failed += 1;
         }
       }
+      if (linksChanged) {
+        _links = nextLinks;
+        await _store.saveLinks(nextLinks);
+      }
       await _persistProgressStatesNow();
-      final device = peer.deviceName.isNotEmpty
-          ? peer.deviceName
-          : peer.nickname.isNotEmpty
-          ? peer.nickname
-          : '局域网设备';
-      final unmatchedHint = unmatched > 0 ? '，$unmatched 本未匹配本地书籍' : '';
-      final message = failed == 0
+      final hints = <String>[
+        if (unmatched > 0) '$unmatched 本未匹配本地书籍',
+        if (downloadFailed > 0) '$downloadFailed 本文件下载失败',
+      ];
+      final hintText = hints.isEmpty ? '' : '，${hints.join('、')}';
+      final progressText = failed == 0
           ? applied == 0
-                ? unmatched > 0
-                      ? '与 $device 没有可合并的阅读位置$unmatchedHint'
+                ? '没有新的阅读位置'
+                : '合并 $applied 本阅读位置'
+          : '合并 $applied 本，$failed 本位置不可用';
+      final message = imported > 0
+          ? '已从 $device 下载 $imported 本图书，$progressText$hintText'
+          : failed == 0
+          ? applied == 0
+                ? unmatched > 0 || downloadFailed > 0
+                      ? '与 $device 没有可合并的阅读位置$hintText'
                       : '与 $device 没有新的阅读位置'
-                : '已从 $device 合并 $applied 本阅读位置$unmatchedHint'
-          : '已从 $device 合并 $applied 本，$failed 本位置不可用$unmatchedHint';
+                : '已从 $device 合并 $applied 本阅读位置$hintText'
+          : '已从 $device 合并 $applied 本，$failed 本位置不可用$hintText';
       _lanMessage = message;
-      if (applied > 0) {
+      if (applied > 0 || imported > 0) {
         if (_links.isNotEmpty) {
           scheduleProgressSync(delay: const Duration(seconds: 1));
         }

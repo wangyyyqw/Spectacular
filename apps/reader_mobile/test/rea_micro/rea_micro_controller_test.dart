@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
@@ -7,6 +9,8 @@ import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_ui/reader_session.dart';
+
+import '../support/test_epub.dart';
 
 class _TestLibrary extends LibraryStore {
   _TestLibrary() : super.memory();
@@ -82,13 +86,24 @@ class _MemoryProgressStore implements ReaderProgressStore {
 }
 
 class _FakeLan extends ReaMicroLanClient {
-  _FakeLan(this.manifest);
+  _FakeLan(this.manifest, {this.archive});
 
   final ReaMicroLanManifest manifest;
+  final List<int>? archive;
+  int downloadCalls = 0;
 
   @override
   Future<ReaMicroLanManifest> fetchManifest(ReaMicroLanSyncPeer peer) async {
     return manifest;
+  }
+
+  @override
+  Future<Uint8List> downloadBookArchive(
+    ReaMicroLanSyncPeer peer,
+    ReaMicroLanBookProgress book,
+  ) async {
+    downloadCalls += 1;
+    return Uint8List.fromList(archive!);
   }
 }
 
@@ -911,5 +926,71 @@ void main() {
       closeTo(0.375, 0.0001),
     );
     expect(progressStore.items['local-book']?.chapterTitle, '第三章');
+  });
+
+  test('局域网同步会下载本地缺失的图书并建立云端关联', () async {
+    final library = _TestLibrary();
+    final progressStore = _MemoryProgressStore();
+    final manifest = ReaMicroLanManifest.fromJson(<String, Object?>{
+      'userId': 1,
+      'deviceId': 'device-b',
+      'generatedAt': 1763380800000,
+      'books': <Object?>[
+        <String, Object?>{
+          'uuid': 'reamicro-book-uuid',
+          'progressUpdatedAt': 1763380700000,
+          'book': <String, Object?>{
+            'uuid': 'reamicro-book-uuid',
+            'title': '远端新书',
+            'author': '作者',
+            'cloudId': 21,
+            'epubcfi': 'epubcfi(/6/2!/4/2/1)',
+            'chapter': '第三章',
+            'progress': 37.5,
+          },
+          'files': <Object?>[
+            <String, Object?>{
+              'relativePath': 'mimetype',
+              'size': 20,
+              'md5': '',
+            },
+          ],
+        },
+      ],
+    });
+    final lan = _FakeLan(
+      manifest,
+      archive: buildTestEpub(
+        title: '远端新书',
+        author: '作者',
+        identifier: 'urn:uuid:reamicro-book',
+      ),
+    );
+    final controller = await _createController(
+      library,
+      _FakeApi(),
+      progressStore: progressStore,
+      lan: lan,
+    );
+    addTearDown(controller.dispose);
+
+    final message = await controller.syncWithLanPeer(
+      const ReaMicroLanSyncPeer(
+        host: '127.0.0.1',
+        port: 1,
+        userId: 1,
+        deviceId: 'device-b',
+        nickname: '测试用户',
+        deviceName: '测试设备',
+      ),
+    );
+
+    expect(lan.downloadCalls, 1);
+    expect(message, contains('下载 1 本图书'));
+    final books = await library.list();
+    expect(books, hasLength(1));
+    expect(books.single.title, '远端新书');
+    expect(controller.links[books.single.id]?.cloudBookId, 21);
+    expect(progressStore.items[books.single.id]?.cfi, 'epubcfi(/6/2!/4/2/1)');
   });
 }

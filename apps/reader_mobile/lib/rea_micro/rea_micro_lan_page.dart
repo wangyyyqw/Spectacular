@@ -217,8 +217,8 @@ class _IntroCard extends StatelessWidget {
             Expanded(
               child: Text(
                 signedIn
-                    ? '扫描同一局域网内的同账号设备，只合并较新的章节、CFI 与阅读百分比；'
-                          '本地尚未上报的位置会保留。'
+                    ? '扫描同一局域网内的同账号设备，下载本地缺失的图书并校验文件，'
+                          '同时合并较新的章节、CFI 与阅读百分比；本地尚未上报的位置会保留。'
                     : '通过同一局域网内已登录的阅微设备完成授权，访问令牌只保存在本机。'
                           '首次使用需要在系统设置中允许访问本地网络或附近设备。',
                 style: Theme.of(context).textTheme.bodyMedium,

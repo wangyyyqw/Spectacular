@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/asn1.dart';
 import 'package:pointycastle/export.dart';
@@ -110,6 +112,118 @@ void main() {
     expect(manifest.books.single.chapterName, '第三章');
     expect(manifest.books.single.updatedAt, 1763380700000);
     expect(manifest.books.single.finished, isTrue);
+  });
+
+  test('GET_FILES 二进制负载按长度前缀解析', () {
+    final payload = _filesPayload(<String, List<int>>{
+      'mimetype': utf8.encode('application/epub+zip'),
+      'OEBPS/c1.xhtml': utf8.encode('<html></html>'),
+    });
+
+    final files = decodeReaMicroLanFilesPayload(payload);
+
+    expect(files.keys, <String>['mimetype', 'OEBPS/c1.xhtml']);
+    expect(utf8.decode(files['mimetype']!), 'application/epub+zip');
+    expect(utf8.decode(files['OEBPS/c1.xhtml']!), '<html></html>');
+  });
+
+  test('下载书籍文件后校验 MD5 并重建 EPUB', () async {
+    final entries = <String, List<int>>{
+      'mimetype': utf8.encode('application/epub+zip'),
+      'META-INF/container.xml': utf8.encode('<container/>'),
+      'OEBPS/c1.xhtml': utf8.encode('<html>正文</html>'),
+    };
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    final requests = <List<String>>[];
+    server.listen((socket) async {
+      final iterator = StreamIterator<List<int>>(socket);
+      final buffer = <int>[];
+      Future<String> nextLine() async {
+        while (!buffer.contains(10)) {
+          if (!await iterator.moveNext()) throw const FormatException('EOF');
+          buffer.addAll(iterator.current);
+        }
+        final end = buffer.indexOf(10);
+        final line = utf8.decode(buffer.sublist(0, end));
+        buffer.removeRange(0, end + 1);
+        return line;
+      }
+
+      Future<Uint8List> nextBytes(int count) async {
+        while (buffer.length < count) {
+          if (!await iterator.moveNext()) throw const FormatException('EOF');
+          buffer.addAll(iterator.current);
+        }
+        final bytes = Uint8List.fromList(buffer.sublist(0, count));
+        buffer.removeRange(0, count);
+        return bytes;
+      }
+
+      try {
+        final line = await nextLine();
+        final parts = line.split(' ');
+        final requestBytes = await nextBytes(int.parse(parts[1]));
+        final request =
+            jsonDecode(utf8.decode(requestBytes)) as Map<String, Object?>;
+        requests.add((request['paths']! as List<Object?>).cast<String>());
+        final response = _filesPayload(entries);
+        socket.write('FILES ${response.length}\n');
+        socket.add(response);
+        await socket.flush();
+        await nextLine();
+      } finally {
+        await iterator.cancel();
+        socket.destroy();
+      }
+    });
+
+    final client = ReaMicroLanClient(socketTimeout: const Duration(seconds: 2));
+    final archiveBytes = await client.downloadBookArchive(
+      ReaMicroLanSyncPeer(
+        host: InternetAddress.loopbackIPv4.address,
+        port: server.port,
+        userId: 7,
+        deviceId: 'device-b',
+        nickname: '同账号用户',
+        deviceName: '测试设备',
+      ),
+      ReaMicroLanBookProgress(
+        uuid: 'book-a',
+        title: '本地书',
+        author: '作者',
+        cloudId: 42,
+        cfi: 'epubcfi(/6/8!/4/2/1)',
+        chapterName: '第三章',
+        progress: 0.375,
+        updatedAt: 1763380700000,
+        finished: false,
+        files: <ReaMicroLanFile>[
+          for (final entry in entries.entries)
+            ReaMicroLanFile(
+              relativePath: entry.key,
+              size: entry.value.length,
+              md5: md5.convert(entry.value).toString(),
+              mtime: 0,
+            ),
+        ],
+      ),
+    );
+
+    expect(requests.single, entries.keys.toList());
+    final archive = ZipDecoder().decodeBytes(archiveBytes);
+    expect(archive.first.name, 'mimetype');
+    expect(
+      utf8.decode(archive.first.content as List<int>),
+      'application/epub+zip',
+    );
+    expect(
+      utf8.decode(
+        archive.firstWhere((file) => file.name == 'OEBPS/c1.xhtml').content
+            as List<int>,
+      ),
+      '<html>正文</html>',
+    );
   });
 }
 
@@ -221,6 +335,28 @@ List<int> _cborEncode(Object? value) {
 
   write(value);
   return output;
+}
+
+Uint8List _filesPayload(Map<String, List<int>> entries) {
+  final builder = BytesBuilder(copy: false);
+  void writeUint32(int value) {
+    builder.add(<int>[
+      (value >> 24) & 0xff,
+      (value >> 16) & 0xff,
+      (value >> 8) & 0xff,
+      value & 0xff,
+    ]);
+  }
+
+  writeUint32(entries.length);
+  for (final entry in entries.entries) {
+    final path = utf8.encode(entry.key);
+    writeUint32(path.length);
+    builder.add(path);
+    writeUint32(entry.value.length);
+    builder.add(entry.value);
+  }
+  return builder.takeBytes();
 }
 
 void _writeHeader(List<int> output, int major, int length) {

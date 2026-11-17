@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:multicast_dns/multicast_dns.dart';
@@ -77,8 +79,8 @@ class ReaMicroLanSyncPeer {
 
 /// 阅微局域网服务客户端。
 ///
-/// 只实现阅读器需要的登录与进度清单读取，不下载整本书文件。所有连接都有
-/// 明确超时，服务发现结束后会立即停止 mDNS 客户端。
+/// 实现局域网授权登录、同步清单读取和整本书文件下载。所有连接都有明确
+/// 超时，服务发现结束后会立即停止 mDNS 客户端。
 class ReaMicroLanClient {
   /// 创建客户端。
   ReaMicroLanClient({
@@ -226,6 +228,100 @@ class ReaMicroLanClient {
         await socket.flush();
       } catch (_) {
         // 对端可能已主动断开，不影响已经读取的清单。
+      }
+      await reader.cancel();
+      socket.destroy();
+    }
+  }
+
+  /// 从对端设备读取一本书的全部文件，并重建为 EPUB 字节。
+  ///
+  /// 阅微设备按解析后的目录保存书籍，`GET_FILES` 一次可读取多个相对路径。
+  /// 这里分批读取，逐文件校验大小与 MD5，再按 EPUB 要求把 `mimetype`
+  /// 作为第一个且不压缩的条目写入 ZIP。
+  Future<Uint8List> downloadBookArchive(
+    ReaMicroLanSyncPeer peer,
+    ReaMicroLanBookProgress book,
+  ) async {
+    if (book.uuid.trim().isEmpty) {
+      throw const ReaMicroException('待下载书籍缺少设备标识');
+    }
+    final sourceFiles = book.files
+        .where((file) => _isSafeArchivePath(file.relativePath))
+        .toList(growable: false);
+    if (sourceFiles.isEmpty) {
+      throw ReaMicroException('《${book.title}》没有可下载的书籍文件');
+    }
+    final socket = await _connect(peer.host, peer.port);
+    final reader = _SocketFrameReader(socket, timeout: socketTimeout);
+    final contents = <String, Uint8List>{};
+    try {
+      const batchSize = 64;
+      for (var start = 0; start < sourceFiles.length; start += batchSize) {
+        final end = start + batchSize > sourceFiles.length
+            ? sourceFiles.length
+            : start + batchSize;
+        final batch = sourceFiles.sublist(start, end);
+        final requestBytes = utf8.encode(
+          jsonEncode(<String, Object?>{
+            'uuid': book.uuid,
+            'paths': <String>[for (final file in batch) file.relativePath],
+          }),
+        );
+        socket.write('GET_FILES ${requestBytes.length}\n');
+        socket.add(requestBytes);
+        await socket.flush();
+
+        final line = await reader.readLine();
+        if (line == null) {
+          throw const ReaMicroException('局域网设备未返回图书文件');
+        }
+        final parts = line.trim().split(RegExp(r'\s+'));
+        final command = parts.isEmpty ? '' : parts.first;
+        if (command == 'ERR') {
+          throw ReaMicroException('设备返回错误：${parts.skip(1).join(' ').trim()}');
+        }
+        if (command != 'FILES' || parts.length < 2) {
+          throw const ReaMicroException('设备返回了无法识别的图书文件');
+        }
+        final length = int.tryParse(parts[1]);
+        if (length == null || length < 4 || length > 512 * 1024 * 1024) {
+          throw const ReaMicroException('图书文件长度不正确');
+        }
+        final payload = await reader.readBytes(length);
+        final batchContents = decodeReaMicroLanFilesPayload(payload);
+        for (final entry in batchContents.entries) {
+          contents[entry.key] = entry.value;
+        }
+      }
+
+      final expectedPaths = <String>{
+        for (final file in sourceFiles)
+          _normalizeArchivePath(file.relativePath),
+      };
+      for (final file in sourceFiles) {
+        final path = _normalizeArchivePath(file.relativePath);
+        final data = contents[path];
+        if (data == null) {
+          throw ReaMicroException('设备未返回文件：$path');
+        }
+        if (file.size >= 0 && data.length != file.size) {
+          throw ReaMicroException('文件大小不一致：$path');
+        }
+        final digest = file.md5.trim().toLowerCase();
+        if (digest.isNotEmpty &&
+            md5.convert(data).toString().toLowerCase() != digest) {
+          throw ReaMicroException('文件校验失败：$path');
+        }
+      }
+      contents.removeWhere((path, _) => !expectedPaths.contains(path));
+      return _buildEpubArchive(contents);
+    } finally {
+      try {
+        socket.write('BYE\n');
+        await socket.flush();
+      } catch (_) {
+        // 对端可能已主动断开，不影响已完整读取并校验的文件。
       }
       await reader.cancel();
       socket.destroy();
@@ -448,6 +544,93 @@ class ReaMicroLanClient {
       return null;
     }
   }
+}
+
+/// 解码阅微 `GET_FILES` 的二进制响应。
+///
+/// 格式为一个大端 `uint32` 文件数，随后每项依次为 `uint32` 路径字节数、
+/// UTF-8 路径、`uint32` 内容字节数和原始内容。
+@visibleForTesting
+Map<String, Uint8List> decodeReaMicroLanFilesPayload(Uint8List payload) {
+  final reader = _BytePayloadReader(payload);
+  final count = reader.readUint32();
+  if (count > 100000) {
+    throw const ReaMicroException('设备返回的文件数量异常');
+  }
+  final result = <String, Uint8List>{};
+  for (var index = 0; index < count; index++) {
+    final pathLength = reader.readUint32();
+    final path = reader.readUtf8(pathLength);
+    final dataLength = reader.readUint32();
+    result[path] = reader.readBytes(dataLength);
+  }
+  if (!reader.finished) {
+    throw const ReaMicroException('设备返回的图书文件包含多余数据');
+  }
+  return result;
+}
+
+bool _isSafeArchivePath(String value) {
+  final path = value.trim().replaceAll('\\', '/');
+  if (path.isEmpty || path.startsWith('/') || path.endsWith('/')) return false;
+  final segments = path.split('/');
+  return segments.every(
+    (segment) => segment.isNotEmpty && segment != '.' && segment != '..',
+  );
+}
+
+String _normalizeArchivePath(String value) =>
+    value.trim().replaceAll('\\', '/');
+
+Uint8List _buildEpubArchive(Map<String, Uint8List> contents) {
+  final mimetype = contents['mimetype'];
+  if (mimetype == null ||
+      utf8.decode(mimetype, allowMalformed: true) != 'application/epub+zip') {
+    throw const ReaMicroException('设备返回的书籍缺少有效 mimetype');
+  }
+  final archive = Archive()
+    ..addFile(ArchiveFile.noCompress('mimetype', mimetype.length, mimetype));
+  final paths = contents.keys.where((path) => path != 'mimetype').toList()
+    ..sort();
+  for (final path in paths) {
+    final bytes = contents[path]!;
+    archive.addFile(ArchiveFile.bytes(path, bytes));
+  }
+  return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
+}
+
+class _BytePayloadReader {
+  _BytePayloadReader(this.bytes);
+
+  final Uint8List bytes;
+  int offset = 0;
+
+  bool get finished => offset == bytes.length;
+
+  int readUint32() {
+    if (offset + 4 > bytes.length) {
+      throw const ReaMicroException('图书文件数据长度不足');
+    }
+    final value =
+        (bytes[offset] << 24) |
+        (bytes[offset + 1] << 16) |
+        (bytes[offset + 2] << 8) |
+        bytes[offset + 3];
+    offset += 4;
+    return value;
+  }
+
+  Uint8List readBytes(int length) {
+    if (length < 0 || offset + length > bytes.length) {
+      throw const ReaMicroException('图书文件内容长度不足');
+    }
+    final value = Uint8List.sublistView(bytes, offset, offset + length);
+    offset += length;
+    return Uint8List.fromList(value);
+  }
+
+  String readUtf8(int length) =>
+      utf8.decode(readBytes(length), allowMalformed: true);
 }
 
 Object? _decodeManifestPayload(Uint8List payload) {
