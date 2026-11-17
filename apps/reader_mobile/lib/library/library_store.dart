@@ -14,6 +14,7 @@ import 'package:reader_core/epub/chapter/book_progress.dart'
 import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/revision_relocator.dart';
@@ -141,6 +142,41 @@ class BookEntry {
     coverPath: coverPath,
     importOutcome: importOutcome,
   );
+}
+
+/// 可与阅微书签文件往返的书签快照。
+class BookBookmarkRecord {
+  /// 创建书签快照。
+  const BookBookmarkRecord({
+    required this.cfi,
+    required this.spineIndex,
+    required this.title,
+    required this.summary,
+    required this.remark,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  /// EPUB CFI。
+  final String cfi;
+
+  /// 章节序号。
+  final int spineIndex;
+
+  /// 书签标题。
+  final String title;
+
+  /// 章节摘要。
+  final String summary;
+
+  /// 用户备注。
+  final String remark;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+
+  /// 更新时间（毫秒）。
+  final int updatedAt;
 }
 
 /// 书架分组。
@@ -730,6 +766,130 @@ class LibraryStore {
     return db == null ? null : DriftBookmarkStore(db, bookId);
   }
 
+  /// 导出书签快照，保留阅微书签文件可承载的标题、摘要和备注。
+  Future<List<BookBookmarkRecord>> listBookBookmarks(String bookId) async {
+    final db = _db;
+    if (db == null) return const <BookBookmarkRecord>[];
+    final internalId = await _bookIdOfUuid(bookId);
+    if (internalId == null) return const <BookBookmarkRecord>[];
+    final rows =
+        await (db.select(db.annotations)
+              ..where(
+                (table) =>
+                    table.bookId.equals(internalId) & table.type.equals(2),
+              )
+              ..orderBy([(table) => OrderingTerm(expression: table.startCfi)]))
+            .get();
+    return <BookBookmarkRecord>[
+      for (final row in rows)
+        if (_bookmarkCfi(row) case final cfi when cfi.isNotEmpty)
+          BookBookmarkRecord(
+            cfi: cfi,
+            spineIndex: _bookmarkSpineIndex(cfi),
+            title: row.quote,
+            summary: row.contextBefore ?? '',
+            remark: row.contextAfter ?? '',
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          ),
+    ];
+  }
+
+  /// 合并阅微书签快照。
+  ///
+  /// [removeMissing] 用于远端明确成为新基准时删除本地已不存在的书签；
+  /// 两端同时变化时只做并集，避免把另一端的离线新增误删。
+  Future<void> applyBookBookmarkSnapshot(
+    String bookId,
+    Iterable<BookBookmarkRecord> bookmarks, {
+    required bool removeMissing,
+  }) async {
+    final db = _db;
+    if (db == null) return;
+    final internalId = await _bookIdOfUuid(bookId);
+    if (internalId == null) return;
+    final incoming = <String, BookBookmarkRecord>{
+      for (final bookmark in bookmarks)
+        if (bookmark.cfi.trim().isNotEmpty) bookmark.cfi.trim(): bookmark,
+    };
+    await db.transaction(() async {
+      final rows =
+          await (db.select(db.annotations)..where(
+                (table) =>
+                    table.bookId.equals(internalId) & table.type.equals(2),
+              ))
+              .get();
+      final existing = <String, AnnotationRow>{
+        for (final row in rows)
+          if (_bookmarkCfi(row) case final cfi when cfi.isNotEmpty) cfi: row,
+      };
+      if (removeMissing) {
+        final removed = <String>[
+          for (final entry in existing.entries)
+            if (!incoming.containsKey(entry.key)) entry.value.id,
+        ];
+        if (removed.isNotEmpty) {
+          await (db.delete(
+            db.annotations,
+          )..where((table) => table.id.isIn(removed))).go();
+        }
+      }
+      for (final entry in incoming.entries) {
+        final current = existing[entry.key];
+        final bookmark = entry.value;
+        if (current == null) {
+          final digest = sha256
+              .convert(utf8.encode('$bookId|${entry.key}'))
+              .toString()
+              .substring(0, 32);
+          final now = DateTime.now().millisecondsSinceEpoch;
+          await db
+              .into(db.annotations)
+              .insert(
+                AnnotationsCompanion.insert(
+                  id: 'bm-sync-$digest',
+                  bookId: internalId,
+                  type: 2,
+                  startCfi: entry.key,
+                  endCfi: entry.key,
+                  quote: bookmark.title.isEmpty ? '书签' : bookmark.title,
+                  contextBefore: Value<String?>(
+                    bookmark.summary.isEmpty ? null : bookmark.summary,
+                  ),
+                  contextAfter: Value<String?>(
+                    bookmark.remark.isEmpty ? null : bookmark.remark,
+                  ),
+                  createdAt: bookmark.createdAt > 0 ? bookmark.createdAt : now,
+                  updatedAt: bookmark.updatedAt > 0 ? bookmark.updatedAt : now,
+                ),
+              );
+          continue;
+        }
+        if (bookmark.updatedAt > 0 && bookmark.updatedAt < current.updatedAt) {
+          continue;
+        }
+        await (db.update(
+          db.annotations,
+        )..where((table) => table.id.equals(current.id))).write(
+          AnnotationsCompanion(
+            quote: Value<String>(
+              bookmark.title.isEmpty ? current.quote : bookmark.title,
+            ),
+            contextBefore: Value<String?>(
+              bookmark.summary.isEmpty ? null : bookmark.summary,
+            ),
+            contextAfter: Value<String?>(
+              bookmark.remark.isEmpty ? null : bookmark.remark,
+            ),
+            updatedAt: Value<int>(
+              bookmark.updatedAt > 0 ? bookmark.updatedAt : current.updatedAt,
+            ),
+          ),
+        );
+      }
+    });
+  }
+
   /// 书 uuid → 数据库内部 id（搜索按内部 id 查索引）。
   Future<int?> internalBookId(String uuid) => _bookIdOfUuid(uuid);
 
@@ -742,6 +902,18 @@ class LibraryStore {
       db.books,
     )..where((table) => table.uuid.equals(uuid))).get();
     return rows.isEmpty ? null : rows.single.id;
+  }
+
+  String _bookmarkCfi(AnnotationRow row) {
+    final anchor = AnchorRecord.decode(row.anchorJson);
+    return anchor != null && anchor.isResolved
+        ? anchor.effective.start.cfi
+        : row.startCfi;
+  }
+
+  int _bookmarkSpineIndex(String cfi) {
+    final parsed = EpubCfi.parse(cfi);
+    return parsed == null ? 0 : (spineIndexOfCfi(parsed) ?? 0);
   }
 
   /// 某本书的标注存储（P4-17）；内存模式下没有标注能力时返回 null。

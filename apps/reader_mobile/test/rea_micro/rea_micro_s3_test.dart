@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -181,6 +182,87 @@ void main() {
     expect(store.object('team/read/manifest.cbor'), isNotNull);
   });
 
+  test('S3 双向同步书签并保留摘要备注', () async {
+    final root = await Directory.systemTemp.createTemp('reamicro-s3-marks-');
+    addTearDown(() => root.delete(recursive: true));
+    final store = _MemoryS3();
+    final libraryA = _TestLibrary(root, 'marks-a');
+    final libraryB = _TestLibrary(root, 'marks-b');
+    final bookA = await libraryA.add(
+      buildTestEpub(title: '书签书', author: '作者', identifier: 's3-marks'),
+    );
+    libraryA.setBookmarks(bookA.id, <BookBookmarkRecord>[
+      const BookBookmarkRecord(
+        cfi: 'epubcfi(/6/8!/4/2/1)',
+        spineIndex: 3,
+        title: '第三章',
+        summary: '章节摘要',
+        remark: '第一条备注',
+        createdAt: 1000,
+        updatedAt: 1000,
+      ),
+    ]);
+
+    final resultA = await _engine(
+      libraryA,
+      store,
+      userId: '7',
+      deviceId: 'device-a',
+    ).sync();
+    expect(resultA.syncedBookmarks, 1);
+    final bookmarkKey = store.keys.firstWhere(
+      (key) => key.endsWith('/bookmarks'),
+    );
+    final firstFile = jsonDecode(
+      utf8.decode(store.object(bookmarkKey)!.bytes),
+    ) as List<Object?>;
+    expect(firstFile, hasLength(1));
+    expect((firstFile.single! as Map<String, Object?>)['remark'], '第一条备注');
+
+    final resultB = await _engine(
+      libraryB,
+      store,
+      userId: '7',
+      deviceId: 'device-b',
+    ).sync();
+    final bookB = (await libraryB.list()).single;
+    expect(libraryB.bookmarksOf(bookB.id), hasLength(1));
+    expect(libraryB.bookmarksOf(bookB.id).single.summary, '章节摘要');
+
+    libraryB.setBookmarks(bookB.id, <BookBookmarkRecord>[
+      ...libraryB.bookmarksOf(bookB.id),
+      const BookBookmarkRecord(
+        cfi: 'epubcfi(/6/10!/4/2/1)',
+        spineIndex: 4,
+        title: '第四章',
+        summary: '',
+        remark: 'B 端新增',
+        createdAt: 2000,
+        updatedAt: 2000,
+      ),
+    ]);
+    await _engine(
+      libraryB,
+      store,
+      userId: '7',
+      deviceId: 'device-b',
+      bookmarkBases: resultB.bookmarkBases,
+    ).sync();
+
+    await _engine(
+      libraryA,
+      store,
+      userId: '7',
+      deviceId: 'device-a',
+      bookmarkBases: resultA.bookmarkBases,
+    ).sync();
+    expect(libraryA.bookmarksOf(bookA.id), hasLength(2));
+    expect(
+      libraryA.bookmarksOf(bookA.id).map((item) => item.remark),
+      contains('B 端新增'),
+    );
+  });
+
   test('删除墓碑阻止已删除图书重新下载', () async {
     final root = await Directory.systemTemp.createTemp('reamicro-s3-tomb-');
     addTearDown(() => root.delete(recursive: true));
@@ -272,6 +354,7 @@ ReaMicroS3SyncEngine _engine(
   required String userId,
   required String deviceId,
   Map<String, int> cloudIds = const <String, int>{},
+  Map<String, String> bookmarkBases = const <String, String>{},
 }) => ReaMicroS3SyncEngine(
   library: library,
   config: const ReaMicroS3Config(
@@ -286,6 +369,7 @@ ReaMicroS3SyncEngine _engine(
   userId: userId,
   deviceId: deviceId,
   cloudIds: cloudIds,
+  bookmarkBases: bookmarkBases,
 );
 
 class _MemoryS3 implements ReaMicroS3Client {
@@ -343,6 +427,58 @@ class _TestLibrary extends LibraryStore {
   final Directory root;
   final String name;
   final List<BookEntry> books = <BookEntry>[];
+  final Map<String, List<BookBookmarkRecord>> _bookmarks =
+      <String, List<BookBookmarkRecord>>{};
+
+  List<BookBookmarkRecord> bookmarksOf(String bookId) =>
+      List<BookBookmarkRecord>.of(_bookmarks[bookId] ?? const []);
+
+  void setBookmarks(String bookId, List<BookBookmarkRecord> records) {
+    _bookmarks[bookId] = List<BookBookmarkRecord>.of(records);
+  }
+
+  @override
+  Future<List<BookBookmarkRecord>> listBookBookmarks(String bookId) async =>
+      bookmarksOf(bookId);
+
+  @override
+  Future<void> applyBookBookmarkSnapshot(
+    String bookId,
+    Iterable<BookBookmarkRecord> bookmarks, {
+    required bool removeMissing,
+  }) async {
+    final current = <String, BookBookmarkRecord>{
+      for (final record in bookmarksOf(bookId)) record.cfi: record,
+    };
+    if (removeMissing) {
+      final incoming = <String>{
+        for (final record in bookmarks)
+          if (record.cfi.trim().isNotEmpty) record.cfi.trim(),
+      };
+      current.removeWhere((cfi, _) => !incoming.contains(cfi));
+    }
+    for (final record in bookmarks) {
+      final cfi = record.cfi.trim();
+      if (cfi.isEmpty) continue;
+      final existing = current[cfi];
+      current[cfi] = BookBookmarkRecord(
+        cfi: cfi,
+        spineIndex: record.spineIndex != 0
+            ? record.spineIndex
+            : existing?.spineIndex ?? 0,
+        title: record.title.isNotEmpty ? record.title : existing?.title ?? '',
+        summary: record.summary,
+        remark: record.remark,
+        createdAt: record.createdAt > 0
+            ? record.createdAt
+            : existing?.createdAt ?? 0,
+        updatedAt: record.updatedAt > 0
+            ? record.updatedAt
+            : existing?.updatedAt ?? 0,
+      );
+    }
+    _bookmarks[bookId] = current.values.toList(growable: false);
+  }
 
   Future<BookEntry> add(Uint8List bytes) async {
     final id = 'book-$name-${books.length + 1}';

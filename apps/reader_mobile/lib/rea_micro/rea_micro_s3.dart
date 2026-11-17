@@ -624,6 +624,8 @@ class ReaMicroS3SyncResult {
     required this.failed,
     required this.message,
     this.links = const <String, int>{},
+    this.bookmarkBases = const <String, String>{},
+    this.syncedBookmarks = 0,
   });
 
   /// 新上传或更新的书籍数。
@@ -643,6 +645,12 @@ class ReaMicroS3SyncResult {
 
   /// 本地书籍 ID → 阅微云端书籍 ID。
   final Map<String, int> links;
+
+  /// 本地书籍 ID → 上次与云端一致的书签文件哈希。
+  final Map<String, String> bookmarkBases;
+
+  /// 本次实际合并或上传的书签文件数。
+  final int syncedBookmarks;
 }
 
 /// 阅微 S3 书籍同步引擎。
@@ -659,6 +667,7 @@ class ReaMicroS3SyncEngine {
     required this.userId,
     required this.deviceId,
     this.cloudIds = const <String, int>{},
+    this.bookmarkBases = const <String, String>{},
     this.onStatus,
   });
 
@@ -679,6 +688,9 @@ class ReaMicroS3SyncEngine {
 
   /// 本地书籍 ID → 阅微云端书籍 ID。
   final Map<String, int> cloudIds;
+
+  /// 本地书籍 ID → 上次与云端一致的书签文件哈希。
+  final Map<String, String> bookmarkBases;
 
   /// 进度回调。
   final void Function(String message)? onStatus;
@@ -784,9 +796,11 @@ class ReaMicroS3SyncEngine {
     final localBooks = await library.list();
     final matchedRemote = <String>{};
     final links = <String, int>{};
+    final nextBookmarkBases = Map<String, String>.of(bookmarkBases);
     var uploaded = 0;
     var skipped = 0;
     var failed = 0;
+    var syncedBookmarks = 0;
 
     for (final local in localBooks) {
       final file = File(local.filePath);
@@ -817,34 +831,84 @@ class ReaMicroS3SyncEngine {
           }
         }
       }
+      final uuid = matched?.uuid ?? local.id;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final epubMatches =
+          matched != null &&
+          (matched.epub.sha256 == sha || matched.epub.sourceSha256 == sha);
+      final _BookmarkSyncOutcome? bookmarkOutcome;
+      try {
+        bookmarkOutcome = await _syncBookmarks(
+          local: local,
+          matched: matched,
+          uuid: uuid,
+          now: now,
+        );
+      } catch (error) {
+        failed += 1;
+        onStatus?.call('《${local.title}》书签同步失败：$error');
+        continue;
+      }
+      if (bookmarkOutcome != null) {
+        nextBookmarkBases[local.id] = bookmarkOutcome.baseSha;
+        if (bookmarkOutcome.synced) syncedBookmarks += 1;
+      }
+      final coverBytes = uploadCovers ? await _readLocalCover(local) : null;
+      final coverSha = coverBytes == null
+          ? ''
+          : sha256.convert(coverBytes).toString();
+      final coverChanged =
+          coverBytes != null &&
+          coverBytes.isNotEmpty &&
+          coverSha != (matched?.cover?.sha256 ?? '');
       if (matched != null) {
         matchedRemote.add(matched.uuid);
         if (matched.cloudId > 0) {
           links[local.id] = matched.cloudId;
         }
-        if (matched.epub.sha256 == sha || matched.epub.sourceSha256 == sha) {
+        if (epubMatches &&
+            !coverChanged &&
+            !(bookmarkOutcome?.entryChanged ?? false)) {
           skipped += 1;
           continue;
         }
       }
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final objectId = _objectId(sha, now);
-      final uuid = matched?.uuid ?? local.id;
       onStatus?.call('上传《${local.title}》…');
       try {
-        final bytes = await file.readAsBytes();
-        await client.put(
-          _bookKey(uuid, objectId, 'book.epub'),
-          bytes,
-          contentType: 'application/epub+zip',
-        );
+        final bytes = epubMatches ? null : await file.readAsBytes();
+        final epubFile = epubMatches
+            ? matched.epub
+            : ReaMicroS3File(
+                sha256: sha,
+                sourceSha256: sha,
+                objectId: _objectId(sha, now),
+              );
+        if (bytes != null) {
+          await client.put(
+            _bookKey(uuid, epubFile.objectId, 'book.epub'),
+            bytes,
+            contentType: 'application/epub+zip',
+          );
+        }
         ReaMicroS3File? coverFile = matched?.cover;
-        if (uploadCovers) {
-          coverFile = await _uploadCover(local, uuid, objectId) ?? coverFile;
+        if (coverBytes != null &&
+            coverBytes.isNotEmpty &&
+            (!epubMatches || coverChanged)) {
+          final coverObjectId = _objectId(coverSha, now);
+          await client.put(
+            _bookKey(uuid, coverObjectId, 'cover'),
+            coverBytes,
+            contentType: 'image/jpeg',
+          );
+          coverFile = ReaMicroS3File(
+            sha256: coverSha,
+            sourceSha256: coverSha,
+            objectId: coverObjectId,
+          );
         }
         books[uuid] = ReaMicroS3Book(
           uuid: uuid,
-          size: bytes.length,
+          size: size,
           title: local.title,
           author: local.author,
           createdAt: local.addedAt.millisecondsSinceEpoch,
@@ -853,17 +917,20 @@ class ReaMicroS3SyncEngine {
           revisionCounter: 0,
           deviceId: deviceId,
           metadataUpdatedAt: now,
-          epub: ReaMicroS3File(
-            sha256: sha,
-            sourceSha256: sha,
-            objectId: objectId,
-          ),
+          epub: epubFile,
           metadata: matched?.metadata ?? const <String, Object?>{},
           cover: coverFile,
-          bookmarks: matched?.bookmarks,
+          bookmarks: bookmarkOutcome?.file ?? matched?.bookmarks,
           banner: matched?.banner,
           bannerTracked: matched?.bannerTracked ?? false,
         );
+        if ((bookmarkOutcome?.file ?? matched?.bookmarks) != null) {
+          final bookmarkSha =
+              (bookmarkOutcome?.file ?? matched?.bookmarks)!.sha256;
+          if (bookmarkSha.isNotEmpty) {
+            nextBookmarkBases[local.id] = bookmarkSha;
+          }
+        }
         if ((cloudIds[local.id] ?? matched?.cloudId ?? 0) > 0) {
           links[local.id] = cloudIds[local.id] ?? matched?.cloudId ?? 0;
         }
@@ -912,6 +979,14 @@ class ReaMicroS3SyncEngine {
             object.bytes,
             fallbackTitle: book.title,
           );
+          final bookmarkOutcome = await _importRemoteBookmarks(
+            book: imported,
+            remote: book,
+          );
+          if (bookmarkOutcome != null) {
+            nextBookmarkBases[imported.id] = bookmarkOutcome;
+            syncedBookmarks += 1;
+          }
           if (book.cloudId > 0) {
             links[imported.id] = book.cloudId;
           }
@@ -979,7 +1054,8 @@ class ReaMicroS3SyncEngine {
     final parts = <String>[
       if (uploaded > 0) '上传 $uploaded 本',
       if (downloaded > 0) '下载 $downloaded 本',
-      if (uploaded == 0 && downloaded == 0) '没有新的书籍变更',
+      if (syncedBookmarks > 0) '同步 $syncedBookmarks 本书签',
+      if (uploaded == 0 && downloaded == 0 && syncedBookmarks == 0) '没有新的书籍变更',
       if (skipped > 0) '$skipped 本已是最新',
       if (failed > 0) '$failed 本失败',
     ];
@@ -990,27 +1066,157 @@ class ReaMicroS3SyncEngine {
       failed: failed,
       message: 'S3 同步完成：${parts.join('，')}（云端共 ${books.length} 本）',
       links: links,
+      bookmarkBases: nextBookmarkBases,
+      syncedBookmarks: syncedBookmarks,
     );
   }
 
-  Future<ReaMicroS3File?> _uploadCover(
-    BookEntry local,
-    String uuid,
-    String objectId,
-  ) async {
+  Future<Uint8List?> _readLocalCover(BookEntry local) async {
     final path = local.coverPath;
     if (path == null || path.isEmpty) return null;
     final file = File(path);
     if (!await file.exists()) return null;
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) return null;
-    final sha = sha256.convert(bytes).toString();
-    await client.put(
-      _bookKey(uuid, objectId, 'cover'),
-      bytes,
-      contentType: 'image/jpeg',
+    return bytes;
+  }
+
+  Future<_BookmarkSyncOutcome?> _syncBookmarks({
+    required BookEntry local,
+    required ReaMicroS3Book? matched,
+    required String uuid,
+    required int now,
+  }) async {
+    final localRecords = await library.listBookBookmarks(local.id);
+    final localBytes = _encodeBookmarkJson(localRecords);
+    final localSha = sha256.convert(localBytes).toString();
+    final remote = matched?.bookmarks;
+    final base = bookmarkBases[local.id] ?? '';
+    if (remote == null || !remote.usable) {
+      if (localRecords.isEmpty) return null;
+      return _uploadBookmarkRecords(
+        uuid: uuid,
+        now: now,
+        records: localRecords,
+        bytes: localBytes,
+        sha: localSha,
+      );
+    }
+    if (remote.sha256.isNotEmpty && remote.sha256 == localSha) {
+      return _BookmarkSyncOutcome(
+        file: remote,
+        baseSha: localSha,
+        entryChanged: false,
+        synced: false,
+      );
+    }
+    if (base.isNotEmpty && localSha == base) {
+      final remoteRecords = await _downloadBookmarkRecords(uuid, remote);
+      if (remoteRecords == null) {
+        return _uploadBookmarkRecords(
+          uuid: uuid,
+          now: now,
+          records: localRecords,
+          bytes: localBytes,
+          sha: localSha,
+        );
+      }
+      await library.applyBookBookmarkSnapshot(
+        local.id,
+        remoteRecords,
+        removeMissing: true,
+      );
+      return _BookmarkSyncOutcome(
+        file: remote,
+        baseSha: remote.sha256,
+        entryChanged: false,
+        synced: true,
+      );
+    }
+    if (base.isNotEmpty && remote.sha256 == base) {
+      return _uploadBookmarkRecords(
+        uuid: uuid,
+        now: now,
+        records: localRecords,
+        bytes: localBytes,
+        sha: localSha,
+      );
+    }
+    final remoteRecords = await _downloadBookmarkRecords(uuid, remote);
+    final merged = _mergeBookBookmarks(remoteRecords ?? const [], localRecords);
+    await library.applyBookBookmarkSnapshot(
+      local.id,
+      merged.values,
+      removeMissing: false,
     );
-    return ReaMicroS3File(sha256: sha, sourceSha256: sha, objectId: objectId);
+    return _uploadBookmarkRecords(
+      uuid: uuid,
+      now: now,
+      records: merged.values.toList(growable: false),
+      bytes: _encodeBookmarkJson(merged.values),
+      sha: '',
+    );
+  }
+
+  Future<_BookmarkSyncOutcome> _uploadBookmarkRecords({
+    required String uuid,
+    required int now,
+    required Iterable<BookBookmarkRecord> records,
+    required Uint8List bytes,
+    required String sha,
+  }) async {
+    final digest = sha.isEmpty ? sha256.convert(bytes).toString() : sha;
+    final objectId = _objectId(digest, now);
+    await client.put(
+      _bookKey(uuid, objectId, 'bookmarks'),
+      bytes,
+      contentType: 'application/json; charset=utf-8',
+    );
+    return _BookmarkSyncOutcome(
+      file: ReaMicroS3File(
+        sha256: digest,
+        sourceSha256: digest,
+        objectId: objectId,
+      ),
+      baseSha: digest,
+      entryChanged: true,
+      synced: records.isNotEmpty,
+    );
+  }
+
+  Future<List<BookBookmarkRecord>?> _downloadBookmarkRecords(
+    String uuid,
+    ReaMicroS3File file,
+  ) async {
+    final key = _bookKey(uuid, file.objectId, 'bookmarks');
+    final object = await client.get(key);
+    if (object == null) return null;
+    final sha = sha256.convert(object.bytes).toString();
+    if (file.sha256.isNotEmpty && file.sha256 != sha) {
+      throw const ReaMicroS3Exception('云端书签文件校验失败');
+    }
+    return _decodeBookmarkJson(object.bytes);
+  }
+
+  Future<String?> _importRemoteBookmarks({
+    required BookEntry book,
+    required ReaMicroS3Book remote,
+  }) async {
+    final file = remote.bookmarks;
+    if (file == null || !file.usable) return null;
+    try {
+      final records = await _downloadBookmarkRecords(remote.uuid, file);
+      if (records == null) return null;
+      await library.applyBookBookmarkSnapshot(
+        book.id,
+        records,
+        removeMissing: true,
+      );
+      return file.sha256;
+    } catch (error) {
+      onStatus?.call('《${book.title}》书签下载失败：$error');
+      return null;
+    }
   }
 
   Future<String> _localSha256(BookEntry local) async {
@@ -1050,6 +1256,98 @@ class ReaMicroS3SyncEngine {
     'gc': <String, Object?>{},
     'tx': <String, Object?>{},
   };
+}
+
+class _BookmarkSyncOutcome {
+  const _BookmarkSyncOutcome({
+    required this.file,
+    required this.baseSha,
+    required this.entryChanged,
+    required this.synced,
+  });
+
+  final ReaMicroS3File? file;
+  final String baseSha;
+  final bool entryChanged;
+  final bool synced;
+}
+
+Uint8List _encodeBookmarkJson(Iterable<BookBookmarkRecord> records) {
+  final sorted =
+      records
+          .where((record) => record.cfi.trim().isNotEmpty)
+          .toList(growable: false)
+        ..sort((left, right) => left.cfi.compareTo(right.cfi));
+  final items = <Map<String, Object?>>[
+    for (final record in sorted)
+      <String, Object?>{
+        if (record.spineIndex != 0) 'chapter': record.spineIndex,
+        if (record.title.isNotEmpty) 'title': record.title,
+        if (record.summary.isNotEmpty) 'summary': record.summary,
+        'epubcfi': record.cfi,
+        if (record.remark.isNotEmpty) 'remark': record.remark,
+      },
+  ];
+  return Uint8List.fromList(utf8.encode(jsonEncode(items)));
+}
+
+List<BookBookmarkRecord> _decodeBookmarkJson(Uint8List bytes) {
+  var text = utf8.decode(bytes, allowMalformed: false);
+  if (text.startsWith('\uFEFF')) text = text.substring(1);
+  if (text.trim().isEmpty) return const <BookBookmarkRecord>[];
+  final decoded = jsonDecode(text);
+  if (decoded is! List<Object?>) {
+    throw const ReaMicroS3Exception('云端书签文件格式不正确');
+  }
+  final records = <String, BookBookmarkRecord>{};
+  for (final item in decoded) {
+    if (item is! Map<String, Object?>) continue;
+    final cfi = _asString(item['epubcfi']).trim();
+    if (cfi.isEmpty) continue;
+    records[cfi] = BookBookmarkRecord(
+      cfi: cfi,
+      spineIndex: _asInt(item['chapter']),
+      title: _asString(item['title']),
+      summary: _asString(item['summary']),
+      remark: _asString(item['remark']),
+      createdAt: 0,
+      updatedAt: 0,
+    );
+  }
+  return records.values.toList(growable: false);
+}
+
+Map<String, BookBookmarkRecord> _mergeBookBookmarks(
+  Iterable<BookBookmarkRecord> remote,
+  Iterable<BookBookmarkRecord> local,
+) {
+  final merged = <String, BookBookmarkRecord>{
+    for (final record in remote)
+      if (record.cfi.trim().isNotEmpty) record.cfi.trim(): record,
+  };
+  for (final record in local) {
+    final cfi = record.cfi.trim();
+    if (cfi.isEmpty) continue;
+    final previous = merged[cfi];
+    merged[cfi] = BookBookmarkRecord(
+      cfi: cfi,
+      spineIndex: record.spineIndex != 0
+          ? record.spineIndex
+          : previous?.spineIndex ?? 0,
+      title: record.title.isNotEmpty ? record.title : previous?.title ?? '',
+      summary: record.summary.isNotEmpty
+          ? record.summary
+          : previous?.summary ?? '',
+      remark: record.remark.isNotEmpty ? record.remark : previous?.remark ?? '',
+      createdAt: record.createdAt > 0
+          ? record.createdAt
+          : previous?.createdAt ?? 0,
+      updatedAt: record.updatedAt > (previous?.updatedAt ?? 0)
+          ? record.updatedAt
+          : previous?.updatedAt ?? 0,
+    );
+  }
+  return merged;
 }
 
 Map<String, Object?> _asMap(Object? value) =>

@@ -101,6 +101,7 @@ class ReaMicroController extends ChangeNotifier {
   Timer? _cloudSyncTimer;
   Timer? _s3SyncTimer;
   ReaMicroS3Config? _s3Config;
+  Map<String, String> _s3BookmarkBases = <String, String>{};
   bool _s3Syncing = false;
   String? _s3Message;
   DateTime? _s3LastSyncAt;
@@ -208,6 +209,7 @@ class ReaMicroController extends ChangeNotifier {
     _deviceId = await _store.loadOrCreateDeviceId();
     _cloudAsPrimary = await _store.loadCloudPrimary();
     _s3Config = await _store.loadS3Config();
+    _s3BookmarkBases = await _store.loadS3BookmarkBases();
     _s3LastSyncAt = await _store.loadS3LastSyncAt();
     if (_token == null && _cloudAsPrimary) {
       _cloudAsPrimary = false;
@@ -238,8 +240,10 @@ class ReaMicroController extends ChangeNotifier {
     _s3Message = null;
     if (_s3Config == null) {
       await _store.clearS3Config();
+      await _clearS3BookmarkBases();
     } else {
       await _store.saveS3Config(_s3Config!);
+      await _clearS3BookmarkBases();
     }
     _notify();
   }
@@ -250,7 +254,13 @@ class ReaMicroController extends ChangeNotifier {
     _s3Message = null;
     _s3SyncTimer?.cancel();
     await _store.clearS3Config();
+    await _clearS3BookmarkBases();
     _notify();
+  }
+
+  Future<void> _clearS3BookmarkBases() async {
+    _s3BookmarkBases = <String, String>{};
+    await _store.clearS3BookmarkBases();
   }
 
   /// 延迟执行 S3 同步，避免启动阶段与账号刷新重叠。
@@ -302,6 +312,7 @@ class ReaMicroController extends ChangeNotifier {
           for (final entry in _links.entries)
             entry.key: entry.value.cloudBookId,
         },
+        bookmarkBases: _s3BookmarkBases,
         onStatus: (message) {
           if (_disposed) return;
           _s3Message = message;
@@ -312,6 +323,10 @@ class ReaMicroController extends ChangeNotifier {
       _s3LastSyncAt = DateTime.now();
       _s3Message = result.message;
       await _store.saveS3LastSyncAt(_s3LastSyncAt!);
+      if (result.bookmarkBases.isNotEmpty || _s3BookmarkBases.isNotEmpty) {
+        _s3BookmarkBases = Map<String, String>.of(result.bookmarkBases);
+        await _store.saveS3BookmarkBases(_s3BookmarkBases);
+      }
       if (result.links.isNotEmpty) {
         final nextLinks = Map<String, ReaMicroBookLink>.of(_links);
         var changed = false;

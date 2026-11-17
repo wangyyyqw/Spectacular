@@ -25,6 +25,7 @@ class ReaMicroStore {
   static const String _cloudPrimaryKey = 'reamicro.cloud.primary';
   static const String _s3ConfigKey = 'reamicro.s3.config';
   static const String _s3LastSyncKey = 'reamicro.s3.lastAt';
+  static const String _s3BookmarkBasesKey = 'reamicro.s3.bookmark.bases';
   static const int _maxUploadedKeys = 5000;
 
   /// 读取访问令牌。
@@ -233,6 +234,31 @@ class ReaMicroStore {
     _s3LastSyncKey,
     value.millisecondsSinceEpoch.toString(),
   );
+
+  /// 读取每本书上次与云端一致的书签文件哈希。
+  Future<Map<String, String>> loadS3BookmarkBases() async {
+    final raw = await _library.getSetting(_s3BookmarkBasesKey);
+    if (raw == null || raw.isEmpty) return <String, String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) return <String, String>{};
+      return <String, String>{
+        for (final entry in decoded.entries)
+          if (entry.value is String && (entry.value! as String).isNotEmpty)
+            entry.key: entry.value! as String,
+      };
+    } on FormatException {
+      return <String, String>{};
+    }
+  }
+
+  /// 保存书签文件同步基准。
+  Future<void> saveS3BookmarkBases(Map<String, String> values) =>
+      _library.setSetting(_s3BookmarkBasesKey, jsonEncode(values));
+
+  /// 清除书签文件同步基准。
+  Future<void> clearS3BookmarkBases() =>
+      _library.setSetting(_s3BookmarkBasesKey, '');
 
   /// 读取或生成用于区分本机的设备标识。
   Future<String> loadOrCreateDeviceId() async {
