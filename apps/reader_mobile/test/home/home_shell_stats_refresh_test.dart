@@ -71,9 +71,9 @@ void main() {
     library.sessions.add(
       ReadingSession(
         bookId: 'book-a',
-        startedAt: now.subtract(const Duration(minutes: 3)),
+        startedAt: now.subtract(const Duration(minutes: 5)),
         endedAt: now,
-        duration: const Duration(minutes: 3),
+        duration: const Duration(minutes: 5),
       ),
     );
 
@@ -88,7 +88,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-book-duration-total')),
           )
           .data,
-      '3 分钟',
+      '5 分钟',
     );
   });
 }
