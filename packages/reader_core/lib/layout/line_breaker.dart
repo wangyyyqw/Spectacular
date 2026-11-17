@@ -4173,6 +4173,7 @@ abstract final class TextLayoutEngine {
   }
 
   /// 行内盒占位 span：占位符用 letterSpacing 补到目标宽度。
+  /// 原文、连接符和占位符共用游标，保留线性拼接以避免拆分后漏算或重复偏移。
   static TextSpan _inlineBoxSpans(
     String text,
     TextStyle baseStyle,
@@ -4187,14 +4188,37 @@ abstract final class TextLayoutEngine {
       textScaleFactor,
     );
     final children = <InlineSpan>[];
+    final controlStyle = baseStyle.copyWith(
+      fontFamily: 'sans-serif',
+      fontFamilyFallback: const [],
+      fontSize: 0,
+      letterSpacing: 0,
+      wordSpacing: 0,
+    );
     var cursor = 0;
     for (final mark in marks) {
       final index = mark.index.clamp(0, text.length);
-      if (index > cursor) {
+      // 内边距的零宽连接符属于测量占位，不能继承两侧不同的书内字体。
+      // 否则缺控制字形的子集字体会形成孤立 run，使 Skia 行度量原生崩溃。
+      // 连接符使用零字号、零字距，不影响原文字体的行高或占位宽度。
+      final start = mark.spec.payload == InlineSpacingEdge.trailing && index > 0
+          ? index - 1
+          : index;
+      final end =
+          mark.spec.payload == InlineSpacingEdge.leading &&
+              index + 1 < text.length
+          ? index + 2
+          : index + 1;
+      if (start > cursor) {
         children.add(
           sourceSpan == null
-              ? TextSpan(text: text.substring(cursor, index), style: baseStyle)
-              : sliceTextSpan(sourceSpan, cursor, index),
+              ? TextSpan(text: text.substring(cursor, start), style: baseStyle)
+              : sliceTextSpan(sourceSpan, cursor, start),
+        );
+      }
+      if (start < index) {
+        children.add(
+          TextSpan(text: text.substring(start, index), style: controlStyle),
         );
       }
       final spacing =
@@ -4209,7 +4233,12 @@ abstract final class TextLayoutEngine {
                 ),
         ),
       );
-      cursor = index + 1;
+      if (end > index + 1) {
+        children.add(
+          TextSpan(text: text.substring(index + 1, end), style: controlStyle),
+        );
+      }
+      cursor = end;
     }
     if (cursor < text.length) {
       children.add(
