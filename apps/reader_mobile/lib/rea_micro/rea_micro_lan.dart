@@ -274,12 +274,28 @@ class ReaMicroLanClient {
       throw ReaMicroException('无法启动局域网服务发现：$error');
     }
     try {
-      final pointers = await _collect(
-        client.lookup<PtrResourceRecord>(
-          ResourceRecordQuery.serverPointer('$serviceType.local'),
+      final pointerQueries = <Future<List<PtrResourceRecord>>>[
+        _collect(
+          client.lookup<PtrResourceRecord>(
+            ResourceRecordQuery.serverPointer('$serviceType.local'),
+          ),
+          discoveryTimeout,
         ),
-        discoveryTimeout,
-      );
+        if (Platform.isWindows)
+          _collect(
+            client.lookup<PtrResourceRecord>(
+              ResourceRecordQuery.serverPointer(
+                '$serviceType.local',
+                isMulticast: false,
+              ),
+            ),
+            discoveryTimeout,
+          ),
+      ];
+      final pointerResults = await Future.wait(pointerQueries);
+      final pointers = <PtrResourceRecord>[
+        for (final result in pointerResults) ...result,
+      ];
       final domains = <String>{
         for (final pointer in pointers)
           if (pointer.domainName.trim().isNotEmpty) pointer.domainName.trim(),
@@ -306,18 +322,10 @@ class ReaMicroLanClient {
       candidates.where((interface) => interface.addresses.isNotEmpty),
       _canJoinMulticast,
     );
-    final interfaces = <NetworkInterface>[];
-    final senders = <RawDatagramSocket>[];
-    for (final interface in reachable) {
-      final sender = await _openMulticastSender(interface);
-      if (sender == null) continue;
-      interfaces.add(interface);
-      senders.add(sender);
-    }
-    if (senders.isEmpty) {
+    if (reachable.isEmpty) {
       throw const ReaMicroException('没有可用于局域网发现的网络接口');
     }
-    return _WindowsMdnsEnvironment(interfaces: interfaces, senders: senders);
+    return _WindowsMdnsEnvironment(interfaces: reachable);
   }
 
   Future<void> _acquireAndroidMulticastLock() async {
@@ -461,31 +469,21 @@ Future<bool> _canJoinMulticast(NetworkInterface interface) async {
   }
 }
 
-Future<RawDatagramSocket?> _openMulticastSender(
-  NetworkInterface interface,
-) async {
-  RawDatagramSocket? sender;
-  try {
-    sender = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-    sender.setRawOption(
-      RawSocketOption(
-        RawSocketOption.levelIPv4,
-        RawSocketOption.IPv4MulticastInterface,
-        interface.addresses.first.rawAddress,
-      ),
-    );
-    return sender;
-  } on Object {
-    sender?.close();
-    return null;
+InternetAddress _preferredMulticastAddress(NetworkInterface interface) {
+  for (final address in interface.addresses) {
+    if (address.type == InternetAddressType.IPv4 &&
+        !address.isLinkLocal &&
+        !address.isLoopback) {
+      return address;
+    }
   }
+  return interface.addresses.first;
 }
 
 class _WindowsMdnsEnvironment {
-  _WindowsMdnsEnvironment({required this.interfaces, required this.senders});
+  _WindowsMdnsEnvironment({required this.interfaces});
 
   final List<NetworkInterface> interfaces;
-  final List<RawDatagramSocket> senders;
   final List<RawDatagramSocket> _boundSockets = <RawDatagramSocket>[];
 
   Future<Iterable<NetworkInterface>> interfacesFactory(
@@ -511,30 +509,30 @@ class _WindowsMdnsEnvironment {
     );
     _boundSockets.add(socket);
     if (host.toString() != InternetAddress.anyIPv4.address) return socket;
-    return _LanMdnsDatagramSocket(socket, senders);
+    return _LanMdnsDatagramSocket(socket, interfaces);
   }
 
   void close() {
     for (final socket in _boundSockets) {
       socket.close();
     }
-    for (final sender in senders) {
-      sender.close();
-    }
     _boundSockets.clear();
   }
 }
 
-/// 在 Windows 上从每块可用网卡分别发送 mDNS 查询。
+/// 在 Windows 上从每块可用网卡分别发送 mDNS 查询，并保持 5353 源端口。
 ///
 /// 系统默认组播路由可能指向 VPN 或虚拟网卡，导致查询走到不可达的网络。
-/// 接收仍使用绑定 `0.0.0.0:5353` 的原始套接字。
+/// 查询和接收共用绑定 `0.0.0.0:5353` 的原始套接字，避免 responder 把响应
+/// 送回临时发送端口而应用收不到。
 class _LanMdnsDatagramSocket extends Stream<RawSocketEvent>
     implements RawDatagramSocket {
-  _LanMdnsDatagramSocket(this._inner, this._senders);
+  _LanMdnsDatagramSocket(this._inner, this._interfaces) {
+    _inner.multicastHops = 255;
+  }
 
   final RawDatagramSocket _inner;
-  final List<RawDatagramSocket> _senders;
+  final List<NetworkInterface> _interfaces;
 
   @override
   bool get readEventsEnabled => _inner.readEventsEnabled;
@@ -581,9 +579,6 @@ class _LanMdnsDatagramSocket extends Stream<RawSocketEvent>
   @override
   void close() {
     _inner.close();
-    for (final sender in _senders) {
-      sender.close();
-    }
   }
 
   @override
@@ -592,20 +587,22 @@ class _LanMdnsDatagramSocket extends Stream<RawSocketEvent>
   @override
   int send(List<int> buffer, InternetAddress address, int port) {
     var sent = 0;
-    for (final sender in _senders) {
+    for (final interface in _interfaces) {
       try {
-        final result = sender.send(buffer, address, port);
+        _inner.setRawOption(
+          RawSocketOption(
+            RawSocketOption.levelIPv4,
+            RawSocketOption.IPv4MulticastInterface,
+            _preferredMulticastAddress(interface).rawAddress,
+          ),
+        );
+        final result = _inner.send(buffer, address, port);
         if (result > sent) sent = result;
       } on Object {
         // 某块网卡暂时不可达时继续尝试其余网卡。
       }
     }
-    if (sent > 0) return sent;
-    try {
-      return _inner.send(buffer, address, port);
-    } on Object {
-      return 0;
-    }
+    return sent;
   }
 
   @override

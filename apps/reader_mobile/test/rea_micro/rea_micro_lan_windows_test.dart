@@ -25,6 +25,9 @@ void main() {
       final device = devices.firstWhere((item) => item.userId == '42');
       expect(device.nickname, '假设备');
       expect(device.port, 45678);
+      expect(responder.queryPorts, isNotEmpty);
+      expect(responder.queryPorts.every((port) => port == 5353), isTrue);
+      expect(responder.sawUnicastQuery, isTrue);
     },
     skip: !Platform.isWindows ? '仅在 Windows 上验证组播发现' : false,
     timeout: const Timeout(Duration(seconds: 40)),
@@ -35,6 +38,7 @@ class _FakeResponder {
   _FakeResponder._(this._socket);
 
   final RawDatagramSocket _socket;
+  final Set<int> queryPorts = <int>{};
 
   static Future<_FakeResponder> start() async {
     final socket = await RawDatagramSocket.bind(
@@ -76,16 +80,26 @@ class _FakeResponder {
     return responder;
   }
 
+  bool sawUnicastQuery = false;
+
   void _handle(RawSocketEvent event) {
     if (event != RawSocketEvent.read) return;
     final datagram = _socket.receive();
     if (datagram == null || datagram.data.length < 12) return;
+    queryPorts.add(datagram.port);
     final data = datagram.data;
     if ((data[2] & 0x80) != 0) return;
     final questionEnd = _questionEnd(data);
     if (questionEnd == null) return;
     if (_readName(data, 12) != _service) return;
-    _socket.send(_buildResponse(data.sublist(12, questionEnd)), _group, 5353);
+    final unicast = (data[questionEnd - 2] & 0x80) != 0;
+    if (unicast) sawUnicastQuery = true;
+    final response = _buildResponse(data.sublist(12, questionEnd));
+    if (unicast) {
+      _socket.send(response, datagram.address, datagram.port);
+    } else {
+      _socket.send(response, _group, 5353);
+    }
   }
 
   void close() => _socket.close();
