@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 
+import 'rea_micro_cbor.dart';
 import 'rea_micro_lan_rsa.dart';
 import 'rea_micro_models.dart';
 
@@ -191,25 +192,34 @@ class ReaMicroLanClient {
   /// 读取对端同步清单。
   Future<ReaMicroLanManifest> fetchManifest(ReaMicroLanSyncPeer peer) async {
     final socket = await _connect(peer.host, peer.port);
-    final iterator = _lineIterator(socket);
+    final reader = _SocketFrameReader(socket, timeout: socketTimeout);
     try {
       socket.write('MANIFEST\n');
       await socket.flush();
-      final line = await _nextLine(iterator);
-      if (!line.startsWith('MANIFEST ')) {
-        throw ReaMicroException(
-          line.startsWith('ERR ')
-              ? '设备返回错误：${line.substring(4)}'
-              : '设备返回了无法识别的同步清单',
-        );
+      final line = await reader.readLine();
+      if (line == null) {
+        throw const ReaMicroException('局域网设备未返回数据或连接已关闭');
       }
-      final decoded = jsonDecode(line.substring('MANIFEST '.length));
+      final parts = line.trim().split(RegExp(r'\s+'));
+      final command = parts.isEmpty ? '' : parts.first;
+      if (command == 'ERR') {
+        throw ReaMicroException('设备返回错误：${parts.skip(1).join(' ').trim()}');
+      }
+      if (command != 'MANIFEST' || parts.length < 2) {
+        throw const ReaMicroException('设备返回了无法识别的同步清单');
+      }
+      final length = int.tryParse(parts[1]);
+      if (length == null || length <= 0) {
+        throw const ReaMicroException('同步清单长度不正确');
+      }
+      final payload = await reader.readBytes(length);
+      final decoded = _decodeManifestPayload(payload);
       if (decoded is! Map<String, Object?>) {
         throw const ReaMicroException('同步清单格式不正确');
       }
       return ReaMicroLanManifest.fromJson(decoded);
     } on FormatException {
-      throw const ReaMicroException('同步清单不是有效的 JSON');
+      throw const ReaMicroException('同步清单不是有效的 JSON 或 CBOR');
     } finally {
       try {
         socket.write('BYE\n');
@@ -217,7 +227,7 @@ class ReaMicroLanClient {
       } catch (_) {
         // 对端可能已主动断开，不影响已经读取的清单。
       }
-      await iterator.cancel();
+      await reader.cancel();
       socket.destroy();
     }
   }
@@ -440,6 +450,27 @@ class ReaMicroLanClient {
   }
 }
 
+Object? _decodeManifestPayload(Uint8List payload) {
+  var offset = 0;
+  if (payload.length >= 3 &&
+      payload[0] == 0xef &&
+      payload[1] == 0xbb &&
+      payload[2] == 0xbf) {
+    offset = 3;
+  }
+  while (offset < payload.length && _isJsonWhitespace(payload[offset])) {
+    offset++;
+  }
+  if (offset < payload.length &&
+      (payload[offset] == 0x7b || payload[offset] == 0x5b)) {
+    return jsonDecode(utf8.decode(Uint8List.sublistView(payload, offset)));
+  }
+  return ReaMicroCborDecoder.decode(payload);
+}
+
+bool _isJsonWhitespace(int byte) =>
+    byte == 0x20 || byte == 0x09 || byte == 0x0a || byte == 0x0d;
+
 /// 过滤无法发送 mDNS 组播的网卡。
 ///
 /// Windows 上断开或虚拟的网卡可能让组播设置返回 `WSAENOPROTOOPT` 或
@@ -660,6 +691,66 @@ class _DiscoveredService {
   final String host;
   final int port;
   final Map<String, String> txt;
+}
+
+/// 按换行命令头和长度字段读取局域网协议数据。
+///
+/// 清单负载可能是二进制 CBOR 或 UTF-8 JSON，不能先经过文本行切分；该读取器
+/// 直接从套接字缓存字节，确保命令头之后的数据不会被解码器或行切分器吞掉。
+class _SocketFrameReader {
+  _SocketFrameReader(Socket socket, {required this.timeout})
+    : _iterator = StreamIterator<List<int>>(socket.cast<List<int>>());
+
+  final StreamIterator<List<int>> _iterator;
+  final Duration timeout;
+  final List<int> _buffer = <int>[];
+  bool _closed = false;
+
+  Future<String?> readLine() async {
+    while (true) {
+      final newline = _buffer.indexOf(10);
+      if (newline >= 0) {
+        final bytes = _buffer.sublist(0, newline);
+        _buffer.removeRange(0, newline + 1);
+        if (bytes.isNotEmpty && bytes.last == 13) bytes.removeLast();
+        return utf8.decode(bytes, allowMalformed: true);
+      }
+      if (!await _fill()) {
+        if (_buffer.isEmpty) return null;
+        final bytes = List<int>.of(_buffer);
+        _buffer.clear();
+        return utf8.decode(bytes, allowMalformed: true);
+      }
+    }
+  }
+
+  Future<Uint8List> readBytes(int length) async {
+    if (length <= 0) return Uint8List(0);
+    while (_buffer.length < length) {
+      if (!await _fill()) {
+        throw const ReaMicroException('设备返回的同步清单数据不完整');
+      }
+    }
+    final value = Uint8List.fromList(_buffer.sublist(0, length));
+    _buffer.removeRange(0, length);
+    return value;
+  }
+
+  Future<bool> _fill() async {
+    if (_closed) return false;
+    final hasNext = await _iterator.moveNext().timeout(
+      timeout,
+      onTimeout: () => false,
+    );
+    if (!hasNext) {
+      _closed = true;
+      return false;
+    }
+    _buffer.addAll(_iterator.current);
+    return true;
+  }
+
+  Future<void> cancel() => _iterator.cancel();
 }
 
 Map<String, String> _parseTxt(String text) {

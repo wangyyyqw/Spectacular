@@ -756,7 +756,8 @@ class ReaMicroLanBookProgress {
       chapterName: _stringValue(snapshot['chapter']) ?? '',
       progress: _progressValue(snapshot['progress']),
       updatedAt: _intValue(entry['progressUpdatedAt']),
-      finished: snapshot['finished'] == true,
+      finished:
+          snapshot['finished'] == true || _intValue(snapshot['finished']) > 0,
     );
   }
 }
@@ -783,7 +784,7 @@ class ReaMicroLanManifest {
   /// 对方提供的书籍进度。
   final List<ReaMicroLanBookProgress> books;
 
-  /// 从服务端 JSON 解析。
+  /// 从服务端同步清单映射解析。
   factory ReaMicroLanManifest.fromJson(Map<String, Object?> json) {
     final rawBooks = json['books'];
     return ReaMicroLanManifest(
