@@ -5,10 +5,25 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/asn1.dart';
 import 'package:pointycastle/export.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_lan.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_lan_rsa.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 
 void main() {
+  test('组播接口筛选跳过无法加入的网卡', () async {
+    final probed = <String>[];
+    final selected = await selectReachableMulticastInterfaces(
+      <String>['以太网', '虚拟网卡', 'WLAN'],
+      (name) async {
+        probed.add(name);
+        return name != '虚拟网卡';
+      },
+    );
+
+    expect(probed, <String>['以太网', '虚拟网卡', 'WLAN']);
+    expect(selected, <String>['以太网', 'WLAN']);
+  });
+
   test('RSA 公钥编码为 X.509 并可解密 PKCS#1 令牌', () async {
     final pair = await Isolate.run(ReaMicroLanRsa.generate);
     final encodedKey = ReaMicroLanRsa.encodePublicKey(pair.publicKey);

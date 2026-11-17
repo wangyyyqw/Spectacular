@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 
@@ -253,12 +254,23 @@ class ReaMicroLanClient {
 
   Future<List<_DiscoveredService>> _discoverServices(String serviceType) async {
     await _acquireAndroidMulticastLock();
-    final client = MDnsClient();
+    _WindowsMdnsEnvironment? windows;
+    final MDnsClient client;
     try {
-      await client.start();
+      windows = await _prepareWindowsMdns();
+      client = windows == null
+          ? MDnsClient()
+          : MDnsClient(rawDatagramSocketFactory: windows.bindDatagramSocket);
+      await client.start(
+        interfacesFactory: windows?.interfacesFactory,
+        onError: (Object _) {
+          // Windows 上不可达的虚拟网卡可能异步回报 ICMP 错误，不影响其他网卡。
+        },
+      );
     } on Object catch (error) {
-      client.stop();
+      windows?.close();
       await _releaseAndroidMulticastLock();
+      if (error is ReaMicroException) rethrow;
       throw ReaMicroException('无法启动局域网服务发现：$error');
     }
     try {
@@ -278,8 +290,34 @@ class ReaMicroLanClient {
       return resolved.whereType<_DiscoveredService>().toList(growable: false);
     } finally {
       client.stop();
+      windows?.close();
       await _releaseAndroidMulticastLock();
     }
+  }
+
+  Future<_WindowsMdnsEnvironment?> _prepareWindowsMdns() async {
+    if (!Platform.isWindows) return null;
+    final candidates = await NetworkInterface.list(
+      includeLinkLocal: true,
+      type: InternetAddressType.IPv4,
+      includeLoopback: false,
+    );
+    final reachable = await selectReachableMulticastInterfaces(
+      candidates.where((interface) => interface.addresses.isNotEmpty),
+      _canJoinMulticast,
+    );
+    final interfaces = <NetworkInterface>[];
+    final senders = <RawDatagramSocket>[];
+    for (final interface in reachable) {
+      final sender = await _openMulticastSender(interface);
+      if (sender == null) continue;
+      interfaces.add(interface);
+      senders.add(sender);
+    }
+    if (senders.isEmpty) {
+      throw const ReaMicroException('没有可用于局域网发现的网络接口');
+    }
+    return _WindowsMdnsEnvironment(interfaces: interfaces, senders: senders);
   }
 
   Future<void> _acquireAndroidMulticastLock() async {
@@ -393,6 +431,222 @@ class ReaMicroLanClient {
     }
   }
 }
+
+/// 过滤无法加入 mDNS 组播的网卡。
+///
+/// Windows 上断开或虚拟的网卡可能让 `joinMulticast` 返回 `WSAENOPROTOOPT`，
+/// 单个坏网卡不应阻断整个设备发现。
+@visibleForTesting
+Future<List<T>> selectReachableMulticastInterfaces<T>(
+  Iterable<T> candidates,
+  Future<bool> Function(T candidate) canJoin,
+) async {
+  final selected = <T>[];
+  for (final candidate in candidates) {
+    if (await canJoin(candidate)) selected.add(candidate);
+  }
+  return selected;
+}
+
+Future<bool> _canJoinMulticast(NetworkInterface interface) async {
+  RawDatagramSocket? socket;
+  try {
+    socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    socket.joinMulticast(_mdnsMulticastIPv4, interface);
+    return true;
+  } on Object {
+    return false;
+  } finally {
+    socket?.close();
+  }
+}
+
+Future<RawDatagramSocket?> _openMulticastSender(
+  NetworkInterface interface,
+) async {
+  RawDatagramSocket? sender;
+  try {
+    sender = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    sender.setRawOption(
+      RawSocketOption(
+        RawSocketOption.levelIPv4,
+        RawSocketOption.IPv4MulticastInterface,
+        interface.addresses.first.rawAddress,
+      ),
+    );
+    return sender;
+  } on Object {
+    sender?.close();
+    return null;
+  }
+}
+
+class _WindowsMdnsEnvironment {
+  _WindowsMdnsEnvironment({required this.interfaces, required this.senders});
+
+  final List<NetworkInterface> interfaces;
+  final List<RawDatagramSocket> senders;
+  final List<RawDatagramSocket> _boundSockets = <RawDatagramSocket>[];
+
+  Future<Iterable<NetworkInterface>> interfacesFactory(
+    InternetAddressType type,
+  ) async {
+    if (type != InternetAddressType.IPv4) return const <NetworkInterface>[];
+    return interfaces;
+  }
+
+  Future<RawDatagramSocket> bindDatagramSocket(
+    dynamic host,
+    int port, {
+    bool reuseAddress = true,
+    bool reusePort = false,
+    int ttl = 1,
+  }) async {
+    final socket = await RawDatagramSocket.bind(
+      host,
+      port,
+      reuseAddress: reuseAddress,
+      reusePort: false,
+      ttl: ttl,
+    );
+    _boundSockets.add(socket);
+    if (host.toString() != InternetAddress.anyIPv4.address) return socket;
+    return _LanMdnsDatagramSocket(socket, senders);
+  }
+
+  void close() {
+    for (final socket in _boundSockets) {
+      socket.close();
+    }
+    for (final sender in senders) {
+      sender.close();
+    }
+    _boundSockets.clear();
+  }
+}
+
+/// 在 Windows 上从每块可用网卡分别发送 mDNS 查询。
+///
+/// 系统默认组播路由可能指向 VPN 或虚拟网卡，导致查询走到不可达的网络。
+/// 接收仍使用绑定 `0.0.0.0:5353` 的原始套接字。
+class _LanMdnsDatagramSocket extends Stream<RawSocketEvent>
+    implements RawDatagramSocket {
+  _LanMdnsDatagramSocket(this._inner, this._senders);
+
+  final RawDatagramSocket _inner;
+  final List<RawDatagramSocket> _senders;
+
+  @override
+  bool get readEventsEnabled => _inner.readEventsEnabled;
+
+  @override
+  set readEventsEnabled(bool value) => _inner.readEventsEnabled = value;
+
+  @override
+  bool get writeEventsEnabled => _inner.writeEventsEnabled;
+
+  @override
+  set writeEventsEnabled(bool value) => _inner.writeEventsEnabled = value;
+
+  @override
+  bool get multicastLoopback => _inner.multicastLoopback;
+
+  @override
+  set multicastLoopback(bool value) => _inner.multicastLoopback = value;
+
+  @override
+  int get multicastHops => _inner.multicastHops;
+
+  @override
+  set multicastHops(int value) => _inner.multicastHops = value;
+
+  @override
+  NetworkInterface? get multicastInterface => null;
+
+  @override
+  set multicastInterface(NetworkInterface? value) {}
+
+  @override
+  bool get broadcastEnabled => _inner.broadcastEnabled;
+
+  @override
+  set broadcastEnabled(bool value) => _inner.broadcastEnabled = value;
+
+  @override
+  int get port => _inner.port;
+
+  @override
+  InternetAddress get address => _inner.address;
+
+  @override
+  void close() {
+    _inner.close();
+    for (final sender in _senders) {
+      sender.close();
+    }
+  }
+
+  @override
+  Datagram? receive() => _inner.receive();
+
+  @override
+  int send(List<int> buffer, InternetAddress address, int port) {
+    var sent = 0;
+    for (final sender in _senders) {
+      try {
+        final result = sender.send(buffer, address, port);
+        if (result > sent) sent = result;
+      } on Object {
+        // 某块网卡暂时不可达时继续尝试其余网卡。
+      }
+    }
+    if (sent > 0) return sent;
+    try {
+      return _inner.send(buffer, address, port);
+    } on Object {
+      return 0;
+    }
+  }
+
+  @override
+  void joinMulticast(InternetAddress group, [NetworkInterface? interface]) {
+    try {
+      _inner.joinMulticast(group, interface);
+    } on Object {
+      // 已被筛选的网卡仍可能因系统状态变化失败，跳过即可。
+    }
+  }
+
+  @override
+  void leaveMulticast(InternetAddress group, [NetworkInterface? interface]) {
+    try {
+      _inner.leaveMulticast(group, interface);
+    } on Object {
+      // 套接字可能已关闭。
+    }
+  }
+
+  @override
+  Uint8List getRawOption(RawSocketOption option) => _inner.getRawOption(option);
+
+  @override
+  void setRawOption(RawSocketOption option) => _inner.setRawOption(option);
+
+  @override
+  StreamSubscription<RawSocketEvent> listen(
+    void Function(RawSocketEvent event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _inner.listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+}
+
+final InternetAddress _mdnsMulticastIPv4 = InternetAddress('224.0.0.251');
 
 class _DiscoveredService {
   const _DiscoveredService({
