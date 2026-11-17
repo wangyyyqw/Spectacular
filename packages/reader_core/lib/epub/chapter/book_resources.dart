@@ -208,8 +208,8 @@ class BookResources {
           ),
       for (final asset in prepared.assets)
         ...dependencyPaths(asset, baseDir: p.posix.dirname(path)),
-      for (final anchor in prepared.footnotes?.anchors ?? <FootnoteAnchor>[])
-        ?FootnoteParser.targetPathOf(anchor, path),
+      if (prepared.footnotes case final notes?)
+        ...FootnoteParser.targetPaths(notes, document.archive.names),
       for (final anchor
           in _footnoteReferenceCache[spine]?.values ?? <FootnoteAnchor>[])
         ...anchor.noteImages,
@@ -322,14 +322,15 @@ class BookResources {
     FootnoteDocument source,
     List<EpubEntryRead> reads,
   ) {
-    final paths = <String>{};
     final result = <_ChapterEntry>[];
     final spines = _spinePaths ??= {
       for (final item in document.spine) _chapterPath(item.index): item.index,
     };
-    for (final anchor in source.anchors) {
-      final path = FootnoteParser.targetPathOf(anchor, source.path);
-      if (path == null || path == source.path || !paths.add(path)) continue;
+    for (final path in FootnoteParser.targetPaths(
+      source,
+      document.archive.names,
+    )) {
+      if (path == source.path) continue;
       final read = document.archive.prepareEntry(path);
       if (read != null) {
         reads.add(read);
