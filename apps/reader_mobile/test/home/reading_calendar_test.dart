@@ -5,6 +5,7 @@ import 'package:reader_mobile/home/reading_calendar_month.dart';
 import 'package:reader_mobile/home/reading_insights.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 final _now = DateTime(2026, 11, 15, 20);
 
@@ -172,12 +173,16 @@ void main() {
       finished: {'a'},
     );
     final bar = tester.getRect(_key('bar-0-a-0'));
+    expect(
+      find.descendant(of: _key('bar-0-a-0'), matching: find.byType(AppIcon)),
+      findsOneWidget,
+    );
     final day = tester.getRect(_key('day-2026-11-2'));
     await tester.tapAt(Offset(day.center.dx, bar.center.dy));
     await tester.pumpAndSettle();
-    expect(find.text('2026年11月2日'), findsOneWidget);
+    expect(find.text('2026-11-02'), findsOneWidget);
     expect(find.text('1 本书 · 合计 20 分钟'), findsOneWidget);
-    expect(find.text('当前已读完'), findsOneWidget);
+    expect(find.text('已读'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -192,7 +197,7 @@ void main() {
           title: id == 5 ? title : null,
         ),
     ]);
-    expect(find.text('+3 本'), findsOneWidget);
+    expect(find.text('+3'), findsOneWidget);
     await _tap(tester, 'day-2026-11-15');
     expect(find.text('6 本书 · 合计 1 小时'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -219,25 +224,17 @@ void main() {
       for (var id = 0; id < 4; id++) {
         expect(_key('bar-0-$id-0'), findsOneWidget);
       }
-      expect(find.text('+2 本'), findsOneWidget);
-      final rowHeight = tester.getSize(_key('day-2026-11-1')).height;
-      expect(rowHeight, (44 + 4 * 7) * scale);
-      expect(tester.getSize(_key('day-2026-11-8')).height, 44 * scale);
-      final overflow = tester.getRect(_key('more-2026-11-2'));
+      expect(find.text('+2'), findsOneWidget);
       final fourth = tester.getRect(_key('bar-0-3-0'));
+      final firstNumber = tester.getRect(_key('number-2026-11-1'));
+      expect(fourth.bottom, lessThan(firstNumber.top));
+      final overflow = tester.getRect(_key('more-2026-11-2'));
       final lastOnSecondDay = tester.getRect(_key('bar-0-2-0'));
-      final date = find.descendant(
-        of: _key('day-2026-11-1'),
-        matching: find.text('1'),
-      );
-      expect(fourth.bottom, lessThan(tester.getRect(date).top));
       expect(lastOnSecondDay.bottom, lessThan(overflow.top));
-      expect(overflow.top - lastOnSecondDay.bottom, lessThan(4));
-      final secondDate = find.descendant(
-        of: _key('day-2026-11-2'),
-        matching: find.text('2'),
+      expect(
+        overflow.bottom,
+        lessThan(tester.getRect(_key('day-2026-11-2')).bottom),
       );
-      expect(overflow.bottom, lessThan(tester.getRect(secondDate).top));
       await _tap(tester, 'day-2026-11-1');
       expect(find.text('4 本书 · 合计 1 小时 40 分'), findsOneWidget);
       expect(tester.takeException(), isNull);

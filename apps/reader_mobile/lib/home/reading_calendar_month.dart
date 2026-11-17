@@ -24,6 +24,7 @@ class ReadingCalendarMonth {
     ReadingInsights insights, {
     required DateTime date,
     Map<String, String> bookTitles = const {},
+    Set<String> finishedBookIds = const {},
   }) : start = DateTime(date.year, date.month) {
     final end = DateTime(start.year, start.month + 1);
     final titles = {...insights.bookTitles, ...bookTitles};
@@ -50,6 +51,18 @@ class ReadingCalendarMonth {
       (sum, entry) => sum + entry.duration,
     );
     bookCount = monthBooks.length;
+    final lastDays = <String, DateTime>{};
+    for (final portion in insights.portions) {
+      if (portion.duration <= Duration.zero ||
+          !finishedBookIds.contains(portion.bookId)) {
+        continue;
+      }
+      final last = lastDays[portion.bookId];
+      if (last == null || portion.date.isAfter(last)) {
+        lastDays[portion.bookId] = portion.date;
+      }
+    }
+    finishDays = Map.unmodifiable(lastDays);
   }
 
   final DateTime start;
@@ -57,6 +70,9 @@ class ReadingCalendarMonth {
   late final List<BookDurationEntry> monthBooks;
   late final Duration total;
   late final int bookCount;
+
+  /// 已读完书目的完读日，取最后一次有效阅读所在日期（库内无完读时间）。
+  late final Map<String, DateTime> finishDays;
 
   int get offset => start.weekday % 7;
   int get dayCount => DateTime(start.year, start.month + 1, 0).day;
