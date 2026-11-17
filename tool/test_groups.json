@@ -21,6 +21,7 @@
       "paths": [
         "packages/reader_core/test/bench/*_test.dart",
         "packages/reader_core/test/perf/*_test.dart",
+        "packages/reader_ui/test/chapter_turn_prefetch_regression_test.dart",
         "packages/reader_ui/test/paging/*latency_test.dart",
         "apps/reader_mobile/test/*latency_test.dart",
         "apps/reader_mobile/test/reader_perf*_test.dart",

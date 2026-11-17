@@ -203,6 +203,43 @@ void main() {
     expect(first.block.style!.backgroundColor, const Color(0xFF123456));
   });
 
+  for (final (tag, display) in [
+    ('span', 'inline'),
+    ('x-panel', 'inline-block'),
+  ]) {
+    test('$tag/$display 绝对定位父盒整体脱离正文，保留共享背景和文本坐标', () async {
+      final page = await _page(
+        css: '.panel {display:$display;}',
+        body: _panel
+            .replaceFirst('<div ', '<$tag ')
+            .replaceFirst('</div>', '</$tag>'),
+      );
+      expect(page.slices, hasLength(5));
+      expect(page.slices.every((slice) => slice.overlay), isTrue);
+      final panel = page.slices.first.block.containers.single.container;
+      final bounds = _bounds(page, panel);
+      expect(bounds.width, closeTo(_width * .9, .01));
+      expect(bounds.center.dx, closeTo(_width / 2, .01));
+      expect(bounds.center.dy, closeTo(_height / 2, .01));
+      expect(page.usedHeight, 0);
+      expect(
+        page.slices.every(
+          (slice) => identical(slice.block.containers.single.container, panel),
+        ),
+        isTrue,
+      );
+      final lines = TextHitTester.lineBoxes(page)
+          .where((line) => line.text.isNotEmpty)
+          .toList();
+      expect(lines.map((line) => line.text), ['INFO', 'FIRST', 'SECOND', 'N']);
+      for (final line in lines) {
+        expect(bounds.contains(line.rect.center), isTrue);
+      }
+      final note = lines.singleWhere((line) => line.text == 'N');
+      expect(TextHitTester.footnoteAt(page, note.rect.center)?.text, '测试注释');
+    });
+  }
+
   test('面板保留块级图片、注音和内部定位标签，浮动分页路径使用同一定位', () async {
     final page = await _page(
       css:

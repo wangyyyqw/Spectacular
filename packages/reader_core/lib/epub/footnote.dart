@@ -10,6 +10,7 @@ enum AnchorStrategy {
   caseInsensitiveId,
   backlink,
   textPrefix,
+  numberedSequence,
   unresolved,
 }
 
@@ -117,6 +118,10 @@ typedef _RecoveredNote = ({
 abstract final class FootnoteParser {
   static final RegExp _referenceAttributePattern = RegExp(
     r'\b(?:href|title)\s*=',
+    caseSensitive: false,
+  );
+  static final RegExp _numberedNoteIdPattern = RegExp(
+    r'^(note|noteBack)_(\d+)$',
     caseSensitive: false,
   );
 
@@ -273,12 +278,13 @@ abstract final class FootnoteParser {
     );
   }
 
-  /// 某些转换器把文件名写进片段并给实际文件加前缀；只按片段中的文件线索加载候选。
-  /// 本地有效锚点优先，候选仍须在 resolve 中通过编号和反向链接确认。
+  /// 按链接、复合片段及紧随章节的编号线索加载候选，不扫描整书正文。
+  /// 有效锚点优先；候选在 resolve 中通过回链或同号定义序列确认。
   static Set<String> targetPaths(
     FootnoteDocument source,
-    Iterable<String> availablePaths,
-  ) {
+    Iterable<String> availablePaths, {
+    String? followingPath,
+  }) {
     final paths = <String>{};
     final hints = <String>{};
     for (final anchor in source.anchors) {
@@ -293,6 +299,10 @@ abstract final class FootnoteParser {
           paths.add(path);
         }
       }
+    }
+    // 多个编号入口被转换成同一个章首链接时，只补读紧随的候选定义章。
+    if (followingPath != null && _numberedReferences(source).isNotEmpty) {
+      paths.add(followingPath);
     }
     return paths;
   }
@@ -485,6 +495,7 @@ abstract final class FootnoteParser {
     required Map<String, FootnoteDocument> documents,
   }) {
     final resolved = <FootnoteAnchor>[];
+    final numberedTargets = _numberedNoteTargets(source, documents);
     // 拆分注号的各字符共享同一恢复结果，避免逐字符重复扫描定义章。
     final compoundTargets = <(String?, String, String), _RecoveredNote?>{};
     for (final anchor in source.anchors) {
@@ -564,6 +575,19 @@ abstract final class FootnoteParser {
         }
       }
 
+      final numbered = numberedTargets[anchor.referenceKey];
+      if (numbered != null &&
+          (element == null ||
+              (!_isLikelyNoteTarget(element) &&
+                  _pairedNoteContainer(source, anchor, target, element) ==
+                      null))) {
+        target = numbered.document;
+        element = numbered.element;
+        targetId = element.getAttribute('id');
+        recoveredContainer = numbered.container;
+        strategy = AnchorStrategy.numberedSequence;
+      }
+
       if (element == null) {
         resolved.add(
           _withTarget(
@@ -621,6 +645,104 @@ abstract final class FootnoteParser {
       );
     }
     return resolved;
+  }
+
+  static String? _numberedId(String? value, {bool reference = false}) {
+    final match = _numberedNoteIdPattern.firstMatch(value ?? '');
+    if (match == null ||
+        match[1]!.toLowerCase() != (reference ? 'noteback' : 'note')) {
+      return null;
+    }
+    return match[2];
+  }
+
+  /// 同号 id、可见标签及共同的无注释语义目标形成一组断链入口。
+  static Map<String, FootnoteAnchor> _numberedReferences(
+    FootnoteDocument source,
+  ) {
+    final groups = <String, Map<String, FootnoteAnchor>>{};
+    for (final anchor in source.anchors) {
+      final number = _numberedId(anchor.sourceId, reference: true);
+      if (number == null ||
+          anchor.kind != NoteKind.link ||
+          (anchor.label != number && anchor.label != '[$number]') ||
+          targetPathOf(anchor, source.path) != source.path) {
+        continue;
+      }
+      final hash = anchor.href.indexOf('#');
+      final target = source.ids[_decode(anchor.href.substring(hash + 1))];
+      if (target != null && _isLikelyNoteTarget(target)) continue;
+      (groups[anchor.href] ??= {})[number] = anchor;
+    }
+    return groups.values.where((group) => group.length >= 2).singleOrNull ??
+        const {};
+  }
+
+  /// 相邻章至少有两个同号段首定义才恢复；重复 id 或多组候选不猜测。
+  static Map<String, _RecoveredNote> _numberedNoteTargets(
+    FootnoteDocument source,
+    Map<String, FootnoteDocument> documents,
+  ) {
+    final references = _numberedReferences(source);
+    if (source.spineIndex < 0 || references.isEmpty) return const {};
+    final target = documents.values
+        .where((document) => document.spineIndex == source.spineIndex + 1)
+        .singleOrNull;
+    if (target == null) return const {};
+    final definitions = _numberedDefinitions(target, references);
+    return {
+      for (final entry in definitions.entries)
+        references[entry.key]!.referenceKey: (
+          document: target,
+          element: entry.value,
+          container: _numberedNoteContents(_referenceBlock(entry.value)!),
+        ),
+    };
+  }
+
+  static Map<String, XmlElement> _numberedDefinitions(
+    FootnoteDocument target,
+    Map<String, FootnoteAnchor> references,
+  ) {
+    final groups = <XmlElement, Map<String, XmlElement>>{};
+    for (final element in target.elements) {
+      final number = _numberedId(element.getAttribute('id'));
+      final anchor = references[number];
+      if (anchor == null || _normalizeText(element.innerText) != anchor.label) {
+        continue;
+      }
+      final block = _referenceBlock(element);
+      final owner = block?.parentElement;
+      if (owner == null ||
+          !_startsContainer(element, block!) ||
+          _noteText(block, anchor.label) == null) {
+        continue;
+      }
+      final group = groups[owner] ??= {};
+      if (group.containsKey(number)) return const {};
+      group[number!] = element;
+    }
+    return groups.values.where((group) => group.length >= 2).singleOrNull ??
+        const {};
+  }
+
+  /// 注文延续到下一条编号定义之前，复制节点以保留原 DOM 与后续章节。
+  static XmlElement _numberedNoteContents(XmlElement first) {
+    final nodes = <XmlNode>[];
+    for (final node in first.parentElement!.children.skipWhile(
+      (node) => !identical(node, first),
+    )) {
+      if (nodes.isNotEmpty &&
+          node is XmlElement &&
+          [
+            node,
+            ...node.descendants.whereType<XmlElement>(),
+          ].any((element) => _numberedId(element.getAttribute('id')) != null)) {
+        break;
+      }
+      nodes.add(node.copy());
+    }
+    return XmlElement(XmlName.parts('aside'), const [], nodes);
   }
 
   static FootnoteAnchor _withTarget(
