@@ -2320,7 +2320,7 @@ class PagePainter {
     return null;
   }
 
-  ({double left, double width})? _rubyBaseRange(
+  Rect? _rubyBaseRange(
     _SliceGeometry geometry,
     LineBox line,
     RubyAnnotation ruby,
@@ -2331,20 +2331,28 @@ class PagePainter {
       textDirection: _textDirectionOf(layout),
     )..layout();
     try {
-      final boxes = painter.getBoxesForSelection(
-        TextSelection(
-          baseOffset: ruby.start - line.start,
-          extentOffset: math.min(ruby.end, line.end) - line.start,
+      final bounds = _rubyTextBounds(
+        painter,
+        ruby.start - line.start,
+        math.min(ruby.end, line.end) - line.start,
+      );
+      return bounds?.shift(
+        Offset(
+          textLineJustifyOffset(line, painter),
+          textLineBaselineOffset(layout, line, painter),
         ),
       );
-      if (boxes.isEmpty) return null;
-      final left = boxes.map((box) => box.left).reduce(math.min);
-      final right = boxes.map((box) => box.right).reduce(math.max);
-      return (left: left, width: right - left);
     } finally {
       painter.dispose();
     }
   }
+
+  Rect? _rubyTextBounds(TextPainter painter, int start, int end) => painter
+      .getBoxesForSelection(TextSelection(baseOffset: start, extentOffset: end))
+      .fold<Rect?>(
+        null,
+        (bounds, box) => bounds?.expandToInclude(box.toRect()) ?? box.toRect(),
+      );
 
   TextStyle _rubyTextStyle(RubyAnnotation ruby, TextStyle fallback) =>
       ruby.style == null
@@ -2358,23 +2366,30 @@ class PagePainter {
     _SliceGeometry geometry,
     RubyAnnotation ruby,
     ({LineBox line, double top}) host,
-    ({double left, double width}) base,
+    Rect base,
   ) {
     final computed = ruby.style ?? geometry.style;
+    // CSS Ruby 1 §3.3：rt 不使用 line-height，标注贴基字内容盒定位。
+    final textStyle = _rubyTextStyle(
+      ruby,
+      geometry.textStyle,
+    ).copyWith(height: ui.kTextHeightNone);
     final painter = TextPainter(
-      text: TextSpan(
-        text: ruby.text,
-        style: _rubyTextStyle(ruby, geometry.textStyle),
-      ),
+      text: TextSpan(text: ruby.text, style: textStyle),
       textDirection: _textDirectionOf(geometry.slice.block.layout),
     )..layout();
+    final bounds = _rubyTextBounds(painter, 0, ruby.text.length);
+    if (bounds == null) {
+      painter.dispose();
+      return;
+    }
     final slack = base.width - painter.width;
     final offset = computed.rubyAlign == CssRubyAlign.start
         ? (computed.isRtl ? slack : 0.0)
         : slack / 2;
     final top = computed.rubyPosition == CssRubyPosition.under
-        ? host.top + host.line.height
-        : host.top - painter.height;
+        ? host.top + base.bottom - bounds.top
+        : host.top + base.top - bounds.bottom;
     painter.paint(
       canvas,
       Offset(geometry.leftInset + host.line.offsetX + base.left + offset, top),

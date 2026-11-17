@@ -19,7 +19,7 @@ Future<PageContent> _page(String body, String css) async {
   return (await source.loadChapter(0)).single;
 }
 
-Future<ui.Rect> _greenBounds(PageContent page) async {
+Future<ui.Rect> _colorBounds(PageContent page, int color) async {
   final recorder = ui.PictureRecorder();
   PagePainter(background: const ui.Color(0xff000000))
       .paint(ui.Canvas(recorder), page, pageSize: const ui.Size(300, 300));
@@ -31,7 +31,7 @@ Future<ui.Rect> _greenBounds(PageContent page) async {
   var left = 300, top = 300, right = -1, bottom = -1;
   for (var y = 0; y < 300; y++) {
     for (var x = 0; x < 300; x++) {
-      if (pixels!.getUint32((y * 300 + x) * 4) != 0x00bb55ff) continue;
+      if (pixels!.getUint32((y * 300 + x) * 4) != color) continue;
       if (x < left) left = x;
       if (y < top) top = y;
       if (x > right) right = x;
@@ -89,11 +89,16 @@ void main() {
             'ruby {color:#fff; ruby-position:$position; ruby-align:center;} '
             'rt {font-size:25%; font-family:Ahem; color:#00bb55;}',
       );
-      final bounds = await _greenBounds(page);
+      final bounds = await _colorBounds(page, 0x00bb55ff);
+      final base = await _colorBounds(page, 0xffffffff);
       expect(bounds.left, closeTo(95, 1));
       expect(bounds.width, closeTo(10, 1));
       expect(bounds.height, closeTo(5, 1));
-      expect(bounds.top, position == 'over' ? lessThan(60) : greaterThan(60));
+      expect(
+        position == 'over' ? base.top - bounds.bottom : bounds.top - base.bottom,
+        closeTo(0, 1),
+        reason: '注音贴基字内容盒，混排大字产生的行高留白不参与注音定位',
+      );
     });
   }
 
@@ -103,7 +108,7 @@ void main() {
       'p {writing-mode:vertical-rl; margin:0; color:#f08080;} '
           'ruby {color:#fff; ruby-position:under;} rt {font-size:25%; color:#00bb55;}',
     );
-    final bounds = await _greenBounds(page);
+    final bounds = await _colorBounds(page, 0x00bb55ff);
     expect(bounds.width, closeTo(5, 1));
     expect(bounds.height, closeTo(10, 1));
   });
