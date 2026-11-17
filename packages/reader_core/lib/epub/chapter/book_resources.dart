@@ -183,6 +183,11 @@ class BookResources {
         p.posix.normalize(p.posix.join(base, href));
   }
 
+  String? _followingChapterPath(int spineIndex) =>
+      spineIndex + 1 < document.spine.length
+      ? _chapterPath(spineIndex + 1)
+      : null;
+
   /// 缺失资源也记录规范候选路径，后续补图或补 CSS 时必须失效。
   Set<String> dependencyPaths(String raw, {String baseDir = ''}) {
     final uri = Uri.tryParse(raw);
@@ -218,7 +223,11 @@ class BookResources {
       for (final asset in prepared.assets)
         ...dependencyPaths(asset, baseDir: p.posix.dirname(path)),
       if (prepared.footnotes case final notes?)
-        ...FootnoteParser.targetPaths(notes, document.archive.names),
+        ...FootnoteParser.targetPaths(
+          notes,
+          document.archive.names,
+          followingPath: _followingChapterPath(spine),
+        ),
       for (final anchor
           in _footnoteReferenceCache[spine]?.values ?? <FootnoteAnchor>[])
         ...anchor.noteImages,
@@ -339,6 +348,7 @@ class BookResources {
     for (final path in FootnoteParser.targetPaths(
       source,
       document.archive.names,
+      followingPath: _followingChapterPath(source.spineIndex),
     )) {
       if (path == source.path) continue;
       final read = document.archive.prepareEntry(path);
