@@ -36,6 +36,7 @@ class ReaderProgress {
     this.approximate = false,
     this.readingPercent,
     this.layoutFingerprint,
+    this.chapterTitle,
   });
 
   /// 章节序号。
@@ -66,6 +67,9 @@ class ReaderProgress {
 
   /// 产生此位置时的排版指纹；仅用于判断能否复用精确像素偏移。
   final String? layoutFingerprint;
+
+  /// 当前章节标题；只用于展示和阅读数据上报，不参与位置比较。
+  final String? chapterTitle;
 
   @override
   bool operator ==(Object other) =>
@@ -1160,6 +1164,7 @@ class ReaderSession extends ChangeNotifier {
       approximate: _restoredApproximate,
       readingPercent: percent,
       layoutFingerprint: _scrollOffset == null ? null : layoutFingerprint,
+      chapterTitle: _chapterTitleFor(current.spineIndex),
       scrollOffset:
           current.spineIndex == _scrollSpineIndex &&
               current.pageIndex == _scrollPageIndex
@@ -2177,9 +2182,34 @@ class ReaderSession extends ChangeNotifier {
           _ => null,
         },
         layoutFingerprint: layoutFingerprint,
+        chapterTitle: _chapterTitleFor(staged.spineIndex),
       );
     }
     return progress;
+  }
+
+  /// 优先使用目录中与当前 spine 完全匹配的标题；目录粒度较粗时取前一项。
+  String? _chapterTitleFor(int spineIndex) {
+    TocEntry? exact;
+    TocEntry? previous;
+    void visit(List<TocEntry> entries) {
+      for (final entry in entries) {
+        if (entry.spineIndex == spineIndex &&
+            !entry.missing &&
+            entry.title.trim().isNotEmpty) {
+          exact ??= entry;
+        } else if (entry.spineIndex < spineIndex &&
+            !entry.missing &&
+            entry.title.trim().isNotEmpty) {
+          previous = entry;
+        }
+        if (entry.children.isNotEmpty) visit(entry.children);
+      }
+    }
+
+    visit(toc);
+    final selected = exact ?? previous;
+    return selected?.title.trim();
   }
 
   void _captureLatestViewport() {

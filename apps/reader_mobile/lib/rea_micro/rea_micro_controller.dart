@@ -1,11 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:reader_core/position/cfi.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
 import '../storage/reading_session_store.dart';
 import 'rea_micro_api_client.dart';
+import 'rea_micro_lan.dart';
 import 'rea_micro_models.dart';
+import 'rea_micro_progress_store.dart';
 import 'rea_micro_store.dart';
 
 /// 一次阅读时长同步的结果。
@@ -38,13 +42,24 @@ class ReaMicroController extends ChangeNotifier {
     required LibraryStore library,
     ReaMicroApi? api,
     ReaMicroStore? store,
+    ReaderProgressStore? progressStore,
+    ReaMicroLanClient? lan,
   }) : _library = library,
        _api = api ?? ReaMicroApiClient(),
-       _store = store ?? ReaMicroStore(library);
+       _store = store ?? ReaMicroStore(library),
+       _rawProgressStore = progressStore,
+       _lan = lan ?? ReaMicroLanClient() {
+    _trackedProgressStore = progressStore == null
+        ? null
+        : ReaMicroTrackingProgressStore(progressStore, _onLocalProgressSaved);
+  }
 
   final LibraryStore _library;
   final ReaMicroApi _api;
   final ReaMicroStore _store;
+  final ReaderProgressStore? _rawProgressStore;
+  final ReaMicroLanClient _lan;
+  late final ReaderProgressStore? _trackedProgressStore;
 
   String? _token;
   ReaMicroUser? _user;
@@ -58,8 +73,21 @@ class ReaMicroController extends ChangeNotifier {
   bool _initialized = false;
   bool _disposed = false;
   Timer? _autoSyncTimer;
+  Timer? _progressSyncTimer;
   String? _error;
   String? _notice;
+  Map<String, ReaMicroProgressState> _progressStates =
+      <String, ReaMicroProgressState>{};
+  Future<void> _progressPersist = Future<void>.value();
+  bool _syncingProgress = false;
+  String? _deviceId;
+  List<ReaMicroLanLoginDevice> _lanLoginDevices =
+      const <ReaMicroLanLoginDevice>[];
+  List<ReaMicroLanSyncPeer> _lanSyncPeers = const <ReaMicroLanSyncPeer>[];
+  bool _lanScanning = false;
+  bool _lanLoggingIn = false;
+  bool _lanSyncing = false;
+  String? _lanMessage;
 
   /// 是否已登录。
   bool get signedIn => _token != null;
@@ -89,8 +117,32 @@ class ReaMicroController extends ChangeNotifier {
   /// 正在上报阅读时长。
   bool get syncing => _syncing;
 
+  /// 正在同步阅读位置。
+  bool get syncingProgress => _syncingProgress;
+
   /// 是否已完成本地状态加载。
   bool get initialized => _initialized;
+
+  /// 阅读进度存储；阅读页通过它保存后自动进入待上报队列。
+  ReaderProgressStore? get trackedProgressStore => _trackedProgressStore;
+
+  /// 局域网授权登录候选设备。
+  List<ReaMicroLanLoginDevice> get lanLoginDevices => _lanLoginDevices;
+
+  /// 局域网同步候选设备。
+  List<ReaMicroLanSyncPeer> get lanSyncPeers => _lanSyncPeers;
+
+  /// 正在扫描局域网设备。
+  bool get lanScanning => _lanScanning;
+
+  /// 正在通过局域网登录。
+  bool get lanLoggingIn => _lanLoggingIn;
+
+  /// 正在与局域网设备同步。
+  bool get lanSyncing => _lanSyncing;
+
+  /// 最近一次局域网操作结果。
+  String? get lanMessage => _lanMessage;
 
   /// 最近一次错误。
   String? get error => _error;
@@ -106,11 +158,14 @@ class ReaMicroController extends ChangeNotifier {
     _user = await _store.loadCachedUser();
     _links = await _store.loadLinks();
     _lastSyncAt = await _store.loadLastSyncAt();
+    _progressStates = await _store.loadProgressStates();
+    _deviceId = await _store.loadOrCreateDeviceId();
     _notify();
     if (_token != null) {
       await refresh(silent: true);
       if (!_disposed && _links.isNotEmpty) {
         scheduleReadingSync(delay: const Duration(seconds: 5));
+        scheduleProgressSync(delay: const Duration(seconds: 7));
       }
     }
   }
@@ -124,11 +179,25 @@ class ReaMicroController extends ChangeNotifier {
     _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer(delay, () async {
       if (_disposed) return;
-      if (_syncing) {
+      if (_syncing || _syncingProgress) {
         scheduleReadingSync(delay: delay);
         return;
       }
-      await syncReadingSessions();
+      await syncAll();
+    });
+  }
+
+  /// 阅读位置变化后延迟上报，避免每次翻页都触发网络请求。
+  void scheduleProgressSync({Duration delay = const Duration(seconds: 4)}) {
+    if (_disposed || !signedIn || _links.isEmpty) return;
+    _progressSyncTimer?.cancel();
+    _progressSyncTimer = Timer(delay, () async {
+      if (_disposed) return;
+      if (_syncingProgress) {
+        scheduleProgressSync(delay: delay);
+        return;
+      }
+      await syncProgress();
     });
   }
 
@@ -225,6 +294,8 @@ class ReaMicroController extends ChangeNotifier {
       _links = await _store.loadLinks();
       _notice = '登录成功';
       await _refreshInternal(token, silent: true);
+      await _seedProgressStatesFromLocal(markDirty: false);
+      scheduleReadingSync(delay: const Duration(seconds: 2));
       return true;
     } catch (error) {
       await _handleError(error);
@@ -238,10 +309,17 @@ class ReaMicroController extends ChangeNotifier {
   /// 退出登录，保留本地阅读记录和书籍关联。
   Future<void> logout() async {
     await _store.clearAuth();
+    await _progressPersist;
+    _progressStates = <String, ReaMicroProgressState>{};
+    await _store.clearProgressStates();
+    _progressPersist = Future<void>.value();
     _token = null;
     _user = null;
     _chart = const <ReaMicroChartPoint>[];
     _lastRefreshAt = null;
+    _lanLoginDevices = const <ReaMicroLanLoginDevice>[];
+    _lanSyncPeers = const <ReaMicroLanSyncPeer>[];
+    _lanMessage = null;
     _error = null;
     _notice = '已退出阅微账号';
     _notify();
@@ -284,6 +362,7 @@ class ReaMicroController extends ChangeNotifier {
       ),
     };
     await _store.saveLinks(_links);
+    await _seedProgressStatesForBook(bookId);
     _notice = '已关联《${book.name}》';
     _notify();
   }
@@ -293,6 +372,11 @@ class ReaMicroController extends ChangeNotifier {
     final next = Map<String, ReaMicroBookLink>.of(_links)..remove(bookId);
     _links = next;
     await _store.saveLinks(_links);
+    final state = _progressStates[bookId];
+    if (state != null && state.dirty) {
+      _progressStates[bookId] = state.copyWith(dirty: false);
+      _persistProgressStates();
+    }
     _notice = '已解除关联';
     _notify();
   }
@@ -447,6 +531,507 @@ class ReaMicroController extends ChangeNotifier {
     );
   }
 
+  /// 同时同步阅读时长与阅读位置。
+  Future<ReaMicroSyncResult> syncAll() async {
+    final durations = await syncReadingSessions();
+    final progress = await syncProgress();
+    final messages = <String>{
+      durations.message,
+      progress.message,
+    }.where((message) => message.trim().isNotEmpty).toList(growable: false);
+    return ReaMicroSyncResult(
+      success: durations.success && progress.success,
+      message: messages.join('；'),
+      requests: durations.requests,
+      durationSeconds: durations.durationSeconds,
+    );
+  }
+
+  /// 上报本地待同步位置，并按需拉取云端较新的位置。
+  Future<ReaMicroSyncResult> syncProgress({bool pullCloud = true}) async {
+    final token = _token;
+    final store = _rawProgressStore;
+    if (token == null) {
+      return const ReaMicroSyncResult(success: false, message: '请先登录阅微账号');
+    }
+    if (store == null) {
+      return const ReaMicroSyncResult(success: false, message: '本地阅读进度暂不可用');
+    }
+    if (_syncingProgress) {
+      return const ReaMicroSyncResult(success: false, message: '正在同步阅读进度，请稍后');
+    }
+    if (_links.isEmpty) {
+      return const ReaMicroSyncResult(success: false, message: '尚未关联任何阅微书籍');
+    }
+    _syncingProgress = true;
+    _error = null;
+    _notify();
+    var uploaded = 0;
+    var pulled = 0;
+    final uploadedBooks = <String>{};
+    String? failure;
+    try {
+      for (final entry in List<MapEntry<String, ReaMicroProgressState>>.of(
+        _progressStates.entries,
+      )) {
+        if (_token != token) break;
+        final state = entry.value;
+        if (!state.dirty) continue;
+        final link = _links[entry.key];
+        if (link == null) continue;
+        if (state.cfi.trim().isEmpty) {
+          _progressStates[entry.key] = state.copyWith(dirty: false);
+          continue;
+        }
+        try {
+          await _uploadProgressState(token, entry.key, state, link);
+          uploadedBooks.add(entry.key);
+          uploaded += 1;
+        } catch (error) {
+          failure ??= _messageOf(error);
+          if (error is ReaMicroException && error.unauthorized) {
+            await _handleError(error);
+            break;
+          }
+        }
+      }
+      await _persistProgressStatesNow();
+
+      if (pullCloud && failure == null && _token == token) {
+        for (final entry in Map<String, ReaMicroBookLink>.of(_links).entries) {
+          final bookId = entry.key;
+          final link = entry.value;
+          final state = _progressStates[bookId];
+          if (state?.dirty == true) continue;
+          if (uploadedBooks.contains(bookId)) continue;
+          try {
+            final remote = await _api.fetchReadProgress(
+              token,
+              cloudBookId: link.cloudBookId.toString(),
+            );
+            if (remote == null || !remote.usable) {
+              if (state != null && state.cfi.trim().isNotEmpty) {
+                try {
+                  await _uploadProgressState(token, bookId, state, link);
+                  uploaded += 1;
+                } catch (error) {
+                  failure ??= _messageOf(error);
+                  if (error is ReaMicroException && error.unauthorized) {
+                    await _handleError(error);
+                    break;
+                  }
+                }
+              }
+              continue;
+            }
+            final localUpdatedAt = state?.localUpdatedAt ?? 0;
+            if (state?.cfi == remote.cfi) {
+              if (remote.readFinishTime > (state?.remoteUpdatedAt ?? 0)) {
+                _progressStates[bookId] = state!.copyWith(
+                  remoteUpdatedAt: remote.readFinishTime,
+                );
+              }
+              continue;
+            }
+            if (remote.readFinishTime <= 0 &&
+                state != null &&
+                state.cfi.isNotEmpty) {
+              continue;
+            }
+            if (remote.readFinishTime > 0 &&
+                remote.readFinishTime <= localUpdatedAt) {
+              if (state != null &&
+                  state.cfi.trim().isNotEmpty &&
+                  state.cfi != remote.cfi) {
+                try {
+                  await _uploadProgressState(token, bookId, state, link);
+                  uploaded += 1;
+                } catch (error) {
+                  failure ??= _messageOf(error);
+                  if (error is ReaMicroException && error.unauthorized) {
+                    await _handleError(error);
+                    break;
+                  }
+                }
+              }
+              continue;
+            }
+            final applied = await _applyRemoteProgress(
+              bookId,
+              cfi: remote.cfi,
+              chapterName: remote.chapterName,
+              progress: remote.progress,
+              updatedAt: remote.readFinishTime,
+              queueCloud: false,
+            );
+            if (applied) pulled += 1;
+          } catch (error) {
+            failure ??= _messageOf(error);
+            if (error is ReaMicroException && error.unauthorized) {
+              await _handleError(error);
+              break;
+            }
+          }
+        }
+      }
+      await _persistProgressStatesNow();
+    } finally {
+      _syncingProgress = false;
+    }
+
+    if (failure != null) _error = failure;
+    final requests = uploaded + pulled;
+    final message = failure == null
+        ? requests == 0
+              ? '阅读进度已是最新'
+              : '已上报 $uploaded 本、同步 $pulled 本阅读进度'
+        : requests == 0
+        ? failure
+        : '已上报 $uploaded 本、同步 $pulled 本，其余失败：$failure';
+    _notice = message;
+    _notify();
+    return ReaMicroSyncResult(
+      success: failure == null || requests > 0,
+      message: message,
+      requests: requests,
+    );
+  }
+
+  /// 上报一本书的当前位置，并在成功后清除待上报标记。
+  Future<void> _uploadProgressState(
+    String token,
+    String bookId,
+    ReaMicroProgressState state,
+    ReaMicroBookLink link,
+  ) async {
+    await _api.updateReadProgress(
+      token,
+      cloudBookId: link.cloudBookId,
+      cfi: state.cfi,
+      chapterName: _chapterNameOf(state),
+      progress: state.progress,
+    );
+    _progressStates[bookId] = state.copyWith(
+      dirty: false,
+      uploadedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  /// 合并局域网设备的阅读进度。
+  Future<String> syncWithLanPeer(ReaMicroLanSyncPeer peer) async {
+    if (_user == null) {
+      throw const ReaMicroException('请先登录阅微账号');
+    }
+    if (_lanSyncing) {
+      return '正在与局域网设备同步，请稍后';
+    }
+    _lanSyncing = true;
+    _lanMessage = null;
+    _error = null;
+    _notify();
+    try {
+      final manifest = await _lan.fetchManifest(peer);
+      if (manifest.userId != _user!.id) {
+        throw const ReaMicroException('该设备与当前阅微账号不一致');
+      }
+      var applied = 0;
+      var skipped = 0;
+      var failed = 0;
+      for (final remote in manifest.books) {
+        if (!remote.usable) continue;
+        final localBook = await _library.bookById(remote.uuid);
+        if (localBook == null) continue;
+        final state = _progressStates[remote.uuid];
+        if (state?.dirty == true) {
+          skipped += 1;
+          continue;
+        }
+        if (remote.updatedAt > 0 &&
+            remote.updatedAt <= (state?.remoteUpdatedAt ?? 0)) {
+          skipped += 1;
+          continue;
+        }
+        if (remote.updatedAt == 0 &&
+            state != null &&
+            state.cfi.isNotEmpty &&
+            state.cfi != remote.cfi) {
+          skipped += 1;
+          continue;
+        }
+        if (state?.cfi == remote.cfi) {
+          _progressStates[remote.uuid] = state!.copyWith(
+            remoteUpdatedAt: remote.updatedAt,
+          );
+          skipped += 1;
+          continue;
+        }
+        final ok = await _applyRemoteProgress(
+          remote.uuid,
+          cfi: remote.cfi,
+          chapterName: remote.chapterName,
+          progress: remote.progress,
+          updatedAt: remote.updatedAt,
+          finished: remote.finished,
+          queueCloud: true,
+        );
+        if (ok) {
+          applied += 1;
+        } else {
+          failed += 1;
+        }
+      }
+      await _persistProgressStatesNow();
+      final device = peer.deviceName.isNotEmpty
+          ? peer.deviceName
+          : peer.nickname.isNotEmpty
+          ? peer.nickname
+          : '局域网设备';
+      final message = failed == 0
+          ? applied == 0
+                ? '与 $device 没有新的阅读位置'
+                : '已从 $device 合并 $applied 本阅读位置'
+          : '已从 $device 合并 $applied 本，$failed 本位置不可用';
+      _lanMessage = message;
+      if (applied > 0) {
+        if (_links.isNotEmpty) {
+          scheduleProgressSync(delay: const Duration(seconds: 1));
+        }
+      } else if (skipped > 0) {
+        _lanMessage = '$message（$skipped 本保留本地较新位置）';
+      }
+      return _lanMessage!;
+    } catch (error) {
+      _lanMessage = _messageOf(error);
+      rethrow;
+    } finally {
+      _lanSyncing = false;
+      _notify();
+    }
+  }
+
+  /// 扫描局域网授权登录设备。
+  Future<List<ReaMicroLanLoginDevice>> discoverLanLoginDevices() async {
+    if (_lanScanning) return _lanLoginDevices;
+    _lanScanning = true;
+    _error = null;
+    _notify();
+    try {
+      _lanLoginDevices = await _lan.discoverLoginDevices(
+        excludeUserId: _user?.id.toString(),
+      );
+      _lanMessage = _lanLoginDevices.isEmpty
+          ? '未发现开启局域网登录的阅微设备'
+          : '发现 ${_lanLoginDevices.length} 台可登录设备';
+      return _lanLoginDevices;
+    } catch (error) {
+      _error = _messageOf(error);
+      rethrow;
+    } finally {
+      _lanScanning = false;
+      _notify();
+    }
+  }
+
+  /// 使用局域网设备返回的令牌登录。
+  Future<bool> loginWithLanDevice(ReaMicroLanLoginDevice device) async {
+    if (_lanLoggingIn) return false;
+    _lanLoggingIn = true;
+    _error = null;
+    _notice = null;
+    _lanMessage = null;
+    _notify();
+    try {
+      final token = await _lan.login(device);
+      final user = await _api.fetchUser(token);
+      _token = token;
+      await _store.saveToken(token);
+      _user = user;
+      await _store.saveCachedUser(user);
+      _links = await _store.loadLinks();
+      _lastRefreshAt = DateTime.now();
+      await _seedProgressStatesFromLocal(markDirty: false);
+      _notice = '已通过局域网授权登录';
+      await _refreshInternal(token, silent: true);
+      scheduleReadingSync(delay: const Duration(seconds: 2));
+      return true;
+    } catch (error) {
+      await _handleError(error);
+      return false;
+    } finally {
+      _lanLoggingIn = false;
+      _notify();
+    }
+  }
+
+  /// 扫描局域网同步设备。
+  Future<List<ReaMicroLanSyncPeer>> discoverLanSyncPeers() async {
+    if (_lanScanning) return _lanSyncPeers;
+    _lanScanning = true;
+    _error = null;
+    _notify();
+    try {
+      final peers = await _lan.discoverSyncPeers(excludeDeviceId: _deviceId);
+      final userId = _user?.id;
+      _lanSyncPeers = userId == null
+          ? peers
+          : peers
+                .where((peer) => peer.userId == userId)
+                .toList(growable: false);
+      _lanMessage = _lanSyncPeers.isEmpty
+          ? '未发现同账号的局域网设备'
+          : '发现 ${_lanSyncPeers.length} 台同账号设备';
+      return _lanSyncPeers;
+    } catch (error) {
+      _error = _messageOf(error);
+      rethrow;
+    } finally {
+      _lanScanning = false;
+      _notify();
+    }
+  }
+
+  void _onLocalProgressSaved(String bookId, ReaderProgress progress) {
+    if (_disposed) return;
+    final existing = _progressStates[bookId];
+    final cfi = progress.cfi?.trim() ?? '';
+    if (cfi.isEmpty) return;
+    final linked = _links.containsKey(bookId);
+    _progressStates[bookId] = ReaMicroProgressState(
+      cfi: cfi,
+      chapterName: progress.chapterTitle?.trim().isNotEmpty == true
+          ? progress.chapterTitle!.trim()
+          : existing?.chapterName ?? '',
+      progress: progress.readingPercent ?? existing?.progress ?? 0,
+      localUpdatedAt: DateTime.now().millisecondsSinceEpoch,
+      remoteUpdatedAt: existing?.remoteUpdatedAt ?? 0,
+      uploadedAt: existing?.uploadedAt ?? 0,
+      dirty: linked,
+    );
+    _persistProgressStates();
+    if (linked && _token != null) {
+      scheduleProgressSync();
+    }
+  }
+
+  Future<void> _seedProgressStatesFromLocal({bool markDirty = true}) async {
+    for (final bookId in _links.keys.toList(growable: false)) {
+      await _seedProgressStatesForBook(bookId, markDirty: markDirty);
+    }
+    await _persistProgressStatesNow();
+  }
+
+  Future<void> _seedProgressStatesForBook(
+    String bookId, {
+    bool markDirty = true,
+  }) async {
+    final store = _rawProgressStore;
+    if (store == null) return;
+    final progress = await store.load(bookId);
+    final cfi = progress?.cfi?.trim() ?? '';
+    if (cfi.isEmpty) return;
+    final existing = _progressStates[bookId];
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (existing != null && existing.cfi == cfi) {
+      if (markDirty && !existing.dirty) {
+        _progressStates[bookId] = existing.copyWith(
+          dirty: true,
+          localUpdatedAt: now,
+        );
+        _persistProgressStates();
+      }
+      return;
+    }
+    _progressStates[bookId] = ReaMicroProgressState(
+      cfi: cfi,
+      chapterName: progress?.chapterTitle?.trim().isNotEmpty == true
+          ? progress!.chapterTitle!.trim()
+          : existing?.chapterName ?? '',
+      progress: progress?.readingPercent ?? existing?.progress ?? 0,
+      localUpdatedAt: markDirty ? now : existing?.localUpdatedAt ?? 0,
+      remoteUpdatedAt: existing?.remoteUpdatedAt ?? 0,
+      uploadedAt: existing?.uploadedAt ?? 0,
+      dirty: markDirty,
+    );
+    _persistProgressStates();
+  }
+
+  Future<bool> _applyRemoteProgress(
+    String bookId, {
+    required String cfi,
+    required String chapterName,
+    required double progress,
+    required int updatedAt,
+    required bool queueCloud,
+    bool finished = false,
+  }) async {
+    final store = _rawProgressStore;
+    if (store == null) return false;
+    final book = await _library.bookById(bookId);
+    if (book == null) return false;
+    final revision = book.contentRevision?.trim() ?? '';
+    if (revision.isEmpty) return false;
+    final parsed = EpubCfi.parse(cfi);
+    if (parsed == null) return false;
+    final spineIndex = spineIndexOfCfi(parsed);
+    if (spineIndex == null || spineIndex < 0) return false;
+    final spineCount = book.spineCount ?? 0;
+    if (spineCount > 0 && spineIndex >= spineCount) return false;
+    final normalized = progress.clamp(0.0, 1.0).toDouble();
+    try {
+      await store.save(
+        bookId,
+        ReaderProgress(
+          spineIndex: spineIndex,
+          pageIndex: 0,
+          finished: finished,
+          cfi: cfi,
+          contentRevision: revision,
+          readingPercent: normalized,
+          chapterTitle: chapterName.trim().isEmpty ? null : chapterName.trim(),
+        ),
+      );
+    } on Object {
+      return false;
+    }
+    final existing = _progressStates[bookId];
+    final timestamp = updatedAt > 0
+        ? updatedAt
+        : DateTime.now().millisecondsSinceEpoch;
+    _progressStates[bookId] = ReaMicroProgressState(
+      cfi: cfi,
+      chapterName: chapterName.trim().isEmpty
+          ? existing?.chapterName ?? ''
+          : chapterName.trim(),
+      progress: normalized,
+      localUpdatedAt: timestamp,
+      remoteUpdatedAt: updatedAt > 0
+          ? updatedAt
+          : existing?.remoteUpdatedAt ?? 0,
+      uploadedAt: existing?.uploadedAt ?? 0,
+      dirty: queueCloud && _links.containsKey(bookId),
+    );
+    return true;
+  }
+
+  String _chapterNameOf(ReaMicroProgressState state) {
+    final chapter = state.chapterName.trim();
+    return chapter.isEmpty ? '阅读位置' : chapter;
+  }
+
+  void _persistProgressStates() {
+    _enqueueProgressPersist();
+  }
+
+  Future<void> _persistProgressStatesNow() => _enqueueProgressPersist();
+
+  Future<void> _enqueueProgressPersist() {
+    final snapshot = Map<String, ReaMicroProgressState>.of(_progressStates);
+    _progressPersist = _progressPersist
+        .then((_) => _store.saveProgressStates(snapshot))
+        .catchError((Object _) {});
+    return _progressPersist;
+  }
+
   Future<void> _handleError(Object error) async {
     if (error is ReaMicroException && error.unauthorized) {
       await _clearExpiredAuth();
@@ -475,6 +1060,7 @@ class ReaMicroController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _autoSyncTimer?.cancel();
+    _progressSyncTimer?.cancel();
     _api.close();
     super.dispose();
   }

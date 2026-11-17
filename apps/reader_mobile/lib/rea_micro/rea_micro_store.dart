@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import '../library/library_store.dart';
 import 'rea_micro_models.dart';
@@ -18,6 +19,8 @@ class ReaMicroStore {
   static const String _uploadedKey = 'reamicro.sync.uploaded';
   static const String _watermarksKey = 'reamicro.sync.watermarks';
   static const String _lastSyncKey = 'reamicro.sync.lastAt';
+  static const String _progressKey = 'reamicro.progress.state';
+  static const String _deviceIdKey = 'reamicro.device.id';
   static const int _maxUploadedKeys = 5000;
 
   /// 读取访问令牌。
@@ -148,4 +151,52 @@ class ReaMicroStore {
     _lastSyncKey,
     value.millisecondsSinceEpoch.toString(),
   );
+
+  /// 读取每本本地书籍的进度同步状态。
+  Future<Map<String, ReaMicroProgressState>> loadProgressStates() async {
+    final raw = await _library.getSetting(_progressKey);
+    if (raw == null || raw.isEmpty) {
+      return <String, ReaMicroProgressState>{};
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) {
+        return <String, ReaMicroProgressState>{};
+      }
+      return <String, ReaMicroProgressState>{
+        for (final entry in decoded.entries)
+          if (entry.value is Map<String, Object?>)
+            entry.key: ReaMicroProgressState.fromJson(
+              entry.value! as Map<String, Object?>,
+            ),
+      };
+    } on FormatException {
+      return <String, ReaMicroProgressState>{};
+    }
+  }
+
+  /// 保存每本本地书籍的进度同步状态。
+  Future<void> saveProgressStates(Map<String, ReaMicroProgressState> states) =>
+      _library.setSetting(
+        _progressKey,
+        jsonEncode(<String, Object?>{
+          for (final entry in states.entries) entry.key: entry.value.toJson(),
+        }),
+      );
+
+  /// 切换账号时清除进度时间戳，避免把另一账号的位置当成已同步状态。
+  Future<void> clearProgressStates() => _library.setSetting(_progressKey, '');
+
+  /// 读取或生成用于区分本机的设备标识。
+  Future<String> loadOrCreateDeviceId() async {
+    final existing = (await _library.getSetting(_deviceIdKey))?.trim();
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    final value = bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    await _library.setSetting(_deviceIdKey, value);
+    return value;
+  }
 }

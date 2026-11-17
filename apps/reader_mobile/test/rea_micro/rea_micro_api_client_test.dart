@@ -181,4 +181,66 @@ void main() {
       expect(result?.publishers, <String>['出版社', '出版方']);
     }
   });
+
+  test('上报阅读位置提交 CFI、章节名与进度', () async {
+    late http.Request request;
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((value) async {
+        request = value;
+        return _json(<String, Object?>{'code': 0, 'data': true});
+      }),
+    );
+    addTearDown(api.close);
+
+    await api.updateReadProgress(
+      'secret-token',
+      cloudBookId: 42,
+      cfi: 'epubcfi(/6/4!/4/2/1)',
+      chapterName: '第二章',
+      progress: 0.375,
+    );
+
+    expect(request.url.path, '/rest/reader/update-read-progress');
+    expect(request.headers['Authorization'], 'Bearer secret-token');
+    expect(jsonDecode(request.body), <String, Object?>{
+      'bookId': 42,
+      'cfi': 'epubcfi(/6/4!/4/2/1)',
+      'chapterName': '第二章',
+      'progress': 0.375,
+    });
+  });
+
+  test('读取云端阅读位置并解析秒级时间戳', () async {
+    late http.Request request;
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((value) async {
+        request = value;
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{
+            'bookId': 42,
+            'cfi': 'epubcfi(/6/4!/4/2/1)',
+            'chapterName': '第二章',
+            'progress': 37.5,
+            'readFinishTime': 1763380800,
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    final progress = await api.fetchReadProgress(
+      'secret-token',
+      cloudBookId: '42',
+    );
+
+    expect(request.url.path, '/rest/reader/get-read-progress');
+    expect(jsonDecode(request.body), <String, Object?>{'bookId': '42'});
+    expect(progress?.cfi, 'epubcfi(/6/4!/4/2/1)');
+    expect(progress?.chapterName, '第二章');
+    expect(progress?.progress, 0.375);
+    expect(progress?.readFinishTime, 1763380800000);
+  });
 }

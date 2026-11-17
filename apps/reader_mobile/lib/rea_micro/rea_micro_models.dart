@@ -235,6 +235,215 @@ class ReaMicroReadTimeEntry {
   };
 }
 
+/// 阅微云端保存的阅读位置。
+class ReaMicroReadProgress {
+  /// 创建云端阅读位置。
+  const ReaMicroReadProgress({
+    required this.cloudBookId,
+    required this.cfi,
+    required this.chapterName,
+    required this.progress,
+    required this.readFinishTime,
+  });
+
+  /// 云端书籍标识。
+  final String cloudBookId;
+
+  /// EPUB CFI 位置。
+  final String cfi;
+
+  /// 章节名。
+  final String chapterName;
+
+  /// 全书进度（0～1）。
+  final double progress;
+
+  /// 云端最后阅读时间（毫秒时间戳，0 表示未提供）。
+  final int readFinishTime;
+
+  /// 是否包含可恢复的位置。
+  bool get usable => cfi.trim().isNotEmpty;
+
+  /// 从接口数据解析。
+  factory ReaMicroReadProgress.fromJson(Map<String, Object?> json) {
+    return ReaMicroReadProgress(
+      cloudBookId: _stringValue(json['bookId']) ?? '',
+      cfi: _stringValue(json['cfi']) ?? '',
+      chapterName: _stringValue(json['chapterName']) ?? '',
+      progress: _progressValue(json['progress']),
+      readFinishTime: _timestampMillis(json['readFinishTime']),
+    );
+  }
+}
+
+/// 一本书的进度同步状态。
+///
+/// [localUpdatedAt] 记录本机最后一次产生或接收进度的时间，
+/// [remoteUpdatedAt] 记录已处理的云端或局域网时间戳，[dirty] 表示尚有本地
+/// 位置待上报。
+class ReaMicroProgressState {
+  /// 创建进度状态。
+  const ReaMicroProgressState({
+    required this.cfi,
+    required this.chapterName,
+    required this.progress,
+    required this.localUpdatedAt,
+    required this.remoteUpdatedAt,
+    required this.uploadedAt,
+    required this.dirty,
+  });
+
+  /// 当前 CFI。
+  final String cfi;
+
+  /// 当前章节名。
+  final String chapterName;
+
+  /// 当前全书进度（0～1）。
+  final double progress;
+
+  /// 本机最后变更时间（毫秒时间戳）。
+  final int localUpdatedAt;
+
+  /// 已处理的对端最后更新时间（毫秒时间戳）。
+  final int remoteUpdatedAt;
+
+  /// 最后成功上报云端的时间（毫秒时间戳）。
+  final int uploadedAt;
+
+  /// 是否有待上报的本地位置。
+  final bool dirty;
+
+  /// 从本地 JSON 解析。
+  factory ReaMicroProgressState.fromJson(Map<String, Object?> json) =>
+      ReaMicroProgressState(
+        cfi: _stringValue(json['cfi']) ?? '',
+        chapterName: _stringValue(json['chapterName']) ?? '',
+        progress: _progressValue(json['progress']),
+        localUpdatedAt: _intValue(json['localUpdatedAt']),
+        remoteUpdatedAt: _intValue(json['remoteUpdatedAt']),
+        uploadedAt: _intValue(json['uploadedAt']),
+        dirty: json['dirty'] == true,
+      );
+
+  /// 序列化到本地 JSON。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'cfi': cfi,
+    'chapterName': chapterName,
+    'progress': progress,
+    'localUpdatedAt': localUpdatedAt,
+    'remoteUpdatedAt': remoteUpdatedAt,
+    'uploadedAt': uploadedAt,
+    'dirty': dirty,
+  };
+
+  /// 复制并覆盖部分字段。
+  ReaMicroProgressState copyWith({
+    String? cfi,
+    String? chapterName,
+    double? progress,
+    int? localUpdatedAt,
+    int? remoteUpdatedAt,
+    int? uploadedAt,
+    bool? dirty,
+  }) => ReaMicroProgressState(
+    cfi: cfi ?? this.cfi,
+    chapterName: chapterName ?? this.chapterName,
+    progress: progress ?? this.progress,
+    localUpdatedAt: localUpdatedAt ?? this.localUpdatedAt,
+    remoteUpdatedAt: remoteUpdatedAt ?? this.remoteUpdatedAt,
+    uploadedAt: uploadedAt ?? this.uploadedAt,
+    dirty: dirty ?? this.dirty,
+  );
+}
+
+/// 局域网同步清单中的一本书。
+class ReaMicroLanBookProgress {
+  /// 创建局域网进度。
+  const ReaMicroLanBookProgress({
+    required this.uuid,
+    required this.cfi,
+    required this.chapterName,
+    required this.progress,
+    required this.updatedAt,
+    required this.finished,
+  });
+
+  /// 书籍 UUID，与本地书库标识一致。
+  final String uuid;
+
+  /// EPUB CFI 位置。
+  final String cfi;
+
+  /// 章节名。
+  final String chapterName;
+
+  /// 全书进度（0～1）。
+  final double progress;
+
+  /// 对方最后修改进度的时间（毫秒时间戳）。
+  final int updatedAt;
+
+  /// 对方是否已读完。
+  final bool finished;
+
+  /// 是否包含可合并的位置。
+  bool get usable => uuid.trim().isNotEmpty && cfi.trim().isNotEmpty;
+
+  /// 从清单条目解析。
+  factory ReaMicroLanBookProgress.fromEntry(Map<String, Object?> entry) {
+    final book = entry['book'];
+    final snapshot = book is Map<String, Object?> ? book : entry;
+    return ReaMicroLanBookProgress(
+      uuid: _stringValue(entry['uuid']) ?? '',
+      cfi: _stringValue(snapshot['epubcfi']) ?? '',
+      chapterName: _stringValue(snapshot['chapter']) ?? '',
+      progress: _progressValue(snapshot['progress']),
+      updatedAt: _intValue(entry['progressUpdatedAt']),
+      finished: snapshot['finished'] == true,
+    );
+  }
+}
+
+/// 局域网设备返回的同步清单。
+class ReaMicroLanManifest {
+  /// 创建清单。
+  const ReaMicroLanManifest({
+    required this.userId,
+    required this.deviceId,
+    required this.generatedAt,
+    required this.books,
+  });
+
+  /// 清单所属账号。
+  final int userId;
+
+  /// 对端设备标识。
+  final String deviceId;
+
+  /// 生成时间（毫秒时间戳）。
+  final int generatedAt;
+
+  /// 对方提供的书籍进度。
+  final List<ReaMicroLanBookProgress> books;
+
+  /// 从服务端 JSON 解析。
+  factory ReaMicroLanManifest.fromJson(Map<String, Object?> json) {
+    final rawBooks = json['books'];
+    return ReaMicroLanManifest(
+      userId: _intValue(json['userId']),
+      deviceId: _stringValue(json['deviceId']) ?? '',
+      generatedAt: _intValue(json['generatedAt']),
+      books: <ReaMicroLanBookProgress>[
+        if (rawBooks is List<Object?>)
+          for (final item in rawBooks)
+            if (item is Map<String, Object?>)
+              ReaMicroLanBookProgress.fromEntry(item),
+      ],
+    );
+  }
+}
+
 /// 阅微接口或网络失败。
 class ReaMicroException implements Exception {
   /// 创建异常。
@@ -268,3 +477,25 @@ int _intValue(Object? value) {
 }
 
 String? _stringValue(Object? value) => value is String ? value : null;
+
+double _progressValue(Object? value) {
+  final raw = value is num
+      ? value.toDouble()
+      : double.tryParse(value?.toString() ?? '') ?? 0;
+  if (!raw.isFinite || raw <= 0) return 0;
+  return raw > 1
+      ? (raw / 100).clamp(0.0, 1.0).toDouble()
+      : raw.clamp(0.0, 1.0).toDouble();
+}
+
+int _timestampMillis(Object? value) {
+  if (value is num) {
+    final raw = value.toInt();
+    return raw > 0 && raw < 100000000000 ? raw * 1000 : raw;
+  }
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty) return 0;
+  final numeric = int.tryParse(text);
+  if (numeric != null) return _timestampMillis(numeric);
+  return DateTime.tryParse(text)?.millisecondsSinceEpoch ?? 0;
+}

@@ -36,6 +36,21 @@ abstract interface class ReaMicroApi {
     List<ReaMicroReadTimeEntry> entries,
   );
 
+  /// 上报一本书的当前阅读位置。
+  Future<void> updateReadProgress(
+    String token, {
+    required int cloudBookId,
+    required String cfi,
+    required String chapterName,
+    required double progress,
+  });
+
+  /// 读取一本书的云端阅读位置。
+  Future<ReaMicroReadProgress?> fetchReadProgress(
+    String token, {
+    required String cloudBookId,
+  });
+
   /// 释放网络客户端。
   void close();
 }
@@ -164,6 +179,43 @@ class ReaMicroApiClient implements ReaMicroApi {
     await _post('rest/reader/update-read-time-by-date', <String, Object?>{
       'list': <Object?>[for (final entry in entries) entry.toJson()],
     }, token: token);
+  }
+
+  @override
+  Future<void> updateReadProgress(
+    String token, {
+    required int cloudBookId,
+    required String cfi,
+    required String chapterName,
+    required double progress,
+  }) async {
+    await _post('rest/reader/update-read-progress', <String, Object?>{
+      'bookId': cloudBookId,
+      'cfi': cfi,
+      'chapterName': chapterName,
+      'progress': progress.clamp(0.0, 1.0),
+    }, token: token);
+  }
+
+  @override
+  Future<ReaMicroReadProgress?> fetchReadProgress(
+    String token, {
+    required String cloudBookId,
+  }) async {
+    final data = await _post('rest/reader/get-read-progress', <String, Object?>{
+      'bookId': cloudBookId,
+    }, token: token);
+    final Map<String, Object?>? json = switch (data) {
+      final Map<String, Object?> map => map,
+      final List<Object?> list when list.isNotEmpty =>
+        list.first is Map<String, Object?>
+            ? list.first! as Map<String, Object?>
+            : null,
+      _ => null,
+    };
+    if (json == null) return null;
+    final result = ReaMicroReadProgress.fromJson(json);
+    return result.usable ? result : null;
   }
 
   Future<Object?> _post(

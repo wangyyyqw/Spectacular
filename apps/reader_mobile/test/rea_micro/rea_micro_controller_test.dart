@@ -5,15 +5,24 @@ import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
+import 'package:reader_ui/reader_session.dart';
 
 class _TestLibrary extends LibraryStore {
   _TestLibrary() : super.memory();
 
   final List<ReadingSession> sessions = <ReadingSession>[];
+  BookEntry? book;
   late final _TestSessionStore sessionStore = _TestSessionStore(sessions);
 
   @override
   ReadingSessionStore? readingSessionStore() => sessionStore;
+
+  @override
+  Future<BookEntry?> bookById(String id) async {
+    final value = book;
+    if (value != null && value.id == id) return value;
+    return super.bookById(id);
+  }
 }
 
 class _TestSessionStore implements ReadingSessionStore {
@@ -51,6 +60,8 @@ class _FakeApi implements ReaMicroApi {
   bool unauthorized;
   final List<List<ReaMicroReadTimeEntry>> uploads =
       <List<ReaMicroReadTimeEntry>>[];
+  final List<_ProgressUpload> progressUploads = <_ProgressUpload>[];
+  ReaMicroReadProgress? remoteProgress;
   int userCalls = 0;
 
   @override
@@ -107,7 +118,45 @@ class _FakeApi implements ReaMicroApi {
   }
 
   @override
+  Future<void> updateReadProgress(
+    String token, {
+    required int cloudBookId,
+    required String cfi,
+    required String chapterName,
+    required double progress,
+  }) async {
+    progressUploads.add(
+      _ProgressUpload(
+        cloudBookId: cloudBookId,
+        cfi: cfi,
+        chapterName: chapterName,
+        progress: progress,
+      ),
+    );
+  }
+
+  @override
+  Future<ReaMicroReadProgress?> fetchReadProgress(
+    String token, {
+    required String cloudBookId,
+  }) async => remoteProgress;
+
+  @override
   void close() {}
+}
+
+class _ProgressUpload {
+  const _ProgressUpload({
+    required this.cloudBookId,
+    required this.cfi,
+    required this.chapterName,
+    required this.progress,
+  });
+
+  final int cloudBookId;
+  final String cfi;
+  final String chapterName;
+  final double progress;
 }
 
 ReadingSession _session(DateTime start, DateTime end) => ReadingSession(
@@ -121,11 +170,16 @@ Future<ReaMicroController> _createController(
   _TestLibrary library,
   _FakeApi api, {
   bool signedIn = true,
+  ReaderProgressStore? progressStore,
 }) async {
   if (signedIn) {
     await ReaMicroStore(library).saveToken('token');
   }
-  final controller = ReaMicroController(library: library, api: api);
+  final controller = ReaMicroController(
+    library: library,
+    api: api,
+    progressStore: progressStore,
+  );
   await controller.initialize();
   return controller;
 }
@@ -295,5 +349,293 @@ void main() {
 
     expect(controller.signedIn, isFalse);
     expect(await ReaMicroStore(library).loadToken(), isNull);
+  });
+
+  test('阅读页保存位置后上报 CFI、章节与百分比', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi();
+    final progressStore = MemoryReaderProgressStore();
+    final controller = await _createController(
+      library,
+      api,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+
+    await controller.trackedProgressStore!.save(
+      'book-a',
+      const ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 3,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        contentRevision: 'rev-1',
+        readingPercent: 0.25,
+        chapterTitle: '第二章',
+      ),
+    );
+    final result = await controller.syncProgress(pullCloud: false);
+
+    expect(result.success, isTrue);
+    expect(result.requests, 1);
+    final upload = api.progressUploads.single;
+    expect(upload.cloudBookId, 11);
+    expect(upload.cfi, 'epubcfi(/6/4!/4/2/1)');
+    expect(upload.chapterName, '第二章');
+    expect(upload.progress, 0.25);
+  });
+
+  test('登录后关联书籍会把已有本地位置加入上报队列', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi();
+    final progressStore = MemoryReaderProgressStore();
+    final controller = await _createController(
+      library,
+      api,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.trackedProgressStore!.save(
+      'book-a',
+      const ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        contentRevision: 'rev-1',
+        readingPercent: 0.1,
+        chapterTitle: '第一章',
+      ),
+    );
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+    final result = await controller.syncProgress(pullCloud: false);
+
+    expect(result.requests, 1);
+    expect(api.progressUploads.single.cfi, 'epubcfi(/6/4!/4/2/1)');
+  });
+
+  test('云端较新位置写入本地进度存储', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi()
+      ..remoteProgress = ReaMicroReadProgress(
+        cloudBookId: '11',
+        cfi: 'epubcfi(/6/8!/4/2/1)',
+        chapterName: '第三章',
+        progress: 0.6,
+        readFinishTime: DateTime.now().millisecondsSinceEpoch + 60000,
+      );
+    final progressStore = MemoryReaderProgressStore();
+    final controller = await _createController(
+      library,
+      api,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+
+    final result = await controller.syncProgress();
+
+    expect(result.success, isTrue);
+    expect(result.requests, 1);
+    final saved = await progressStore.load('book-a');
+    expect(saved?.cfi, 'epubcfi(/6/8!/4/2/1)');
+    expect(saved?.spineIndex, 3);
+    expect(saved?.readingPercent, 0.6);
+    expect(saved?.contentRevision, 'rev-1');
+  });
+
+  test('新登录先拉取云端较新位置，不用旧本地进度覆盖', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi()
+      ..remoteProgress = ReaMicroReadProgress(
+        cloudBookId: '11',
+        cfi: 'epubcfi(/6/8!/4/2/1)',
+        chapterName: '第三章',
+        progress: 0.6,
+        readFinishTime: DateTime.now().millisecondsSinceEpoch + 60000,
+      );
+    final progressStore = MemoryReaderProgressStore();
+    await progressStore.save(
+      'book-a',
+      const ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        contentRevision: 'rev-1',
+        readingPercent: 0.1,
+        chapterTitle: '第一章',
+      ),
+    );
+    await ReaMicroStore(library).saveLinks(<String, ReaMicroBookLink>{
+      'book-a': ReaMicroBookLink(
+        cloudBookId: 11,
+        name: '云端书',
+        linkedAt: DateTime(2026, 11, 17),
+      ),
+    });
+    final controller = await _createController(
+      library,
+      api,
+      signedIn: false,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+
+    expect(
+      await controller.login(email: 'reader@example.com', code: '1234'),
+      isTrue,
+    );
+    final result = await controller.syncProgress();
+
+    expect(result.success, isTrue);
+    final saved = await progressStore.load('book-a');
+    expect(saved?.cfi, 'epubcfi(/6/8!/4/2/1)');
+    expect(saved?.readingPercent, 0.6);
+    expect(api.progressUploads, isEmpty);
+  });
+
+  test('新登录时云端没有位置则上报本地进度', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi();
+    final progressStore = MemoryReaderProgressStore();
+    await progressStore.save(
+      'book-a',
+      const ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        contentRevision: 'rev-1',
+        readingPercent: 0.1,
+        chapterTitle: '第一章',
+      ),
+    );
+    await ReaMicroStore(library).saveLinks(<String, ReaMicroBookLink>{
+      'book-a': ReaMicroBookLink(
+        cloudBookId: 11,
+        name: '云端书',
+        linkedAt: DateTime(2026, 11, 17),
+      ),
+    });
+    final controller = await _createController(
+      library,
+      api,
+      signedIn: false,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+
+    expect(
+      await controller.login(email: 'reader@example.com', code: '1234'),
+      isTrue,
+    );
+    final result = await controller.syncProgress();
+
+    expect(result.success, isTrue);
+    expect(api.progressUploads.single.cfi, 'epubcfi(/6/4!/4/2/1)');
+    final saved = await progressStore.load('book-a');
+    expect(saved?.cfi, 'epubcfi(/6/4!/4/2/1)');
+  });
+
+  test('本地未上报位置不会被较旧的云端位置覆盖', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi()
+      ..remoteProgress = ReaMicroReadProgress(
+        cloudBookId: '11',
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        chapterName: '旧位置',
+        progress: 0.1,
+        readFinishTime: DateTime.now().millisecondsSinceEpoch - 60000,
+      );
+    final progressStore = MemoryReaderProgressStore();
+    final controller = await _createController(
+      library,
+      api,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+
+    await controller.trackedProgressStore!.save(
+      'book-a',
+      const ReaderProgress(
+        spineIndex: 4,
+        pageIndex: 1,
+        cfi: 'epubcfi(/6/10!/4/2/1)',
+        contentRevision: 'rev-1',
+        readingPercent: 0.45,
+        chapterTitle: '第五章',
+      ),
+    );
+    await controller.syncProgress();
+
+    final saved = await progressStore.load('book-a');
+    expect(saved?.cfi, 'epubcfi(/6/10!/4/2/1)');
+    expect(api.progressUploads.single.cfi, 'epubcfi(/6/10!/4/2/1)');
   });
 }

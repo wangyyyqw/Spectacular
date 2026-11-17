@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'rea_micro_book_link_page.dart';
 import 'rea_micro_controller.dart';
+import 'rea_micro_lan_page.dart';
 import 'rea_micro_models.dart';
 
 /// 阅微账号、阅读数据与同步设置页。
@@ -55,10 +56,18 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
   }
 
   Future<void> _syncNow() async {
-    final result = await widget.controller.syncReadingSessions();
+    final result = await widget.controller.syncAll();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(result.message)));
+  }
+
+  Future<void> _openLanPage() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => ReaMicroLanPage(controller: widget.controller),
+      ),
+    );
   }
 
   @override
@@ -200,9 +209,16 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
         ),
       ),
       const SizedBox(height: 18),
+      OutlinedButton.icon(
+        key: const ValueKey<String>('reamicro-lan-login'),
+        onPressed: controller.lanLoggingIn ? null : _openLanPage,
+        icon: const Icon(Icons.wifi_lock),
+        label: Text(controller.lanLoggingIn ? '正在授权…' : '局域网授权登录'),
+      ),
+      const SizedBox(height: 18),
       Text(
         '账号令牌仅保存在本机应用私有数据库中，不会写入诊断日志。'
-        '阅读数据上报只提交书名对应的云端书籍 ID、日期与时长；'
+        '阅读数据上报只提交关联书籍的云端 ID、日期、时长与阅读位置；'
         '未注册的邮箱会通过验证码自动创建阅微账号。',
         style: theme.textTheme.bodySmall,
       ),
@@ -228,20 +244,40 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
       const SizedBox(height: 24),
       _section(context, '阅读同步', [
         ListTile(
-          leading: controller.syncing
+          leading: controller.syncing || controller.syncingProgress
               ? const SizedBox(
                   width: 22,
                   height: 22,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.sync),
-          title: Text(controller.syncing ? '正在同步…' : '立即同步阅读时长'),
+          title: Text(
+            controller.syncing || controller.syncingProgress
+                ? '正在同步…'
+                : '立即同步阅读数据',
+          ),
           subtitle: Text(
             controller.lastSyncAt == null
                 ? '尚未同步'
                 : '上次同步：${_formatDateTime(controller.lastSyncAt!)}',
           ),
-          onTap: controller.syncing ? null : _syncNow,
+          onTap: controller.syncing || controller.syncingProgress
+              ? null
+              : _syncNow,
+        ),
+        ListTile(
+          key: const ValueKey<String>('reamicro-lan-sync'),
+          leading: controller.lanSyncing
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.sync_alt),
+          title: const Text('局域网设备互联'),
+          subtitle: Text(controller.lanMessage ?? '从同一账号的附近设备合并章节与阅读进度'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _openLanPage,
         ),
         ListTile(
           key: const ValueKey<String>('reamicro-book-links'),

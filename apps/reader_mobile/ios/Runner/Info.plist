@@ -26,6 +26,13 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于发现同一局域网内的阅微设备，完成授权登录与阅读进度同步。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_reamicro-login._tcp</string>
+		<string>_reamicro-sync._tcp</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

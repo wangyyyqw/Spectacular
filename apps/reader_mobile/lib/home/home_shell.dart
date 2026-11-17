@@ -41,12 +41,17 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _statsRefreshToken = 0;
   bool _exportingDiagnostics = false;
   late final ReaMicroController _reaMicro;
+  late final ReaderProgressStore _progressStore;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _reaMicro = ReaMicroController(library: widget.library);
+    _reaMicro = ReaMicroController(
+      library: widget.library,
+      progressStore: widget.progressStore,
+    );
+    _progressStore = _reaMicro.trackedProgressStore ?? widget.progressStore;
     unawaited(_reaMicro.initialize());
   }
 
@@ -156,14 +161,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final pages = <Widget>[
       BookshelfPage(
         library: widget.library,
-        progressStore: widget.progressStore,
+        progressStore: _progressStore,
         refreshToken: _bookshelfRefreshToken,
         allowImport: widget.storageRecovery == null,
         onReadingFinished: _onReadingFinished,
       ),
       StatsPage(
         library: widget.library,
-        progressStore: widget.progressStore,
+        progressStore: _progressStore,
         refreshToken: _statsRefreshToken,
         active: _index == 1,
         onReadingFinished: _onReadingFinished,

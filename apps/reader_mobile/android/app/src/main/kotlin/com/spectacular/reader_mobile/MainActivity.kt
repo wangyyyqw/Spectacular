@@ -1,6 +1,8 @@
 package com.spectacular.reader_mobile
 
 import android.content.Intent
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.view.KeyEvent
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -14,6 +16,7 @@ class MainActivity : FlutterActivity() {
     private var epubExport: EpubExportHandler? = null
     private var battery: ReaderBatteryHandler? = null
     private var batteryChannel: EventChannel? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -38,6 +41,14 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "getBatteryStatus" -> result.success(battery?.snapshot())
+                    "acquireMulticastLock" -> {
+                        acquireMulticastLock()
+                        result.success(null)
+                    }
+                    "releaseMulticastLock" -> {
+                        releaseMulticastLock()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -50,10 +61,27 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        releaseMulticastLock()
         epubExport?.dispose()
         batteryChannel?.setStreamHandler(null)
         battery?.dispose()
         super.onDestroy()
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock?.isHeld == true) return
+        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            ?: return
+        multicastLock = wifi.createMulticastLock("spectacular-reamicro-discovery").also {
+            it.setReferenceCounted(false)
+            it.acquire()
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        val lock = multicastLock ?: return
+        if (lock.isHeld) lock.release()
+        multicastLock = null
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

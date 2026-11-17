@@ -26,6 +26,13 @@
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于发现同一局域网内的阅微设备，完成授权登录与阅读进度同步。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_reamicro-login._tcp</string>
+		<string>_reamicro-sync._tcp</string>
+	</array>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
