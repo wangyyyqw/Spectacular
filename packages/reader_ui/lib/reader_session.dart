@@ -346,16 +346,21 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
-  /// 交互开始时撤销低优先级等待者；前台正在接管的同章任务继续共享。
-  void cancelTurnPrefetch() {
-    final reading = {
+  /// 撤销无用预取；保留前台同章任务及指定阅读方向的邻章准备。
+  void cancelTurnPrefetch({int? keepDirection}) {
+    final currentSpine = page?.spineIndex;
+    final protectedSpines = {
       for (final request in _chapterLoads.values)
-        if (request.priority == ChapterLayoutPriority.reading) request.spine,
+        if (request.priority == ChapterLayoutPriority.reading ||
+            (keepDirection != null &&
+                currentSpine != null &&
+                (request.spine - currentSpine) * keepDirection > 0))
+          request.spine,
     };
     final cancelled = <int>{};
     for (final entry in _chapterLoads.entries.toList()) {
       if (entry.value.priority == ChapterLayoutPriority.prefetch &&
-          !reading.contains(entry.value.spine)) {
+          !protectedSpines.contains(entry.value.spine)) {
         entry.key.cancel();
         cancelled.add(entry.value.spine);
       }
@@ -388,8 +393,8 @@ class ReaderSession extends ChangeNotifier {
         shouldContinue: shouldContinue,
         retainTarget: !prefetch,
       );
-      // 先注册前台目标，再撤其他预取，避免同章共享任务被提前取消重做。
-      if (!prefetch) cancelTurnPrefetch();
+      // 先注册前台目标，再撤反向预取；章内翻页保留同向邻章准备。
+      if (!prefetch) cancelTurnPrefetch(keepDirection: next ? 1 : -1);
       final target = await pending;
       if (target == null) return null;
       await _preparePagePosition(target.content, prefetch: prefetch);

@@ -335,6 +335,56 @@ void main() {
     expect(session.progress?.spineIndex, 0);
   });
 
+  // 保持一次会话内的连续交互，直接核验任务接管；等待者由会话统一清理。
+  for (final next in [true, false]) {
+    test('向${next ? '前' : '后'}连续章内翻页保留同向预取并撤销反向预取', () async {
+      final source = _ScheduledSource()..hold = true;
+      final startPage = next ? 17 : 2;
+      final opening = _open(
+        source,
+        saved: ReaderProgress(
+          spineIndex: 5,
+          pageIndex: startPage,
+          contentRevision: 'r1',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      source.handles.single.complete(pageCount: 20);
+      final session = await opening;
+      addTearDown(session.dispose);
+      final pending = [session.prefetchTurnChapter(next)];
+      final sameDirection = source.handles.last;
+      final opposite = session.prefetchTurnChapter(!next, pageBudget: 20);
+      final oppositeDirection = source.handles.last;
+
+      for (var step = 1; step <= 2; step++) {
+        final turn = await session.preparePageTurn(next);
+        expect(turn, isNotNull);
+        expect(sameDirection.cancelled, isFalse);
+        expect(oppositeDirection.cancelled, isTrue);
+        expect(session.commitPageTurn(turn!), isTrue);
+        expect(session.page!.pageIndex, startPage + (next ? step : -step));
+        pending.add(session.prefetchTurnChapter(next));
+        expect(source.handles, hasLength(3), reason: '章内翻页复用正在准备的邻章');
+      }
+
+      final crossing = session.preparePageTurn(next);
+      final reading = source.handles.last;
+      expect(reading.priority, ChapterLayoutPriority.reading);
+      expect(reading.spine, next ? 6 : 4);
+      expect(sameDirection.cancelled, isFalse);
+      sameDirection.complete(pageCount: 3);
+      reading.complete(pageCount: 3);
+      final turn = await crossing;
+      await Future.wait(pending);
+      expect(await opposite, isNull);
+      expect(session.commitPageTurn(turn!), isTrue);
+      expect(session.page!.spineIndex, next ? 6 : 4);
+      expect(session.page!.pageIndex, next ? 0 : 2);
+      await session.flushProgress();
+    });
+  }
+
   test('翻页接管同章预取并取消另一方向预取，旧结果不覆盖前台页', () async {
     final source = _ScheduledSource();
     final session = await _open(
