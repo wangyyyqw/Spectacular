@@ -182,7 +182,12 @@ abstract final class CssParser {
   /// 提示上层以内置近似（段首大字 run）渲染。
   static CssStylesheet parse(String css) {
     final base = _parseSingle(css);
-    final hasSyntaxErrors = base.warnings.any(_syntaxErrorPattern.hasMatch);
+    // csslib 遇到部分非法声明会直接抛异常，仍需恢复同表中的有效规则。
+    final hasSyntaxErrors = base.warnings.any(
+      (warning) =>
+          _syntaxErrorPattern.hasMatch(warning) ||
+          warning.startsWith('CSS 解析异常：'),
+    );
     final firstLetterRules = base.rules
         .where((rule) => rule.selector.contains('::first-letter'))
         .map((rule) => rule.selector)
@@ -235,6 +240,9 @@ abstract final class CssParser {
 
   static CssStylesheet _parseSingle(String css) {
     final errors = <csslib.Message>[];
+    // 字体声明独立扫描，csslib 抛异常时也保留；collect 静默跳过对应指令。
+    final fontWarnings = <String>[];
+    final fontFaces = CssFontFaceExtractor.extract(css, fontWarnings);
     final preprocessed = _preprocessSelectors(css);
     final strings = _protectEscapedStrings(preprocessed.text);
     final StyleSheet sheet;
@@ -244,7 +252,8 @@ abstract final class CssParser {
       return CssStylesheet(
         rules: const <CssRule>[],
         imports: const <CssImport>[],
-        warnings: <String>['CSS 解析异常：$error'],
+        warnings: <String>[...fontWarnings, 'CSS 解析异常：$error'],
+        fontFaces: fontFaces,
       );
     }
 
@@ -252,10 +261,8 @@ abstract final class CssParser {
     final imports = <CssImport>[];
     final warnings = <String>[
       for (final message in errors) strings.restore(message.describe),
+      ...fontWarnings,
     ];
-    // @font-face 不走 csslib（其 FontFaceDirective 不公开声明组），
-    // 由提取器自行扫描；collect 里对 FontFaceDirective 静默跳过。
-    final fontFaces = CssFontFaceExtractor.extract(css, warnings);
 
     void collect(
       List<TreeNode> nodes, {

@@ -113,6 +113,22 @@ void main() {
     expect(result.warnings, isNotEmpty);
   });
 
+  test('解析器异常仍保留前后规则、导入、媒体条件和字体声明', () {
+    final result = CssParser.parse('''
+@import "base.css" screen;
+@font-face {font-family:"Book"; src:url(book.otf);}
+.before {width:1.2em;}
+a {color:#;}
+@media (min-width:300px) {.after {color:blue;}}
+''');
+    expect(result.rules.map((rule) => rule.selector), ['.before', '.after']);
+    expect(result.rules.last.mediaConditions, ['(min-width:300px)']);
+    expect(result.imports.single.url, 'base.css');
+    expect(result.imports.single.media, 'screen');
+    expect(result.fontFaces.single.family, 'Book');
+    expect(result.warnings, isNotEmpty);
+  });
+
   test('现代函数选择器不截断同一张样式表的后续规则', () {
     const css = '''
 :is(.a, .b) > p { color: red; }
