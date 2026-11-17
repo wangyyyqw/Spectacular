@@ -1195,6 +1195,7 @@ class TextBlockBuilder {
       final chain = _imageChain(context, paragraph, mark);
       final imageStyle = styles.chainStyle(chain);
       final image = _imageSpec(mark.offset, inline.imageUrl(src), imageStyle);
+      await inline.prepareImageIntrinsicSize(image.url);
       result.add(image);
       if (imageStyle.writingMode == CssWritingMode.horizontalTb) {
         elements.boxes.add(
@@ -1210,6 +1211,7 @@ class TextBlockBuilder {
         mark.pseudo,
       );
       final image = _imageSpec(mark.offset, mark.url, style);
+      await inline.prepareImageIntrinsicSize(image.url);
       result.add(image);
       if (style.writingMode == CssWritingMode.horizontalTb) {
         elements.boxes.add(

@@ -36,8 +36,8 @@ class InlineContentBuilder {
   final BookResources _resources;
   String imageUrl(String src) =>
       _resources.imageUrl(styles.snapshot.spineIndex, src);
-  ImageIntrinsicSize? intrinsicSize(String url) =>
-      _resources.intrinsicSizeOfUrl(url);
+  Future<ImageIntrinsicSize?> prepareImageIntrinsicSize(String url) =>
+      _resources.prepareImageIntrinsicSize(url);
   double get contentWidth => styles.snapshot.width;
   double get contentHeight => styles.snapshot.height;
   final Map<String, FootnoteAnchor> chapterFootnotes;
@@ -600,6 +600,7 @@ class InlineContentBuilder {
       final style = styles.chainStyle(chain);
       final side = floatSideOfStyle(style);
       if (side == null) continue;
+      await prepareImageIntrinsicSize(imageUrl(src));
       final block = _imageFloatBlock(image, style, context, side);
       final removal = _TextRemoval(text, image.offset, image.offset + 1);
       final remaining = await _remainingImageMarks(marks, removal);
@@ -1066,6 +1067,7 @@ class InlineContentBuilder {
     final source = _cellImageMark(image, marks);
     final chain = styles.inlineMarkChain(source, context.ancestors);
     final imageStyle = await _inlineStyle(source, context);
+    await prepareImageIntrinsicSize(imageUrl(src));
     return inlineImageBox(
       InlineImageSpec(offset: image.offset, url: imageUrl(src)),
       imageStyle,

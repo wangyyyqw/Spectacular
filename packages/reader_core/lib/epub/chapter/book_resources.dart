@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -16,11 +17,19 @@ import '../../util/bounded_cache.dart';
 import 'cancellable_isolate_worker.dart';
 import 'chapter_preparation_job.dart';
 import 'chapter_resource_dependencies.dart';
+import 'network_image_loader.dart';
 
 /// 一本书的归档与原始资源所有者；章节布局和缓存不持有关闭权限。
 class BookResources {
-  BookResources(this.document, {this.trackDependencies = false});
+  BookResources(
+    this.document, {
+    this.trackDependencies = false,
+    Future<Directory> Function()? networkImageCacheDirectoryProvider,
+  }) : _networkImages = NetworkImageLoader(
+         directoryProvider: networkImageCacheDirectoryProvider,
+       );
   final bool trackDependencies;
+  final NetworkImageLoader _networkImages;
 
   static const imageHeaderProbeBytes = 256 * 1024;
   static const imageIntrinsicCacheLimit = 512;
@@ -229,6 +238,7 @@ class BookResources {
     _prepareEpoch += 1;
     _preparing.close();
     _preparingFootnotes.close();
+    _networkImages.close();
     unawaited(preparationWorker.close());
     _parsed.clear();
     _imageIntrinsicCache.clear();
@@ -358,10 +368,19 @@ class BookResources {
     return document.resources.resolve(src, baseDir: chapterBase) ?? src;
   }
 
-  /// 图片压缩区间异步读盘，解压与 CRC 在共享 worker 执行。
+  /// 包内图片异步读盘并在 worker 解压；网络图片按原网址读取与缓存。
   Future<Uint8List?> readImage(String url) async {
     if (_closed) return null;
     if (url.startsWith('data:')) return _inlineImageBytes(url);
+    final uri = _networkImageUri(url);
+    if (uri != null) {
+      final key = uri.toString();
+      final bytes = await _imageReads.putIfAbsent(
+        key,
+        () => _readNetworkImage(uri),
+      );
+      return _closed ? null : bytes;
+    }
     final tried = <String>{};
     try {
       for (final path in _imagePaths(url)) {
@@ -378,6 +397,40 @@ class BookResources {
       // 关闭书籍或准备作业被取消后，旧图片不能回写到新阅读页。
     }
     return null;
+  }
+
+  static Uri? _networkImageUri(String url) {
+    final uri = Uri.tryParse(url);
+    return uri != null &&
+            (uri.scheme == 'https' || uri.scheme == 'http') &&
+            uri.host.isNotEmpty
+        ? uri.removeFragment()
+        : null;
+  }
+
+  Future<Uint8List?> _readNetworkImage(Uri uri) async {
+    try {
+      return await _networkImages.read(uri);
+    } finally {
+      _imageReads.remove(uri.toString())?.ignore();
+    }
+  }
+
+  /// 图片测量需要自然尺寸时读取网络资源，失败仍沿用原占位布局。
+  Future<ImageIntrinsicSize?> prepareImageIntrinsicSize(String url) async {
+    if (_closed) return null;
+    final cached = intrinsicSizeOfUrl(url);
+    if (cached != null) return cached;
+    final uri = _networkImageUri(url);
+    if (uri == null) return null;
+    final bytes = await readImage(uri.toString());
+    if (bytes == null || _closed) return null;
+    // 网络入口已经确认是引擎支持的图片，测量只消费其尺寸。
+    final size = ImageSizeParser.readImageSize(bytes)!;
+    final key = uri.toString();
+    _imageIntrinsicMiss.remove(key);
+    _imageIntrinsicCache[key] = size;
+    return size;
   }
 
   /// 内嵌图片不属于归档条目；与包内图片共用上层解码和缓存。
@@ -442,11 +495,12 @@ class BookResources {
 
   /// 图片原始尺寸（与 collect 的预取共用缓存；读不到时返回 null）。
   ImageIntrinsicSize? intrinsicSizeOfUrl(String url) {
-    final cached = _imageIntrinsicCache[url];
+    final key = _networkImageUri(url)?.toString() ?? url;
+    final cached = _imageIntrinsicCache[key];
     if (cached != null) {
       return cached;
     }
-    if (_imageIntrinsicMiss.containsKey(url)) {
+    if (_imageIntrinsicMiss.containsKey(key)) {
       return null;
     }
     final bytes = url.startsWith('data:')
@@ -454,9 +508,9 @@ class BookResources {
         : document.archive.readHead(url, imageHeaderProbeBytes);
     final size = bytes == null ? null : ImageSizeParser.readImageSize(bytes);
     if (size == null) {
-      _imageIntrinsicMiss[url] = true;
+      _imageIntrinsicMiss[key] = true;
     } else {
-      _imageIntrinsicCache[url] = size;
+      _imageIntrinsicCache[key] = size;
     }
     return size;
   }

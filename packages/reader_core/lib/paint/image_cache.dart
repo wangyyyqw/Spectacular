@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 
 import 'image_size.dart';
 
-/// 图片字节加载器（宿主负责从 EPUB 归档/文件系统读取，失败返回 null）。
+/// 图片字节加载器（从 EPUB、内嵌数据或网络缓存读取，失败返回 null）。
 typedef ImageBytesLoader = Future<Uint8List?> Function(String url);
 
 /// 图片解码缓存（P3 图片管线，§50.2 六环节）。
