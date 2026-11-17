@@ -318,14 +318,14 @@ class ReaMicroLanClient {
       type: InternetAddressType.IPv4,
       includeLoopback: false,
     );
-    final reachable = await selectReachableMulticastInterfaces(
+    final usable = await selectReachableMulticastInterfaces(
       candidates.where((interface) => interface.addresses.isNotEmpty),
-      _canJoinMulticast,
+      _canSendMulticast,
     );
-    if (reachable.isEmpty) {
+    if (usable.isEmpty) {
       throw const ReaMicroException('没有可用于局域网发现的网络接口');
     }
-    return _WindowsMdnsEnvironment(interfaces: reachable);
+    return _WindowsMdnsEnvironment(interfaces: usable);
   }
 
   Future<void> _acquireAndroidMulticastLock() async {
@@ -440,10 +440,10 @@ class ReaMicroLanClient {
   }
 }
 
-/// 过滤无法加入 mDNS 组播的网卡。
+/// 过滤无法发送 mDNS 组播的网卡。
 ///
-/// Windows 上断开或虚拟的网卡可能让 `joinMulticast` 返回 `WSAENOPROTOOPT`，
-/// 单个坏网卡不应阻断整个设备发现。
+/// Windows 上断开或虚拟的网卡可能让组播设置返回 `WSAENOPROTOOPT` 或
+/// `WSAEADDRNOTAVAIL`，单个坏网卡不应阻断整个设备发现。
 @visibleForTesting
 Future<List<T>> selectReachableMulticastInterfaces<T>(
   Iterable<T> candidates,
@@ -456,11 +456,18 @@ Future<List<T>> selectReachableMulticastInterfaces<T>(
   return selected;
 }
 
-Future<bool> _canJoinMulticast(NetworkInterface interface) async {
+Future<bool> _canSendMulticast(NetworkInterface interface) async {
   RawDatagramSocket? socket;
   try {
-    socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-    socket.joinMulticast(_mdnsMulticastIPv4, interface);
+    socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0, ttl: 255);
+    socket.multicastHops = 255;
+    socket.setRawOption(
+      RawSocketOption(
+        RawSocketOption.levelIPv4,
+        RawSocketOption.IPv4MulticastInterface,
+        _preferredMulticastAddress(interface).rawAddress,
+      ),
+    );
     return true;
   } on Object {
     return false;
@@ -642,8 +649,6 @@ class _LanMdnsDatagramSocket extends Stream<RawSocketEvent>
     cancelOnError: cancelOnError,
   );
 }
-
-final InternetAddress _mdnsMulticastIPv4 = InternetAddress('224.0.0.251');
 
 class _DiscoveredService {
   const _DiscoveredService({
