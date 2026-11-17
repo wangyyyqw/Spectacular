@@ -6022,7 +6022,7 @@ class _SliceGeometry {
     }
     // 浮动和普通横排内在宽度已在测量时解算，绘制直接使用最终内容宽。
     final intrinsicText =
-        style.intrinsicWidth != null &&
+        style.hasIntrinsicWidth &&
         !isVerticalBlock &&
         !block.isReplaced &&
         block.table == null &&

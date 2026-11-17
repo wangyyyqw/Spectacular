@@ -1596,7 +1596,7 @@ class TextBlockBuilder {
     ({List<StyledRun> runs, List<RubyAnnotation> rubies}) annotations,
   ) async {
     final style = metrics.list.measureStyle;
-    if (style.intrinsicWidth == null ||
+    if (!style.hasIntrinsicWidth ||
         !ChapterTextMeasurer.isOrdinaryHorizontalBlock(style) ||
         context.position.containerFloat != null) {
       return _measureWidth(context, body, metrics);

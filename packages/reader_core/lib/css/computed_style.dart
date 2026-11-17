@@ -1452,8 +1452,13 @@ class ComputedStyle {
   /// 显式继承非继承属性时，长度必须传递计算值，不能重复解算 em。
   String? computedValue(String property) {
     property = CssFragmentation.canonicalProperty(property);
-    if (property == 'width' && intrinsicWidth != null) {
-      return switch (intrinsicWidth!) {
+    final intrinsic = switch (property) {
+      'width' => intrinsicWidth,
+      'max-width' => intrinsicMaxWidth,
+      _ => null,
+    };
+    if (intrinsic != null) {
+      return switch (intrinsic) {
         CssIntrinsicWidth.minContent => 'min-content',
         CssIntrinsicWidth.maxContent => 'max-content',
         CssIntrinsicWidth.fitContent => 'fit-content',
@@ -1714,7 +1719,8 @@ class ComputedStyle {
       return true;
     }
     if (property == 'font-size' && CssFontSizes.isKeyword(value)) return true;
-    if (property == 'width' && CssIntrinsicWidth.parse(value) != null) {
+    if ((property == 'width' || property == 'max-width') &&
+        CssIntrinsicWidth.parse(value) != null) {
       return true;
     }
     final length = _resolveLength(
@@ -2525,6 +2531,9 @@ class ComputedStyle {
     final height = dimension('height');
     final minWidth = dimension('min-width');
     final maxWidth = dimension('max-width');
+    final intrinsicMaxWidth = CssIntrinsicWidth.parse(
+      explicitValue('max-width'),
+    );
     final minHeight = dimension('min-height');
     final maxHeight = dimension('max-height');
     final aspectRatio = _parseAspectRatio(explicitValue('aspect-ratio'));
@@ -2684,6 +2693,7 @@ class ComputedStyle {
       ),
       width: width,
       intrinsicWidth: intrinsicWidth,
+      intrinsicMaxWidth: intrinsicMaxWidth,
       height: height,
       minWidth: minWidth,
       maxWidth: maxWidth,
@@ -2732,7 +2742,7 @@ class ComputedStyle {
     required double contentWidth,
     required double containingWidth,
   }) {
-    if (intrinsicWidth == null || (!marginLeftIsAuto && !marginRightIsAuto)) {
+    if (!hasIntrinsicWidth || (!marginLeftIsAuto && !marginRightIsAuto)) {
       return this;
     }
     final inset =
@@ -3075,6 +3085,7 @@ class ComputedStyle {
       ),
       width: widthOverride == null ? width : CssLength(widthOverride),
       intrinsicWidth: intrinsicWidth,
+      intrinsicMaxWidth: intrinsicMaxWidth,
       height: height,
       minWidth: minWidth,
       maxWidth: maxWidth,
@@ -3208,6 +3219,7 @@ class ComputedStyle {
     required this.borders,
     required this.width,
     this.intrinsicWidth,
+    this.intrinsicMaxWidth,
     required this.height,
     required this.minWidth,
     required this.maxWidth,
@@ -4025,6 +4037,13 @@ class ComputedStyle {
 
   /// 文本块的内在宽度模式；不混入像素、百分比或 auto 长度。
   final CssIntrinsicWidth? intrinsicWidth;
+
+  /// 最大宽度的内容尺寸约束，在测量文字后与声明宽度一起求解。
+  final CssIntrinsicWidth? intrinsicMaxWidth;
+
+  /// 首选宽或最大宽需要测量内容尺寸，排版与绘制共用最终内容盒。
+  bool get hasIntrinsicWidth =>
+      intrinsicWidth != null || intrinsicMaxWidth != null;
 
   /// 指定高度；null 表示未声明（等同于 auto）。
   final CssLength? height;

@@ -4,11 +4,12 @@ enum CssIntrinsicWidth {
   maxContent,
   fitContent;
 
-  static CssIntrinsicWidth? parse(String? raw) =>
-      switch (raw?.trim().toLowerCase()) {
-        'min-content' => minContent,
-        'max-content' => maxContent,
-        'fit-content' => fitContent,
-        _ => null,
-      };
+  static CssIntrinsicWidth? parse(String? raw) => switch (raw
+      ?.trim()
+      .toLowerCase()) {
+    'min-content' => minContent,
+    'max-content' => maxContent,
+    'fit-content' || '-moz-fit-content' || '-webkit-fit-content' => fitContent,
+    _ => null,
+  };
 }

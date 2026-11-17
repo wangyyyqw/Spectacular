@@ -310,7 +310,7 @@ class ChapterBlockWalker {
           )
         : null;
     final intrinsic =
-        style.intrinsicWidth != null &&
+        style.hasIntrinsicWidth &&
             ChapterTextMeasurer.isOrdinaryHorizontalBlock(style)
         ? await ChapterIntrinsicMeasurer(styles, text, content).contentWidths(
             scope.node,

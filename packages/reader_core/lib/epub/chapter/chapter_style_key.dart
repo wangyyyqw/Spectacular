@@ -104,6 +104,7 @@ Map<String, Object?> _boxes(ComputedStyle s) => {
   'padding': s.padding,
   'width': s.width,
   'intrinsicWidth': s.intrinsicWidth,
+  'intrinsicMaxWidth': s.intrinsicMaxWidth,
   'height': s.height,
   'minWidth': s.minWidth,
   'maxWidth': s.maxWidth,

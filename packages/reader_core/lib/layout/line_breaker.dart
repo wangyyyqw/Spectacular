@@ -1068,7 +1068,7 @@ class LineBreaker {
   /// 返回实际宽度；无作者宽度的正文低于下限时钳制并记录一次告警。
   double effectiveWidth(ComputedStyle style, double requestedWidth) {
     if (style.display == CssDisplay.inlineBlock ||
-        style.intrinsicWidth != null ||
+        style.hasIntrinsicWidth ||
         (style.width != null && !style.width!.isAuto)) {
       return requestedWidth;
     }

@@ -324,7 +324,7 @@ class TextLayoutCache {
       ..write('fractional=${LineBreaker.preserveFractionalLineHeight}|')
       ..write('fonts=$fontDependency|')
       ..write(
-        'contentWidth=${preserveContentWidth || style.intrinsicWidth != null}|',
+        'contentWidth=${preserveContentWidth || style.hasIntrinsicWidth}|',
       )
       ..write(styleFingerprint)
       ..write('|w=')

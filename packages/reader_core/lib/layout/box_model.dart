@@ -22,6 +22,7 @@ class BoxModel {
     required this.maxHeight,
     required this.containingWidth,
     required this.intrinsicWidth,
+    required this.intrinsicMaxWidth,
   });
 
   /// 从计算样式解算盒模型。
@@ -70,6 +71,7 @@ class BoxModel {
       maxHeight: style.maxHeight,
       containingWidth: containingWidth,
       intrinsicWidth: style.intrinsicWidth,
+      intrinsicMaxWidth: style.intrinsicMaxWidth,
     );
   }
 
@@ -112,6 +114,9 @@ class BoxModel {
   /// 仅在调用方提供内容测量结果时消费，不干预原有 auto 和替换元素路径。
   final CssIntrinsicWidth? intrinsicWidth;
 
+  /// 最大宽度关键字同样基于内容盒，不因 border-box 重复扣除内缩。
+  final CssIntrinsicWidth? intrinsicMaxWidth;
+
   /// padding + border 的水平总和。
   double get horizontalInset => padding.horizontal + borders.horizontal;
 
@@ -142,12 +147,14 @@ class BoxModel {
       inset: horizontalInset,
       boxSizing: boxSizing,
     );
-    final max = _resolveBound(
-      maxWidth,
-      base: containingWidth,
-      inset: horizontalInset,
-      boxSizing: boxSizing,
-    );
+    final max = intrinsicWidths != null && intrinsicMaxWidth != null
+        ? intrinsicWidths.resolve(intrinsicMaxWidth!, autoWidth)
+        : _resolveBound(
+            maxWidth,
+            base: containingWidth,
+            inset: horizontalInset,
+            boxSizing: boxSizing,
+          );
     final intrinsic = intrinsicWidths == null || intrinsicWidth == null
         ? null
         : intrinsicWidths.resolve(intrinsicWidth!, autoWidth);
