@@ -149,7 +149,7 @@ jobs:
 
   ios:
     name: iOS 未签名
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - name: 检出代码
