@@ -304,7 +304,7 @@ ChapterStructure _buildStructure(_StructureInput input) {
     input.config.width,
     input.sheets,
   );
-  final display = buildAnchorDisplayDocument(input.parsed, input.footnotes);
+  final display = buildAnchorDisplayDocument(input.parsed, input.footnotes, raw);
   final structural = analyzeFullBleed(display);
   final visible = structural.isFullBleed || input.config.fixed
       ? analyzeFullBleed(

@@ -70,7 +70,14 @@ class BoxModel {
       minHeight: style.minHeight,
       maxHeight: style.maxHeight,
       containingWidth: containingWidth,
-      intrinsicWidth: style.intrinsicWidth,
+      intrinsicWidth:
+          style.intrinsicWidth ??
+          (style.cssFloat != CssFloat.none &&
+                  !style.isOutOfFlow &&
+                  style.writingMode == CssWritingMode.horizontalTb &&
+                  (style.width == null || style.width!.isAuto)
+              ? CssIntrinsicWidth.fitContent
+              : null),
       intrinsicMaxWidth: style.intrinsicMaxWidth,
     );
   }

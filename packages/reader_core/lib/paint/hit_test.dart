@@ -364,7 +364,14 @@ abstract final class TextHitTester {
       final slice = page.slices[sliceIndex];
       final sliceY = slice.overlay ? (slice.absoluteTop ?? flowY) : flowY;
       final layout = slice.block.layout;
-      final leftInset = slice.leftInset + (slice.block.style?.margin.left ?? 0);
+      final leftInset =
+          slice.leftInset +
+          (slice.block.style?.margin.left ?? 0) +
+          (slice.overlay &&
+                  slice.block.floatSide != null &&
+                  !slice.block.isReplaced
+              ? slice.block.leftInset
+              : 0);
       if (slice.block.isVertical) {
         final contentTop = sliceY + slice.leadingExtent;
         final columnOffset = slice.block.verticalColumnOffset;

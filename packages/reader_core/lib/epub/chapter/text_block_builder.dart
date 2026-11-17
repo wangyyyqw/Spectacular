@@ -545,6 +545,7 @@ class TextBlockBuilder {
         context.isHeading ||
         context.tag == 'reader-anonymous' ||
         context.tag == 'li' ||
+        body.style.cssFloat != CssFloat.none ||
         splitFragment ||
         body.structuredTitle ||
         body.compact) {
@@ -1417,7 +1418,9 @@ class TextBlockBuilder {
       runs: runs,
       rubies: rubies,
       inlineBoxes: paragraph.elements.boxes,
-      preserveContentWidth: styles.preservesContainerWidth(context.ancestors),
+      preserveContentWidth:
+          metrics.list.measureStyle.cssFloat != CssFloat.none ||
+          styles.preservesContainerWidth(context.ancestors),
       firstLineStyle: firstLineStyle,
       firstLineRuns: firstLineRuns,
     );
@@ -1596,9 +1599,15 @@ class TextBlockBuilder {
     ({List<StyledRun> runs, List<RubyAnnotation> rubies}) annotations,
   ) async {
     final style = metrics.list.measureStyle;
-    if (!style.hasIntrinsicWidth ||
-        !ChapterTextMeasurer.isOrdinaryHorizontalBlock(style) ||
-        context.position.containerFloat != null) {
+    final floating =
+        style.cssFloat != CssFloat.none &&
+        !style.isOutOfFlow &&
+        style.writingMode == CssWritingMode.horizontalTb;
+    final autoFloat = floating && (style.width == null || style.width!.isAuto);
+    if ((!autoFloat && !style.hasIntrinsicWidth) ||
+        (!floating &&
+            (!ChapterTextMeasurer.isOrdinaryHorizontalBlock(style) ||
+                context.position.containerFloat != null))) {
       return _measureWidth(context, body, metrics);
     }
     final widths = await measure.intrinsicWidths(
@@ -1839,32 +1848,56 @@ class TextBlockBuilder {
     ),
   );
 
+  // 此处多数行是既有参数透传；将包含块与外边距一起求解，避免拆分后坐标不一致。
   PageBlock _floatBlock(
     _BlockContext context,
     _BodyStyle body,
     _MeasuredParagraph paragraph,
     ({double before, double after}) spacing,
     FloatSide side,
-  ) => measure.floatedTextBlock(
-    layout: paragraph.layout,
-    style: body.style,
-    side: side,
-    spaceBefore: spacing.before,
-    spaceAfter: spacing.after,
-    inlineImages: paragraph.images,
-    footnotes: paragraph.footnotes,
-    rubies: paragraph.rubies.isEmpty ? null : paragraph.rubies,
-    startCfi: paragraph.contentCfi,
-    textCfis: paragraph.textCfis,
-    textRuleEligible: context.textRuleEligible,
-    groupId:
-        side == context.position.containerFloat &&
-            context.position.containerFloat != null
-        ? context.position.containerFloatGroup
-        : context.position.groupId,
-    containerSides: body.authored.container.bordered,
-    effectiveOpacity: body.authored.container.opacity,
-  );
+  ) {
+    final box = floatSideOfStyle(body.style) == null
+        ? null
+        : styles.floatBoxForChain(context.ancestors);
+    final own = box == null
+        ? body.style.margin
+        : styles.chainStyle(context.ancestors)
+              .scaleRelativeTypography(body.style.fontSize)
+              .margin;
+    // 父内缩参与浮动可用区域，不能再当作每个浮动自身的外边距重复占宽。
+    final style = box == null
+        ? body.style
+        : body.style.withMargins(
+            CssEdges(
+              top: body.style.margin.top,
+              bottom: body.style.margin.bottom,
+              left: own.left,
+              right: own.right,
+            ),
+          );
+    return measure.floatedTextBlock(
+      layout: paragraph.layout,
+      style: style,
+      side: side,
+      spaceBefore: spacing.before,
+      spaceAfter: spacing.after,
+      inlineImages: paragraph.images,
+      footnotes: paragraph.footnotes,
+      rubies: paragraph.rubies.isEmpty ? null : paragraph.rubies,
+      startCfi: paragraph.contentCfi,
+      textCfis: paragraph.textCfis,
+      textRuleEligible: context.textRuleEligible,
+      groupId:
+          side == context.position.containerFloat &&
+              context.position.containerFloat != null
+          ? context.position.containerFloatGroup
+          : context.position.groupId,
+      containerSides: body.authored.container.bordered,
+      effectiveOpacity: body.authored.container.opacity,
+      containingLeft: box?.containingLeft,
+      containingWidth: box?.containingWidth,
+    );
+  }
 
   PageBlock _styledBlock(
     _BlockContext context,

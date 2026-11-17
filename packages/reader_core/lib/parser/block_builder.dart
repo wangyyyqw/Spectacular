@@ -191,6 +191,7 @@ abstract final class BlockBuilder {
   static BlockDocument build(
     ParsedDocument document, {
     bool Function(ParsedElement element)? skipElement,
+    bool Function(BlockNode node)? preserveEmptyParagraph,
   }) {
     final root =
         _convertElement(
@@ -199,7 +200,7 @@ abstract final class BlockBuilder {
               skipElement: skipElement,
             )!
             as BlockNode;
-    _removeEmptyParagraphs(root);
+    _removeEmptyParagraphs(root, preserveEmptyParagraph);
     return BlockDocument(
       spineIndex: document.spineIndex,
       root: root,
@@ -293,12 +294,16 @@ abstract final class BlockBuilder {
     return _convertElement(child, mode, skipElement: skipElement);
   }
 
-  static void _removeEmptyParagraphs(BlockNode node) {
+  static void _removeEmptyParagraphs(
+    BlockNode node,
+    bool Function(BlockNode node)? preserveEmptyParagraph,
+  ) {
     final kept = <EpubNode>[];
     for (final child in node.children) {
       if (child is BlockNode) {
-        _removeEmptyParagraphs(child);
-        if (_isEmptyParagraph(child)) {
+        _removeEmptyParagraphs(child, preserveEmptyParagraph);
+        if (_isEmptyParagraph(child) &&
+            !(preserveEmptyParagraph?.call(child) ?? false)) {
           continue;
         }
       }

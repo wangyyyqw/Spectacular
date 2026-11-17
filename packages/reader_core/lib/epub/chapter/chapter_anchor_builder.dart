@@ -33,6 +33,7 @@ const _definitionContainers = {
 BlockDocument buildAnchorDisplayDocument(
   ParsedDocument parsed,
   Map<String, FootnoteAnchor> references,
+  ChapterRawStyles styles,
 ) {
   final hiddenIds = <String>{};
   for (final anchor in references.values) {
@@ -47,6 +48,8 @@ BlockDocument buildAnchorDisplayDocument(
   final visibility = _FootnoteVisibility(hiddenIds)..walk(parsed.root);
   return BlockBuilder.build(
     parsed,
+    // 空段落仍可通过作者级联承担 clear，必须保留到浮动布局完成。
+    preserveEmptyParagraph: (node) => styles.styleOf(node).clear != CssClear.none,
     skipElement: (element) =>
         visibility.hidden.contains(element) ||
         FootnoteParser.isDefinitionElement(element.tag, element.attributes),
