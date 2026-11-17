@@ -8,6 +8,7 @@ import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_page.dart';
+import '../ye_she/ye_she_page.dart';
 import 'bookshelf_sort.dart';
 
 /// 我的页：书架设置、应用/引擎信息、诊断日志导出。
@@ -167,6 +168,7 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 24),
             _section(context, '账号与同步', [
               _ReaMicroEntry(controller: widget.reaMicro!),
+              _YeSheEntry(controller: widget.reaMicro!),
             ]),
           ],
           const SizedBox(height: 24),
@@ -249,6 +251,32 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _YeSheEntry extends StatelessWidget {
+  const _YeSheEntry({required this.controller});
+
+  final ReaMicroController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) => ListTile(
+        key: const ValueKey<String>('ye-she-entry'),
+        leading: const AppIcon(AppGlyph.autoStories),
+        title: const Text('野社'),
+        subtitle: Text(controller.signedIn ? '文房、游艺与见闻' : '登录阅微后进入文房、游艺与见闻'),
+        trailing: const AppIcon(AppGlyph.chevronRight),
+        onTap: () => Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (context) =>
+                YeShePage(tokenProvider: () => controller.token),
+          ),
+        ),
+      ),
     );
   }
 }
