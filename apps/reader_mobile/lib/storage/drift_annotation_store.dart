@@ -238,6 +238,48 @@ class DriftAnnotationStore
         .go();
   });
 
+  /// 导入云端标注；同一标识按更新时间保留较新内容。
+  Future<void> importSynced(ReaderAnnotation annotation) async {
+    final book = await _binding.writable();
+    if (book == null) return;
+    await _db.transaction(() async {
+      final existing =
+          await (_db.select(_db.annotations)..where(
+                (table) =>
+                    table.id.equals(annotation.id) &
+                    table.bookId.equals(book.id) &
+                    table.type.isSmallerThanValue(2),
+              ))
+              .getSingleOrNull();
+      final updatedAt = annotation.updatedAt.millisecondsSinceEpoch;
+      if (existing != null && existing.updatedAt > updatedAt) return;
+      final companion = AnnotationsCompanion(
+        id: Value<String>(annotation.id),
+        bookId: Value<int>(book.id),
+        type: Value<int>(annotation.type.storageValue),
+        startCfi: Value<String>(annotation.startCfi),
+        endCfi: Value<String>(annotation.endCfi),
+        anchorJson: Value<String?>(annotation.anchorData),
+        quote: Value<String>(annotation.quote),
+        contextBefore: Value<String?>(annotation.contextBefore),
+        contextAfter: Value<String?>(annotation.contextAfter),
+        style: Value<int?>(annotation.style.storageValue),
+        color: Value<int?>(annotation.color),
+        opacity: Value<double?>(_validOpacity(annotation.opacity)),
+        note: Value<String?>(annotation.note),
+        createdAt: Value<int>(annotation.createdAt.millisecondsSinceEpoch),
+        updatedAt: Value<int>(updatedAt),
+      );
+      if (existing == null) {
+        await _db.into(_db.annotations).insert(companion);
+      } else {
+        await (_db.update(
+          _db.annotations,
+        )..where((table) => table.id.equals(existing.id))).write(companion);
+      }
+    });
+  }
+
   @override
   Future<void> relocate(
     String id, {

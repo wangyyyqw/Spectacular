@@ -26,6 +26,7 @@ class ReaMicroStore {
   static const String _s3ConfigKey = 'reamicro.s3.config';
   static const String _s3LastSyncKey = 'reamicro.s3.lastAt';
   static const String _s3BookmarkBasesKey = 'reamicro.s3.bookmark.bases';
+  static const String _markIdsKey = 'reamicro.mark.ids';
   static const int _maxUploadedKeys = 5000;
 
   /// 读取访问令牌。
@@ -259,6 +260,27 @@ class ReaMicroStore {
   /// 清除书签文件同步基准。
   Future<void> clearS3BookmarkBases() =>
       _library.setSetting(_s3BookmarkBasesKey, '');
+
+  /// 读取本地标注 ID → 云端标注 ID。
+  Future<Map<String, int>> loadMarkIds() async {
+    final raw = await _library.getSetting(_markIdsKey);
+    if (raw == null || raw.isEmpty) return <String, int>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) return <String, int>{};
+      return <String, int>{
+        for (final entry in decoded.entries)
+          if (entry.value is num && (entry.value! as num).toInt() > 0)
+            entry.key: (entry.value! as num).toInt(),
+      };
+    } on FormatException {
+      return <String, int>{};
+    }
+  }
+
+  /// 保存本地标注 ID → 云端标注 ID。
+  Future<void> saveMarkIds(Map<String, int> values) =>
+      _library.setSetting(_markIdsKey, jsonEncode(values));
 
   /// 读取或生成用于区分本机的设备标识。
   Future<String> loadOrCreateDeviceId() async {

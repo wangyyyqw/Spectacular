@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
@@ -7,7 +10,9 @@ import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_lan.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_store.dart';
+import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
@@ -34,6 +39,28 @@ class _TestLibrary extends LibraryStore {
     final value = book;
     return value == null ? super.list() : <BookEntry>[value];
   }
+}
+
+class _DbTestLibrary extends LibraryStore {
+  _DbTestLibrary(AppDatabase db, Directory dir)
+    : super(database: db, directoryProvider: () async => dir);
+
+  late final _TestSessionStore sessionStore = _TestSessionStore(
+    <ReadingSession>[],
+  );
+
+  @override
+  ReadingSessionStore? readingSessionStore() => sessionStore;
+}
+
+Future<_DbTestLibrary> _openDbLibrary() async {
+  final dir = Directory.systemTemp.createTempSync('rea-marks');
+  final db = AppDatabase(NativeDatabase.memory());
+  addTearDown(() async {
+    await db.close();
+    if (dir.existsSync()) dir.deleteSync(recursive: true);
+  });
+  return _DbTestLibrary(db, dir);
 }
 
 class _TestSessionStore implements ReadingSessionStore {
@@ -117,6 +144,10 @@ class _FakeApi implements ReaMicroApi {
   ReaMicroReadProgress? remoteProgress;
   int userCalls = 0;
   int recordCalls = 0;
+  List<ReaMicroMark> marks = <ReaMicroMark>[];
+  final List<ReaMicroMarkDraft> markUpserts = <ReaMicroMarkDraft>[];
+  final List<int> markDeletes = <int>[];
+  int nextMarkId = 500;
   ReaMicroOverview overview = const ReaMicroOverview(
     years: <int>[],
     readDays: 0,
@@ -255,6 +286,61 @@ class _FakeApi implements ReaMicroApi {
   }) async => remoteProgress;
 
   @override
+  Future<List<ReaMicroMark>> fetchMarks(
+    String token, {
+    String? bookId,
+    int pageSize = 200,
+  }) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    if (bookId == null || bookId.trim().isEmpty) {
+      return List<ReaMicroMark>.of(marks);
+    }
+    return <ReaMicroMark>[
+      for (final mark in marks)
+        if (mark.bookId == bookId) mark,
+    ];
+  }
+
+  @override
+  Future<int?> upsertMark(String token, ReaMicroMarkDraft mark) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    markUpserts.add(mark);
+    if (mark.cloudId > 0) return mark.cloudId;
+    final id = nextMarkId++;
+    marks.add(
+      ReaMicroMark(
+        id: id,
+        bookId: mark.bookId,
+        chapter: mark.chapter,
+        kind: mark.kind,
+        startCfi: mark.startCfi,
+        endCfi: mark.endCfi,
+        quote: mark.quote,
+        note: mark.note,
+        style: mark.style,
+        color: mark.color,
+        synced: 1,
+        createdAt: mark.createdAt,
+        updatedAt: mark.updatedAt,
+      ),
+    );
+    return id;
+  }
+
+  @override
+  Future<void> deleteMark(String token, {required int id}) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    markDeletes.add(id);
+    marks.removeWhere((mark) => mark.id == id);
+  }
+
+  @override
   void close() {}
 }
 
@@ -280,7 +366,7 @@ ReadingSession _session(DateTime start, DateTime end) => ReadingSession(
 );
 
 Future<ReaMicroController> _createController(
-  _TestLibrary library,
+  LibraryStore library,
   _FakeApi api, {
   bool signedIn = true,
   ReaderProgressStore? progressStore,
@@ -300,6 +386,10 @@ Future<ReaMicroController> _createController(
 }
 
 void main() {
+  setUpAll(() {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+  });
+
   test('北京时间跨午夜会话按自然日拆分', () async {
     final library = _TestLibrary();
     final api = _FakeApi();
@@ -992,5 +1082,205 @@ void main() {
     expect(books.single.title, '远端新书');
     expect(controller.links[books.single.id]?.cloudBookId, 21);
     expect(progressStore.items[books.single.id]?.cfi, 'epubcfi(/6/2!/4/2/1)');
+  });
+
+  test('云端较新标注导入本地并保留颜色、想法与时间戳', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '标注书', identifier: 'urn:uuid:mark-book'),
+    );
+    final api = _FakeApi()
+      ..marks = <ReaMicroMark>[
+        const ReaMicroMark(
+          id: 77,
+          bookId: '11',
+          chapter: '第一章',
+          kind: 1,
+          startCfi: 'epubcfi(/6/4!/4/2/1)',
+          endCfi: 'epubcfi(/6/4!/4/2/5)',
+          quote: '原文',
+          note: '云端想法',
+          style: 1,
+          color: '#FFFF0000',
+          synced: 1,
+          createdAt: 1000,
+          updatedAt: 2000,
+        ),
+      ];
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      book.id,
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+
+    final result = await controller.syncMarks();
+
+    expect(result.success, isTrue);
+    final annotations = await library.listBookAnnotations(book.id);
+    expect(annotations, hasLength(1));
+    final annotation = annotations.single;
+    expect(annotation.type, ReaderAnnotationType.thought);
+    expect(annotation.note, '云端想法');
+    expect(annotation.style, ReaderAnnotationStyle.underline);
+    expect(annotation.color, 0xFFFF0000);
+    expect(annotation.createdAt.millisecondsSinceEpoch, 1000);
+    expect(annotation.updatedAt.millisecondsSinceEpoch, 2000);
+    expect(
+      (await ReaMicroStore(library)
+          .loadMarkIds())['${book.id}|${annotation.id}'],
+      77,
+    );
+  });
+
+  test('本地较新标注上传并记录云端标识，重复同步不重复上传', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '标注书', identifier: 'urn:uuid:mark-upload'),
+    );
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      book.id,
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+    await library.importBookAnnotation(
+      book.id,
+      ReaderAnnotation(
+        id: 'local-mark',
+        type: ReaderAnnotationType.mark,
+        startCfi: 'epubcfi(/6/4!/4/2/1)',
+        endCfi: 'epubcfi(/6/4!/4/2/3)',
+        quote: '本地原文',
+        color: 0xFFFF0000,
+        style: ReaderAnnotationStyle.underline,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(5000),
+      ),
+    );
+
+    final first = await controller.syncMarks();
+
+    expect(first.success, isTrue);
+    expect(api.markUpserts, hasLength(1));
+    final upload = api.markUpserts.single;
+    expect(upload.cloudId, 0);
+    expect(upload.createdAt, 1000);
+    expect(upload.updatedAt, 5000);
+    expect(upload.color, '#ffff0000');
+    expect(
+      (await ReaMicroStore(library).loadMarkIds())['${book.id}|local-mark'],
+      500,
+    );
+
+    final second = await controller.syncMarks();
+
+    expect(second.requests, 0);
+    expect(api.markUpserts, hasLength(1));
+  });
+
+  test('本地删除标注后删除云端标注', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '标注书', identifier: 'urn:uuid:mark-delete'),
+    );
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      book.id,
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+    await library.importBookAnnotation(
+      book.id,
+      ReaderAnnotation(
+        id: 'local-mark',
+        type: ReaderAnnotationType.mark,
+        startCfi: 'epubcfi(/6/4!/4/2/1)',
+        endCfi: 'epubcfi(/6/4!/4/2/3)',
+        quote: '本地原文',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(5000),
+      ),
+    );
+    await controller.syncMarks();
+    await library.removeBookAnnotation(book.id, 'local-mark');
+
+    final result = await controller.syncMarks();
+
+    expect(result.success, isTrue);
+    expect(api.markDeletes, <int>[500]);
+    expect(
+      (await ReaMicroStore(
+        library,
+      ).loadMarkIds()).containsKey('${book.id}|local-mark'),
+      isFalse,
+    );
+  });
+
+  test('局域网清单中的标注合并到本地', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '局域网标注', identifier: 'urn:uuid:lan-mark'),
+    );
+    final manifest = ReaMicroLanManifest.fromJson(<String, Object?>{
+      'userId': 1,
+      'deviceId': 'device-b',
+      'generatedAt': 1763380800000,
+      'books': <Object?>[
+        <String, Object?>{
+          'uuid': book.id,
+          'progressUpdatedAt': 0,
+          'book': <String, Object?>{
+            'uuid': book.id,
+            'title': book.title,
+            'author': book.author,
+            'cloudId': 11,
+          },
+          'marks': <Object?>[
+            <String, Object?>{
+              'startCfi': 'epubcfi(/6/4!/4/2/1)',
+              'endCfi': 'epubcfi(/6/4!/4/2/3)',
+              'kind': 1,
+              'chapter': '第一章',
+              'quote': '局域网原文',
+              'note': '局域网想法',
+              'style': 0,
+              'color': '#CC00FF00',
+              'synced': 1,
+              'cloudId': 88,
+              'createdAt': 1000,
+              'updatedAt': 3000,
+            },
+          ],
+        },
+      ],
+    });
+    final controller = await _createController(
+      library,
+      _FakeApi(),
+      lan: _FakeLan(manifest),
+    );
+    addTearDown(controller.dispose);
+    expect(manifest.books.single.marks, hasLength(1));
+
+    final message = await controller.syncWithLanPeer(
+      const ReaMicroLanSyncPeer(
+        host: '127.0.0.1',
+        port: 1,
+        userId: 1,
+        deviceId: 'device-b',
+        nickname: '测试用户',
+        deviceName: '测试设备',
+      ),
+    );
+
+    expect(message, contains('合并 1 条标注'));
+    final annotations = await library.listBookAnnotations(book.id);
+    expect(annotations, hasLength(1));
+    expect(annotations.single.id, 'mark-lan-88');
+    expect(annotations.single.note, '局域网想法');
+    expect(annotations.single.color, 0xCC00FF00);
   });
 }

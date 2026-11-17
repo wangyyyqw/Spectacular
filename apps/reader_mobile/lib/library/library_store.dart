@@ -18,6 +18,7 @@ import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/revision_relocator.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
 
 import '../reader/reader_decoration_image_store.dart';
@@ -920,6 +921,29 @@ class LibraryStore {
   DriftAnnotationStore? annotationStore(String bookId) {
     final db = _db;
     return db == null ? null : DriftAnnotationStore(db, bookId);
+  }
+
+  /// 读取一本书的全部划线与想法。
+  Future<List<ReaderAnnotation>> listBookAnnotations(String bookId) async {
+    final store = annotationStore(bookId);
+    return store == null ? const <ReaderAnnotation>[] : store.list();
+  }
+
+  /// 导入一条云端标注。
+  Future<void> importBookAnnotation(
+    String bookId,
+    ReaderAnnotation annotation,
+  ) async {
+    final store = annotationStore(bookId);
+    if (store == null) return;
+    await store.importSynced(annotation);
+  }
+
+  /// 删除一条本地标注，供云端删除落地。
+  Future<void> removeBookAnnotation(String bookId, String annotationId) async {
+    final store = annotationStore(bookId);
+    if (store == null) return;
+    await store.remove(annotationId);
   }
 
   /// 当前书的手工装饰存储；彻底删除或更换图片时检查全库引用。

@@ -70,6 +70,19 @@ abstract interface class ReaMicroApi {
     required String cloudBookId,
   });
 
+  /// 读取云端标注；[bookId] 为空时读取账号全部标注。
+  Future<List<ReaMicroMark>> fetchMarks(
+    String token, {
+    String? bookId,
+    int pageSize = 200,
+  });
+
+  /// 新增或更新一条云端标注，返回云端标识。
+  Future<int?> upsertMark(String token, ReaMicroMarkDraft mark);
+
+  /// 删除一条云端标注。
+  Future<void> deleteMark(String token, {required int id});
+
   /// 释放网络客户端。
   void close();
 }
@@ -321,6 +334,57 @@ class ReaMicroApiClient implements ReaMicroApi {
     return result.usable ? result : null;
   }
 
+  @override
+  Future<List<ReaMicroMark>> fetchMarks(
+    String token, {
+    String? bookId,
+    int pageSize = 200,
+  }) async {
+    final marks = <ReaMicroMark>[];
+    for (var page = 1; page <= 50; page++) {
+      final data = await _post('rest/read/get-mark-list', <String, Object?>{
+        'pageNum': page,
+        'pageSize': pageSize,
+        if (bookId != null && bookId.trim().isNotEmpty) 'bookId': bookId,
+      }, token: token);
+      final rawItems = _responseList(data);
+      for (final item in rawItems) {
+        if (item is! Map<String, Object?>) continue;
+        final mark = ReaMicroMark.fromJson(item);
+        if (mark.id > 0 && mark.startCfi.isNotEmpty) marks.add(mark);
+      }
+      if (rawItems.length < pageSize) break;
+    }
+    return marks;
+  }
+
+  @override
+  Future<int?> upsertMark(String token, ReaMicroMarkDraft mark) async {
+    final data = await _post('rest/read/batch-upsert-mark', <String, Object?>{
+      'items': <Object?>[mark.toJson()],
+    }, token: token);
+    final results = _markUpsertResults(data);
+    for (final result in results) {
+      if (!result.success) {
+        throw ReaMicroException(
+          result.message.trim().isEmpty ? '阅微标注提交失败' : result.message,
+        );
+      }
+      if (result.id > 0) return result.id;
+      if (result.mark != null && result.mark!.id > 0) {
+        return result.mark!.id;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<void> deleteMark(String token, {required int id}) async {
+    await _post('rest/read/delete-mark', <String, Object?>{
+      'id': id,
+    }, token: token);
+  }
+
   Future<Object?> _post(
     String endpoint,
     Map<String, Object?> body, {
@@ -411,6 +475,24 @@ List<Object?> _responseList(Object? data) {
       map['records']! as List<Object?>,
     _ => const <Object?>[],
   };
+}
+
+List<ReaMicroMarkUpsertResult> _markUpsertResults(Object? data) {
+  final rawItems = switch (data) {
+    final List<Object?> list => list,
+    final Map<String, Object?> map when map['results'] is List<Object?> =>
+      map['results']! as List<Object?>,
+    final Map<String, Object?> map when map['items'] is List<Object?> =>
+      map['items']! as List<Object?>,
+    final Map<String, Object?> map when map['list'] is List<Object?> =>
+      map['list']! as List<Object?>,
+    final Map<String, Object?> map => <Object?>[map],
+    _ => const <Object?>[],
+  };
+  return <ReaMicroMarkUpsertResult>[
+    for (final item in rawItems)
+      if (item is Map<String, Object?>) ReaMicroMarkUpsertResult.fromJson(item),
+  ];
 }
 
 String _dateOnly(DateTime value) {

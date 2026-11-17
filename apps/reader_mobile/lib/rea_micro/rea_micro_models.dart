@@ -632,6 +632,198 @@ class ReaMicroReadProgress {
   }
 }
 
+/// 阅微云端标注。
+class ReaMicroMark {
+  /// 创建标注。
+  const ReaMicroMark({
+    required this.id,
+    required this.bookId,
+    required this.chapter,
+    required this.kind,
+    required this.startCfi,
+    required this.endCfi,
+    required this.quote,
+    required this.note,
+    required this.style,
+    required this.color,
+    required this.synced,
+    required this.createdAt,
+    required this.updatedAt,
+    this.bookName = '',
+    this.bookAuthor = '',
+  });
+
+  /// 云端标注标识。
+  final int id;
+
+  /// 云端书籍标识或本地书籍 UUID。
+  final String bookId;
+
+  /// 书名。
+  final String bookName;
+
+  /// 作者。
+  final String bookAuthor;
+
+  /// 章节名。
+  final String chapter;
+
+  /// 类型：0 划线、1 想法。
+  final int kind;
+
+  /// 起点 CFI。
+  final String startCfi;
+
+  /// 终点 CFI。
+  final String endCfi;
+
+  /// 原文。
+  final String quote;
+
+  /// 想法正文。
+  final String note;
+
+  /// 样式。
+  final int style;
+
+  /// 颜色字符串。
+  final String color;
+
+  /// 是否已同步。
+  final int synced;
+
+  /// 创建时间（毫秒时间戳）。
+  final int createdAt;
+
+  /// 更新时间（毫秒时间戳）。
+  final int updatedAt;
+
+  /// 从接口数据解析。
+  factory ReaMicroMark.fromJson(Map<String, Object?> json) => ReaMicroMark(
+    id: _intValue(json['id']),
+    bookId: _stringValue(json['bookId']) ?? '',
+    bookName: _stringValue(json['bookName']) ?? '',
+    bookAuthor: _stringValue(json['bookAuthor']) ?? '',
+    chapter: _stringValue(json['chapter']) ?? '',
+    kind: _intValue(json['kind']),
+    startCfi: _stringValue(json['startCfi']) ?? '',
+    endCfi: _stringValue(json['endCfi']) ?? '',
+    quote: _stringValue(json['quote']) ?? '',
+    note: _stringValue(json['note']) ?? '',
+    style: _intValue(json['style']),
+    color: _stringValue(json['color']) ?? '',
+    synced: _intValue(json['synced']),
+    createdAt: _timestampMillis(json['createdAt']),
+    updatedAt: _timestampMillis(json['updatedAt']),
+  );
+}
+
+/// 提交到阅微的标注内容。
+class ReaMicroMarkDraft {
+  /// 创建待提交标注。
+  const ReaMicroMarkDraft({
+    required this.cloudId,
+    required this.bookId,
+    required this.chapter,
+    required this.kind,
+    required this.startCfi,
+    required this.endCfi,
+    required this.quote,
+    required this.note,
+    required this.style,
+    required this.color,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  /// 云端标注标识；新标注为 0。
+  final int cloudId;
+
+  /// 云端书籍标识。
+  final String bookId;
+
+  /// 章节名。
+  final String chapter;
+
+  /// 类型。
+  final int kind;
+
+  /// 起点 CFI。
+  final String startCfi;
+
+  /// 终点 CFI。
+  final String endCfi;
+
+  /// 原文。
+  final String quote;
+
+  /// 想法正文。
+  final String note;
+
+  /// 样式。
+  final int style;
+
+  /// 颜色。
+  final String color;
+
+  /// 创建时间（毫秒）。
+  final int createdAt;
+
+  /// 更新时间（毫秒）。
+  final int updatedAt;
+
+  /// 转换为接口请求字段。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': cloudId,
+    'bookId': bookId,
+    'chapter': chapter,
+    'kind': kind,
+    'startCfi': startCfi,
+    'endCfi': endCfi,
+    'quote': quote,
+    'note': note,
+    'style': style,
+    'color': color,
+    'synced': 1,
+    'createdAt': createdAt,
+    'updatedAt': updatedAt,
+  };
+}
+
+/// 单条标注提交结果。
+class ReaMicroMarkUpsertResult {
+  /// 创建结果。
+  const ReaMicroMarkUpsertResult({
+    required this.id,
+    required this.success,
+    required this.message,
+    this.mark,
+  });
+
+  /// 云端标注标识。
+  final int id;
+
+  /// 是否成功。
+  final bool success;
+
+  /// 失败原因。
+  final String message;
+
+  /// 服务端返回的完整标注。
+  final ReaMicroMark? mark;
+
+  /// 从接口数据解析。
+  factory ReaMicroMarkUpsertResult.fromJson(Map<String, Object?> json) {
+    final mark = json['mark'];
+    return ReaMicroMarkUpsertResult(
+      id: _intValue(json['id']),
+      success: json['success'] != false,
+      message: _stringValue(json['message']) ?? '',
+      mark: mark is Map<String, Object?> ? ReaMicroMark.fromJson(mark) : null,
+    );
+  }
+}
+
 /// 一本书的进度同步状态。
 ///
 /// [localUpdatedAt] 记录本机最后一次产生或接收进度的时间，
@@ -727,6 +919,7 @@ class ReaMicroLanBookProgress {
     required this.updatedAt,
     required this.finished,
     this.files = const <ReaMicroLanFile>[],
+    this.marks = const <ReaMicroLanMark>[],
   });
 
   /// 书籍 UUID，与本地书库标识一致。
@@ -759,6 +952,9 @@ class ReaMicroLanBookProgress {
   /// 对方设备上的原书文件清单。
   final List<ReaMicroLanFile> files;
 
+  /// 对方设备上的划线与想法。
+  final List<ReaMicroLanMark> marks;
+
   /// 是否包含可合并的位置。
   bool get usable => uuid.trim().isNotEmpty && cfi.trim().isNotEmpty;
 
@@ -770,6 +966,7 @@ class ReaMicroLanBookProgress {
     final book = entry['book'];
     final snapshot = book is Map<String, Object?> ? book : entry;
     final rawFiles = entry['files'];
+    final rawMarks = entry['marks'];
     return ReaMicroLanBookProgress(
       uuid: _stringValue(entry['uuid']) ?? '',
       title: _stringValue(snapshot['title']) ?? '',
@@ -786,8 +983,88 @@ class ReaMicroLanBookProgress {
           for (final item in rawFiles)
             if (item is Map<String, Object?>) ReaMicroLanFile.fromJson(item),
       ],
+      marks: <ReaMicroLanMark>[
+        if (rawMarks is List<Object?>)
+          for (final item in rawMarks)
+            if (item is Map<String, Object?>) ReaMicroLanMark.fromJson(item),
+      ],
     );
   }
+}
+
+/// 局域网同步清单中的一条划线或想法。
+class ReaMicroLanMark {
+  /// 创建标注快照。
+  const ReaMicroLanMark({
+    required this.startCfi,
+    required this.endCfi,
+    required this.kind,
+    required this.chapter,
+    required this.quote,
+    required this.note,
+    required this.style,
+    required this.color,
+    required this.synced,
+    required this.cloudId,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  /// 起点 CFI。
+  final String startCfi;
+
+  /// 终点 CFI。
+  final String endCfi;
+
+  /// 类型：0 划线、1 想法。
+  final int kind;
+
+  /// 章节名。
+  final String chapter;
+
+  /// 原文。
+  final String quote;
+
+  /// 想法正文。
+  final String note;
+
+  /// 样式。
+  final int style;
+
+  /// 颜色字符串。
+  final String color;
+
+  /// 对方是否已同步到云端。
+  final int synced;
+
+  /// 对方记录的云端标注标识，0 表示尚未同步。
+  final int cloudId;
+
+  /// 创建时间（毫秒时间戳）。
+  final int createdAt;
+
+  /// 更新时间（毫秒时间戳）。
+  final int updatedAt;
+
+  /// 是否包含可合并的位置。
+  bool get usable => startCfi.trim().isNotEmpty;
+
+  /// 从清单数据解析。
+  factory ReaMicroLanMark.fromJson(Map<String, Object?> json) =>
+      ReaMicroLanMark(
+        startCfi: _stringValue(json['startCfi']) ?? '',
+        endCfi: _stringValue(json['endCfi']) ?? '',
+        kind: _intValue(json['kind']),
+        chapter: _stringValue(json['chapter']) ?? '',
+        quote: _stringValue(json['quote']) ?? '',
+        note: _stringValue(json['note']) ?? '',
+        style: _intValue(json['style']),
+        color: _stringValue(json['color']) ?? '',
+        synced: _intValue(json['synced']),
+        cloudId: _intValue(json['cloudId']),
+        createdAt: _timestampMillis(json['createdAt']),
+        updatedAt: _timestampMillis(json['updatedAt']),
+      );
 }
 
 /// 局域网设备上的一本书内文件。

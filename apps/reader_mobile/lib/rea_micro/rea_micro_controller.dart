@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
@@ -85,6 +86,7 @@ class ReaMicroController extends ChangeNotifier {
       <String, ReaMicroProgressState>{};
   Future<void> _progressPersist = Future<void>.value();
   bool _syncingProgress = false;
+  bool _syncingMarks = false;
   String? _deviceId;
   List<ReaMicroLanLoginDevice> _lanLoginDevices =
       const <ReaMicroLanLoginDevice>[];
@@ -102,6 +104,7 @@ class ReaMicroController extends ChangeNotifier {
   Timer? _s3SyncTimer;
   ReaMicroS3Config? _s3Config;
   Map<String, String> _s3BookmarkBases = <String, String>{};
+  Map<String, int> _markIds = <String, int>{};
   bool _s3Syncing = false;
   String? _s3Message;
   DateTime? _s3LastSyncAt;
@@ -136,6 +139,9 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 正在同步阅读位置。
   bool get syncingProgress => _syncingProgress;
+
+  /// 正在同步划线与想法。
+  bool get syncingMarks => _syncingMarks;
 
   /// 是否已完成本地状态加载。
   bool get initialized => _initialized;
@@ -206,6 +212,7 @@ class ReaMicroController extends ChangeNotifier {
     _links = await _store.loadLinks();
     _lastSyncAt = await _store.loadLastSyncAt();
     _progressStates = await _store.loadProgressStates();
+    _markIds = await _store.loadMarkIds();
     _deviceId = await _store.loadOrCreateDeviceId();
     _cloudAsPrimary = await _store.loadCloudPrimary();
     _s3Config = await _store.loadS3Config();
@@ -261,6 +268,15 @@ class ReaMicroController extends ChangeNotifier {
   Future<void> _clearS3BookmarkBases() async {
     _s3BookmarkBases = <String, String>{};
     await _store.clearS3BookmarkBases();
+  }
+
+  /// 账号变化后清空与云端标识绑定的同步状态，避免复用上一账号的映射。
+  Future<void> _resetAccountSyncState() async {
+    if (_markIds.isNotEmpty) {
+      _markIds = <String, int>{};
+      await _store.saveMarkIds(_markIds);
+    }
+    await _clearS3BookmarkBases();
   }
 
   /// 延迟执行 S3 同步，避免启动阶段与账号刷新重叠。
@@ -375,7 +391,7 @@ class ReaMicroController extends ChangeNotifier {
     _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer(delay, () async {
       if (_disposed) return;
-      if (_syncing || _syncingProgress) {
+      if (_syncing || _syncingProgress || _syncingMarks) {
         scheduleReadingSync(delay: delay);
         return;
       }
@@ -389,7 +405,7 @@ class ReaMicroController extends ChangeNotifier {
     _progressSyncTimer?.cancel();
     _progressSyncTimer = Timer(delay, () async {
       if (_disposed) return;
-      if (_syncing || _syncingProgress) {
+      if (_syncing || _syncingProgress || _syncingMarks) {
         scheduleProgressSync(delay: delay);
         return;
       }
@@ -607,6 +623,7 @@ class ReaMicroController extends ChangeNotifier {
           !signedIn ||
           _syncing ||
           _syncingProgress ||
+          _syncingMarks ||
           _loadingCloudStats) {
         return;
       }
@@ -666,6 +683,7 @@ class ReaMicroController extends ChangeNotifier {
       );
       _token = token;
       await _store.saveToken(token);
+      await _resetAccountSyncState();
       _links = await _store.loadLinks();
       _notice = '登录成功';
       await _refreshInternal(token, silent: true);
@@ -687,6 +705,7 @@ class ReaMicroController extends ChangeNotifier {
     _cloudAsPrimary = false;
     await _store.saveCloudPrimary(false);
     await _store.clearAuth();
+    await _resetAccountSyncState();
     await _progressPersist;
     _progressStates = <String, ReaMicroProgressState>{};
     await _store.clearProgressStates();
@@ -912,18 +931,308 @@ class ReaMicroController extends ChangeNotifier {
     );
   }
 
+  /// 双向同步阅微划线与想法。
+  Future<ReaMicroSyncResult> syncMarks() async {
+    final token = _token;
+    if (token == null) {
+      return const ReaMicroSyncResult(success: false, message: '请先登录阅微账号');
+    }
+    if (_syncingMarks) {
+      return const ReaMicroSyncResult(success: false, message: '正在同步标注，请稍后');
+    }
+    if (_links.isEmpty) {
+      return const ReaMicroSyncResult(success: false, message: '尚未关联任何阅微书籍');
+    }
+    _syncingMarks = true;
+    _error = null;
+    _notify();
+    final nextMarkIds = Map<String, int>.of(_markIds);
+    var uploaded = 0;
+    var downloaded = 0;
+    var deleted = 0;
+    String? failure;
+    try {
+      final remoteMarks = await _api.fetchMarks(token);
+      final remoteById = <int, ReaMicroMark>{
+        for (final mark in remoteMarks)
+          if (mark.id > 0) mark.id: mark,
+      };
+      for (final linkEntry in List<MapEntry<String, ReaMicroBookLink>>.of(
+        _links.entries,
+      )) {
+        if (_token != token) break;
+        final localBookId = linkEntry.key;
+        final link = linkEntry.value;
+        final localBook = await _library.bookById(localBookId);
+        if (localBook == null) continue;
+        final prefix = '$localBookId|';
+        final remoteForBook = <ReaMicroMark>[
+          for (final mark in remoteMarks)
+            if (_remoteMarkBelongsTo(mark, localBook, link)) mark,
+        ];
+        var localAnnotations = await _library.listBookAnnotations(localBookId);
+        final localById = <String, ReaderAnnotation>{
+          for (final annotation in localAnnotations) annotation.id: annotation,
+        };
+
+        for (final key
+            in nextMarkIds.keys
+                .where((key) => key.startsWith(prefix))
+                .toList(growable: false)) {
+          final localId = key.substring(prefix.length);
+          final remote = remoteById[nextMarkIds[key]];
+          if (localById.containsKey(localId)) continue;
+          if (remote != null && _remoteMarkBelongsTo(remote, localBook, link)) {
+            try {
+              await _api.deleteMark(token, id: remote.id);
+              deleted += 1;
+              nextMarkIds.remove(key);
+            } catch (error) {
+              failure ??= _messageOf(error);
+            }
+          } else {
+            nextMarkIds.remove(key);
+          }
+        }
+
+        for (final remote in remoteForBook) {
+          String? mappedKey;
+          for (final entry in nextMarkIds.entries) {
+            if (entry.key.startsWith(prefix) && entry.value == remote.id) {
+              mappedKey = entry.key;
+              break;
+            }
+          }
+          final mappedLocalId = mappedKey?.substring(prefix.length);
+          var local = mappedLocalId == null ? null : localById[mappedLocalId];
+          local ??= _findMatchingLocalMark(localAnnotations, remote);
+          final localId = local?.id ?? 'mark-cloud-${remote.id}';
+          final remoteIsNewer =
+              local == null ||
+              remote.updatedAt > local.updatedAt.millisecondsSinceEpoch;
+          nextMarkIds['$prefix$localId'] = remote.id;
+          if (!remoteIsNewer) continue;
+          try {
+            final imported = _readerAnnotationFromRemote(localId, remote);
+            await _library.importBookAnnotation(localBookId, imported);
+            localById[localId] = imported;
+            downloaded += 1;
+          } catch (error) {
+            failure ??= _messageOf(error);
+          }
+        }
+
+        localAnnotations = await _library.listBookAnnotations(localBookId);
+        final cloudIdsByLocal = <String, int>{
+          for (final entry in nextMarkIds.entries)
+            if (entry.key.startsWith(prefix))
+              entry.key.substring(prefix.length): entry.value,
+        };
+        for (final annotation in localAnnotations) {
+          if (annotation.startCfi.trim().isEmpty ||
+              annotation.endCfi.trim().isEmpty) {
+            continue;
+          }
+          final cloudId = cloudIdsByLocal[annotation.id];
+          final remote = cloudId == null ? null : remoteById[cloudId];
+          if (remote != null &&
+              remote.updatedAt > annotation.updatedAt.millisecondsSinceEpoch) {
+            continue;
+          }
+          if (remote != null &&
+              remote.updatedAt == annotation.updatedAt.millisecondsSinceEpoch &&
+              !_markDiffers(annotation, remote)) {
+            continue;
+          }
+          try {
+            var nextId = await _api.upsertMark(
+              token,
+              _markDraftFromLocal(annotation, link, remote: remote),
+            );
+            nextId ??= await _resolveUploadedMarkId(
+              token,
+              link: link,
+              annotation: annotation,
+            );
+            if (nextId != null && nextId > 0) {
+              nextMarkIds['$prefix${annotation.id}'] = nextId;
+              uploaded += 1;
+            } else {
+              failure ??= '阅微未返回标注标识';
+            }
+          } catch (error) {
+            failure ??= _messageOf(error);
+            if (error is ReaMicroException && error.unauthorized) {
+              await _handleError(error);
+              break;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      await _handleError(error);
+      failure = _error ?? _messageOf(error);
+    } finally {
+      _markIds = nextMarkIds;
+      await _store.saveMarkIds(_markIds);
+      _syncingMarks = false;
+      _notify();
+    }
+    final requests = uploaded + downloaded + deleted;
+    final message = failure == null
+        ? requests == 0
+              ? '标注已是最新'
+              : '已上传 $uploaded 条标注、同步 $downloaded 条、删除 $deleted 条'
+        : requests == 0
+        ? failure
+        : '已上传 $uploaded 条、同步 $downloaded 条，其余失败：$failure';
+    _notice = message;
+    return ReaMicroSyncResult(
+      success: failure == null || requests > 0,
+      message: message,
+      requests: requests,
+    );
+  }
+
+  bool _remoteMarkBelongsTo(
+    ReaMicroMark mark,
+    BookEntry local,
+    ReaMicroBookLink link,
+  ) {
+    final remoteBookId = mark.bookId.trim();
+    if (remoteBookId == link.cloudBookId.toString() ||
+        remoteBookId == local.id) {
+      return true;
+    }
+    if (mark.bookName.trim().isEmpty) return false;
+    return _normalizeBookText(mark.bookName) ==
+            _normalizeBookText(local.title) &&
+        (mark.bookAuthor.trim().isEmpty ||
+            _normalizeBookText(mark.bookAuthor) ==
+                _normalizeBookText(local.author));
+  }
+
+  ReaderAnnotation? _findMatchingLocalMark(
+    List<ReaderAnnotation> local,
+    ReaMicroMark remote,
+  ) {
+    for (final annotation in local) {
+      if (annotation.type.storageValue != remote.kind) continue;
+      if (annotation.startCfi != remote.startCfi) continue;
+      if (remote.endCfi.isNotEmpty && annotation.endCfi != remote.endCfi) {
+        continue;
+      }
+      return annotation;
+    }
+    return null;
+  }
+
+  ReaderAnnotation _readerAnnotationFromRemote(
+    String localId,
+    ReaMicroMark remote,
+  ) {
+    final createdAt = remote.createdAt > 0
+        ? remote.createdAt
+        : DateTime.now().millisecondsSinceEpoch;
+    final updatedAt = remote.updatedAt > 0 ? remote.updatedAt : createdAt;
+    return ReaderAnnotation(
+      id: localId,
+      type: remote.kind == 1
+          ? ReaderAnnotationType.thought
+          : ReaderAnnotationType.mark,
+      startCfi: remote.startCfi,
+      endCfi: remote.endCfi.isEmpty ? remote.startCfi : remote.endCfi,
+      quote: remote.quote,
+      color: _colorFromRemote(remote.color),
+      style: ReaderAnnotationStyle.fromStorage(remote.style),
+      note: remote.note.trim().isEmpty ? null : remote.note,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(createdAt),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(updatedAt),
+    );
+  }
+
+  ReaMicroMarkDraft _markDraftFromLocal(
+    ReaderAnnotation annotation,
+    ReaMicroBookLink link, {
+    ReaMicroMark? remote,
+  }) => ReaMicroMarkDraft(
+    cloudId: remote?.id ?? 0,
+    bookId: link.cloudBookId.toString(),
+    chapter: remote?.chapter ?? '',
+    kind: annotation.type.storageValue,
+    startCfi: annotation.startCfi,
+    endCfi: annotation.endCfi,
+    quote: annotation.quote,
+    note: annotation.note ?? '',
+    style: annotation.style.storageValue,
+    color: _colorToRemote(annotation.color),
+    createdAt: annotation.createdAt.millisecondsSinceEpoch,
+    updatedAt: annotation.updatedAt.millisecondsSinceEpoch,
+  );
+
+  Future<int?> _resolveUploadedMarkId(
+    String token, {
+    required ReaMicroBookLink link,
+    required ReaderAnnotation annotation,
+  }) async {
+    final marks = await _api.fetchMarks(
+      token,
+      bookId: link.cloudBookId.toString(),
+    );
+    for (final mark in marks) {
+      if (mark.startCfi == annotation.startCfi &&
+          mark.endCfi == annotation.endCfi &&
+          mark.kind == annotation.type.storageValue) {
+        return mark.id;
+      }
+    }
+    return null;
+  }
+
+  bool _markDiffers(ReaderAnnotation local, ReaMicroMark remote) {
+    if (local.startCfi != remote.startCfi ||
+        local.endCfi != remote.endCfi ||
+        local.type.storageValue != remote.kind ||
+        local.style.storageValue != remote.style ||
+        local.quote != remote.quote ||
+        (local.note ?? '') != remote.note) {
+      return true;
+    }
+    if (remote.color.trim().isEmpty) return false;
+    final remoteColor = _colorFromRemote(remote.color);
+    return remoteColor != null && local.color != remoteColor;
+  }
+
+  int? _colorFromRemote(String value) {
+    var text = value.trim();
+    if (text.isEmpty) return null;
+    if (text.startsWith('#')) text = text.substring(1);
+    if (text.startsWith('0x') || text.startsWith('0X')) {
+      text = text.substring(2);
+    }
+    if (text.length == 6) text = 'ff$text';
+    return text.length == 8 ? int.tryParse(text, radix: 16) : null;
+  }
+
+  String _colorToRemote(int? value) {
+    if (value == null) return '';
+    return '#${value.toRadixString(16).padLeft(8, '0')}';
+  }
+
   /// 同时同步阅读时长与阅读位置。
   Future<ReaMicroSyncResult> syncAll() async {
     final durations = await syncReadingSessions();
     final progress = await syncProgress();
+    final marks = await syncMarks();
     final messages = <String>{
       durations.message,
       progress.message,
+      marks.message,
     }.where((message) => message.trim().isNotEmpty).toList(growable: false);
     return ReaMicroSyncResult(
-      success: durations.success && progress.success,
+      success: durations.success && progress.success && marks.success,
       message: messages.join('；'),
-      requests: durations.requests,
+      requests: durations.requests + progress.requests + marks.requests,
       durationSeconds: durations.durationSeconds,
     );
   }
@@ -1161,6 +1470,7 @@ class ReaMicroController extends ChangeNotifier {
       var skipped = 0;
       var failed = 0;
       var unmatched = 0;
+      var mergedMarks = 0;
       for (final remote in manifest.books) {
         var localBook = await _matchLanBook(remote);
         if (localBook == null && remote.hasFiles && remote.title.isNotEmpty) {
@@ -1196,6 +1506,7 @@ class ReaMicroController extends ChangeNotifier {
           linksChanged = true;
           await _seedProgressStatesForBook(bookId, markDirty: false);
         }
+        mergedMarks += await _mergeLanMarks(bookId, remote.marks);
         if (!remote.usable) continue;
         final state = _progressStates[bookId];
         if (state?.dirty == true) {
@@ -1244,6 +1555,7 @@ class ReaMicroController extends ChangeNotifier {
       final hints = <String>[
         if (unmatched > 0) '$unmatched 本未匹配本地书籍',
         if (downloadFailed > 0) '$downloadFailed 本文件下载失败',
+        if (mergedMarks > 0) '合并 $mergedMarks 条标注',
       ];
       final hintText = hints.isEmpty ? '' : '，${hints.join('、')}';
       final progressText = failed == 0
@@ -1257,13 +1569,16 @@ class ReaMicroController extends ChangeNotifier {
           ? applied == 0
                 ? unmatched > 0 || downloadFailed > 0
                       ? '与 $device 没有可合并的阅读位置$hintText'
-                      : '与 $device 没有新的阅读位置'
+                      : '与 $device 没有新的阅读位置$hintText'
                 : '已从 $device 合并 $applied 本阅读位置$hintText'
           : '已从 $device 合并 $applied 本，$failed 本位置不可用$hintText';
       _lanMessage = message;
-      if (applied > 0 || imported > 0) {
+      if (applied > 0 || imported > 0 || mergedMarks > 0) {
         if (_links.isNotEmpty) {
           scheduleProgressSync(delay: const Duration(seconds: 1));
+          if (mergedMarks > 0) {
+            scheduleReadingSync(delay: const Duration(seconds: 2));
+          }
         }
       } else if (skipped > 0) {
         _lanMessage = '$message（$skipped 本保留本地较新位置）';
@@ -1276,6 +1591,65 @@ class ReaMicroController extends ChangeNotifier {
       _lanSyncing = false;
       _notify();
     }
+  }
+
+  /// 合并局域网清单中的划线与想法，按更新时间保留较新内容。
+  Future<int> _mergeLanMarks(String bookId, List<ReaMicroLanMark> marks) async {
+    if (marks.isEmpty) return 0;
+    final annotations = List<ReaderAnnotation>.of(
+      await _library.listBookAnnotations(bookId),
+    );
+    var merged = 0;
+    for (final remote in marks) {
+      if (!remote.usable) continue;
+      final createdAt = remote.createdAt > 0
+          ? remote.createdAt
+          : remote.updatedAt > 0
+          ? remote.updatedAt
+          : DateTime.now().millisecondsSinceEpoch;
+      final updatedAt = remote.updatedAt > 0 ? remote.updatedAt : createdAt;
+      var existingIndex = -1;
+      for (var index = 0; index < annotations.length; index++) {
+        final annotation = annotations[index];
+        if (annotation.type.storageValue != remote.kind) continue;
+        if (annotation.startCfi != remote.startCfi) continue;
+        if (remote.endCfi.isNotEmpty && annotation.endCfi != remote.endCfi) {
+          continue;
+        }
+        existingIndex = index;
+        break;
+      }
+      final existing = existingIndex < 0 ? null : annotations[existingIndex];
+      if (existing != null &&
+          existing.updatedAt.millisecondsSinceEpoch >= updatedAt) {
+        continue;
+      }
+      final annotation = ReaderAnnotation(
+        id: existing?.id ?? _lanMarkId(remote),
+        type: ReaderAnnotationType.fromStorage(remote.kind),
+        startCfi: remote.startCfi,
+        endCfi: remote.endCfi.isEmpty ? remote.startCfi : remote.endCfi,
+        quote: remote.quote,
+        color: _colorFromRemote(remote.color),
+        style: ReaderAnnotationStyle.fromStorage(remote.style),
+        note: remote.note.trim().isEmpty ? null : remote.note,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(createdAt),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(updatedAt),
+      );
+      await _library.importBookAnnotation(bookId, annotation);
+      if (existingIndex < 0) {
+        annotations.add(annotation);
+      } else {
+        annotations[existingIndex] = annotation;
+      }
+      merged += 1;
+    }
+    return merged;
+  }
+
+  String _lanMarkId(ReaMicroLanMark mark) {
+    if (mark.cloudId > 0) return 'mark-lan-${mark.cloudId}';
+    return 'mark-lan-${mark.kind}-${mark.startCfi}-${mark.endCfi}';
   }
 
   /// 在本地书库中定位阅微设备上报的书。
@@ -1348,6 +1722,7 @@ class ReaMicroController extends ChangeNotifier {
       final user = await _api.fetchUser(token);
       _token = token;
       await _store.saveToken(token);
+      await _resetAccountSyncState();
       _user = user;
       await _store.saveCachedUser(user);
       _links = await _store.loadLinks();
@@ -1551,6 +1926,7 @@ class ReaMicroController extends ChangeNotifier {
       await _store.saveCloudPrimary(false);
     }
     await _store.clearAuth();
+    await _resetAccountSyncState();
     _token = null;
     _user = null;
     _chart = const <ReaMicroChartPoint>[];
