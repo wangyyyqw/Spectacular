@@ -185,3 +185,51 @@ jobs:
           name: spectacular-ios-unsigned
           path: apps/reader_mobile/dist/spectacular-ios-unsigned.zip
           retention-days: 14
+
+  publish:
+    name: 发布 CI 产物
+    needs:
+      - android
+      - windows
+      - macos
+      - ios
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: release
+          merge-multiple: true
+      - name: 检查发布文件
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f release/spectacular-reader-release.apk
+          test -f release/spectacular-windows-x64.zip
+          test -f release/spectacular-macos-arm64-unsigned.zip
+          test -f release/spectacular-ios-unsigned.zip
+          ls -lh release
+      - name: 发布滚动 Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ci-latest
+        run: |
+          set -euo pipefail
+          notes="分支 ${GITHUB_REF_NAME} 的最新多平台构建。提交 ${GITHUB_SHA}。工作流运行 ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "CI 最新构建（${GITHUB_REF_NAME}）" \
+              --notes "$notes" \
+              --prerelease
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* \
+              --target "$GITHUB_SHA" \
+              --title "CI 最新构建（${GITHUB_REF_NAME}）" \
+              --notes "$notes" \
+              --prerelease
+          fi

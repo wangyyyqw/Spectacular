@@ -61,6 +61,14 @@ flutter run --no-pub -d macos
 
 Android 运行与离线 Release 打包说明见 [移动端 README](apps/reader_mobile/README.md)。构建产物放在被 Git 忽略的 `apps/reader_mobile/dist/`，不提交 APK、设备备份或日志。
 
+## CI 构建下载
+
+推送 `ReaMicro` 或手动运行「多平台自动打包」后，产物发布到 [Releases 的 `ci-latest`](https://github.com/wangyyyqw/Spectacular/releases/tag/ci-latest)：
+
+- Android 直接下载 `spectacular-reader-release.apk`。
+- Windows、macOS 和 iOS 下载对应的 `*.zip`，归档内就是应用文件，不再套第二层压缩包。
+- Actions 中的 artifact 只作为构建中间产物，不作为下载入口。
+
 ## 按改动范围验证
 
 用户反馈的局部 EPUB 样式问题按 [EPUB 样式适配流程](AGENTS.md#epub-样式适配流程) 处理：核对原书 CSS、精准修复、相关引擎回归、离线打包覆盖安装、目标页与应用数据验收。
