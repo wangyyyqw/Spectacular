@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/panels/bookmark_panel.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -38,7 +39,10 @@ void main() {
     await tester.tap(find.text('第 5 章 · 第 3 页'));
     expect(selected.single.id, 'b');
 
-    await tester.tap(find.byIcon(Icons.delete_outline).first);
+    final deleteIcon = find.byWidgetPredicate(
+      (widget) => widget is AppIcon && widget.glyph == AppGlyph.delete,
+    );
+    await tester.tap(deleteIcon.first);
     expect(deleted.single.id, 'a');
   });
 

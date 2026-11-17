@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing/epub_editing.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_tools.dart';
@@ -78,6 +79,7 @@ class _ImageEditorState extends State<_ImageEditor> {
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<String>(
+              icon: const AppIcon(AppGlyph.chevronDown),
               initialValue: _path,
               key: ValueKey(_path),
               isExpanded: true,
@@ -104,7 +106,7 @@ class _ImageEditorState extends State<_ImageEditor> {
             ),
             TextButton.icon(
               onPressed: _import,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
+              icon: const AppIcon(AppGlyph.addImage),
               label: const Text('导入另一张图片'),
             ),
             const Text('这里只替换当前图片元素的引用，不改变同一资源在其他章节的引用。'),

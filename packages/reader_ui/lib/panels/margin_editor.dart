@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import '../page_furniture/page_furniture.dart';
 import '../theme/reader_margins.dart';
 
@@ -273,19 +274,19 @@ class _MarginEditorState extends State<MarginEditor> {
         _ActionCapsule(
           key: const ValueKey<String>('margin-cancel'),
           onTap: widget.onCancel,
-          icon: Icons.close,
+          icon: AppGlyph.close,
           label: '取消',
         ),
         _ActionCapsule(
           key: const ValueKey<String>('margin-reset'),
           onTap: () => _apply(widget.defaults),
-          icon: Icons.restore,
+          icon: AppGlyph.restore,
           label: '恢复默认',
         ),
         _ActionCapsule(
           key: const ValueKey<String>('margin-apply'),
           onTap: () => widget.onApply(_draft),
-          icon: Icons.check,
+          icon: AppGlyph.check,
           label: '保存',
           primary: true,
         ),
@@ -413,12 +414,12 @@ class _PillState extends State<_Pill> {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         _Arrow(
-          icon: Icons.keyboard_arrow_up,
+          icon: AppGlyph.chevronUp,
           onTap: widget.value >= widget.max ? null : () => widget.onDelta(1),
         ),
         Flexible(child: _buildValue(scheme)),
         _Arrow(
-          icon: Icons.keyboard_arrow_down,
+          icon: AppGlyph.chevronDown,
           onTap: widget.value <= 0 ? null : () => widget.onDelta(-1),
         ),
       ],
@@ -524,7 +525,7 @@ class _MarginValueDialogState extends State<_MarginValueDialog> {
 class _Arrow extends StatelessWidget {
   const _Arrow({required this.icon, required this.onTap});
 
-  final IconData icon;
+  final AppGlyph icon;
   final VoidCallback? onTap;
 
   @override
@@ -537,7 +538,7 @@ class _Arrow extends StatelessWidget {
         width: 24,
         height: 36,
         child: Center(
-          child: Icon(
+          child: AppIcon(
             icon,
             size: 18,
             color: onTap == null
@@ -560,7 +561,7 @@ class _ActionCapsule extends StatelessWidget {
   });
 
   final VoidCallback onTap;
-  final IconData icon;
+  final AppGlyph icon;
   final String label;
   final bool primary;
 
@@ -589,7 +590,7 @@ class _ActionCapsule extends StatelessWidget {
   Widget _buildLabel(Color foreground) => Row(
     mainAxisSize: MainAxisSize.min,
     children: <Widget>[
-      Icon(icon, size: 14, color: foreground),
+      AppIcon(icon, size: 14, color: foreground),
       const SizedBox(width: 4),
       Text(
         label,

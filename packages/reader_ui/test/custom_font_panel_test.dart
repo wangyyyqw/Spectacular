@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
@@ -322,7 +323,12 @@ void main() {
       find.byKey(const ValueKey<String>('settings-custom-font-user_test')),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is AppIcon && widget.glyph == AppGlyph.check,
+      ),
+      findsOneWidget,
+    );
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
 
@@ -330,7 +336,12 @@ void main() {
       _panel(fonts: const [_font], onChanged: changes.add),
     );
     await _openPicker(tester);
-    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is AppIcon && widget.glyph == AppGlyph.check,
+      ),
+      findsOneWidget,
+    );
     expect(find.byKey(_switchKey), findsOneWidget);
   });
 }

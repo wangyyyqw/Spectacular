@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import '../reader_session.dart';
 
 /// 书签面板（P4-13）：列表 + 点击跳转 + 删除。
@@ -47,7 +48,7 @@ class BookmarkPanel extends StatelessWidget {
               children: [
                 if (onBack != null)
                   IconButton(
-                    icon: const Icon(Icons.arrow_back, size: 20),
+                    icon: const AppIcon(AppGlyph.arrowBack, size: 20),
                     onPressed: onBack,
                     tooltip: '返回',
                   ),
@@ -64,7 +65,7 @@ class BookmarkPanel extends StatelessWidget {
                     key: const ValueKey<String>('drawer-add-bookmark'),
                     onPressed: onAdd,
                     tooltip: '加书签',
-                    icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                    icon: const AppIcon(AppGlyph.bookmarkAdd, size: 18),
                     visualDensity: VisualDensity.compact,
                   ),
               ],
@@ -88,8 +89,8 @@ class BookmarkPanel extends StatelessWidget {
                       return ListTile(
                         key: ValueKey<String>('bookmark-row-${bookmark.id}'),
                         dense: true,
-                        leading: Icon(
-                          Icons.bookmark_outline,
+                        leading: AppIcon(
+                          AppGlyph.bookmark,
                           size: 18,
                           color: theme.colorScheme.primary,
                         ),
@@ -112,7 +113,7 @@ class BookmarkPanel extends StatelessWidget {
                         ),
                         trailing: IconButton(
                           tooltip: '删除书签',
-                          icon: const Icon(Icons.delete_outline, size: 18),
+                          icon: const AppIcon(AppGlyph.delete, size: 18),
                           onPressed: () => onDelete(bookmark),
                         ),
                         onTap: () => onSelect(bookmark),

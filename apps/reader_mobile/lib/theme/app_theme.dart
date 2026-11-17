@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 const _ink = Color(0xFF222427);
 const _secondary = Color(0xFF686C71);
@@ -114,6 +115,10 @@ ThemeData buildAppTheme() {
 
 ThemeData _withSurfaces(ThemeData base) => base.copyWith(
   appBarTheme: _appBar,
+  actionIconTheme: ActionIconThemeData(
+    backButtonIconBuilder: (_) => const AppIcon(AppGlyph.arrowBack),
+    closeButtonIconBuilder: (_) => const AppIcon(AppGlyph.close),
+  ),
   iconTheme: const IconThemeData(color: _ink, size: 22),
   textTheme: base.textTheme.apply(bodyColor: _ink, displayColor: _ink),
   cardTheme: _card,

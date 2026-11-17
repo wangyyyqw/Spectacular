@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import 'annotation.dart';
 import 'annotation_appearance_editor.dart';
 import 'annotation_editor_sheet.dart';
@@ -150,7 +151,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
                       minimumSize: const Size.fromHeight(44),
                     ),
                     onPressed: _note.isEmpty ? null : _save,
-                    icon: const Icon(Icons.check),
+                    icon: const AppIcon(AppGlyph.check),
                     label: const Text('保存想法'),
                   ),
                 ),
@@ -168,7 +169,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
     children: [
       Row(
         children: [
-          const Icon(Icons.sticky_note_2_outlined),
+          const AppIcon(AppGlyph.note),
           const SizedBox(width: 8),
           Text('添加想法', style: Theme.of(context).textTheme.titleMedium),
           const Spacer(),
@@ -176,7 +177,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
             key: const ValueKey<String>('note-composer-close'),
             onPressed: _close,
             tooltip: '关闭',
-            icon: const Icon(Icons.close),
+            icon: const AppIcon(AppGlyph.close),
           ),
         ],
       ),

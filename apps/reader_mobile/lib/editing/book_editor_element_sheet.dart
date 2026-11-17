@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing/epub_editing.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_tools.dart';
@@ -149,7 +150,7 @@ class _BookEditorElementSheetState extends State<BookEditorElementSheet> {
             trailing: IconButton(
               tooltip: '关闭段落编辑',
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
+              icon: const AppIcon(AppGlyph.close),
             ),
           ),
           if (_element.parent != null && _element.parent!.tag != 'body')
@@ -281,14 +282,14 @@ class _BookEditorElementSheetState extends State<BookEditorElementSheet> {
       children: [
         for (final image in images)
           ListTile(
-            leading: const Icon(Icons.image_outlined),
+            leading: const AppIcon(AppGlyph.image),
             title: Text(
               image.attributes['alt']?.isNotEmpty == true
                   ? image.attributes['alt']!
                   : '未填写替代文字',
             ),
             subtitle: Text(image.attributes['src'] ?? '缺少图片地址'),
-            trailing: const Icon(Icons.edit_outlined),
+            trailing: const AppIcon(AppGlyph.edit),
             onTap: () async {
               final changed = await editBookImage(
                 context,
@@ -301,7 +302,7 @@ class _BookEditorElementSheetState extends State<BookEditorElementSheet> {
         if (images.isEmpty) const ListTile(title: Text('此元素中没有图片')),
         TextButton.icon(
           onPressed: () => _operation('image'),
-          icon: const Icon(Icons.add_photo_alternate_outlined),
+          icon: const AppIcon(AppGlyph.addImage),
           label: const Text('在后面插入图片'),
         ),
       ],
@@ -315,7 +316,7 @@ class _BookEditorElementSheetState extends State<BookEditorElementSheet> {
       for (final name in _element.classes)
         ListTile(
           title: Text('.$name'),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: const AppIcon(AppGlyph.chevronRight),
           onTap: () async {
             await BookEditorTools(context, widget.editor).classStyle(name);
             if (mounted &&
@@ -326,7 +327,7 @@ class _BookEditorElementSheetState extends State<BookEditorElementSheet> {
           },
         ),
       TextButton.icon(
-        icon: const Icon(Icons.add),
+        icon: const AppIcon(AppGlyph.add),
         label: const Text('添加 class'),
         onPressed: () async {
           final name = await editorPrompt(context, '添加 class 名称');

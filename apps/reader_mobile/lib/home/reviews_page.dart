@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
@@ -225,7 +226,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
                       : IconButton(
                           tooltip: '清除搜索',
                           onPressed: _clearSearch,
-                          icon: const Icon(Icons.clear),
+                          icon: const AppIcon(AppGlyph.close),
                         ),
                 ),
                 onChanged: (value) => setState(() => _query = value),
@@ -236,7 +237,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
                 IconButton(
                   tooltip: '关闭搜索',
                   onPressed: _toggleSearch,
-                  icon: const Icon(Icons.close),
+                  icon: const AppIcon(AppGlyph.close),
                 ),
               ]
             : [
@@ -246,10 +247,10 @@ class _ReviewsPageState extends State<ReviewsPage> {
                     tooltip: '书评排序',
                     initialValue: _sort,
                     onSelected: (value) => setState(() => _sort = value),
-                    icon: const Icon(Icons.sort_rounded),
+                    icon: const AppIcon(AppGlyph.sort),
                     itemBuilder: (_) => <PopupMenuEntry<_ReviewSort>>[
                       for (final sort in _ReviewSort.values)
-                        CheckedPopupMenuItem<_ReviewSort>(
+                        appCheckedMenuItem<_ReviewSort>(
                           key: ValueKey<String>('reviews-sort-${sort.name}'),
                           value: sort,
                           checked: sort == _sort,
@@ -261,13 +262,13 @@ class _ReviewsPageState extends State<ReviewsPage> {
                   IconButton(
                     tooltip: '搜索书评',
                     onPressed: _toggleSearch,
-                    icon: const Icon(Icons.search),
+                    icon: const AppIcon(AppGlyph.search),
                   ),
                 IconButton(
                   key: const ValueKey<String>('reviews-refresh'),
                   tooltip: '刷新书评',
                   onPressed: _reload,
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: const AppIcon(AppGlyph.refresh),
                 ),
               ],
       ),
@@ -529,8 +530,8 @@ class _NoReviewMatches extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Icon(
-              query.isNotEmpty ? Icons.search_off : Icons.rate_review_outlined,
+            AppIcon(
+              query.isNotEmpty ? AppGlyph.searchOff : AppGlyph.rateReview,
               color: theme.colorScheme.outline,
               size: 36,
             ),
@@ -549,7 +550,7 @@ class _NoReviewMatches extends StatelessWidget {
             const SizedBox(height: 10),
             TextButton.icon(
               onPressed: onReset,
-              icon: const Icon(Icons.filter_alt_off_outlined),
+              icon: const AppIcon(AppGlyph.filterOff),
               label: Text(query.isEmpty ? '查看全部书评' : '清除搜索与筛选'),
             ),
           ],
@@ -644,8 +645,9 @@ class _SummaryValue extends StatelessWidget {
               ),
               if (rated) ...[
                 const SizedBox(width: 4),
-                const Icon(
-                  Icons.star_rounded,
+                const AppIcon(
+                  AppGlyph.star,
+                  filled: true,
                   key: ValueKey<String>('reviews-average-star'),
                   color: Color(0xFFE0A327),
                   size: 18,
@@ -769,8 +771,8 @@ class _ReviewCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  Icon(
-                    Icons.arrow_forward_rounded,
+                  AppIcon(
+                    AppGlyph.arrowForward,
                     size: 16,
                     color: theme.colorScheme.primary,
                   ),
@@ -896,7 +898,7 @@ class _ReviewDetailSheet extends StatelessWidget {
                         IconButton(
                           tooltip: '关闭书评详情',
                           onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
+                          icon: const AppIcon(AppGlyph.close),
                         ),
                       ],
                     ),
@@ -947,13 +949,13 @@ class _ReviewDetailSheet extends StatelessWidget {
         final copy = OutlinedButton.icon(
           key: const ValueKey<String>('review-detail-copy'),
           onPressed: () => _copy(context),
-          icon: const Icon(Icons.copy_outlined),
+          icon: const AppIcon(AppGlyph.copy),
           label: const Text('复制书评'),
         );
         final edit = FilledButton.icon(
           key: const ValueKey<String>('review-detail-edit'),
           onPressed: () => Navigator.of(context).pop(true),
-          icon: const Icon(Icons.edit_outlined),
+          icon: const AppIcon(AppGlyph.edit),
           label: const Text('编辑书评'),
         );
         return stacked
@@ -1029,8 +1031,9 @@ class _StarRow extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         for (var star = 1; star <= 5; star++)
-          Icon(
-            star <= value ? Icons.star_rounded : Icons.star_outline_rounded,
+          AppIcon(
+            AppGlyph.star,
+            filled: star <= value,
             size: size,
             color: star <= value
                 ? const Color(0xFFE0A327)
@@ -1066,7 +1069,7 @@ class _NoReviewCard extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            Icon(Icons.edit_note_outlined, color: theme.colorScheme.primary),
+            AppIcon(AppGlyph.editNote, color: theme.colorScheme.primary),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -1090,7 +1093,7 @@ class _EmptyReviews extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.rate_review_outlined, size: 64),
+          AppIcon(AppGlyph.rateReview, size: 64),
           SizedBox(height: 12),
           Text('导入书籍后可以在这里写书评'),
         ],
@@ -1111,8 +1114,8 @@ class _ReviewLoadError extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.sync_problem_outlined,
+          AppIcon(
+            AppGlyph.warning,
             size: 40,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1122,7 +1125,7 @@ class _ReviewLoadError extends StatelessWidget {
           FilledButton.icon(
             key: const ValueKey('reviews-load-retry'),
             onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AppIcon(AppGlyph.refresh),
             label: const Text('重新加载'),
           ),
         ],
@@ -1336,7 +1339,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
         key: const ValueKey('review-editor-close'),
         tooltip: '关闭',
         onPressed: _saving ? null : _close,
-        icon: const Icon(Icons.close_rounded),
+        icon: const AppIcon(AppGlyph.close),
       ),
     ],
   );
@@ -1363,11 +1366,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
                 onPressed: _saving ? null : () => _setRating(star),
                 iconSize: 34,
                 color: const Color(0xFFE0A327),
-                icon: Icon(
-                  star <= (_rating ?? 0)
-                      ? Icons.star_rounded
-                      : Icons.star_outline_rounded,
-                ),
+                icon: AppIcon(AppGlyph.star, filled: star <= (_rating ?? 0)),
               ),
             ),
         ],
@@ -1509,7 +1508,7 @@ class _ReviewEditorActions extends StatelessWidget {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.check_rounded),
+                  : const AppIcon(AppGlyph.check),
               label: Text(saving ? '正在保存…' : '保存书评'),
             ),
             if (isEditing) ...[
@@ -1517,7 +1516,7 @@ class _ReviewEditorActions extends StatelessWidget {
               TextButton.icon(
                 key: const ValueKey<String>('review-delete'),
                 onPressed: saving ? null : onDelete,
-                icon: const Icon(Icons.delete_outline),
+                icon: const AppIcon(AppGlyph.delete),
                 label: const Text('删除书评'),
                 style: TextButton.styleFrom(
                   foregroundColor: theme.colorScheme.error,

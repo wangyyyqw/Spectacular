@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 
+import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
 
 /// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。
@@ -278,7 +279,7 @@ class _TocPanelState extends State<TocPanel> {
                 _TocToolButton(
                   buttonKey: const ValueKey<String>('toc-locate-current'),
                   tooltip: '回到当前章',
-                  icon: Icons.format_list_bulleted,
+                  icon: AppGlyph.listBulleted,
                   onTap: active == null ? null : _locateCurrent,
                 ),
               ],
@@ -344,15 +345,19 @@ class _TocPanelState extends State<TocPanel> {
                                   ),
                                   customBorder: const CircleBorder(),
                                   onTap: () => _toggleEntry(row.entry),
-                                  child: Icon(
+                                  child: AppIcon(
                                     expanded
-                                        ? Icons.expand_less
-                                        : Icons.expand_more,
+                                        ? AppGlyph.chevronUp
+                                        : AppGlyph.chevronDown,
                                     size: 16,
                                     color: faint,
                                   ),
                                 )
-                              : Icon(Icons.expand_more, size: 16, color: faint),
+                              : AppIcon(
+                                  AppGlyph.chevronDown,
+                                  size: 16,
+                                  color: faint,
+                                ),
                         ),
                         onTap: missing
                             ? null
@@ -377,7 +382,7 @@ class _TocToolButton extends StatelessWidget {
 
   final Key buttonKey;
   final String tooltip;
-  final IconData icon;
+  final AppGlyph icon;
   final VoidCallback? onTap;
 
   @override
@@ -391,7 +396,7 @@ class _TocToolButton extends StatelessWidget {
         customBorder: const CircleBorder(),
         child: SizedBox.square(
           dimension: 16,
-          child: Icon(
+          child: AppIcon(
             icon,
             size: 16,
             color: onTap == null

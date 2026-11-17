@@ -7,6 +7,7 @@ import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
 import '../annotations/mark_settings.dart';
+import '../icons/app_icon.dart';
 import '../paging/page_turn_mode.dart';
 import '../page_furniture/corner_info.dart';
 import '../tap_zones.dart';
@@ -503,7 +504,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
               if (widget.onBack != null)
                 IconButton(
                   key: const ValueKey<String>('settings-back'),
-                  icon: const Icon(Icons.arrow_back, size: 20),
+                  icon: const AppIcon(AppGlyph.arrowBack, size: 20),
                   onPressed: widget.onBack,
                   tooltip: '返回',
                 ),
@@ -594,7 +595,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       if (widget.onOpenMarginEditor != null) ...<Widget>[
         _WideActionButton(
           key: const ValueKey<String>('settings-margin-editor'),
-          icon: Icons.aspect_ratio,
+          icon: AppGlyph.pageMargin,
           label: '边距调节',
           onTap: widget.onOpenMarginEditor!,
         ),
@@ -624,7 +625,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 Expanded(
                   child: _FontButton(
                     key: const ValueKey<String>('settings-font-picker'),
-                    icon: Icons.text_fields,
+                    icon: AppGlyph.textFields,
                     label: '选择字体',
                     onPressed: _busyFont ? null : _showFontPicker,
                   ),
@@ -633,7 +634,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 Expanded(
                   child: _FontButton(
                     key: const ValueKey<String>('settings-import-font'),
-                    icon: Icons.file_upload_outlined,
+                    icon: AppGlyph.upload,
                     label: _pickingFont ? '导入中' : '导入自定义字体',
                     onPressed: widget.onPickFont == null || _busyFont
                         ? null
@@ -711,7 +712,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
           ),
           _StepButton(
             key: ValueKey<String>('$sliderKey-decrement'),
-            icon: Icons.remove,
+            icon: AppGlyph.remove,
             onTap: clamped <= min
                 ? null
                 : () {
@@ -753,7 +754,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
           ),
           _StepButton(
             key: ValueKey<String>('$sliderKey-increment'),
-            icon: Icons.add,
+            icon: AppGlyph.add,
             onTap: clamped >= max
                 ? null
                 : () {
@@ -974,7 +975,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
         const SizedBox(height: 4),
         _SettingsEntryRow(
           key: const ValueKey<String>('settings-mark'),
-          icon: Icons.format_underlined,
+          icon: AppGlyph.formatUnderlined,
           label: '默认样式、颜色与线宽',
           onTap: widget.onOpenMarkSettings!,
         ),
@@ -1082,7 +1083,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
         if (widget.onOpenTapZoneEditor != null)
           _SettingsEntryRow(
             key: const ValueKey<String>('settings-tap-zones'),
-            icon: Icons.grid_on,
+            icon: AppGlyph.grid,
             label: '点击区域设置',
             onTap: widget.onOpenTapZoneEditor!,
           ),
@@ -1189,8 +1190,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
                     )
                   : null,
               child: showPlus
-                  ? Icon(
-                      Icons.add,
+                  ? AppIcon(
+                      AppGlyph.add,
                       size: 20,
                       color: dark
                           ? ReaderDrawerStyle.surface
@@ -1329,7 +1330,7 @@ class _FontButton extends StatelessWidget {
     required this.onPressed,
   });
 
-  final IconData icon;
+  final AppGlyph icon;
   final String label;
   final VoidCallback? onPressed;
 
@@ -1350,7 +1351,7 @@ class _FontButton extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(icon, size: 16),
+          AppIcon(icon, size: 16),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
@@ -1374,7 +1375,7 @@ class _WideActionButton extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  final AppGlyph icon;
   final String label;
   final VoidCallback onTap;
 
@@ -1396,7 +1397,7 @@ class _WideActionButton extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Icon(icon, size: 18, color: text),
+              AppIcon(icon, size: 18, color: text),
               const SizedBox(width: 8),
               Text(label, style: TextStyle(fontSize: 14, color: text)),
             ],
@@ -1410,7 +1411,7 @@ class _WideActionButton extends StatelessWidget {
 class _StepButton extends StatelessWidget {
   const _StepButton({super.key, required this.icon, required this.onTap});
 
-  final IconData icon;
+  final AppGlyph icon;
   final VoidCallback? onTap;
 
   @override
@@ -1424,7 +1425,7 @@ class _StepButton extends StatelessWidget {
         customBorder: const CircleBorder(),
         child: SizedBox.square(
           dimension: 32,
-          child: Icon(
+          child: AppIcon(
             icon,
             size: 18,
             color: onTap == null
@@ -1596,7 +1597,7 @@ class _SettingsEntryRow extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  final AppGlyph icon;
   final String label;
   final VoidCallback onTap;
 
@@ -1611,13 +1612,17 @@ class _SettingsEntryRow extends StatelessWidget {
         height: 44,
         child: Row(
           children: <Widget>[
-            Icon(icon, size: 18, color: ReaderDrawerStyle.secondaryOf(theme)),
+            AppIcon(
+              icon,
+              size: 18,
+              color: ReaderDrawerStyle.secondaryOf(theme),
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(label, style: TextStyle(fontSize: 14, color: text)),
             ),
-            Icon(
-              Icons.chevron_right,
+            AppIcon(
+              AppGlyph.chevronRight,
               size: 18,
               color: ReaderDrawerStyle.mutedOf(theme),
             ),
@@ -1700,8 +1705,8 @@ class _AddImageTile extends StatelessWidget {
                     painter: const _DashedCirclePainter(
                       color: Color(0xFFCCCCCC),
                     ),
-                    child: const Icon(
-                      Icons.add,
+                    child: const AppIcon(
+                      AppGlyph.add,
                       size: 22,
                       color: Color(0xFF666666),
                     ),
@@ -1759,8 +1764,8 @@ class _UserBackgroundThumbnailState extends State<_UserBackgroundThumbnail> {
                 ),
               ),
               child: Center(
-                child: Icon(
-                  Icons.image_outlined,
+                child: AppIcon(
+                  AppGlyph.image,
                   size: 24,
                   color: Color(0xFF777777),
                 ),
@@ -1774,8 +1779,8 @@ class _UserBackgroundThumbnailState extends State<_UserBackgroundThumbnail> {
             errorBuilder: (_, _, _) => const ColoredBox(
               color: Color(0xFFEEEEEE),
               child: Center(
-                child: Icon(
-                  Icons.broken_image_outlined,
+                child: AppIcon(
+                  AppGlyph.brokenImage,
                   size: 24,
                   color: Color(0xFF999999),
                 ),

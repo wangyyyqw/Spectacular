@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
@@ -133,7 +134,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
             key: const ValueKey('book-detail-finish-close'),
             tooltip: '关闭读完信息',
             onPressed: _saving ? null : _close,
-            icon: const Icon(Icons.close_rounded),
+            icon: const AppIcon(AppGlyph.close),
           ),
         ],
       ),
@@ -170,11 +171,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
                 onPressed: _saving ? null : () => _setRating(star),
                 iconSize: 34,
                 color: const Color(0xFFE0A327),
-                icon: Icon(
-                  star <= (_rating ?? 0)
-                      ? Icons.star_rounded
-                      : Icons.star_outline_rounded,
-                ),
+                icon: AppIcon(AppGlyph.star, filled: star <= (_rating ?? 0)),
               ),
             ),
         ],
@@ -258,7 +255,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.check_rounded),
+                  : const AppIcon(AppGlyph.check),
               label: Text(_saving ? '正在保存…' : '保存并标记读完'),
             ),
           ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../annotations/text_value_dialog.dart';
 
+import '../icons/app_icon.dart';
 import 'decoration_rule_editor.dart';
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
@@ -246,7 +247,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
             key: const ValueKey<String>('rule-add-group'),
             tooltip: '新建分组',
             onPressed: _busy || _loading ? null : _addGroup,
-            icon: const Icon(Icons.create_new_folder_outlined),
+            icon: const AppIcon(AppGlyph.folderAdd),
           ),
         ],
       ),
@@ -255,6 +256,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
           Padding(
             padding: const EdgeInsets.all(12),
             child: SegmentedButton<bool>(
+              selectedIcon: const AppIcon(AppGlyph.check),
               segments: const [
                 ButtonSegment(value: false, label: Text('本书')),
                 ButtonSegment(value: true, label: Text('全局')),
@@ -311,7 +313,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
                     enabled: !_busy,
                     child: const Padding(
                       padding: EdgeInsets.all(12),
-                      child: Icon(Icons.drag_handle),
+                      child: AppIcon(AppGlyph.dragHandle),
                     ),
                   ),
                 Expanded(
@@ -323,7 +325,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
                 if (group.isDefault)
                   const Tooltip(
                     message: '默认组固定在最后，不能删除',
-                    child: Icon(Icons.lock_outline, size: 16),
+                    child: AppIcon(AppGlyph.lock, size: 16),
                   ),
                 Switch(
                   value: group.enabled,
@@ -336,6 +338,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
                         ),
                 ),
                 PopupMenuButton<String>(
+                  icon: const AppIcon(AppGlyph.more),
                   enabled: !_busy,
                   tooltip: '管理分组',
                   onSelected: (value) =>
@@ -364,7 +367,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
             TextButton.icon(
               key: ValueKey<String>('rule-add-${group.id}'),
               onPressed: _busy ? null : () => _editRule(group),
-              icon: const Icon(Icons.add),
+              icon: const AppIcon(AppGlyph.add),
               label: const Text('新建规则'),
             ),
           ],
@@ -386,7 +389,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
       child: const SizedBox(
         width: 44,
         height: 44,
-        child: Icon(Icons.drag_handle),
+        child: AppIcon(AppGlyph.dragHandle),
       ),
     ),
     title: Text(
@@ -424,7 +427,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
         IconButton(
           tooltip: '删除规则',
           onPressed: _busy ? null : () => _deleteRule(rule),
-          icon: const Icon(Icons.delete_outline),
+          icon: const AppIcon(AppGlyph.delete),
         ),
       ],
     ),

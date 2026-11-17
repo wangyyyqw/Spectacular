@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'reading_insights.dart';
 
@@ -366,8 +367,8 @@ class _HourlyReadingChartState extends State<HourlyReadingChart> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (selected)
-                    Icon(
-                      Icons.play_arrow_rounded,
+                    AppIcon(
+                      AppGlyph.play,
                       size: 9,
                       color: theme.colorScheme.primary,
                     ),

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 
@@ -76,7 +77,7 @@ class _BookOpeningViewState extends State<BookOpeningView>
                   key: const ValueKey<String>('book-opening-close'),
                   tooltip: '取消打开',
                   onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.close),
+                  icon: const AppIcon(AppGlyph.close),
                 ),
               ),
             ),

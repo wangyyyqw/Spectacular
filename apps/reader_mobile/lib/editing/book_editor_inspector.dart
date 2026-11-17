@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing/epub_editing.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_tools.dart';
@@ -113,7 +114,7 @@ class _BookEditorInspectorState extends State<BookEditorInspector> {
     children: [
       Text('${report.chapterCount} 个章节 · ${report.elementCount} 个元素'),
       TextButton.icon(
-        icon: const Icon(Icons.tune),
+        icon: const AppIcon(AppGlyph.tune),
         label: Text('编辑全书 .${report.className} 属性'),
         onPressed: () => BookEditorTools(
           context,
@@ -129,7 +130,7 @@ class _BookEditorInspectorState extends State<BookEditorInspector> {
     ],
   );
 
-  Widget _sources(ClassStyleReport report) => ExpansionTile(
+  Widget _sources(ClassStyleReport report) => AppExpansionTile(
     title: const Text('作者样式来源'),
     children: [
       for (final source in report.sources)

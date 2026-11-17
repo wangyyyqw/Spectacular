@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import 'annotation.dart';
 import 'annotation_appearance_editor.dart';
 import 'annotation_quote_preview.dart';
@@ -298,11 +299,7 @@ class _ReaderAnnotationEditorSheetState
     children: [
       Row(
         children: [
-          Icon(
-            _isThought
-                ? Icons.sticky_note_2_outlined
-                : Icons.border_color_outlined,
-          ),
+          AppIcon(_isThought ? AppGlyph.note : AppGlyph.highlighter),
           const SizedBox(width: 8),
           Text(
             _isThought ? '想法' : '划线',
@@ -312,7 +309,7 @@ class _ReaderAnnotationEditorSheetState
           IconButton(
             onPressed: _close,
             tooltip: '关闭',
-            icon: const Icon(Icons.close),
+            icon: const AppIcon(AppGlyph.close),
           ),
         ],
       ),
@@ -333,7 +330,7 @@ class _ReaderAnnotationEditorSheetState
             _showNoteEditor = true;
             _autofocus = true;
           }),
-          icon: const Icon(Icons.note_add_outlined),
+          icon: const AppIcon(AppGlyph.noteAdd),
           label: const Text('为这条划线添加想法'),
         ),
       ],
@@ -395,7 +392,7 @@ class _ReaderAnnotationEditorSheetState
               minimumSize: const Size.fromHeight(44),
             ),
             onPressed: _canSave ? _save : null,
-            icon: const Icon(Icons.check),
+            icon: const AppIcon(AppGlyph.check),
             label: Text(
               _isThought
                   ? '保存想法'
@@ -421,7 +418,7 @@ class _ReaderAnnotationEditorSheetState
                   ),
                 ),
               ),
-              icon: const Icon(Icons.notes_outlined),
+              icon: const AppIcon(AppGlyph.article),
               label: const Text('只删除想法，保留划线'),
             ),
           ],
@@ -429,8 +426,8 @@ class _ReaderAnnotationEditorSheetState
             key: const ValueKey<String>('annotation-remove'),
             onPressed: () =>
                 unawaited(_finish(const AnnotationEditAction.remove())),
-            icon: Icon(
-              Icons.delete_outline,
+            icon: AppIcon(
+              AppGlyph.delete,
               color: Theme.of(context).colorScheme.error,
             ),
             label: Text(

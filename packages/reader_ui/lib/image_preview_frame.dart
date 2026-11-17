@@ -121,7 +121,7 @@ class _ImagePreviewFrameState extends State<_ImagePreviewFrame> {
               setState(() => _loading = true);
               unawaited(_load(widget.item.loadOriginal));
             },
-            icon: const Icon(Icons.refresh),
+            icon: const AppIcon(AppGlyph.refresh),
             label: const Text('重试'),
           ),
         ],

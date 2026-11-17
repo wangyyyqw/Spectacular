@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/css/font_face.dart';
 
+import '../icons/app_icon.dart';
+
 /// 宿主保存的字体标识与名称，UI 不读取字体文件。
 class ReaderFontOption {
   const ReaderFontOption({required this.family, required this.label});
@@ -163,7 +165,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
         IconButton(
           tooltip: '关闭字体选择',
           onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          icon: const Icon(Icons.close_rounded),
+          icon: const AppIcon(AppGlyph.close),
         ),
       ],
     ),
@@ -243,7 +245,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (_selected == family) const Icon(Icons.check, size: 20),
+        if (_selected == family) const AppIcon(AppGlyph.check, size: 20),
         if (font != null) _fontMenu(font),
       ],
     ),
@@ -253,7 +255,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     key: ValueKey('font-actions-${font.family}'),
     tooltip: '管理${font.label}',
     enabled: !_busy,
-    icon: const Icon(Icons.more_horiz_rounded),
+    icon: const AppIcon(AppGlyph.more),
     onSelected: (action) => _act(font, action),
     itemBuilder: (_) => [
       const PopupMenuItem(value: _FontAction.preview, child: Text('试读预览')),

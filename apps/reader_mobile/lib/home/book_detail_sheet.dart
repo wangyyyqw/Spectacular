@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
@@ -148,30 +149,30 @@ class BookDetailSheet extends StatelessWidget {
             const Divider(height: 32),
             _DetailAction(
               key: const ValueKey<String>('book-detail-open-page'),
-              icon: Icons.menu_book_outlined,
+              icon: AppGlyph.menuBook,
               label: '图书详情',
               onTap: () => Navigator.of(context).pop('detail'),
             ),
             _DetailAction(
               key: const ValueKey<String>('book-detail-update'),
-              icon: Icons.update,
+              icon: AppGlyph.refresh,
               label: '更新',
               onTap: () => Navigator.of(context).pop('update'),
             ),
             _DetailAction(
               key: const ValueKey<String>('book-detail-create-group'),
-              icon: Icons.create_new_folder_outlined,
+              icon: AppGlyph.folderAdd,
               label: '新建分组',
               onTap: () => Navigator.of(context).pop('create-group'),
             ),
             _DetailAction(
               key: const ValueKey<String>('book-detail-multi-select'),
-              icon: Icons.checklist,
+              icon: AppGlyph.checklist,
               label: '多选',
               onTap: () => Navigator.of(context).pop('multi-select'),
             ),
             _DetailAction(
-              icon: Icons.delete_outline,
+              icon: AppGlyph.delete,
               label: '删除本书',
               destructive: true,
               onTap: () => Navigator.of(context).pop('delete'),
@@ -206,7 +207,7 @@ class _DetailAction extends StatelessWidget {
     this.destructive = false,
   });
 
-  final IconData icon;
+  final AppGlyph icon;
   final String label;
   final VoidCallback onTap;
   final bool destructive;
@@ -222,15 +223,15 @@ class _DetailAction extends StatelessWidget {
       child: ListTile(
         contentPadding: EdgeInsets.zero,
         minLeadingWidth: 24,
-        leading: Icon(icon, size: 22, color: color),
+        leading: AppIcon(icon, size: 22, color: color),
         title: Text(
           label,
           style: theme.textTheme.bodyMedium?.copyWith(color: color),
         ),
         trailing: destructive
             ? null
-            : Icon(
-                Icons.chevron_right,
+            : AppIcon(
+                AppGlyph.chevronRight,
                 size: 20,
                 color: theme.colorScheme.onSurfaceVariant,
               ),

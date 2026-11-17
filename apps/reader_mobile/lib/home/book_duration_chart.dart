@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_duration_summary.dart';
 import 'reading_insights.dart';
@@ -195,7 +196,7 @@ class _BookDurationChartState extends State<BookDurationChart>
           onPressed: hasEarlier
               ? () => _changeDate(_period.shift(start, -1))
               : null,
-          icon: const Icon(Icons.chevron_left_rounded),
+          icon: const AppIcon(AppGlyph.chevronLeft),
         ),
         Expanded(child: _rangeButton(start, current)),
         IconButton(
@@ -204,7 +205,7 @@ class _BookDurationChartState extends State<BookDurationChart>
           onPressed: start.isBefore(current)
               ? () => _changeDate(_period.shift(start, 1))
               : null,
-          icon: const Icon(Icons.chevron_right_rounded),
+          icon: const AppIcon(AppGlyph.chevronRight),
         ),
       ],
     );
@@ -222,7 +223,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       children: [
         Flexible(child: _rangeLabel(start, current)),
         const SizedBox(width: 4),
-        const Icon(Icons.expand_more_rounded, size: 18),
+        const AppIcon(AppGlyph.chevronDown, size: 18),
       ],
     ),
   );
@@ -257,7 +258,7 @@ class _BookDurationChartState extends State<BookDurationChart>
           textStyle: const TextStyle(fontSize: 12),
         ),
         iconAlignment: IconAlignment.end,
-        icon: const Icon(Icons.chevron_right_rounded, size: 16),
+        icon: const AppIcon(AppGlyph.chevronRight, size: 16),
         label: Text('全部 ${summary.entries.length} 本'),
       ),
     ],
@@ -462,7 +463,7 @@ class _BookDurationChartState extends State<BookDurationChart>
           style: _tagTitleStyle,
         ),
       ),
-      if (slice.id == null) const Icon(Icons.chevron_right_rounded, size: 16),
+      if (slice.id == null) const AppIcon(AppGlyph.chevronRight, size: 16),
     ],
   );
 }
@@ -524,7 +525,7 @@ class _PeriodPicker extends StatelessWidget {
     title: Text(
       '${date == current ? '${period.currentLabel} · ' : ''}${period.rangeLabel(date)}',
     ),
-    trailing: date == selected ? const Icon(Icons.check_rounded) : null,
+    trailing: date == selected ? const AppIcon(AppGlyph.check) : null,
     onTap: () => Navigator.of(context).pop(date),
   );
 }

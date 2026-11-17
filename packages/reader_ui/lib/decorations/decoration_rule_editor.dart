@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
 import 'decoration_style_preview.dart';
@@ -219,7 +220,7 @@ class _ReaderDecorationRuleEditorState
           IconButton(
             onPressed: _close,
             tooltip: '关闭',
-            icon: const Icon(Icons.close),
+            icon: const AppIcon(AppGlyph.close),
           ),
         ],
       ),
@@ -331,7 +332,7 @@ class _ReaderDecorationRuleEditorState
                 dimension: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Icon(Icons.preview_outlined),
+            : const AppIcon(AppGlyph.preview),
         label: const Text('预览当前章（前 50 条）'),
       ),
       if (_previewError != null)

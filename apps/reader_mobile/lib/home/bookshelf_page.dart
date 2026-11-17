@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import 'package:reader_core/epub/importer.dart';
@@ -228,13 +229,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.edit_outlined),
+              leading: const AppIcon(AppGlyph.edit),
               title: const Text('重命名分组'),
               onTap: () => Navigator.of(context).pop('rename'),
             ),
             ListTile(
-              leading: Icon(
-                Icons.delete_outline,
+              leading: AppIcon(
+                AppGlyph.delete,
                 color: Theme.of(context).colorScheme.error,
               ),
               title: Text(
@@ -761,14 +762,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ),
             ListTile(
               key: const ValueKey<String>('bookshelf-group-pick-none'),
-              leading: const Icon(Icons.folder_off_outlined),
+              leading: const AppIcon(AppGlyph.folderOff),
               title: const Text('移出分组'),
               onTap: () => Navigator.of(context).pop((groupId: null)),
             ),
             for (final group in _groups)
               ListTile(
                 key: ValueKey<String>('bookshelf-group-pick-${group.id}'),
-                leading: const Icon(Icons.folder_outlined),
+                leading: const AppIcon(AppGlyph.folder),
                 title: Text(group.name),
                 onTap: () => Navigator.of(context).pop((groupId: group.id)),
               ),
@@ -860,7 +861,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         leading: IconButton(
           tooltip: '退出多选',
           onPressed: _removing ? null : _exitSelectionMode,
-          icon: const Icon(Icons.close),
+          icon: const AppIcon(AppGlyph.close),
         ),
         title: Text(
           _selectedIds.isEmpty ? '多选' : '已选 ${_selectedIds.length} 本',
@@ -889,7 +890,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     : IconButton(
                         tooltip: '清除搜索',
                         onPressed: _clearSearch,
-                        icon: const Icon(Icons.clear),
+                        icon: const AppIcon(AppGlyph.close),
                       ),
               ),
               onChanged: (value) => setState(() => _query = value),
@@ -923,7 +924,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               IconButton(
                 tooltip: '关闭搜索',
                 onPressed: _toggleSearch,
-                icon: const Icon(Icons.close),
+                icon: const AppIcon(AppGlyph.close),
               ),
             ]
           : <Widget>[
@@ -931,7 +932,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 PopupMenuButton<String>(
                   key: const ValueKey<String>('bookshelf-group-options'),
                   tooltip: '分组选项',
-                  icon: const Icon(Icons.filter_alt_outlined),
+                  icon: const AppIcon(AppGlyph.filter),
                   onSelected: (action) {
                     if (action == 'exit') {
                       setState(() => _activeGroupId = null);
@@ -953,7 +954,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               IconButton(
                 tooltip: '搜索书架',
                 onPressed: _toggleSearch,
-                icon: const Icon(Icons.search),
+                icon: const AppIcon(AppGlyph.search),
               ),
               IconButton(
                 key: const ValueKey<String>('bookshelf-import'),
@@ -965,14 +966,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.add_rounded),
+                    : const AppIcon(AppGlyph.add),
               ),
               IconButton(
                 tooltip: _grid ? '列表视图' : '网格视图',
                 onPressed: _toggleView,
-                icon: Icon(
-                  _grid ? Icons.view_list_rounded : Icons.grid_view_rounded,
-                ),
+                icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
               ),
             ],
     );
@@ -1149,10 +1148,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
-                      icon: const Icon(
-                        Icons.create_new_folder_outlined,
-                        size: 18,
-                      ),
+                      icon: const AppIcon(AppGlyph.folderAdd, size: 18),
                       label: const Text('新建分组'),
                     ),
                   ),
@@ -1166,7 +1162,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
-                      icon: const Icon(Icons.folder_outlined, size: 18),
+                      icon: const AppIcon(AppGlyph.folder, size: 18),
                       label: const Text('分组'),
                     ),
                   ),
@@ -1191,7 +1187,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                                 color: theme.colorScheme.onError,
                               ),
                             )
-                          : const Icon(Icons.delete_outline, size: 18),
+                          : const AppIcon(AppGlyph.delete, size: 18),
                       label: Text(_removing ? '删除中' : '删除'),
                     ),
                   ),
@@ -1587,11 +1583,7 @@ class _BookRow extends StatelessWidget {
     );
     final trailing = <Widget>[
       if (entry.readabilityLevel >= 2)
-        Icon(
-          Icons.report_problem_outlined,
-          color: theme.colorScheme.error,
-          size: 18,
-        ),
+        AppIcon(AppGlyph.warning, color: theme.colorScheme.error, size: 18),
       if (selectionMode)
         Checkbox(
           key: ValueKey<String>('book-row-check-${entry.id}'),
@@ -1687,8 +1679,8 @@ class _EmptyPane extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.library_books_outlined,
+          AppIcon(
+            AppGlyph.bookshelf,
             size: 64,
             color: Theme.of(context).colorScheme.outline,
           ),
@@ -1728,7 +1720,11 @@ class _NoMatchesPane extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.search_off, size: 48, color: theme.colorScheme.outline),
+            AppIcon(
+              AppGlyph.searchOff,
+              size: 48,
+              color: theme.colorScheme.outline,
+            ),
             const SizedBox(height: 12),
             Text(
               query.isNotEmpty
@@ -1756,7 +1752,7 @@ class _NoMatchesPane extends StatelessWidget {
             const SizedBox(height: 12),
             TextButton.icon(
               onPressed: onReset,
-              icon: const Icon(Icons.filter_alt_off_outlined),
+              icon: const AppIcon(AppGlyph.filterOff),
               label: Text(groupName == null ? '清除筛选' : '查看全部书籍'),
             ),
           ],
@@ -1780,8 +1776,8 @@ class _ErrorPane extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
+            AppIcon(
+              AppGlyph.error,
               size: 48,
               color: Theme.of(context).colorScheme.error,
             ),
@@ -1941,7 +1937,11 @@ class _BookSelectionMark extends StatelessWidget {
           ),
         ),
         child: selected
-            ? Icon(Icons.check, size: 18, color: theme.colorScheme.onPrimary)
+            ? AppIcon(
+                AppGlyph.check,
+                size: 18,
+                color: theme.colorScheme.onPrimary,
+              )
             : null,
       ),
     );

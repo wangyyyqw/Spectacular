@@ -4,6 +4,7 @@ import 'package:reader_core/position/cfi.dart';
 import '../annotations/annotation.dart';
 import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
+import '../icons/app_icon.dart';
 
 /// 阅读器内的想法与划线列表，装饰不进入此面板。
 ///
@@ -313,13 +314,13 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                 if (_selecting)
                   IconButton(
                     key: const ValueKey<String>('annotation-batch-exit'),
-                    icon: const Icon(Icons.close, size: 20),
+                    icon: const AppIcon(AppGlyph.close, size: 20),
                     onPressed: busy ? null : _exitSelection,
                     tooltip: '退出选择',
                   )
                 else if (widget.onBack != null)
                   IconButton(
-                    icon: const Icon(Icons.arrow_back, size: 20),
+                    icon: const AppIcon(AppGlyph.arrowBack, size: 20),
                     onPressed: widget.onBack,
                     tooltip: '返回',
                   ),
@@ -351,7 +352,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                               dimension: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.palette_outlined, size: 20),
+                          : const AppIcon(AppGlyph.palette, size: 20),
                     ),
                   IconButton(
                     key: const ValueKey<String>('annotation-batch-delete'),
@@ -364,7 +365,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.delete_outline, size: 20),
+                        : const AppIcon(AppGlyph.delete, size: 20),
                   ),
                 ] else ...[
                   Text(
@@ -380,10 +381,10 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                     tooltip: '标注排序',
                     initialValue: _sort,
                     onSelected: (value) => setState(() => _sort = value),
-                    icon: const Icon(Icons.sort, size: 20),
+                    icon: const AppIcon(AppGlyph.sort, size: 20),
                     itemBuilder: (_) => <PopupMenuEntry<_AnnotationSort>>[
                       for (final sort in _AnnotationSort.values)
-                        CheckedPopupMenuItem<_AnnotationSort>(
+                        appCheckedMenuItem<_AnnotationSort>(
                           key: ValueKey<String>('annotation-sort-${sort.name}'),
                           value: sort,
                           checked: sort == _sort,
@@ -396,7 +397,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       key: const ValueKey<String>('annotation-batch-manage'),
                       tooltip: '批量管理',
                       onPressed: _enterSelection,
-                      icon: const Icon(Icons.checklist, size: 20),
+                      icon: const AppIcon(AppGlyph.checklist, size: 20),
                     ),
                 ],
               ],
@@ -412,7 +413,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                 textInputAction: TextInputAction.search,
                 decoration: InputDecoration(
                   hintText: '搜索原文、想法或章节',
-                  prefixIcon: const Icon(Icons.search, size: 20),
+                  prefixIcon: const AppIcon(AppGlyph.search, size: 20),
                   suffixIcon: _query.isEmpty
                       ? null
                       : IconButton(
@@ -424,7 +425,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                             _setQuery('');
                           },
                           tooltip: '清除搜索',
-                          icon: const Icon(Icons.close, size: 18),
+                          icon: const AppIcon(AppGlyph.close, size: 18),
                         ),
                   isDense: true,
                   filled: true,
@@ -682,10 +683,8 @@ class _AnnotationCard extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Icon(
-                                isNote
-                                    ? Icons.sticky_note_2_outlined
-                                    : Icons.border_color_outlined,
+                              AppIcon(
+                                isNote ? AppGlyph.note : AppGlyph.highlighter,
                                 size: 16,
                                 color: color.computeLuminance() > 0.72
                                     ? theme.colorScheme.onSurfaceVariant
@@ -795,10 +794,10 @@ class _AnnotationCard extends StatelessWidget {
                                       horizontal: 8,
                                     ),
                                   ),
-                                  icon: Icon(
+                                  icon: AppIcon(
                                     expanded
-                                        ? Icons.expand_less
-                                        : Icons.expand_more,
+                                        ? AppGlyph.chevronUp
+                                        : AppGlyph.chevronDown,
                                     size: 18,
                                   ),
                                   label: Text(expanded ? '收起想法' : '展开想法'),
@@ -842,7 +841,7 @@ class _AnnotationCard extends StatelessWidget {
                           minWidth: 44,
                           minHeight: 44,
                         ),
-                        icon: const Icon(Icons.more_horiz, size: 20),
+                        icon: const AppIcon(AppGlyph.more, size: 20),
                       ),
                     ),
                 ],

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
+
 /// 一条搜索结果的展示模型（P4-26，§29.4）。
 class SearchPanelResult {
   /// 创建结果。
@@ -207,7 +209,7 @@ class _SearchPanelState extends State<SearchPanel> {
                 if (widget.onBack != null)
                   IconButton(
                     key: const ValueKey<String>('search-back'),
-                    icon: const Icon(Icons.arrow_back, size: 20),
+                    icon: const AppIcon(AppGlyph.arrowBack, size: 20),
                     onPressed: widget.onBack,
                     tooltip: '返回',
                   ),
@@ -221,12 +223,12 @@ class _SearchPanelState extends State<SearchPanel> {
                     decoration: InputDecoration(
                       hintText: '搜索本书内容',
                       isDense: true,
-                      prefixIcon: const Icon(Icons.search, size: 20),
+                      prefixIcon: const AppIcon(AppGlyph.search, size: 20),
                       suffixIcon: _controller.text.isEmpty
                           ? null
                           : IconButton(
                               key: const ValueKey<String>('search-clear'),
-                              icon: const Icon(Icons.close, size: 18),
+                              icon: const AppIcon(AppGlyph.close, size: 18),
                               onPressed: () {
                                 _controller.clear();
                                 _onChanged('');
@@ -247,7 +249,7 @@ class _SearchPanelState extends State<SearchPanel> {
 
   Widget _buildBody(ThemeData theme) {
     if (_controller.text.trim().isEmpty) {
-      return _hint(theme, '输入关键词搜索全书', icon: Icons.search);
+      return _hint(theme, '输入关键词搜索全书', icon: AppGlyph.search);
     }
     if (_loading && _results.isEmpty) {
       return Center(
@@ -268,10 +270,10 @@ class _SearchPanelState extends State<SearchPanel> {
       );
     }
     if (_error != null) {
-      return _hint(theme, '搜索失败：$_error', icon: Icons.error_outline);
+      return _hint(theme, '搜索失败：$_error', icon: AppGlyph.error);
     }
     if (_results.isEmpty) {
-      return _hint(theme, '没有找到「$_query」', icon: Icons.search_off);
+      return _hint(theme, '没有找到「$_query」', icon: AppGlyph.searchOff);
     }
     final list = _buildResults(theme);
     if (!_loading) {
@@ -307,13 +309,13 @@ class _SearchPanelState extends State<SearchPanel> {
     );
   }
 
-  Widget _hint(ThemeData theme, String text, {required IconData icon}) {
+  Widget _hint(ThemeData theme, String text, {required AppGlyph icon}) {
     return Center(
       key: const ValueKey<String>('search-empty'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 40, color: theme.colorScheme.outline),
+          AppIcon(icon, size: 40, color: theme.colorScheme.outline),
           const SizedBox(height: 12),
           Text(text, style: theme.textTheme.bodyMedium),
         ],

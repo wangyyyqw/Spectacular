@@ -5,6 +5,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'icons/app_icon.dart';
+
 part 'image_preview_frame.dart';
 part 'image_preview_viewport.dart';
 
@@ -178,7 +180,7 @@ class _ImagePreviewPageState extends State<ImagePreviewPage> {
     actions: [
       IconButton(
         key: const ValueKey<String>('preview-close'),
-        icon: const Icon(Icons.close),
+        icon: const AppIcon(AppGlyph.close),
         tooltip: '关闭',
         onPressed: () => Navigator.of(context).pop(),
       ),
@@ -230,7 +232,7 @@ class _ImagePreviewPageState extends State<ImagePreviewPage> {
             color: Colors.white,
             disabledColor: Colors.white24,
             onPressed: _index > 0 ? () => _step(-1) : null,
-            icon: const Icon(Icons.chevron_left),
+            icon: const AppIcon(AppGlyph.chevronLeft),
           ),
         const Expanded(
           child: Text(
@@ -245,7 +247,7 @@ class _ImagePreviewPageState extends State<ImagePreviewPage> {
             color: Colors.white,
             disabledColor: Colors.white24,
             onPressed: _index < _count - 1 ? () => _step(1) : null,
-            icon: const Icon(Icons.chevron_right),
+            icon: const AppIcon(AppGlyph.chevronRight),
           ),
       ],
     ),

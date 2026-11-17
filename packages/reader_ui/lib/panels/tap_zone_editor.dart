@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import '../tap_zones.dart';
 
 /// 九宫格点击区域编辑页。
@@ -58,7 +59,7 @@ class _TapZoneEditorState extends State<TapZoneEditor> {
                   IconButton(
                     key: const ValueKey<String>('tap-zone-cancel'),
                     onPressed: widget.onCancel,
-                    icon: const Icon(Icons.close),
+                    icon: const AppIcon(AppGlyph.close),
                     color: widget.foreground,
                     tooltip: '取消',
                   ),
@@ -172,8 +173,8 @@ class _TapZoneCell extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              Icon(
-                Icons.touch_app_outlined,
+              AppIcon(
+                AppGlyph.touchApp,
                 size: 18,
                 color: foreground.withValues(alpha: 0.35),
               ),
