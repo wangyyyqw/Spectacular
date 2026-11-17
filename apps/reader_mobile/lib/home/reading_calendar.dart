@@ -87,6 +87,10 @@ class _ReadingCalendarState extends State<ReadingCalendar>
             padding: EdgeInsets.only(top: 12),
             child: Text('本月暂无阅读记录', style: TextStyle(fontSize: 12)),
           ),
+        if (month.monthBooks.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _CalendarLegend(month: month),
+        ],
       ],
     );
   }
@@ -186,6 +190,10 @@ Widget _weekdays(BuildContext context) => Padding(
   ),
 );
 
+const _weekBaseHeight = 44.0;
+const _laneHeight = 7.0;
+const _barHeight = 4.0;
+
 class _CalendarWeek extends StatelessWidget {
   const _CalendarWeek({
     required this.month,
@@ -204,11 +212,13 @@ class _CalendarWeek extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    final lineHeight = 18 * scale;
     final spans = month.spansForWeek(week);
-    final padding = 4 * scale;
+    final lanes = spans.fold(
+      0,
+      (count, span) => math.max(count, span.lane + 1),
+    );
     return SizedBox(
-      height: 92 * scale,
+      height: (_weekBaseHeight + lanes * _laneHeight) * scale,
       child: LayoutBuilder(
         builder: (context, constraints) => Stack(
           children: [
@@ -216,31 +226,29 @@ class _CalendarWeek extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (var column = 0; column < 7; column++)
-                  Expanded(child: _day(context, column, lineHeight)),
+                  Expanded(child: _day(context, column, scale)),
               ],
             ),
             for (final span in spans)
-              _bar(span, constraints.maxWidth / 7, lineHeight, padding),
+              _bar(span, constraints.maxWidth / 7, scale),
           ],
         ),
       ),
     );
   }
 
-  Widget _bar(
-    ReadingCalendarSpan span,
-    double columnWidth,
-    double lineHeight,
-    double padding,
-  ) => Positioned(
-    left: span.firstColumn * columnWidth + padding / 2,
-    top: padding + span.lane * lineHeight,
-    width: (span.lastColumn - span.firstColumn + 1) * columnWidth - padding,
-    height: lineHeight - padding / 2,
-    child: _CalendarBar(span: span, week: week),
-  );
+  Widget _bar(ReadingCalendarSpan span, double columnWidth, double scale) {
+    final padding = 4 * scale;
+    return Positioned(
+      left: span.firstColumn * columnWidth + padding / 2,
+      top: padding + span.lane * _laneHeight * scale,
+      width: (span.lastColumn - span.firstColumn + 1) * columnWidth - padding,
+      height: _barHeight * scale,
+      child: _CalendarBar(span: span, week: week, month: month),
+    );
+  }
 
-  Widget _day(BuildContext context, int column, double lineHeight) {
+  Widget _day(BuildContext context, int column, double scale) {
     final date = month.dateAt(week, column);
     if (date.month != month.start.month) return const SizedBox.shrink();
     final books = month.days[date] ?? const <BookDurationEntry>[];
@@ -254,7 +262,7 @@ class _CalendarWeek extends StatelessWidget {
       child: InkWell(
         key: ValueKey('stats-calendar-day-${_dateKey(date)}'),
         onTap: enabled ? () => onOpen(date, books) : null,
-        child: _dayCell(context, date, extra, lineHeight),
+        child: _dayCell(context, date, extra, scale),
       ),
     );
   }
@@ -263,16 +271,12 @@ class _CalendarWeek extends StatelessWidget {
     BuildContext context,
     DateTime date,
     int extra,
-    double lineHeight,
+    double scale,
   ) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: date == today
-            ? scheme.onSurface.withValues(alpha: 0.08)
-            : date == selected
-            ? scheme.surfaceContainerHighest
-            : null,
+        color: date == selected ? scheme.surfaceContainerHighest : null,
         border: Border.all(color: scheme.outlineVariant, width: 0.5),
       ),
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
@@ -280,7 +284,7 @@ class _CalendarWeek extends StatelessWidget {
         children: [
           if (extra > 0)
             Positioned(
-              top: 3 * lineHeight,
+              top: 3 * _laneHeight * scale,
               left: 0,
               right: 0,
               child: _overflow(context, date, extra),
@@ -307,20 +311,30 @@ class _CalendarWeek extends StatelessWidget {
 
   Widget _dayNumber(BuildContext context, DateTime date, bool enabled) {
     final scheme = Theme.of(context).colorScheme;
+    final isToday = date == today;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      child: Text(
-        '${date.day}',
-        style: TextStyle(
-          fontSize: 11,
-          height: 1.2,
-          fontWeight: date == today ? FontWeight.w600 : FontWeight.w400,
-          fontFeatures: const [FontFeature.tabularFigures()],
-          color: date == today
-              ? scheme.onSurface
-              : enabled
-              ? scheme.onSurfaceVariant
-              : scheme.outline,
+      child: Container(
+        padding: isToday ? const EdgeInsets.symmetric(horizontal: 4) : null,
+        decoration: isToday
+            ? BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(4),
+              )
+            : null,
+        child: Text(
+          '${date.day}',
+          style: TextStyle(
+            fontSize: 11,
+            height: 1.2,
+            fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
+            fontFeatures: const [FontFeature.tabularFigures()],
+            color: isToday
+                ? scheme.onPrimary
+                : enabled
+                ? scheme.onSurfaceVariant
+                : scheme.outline,
+          ),
         ),
       ),
     );
@@ -328,36 +342,96 @@ class _CalendarWeek extends StatelessWidget {
 }
 
 class _CalendarBar extends StatelessWidget {
-  const _CalendarBar({required this.span, required this.week});
+  const _CalendarBar({
+    required this.span,
+    required this.week,
+    required this.month,
+  });
   final ReadingCalendarSpan span;
   final int week;
+  final ReadingCalendarMonth month;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: ExcludeSemantics(
+      child: DecoratedBox(
+        key: ValueKey(
+          'stats-calendar-bar-$week-${span.bookId}-${span.firstColumn}',
+        ),
+        decoration: BoxDecoration(
+          color: _bookColor(Theme.of(context).colorScheme, month, span.bookId),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    ),
+  );
+}
+
+class _CalendarLegend extends StatelessWidget {
+  const _CalendarLegend({required this.month});
+  final ReadingCalendarMonth month;
 
   @override
   Widget build(BuildContext context) {
-    final color = _bookColor(span.bookId);
-    return IgnorePointer(
-      child: ExcludeSemantics(
-        child: Container(
-          key: ValueKey(
-            'stats-calendar-bar-$week-${span.bookId}-${span.firstColumn}',
+    final scheme = Theme.of(context).colorScheme;
+    final rest = month.monthBooks.skip(_calendarColors.length);
+    return Column(
+      key: const ValueKey('stats-calendar-legend'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final entry in month.monthBooks.take(_calendarColors.length))
+          _legendRow(
+            context,
+            entry.title,
+            entry.duration,
+            _bookColor(scheme, month, entry.bookId),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          alignment: Alignment.centerLeft,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            border: Border(left: BorderSide(color: color, width: 2)),
-            borderRadius: BorderRadius.circular(3),
+        if (rest.isNotEmpty)
+          _legendRow(
+            context,
+            '其他 ${rest.length} 本',
+            rest.fold(Duration.zero, (sum, entry) => sum + entry.duration),
+            scheme.outline,
           ),
-          child: Text(
-            span.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 10, height: 1.3, color: color),
-          ),
-        ),
-      ),
+      ],
     );
   }
+
+  Widget _legendRow(
+    BuildContext context,
+    String title,
+    Duration duration,
+    Color color,
+  ) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 12,
+          height: 4,
+          margin: const EdgeInsets.only(top: 6, right: 8),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        Expanded(
+          child: Text(title, style: const TextStyle(fontSize: 12, height: 1.4)),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          formatReadingDuration(duration),
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.4,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _CalendarDaySheet extends StatelessWidget {
@@ -464,18 +538,22 @@ class _CalendarDaySheet extends StatelessWidget {
 
 String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
 
-Color _bookColor(String id) {
-  const colors = [
-    Color(0xFF397665),
-    Color(0xFF417786),
-    Color(0xFF95634F),
-    Color(0xFF87596B),
-    Color(0xFF70658E),
-    Color(0xFF77723F),
-  ];
-  final hash = id.codeUnits.fold(
-    0,
-    (hash, code) => (hash * 31 + code) & 0x7fffffff,
-  );
-  return colors[hash % colors.length];
+const _calendarColors = [
+  Color(0xFF397665),
+  Color(0xFF417786),
+  Color(0xFF95634F),
+  Color(0xFF87596B),
+  Color(0xFF70658E),
+  Color(0xFF77723F),
+];
+
+Color _bookColor(
+  ColorScheme scheme,
+  ReadingCalendarMonth month,
+  String bookId,
+) {
+  final rank = month.monthBooks.indexWhere((entry) => entry.bookId == bookId);
+  return rank >= 0 && rank < _calendarColors.length
+      ? _calendarColors[rank]
+      : scheme.outline;
 }
