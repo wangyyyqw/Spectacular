@@ -297,10 +297,12 @@ class _LayoutMemoryWork {
     TableCellRender() => _add(256, [
       value.layout,
       value.style,
+      value.rowBackground,
       value.startCfi,
       value.textCfis,
       value.footnotes,
     ]),
+    TableRowBackground() => _add(64, [value.style]),
     StyledRun() => _add(64, [value.style]),
     TextCfiMap() => _add(64, [value.runs, value.parent]),
     TextCfiRun() => _add(64, [value.cfi]),
