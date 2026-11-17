@@ -3,6 +3,7 @@ import 'dart:math';
 
 import '../library/library_store.dart';
 import 'rea_micro_models.dart';
+import 'rea_micro_s3.dart';
 
 /// 阅微登录凭据、缓存账号与书籍关联的本地存储。
 ///
@@ -22,6 +23,8 @@ class ReaMicroStore {
   static const String _progressKey = 'reamicro.progress.state';
   static const String _deviceIdKey = 'reamicro.device.id';
   static const String _cloudPrimaryKey = 'reamicro.cloud.primary';
+  static const String _s3ConfigKey = 'reamicro.s3.config';
+  static const String _s3LastSyncKey = 'reamicro.s3.lastAt';
   static const int _maxUploadedKeys = 5000;
 
   /// 读取访问令牌。
@@ -195,6 +198,41 @@ class ReaMicroStore {
   /// 保存唯一数据源选择。
   Future<void> saveCloudPrimary(bool value) =>
       _library.setSetting(_cloudPrimaryKey, value ? '1' : '0');
+
+  /// 读取 S3 同步配置；缺失或损坏时返回 null。
+  Future<ReaMicroS3Config?> loadS3Config() async {
+    final raw = await _library.getSetting(_s3ConfigKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) return null;
+      final config = ReaMicroS3Config.fromJson(decoded);
+      return config.usable ? config : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// 保存 S3 同步配置；密钥只写入应用私有设置表。
+  Future<void> saveS3Config(ReaMicroS3Config config) =>
+      _library.setSetting(_s3ConfigKey, jsonEncode(config.toJson()));
+
+  /// 清除 S3 同步配置。
+  Future<void> clearS3Config() => _library.setSetting(_s3ConfigKey, '');
+
+  /// 读取 S3 上次同步时间。
+  Future<DateTime?> loadS3LastSyncAt() async {
+    final value = int.tryParse(await _library.getSetting(_s3LastSyncKey) ?? '');
+    return value == null || value <= 0
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(value);
+  }
+
+  /// 保存 S3 上次同步时间。
+  Future<void> saveS3LastSyncAt(DateTime value) => _library.setSetting(
+    _s3LastSyncKey,
+    value.millisecondsSinceEpoch.toString(),
+  );
 
   /// 读取或生成用于区分本机的设备标识。
   Future<String> loadOrCreateDeviceId() async {

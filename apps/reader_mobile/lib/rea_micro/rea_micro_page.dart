@@ -6,6 +6,7 @@ import 'rea_micro_book_link_page.dart';
 import 'rea_micro_controller.dart';
 import 'rea_micro_lan_page.dart';
 import 'rea_micro_models.dart';
+import 'rea_micro_s3_page.dart';
 
 /// 阅微账号、阅读数据与同步设置页。
 class ReaMicroPage extends StatefulWidget {
@@ -313,6 +314,29 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
           subtitle: Text(controller.lanMessage ?? '从同一账号的附近设备合并章节与阅读进度'),
           trailing: const Icon(Icons.chevron_right),
           onTap: _openLanPage,
+        ),
+        ListTile(
+          key: const ValueKey<String>('reamicro-s3-sync'),
+          leading: controller.s3Syncing
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.cloud_upload_outlined),
+          title: const Text('对象存储同步'),
+          subtitle: Text(
+            controller.s3Configured
+                ? controller.s3Message ?? '已配置，自动同步本地与阅微图书文件'
+                : '配置 S3 后多端同步图书文件',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (context) =>
+                  ReaMicroS3Page(controller: widget.controller),
+            ),
+          ),
         ),
         ListTile(
           key: const ValueKey<String>('reamicro-book-links'),

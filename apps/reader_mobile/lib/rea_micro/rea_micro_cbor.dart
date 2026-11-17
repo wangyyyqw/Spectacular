@@ -156,3 +156,96 @@ class ReaMicroCborDecoder {
     return data.getFloat64(0, Endian.big);
   }
 }
+
+/// 阅微 S3 清单使用的 CBOR 编码器。
+///
+/// 输出采用最短长度编码，映射按插入顺序写出，供与阅微一致的
+/// kotlinx.serialization 清单和分片使用。
+class ReaMicroCborEncoder {
+  ReaMicroCborEncoder._();
+
+  /// 编码一份完整的 CBOR 数据。
+  static Uint8List encode(Object? value) {
+    final builder = BytesBuilder(copy: false);
+    _write(builder, value);
+    return builder.takeBytes();
+  }
+
+  static void _write(BytesBuilder builder, Object? value) {
+    if (value == null) {
+      builder.addByte(0xf6);
+      return;
+    }
+    if (value is bool) {
+      builder.addByte(value ? 0xf5 : 0xf4);
+      return;
+    }
+    if (value is int) {
+      if (value >= 0) {
+        _writeHead(builder, 0, value);
+      } else {
+        _writeHead(builder, 1, -1 - value);
+      }
+      return;
+    }
+    if (value is double) {
+      final data = ByteData(8)..setFloat64(0, value, Endian.big);
+      builder.addByte(0xfb);
+      builder.add(data.buffer.asUint8List());
+      return;
+    }
+    if (value is Uint8List) {
+      _writeHead(builder, 2, value.length);
+      builder.add(value);
+      return;
+    }
+    if (value is String) {
+      final bytes = utf8.encode(value);
+      _writeHead(builder, 3, bytes.length);
+      builder.add(bytes);
+      return;
+    }
+    if (value is List<Object?>) {
+      _writeHead(builder, 4, value.length);
+      for (final item in value) {
+        _write(builder, item);
+      }
+      return;
+    }
+    if (value is Map<String, Object?>) {
+      _writeHead(builder, 5, value.length);
+      for (final entry in value.entries) {
+        _write(builder, entry.key);
+        _write(builder, entry.value);
+      }
+      return;
+    }
+    throw ArgumentError('不支持的 CBOR 值类型：${value.runtimeType}');
+  }
+
+  static void _writeHead(BytesBuilder builder, int major, int length) {
+    final prefix = major << 5;
+    if (length < 24) {
+      builder.addByte(prefix | length);
+    } else if (length <= 0xff) {
+      builder.addByte(prefix | 24);
+      builder.addByte(length);
+    } else if (length <= 0xffff) {
+      builder.addByte(prefix | 25);
+      builder.add(<int>[length >> 8, length & 0xff]);
+    } else if (length <= 0xffffffff) {
+      builder.addByte(prefix | 26);
+      builder.add(<int>[
+        (length >> 24) & 0xff,
+        (length >> 16) & 0xff,
+        (length >> 8) & 0xff,
+        length & 0xff,
+      ]);
+    } else {
+      builder.addByte(prefix | 27);
+      for (var shift = 56; shift >= 0; shift -= 8) {
+        builder.addByte((length >> shift) & 0xff);
+      }
+    }
+  }
+}

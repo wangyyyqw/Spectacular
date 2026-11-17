@@ -10,6 +10,7 @@ import 'rea_micro_api_client.dart';
 import 'rea_micro_lan.dart';
 import 'rea_micro_models.dart';
 import 'rea_micro_progress_store.dart';
+import 'rea_micro_s3.dart';
 import 'rea_micro_store.dart';
 
 /// 一次阅读时长同步的结果。
@@ -44,10 +45,13 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroStore? store,
     ReaderProgressStore? progressStore,
     ReaMicroLanClient? lan,
+    ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
   }) : _library = library,
        _api = api ?? ReaMicroApiClient(),
        _store = store ?? ReaMicroStore(library),
        _rawProgressStore = progressStore,
+       // ignore: prefer_initializing_formals
+       _s3ClientFactory = s3ClientFactory,
        _lan = lan ?? ReaMicroLanClient() {
     _trackedProgressStore = progressStore == null
         ? null
@@ -59,6 +63,7 @@ class ReaMicroController extends ChangeNotifier {
   final ReaMicroStore _store;
   final ReaderProgressStore? _rawProgressStore;
   final ReaMicroLanClient _lan;
+  final ReaMicroS3Client Function(ReaMicroS3Config config)? _s3ClientFactory;
   late final ReaderProgressStore? _trackedProgressStore;
 
   String? _token;
@@ -94,6 +99,11 @@ class ReaMicroController extends ChangeNotifier {
   bool _loadingCloudStats = false;
   String? _cloudStatsError;
   Timer? _cloudSyncTimer;
+  Timer? _s3SyncTimer;
+  ReaMicroS3Config? _s3Config;
+  bool _s3Syncing = false;
+  String? _s3Message;
+  DateTime? _s3LastSyncAt;
 
   /// 是否已登录。
   bool get signedIn => _token != null;
@@ -171,6 +181,21 @@ class ReaMicroController extends ChangeNotifier {
   /// 完整阅读数据拉取失败原因。
   String? get cloudStatsError => _cloudStatsError;
 
+  /// 是否已配置 S3 同步。
+  bool get s3Configured => _s3Config?.usable ?? false;
+
+  /// 当前 S3 同步配置。
+  ReaMicroS3Config? get s3Config => _s3Config;
+
+  /// 正在执行 S3 同步。
+  bool get s3Syncing => _s3Syncing;
+
+  /// 最近一次 S3 同步提示。
+  String? get s3Message => _s3Message;
+
+  /// 上次 S3 同步时间。
+  DateTime? get s3LastSyncAt => _s3LastSyncAt;
+
   /// 首次加载本地令牌、账号缓存、书籍关联和同步时间。
   Future<void> initialize() async {
     if (_initialized) return;
@@ -182,6 +207,8 @@ class ReaMicroController extends ChangeNotifier {
     _progressStates = await _store.loadProgressStates();
     _deviceId = await _store.loadOrCreateDeviceId();
     _cloudAsPrimary = await _store.loadCloudPrimary();
+    _s3Config = await _store.loadS3Config();
+    _s3LastSyncAt = await _store.loadS3LastSyncAt();
     if (_token == null && _cloudAsPrimary) {
       _cloudAsPrimary = false;
       await _store.saveCloudPrimary(false);
@@ -198,7 +225,129 @@ class ReaMicroController extends ChangeNotifier {
           scheduleReadingSync(delay: const Duration(seconds: 5));
           scheduleProgressSync(delay: const Duration(seconds: 7));
         }
+        if (_s3Config != null) {
+          scheduleS3Sync(delay: const Duration(seconds: 9));
+        }
       }
+    }
+  }
+
+  /// 保存 S3 同步配置。
+  Future<void> saveS3Config(ReaMicroS3Config config) async {
+    _s3Config = config.usable ? config : null;
+    _s3Message = null;
+    if (_s3Config == null) {
+      await _store.clearS3Config();
+    } else {
+      await _store.saveS3Config(_s3Config!);
+    }
+    _notify();
+  }
+
+  /// 清除 S3 同步配置。
+  Future<void> clearS3Config() async {
+    _s3Config = null;
+    _s3Message = null;
+    _s3SyncTimer?.cancel();
+    await _store.clearS3Config();
+    _notify();
+  }
+
+  /// 延迟执行 S3 同步，避免启动阶段与账号刷新重叠。
+  void scheduleS3Sync({Duration delay = const Duration(seconds: 6)}) {
+    if (_disposed || !signedIn || !s3Configured) return;
+    _s3SyncTimer?.cancel();
+    _s3SyncTimer = Timer(delay, () async {
+      if (_disposed || !signedIn || !s3Configured) return;
+      await syncS3(silent: true);
+    });
+  }
+
+  /// 立即同步 S3 书籍与元数据。
+  Future<ReaMicroS3SyncResult?> syncS3({
+    bool silent = false,
+    bool restoreMissing = true,
+  }) async {
+    if (_s3Syncing) {
+      if (!silent) {
+        _s3Message = '正在同步 S3，请稍后';
+        _notify();
+      }
+      return null;
+    }
+    final config = _s3Config;
+    final user = _user;
+    final deviceId = _deviceId;
+    if (config == null || !config.usable || user == null || deviceId == null) {
+      if (!silent) {
+        _s3Message = '请先配置 S3 对象存储';
+        _notify();
+      }
+      return null;
+    }
+    _s3Syncing = true;
+    _s3Message = restoreMissing ? '正在读取云端书籍…' : '正在上传本地变更…';
+    _error = null;
+    _notify();
+    try {
+      final client =
+          _s3ClientFactory?.call(config) ?? ReaMicroS3HttpClient(config);
+      final engine = ReaMicroS3SyncEngine(
+        library: _library,
+        config: config,
+        client: client,
+        userId: user.id.toString(),
+        deviceId: deviceId,
+        cloudIds: <String, int>{
+          for (final entry in _links.entries)
+            entry.key: entry.value.cloudBookId,
+        },
+        onStatus: (message) {
+          if (_disposed) return;
+          _s3Message = message;
+          _notify();
+        },
+      );
+      final result = await engine.sync(restoreMissing: restoreMissing);
+      _s3LastSyncAt = DateTime.now();
+      _s3Message = result.message;
+      await _store.saveS3LastSyncAt(_s3LastSyncAt!);
+      if (result.links.isNotEmpty) {
+        final nextLinks = Map<String, ReaMicroBookLink>.of(_links);
+        var changed = false;
+        for (final entry in result.links.entries) {
+          if (entry.value <= 0 ||
+              nextLinks[entry.key]?.cloudBookId == entry.value) {
+            continue;
+          }
+          final book = await _library.bookById(entry.key);
+          if (book == null) continue;
+          nextLinks[entry.key] = ReaMicroBookLink(
+            cloudBookId: entry.value,
+            name: book.title,
+            author: book.author,
+            linkedAt: DateTime.now(),
+          );
+          changed = true;
+        }
+        if (changed) {
+          _links = nextLinks;
+          await _store.saveLinks(nextLinks);
+          for (final bookId in result.links.keys) {
+            await _seedProgressStatesForBook(bookId, markDirty: false);
+          }
+        }
+      }
+      if (result.downloaded > 0 && _links.isNotEmpty) {
+        scheduleProgressSync(delay: const Duration(seconds: 2));
+      }
+      return result;
+    } catch (error) {
+      _s3Message = 'S3 同步失败：${_messageOf(error)}';
+      return null;
+    } finally {
+      _s3Syncing = false;
+      _notify();
     }
   }
 

@@ -1,0 +1,1090 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
+
+import '../library/library_store.dart';
+import 'rea_micro_cbor.dart';
+
+/// S3 同步失败。
+class ReaMicroS3Exception implements Exception {
+  /// 创建异常。
+  const ReaMicroS3Exception(this.message);
+
+  /// 用户可读原因。
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// 清单提交冲突，可重新读取后重试。
+class ReaMicroS3ConflictException extends ReaMicroS3Exception {
+  /// 创建冲突异常。
+  const ReaMicroS3ConflictException(super.message);
+}
+
+/// 阅微 S3 同步配置。
+class ReaMicroS3Config {
+  /// 创建配置。
+  const ReaMicroS3Config({
+    required this.endpoint,
+    required this.bucket,
+    required this.region,
+    required this.accessKey,
+    required this.secretKey,
+    required this.prefix,
+  });
+
+  /// 空配置。
+  static const ReaMicroS3Config empty = ReaMicroS3Config(
+    endpoint: '',
+    bucket: '',
+    region: 'us-east-1',
+    accessKey: '',
+    secretKey: '',
+    prefix: 'reamicro',
+  );
+
+  /// 从 JSON 恢复。
+  factory ReaMicroS3Config.fromJson(Map<String, Object?> json) {
+    String read(String key, [String fallback = '']) {
+      final value = json[key];
+      return value is String ? value : fallback;
+    }
+
+    return ReaMicroS3Config(
+      endpoint: read('endpoint'),
+      bucket: read('bucket'),
+      region: read('region', 'us-east-1'),
+      accessKey: read('accessKey'),
+      secretKey: read('secretKey'),
+      prefix: read('prefix', 'reamicro'),
+    );
+  }
+
+  /// 服务端点，例如 `https://s3.bitiful.net`。
+  final String endpoint;
+
+  /// 存储桶。
+  final String bucket;
+
+  /// 区域；部分兼容服务使用 `auto`。
+  final String region;
+
+  /// 访问密钥。
+  final String accessKey;
+
+  /// 私密密钥；只保存在应用私有设置表中。
+  final String secretKey;
+
+  /// 同步目录前缀。
+  final String prefix;
+
+  /// 是否具备同步所需的全部字段。
+  bool get usable =>
+      normalizedEndpoint.isNotEmpty &&
+      bucket.trim().isNotEmpty &&
+      region.trim().isNotEmpty &&
+      accessKey.trim().isNotEmpty &&
+      secretKey.isNotEmpty;
+
+  /// 去掉末尾斜杠的端点。
+  String get normalizedEndpoint {
+    var value = endpoint.trim();
+    while (value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    return value;
+  }
+
+  /// 去掉首尾斜杠的同步目录。
+  String get normalizedPrefix {
+    var value = prefix.trim().replaceAll('\\', '/');
+    while (value.startsWith('/')) {
+      value = value.substring(1);
+    }
+    while (value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    return value;
+  }
+
+  /// 阅微用于定位本地清单缓存的配置指纹。
+  String fingerprint(String userId) {
+    final payload = <String>[
+      'S3',
+      normalizedEndpoint,
+      bucket.trim(),
+      normalizedPrefix,
+      userId,
+    ].join('|');
+    return sha256.convert(utf8.encode(payload)).toString();
+  }
+
+  /// 转换为可持久化 JSON。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'endpoint': endpoint,
+    'bucket': bucket,
+    'region': region,
+    'accessKey': accessKey,
+    'secretKey': secretKey,
+    'prefix': prefix,
+  };
+
+  /// 复制并覆盖部分字段。
+  ReaMicroS3Config copyWith({
+    String? endpoint,
+    String? bucket,
+    String? region,
+    String? accessKey,
+    String? secretKey,
+    String? prefix,
+  }) => ReaMicroS3Config(
+    endpoint: endpoint ?? this.endpoint,
+    bucket: bucket ?? this.bucket,
+    region: region ?? this.region,
+    accessKey: accessKey ?? this.accessKey,
+    secretKey: secretKey ?? this.secretKey,
+    prefix: prefix ?? this.prefix,
+  );
+}
+
+/// 一次 S3 对象读取结果。
+class ReaMicroS3Object {
+  /// 创建结果。
+  const ReaMicroS3Object({required this.bytes, required this.etag});
+
+  /// 对象内容。
+  final Uint8List bytes;
+
+  /// 服务端 ETag，可能为空弱校验值。
+  final String etag;
+}
+
+/// 最小 S3 客户端接口，便于测试替换。
+abstract class ReaMicroS3Client {
+  /// 读取对象；不存在返回 null。
+  Future<ReaMicroS3Object?> get(String key);
+
+  /// 上传对象并返回 ETag。
+  Future<String> put(
+    String key,
+    Uint8List bytes, {
+    String contentType = 'application/octet-stream',
+    String? ifMatch,
+    String? ifNoneMatch,
+  });
+
+  /// 删除对象；不存在视为成功。
+  Future<void> delete(String key);
+}
+
+/// AWS Signature V4 签名结果。
+class ReaMicroS3Signature {
+  /// 创建签名结果。
+  const ReaMicroS3Signature({
+    required this.authorization,
+    required this.amzDate,
+    required this.payloadHash,
+  });
+
+  /// `Authorization` 请求头。
+  final String authorization;
+
+  /// `x-amz-date` 请求头。
+  final String amzDate;
+
+  /// 载荷 SHA-256 十六进制值。
+  final String payloadHash;
+}
+
+/// AWS Signature V4 签名器。
+class ReaMicroS3Signer {
+  ReaMicroS3Signer._();
+
+  /// 对一次 S3 请求签名。
+  static ReaMicroS3Signature sign({
+    required String method,
+    required Uri uri,
+    required String region,
+    required String accessKey,
+    required String secretKey,
+    required Uint8List payload,
+    Map<String, String> extraHeaders = const <String, String>{},
+    DateTime? now,
+  }) {
+    final timestamp = (now ?? DateTime.now()).toUtc();
+    final amzDate = _amzDate(timestamp);
+    final dateStamp = amzDate.substring(0, 8);
+    final payloadHash = sha256.convert(payload).toString();
+    final headers = <String, String>{
+      'host': uri.hasPort ? '${uri.host}:${uri.port}' : uri.host,
+      'x-amz-content-sha256': payloadHash,
+      'x-amz-date': amzDate,
+      for (final entry in extraHeaders.entries)
+        entry.key.toLowerCase(): _collapseSpaces(entry.value),
+    };
+    final keys = headers.keys.toList()..sort();
+    final canonicalHeaders = StringBuffer();
+    for (final key in keys) {
+      canonicalHeaders
+        ..write(key)
+        ..write(':')
+        ..write(headers[key])
+        ..write('\n');
+    }
+    final signedHeaders = keys.join(';');
+    final canonicalUri = uri.path.isEmpty ? '/' : uri.path;
+    final canonicalQuery = uri.hasQuery
+        ? (uri.queryParameters.entries.toList()
+                ..sort((a, b) => a.key.compareTo(b.key)))
+              .map((entry) => '${_encode(entry.key)}=${_encode(entry.value)}')
+              .join('&')
+        : '';
+    final canonicalRequest = <String>[
+      method,
+      canonicalUri,
+      canonicalQuery,
+      canonicalHeaders.toString(),
+      signedHeaders,
+      payloadHash,
+    ].join('\n');
+    final scope = '$dateStamp/${region.trim()}/s3/aws4_request';
+    final stringToSign = <String>[
+      'AWS4-HMAC-SHA256',
+      amzDate,
+      scope,
+      sha256.convert(utf8.encode(canonicalRequest)).toString(),
+    ].join('\n');
+    final secret = utf8.encode('AWS4${secretKey.trim()}');
+    final dateKey = Hmac(sha256, secret).convert(utf8.encode(dateStamp)).bytes;
+    final regionKey = Hmac(
+      sha256,
+      dateKey,
+    ).convert(utf8.encode(region.trim())).bytes;
+    final serviceKey = Hmac(sha256, regionKey).convert(utf8.encode('s3')).bytes;
+    final signingKey = Hmac(
+      sha256,
+      serviceKey,
+    ).convert(utf8.encode('aws4_request')).bytes;
+    final signature = Hmac(
+      sha256,
+      signingKey,
+    ).convert(utf8.encode(stringToSign)).toString();
+    final authorization =
+        'AWS4-HMAC-SHA256 Credential=${accessKey.trim()}/$scope, '
+        'SignedHeaders=$signedHeaders, Signature=$signature';
+    return ReaMicroS3Signature(
+      authorization: authorization,
+      amzDate: amzDate,
+      payloadHash: payloadHash,
+    );
+  }
+
+  static String _amzDate(DateTime value) {
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${value.year.toString().padLeft(4, '0')}'
+        '${two(value.month)}${two(value.day)}'
+        'T${two(value.hour)}${two(value.minute)}${two(value.second)}Z';
+  }
+
+  static String _collapseSpaces(String value) =>
+      value.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+  static String _encode(String value) {
+    final bytes = utf8.encode(value);
+    final buffer = StringBuffer();
+    for (final byte in bytes) {
+      final unreserved =
+          (byte >= 0x41 && byte <= 0x5a) ||
+          (byte >= 0x61 && byte <= 0x7a) ||
+          (byte >= 0x30 && byte <= 0x39) ||
+          byte == 0x2d ||
+          byte == 0x2e ||
+          byte == 0x5f ||
+          byte == 0x7e;
+      if (unreserved) {
+        buffer.writeCharCode(byte);
+      } else {
+        buffer
+          ..write('%')
+          ..write(byte.toRadixString(16).padLeft(2, '0').toUpperCase());
+      }
+    }
+    return buffer.toString();
+  }
+}
+
+/// 通过 S3 兼容 HTTP 接口读写对象。
+class ReaMicroS3HttpClient implements ReaMicroS3Client {
+  /// 创建客户端。
+  ReaMicroS3HttpClient(this.config, {http.Client? httpClient})
+    : _http = httpClient ?? http.Client();
+
+  /// 同步配置。
+  final ReaMicroS3Config config;
+  final http.Client _http;
+
+  @override
+  Future<ReaMicroS3Object?> get(String key) async {
+    final response = await _send('GET', key);
+    if (response.statusCode == 404) return null;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ReaMicroS3Exception(
+        '读取 $key 失败：HTTP ${response.statusCode} ${_errorText(response)}',
+      );
+    }
+    return ReaMicroS3Object(
+      bytes: response.bodyBytes,
+      etag: (response.headers['etag'] ?? '').trim(),
+    );
+  }
+
+  @override
+  Future<String> put(
+    String key,
+    Uint8List bytes, {
+    String contentType = 'application/octet-stream',
+    String? ifMatch,
+    String? ifNoneMatch,
+  }) async {
+    final headers = <String, String>{'content-type': contentType};
+    if (ifMatch != null && ifMatch.isNotEmpty) {
+      headers['if-match'] = ifMatch;
+    }
+    if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
+      headers['if-none-match'] = ifNoneMatch;
+    }
+    final response = await _send('PUT', key, bytes: bytes, headers: headers);
+    if (response.statusCode == 412 || response.statusCode == 409) {
+      throw const ReaMicroS3ConflictException('云端清单已被其他设备修改');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ReaMicroS3Exception(
+        '上传 $key 失败：HTTP ${response.statusCode} ${_errorText(response)}',
+      );
+    }
+    return (response.headers['etag'] ?? '').trim();
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    final response = await _send('DELETE', key);
+    if (response.statusCode == 404) return;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ReaMicroS3Exception(
+        '删除 $key 失败：HTTP ${response.statusCode} ${_errorText(response)}',
+      );
+    }
+  }
+
+  Future<http.Response> _send(
+    String method,
+    String key, {
+    Uint8List? bytes,
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    final uri = _uriFor(key);
+    final payload = bytes ?? Uint8List(0);
+    final signature = ReaMicroS3Signer.sign(
+      method: method,
+      uri: uri,
+      region: config.region,
+      accessKey: config.accessKey,
+      secretKey: config.secretKey,
+      payload: payload,
+      extraHeaders: headers,
+    );
+    final request = http.Request(method, uri)
+      ..headers.addAll(headers)
+      ..headers['x-amz-content-sha256'] = signature.payloadHash
+      ..headers['x-amz-date'] = signature.amzDate
+      ..headers['authorization'] = signature.authorization;
+    if (method != 'GET' && method != 'HEAD') {
+      request.bodyBytes = payload;
+    }
+    try {
+      final streamed = await _http
+          .send(request)
+          .timeout(const Duration(seconds: 120));
+      return await http.Response.fromStream(streamed);
+    } on TimeoutException {
+      throw ReaMicroS3Exception('连接 S3 超时，请检查端点与网络');
+    } on SocketException catch (error) {
+      throw ReaMicroS3Exception('连接 S3 失败：${error.message}');
+    } on http.ClientException catch (error) {
+      throw ReaMicroS3Exception('连接 S3 失败：${error.message}');
+    }
+  }
+
+  Uri _uriFor(String key) {
+    final base = Uri.parse(config.normalizedEndpoint);
+    final basePath = base.path == '/' ? '' : base.path;
+    final path = '$basePath/${config.bucket.trim()}/$key';
+    return base.replace(path: path);
+  }
+
+  String _errorText(http.Response response) {
+    final text = utf8.decode(response.bodyBytes, allowMalformed: true).trim();
+    if (text.isEmpty) return '';
+    return text.length > 200 ? '${text.substring(0, 200)}…' : text;
+  }
+}
+
+/// S3 文件描述。
+class ReaMicroS3File {
+  /// 创建文件描述。
+  const ReaMicroS3File({
+    required this.sha256,
+    required this.sourceSha256,
+    required this.objectId,
+  });
+
+  /// 内容 SHA-256 十六进制。
+  final String sha256;
+
+  /// 源文件 SHA-256 十六进制。
+  final String sourceSha256;
+
+  /// 对象目录标识。
+  final String objectId;
+
+  bool get usable => sha256.isNotEmpty && objectId.isNotEmpty;
+
+  /// 转换为阅微 CBOR 文件描述。
+  Map<String, Object?> toCbor() => <String, Object?>{
+    'h': sha256.isEmpty ? null : _bytesFromHex(sha256),
+    's': sourceSha256.isEmpty ? null : _bytesFromHex(sourceSha256),
+    'o': objectId,
+  };
+}
+
+/// 云端书籍条目。
+class ReaMicroS3Book {
+  /// 创建条目。
+  const ReaMicroS3Book({
+    required this.uuid,
+    required this.size,
+    required this.title,
+    required this.author,
+    required this.createdAt,
+    required this.cloudId,
+    required this.revisionTimestamp,
+    required this.revisionCounter,
+    required this.deviceId,
+    required this.metadataUpdatedAt,
+    required this.epub,
+    this.metadata = const <String, Object?>{},
+    this.cover,
+    this.bookmarks,
+    this.banner,
+    this.bannerTracked = false,
+  });
+
+  /// 阅微书籍标识。
+  final String uuid;
+
+  /// EPUB 字节数。
+  final int size;
+
+  /// 书名。
+  final String title;
+
+  /// 作者。
+  final String author;
+
+  /// 导入时间毫秒。
+  final int createdAt;
+
+  /// 阅微账号内书籍 ID。
+  final int cloudId;
+
+  /// 修订时间戳毫秒。
+  final int revisionTimestamp;
+
+  /// 同毫秒修订计数。
+  final int revisionCounter;
+
+  /// 修订设备标识。
+  final String deviceId;
+
+  /// 元数据更新时间毫秒。
+  final int metadataUpdatedAt;
+
+  /// EPUB 文件描述。
+  final ReaMicroS3File epub;
+
+  /// 阅微原始元数据；上传时只覆盖本地可控字段，保留其余扩展字段。
+  final Map<String, Object?> metadata;
+
+  /// 封面文件描述。
+  final ReaMicroS3File? cover;
+
+  /// 批注文件描述。
+  final ReaMicroS3File? bookmarks;
+
+  /// 横幅文件描述。
+  final ReaMicroS3File? banner;
+
+  /// 是否追踪横幅。
+  final bool bannerTracked;
+
+  /// 用于比较新旧修订。
+  String get revisionOrder =>
+      revisionTimestamp.toString().padLeft(20, '0') +
+      revisionCounter.toString().padLeft(10, '0') +
+      deviceId;
+
+  /// 用于书名作者匹配的键。
+  String get fingerprint => '${_normalize(title)}|${_normalize(author)}|$size';
+
+  /// 从 CBOR 映射恢复。
+  static ReaMicroS3Book? fromCbor(Object? value) {
+    final map = _asMap(value);
+    final metadata = _asMap(map['b']);
+    final revision = _asMap(map['r']);
+    final uuid = _asString(metadata['u']);
+    final epub = _fileFromCbor(map['e']);
+    if (uuid.isEmpty || epub == null) return null;
+    return ReaMicroS3Book(
+      uuid: uuid,
+      size: _asInt(metadata['s']),
+      title: _asString(metadata['t']),
+      author: _asString(metadata['a']),
+      createdAt: _asInt(metadata['cr']),
+      cloudId: _asInt(metadata['i']),
+      revisionTimestamp: _asInt(revision['t']),
+      revisionCounter: _asInt(revision['c']),
+      deviceId: _asString(revision['d']),
+      metadataUpdatedAt: _asInt(map['m']),
+      epub: epub,
+      metadata: metadata,
+      cover: _fileFromCbor(map['c']),
+      bookmarks: _fileFromCbor(map['k']),
+      banner: _fileFromCbor(map['bn']),
+      bannerTracked: map['bt'] == true,
+    );
+  }
+
+  /// 转换为阅微 CBOR 映射。
+  Map<String, Object?> toCbor() => <String, Object?>{
+    'b': <String, Object?>{
+      'v': 2,
+      'e': 0,
+      'x': 0,
+      'bt': 0,
+      'bi': '',
+      'bc': '',
+      'p': '',
+      ...metadata,
+      'u': uuid,
+      's': size,
+      't': title,
+      'a': author,
+      'cr': createdAt,
+      'i': cloudId,
+    },
+    'r': <String, Object?>{
+      't': revisionTimestamp,
+      'c': revisionCounter,
+      'd': deviceId,
+    },
+    'm': metadataUpdatedAt,
+    'e': epub.toCbor(),
+    if (cover != null) 'c': cover!.toCbor(),
+    if (bookmarks != null) 'k': bookmarks!.toCbor(),
+    if (banner != null) 'bn': banner!.toCbor(),
+    'bt': bannerTracked,
+  };
+
+  static ReaMicroS3File? _fileFromCbor(Object? value) {
+    if (value == null) return null;
+    final map = _asMap(value);
+    final objectId = _asString(map['o']);
+    if (objectId.isEmpty) return null;
+    return ReaMicroS3File(
+      sha256: _hexFromBytes(map['h']),
+      sourceSha256: _hexFromBytes(map['s']),
+      objectId: objectId,
+    );
+  }
+}
+
+/// 一次 S3 同步结果。
+class ReaMicroS3SyncResult {
+  /// 创建结果。
+  const ReaMicroS3SyncResult({
+    required this.uploaded,
+    required this.downloaded,
+    required this.merged,
+    required this.failed,
+    required this.message,
+    this.links = const <String, int>{},
+  });
+
+  /// 新上传或更新的书籍数。
+  final int uploaded;
+
+  /// 新下载并导入的书籍数。
+  final int downloaded;
+
+  /// 合并但未传输的书籍数。
+  final int merged;
+
+  /// 失败数。
+  final int failed;
+
+  /// 用户可读摘要。
+  final String message;
+
+  /// 本地书籍 ID → 阅微云端书籍 ID。
+  final Map<String, int> links;
+}
+
+/// 阅微 S3 书籍同步引擎。
+///
+/// 清单索引位于 `<同步目录>/manifest.cbor`，书籍分片位于
+/// `<同步目录>/manifests/<分片>/<对象>.cbor`，书籍文件位于
+/// `<同步目录>/<uuid>/<对象>/book.epub`，与阅微 2.3.4 的读取路径一致。
+class ReaMicroS3SyncEngine {
+  /// 创建同步引擎。
+  ReaMicroS3SyncEngine({
+    required this.library,
+    required this.config,
+    required this.client,
+    required this.userId,
+    required this.deviceId,
+    this.cloudIds = const <String, int>{},
+    this.onStatus,
+  });
+
+  /// 本地书架。
+  final LibraryStore library;
+
+  /// 同步配置。
+  final ReaMicroS3Config config;
+
+  /// S3 客户端。
+  final ReaMicroS3Client client;
+
+  /// 当前阅微账号 ID。
+  final String userId;
+
+  /// 当前设备标识。
+  final String deviceId;
+
+  /// 本地书籍 ID → 阅微云端书籍 ID。
+  final Map<String, int> cloudIds;
+
+  /// 进度回调。
+  final void Function(String message)? onStatus;
+
+  static const String _shardId = 'spectacular';
+  static const String _manifestContentType = 'application/cbor';
+
+  /// 执行一次增量同步。
+  Future<ReaMicroS3SyncResult> sync({
+    bool restoreMissing = true,
+    bool uploadCovers = true,
+  }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await _syncOnce(
+          restoreMissing: restoreMissing,
+          uploadCovers: uploadCovers,
+        );
+      } on ReaMicroS3ConflictException catch (error) {
+        lastError = error;
+        onStatus?.call('云端清单已更新，正在重新读取…');
+        await Future<void>.delayed(Duration(milliseconds: 200 * (attempt + 1)));
+      }
+    }
+    throw lastError is ReaMicroS3Exception
+        ? lastError
+        : const ReaMicroS3Exception('云端清单持续被修改，请稍后同步');
+  }
+
+  Future<ReaMicroS3SyncResult> _syncOnce({
+    required bool restoreMissing,
+    required bool uploadCovers,
+  }) async {
+    onStatus?.call('读取云端清单…');
+    final manifestKey = _key('manifest.cbor');
+    final manifestObject = await client.get(manifestKey);
+    final manifest = manifestObject == null
+        ? _emptyManifest()
+        : _asMap(ReaMicroCborDecoder.decode(manifestObject.bytes));
+    final version = _asInt(manifest['v']);
+    if (manifestObject != null && version != 1) {
+      throw ReaMicroS3Exception('不支持的 S3 同步协议版本：$version');
+    }
+
+    final books = <String, ReaMicroS3Book>{};
+    for (final shardId in _asList(manifest['s']).whereType<String>()) {
+      final objectId = _asString(_asMap(manifest['sp'])[shardId]);
+      if (objectId.isEmpty) continue;
+      try {
+        final shardObject = await client.get(_shardKey(shardId, objectId));
+        if (shardObject == null) continue;
+        final shard = _asMap(ReaMicroCborDecoder.decode(shardObject.bytes));
+        for (final entry in _asList(shard['b'])) {
+          final book = ReaMicroS3Book.fromCbor(entry);
+          if (book == null) continue;
+          final existing = books[book.uuid];
+          if (existing == null ||
+              book.revisionOrder.compareTo(existing.revisionOrder) > 0) {
+            books[book.uuid] = book;
+          }
+        }
+      } on ReaMicroS3Exception catch (error) {
+        onStatus?.call('分片 $shardId 读取失败：${error.message}');
+      }
+    }
+
+    final tombstones = <String, String>{};
+    for (final shardId in _asList(manifest['d']).whereType<String>()) {
+      final objectId = _asString(_asMap(manifest['dp'])[shardId]);
+      if (objectId.isEmpty) continue;
+      try {
+        final shardObject = await client.get(_deletionKey(shardId, objectId));
+        if (shardObject == null) continue;
+        final shard = _asMap(ReaMicroCborDecoder.decode(shardObject.bytes));
+        final now = DateTime.now().millisecondsSinceEpoch;
+        for (final entry in _asList(shard['a'])) {
+          final map = _asMap(entry);
+          final uuid = _asString(map['u']);
+          final expiresAt = _asInt(map['x']);
+          if (uuid.isEmpty || expiresAt <= now) continue;
+          final revision = _asMap(map['r']);
+          final order =
+              _asInt(revision['t']).toString().padLeft(20, '0') +
+              _asInt(revision['c']).toString().padLeft(10, '0') +
+              _asString(revision['d']);
+          final existing = tombstones[uuid];
+          if (existing == null || order.compareTo(existing) > 0) {
+            tombstones[uuid] = order;
+          }
+        }
+      } on ReaMicroS3Exception catch (error) {
+        onStatus?.call('删除分片 $shardId 读取失败：${error.message}');
+      }
+    }
+    tombstones.forEach((uuid, revision) {
+      final book = books[uuid];
+      if (book != null && revision.compareTo(book.revisionOrder) >= 0) {
+        books.remove(uuid);
+      }
+    });
+
+    final localBooks = await library.list();
+    final matchedRemote = <String>{};
+    final links = <String, int>{};
+    var uploaded = 0;
+    var skipped = 0;
+    var failed = 0;
+
+    for (final local in localBooks) {
+      final file = File(local.filePath);
+      if (!await file.exists()) {
+        skipped += 1;
+        continue;
+      }
+      final int size;
+      try {
+        size = await file.length();
+      } on FileSystemException {
+        skipped += 1;
+        continue;
+      }
+      final sha = await _localSha256(local);
+      if (sha.isEmpty) {
+        skipped += 1;
+        continue;
+      }
+      final fingerprint = _bookFingerprint(local.title, local.author, size);
+      ReaMicroS3Book? matched = books[local.id];
+      if (matched == null) {
+        for (final book in books.values) {
+          if (book.fingerprint == fingerprint &&
+              (book.size == 0 || book.size == size)) {
+            matched = book;
+            break;
+          }
+        }
+      }
+      if (matched != null) {
+        matchedRemote.add(matched.uuid);
+        if (matched.cloudId > 0) {
+          links[local.id] = matched.cloudId;
+        }
+        if (matched.epub.sha256 == sha || matched.epub.sourceSha256 == sha) {
+          skipped += 1;
+          continue;
+        }
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final objectId = _objectId(sha, now);
+      final uuid = matched?.uuid ?? local.id;
+      onStatus?.call('上传《${local.title}》…');
+      try {
+        final bytes = await file.readAsBytes();
+        await client.put(
+          _bookKey(uuid, objectId, 'book.epub'),
+          bytes,
+          contentType: 'application/epub+zip',
+        );
+        ReaMicroS3File? coverFile = matched?.cover;
+        if (uploadCovers) {
+          coverFile = await _uploadCover(local, uuid, objectId) ?? coverFile;
+        }
+        books[uuid] = ReaMicroS3Book(
+          uuid: uuid,
+          size: bytes.length,
+          title: local.title,
+          author: local.author,
+          createdAt: local.addedAt.millisecondsSinceEpoch,
+          cloudId: cloudIds[local.id] ?? matched?.cloudId ?? 0,
+          revisionTimestamp: now,
+          revisionCounter: 0,
+          deviceId: deviceId,
+          metadataUpdatedAt: now,
+          epub: ReaMicroS3File(
+            sha256: sha,
+            sourceSha256: sha,
+            objectId: objectId,
+          ),
+          metadata: matched?.metadata ?? const <String, Object?>{},
+          cover: coverFile,
+          bookmarks: matched?.bookmarks,
+          banner: matched?.banner,
+          bannerTracked: matched?.bannerTracked ?? false,
+        );
+        if ((cloudIds[local.id] ?? matched?.cloudId ?? 0) > 0) {
+          links[local.id] = cloudIds[local.id] ?? matched?.cloudId ?? 0;
+        }
+        uploaded += 1;
+      } catch (error) {
+        failed += 1;
+        onStatus?.call('《${local.title}》上传失败：$error');
+      }
+    }
+
+    var downloaded = 0;
+    if (restoreMissing) {
+      final localFingerprints = <String>{};
+      for (final book in localBooks) {
+        try {
+          localFingerprints.add(
+            _bookFingerprint(
+              book.title,
+              book.author,
+              await File(book.filePath).length(),
+            ),
+          );
+        } on FileSystemException {
+          // 本地文件已缺失时不能参与去重，但不应中断云端恢复。
+        }
+      }
+      for (final book in books.values) {
+        if (matchedRemote.contains(book.uuid)) continue;
+        if (localFingerprints.contains(book.fingerprint)) continue;
+        onStatus?.call('下载《${book.title}》…');
+        try {
+          final object = await client.get(
+            _bookKey(book.uuid, book.epub.objectId, 'book.epub'),
+          );
+          if (object == null) {
+            skipped += 1;
+            continue;
+          }
+          final sha = sha256.convert(object.bytes).toString();
+          if (book.epub.sha256.isNotEmpty && book.epub.sha256 != sha) {
+            failed += 1;
+            onStatus?.call('《${book.title}》校验失败，已跳过');
+            continue;
+          }
+          final imported = await library.importBytes(
+            object.bytes,
+            fallbackTitle: book.title,
+          );
+          if (book.cloudId > 0) {
+            links[imported.id] = book.cloudId;
+          }
+          downloaded += 1;
+          localFingerprints.add(book.fingerprint);
+        } catch (error) {
+          failed += 1;
+          onStatus?.call('《${book.title}》下载失败：$error');
+        }
+      }
+    }
+
+    onStatus?.call('写入云端清单…');
+    final revision = DateTime.now().millisecondsSinceEpoch;
+    final entries = books.values
+        .toList()
+        .map((book) => book.toCbor())
+        .toList(growable: false);
+    final shardBytes = ReaMicroCborEncoder.encode(<String, Object?>{
+      'b': entries,
+    });
+    final shardSha = sha256.convert(shardBytes).toString();
+    final shardObjectId = _objectId(shardSha, revision);
+    await client.put(
+      _shardKey(_shardId, shardObjectId),
+      shardBytes,
+      contentType: _manifestContentType,
+    );
+    final shardIds = <Object?>[
+      for (final value in _asList(manifest['s']).whereType<String>())
+        if (value != _shardId) value,
+      _shardId,
+    ];
+    final nextManifest = <String, Object?>{
+      ...manifest,
+      'v': 1,
+      's': shardIds,
+      'r': revision,
+      'sr': <String, Object?>{..._asMap(manifest['sr']), _shardId: revision},
+      'sp': <String, Object?>{
+        ..._asMap(manifest['sp']),
+        _shardId: shardObjectId,
+      },
+    };
+    final etag = manifestObject?.etag ?? '';
+    if (manifestObject == null) {
+      await client.put(
+        manifestKey,
+        ReaMicroCborEncoder.encode(nextManifest),
+        contentType: _manifestContentType,
+        ifNoneMatch: '*',
+      );
+    } else {
+      if (etag.isEmpty || etag.startsWith('W/')) {
+        throw const ReaMicroS3Exception('对象存储未提供强 ETag，无法安全提交清单');
+      }
+      await client.put(
+        manifestKey,
+        ReaMicroCborEncoder.encode(nextManifest),
+        contentType: _manifestContentType,
+        ifMatch: etag,
+      );
+    }
+
+    final parts = <String>[
+      if (uploaded > 0) '上传 $uploaded 本',
+      if (downloaded > 0) '下载 $downloaded 本',
+      if (uploaded == 0 && downloaded == 0) '没有新的书籍变更',
+      if (skipped > 0) '$skipped 本已是最新',
+      if (failed > 0) '$failed 本失败',
+    ];
+    return ReaMicroS3SyncResult(
+      uploaded: uploaded,
+      downloaded: downloaded,
+      merged: books.length,
+      failed: failed,
+      message: 'S3 同步完成：${parts.join('，')}（云端共 ${books.length} 本）',
+      links: links,
+    );
+  }
+
+  Future<ReaMicroS3File?> _uploadCover(
+    BookEntry local,
+    String uuid,
+    String objectId,
+  ) async {
+    final path = local.coverPath;
+    if (path == null || path.isEmpty) return null;
+    final file = File(path);
+    if (!await file.exists()) return null;
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) return null;
+    final sha = sha256.convert(bytes).toString();
+    await client.put(
+      _bookKey(uuid, objectId, 'cover'),
+      bytes,
+      contentType: 'image/jpeg',
+    );
+    return ReaMicroS3File(sha256: sha, sourceSha256: sha, objectId: objectId);
+  }
+
+  Future<String> _localSha256(BookEntry local) async {
+    final cached = local.contentRevision?.trim().toLowerCase() ?? '';
+    if (RegExp(r'^[a-f0-9]{64}$').hasMatch(cached)) return cached;
+    final digest = await sha256.bind(File(local.filePath).openRead()).first;
+    return digest.toString();
+  }
+
+  String _key(String suffix) {
+    final prefix = config.normalizedPrefix;
+    return prefix.isEmpty ? suffix : '$prefix/$suffix';
+  }
+
+  String _shardKey(String shardId, String objectId) =>
+      _key('manifests/$shardId/$objectId.cbor');
+
+  String _deletionKey(String shardId, String objectId) =>
+      _key('deletions/$shardId/$objectId.cbor');
+
+  String _bookKey(String uuid, String objectId, String name) =>
+      _key('$uuid/$objectId/$name');
+
+  static String _objectId(String sha, int now) =>
+      '$now-${sha.substring(0, 32)}';
+
+  static Map<String, Object?> _emptyManifest() => <String, Object?>{
+    'v': 1,
+    's': <Object?>[],
+    'd': <Object?>[],
+    'r': 0,
+    'sr': <String, Object?>{},
+    'dr': <String, Object?>{},
+    'de': <String, Object?>{},
+    'sp': <String, Object?>{},
+    'dp': <String, Object?>{},
+    'gc': <String, Object?>{},
+    'tx': <String, Object?>{},
+  };
+}
+
+Map<String, Object?> _asMap(Object? value) =>
+    value is Map<String, Object?> ? value : <String, Object?>{};
+
+List<Object?> _asList(Object? value) =>
+    value is List<Object?> ? value : const <Object?>[];
+
+int _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse('$value') ?? 0;
+}
+
+String _asString(Object? value) => value is String ? value : '';
+
+String _normalize(String value) => value.trim().toLowerCase();
+
+String _bookFingerprint(String title, String author, int size) =>
+    '${_normalize(title)}|${_normalize(author)}|$size';
+
+String _hexFromBytes(Object? value) {
+  if (value is Uint8List && value.length == 32) {
+    return value.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+  }
+  return '';
+}
+
+Uint8List _bytesFromHex(String value) {
+  final bytes = Uint8List(value.length ~/ 2);
+  for (var index = 0; index < bytes.length; index++) {
+    bytes[index] = int.parse(
+      value.substring(index * 2, index * 2 + 2),
+      radix: 16,
+    );
+  }
+  return bytes;
+}
