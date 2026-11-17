@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'hourly_reading_chart.dart';
 import 'reading_insights.dart';
@@ -508,7 +509,7 @@ class _WeekdayDetail extends StatelessWidget {
             textStyle: const TextStyle(fontSize: 12),
           ),
           iconAlignment: IconAlignment.end,
-          icon: const Icon(Icons.chevron_right_rounded, size: 16),
+          icon: const AppIcon(AppGlyph.chevronRight, size: 16),
           label: const Text('小时分布'),
         ),
       ],

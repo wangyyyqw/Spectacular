@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../icons/app_icon.dart';
 import '../theme/reader_theme.dart';
 
 /// 配色草稿只在保存时应用，取消保留原主题。
@@ -120,6 +121,7 @@ class _CustomThemeDialogState extends State<CustomThemeDialog> {
     mainAxisSize: MainAxisSize.min,
     children: [
       SegmentedButton<bool>(
+        selectedIcon: const AppIcon(AppGlyph.check),
         segments: const [
           ButtonSegment(value: false, label: Text('背景色')),
           ButtonSegment(value: true, label: Text('文字色')),

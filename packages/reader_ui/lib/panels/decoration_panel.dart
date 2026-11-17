@@ -3,6 +3,7 @@ import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import '../decorations/decoration.dart';
+import '../icons/app_icon.dart';
 
 /// 只管理手工装饰的抽屉页签。
 class ReaderDecorationPanel extends StatefulWidget {
@@ -112,14 +113,14 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
               tooltip: '装饰排序',
               initialValue: _readingOrder,
               onSelected: (value) => setState(() => _readingOrder = value),
-              icon: const Icon(Icons.sort),
+              icon: const AppIcon(AppGlyph.sort),
               itemBuilder: (_) => [
-                CheckedPopupMenuItem(
+                appCheckedMenuItem(
                   value: false,
                   checked: !_readingOrder,
                   child: const Text('最近更新'),
                 ),
-                CheckedPopupMenuItem(
+                appCheckedMenuItem(
                   value: true,
                   checked: _readingOrder,
                   child: const Text('阅读顺序'),
@@ -129,14 +130,14 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
           ),
           ListTile(
             key: const ValueKey<String>('decoration-rules-entry'),
-            leading: const Icon(Icons.auto_fix_high_outlined),
+            leading: const AppIcon(AppGlyph.autoFix),
             title: const Text('自动装饰规则'),
             subtitle: Text(
               widget.ruleCount == 0
                   ? '暂无规则'
                   : '${widget.ruleCount} 条规则 · ${widget.rulesEnabled ? '已启用' : '未启用'}',
             ),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const AppIcon(AppGlyph.chevronRight),
             onTap: widget.onRules,
           ),
           Padding(
@@ -147,12 +148,12 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
               onChanged: (value) => setState(() => _query = value),
               decoration: InputDecoration(
                 hintText: '搜索原文、章节或样式',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const AppIcon(AppGlyph.search),
                 suffixIcon: _query.isEmpty
                     ? null
                     : IconButton(
                         tooltip: '清除搜索',
-                        icon: const Icon(Icons.close),
+                        icon: const AppIcon(AppGlyph.close),
                         onPressed: () {
                           _search.clear();
                           setState(() => _query = '');
@@ -214,6 +215,7 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
         ],
       ),
       trailing: PopupMenuButton<String>(
+        icon: const AppIcon(AppGlyph.more),
         key: ValueKey<String>('decoration-actions-${item.id}'),
         tooltip: '管理装饰',
         onSelected: (value) =>

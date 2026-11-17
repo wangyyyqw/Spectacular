@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_core/editing/package_editor.dart';
 import 'package:reader_core/editing/editable_document.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_page.dart';
 
 import 'book_editor_controller.dart';
@@ -281,7 +282,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
           leading: IconButton(
             tooltip: '退出编辑',
             onPressed: _leave,
-            icon: const Icon(Icons.arrow_back),
+            icon: const AppIcon(AppGlyph.arrowBack),
           ),
           title: Text(
             '${widget.title}${editor.dirty ? ' · 未保存' : ''}',
@@ -291,19 +292,20 @@ class _BookEditorPageState extends State<BookEditorPage> {
             IconButton(
               tooltip: '撤销',
               onPressed: editor.busy ? null : editor.undo,
-              icon: const Icon(Icons.undo),
+              icon: const AppIcon(AppGlyph.undo),
             ),
             IconButton(
               tooltip: '重做',
               onPressed: editor.busy ? null : editor.redo,
-              icon: const Icon(Icons.redo),
+              icon: const AppIcon(AppGlyph.redo),
             ),
             IconButton(
               tooltip: '保存书籍',
               onPressed: editor.busy ? null : _save,
-              icon: const Icon(Icons.save_outlined),
+              icon: const AppIcon(AppGlyph.save),
             ),
             PopupMenuButton<String>(
+              icon: const AppIcon(AppGlyph.more),
               tooltip: '书籍工具',
               onSelected: (value) => unawaited(_tool(value)),
               itemBuilder: (_) => const [
@@ -369,10 +371,11 @@ class _BookEditorPageState extends State<BookEditorPage> {
               const SizedBox(width: 8),
               const Tooltip(
                 message: '点击段落编辑',
-                child: Icon(Icons.touch_app_outlined, size: 18),
+                child: AppIcon(AppGlyph.touchApp, size: 18),
               ),
               const Spacer(),
               DropdownButton<bool>(
+                icon: const AppIcon(AppGlyph.chevronDown),
                 value: editor.useReadingSettings,
                 underline: const SizedBox(),
                 items: [
@@ -490,8 +493,10 @@ class _BookEditorPageState extends State<BookEditorPage> {
                   tooltip: _inspectorExpanded ? '折叠样式检查器' : '展开样式检查器',
                   onPressed: () =>
                       setState(() => _inspectorExpanded = !_inspectorExpanded),
-                  icon: Icon(
-                    _inspectorExpanded ? Icons.expand_more : Icons.expand_less,
+                  icon: AppIcon(
+                    _inspectorExpanded
+                        ? AppGlyph.chevronDown
+                        : AppGlyph.chevronUp,
                   ),
                 ),
               ),

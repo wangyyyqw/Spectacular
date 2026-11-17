@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/editing/class_style_editor.dart';
 import 'package:reader_core/editing/class_style_worker.dart';
 import 'package:reader_core/editing/package_editor.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_editor_controller.dart';
 
@@ -217,7 +218,7 @@ class BookEditorTools {
                   if (working) const LinearProgressIndicator(),
                   const SizedBox(height: 12),
                   TextButton.icon(
-                    icon: const Icon(Icons.code),
+                    icon: const AppIcon(AppGlyph.code),
                     label: const Text('高级：打开 CSS 源码'),
                     onPressed: () async {
                       final paths = editor.session.resources
@@ -267,7 +268,7 @@ class BookEditorTools {
                       ),
                     ),
                   TextButton.icon(
-                    icon: const Icon(Icons.add),
+                    icon: const AppIcon(AppGlyph.add),
                     label: const Text('添加 CSS 属性'),
                     onPressed: () async {
                       final key = await editorPrompt(context, 'CSS 属性名');
@@ -283,7 +284,7 @@ class BookEditorTools {
                       }
                     },
                   ),
-                  ExpansionTile(
+                  AppExpansionTile(
                     title: const Text('作者样式来源'),
                     children: [
                       for (final source in report.sources)
@@ -659,7 +660,7 @@ class BookEditorTools {
                 },
                 trailing: IconButton(
                   tooltip: '删除目录项',
-                  icon: const Icon(Icons.remove_circle_outline),
+                  icon: const AppIcon(AppGlyph.removeCircle),
                   onPressed: () => setState(() => items.removeAt(index)),
                 ),
               ),
@@ -988,12 +989,12 @@ class BookEditorFiles extends StatelessWidget {
           title: const Text('书籍文件'),
           trailing: IconButton(
             tooltip: '新增文件',
-            icon: const Icon(Icons.add),
+            icon: const AppIcon(AppGlyph.add),
             onPressed: () => BookEditorTools(context, editor).addResource(),
           ),
         ),
         for (final folder in keys)
-          ExpansionTile(
+          AppExpansionTile(
             initiallyExpanded: true,
             title: Text(folder),
             children: [
@@ -1007,6 +1008,7 @@ class BookEditorFiles extends StatelessWidget {
                   ),
                   onTap: () => _open(context, path),
                   trailing: PopupMenuButton<String>(
+                    icon: const AppIcon(AppGlyph.more),
                     tooltip: '文件操作',
                     onSelected: (value) => BookEditorTools(
                       context,

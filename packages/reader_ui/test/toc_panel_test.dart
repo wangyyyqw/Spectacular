@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/panels/toc_panel.dart';
 
 TocEntry _entry(
@@ -137,7 +138,12 @@ void main() {
       expect(find.text('第二章'), findsOneWidget);
       expect(find.text('2.1'), findsNothing);
       expect(find.text('共 5 章'), findsOneWidget);
-      expect(find.byIcon(Icons.expand_less), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronUp,
+        ),
+        findsOneWidget,
+      );
 
       await tester.tap(
         find.byKey(const ValueKey<String>('toc-toggle-0-第一章')),

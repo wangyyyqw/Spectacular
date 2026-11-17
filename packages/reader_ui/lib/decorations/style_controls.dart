@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../annotations/annotation_appearance_editor.dart';
+import '../icons/app_icon.dart';
 import 'decoration_style.dart';
 
 /// 装饰面板共用的数值滑杆。
@@ -121,7 +122,7 @@ class ReaderStyleColorField extends StatelessWidget {
         IconButton(
           tooltip: clearLabel,
           onPressed: () => onChanged(null),
-          icon: const Icon(Icons.close, size: 18),
+          icon: const AppIcon(AppGlyph.close, size: 18),
         ),
     ],
   );
@@ -144,6 +145,7 @@ class ReaderBorderStyleField extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       DropdownButtonFormField<ReaderDecorationBorderStyle>(
+        icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: value,
         decoration: const InputDecoration(labelText: '边框线型'),
         items: [

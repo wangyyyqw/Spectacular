@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import '../panels/settings_panel.dart' show ReaderFontOption;
 import 'decoration_style.dart';
 import 'style_controls.dart';
@@ -29,6 +30,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
     children: [
       DropdownButtonFormField<String>(
         key: const ValueKey<String>('decoration-font'),
+        icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.fontFamily ?? '',
         isExpanded: true,
         decoration: const InputDecoration(labelText: '字体'),
@@ -59,6 +61,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
       ),
       DropdownButtonFormField<int>(
         key: const ValueKey<String>('decoration-weight'),
+        icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.fontWeight ?? 0,
         decoration: const InputDecoration(labelText: '字重'),
         items: [
@@ -71,6 +74,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
       const SizedBox(height: 14),
       DropdownButtonFormField<String>(
         key: const ValueKey<String>('decoration-italic'),
+        icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.italic == null
             ? 'inherit'
             : style.italic!

@@ -3,6 +3,7 @@ import 'package:re_editor/re_editor.dart';
 import 'package:re_highlight/languages/css.dart';
 import 'package:re_highlight/languages/xml.dart';
 import 'package:re_highlight/styles/github.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'xhtml_chunk_analyzer.dart';
@@ -34,6 +35,7 @@ class BookEditorSource extends StatelessWidget {
                           '${doc.path.split('/').last}${controller.documentDirty(doc.path) ? ' •' : ''}',
                         ),
                         onPressed: () => controller.openDocument(doc.path),
+                        deleteIcon: const AppIcon(AppGlyph.close),
                         onDeleted: () => controller.closeDocument(doc.path),
                       ),
                   ],
@@ -44,7 +46,7 @@ class BookEditorSource extends StatelessWidget {
                 onPressed: document == null || controller.busy
                     ? null
                     : onLocate,
-                icon: const Icon(Icons.my_location),
+                icon: const AppIcon(AppGlyph.locate),
               ),
             ],
           ),
@@ -132,17 +134,17 @@ class EditorFindBar extends StatelessWidget implements PreferredSizeWidget {
             IconButton(
               tooltip: '上一处',
               onPressed: controller.previousMatch,
-              icon: const Icon(Icons.keyboard_arrow_up),
+              icon: const AppIcon(AppGlyph.chevronUp),
             ),
             IconButton(
               tooltip: '下一处',
               onPressed: controller.nextMatch,
-              icon: const Icon(Icons.keyboard_arrow_down),
+              icon: const AppIcon(AppGlyph.chevronDown),
             ),
             IconButton(
               tooltip: '关闭查找',
               onPressed: controller.close,
-              icon: const Icon(Icons.close),
+              icon: const AppIcon(AppGlyph.close),
             ),
           ],
         ),

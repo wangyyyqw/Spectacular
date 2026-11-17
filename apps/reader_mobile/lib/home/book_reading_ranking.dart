@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
@@ -134,8 +135,8 @@ class _RankingRow extends StatelessWidget {
           width: 40,
           height: 54,
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: Icon(
-            Icons.menu_book_outlined,
+          child: AppIcon(
+            AppGlyph.menuBook,
             size: 20,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),

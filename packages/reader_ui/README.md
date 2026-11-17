@@ -29,6 +29,8 @@
 
 ## 阅读设置与菜单细节
 
+- 应用及阅读面板图标统一使用 `icons/app_icon.dart` 的 `AppIcon` / `AppGlyph`：沿用四底栏的 24 格坐标、1.7 线宽、圆角笔触和实心细节，尺寸、颜色及透明度跟随 `IconTheme`。底栏与评分使用 `filled` 表示选中；底栏镂空色由所在表面通过 `cutoutColor` 传入。
+- 新增按钮、下拉框和弹出菜单须显式使用同一套字形；展开列表使用 `AppExpansionTile`，勾选菜单使用 `appCheckedMenuItem`。应用通过 `ActionIconThemeData` 统一自动返回和关闭图标，保留框架的路由行为。
 - `ReaderMenuOverlay` 顶部、底部和抽屉使用滑动及淡入淡出，进入 280ms、退出 200ms，退出内容禁止点击；墨水屏或 `MediaQuery.disableAnimations` 为真时即时切换。抽屉提供标题、关闭按钮与抓手。
 - `MarginEditor` 保留六项边距的拖动、正文预览、取消和保存，数值可点击输入小数，按各项上限校验；预览与实际正文共用页家具高度。
 - `ReaderCornerInfo` 管理四角信息，`ReaderCornerRow` 显示当前章节、书名、章页、进度、分钟时钟或电池图标。整行隐藏时回收该行高度，显式边距继续保留；信息配置参与翻页快照失效。电池通过宿主的 `getBatteryStatus` 查询电量与充电状态，并监听 `com.spectacular.reader_mobile/battery` 事件通道即时更新；充电及已充满仍接电时显示闪电，未提供状态时显示未知，读取失败保留有效值。

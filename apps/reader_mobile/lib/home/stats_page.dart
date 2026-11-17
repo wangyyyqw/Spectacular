@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
@@ -257,7 +258,7 @@ class _StatsPageState extends State<StatsPage> {
             key: const ValueKey<String>('stats-refresh'),
             tooltip: '刷新统计',
             onPressed: _reload,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const AppIcon(AppGlyph.refresh),
           ),
         ],
         bottom: const _AppBarHairline(),
@@ -531,7 +532,7 @@ class _StatsError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, size: 32, color: muted),
+            AppIcon(AppGlyph.error, size: 32, color: muted),
             const SizedBox(height: 12),
             const Text(
               '统计加载失败',
@@ -679,8 +680,8 @@ class _RecentBookRow extends StatelessWidget {
         ),
       ),
       const SizedBox(width: 2),
-      Icon(
-        Icons.chevron_right_rounded,
+      AppIcon(
+        AppGlyph.chevronRight,
         size: 14,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
@@ -741,8 +742,8 @@ class _NoReadingCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.auto_stories_outlined,
+          AppIcon(
+            AppGlyph.autoStories,
             size: 20,
             color: theme.colorScheme.onSurfaceVariant,
           ),

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/image_preview_page.dart';
 
 Future<ui.Image> _createImage(int width, int height, int color) async {
@@ -67,11 +68,15 @@ double _scale(WidgetTester tester) => tester
     .value
     .getMaxScaleOnAxis();
 
-bool _enabled(WidgetTester tester, IconData icon) =>
-    tester
-        .widget<IconButton>(find.widgetWithIcon(IconButton, icon))
-        .onPressed !=
-    null;
+Finder _iconButton(AppGlyph glyph) => find.byWidgetPredicate(
+  (widget) =>
+      widget is IconButton &&
+      widget.icon is AppIcon &&
+      (widget.icon as AppIcon).glyph == glyph,
+);
+
+bool _enabled(WidgetTester tester, AppGlyph glyph) =>
+    tester.widget<IconButton>(_iconButton(glyph)).onPressed != null;
 
 PageController _pager(WidgetTester tester) =>
     tester.widget<PageView>(find.byType(PageView)).controller!;
@@ -257,13 +262,13 @@ void main() {
     await tester.tap(find.byTooltip('下一张'));
     await tester.pumpAndSettle();
     expect(find.text('3 / 3'), findsOneWidget);
-    expect(_enabled(tester, Icons.chevron_right), isFalse);
+    expect(_enabled(tester, AppGlyph.chevronRight), isFalse);
     await tester.tap(find.byTooltip('上一张'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('上一张'));
     await tester.pumpAndSettle();
     expect(find.text('1 / 3'), findsOneWidget);
-    expect(_enabled(tester, Icons.chevron_left), isFalse);
+    expect(_enabled(tester, AppGlyph.chevronLeft), isFalse);
     expect(changes, [2, 1, 0]);
     expect(loads, [1, 2, 1, 0]);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -575,7 +580,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.text('1 / 3').hitTestable(), findsOneWidget);
-    final nextButton = find.widgetWithIcon(IconButton, Icons.chevron_right);
+    final nextButton = _iconButton(AppGlyph.chevronRight);
     expect(nextButton.hitTestable(), findsOneWidget);
     expect(
       tester.getSize(nextButton).shortestSide,

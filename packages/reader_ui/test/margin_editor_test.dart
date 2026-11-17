@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
@@ -129,7 +130,9 @@ void main() {
       // 点「上内」的上箭头三次 → 15。
       final upArrow = find.descendant(
         of: find.byKey(const ValueKey<String>('margin-top-inner')),
-        matching: find.byIcon(Icons.keyboard_arrow_up),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronUp,
+        ),
       );
       final initialTop = tester.getTopLeft(upArrow).dy;
       await tester.tap(upArrow);
@@ -144,7 +147,9 @@ void main() {
       // 上外减小后，上内按钮也随正文边界上移。
       final downArrow = find.descendant(
         of: find.byKey(const ValueKey<String>('margin-top-outer')),
-        matching: find.byIcon(Icons.keyboard_arrow_down),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronDown,
+        ),
       );
       await tester.tap(downArrow);
       await tester.pump();
@@ -211,7 +216,9 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byKey(const ValueKey<String>('margin-top-inner')),
-          matching: find.byIcon(Icons.keyboard_arrow_up),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronUp,
+          ),
         ),
       );
       await tester.pump();
@@ -432,7 +439,9 @@ void main() {
       await _showEditor(tester, onPreview: previews.add);
       final arrow = find.descendant(
         of: find.byKey(const ValueKey<String>('margin-top-inner')),
-        matching: find.byIcon(Icons.keyboard_arrow_up),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronUp,
+        ),
       );
       await tester.drag(arrow, const Offset(0, 24));
       await tester.pumpAndSettle();

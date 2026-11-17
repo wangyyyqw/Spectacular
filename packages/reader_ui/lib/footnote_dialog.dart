@@ -7,6 +7,8 @@ import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/image_cache.dart';
 
+import 'icons/app_icon.dart';
+
 /// 阅读页注释弹窗：展示多段文字与书内图片，不进入正文排版。
 class ReaderFootnoteDialog extends StatelessWidget {
   /// 创建注释弹窗。
@@ -28,10 +30,10 @@ class ReaderFootnoteDialog extends StatelessWidget {
     NoteKind.link => '注释',
   };
 
-  IconData get _icon => switch (footnote.kind) {
-    NoteKind.endnote => Icons.article_outlined,
-    NoteKind.footnote => Icons.sticky_note_2_outlined,
-    NoteKind.link => Icons.link,
+  AppGlyph get _icon => switch (footnote.kind) {
+    NoteKind.endnote => AppGlyph.article,
+    NoteKind.footnote => AppGlyph.note,
+    NoteKind.link => AppGlyph.link,
   };
 
   @override
@@ -90,7 +92,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                             color: theme.colorScheme.primaryContainer,
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: Icon(
+                          child: AppIcon(
                             _icon,
                             size: 21,
                             color: theme.colorScheme.onPrimaryContainer,
@@ -160,7 +162,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                           key: const ValueKey('reader-footnote-close'),
                           onPressed: () => Navigator.of(context).pop(),
                           tooltip: '关闭注释',
-                          icon: const Icon(Icons.close, size: 20),
+                          icon: const AppIcon(AppGlyph.close, size: 20),
                         ),
                       ],
                     ),
@@ -289,8 +291,8 @@ class _CopyFootnoteActionState extends State<_CopyFootnoteAction> {
           onPressed: _copy,
           icon: AnimatedSwitcher(
             duration: const Duration(milliseconds: 160),
-            child: Icon(
-              _copied ? Icons.check_rounded : Icons.content_copy_rounded,
+            child: AppIcon(
+              _copied ? AppGlyph.check : AppGlyph.copy,
               key: ValueKey(_copied),
               size: 18,
             ),
@@ -324,8 +326,8 @@ class _EmptyFootnote extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(
-            Icons.notes_outlined,
+          AppIcon(
+            AppGlyph.article,
             size: 28,
             color: theme.colorScheme.onSurfaceVariant,
           ),

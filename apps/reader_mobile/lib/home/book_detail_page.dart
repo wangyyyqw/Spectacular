@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
@@ -535,7 +536,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                       onPressed: _tagController.text.trim().isEmpty
                           ? null
                           : _createTag,
-                      icon: const Icon(Icons.add),
+                      icon: const AppIcon(AppGlyph.add),
                     ),
                   ),
                   onSubmitted: (_) => _createTag(),
@@ -700,7 +701,7 @@ class _CoverEditor extends StatelessWidget {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.image_outlined),
+                    : const AppIcon(AppGlyph.image),
                 label: Text(busy ? '正在更新…' : '更换封面'),
               ),
             ],
@@ -1034,10 +1035,8 @@ class _ReadingStatusSection extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(
-                finished
-                    ? Icons.check_circle_outline
-                    : Icons.auto_stories_outlined,
+              AppIcon(
+                finished ? AppGlyph.checkCircle : AppGlyph.autoStories,
                 size: 20,
                 color: finished
                     ? theme.colorScheme.primary
@@ -1076,7 +1075,7 @@ class _ReadingStatusSection extends StatelessWidget {
                 OutlinedButton.icon(
                   key: const ValueKey<String>('book-detail-edit-finished'),
                   onPressed: canEdit ? onEdit : null,
-                  icon: const Icon(Icons.rate_review_outlined, size: 18),
+                  icon: const AppIcon(AppGlyph.rateReview, size: 18),
                   label: const Text('编辑读完信息'),
                 ),
                 const SizedBox(width: 8),
@@ -1091,7 +1090,7 @@ class _ReadingStatusSection extends StatelessWidget {
             FilledButton.tonalIcon(
               key: const ValueKey<String>('book-detail-mark-finished'),
               onPressed: canEdit ? onEdit : null,
-              icon: const Icon(Icons.task_alt),
+              icon: const AppIcon(AppGlyph.checkCircle),
               label: const Text('标记读完并写书评'),
             ),
           if (!canEdit) ...<Widget>[
@@ -1121,8 +1120,9 @@ class _ReviewStars extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         for (var star = 1; star <= 5; star++)
-          Icon(
-            star <= rating ? Icons.star_rounded : Icons.star_outline_rounded,
+          AppIcon(
+            AppGlyph.star,
+            filled: star <= rating,
             size: size,
             color: star <= rating
                 ? const Color(0xFFE0A327)

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 
@@ -147,8 +148,8 @@ class _ReadabilityBadge extends StatelessWidget {
             color: scheme.errorContainer,
             borderRadius: BorderRadius.circular(4),
           ),
-          child: Icon(
-            Icons.info_outline_rounded,
+          child: AppIcon(
+            AppGlyph.info,
             size: 16,
             color: scheme.onErrorContainer,
           ),

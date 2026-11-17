@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import 'annotation.dart';
 import 'annotation_style_painter.dart';
 
@@ -81,8 +82,8 @@ class AnnotationQuotePreview extends StatelessWidget {
           ),
           if (thought) ...[
             const SizedBox(width: 8),
-            Icon(
-              Icons.sticky_note_2_outlined,
+            AppIcon(
+              AppGlyph.note,
               size: 16,
               color: Color(inkMode ? 0xFF000000 : color),
             ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import 'annotation.dart';
 import 'annotation_style_painter.dart';
 import 'mark_settings.dart';
@@ -172,7 +173,7 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
         key: const ValueKey<String>('annotation-add-color'),
         tooltip: '添加自定义颜色（长按颜色可删除）',
         onPressed: () => _addColor(context),
-        icon: const Icon(Icons.add_circle_outline),
+        icon: const AppIcon(AppGlyph.addCircle),
       ),
     ],
   );
@@ -220,8 +221,8 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
                   ),
                 ),
                 child: color == option.value
-                    ? Icon(
-                        Icons.check,
+                    ? AppIcon(
+                        AppGlyph.check,
                         size: 19,
                         color: Color(option.value).computeLuminance() > 0.5
                             ? Colors.black

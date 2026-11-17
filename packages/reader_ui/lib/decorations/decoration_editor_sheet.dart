@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import '../panels/settings_panel.dart' show ReaderFontOption;
 import 'decoration_border_editor.dart';
 import 'decoration_image_store.dart';
@@ -199,7 +200,7 @@ class _ReaderDecorationEditorSheetState
                   child: FilledButton.icon(
                     key: const ValueKey<String>('decoration-save'),
                     onPressed: _canSave ? () => _pop(_style) : null,
-                    icon: const Icon(Icons.check),
+                    icon: const AppIcon(AppGlyph.check),
                     label: const Text('保存装饰'),
                   ),
                 ),
@@ -216,14 +217,14 @@ class _ReaderDecorationEditorSheetState
     children: [
       Row(
         children: [
-          const Icon(Icons.format_paint_outlined),
+          const AppIcon(AppGlyph.formatPaint),
           const SizedBox(width: 8),
           Text('装饰', style: Theme.of(context).textTheme.titleLarge),
           const Spacer(),
           IconButton(
             onPressed: _close,
             tooltip: '关闭',
-            icon: const Icon(Icons.close),
+            icon: const AppIcon(AppGlyph.close),
           ),
         ],
       ),
@@ -277,7 +278,7 @@ class _ReaderDecorationEditorSheetState
           ),
         ],
       ),
-      ExpansionTile(
+      AppExpansionTile(
         key: const ValueKey<String>('decoration-typography'),
         title: const Text('字体'),
         subtitle: const Text('字体、字号、字重、斜体、字距、文字色'),
@@ -290,13 +291,13 @@ class _ReaderDecorationEditorSheetState
           ),
         ],
       ),
-      ExpansionTile(
+      AppExpansionTile(
         title: const Text('背景'),
         subtitle: const Text('颜色、透明度、圆角、本地背景图'),
         tilePadding: EdgeInsets.zero,
         children: [_background()],
       ),
-      ExpansionTile(
+      AppExpansionTile(
         title: const Text('边框与内边距'),
         subtitle: const Text('统一或分别设置四边'),
         tilePadding: EdgeInsets.zero,
@@ -342,13 +343,13 @@ class _ReaderDecorationEditorSheetState
                   dimension: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.image_outlined),
+              : const AppIcon(AppGlyph.image),
           label: const Text('选择本地背景图'),
         ),
       if (_style.backgroundImagePath != null)
         TextButton.icon(
           onPressed: () => _set('backgroundImagePath', null),
-          icon: const Icon(Icons.close),
+          icon: const AppIcon(AppGlyph.close),
           label: const Text('移除背景图'),
         ),
       const Text('背景图按 cover 裁剪。颜色和图片需保留足够对比度，避免遮挡文字。'),

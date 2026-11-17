@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../annotations/annotation_appearance_editor.dart';
 import '../annotations/annotation_quote_preview.dart';
 import '../annotations/mark_settings.dart';
+import '../icons/app_icon.dart';
 
 /// 阅读设置中的划线分区。
 class ReaderMarkSettingsSheet extends StatefulWidget {
@@ -50,7 +51,7 @@ class _ReaderMarkSettingsSheetState extends State<ReaderMarkSettingsSheet> {
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
                         tooltip: '关闭',
-                        icon: const Icon(Icons.close),
+                        icon: const AppIcon(AppGlyph.close),
                       ),
                     ],
                   ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import '../page_furniture/corner_info.dart';
 
 /// 四角位置预览；选择后即时应用，宿主负责保存。
@@ -124,7 +125,9 @@ class _ContentChoices extends StatelessWidget {
                 key: ValueKey('corner-choice-${content.name}'),
                 title: Text(content.label),
                 selected: selected == content,
-                trailing: selected == content ? const Icon(Icons.check) : null,
+                trailing: selected == content
+                    ? const AppIcon(AppGlyph.check)
+                    : null,
                 onTap: () => Navigator.of(context).pop(content),
               ),
           ],

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
 import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
@@ -160,7 +161,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                       child: Row(
                         children: <Widget>[
                           _IconButton(
-                            icon: Icons.arrow_back_rounded,
+                            icon: AppGlyph.arrowBack,
                             iconSize: 22,
                             color: fg,
                             onTap: onBack,
@@ -183,8 +184,8 @@ class ReaderMenuOverlay extends StatelessWidget {
                           const Spacer(),
                           _IconButton(
                             icon: nightMode
-                                ? Icons.light_mode_outlined
-                                : Icons.dark_mode_outlined,
+                                ? AppGlyph.lightMode
+                                : AppGlyph.darkMode,
                             iconSize: 19,
                             color: fg,
                             onTap: inkMode ? null : onToggleDayNight,
@@ -197,7 +198,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                           ),
                           if (onEdit != null)
                             _IconButton(
-                              icon: Icons.edit_note_outlined,
+                              icon: AppGlyph.editNote,
                               iconSize: 22,
                               color: fg,
                               onTap: onEdit,
@@ -206,7 +207,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                             ),
                           if (onTts != null)
                             _IconButton(
-                              icon: Icons.headphones_outlined,
+                              icon: AppGlyph.headphones,
                               iconSize: 19,
                               color: fg,
                               onTap: onTts!,
@@ -322,7 +323,7 @@ class _IconButton extends StatelessWidget {
     this.buttonKey,
   });
 
-  final IconData icon;
+  final AppGlyph icon;
   final Color color;
   final VoidCallback? onTap;
   final String tooltip;
@@ -333,7 +334,7 @@ class _IconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       key: buttonKey,
-      icon: Icon(
+      icon: AppIcon(
         icon,
         size: iconSize,
         color: color.withValues(alpha: onTap == null ? 0.3 : 0.9),
@@ -382,7 +383,7 @@ class _ProgressRowState extends State<_ProgressRow> {
       child: Row(
         children: <Widget>[
           _NavButton(
-            icon: Icons.skip_previous,
+            icon: AppGlyph.skipPrevious,
             label: '上一章',
             color: widget.fg,
             onTap: widget.onPrevious,
@@ -489,7 +490,7 @@ class _ProgressRowState extends State<_ProgressRow> {
             ),
           ),
           _NavButton(
-            icon: Icons.skip_next,
+            icon: AppGlyph.skipNext,
             label: '下一章',
             color: widget.fg,
             onTap: widget.onNext,
@@ -514,7 +515,7 @@ class _NavButton extends StatelessWidget {
     this.buttonKey,
   });
 
-  final IconData icon;
+  final AppGlyph icon;
   final String label;
   final Color color;
   final VoidCallback? onTap;
@@ -536,7 +537,7 @@ class _NavButton extends StatelessWidget {
           child: SizedBox(
             width: 32,
             height: 32,
-            child: Icon(
+            child: AppIcon(
               icon,
               size: 22,
               color: color.withValues(alpha: onTap == null ? 0.2 : 0.55),
@@ -560,15 +561,12 @@ class _EntriesRow extends StatelessWidget {
   final Color fill;
   final ValueChanged<ReaderMenuEntry> onEntry;
 
-  static const Map<ReaderMenuEntry, ({IconData icon, String label})> items =
-      <ReaderMenuEntry, ({IconData icon, String label})>{
-        ReaderMenuEntry.toc: (
-          icon: Icons.format_list_bulleted_rounded,
-          label: '目录',
-        ),
-        ReaderMenuEntry.theme: (icon: Icons.palette_outlined, label: '主题'),
-        ReaderMenuEntry.type: (icon: Icons.text_fields_rounded, label: '排版'),
-        ReaderMenuEntry.settings: (icon: Icons.settings_outlined, label: '设置'),
+  static const Map<ReaderMenuEntry, ({AppGlyph icon, String label})> items =
+      <ReaderMenuEntry, ({AppGlyph icon, String label})>{
+        ReaderMenuEntry.toc: (icon: AppGlyph.listBulleted, label: '目录'),
+        ReaderMenuEntry.theme: (icon: AppGlyph.palette, label: '主题'),
+        ReaderMenuEntry.type: (icon: AppGlyph.textFields, label: '排版'),
+        ReaderMenuEntry.settings: (icon: AppGlyph.settings, label: '设置'),
       };
 
   @override
@@ -588,7 +586,7 @@ class _EntriesRow extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Icon(
+                      AppIcon(
                         entry.value.icon,
                         size: 19,
                         color: fg.withValues(alpha: 0.85),
@@ -732,11 +730,7 @@ class _DrawerLayer extends StatelessWidget {
                             key: const ValueKey('reader-drawer-close'),
                             tooltip: '关闭$title',
                             onPressed: onClose,
-                            icon: Icon(
-                              Icons.close_rounded,
-                              color: fg,
-                              size: 22,
-                            ),
+                            icon: AppIcon(AppGlyph.close, color: fg, size: 22),
                           ),
                         ],
                       ),

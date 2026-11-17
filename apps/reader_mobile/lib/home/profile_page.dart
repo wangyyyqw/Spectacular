@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
@@ -56,10 +57,10 @@ class _ProfilePageState extends State<ProfilePage> {
               ListTile(
                 key: ValueKey<String>('bookshelf-sort-${order.value}'),
                 contentPadding: EdgeInsets.zero,
-                leading: Icon(
+                leading: AppIcon(
                   order == _shelfSort
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
+                      ? AppGlyph.radioChecked
+                      : AppGlyph.radioUnchecked,
                 ),
                 title: Text(order.label),
                 onTap: () => Navigator.of(context).pop(order),
@@ -150,10 +151,10 @@ class _ProfilePageState extends State<ProfilePage> {
           _section(context, '阅读', [
             ListTile(
               key: const ValueKey<String>('bookshelf-sort-setting'),
-              leading: const Icon(Icons.sort),
+              leading: const AppIcon(AppGlyph.sort),
               title: const Text('书架排序'),
               subtitle: Text(_shelfSort.label),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: const AppIcon(AppGlyph.chevronRight),
               onTap: _chooseShelfSort,
             ),
           ]),
@@ -166,14 +167,14 @@ class _ProfilePageState extends State<ProfilePage> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.ios_share),
+                  : const AppIcon(AppGlyph.share),
               title: const Text('导出诊断日志'),
               subtitle: const Text('遇到阅读问题时，可随反馈附上'),
               onTap: _exporting ? null : _exportLogs,
             ),
             ListTile(
               key: const ValueKey<String>('logs-clear'),
-              leading: const Icon(Icons.delete_sweep_outlined),
+              leading: const AppIcon(AppGlyph.deleteSweep),
               title: const Text('清理日志'),
               subtitle: const Text('删除本机保存的全部诊断日志'),
               onTap: _exporting ? null : _clearLogs,
@@ -195,7 +196,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final info = _packageInfo;
     return Row(
       children: [
-        const Icon(Icons.menu_book_outlined, size: 36),
+        const AppIcon(AppGlyph.menuBook, size: 36),
         const SizedBox(width: 16),
         Expanded(
           child: Column(

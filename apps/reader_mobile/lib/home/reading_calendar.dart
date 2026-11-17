@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_duration_summary.dart';
 import 'reading_calendar_month.dart';
@@ -107,14 +108,14 @@ class _ReadingCalendarState extends State<ReadingCalendar>
         key: const ValueKey('stats-calendar-previous'),
         tooltip: '上个月',
         onPressed: () => _shiftMonth(-1),
-        icon: const Icon(Icons.chevron_left_rounded),
+        icon: const AppIcon(AppGlyph.chevronLeft),
       ),
       Expanded(child: _monthButton()),
       IconButton(
         key: const ValueKey('stats-calendar-next'),
         tooltip: '下个月',
         onPressed: () => _shiftMonth(1),
-        icon: const Icon(Icons.chevron_right_rounded),
+        icon: const AppIcon(AppGlyph.chevronRight),
       ),
     ],
   );
