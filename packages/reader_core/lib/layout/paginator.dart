@@ -92,6 +92,7 @@ class PageContainer {
     required this.width,
     this.cloneDecoration = false,
     this.isPageRoot = false,
+    this.translationResolved = false,
   });
 
   final ComputedStyle style;
@@ -103,6 +104,9 @@ class PageContainer {
 
   /// 分页根容器的 overflow 按整页裁剪，不把多看出血截回正文区。
   final bool isPageRoot;
+
+  /// 绝对定位整盒的纯平移已落入切片坐标，绘制和命中共用最终位置。
+  final bool translationResolved;
 
   double get topDecoration => style.padding.top + style.borders.top.width;
   double get bottomDecoration =>
@@ -1709,7 +1713,11 @@ class Paginator {
 
   /// 在分页完成、父盒实际高度已知后，以最近的定位祖先重新放置覆盖层。
   /// 普通静态祖先不建立包含块；固定定位继续使用页面坐标。
-  static PageContent positionContainerOverlays(PageContent page) {
+  static PageContent positionContainerOverlays(
+    PageContent page, {
+    double pageWidth = 0,
+  }) {
+    page = _positionAbsoluteContainers(page, pageWidth);
     final bounds = _positionedContainerBounds(page);
     if (bounds.isEmpty) return page;
     final slices = <PageBlockSlice>[];
@@ -1753,7 +1761,16 @@ class Paginator {
     for (final slice in page.slices) {
       final top = slice.overlay ? (slice.absoluteTop ?? y) : y;
       if (!(slice.block.style?.isOutOfFlow ?? false)) {
-        for (final fragment in slice.block.containers) {
+        final fragments = slice.block.containers;
+        final outOfFlowDepth = fragments.lastIndexWhere(
+          (fragment) => fragment.container.style.isOutOfFlow,
+        );
+        for (
+          var depth = math.max(0, outOfFlowDepth);
+          depth < fragments.length;
+          depth++
+        ) {
+          final fragment = fragments[depth];
           final container = fragment.container;
           if (!_establishesContainingBlock(container.style)) continue;
           final rect = Rect.fromLTRB(
@@ -1776,6 +1793,179 @@ class Paginator {
     }
     return bounds;
   }
+
+  /// 父盒高度由内部流确定后统一定位；子块的图片、注音、注释与 CFI 均原样保留。
+  static PageContent _positionAbsoluteContainers(
+    PageContent page,
+    double pageWidth,
+  ) {
+    final containers = <PageContainer>{
+      for (final slice in page.slices)
+        for (final fragment in slice.block.containers)
+          if (fragment.container.style.position == CssPosition.absolute)
+            fragment.container,
+    };
+    if (containers.isEmpty) return page;
+    final replacements = {
+      for (final container in containers) container: container,
+    };
+    var slices = page.slices;
+    for (final original in containers) {
+      final container = replacements[original]!;
+      final current = _pageWithSlices(page, slices);
+      final bounds = _positionedContainerBounds(current);
+      final rect = bounds[container];
+      if (rect == null) continue;
+      final containing = _absoluteContainerContainingBox(
+        current,
+        container,
+        bounds,
+        pageWidth,
+      );
+      final offset = _absoluteContainerOffset(container, rect, containing);
+      final shifted = <PageContainer, PageContainer>{};
+      slices = [
+        for (final slice in slices)
+          _shiftAbsoluteContainerSlice(slice, container, offset, shifted),
+      ];
+      replacements.updateAll((key, value) => shifted[value] ?? value);
+    }
+    return _pageWithSlices(page, slices);
+  }
+
+  static Rect _absoluteContainerContainingBox(
+    PageContent page,
+    PageContainer container,
+    Map<PageContainer, Rect> bounds,
+    double pageWidth,
+  ) {
+    final chain = page.slices
+        .firstWhere(
+          (slice) => slice.block.containers.any(
+            (fragment) => identical(fragment.container, container),
+          ),
+        )
+        .block
+        .containers;
+    final parent = chain
+        .takeWhile((fragment) => !identical(fragment.container, container))
+        .map((fragment) => fragment.container)
+        .where((box) => _establishesContainingBlock(box.style))
+        .lastOrNull;
+    final parentRect = bounds[parent];
+    return parent != null && parentRect != null
+        ? _containerPaddingBox(parent, parentRect, page.pageHeight)
+        : Rect.fromLTWH(0, 0, pageWidth, page.pageHeight);
+  }
+
+  static Offset _absoluteContainerOffset(
+    PageContainer container,
+    Rect rect,
+    Rect containing,
+  ) {
+    final style = container.style;
+    final left = style.left?.resolve(containing.width);
+    final right = style.right?.resolve(containing.width);
+    final top = style.top?.resolve(containing.height);
+    final bottom = style.bottom?.resolve(containing.height);
+    var x = left != null
+        ? containing.left + left + style.margin.left
+        : right != null
+        ? containing.right - right - rect.width - style.margin.right
+        : rect.left;
+    var y = top != null
+        ? containing.top + top + style.margin.top
+        : bottom != null
+        ? containing.bottom - bottom - rect.height - style.margin.bottom
+        : rect.top;
+    // 纯平移没有旋转/缩放的坐标逆变换，直接解算可让注释和选区与绘制一致。
+    if (style.transforms.every(
+      (transform) => transform.kind == CssTransformKind.translate,
+    )) {
+      for (final transform in style.transforms) {
+        x += transform.x?.resolve(rect.width) ?? 0;
+        y += transform.y?.resolve(rect.height) ?? 0;
+      }
+    }
+    return Offset(x - rect.left, y - rect.top);
+  }
+
+  static PageBlockSlice _shiftAbsoluteContainerSlice(
+    PageBlockSlice slice,
+    PageContainer container,
+    Offset offset,
+    Map<PageContainer, PageContainer> shifted,
+  ) {
+    final fragments = slice.block.containers;
+    final depth = fragments.indexWhere(
+      (fragment) => identical(fragment.container, container),
+    );
+    if (depth < 0) return slice;
+    final block = slice.block.withSpacing(
+      containers: [
+        ...fragments.take(depth),
+        for (final fragment in fragments.skip(depth))
+          PageContainerFragment(
+            container: shifted.putIfAbsent(
+              fragment.container,
+              () => _translatedContainer(
+                fragment.container,
+                container,
+                offset.dx,
+              ),
+            ),
+            startsHere: fragment.startsHere,
+            endsHere: fragment.endsHere,
+            topInset: fragment.topInset,
+            bottomInset: fragment.bottomInset,
+          ),
+      ],
+    );
+    return PageBlockSlice(
+      block: block,
+      startLine: slice.startLine,
+      endLine: slice.endLine,
+      height: slice.height,
+      leadingExtent: slice.leadingExtent,
+      trailingExtent: slice.trailingExtent,
+      leftInset: slice.leftInset + offset.dx,
+      overlay: true,
+      absoluteTop: (slice.absoluteTop ?? 0) + offset.dy,
+      textTopTrim: slice.textTopTrim,
+      textBottomTrim: slice.textBottomTrim,
+    );
+  }
+
+  static PageContainer _translatedContainer(
+    PageContainer source,
+    PageContainer root,
+    double left,
+  ) => PageContainer(
+    style: source.style,
+    left: source.left + left,
+    width: source.width,
+    cloneDecoration: source.cloneDecoration,
+    isPageRoot: source.isPageRoot,
+    translationResolved:
+        source.translationResolved ||
+        (identical(source, root) &&
+            source.style.transforms.every(
+              (transform) => transform.kind == CssTransformKind.translate,
+            )),
+  );
+
+  static PageContent _pageWithSlices(
+    PageContent page,
+    List<PageBlockSlice> slices,
+  ) => PageContent(
+    spineIndex: page.spineIndex,
+    pageIndex: page.pageIndex,
+    slices: slices,
+    usedHeight: page.usedHeight,
+    pageHeight: page.pageHeight,
+    topPadding: page.topPadding,
+    background: page.background,
+  );
 
   static Rect _containerPaddingBox(
     PageContainer container,
@@ -1841,6 +2031,17 @@ class Paginator {
     bool resolveStyleOffsets = false,
   }) {
     final style = block.style;
+    if (block.containers.any(
+          (fragment) =>
+              fragment.container.style.position == CssPosition.absolute,
+        ) &&
+        !(style?.isOutOfFlow ?? false)) {
+      return _AbsolutePlacement(
+        block: block,
+        top: staticPosition.top + (block.absoluteTop ?? 0),
+        left: block.leftInset,
+      );
+    }
     var prepared = style == null
         ? block
         : _shrinkToFit(block, style, containingWidth);
@@ -2364,9 +2565,13 @@ class Paginator {
           containingHeight: containingHeight,
           staticPosition: (top: used, left: 0),
         );
-        final top = resolved.top
-            .clamp(0.0, math.max(0.0, pageHeight - 1))
-            .toDouble();
+        final retainedAbsolute = block.containers.any(
+          (fragment) =>
+              fragment.container.style.position == CssPosition.absolute,
+        );
+        final top = retainedAbsolute
+            ? resolved.top
+            : resolved.top.clamp(0.0, math.max(0.0, pageHeight - 1)).toDouble();
         slices.add(
           PageBlockSlice(
             block: resolved.block,

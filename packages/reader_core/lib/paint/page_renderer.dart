@@ -399,12 +399,12 @@ class PagePainter {
     // 页首浮动已避让续框内边距，祖先外框仍应从在流片段的页首起画。
     final first = group.geometries.firstWhere(
       (geometry) =>
-          !geometry.style.isOutOfFlow &&
+          _inContainerFlow(geometry, depth) &&
           (!container.cloneDecoration || !geometry.slice.overlay),
       orElse: () => group.geometries.first,
     );
     final last = group.geometries.lastWhere(
-      (geometry) => !geometry.style.isOutOfFlow,
+      (geometry) => _inContainerFlow(geometry, depth),
       orElse: () => group.geometries.last,
     );
     final flow = _containerFlowBounds(first, last, (
@@ -424,6 +424,12 @@ class PagePainter {
       math.max(0, bottom - flow.top),
     );
   }
+
+  bool _inContainerFlow(_SliceGeometry geometry, int depth) =>
+      !geometry.style.isOutOfFlow &&
+      !geometry.slice.block.containers
+          .skip(depth + 1)
+          .any((fragment) => fragment.container.style.isOutOfFlow);
 
   ({double top, double bottom}) _containerFlowBounds(
     _SliceGeometry first,
@@ -501,12 +507,12 @@ class PagePainter {
     final container = group.container!;
     final first = group.geometries.firstWhere(
       (geometry) =>
-          !geometry.style.isOutOfFlow &&
+          _inContainerFlow(geometry, depth) &&
           (!container.cloneDecoration || !geometry.slice.overlay),
       orElse: () => group.geometries.first,
     );
     final last = group.geometries.lastWhere(
-      (geometry) => !geometry.style.isOutOfFlow,
+      (geometry) => _inContainerFlow(geometry, depth),
       orElse: () => group.geometries.last,
     );
     final start = first.slice.block.containers[depth];
@@ -530,6 +536,7 @@ class PagePainter {
       pageHeight: first.pageHeight,
       pageInsets: first.pageInsets,
       paintBox: bounds,
+      translationResolved: container.translationResolved,
     );
   }
 
@@ -1494,6 +1501,7 @@ class PagePainter {
   /// （默认边框盒中心，百分比以边框盒宽/高为基准）应用；`translate` 的
   /// 百分比同样以边框盒宽/高为基准。
   Float64List? _transformMatrixOf(_SliceGeometry geometry) {
+    if (geometry.translationResolved) return null;
     final transforms = geometry.style.transforms;
     if (transforms.isEmpty) {
       return null;
@@ -5901,9 +5909,11 @@ class _SliceGeometry {
     this.chapterLeading = false,
     this.textColorOverride,
     this.paintBox,
+    this.translationResolved = false,
   });
 
   final Rect? paintBox;
+  final bool translationResolved;
   final PageBlockSlice slice;
   final double y;
   final ComputedStyle style;

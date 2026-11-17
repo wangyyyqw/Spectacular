@@ -286,6 +286,7 @@ class ChapterBlockWalker {
         !(isBodyRoot ||
             isFloating ||
             scope.isFixedContainer ||
+            scope.isAbsoluteContainer ||
             scope.isFlexRow ||
             scope.pseudos.isNotEmpty ||
             retainsContainer(scope.node, style))) {
@@ -299,13 +300,25 @@ class ChapterBlockWalker {
         width +
         styles.snapshot.sideInsets.left +
         styles.snapshot.sideInsets.right;
+    final positioningParent = parents
+        .where(
+          (box) =>
+              box.style.position != CssPosition.static ||
+              box.style.transforms.isNotEmpty,
+        )
+        .lastOrNull;
     final available = scope.isFixedContainer
         ? fixedWidth
+        : scope.isAbsoluteContainer
+        ? (positioningParent == null
+              ? width
+              : positioningParent.contentWidth +
+                    positioningParent.style.padding.horizontal)
         : parent?.flowWidth ?? width;
     final model = BoxModel.fromStyle(style, containingWidth: available);
-    final positioned = scope.isFixedContainer
+    final positioned = scope.isFixedContainer || scope.isAbsoluteContainer
         ? style.resolveAbsoluteBox(
-            containingWidth: fixedWidth,
+            containingWidth: available,
             containingHeight: height,
           )
         : null;
@@ -342,9 +355,9 @@ class ChapterBlockWalker {
     final retained = PageContainer(
       style: isBodyRoot ? usedStyle.withoutBackground() : usedStyle,
       left:
-          (positioned?.left == null
-              ? null
-              : positioned!.left! - styles.snapshot.sideInsets.left) ??
+          (scope.isFixedContainer && positioned?.left != null
+              ? positioned!.left! - styles.snapshot.sideInsets.left
+              : null) ??
           _containerLeft(
             parent,
             usedStyle,
@@ -378,7 +391,8 @@ class ChapterBlockWalker {
   ) {
     final parentView = scope.ancestors.lastOrNull;
     final style = scope.style;
-    if (parent == null ||
+    if (style.isOutOfFlow ||
+        parent == null ||
         !identical(parent, styles.retainedContainers[parentView]) ||
         parent.style.display != CssDisplay.flex ||
         parent.style.flexDirection != CssFlexDirection.row ||
@@ -617,6 +631,25 @@ class ChapterBlockWalker {
     }
     await _alignPageTableCell(scope);
     if (scope.isFixedContainer) await _finishFixedContainer(scope);
+    if (scope.isAbsoluteContainer && retained != null) {
+      await _finishAbsoluteContainer(scope);
+    }
+  }
+
+  /// 多块绝对定位盒保留共享父框和原块载荷，内部段距先折叠再整体脱离正文流。
+  Future<void> _finishAbsoluteContainer(_ContainerScope scope) async {
+    final children = await collapseMarginsIgnoringFloatsAsync(
+      flow.blocks.sublist(scope.start),
+      checkpoint: inline.measure.budget.checkpoint,
+    );
+    var top = 0.0;
+    for (var index = 0; index < children.length; index++) {
+      final block = children[index];
+      if (block.absolute) continue;
+      children[index] = block.withSpacing(absolute: true, absoluteTop: top);
+      top += block.leadingExtent + block.height + block.trailingExtent;
+    }
+    flow.blocks.replaceRange(scope.start, flow.blocks.length, children);
   }
 
   /// 固定定位父盒作为完整覆盖层绘制；子项只保留各自文字和装饰，不占正文流。
@@ -776,6 +809,9 @@ class _ContainerScope {
       style.flexDirection == CssFlexDirection.row;
   bool get isFixedContainer =>
       style.position == CssPosition.fixed &&
+      node.children.any((child) => child is BlockNode);
+  bool get isAbsoluteContainer =>
+      style.position == CssPosition.absolute &&
       node.children.any((child) => child is BlockNode);
   bool get isPageRootFlexColumn =>
       style.display == CssDisplay.flex &&
