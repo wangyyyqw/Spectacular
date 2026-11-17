@@ -71,7 +71,7 @@ Actions 网页下载 artifact 时，GitHub 会固定再包一层 ZIP。要用直
 gh run download <运行编号>
 ```
 
-运行编号可在 Actions 运行页或 `gh run list` 中查看。下载后 Android 直接得到 `spectacular-reader-release.apk`，Windows、macOS 和 iOS 各得到一个应用 ZIP，只需解压一次。
+运行编号可在 Actions 运行页或 `gh run list` 中查看。下载后 Android 直接得到 `spectacular-reader-release.apk`，Windows 直接得到可运行的应用目录；macOS 和 iOS 仍各得到一个应用 ZIP，只需解压一次。
 
 需要正式直链 Release 时，手动运行「多平台自动打包」并勾选 `publish_release`，才会更新 [Releases 的 `ci-latest`](https://github.com/wangyyyqw/Spectacular/releases/tag/ci-latest)：
 

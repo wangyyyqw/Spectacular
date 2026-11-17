@@ -102,13 +102,11 @@ jobs:
         working-directory: apps/reader_mobile
         run: |
           flutter build windows --release --no-pub
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/spectacular-windows-x64.zip -Force
       - name: 上传 Windows 产物
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spectacular-windows-x64
-          path: apps/reader_mobile/dist/spectacular-windows-x64.zip
+          path: apps/reader_mobile/build/windows/x64/runner/Release/
           retention-days: 14
 
   macos:
@@ -216,7 +214,7 @@ jobs:
             echo '```'
             echo ''
             echo '- `spectacular-reader-release.apk`：Android 安装包'
-            echo '- `spectacular-windows-x64.zip`：Windows 应用，解压一次即可'
+            echo '- `spectacular-windows-x64/`：Windows 应用目录，网页下载只需解压一次'
             echo '- `spectacular-macos-arm64-unsigned.zip`：macOS 应用，解压一次即可'
             echo '- `spectacular-ios-unsigned.zip`：iOS 应用，解压一次即可'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -238,15 +236,18 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: release
-          merge-multiple: true
       - name: 检查发布文件
         shell: bash
         run: |
           set -euo pipefail
-          test -f release/spectacular-reader-release.apk
-          test -f release/spectacular-windows-x64.zip
-          test -f release/spectacular-macos-arm64-unsigned.zip
-          test -f release/spectacular-ios-unsigned.zip
+          test -f release/spectacular-android-arm64/spectacular-reader-release.apk
+          test -f release/spectacular-windows-x64/reader_mobile.exe
+          test -f release/spectacular-macos-arm64/spectacular-macos-arm64-unsigned.zip
+          test -f release/spectacular-ios-unsigned/spectacular-ios-unsigned.zip
+          cp release/spectacular-android-arm64/spectacular-reader-release.apk release/
+          cp release/spectacular-macos-arm64/spectacular-macos-arm64-unsigned.zip release/
+          cp release/spectacular-ios-unsigned/spectacular-ios-unsigned.zip release/
+          (cd release && zip -qr spectacular-windows-x64.zip spectacular-windows-x64)
           ls -lh release
       - name: 发布滚动 Release
         shell: bash
@@ -262,9 +263,9 @@ jobs:
               --title "CI 最新构建（${GITHUB_REF_NAME}）" \
               --notes "$notes" \
               --prerelease
-            gh release upload "$TAG" release/* --clobber
+            gh release upload "$TAG" release/*.apk release/*.zip --clobber
           else
-            gh release create "$TAG" release/* \
+            gh release create "$TAG" release/*.apk release/*.zip \
               --target "$GITHUB_SHA" \
               --title "CI 最新构建（${GITHUB_REF_NAME}）" \
               --notes "$notes" \
