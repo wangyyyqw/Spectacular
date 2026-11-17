@@ -106,6 +106,13 @@ class FootnoteDocument {
   final List<FootnoteAnchor> anchors;
 }
 
+typedef _CompoundNoteId = ({String file, String number, bool backlink});
+typedef _RecoveredNote = ({
+  FootnoteDocument document,
+  XmlElement element,
+  XmlElement container,
+});
+
 /// 注释锚点解析：不修改原书 DOM。
 abstract final class FootnoteParser {
   static final RegExp _referenceAttributePattern = RegExp(
@@ -266,6 +273,30 @@ abstract final class FootnoteParser {
     );
   }
 
+  /// 某些转换器把文件名写进片段并给实际文件加前缀；只按片段中的文件线索加载候选。
+  /// 本地有效锚点优先，候选仍须在 resolve 中通过编号和反向链接确认。
+  static Set<String> targetPaths(
+    FootnoteDocument source,
+    Iterable<String> availablePaths,
+  ) {
+    final paths = <String>{};
+    final hints = <String>{};
+    for (final anchor in source.anchors) {
+      final path = targetPathOf(anchor, source.path);
+      if (path != null) paths.add(path);
+      final hint = _compoundReference(source, anchor);
+      if (hint != null) hints.add(hint.file);
+    }
+    if (hints.isNotEmpty) {
+      for (final path in availablePaths) {
+        if (hints.any((hint) => p.posix.basename(path).endsWith(hint))) {
+          paths.add(path);
+        }
+      }
+    }
+    return paths;
+  }
+
   /// 解析单章 XHTML，收集 id 与引用候选。
   static FootnoteDocument parse({
     required int spineIndex,
@@ -293,6 +324,7 @@ abstract final class FootnoteParser {
       }
     }
 
+    final labels = _splitReferenceLabels(document);
     final anchors = <FootnoteAnchor>[];
     for (final element in document.descendants.whereType<XmlElement>()) {
       final tag = element.name.local.toLowerCase();
@@ -335,7 +367,8 @@ abstract final class FootnoteParser {
             )
           : null;
       final fragment = hasFragment ? href.substring(hash + 1) : '';
-      final label = _normalizeText(element.innerText);
+      final text = _normalizeText(element.innerText);
+      final label = labels[element] ?? text;
       final sourceId = _referenceId(element);
       final kind = _kindOf(element, fragment, null);
       final imageNote = directImage ? attributes['alt']?.trim() : null;
@@ -346,7 +379,7 @@ abstract final class FootnoteParser {
       anchors.add(
         FootnoteAnchor(
           sourceSpine: spineIndex,
-          referenceKey: referenceKey(tag, attributes, label),
+          referenceKey: referenceKey(tag, attributes, text),
           href: href,
           label: label,
           kind: directText != null || directImageSource != null
@@ -375,6 +408,65 @@ abstract final class FootnoteParser {
     );
   }
 
+  /// 括号与数字可被拆进相邻的 a/b/sup；仅合并同一块内、同 id/href 的连续注号标签。
+  static Map<XmlElement, String> _splitReferenceLabels(XmlDocument document) {
+    final labels = <XmlElement, String>{};
+    final group = <XmlElement>[];
+    void flush() {
+      final label = group.map((element) => element.innerText).join();
+      if (group.length > 1 && RegExp(r'^\[\d+\]$').hasMatch(label)) {
+        for (final element in group) {
+          labels[element] = label;
+        }
+      }
+      group.clear();
+    }
+
+    for (final node in document.descendants) {
+      if (node is XmlText) {
+        if (node.value.trim().isNotEmpty &&
+            node.parentElement?.name.local != 'a' &&
+            !(node.parentElement != null &&
+                _hasAncestor(node.parentElement!, 'a'))) {
+          flush();
+        }
+      } else if (node is XmlElement && node.name.local == 'a') {
+        final previous = group.lastOrNull;
+        if (previous != null &&
+            (previous.getAttribute('id') != node.getAttribute('id') ||
+                previous.getAttribute('href') != node.getAttribute('href') ||
+                !identical(_referenceBlock(previous), _referenceBlock(node)))) {
+          flush();
+        }
+        if ((node.getAttribute('id') ?? '').isNotEmpty) group.add(node);
+      } else if (node is XmlElement &&
+          const {'br', 'img', 'image', 'object'}.contains(node.name.local)) {
+        flush();
+      }
+    }
+    flush();
+    return labels;
+  }
+
+  static XmlElement? _referenceBlock(XmlElement element) {
+    for (final parent in element.ancestors.whereType<XmlElement>()) {
+      if (const {
+        'p',
+        'div',
+        'li',
+        'td',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'body',
+      }.contains(parent.name.local)) {
+        return parent;
+      }
+    }
+    return null;
+  }
+
   /// 定义块内的无标记返回链接也不属于正文入口，保留其文字供注文读取。
   static bool _insideDefinition(XmlElement element) {
     var parent = element.parent;
@@ -393,6 +485,8 @@ abstract final class FootnoteParser {
     required Map<String, FootnoteDocument> documents,
   }) {
     final resolved = <FootnoteAnchor>[];
+    // 拆分注号的各字符共享同一恢复结果，避免逐字符重复扫描定义章。
+    final compoundTargets = <(String?, String, String), _RecoveredNote?>{};
     for (final anchor in source.anchors) {
       final hash = anchor.href.indexOf('#');
       if (hash < 0) {
@@ -413,7 +507,7 @@ abstract final class FootnoteParser {
         source.path,
       );
       final fragment = anchor.href.substring(hash + 1);
-      final target = documents[targetPath];
+      var target = documents[targetPath];
       if (target == null) {
         resolved.add(
           _withTarget(anchor, -1, null, null, AnchorStrategy.unresolved),
@@ -424,6 +518,7 @@ abstract final class FootnoteParser {
       String? targetId = fragment;
       var element = target.ids[fragment];
       var strategy = AnchorStrategy.directId;
+      XmlElement? recoveredContainer;
       if (element == null) {
         final lower = fragment.toLowerCase();
         for (final entry in target.ids.entries) {
@@ -455,6 +550,21 @@ abstract final class FootnoteParser {
       }
 
       if (element == null) {
+        final recovered = compoundTargets.putIfAbsent((
+          anchor.sourceId,
+          anchor.href,
+          anchor.label,
+        ), () => _compoundBacklinkTarget(source, anchor, documents));
+        if (recovered != null) {
+          target = recovered.document;
+          element = recovered.element;
+          targetId = element.getAttribute('id');
+          recoveredContainer = recovered.container;
+          strategy = AnchorStrategy.backlink;
+        }
+      }
+
+      if (element == null) {
         resolved.add(
           _withTarget(
             anchor,
@@ -469,11 +579,12 @@ abstract final class FootnoteParser {
 
       final targetKind = _kindOfElement(element, fragment);
       final pairedContainer =
-          targetKind == NoteKind.link &&
-              anchor.kind == NoteKind.link &&
-              anchor.heuristicReference
-          ? _pairedNoteContainer(source, anchor, target, element)
-          : null;
+          recoveredContainer ??
+          (targetKind == NoteKind.link &&
+                  anchor.kind == NoteKind.link &&
+                  anchor.heuristicReference
+              ? _pairedNoteContainer(source, anchor, target, element)
+              : null);
       final kind = targetKind == NoteKind.endnote
           ? NoteKind.endnote
           : anchor.kind != NoteKind.link
@@ -570,6 +681,109 @@ abstract final class FootnoteParser {
     return _hasAncestor(element, 'sup') ||
         RegExp(r'^[\[\(（]?\d+[\]\)）]?$').hasMatch(label) ||
         (tag == 'img' && RegExp(r'^\d+$').hasMatch(alt));
+  }
+
+  static _CompoundNoteId? _compoundNoteId(String? value) {
+    if (value == null) return null;
+    final match = RegExp(
+      r'^(.+\.(?:xhtml|html|htm))_(note|noteBack)_(\d+)$',
+      caseSensitive: false,
+    ).firstMatch(_decode(value));
+    return match == null
+        ? null
+        : (
+            file: match[1]!,
+            number: match[3]!,
+            backlink: match[2]!.toLowerCase() == 'noteback',
+          );
+  }
+
+  static _CompoundNoteId? _compoundReference(
+    FootnoteDocument source,
+    FootnoteAnchor anchor,
+  ) {
+    if (!anchor.href.startsWith('#') ||
+        source.ids.containsKey(_decode(anchor.href.substring(1)))) {
+      return null;
+    }
+    final hint = _compoundNoteId(anchor.href.substring(1));
+    final origin = _compoundNoteId(anchor.sourceId);
+    if (hint == null ||
+        origin == null ||
+        hint.backlink ||
+        origin.backlink ||
+        hint.number != origin.number ||
+        origin.file != p.posix.basename(source.path) ||
+        (anchor.label != hint.number && anchor.label != '[${hint.number}]')) {
+      return null;
+    }
+    return hint;
+  }
+
+  /// 文件名后缀只用于缩小候选；完整 id、段首同号及返回引用必须共同成立且唯一。
+  /// 保留完整候选扫描以统一判断跨文件歧义；遇到多个有效目标时不恢复。
+  static _RecoveredNote? _compoundBacklinkTarget(
+    FootnoteDocument source,
+    FootnoteAnchor anchor,
+    Map<String, FootnoteDocument> documents,
+  ) {
+    final hint = _compoundReference(source, anchor);
+    if (hint == null) return null;
+    _RecoveredNote? result;
+    for (final target in documents.values) {
+      if (target.path == source.path ||
+          !p.posix.basename(target.path).endsWith(hint.file)) {
+        continue;
+      }
+      final containers = <XmlElement>{};
+      for (final element in target.elements) {
+        final id = _compoundNoteId(element.getAttribute('id'));
+        if (id == null ||
+            !id.backlink ||
+            id.number != hint.number ||
+            id.file != p.posix.basename(target.path)) {
+          continue;
+        }
+        final container = _referenceBlock(element);
+        if (container == null ||
+            !containers.add(container) ||
+            !_startsContainer(element, container) ||
+            _noteText(container, '[${hint.number}]') == null ||
+            !_hasCompoundReturn(source, anchor, container, id)) {
+          continue;
+        }
+        if (result != null && !identical(result.container, container)) {
+          return null;
+        }
+        result = (document: target, element: element, container: container);
+      }
+    }
+    return result;
+  }
+
+  static bool _hasCompoundReturn(
+    FootnoteDocument source,
+    FootnoteAnchor reference,
+    XmlElement container,
+    _CompoundNoteId id,
+  ) {
+    final labels = <String, StringBuffer>{};
+    for (final node in container.descendants.whereType<XmlElement>()) {
+      if (node.name.local != 'a') continue;
+      final href = node.getAttribute('href') ?? '';
+      if (!href.startsWith('#')) continue;
+      final origin = _compoundNoteId(node.getAttribute('id'));
+      final hint = _compoundNoteId(href.substring(1));
+      if (origin != id ||
+          hint == null ||
+          !hint.backlink ||
+          hint.number != id.number ||
+          !p.posix.basename(source.path).endsWith(hint.file)) {
+        continue;
+      }
+      (labels[href] ??= StringBuffer()).write(_normalizeText(node.innerText));
+    }
+    return labels.values.any((label) => label.toString() == reference.label);
   }
 
   /// 一些 EPUB 将返回位置写在注号之前的独立空 a 元素上。

@@ -658,11 +658,11 @@ class EpubDocumentImpl implements EpubDocument {
       xhtml: xhtml,
     );
     final documents = <String, FootnoteDocument>{source.path: source};
-    for (final anchor in source.anchors) {
-      final targetPath = FootnoteParser.targetPathOf(anchor, source.path);
-      if (targetPath == null ||
-          targetPath == source.path ||
-          documents.containsKey(targetPath)) {
+    for (final targetPath in FootnoteParser.targetPaths(
+      source,
+      archive.names,
+    )) {
+      if (targetPath == source.path || documents.containsKey(targetPath)) {
         continue;
       }
       final target = _parseFootnotesAtPath(targetPath);
