@@ -304,7 +304,15 @@ class _FlexRowLayout {
       ).resolveContentWidth(size.container);
     }
     if (block.table != null) return available;
-    final measured = block.layout.width;
+    // 自然宽包含首行缩进，但不计对齐偏移；百分比声明保持原内在宽路径。
+    final firstLine = block.layout.lines.firstOrNull;
+    final indent = style?.values['text-indent']?.contains('%') == true
+        ? 0.0
+        : firstLine?.indent ?? 0.0;
+    final measured = math.max(
+      block.layout.width,
+      (firstLine?.width ?? 0.0) + indent,
+    );
     return measured.isFinite && measured > 0
         ? math.min(measured, available)
         : available;
