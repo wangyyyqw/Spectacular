@@ -51,7 +51,13 @@ class ImageBlockBuilder {
         node.attributes['data'];
     if (src == null || src.isEmpty) return const [];
     final chain = await _foldedChain(node, position.ancestors);
-    final input = _ImageDescription(this, node, position, (src, chain));
+    final intrinsic = await inline.prepareImageIntrinsicSize(
+      inline.imageUrl(src),
+    );
+    final input = _ImageDescription(this, node, position, (
+      src,
+      chain,
+    ), intrinsic);
     final geometry = await _ImageSizing(input).measure();
     final style = _imagePaintStyle(input, geometry);
     final notes = _imageFootnotes(input, footnotes);
@@ -141,6 +147,7 @@ class _ImageDescription {
     this.node,
     this.position,
     (String, List<SelectorElement>) source,
+    this.intrinsic,
   ) : url = builder.inline.imageUrl(source.$1),
       chain = source.$2 {
     imageChain = [
@@ -153,7 +160,6 @@ class _ImageDescription {
         : projected;
     promotedLeft = builder.styles.promotedLeftForLastChain;
     opacity = builder.styles.effectiveOpacityForLastChain;
-    intrinsic = builder.inline.intrinsicSize(url);
   }
 
   final ImageBlockBuilder builder;
@@ -165,7 +171,7 @@ class _ImageDescription {
   late final ComputedStyle style;
   late final double promotedLeft;
   late final double opacity;
-  late final ImageIntrinsicSize? intrinsic;
+  final ImageIntrinsicSize? intrinsic;
   ChapterStyleResolver get styles => builder.styles;
   InlineContentBuilder get inline => builder.inline;
 }

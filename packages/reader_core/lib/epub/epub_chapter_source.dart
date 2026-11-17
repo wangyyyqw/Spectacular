@@ -68,9 +68,11 @@ class EpubChapterSource
     String? contentVersion,
     ChapterPreviewCache<ChapterStructure>? previewCache,
     Map<String, String> resourceVersions = const {},
+    Future<Directory> Function()? networkImageCacheDirectoryProvider,
   }) : _resources = BookResources(
          document,
          trackDependencies: previewCache != null,
+         networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
        ),
        _previewCache = previewCache,
        _resourceVersions = Map.unmodifiable(resourceVersions),
@@ -92,6 +94,7 @@ class EpubChapterSource
     bool verifyCrc = true,
     bool trimTextEdges = true,
     String? contentVersion,
+    Future<Directory> Function()? networkImageCacheDirectoryProvider,
   }) async {
     // 小数行高（T1 实验开关）：Skia 会把行盒高取整成整数，CSS 的
     // `line-height: 1.7` × 15px = 25.5 会变成 26，列表/表格行位置逐行
@@ -105,6 +108,7 @@ class EpubChapterSource
       style: style,
       trimTextEdges: trimTextEdges,
       contentVersion: contentVersion,
+      networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
     );
   }
 
@@ -122,6 +126,7 @@ class EpubChapterSource
     Map<String, Uint8List?> resourceOverrides = const {},
     ChapterPreviewCache<ChapterStructure>? previewCache,
     Map<String, String> resourceVersions = const {},
+    Future<Directory> Function()? networkImageCacheDirectoryProvider,
   }) async {
     line_breaker.LineBreaker.preserveFractionalLineHeight = true;
     final result = await openEpubFile(
@@ -138,6 +143,7 @@ class EpubChapterSource
       contentVersion: contentVersion,
       previewCache: previewCache,
       resourceVersions: resourceVersions,
+      networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
     );
   }
 
@@ -150,6 +156,7 @@ class EpubChapterSource
     String? contentVersion,
     ChapterPreviewCache<ChapterStructure>? previewCache,
     Map<String, String> resourceVersions = const {},
+    Future<Directory> Function()? networkImageCacheDirectoryProvider,
   }) {
     final document = result.document;
     if (document == null) {
@@ -173,6 +180,7 @@ class EpubChapterSource
       contentVersion: contentVersion,
       previewCache: previewCache,
       resourceVersions: resourceVersions,
+      networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
     );
   }
 
@@ -188,7 +196,7 @@ class EpubChapterSource
       ? ReaderContentLayout.fixedPages
       : ReaderContentLayout.reflowable;
 
-  /// 阅读图片复用书籍准备 worker；关闭后不再发布旧资源。
+  /// 包内、内嵌与网络图片共用读取入口；关闭后不再发布旧资源。
   Future<Uint8List?> readImageBytes(String url) => _resources.readImage(url);
 
   /// 首次排版前绑定导入摘要；完成布局按实际内容版本复用。
