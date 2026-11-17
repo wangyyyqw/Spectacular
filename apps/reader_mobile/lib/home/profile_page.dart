@@ -6,15 +6,20 @@ import 'package:reader_ui/icons/app_icon.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
+import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_page.dart';
 import 'bookshelf_sort.dart';
 
 /// 我的页：书架设置、应用/引擎信息、诊断日志导出。
 class ProfilePage extends StatefulWidget {
   /// 创建页面。
-  const ProfilePage({super.key, required this.library});
+  const ProfilePage({super.key, required this.library, this.reaMicro});
 
   /// 书架存储。
   final LibraryStore library;
+
+  /// 阅微登录与同步状态；测试或未接入时不显示入口。
+  final ReaMicroController? reaMicro;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -158,6 +163,12 @@ class _ProfilePageState extends State<ProfilePage> {
               onTap: _chooseShelfSort,
             ),
           ]),
+          if (widget.reaMicro != null) ...[
+            const SizedBox(height: 24),
+            _section(context, '账号与同步', [
+              _ReaMicroEntry(controller: widget.reaMicro!),
+            ]),
+          ],
           const SizedBox(height: 24),
           _section(context, '帮助与诊断', [
             ListTile(
@@ -238,6 +249,44 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ReaMicroEntry extends StatelessWidget {
+  const _ReaMicroEntry({required this.controller});
+
+  final ReaMicroController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) {
+        final user = controller.user;
+        final subtitle = !controller.signedIn
+            ? '登录阅微账号，查看并同步阅读时长'
+            : user == null
+            ? '已登录，正在读取账号信息'
+            : '${user.nickName} · '
+                  '${controller.links.isEmpty ? '尚未关联书籍' : '已关联 ${controller.links.length} 本'}';
+        return ListTile(
+          key: const ValueKey<String>('reamicro-entry'),
+          leading: const AppIcon(AppGlyph.autoStories),
+          title: const Text('阅微同步'),
+          subtitle: Text(
+            controller.error ?? subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (context) => ReaMicroPage(controller: controller),
+            ),
+          ),
+        );
+      },
     );
   }
 }

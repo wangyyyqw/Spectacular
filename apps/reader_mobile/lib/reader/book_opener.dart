@@ -18,13 +18,20 @@ import 'reader_font_store.dart';
 /// 统一处理打开图书的读盘、转场、设置持久化与最近阅读更新时间。
 class BookOpener {
   /// 创建打开器。
-  BookOpener({required this.library, required this.progressStore});
+  BookOpener({
+    required this.library,
+    required this.progressStore,
+    this.onReadingFinished,
+  });
 
   /// 书架存储。
   final LibraryStore library;
 
   /// 阅读进度存储。
   final ReaderProgressStore progressStore;
+
+  /// 阅读会话落盘并关闭阅读页后通知宿主，供后台同步使用。
+  final VoidCallback? onReadingFinished;
 
   ReaderSettings? _settings;
   Future<void> _settingsSave = Future<void>.value();
@@ -70,6 +77,7 @@ class BookOpener {
     await route.completed;
     // 旧进度落盘及章节源释放完毕，才能为新修订绑定源并恢复位置。
     if (opening.created) await opening.closed.future;
+    if (opening.created) onReadingFinished?.call();
     if (opening.revealed) await library.touchLastRead(entry.id);
     return result;
   }

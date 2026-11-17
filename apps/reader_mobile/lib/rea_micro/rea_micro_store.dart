@@ -1,0 +1,151 @@
+import 'dart:convert';
+
+import '../library/library_store.dart';
+import 'rea_micro_models.dart';
+
+/// 阅微登录凭据、缓存账号与书籍关联的本地存储。
+///
+/// 令牌保存在应用私有的设置表中，不写入日志，也不导出到诊断文件。
+class ReaMicroStore {
+  /// 创建设置存储。
+  ReaMicroStore(this._library);
+
+  final LibraryStore _library;
+
+  static const String _tokenKey = 'reamicro.auth.token';
+  static const String _userKey = 'reamicro.auth.user';
+  static const String _linksKey = 'reamicro.book.links';
+  static const String _uploadedKey = 'reamicro.sync.uploaded';
+  static const String _watermarksKey = 'reamicro.sync.watermarks';
+  static const String _lastSyncKey = 'reamicro.sync.lastAt';
+  static const int _maxUploadedKeys = 5000;
+
+  /// 读取访问令牌。
+  Future<String?> loadToken() async {
+    final token = (await _library.getSetting(_tokenKey))?.trim();
+    return token == null || token.isEmpty ? null : token;
+  }
+
+  /// 保存访问令牌。
+  Future<void> saveToken(String token) =>
+      _library.setSetting(_tokenKey, token.trim());
+
+  /// 清除账号信息与令牌，保留书籍关联和同步台账。
+  Future<void> clearAuth() async {
+    await _library.setSetting(_tokenKey, '');
+    await _library.setSetting(_userKey, '');
+  }
+
+  /// 读取上次缓存的账号信息；损坏时按未缓存处理。
+  Future<ReaMicroUser?> loadCachedUser() async {
+    final raw = await _library.getSetting(_userKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, Object?>
+          ? ReaMicroUser.fromJson(decoded)
+          : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// 缓存账号信息，供离线打开时展示。
+  Future<void> saveCachedUser(ReaMicroUser user) =>
+      _library.setSetting(_userKey, jsonEncode(user.toJson()));
+
+  /// 读取本地书籍与阅微云端书籍的关联。
+  Future<Map<String, ReaMicroBookLink>> loadLinks() async {
+    final raw = await _library.getSetting(_linksKey);
+    if (raw == null || raw.isEmpty) {
+      return <String, ReaMicroBookLink>{};
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) {
+        return <String, ReaMicroBookLink>{};
+      }
+      final links = <String, ReaMicroBookLink>{};
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is Map<String, Object?>) {
+          final link = ReaMicroBookLink.fromJson(value);
+          if (link.cloudBookId > 0) links[entry.key] = link;
+        }
+      }
+      return links;
+    } on FormatException {
+      return <String, ReaMicroBookLink>{};
+    }
+  }
+
+  /// 保存书籍关联。
+  Future<void> saveLinks(Map<String, ReaMicroBookLink> links) =>
+      _library.setSetting(
+        _linksKey,
+        jsonEncode(<String, Object?>{
+          for (final entry in links.entries) entry.key: entry.value.toJson(),
+        }),
+      );
+
+  /// 读取已上报的阅读时段台账，用于跨启动去重。
+  Future<Set<String>> loadUploadedSessionKeys() async {
+    final raw = await _library.getSetting(_uploadedKey);
+    if (raw == null || raw.isEmpty) return <String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List<Object?>) return <String>{};
+      return <String>{
+        for (final item in decoded)
+          if (item is String && item.isNotEmpty) item,
+      };
+    } on FormatException {
+      return <String>{};
+    }
+  }
+
+  /// 保存上报台账，只保留最近的项目以避免设置值无限增长。
+  Future<void> saveUploadedSessionKeys(Set<String> keys) {
+    final values = keys.toList(growable: false);
+    final start = values.length > _maxUploadedKeys
+        ? values.length - _maxUploadedKeys
+        : 0;
+    return _library.setSetting(_uploadedKey, jsonEncode(values.sublist(start)));
+  }
+
+  /// 读取每本本地书籍已处理到的会话结束时间。
+  ///
+  /// 水位用于在去重台账截断后仍跳过旧会话，避免重复累加云端阅读时长。
+  Future<Map<String, int>> loadSessionWatermarks() async {
+    final raw = await _library.getSetting(_watermarksKey);
+    if (raw == null || raw.isEmpty) return <String, int>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) return <String, int>{};
+      return <String, int>{
+        for (final entry in decoded.entries)
+          if (entry.value is num) entry.key: (entry.value! as num).toInt(),
+      };
+    } on FormatException {
+      return <String, int>{};
+    }
+  }
+
+  /// 保存每本本地书籍已处理到的会话结束时间。
+  Future<void> saveSessionWatermarks(Map<String, int> values) =>
+      _library.setSetting(_watermarksKey, jsonEncode(values));
+
+  /// 读取上次成功同步时间。
+  Future<DateTime?> loadLastSyncAt() async {
+    final value = int.tryParse(await _library.getSetting(_lastSyncKey) ?? '');
+    return value == null || value <= 0
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(value);
+  }
+
+  /// 保存上次成功同步时间。
+  Future<void> saveLastSyncAt(DateTime value) => _library.setSetting(
+    _lastSyncKey,
+    value.millisecondsSinceEpoch.toString(),
+  );
+}

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../rea_micro/rea_micro_controller.dart';
 import '../storage/startup_storage.dart';
 import 'bookshelf_page.dart';
 import 'profile_page.dart';
@@ -32,11 +35,36 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
   int _bookshelfRefreshToken = 0;
   int _statsRefreshToken = 0;
   bool _exportingDiagnostics = false;
+  late final ReaMicroController _reaMicro;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _reaMicro = ReaMicroController(library: widget.library);
+    unawaited(_reaMicro.initialize());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _reaMicro.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reaMicro.scheduleReadingSync();
+    }
+  }
+
+  void _onReadingFinished() => _reaMicro.scheduleReadingSync();
 
   Future<void> _retryStorage() async {
     if (_exportingDiagnostics) return;
@@ -131,15 +159,17 @@ class _HomeShellState extends State<HomeShell> {
         progressStore: widget.progressStore,
         refreshToken: _bookshelfRefreshToken,
         allowImport: widget.storageRecovery == null,
+        onReadingFinished: _onReadingFinished,
       ),
       StatsPage(
         library: widget.library,
         progressStore: widget.progressStore,
         refreshToken: _statsRefreshToken,
         active: _index == 1,
+        onReadingFinished: _onReadingFinished,
       ),
       ReviewsPage(library: widget.library, active: _index == 2),
-      ProfilePage(library: widget.library),
+      ProfilePage(library: widget.library, reaMicro: _reaMicro),
     ];
     return Scaffold(
       body: _buildBody(pages),

@@ -38,6 +38,7 @@ class BookshelfPage extends StatefulWidget {
     required this.progressStore,
     this.refreshToken = 0,
     this.allowImport = true,
+    this.onReadingFinished,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
   });
@@ -53,6 +54,9 @@ class BookshelfPage extends StatefulWidget {
 
   /// 临时模式暂停新增与更新导入，避免将内存内容误认为已保存。
   final bool allowImport;
+
+  /// 阅读会话落盘并关闭阅读页后通知，供阅微自动同步。
+  final VoidCallback? onReadingFinished;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;
@@ -115,6 +119,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     _bookOpener = BookOpener(
       library: widget.library,
       progressStore: widget.progressStore,
+      onReadingFinished: widget.onReadingFinished,
     );
     _queue = ImportQueue(widget.library, readFile: widget.readFile)
       ..addListener(_onQueueChanged);

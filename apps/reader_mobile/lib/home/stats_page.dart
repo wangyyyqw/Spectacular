@@ -24,6 +24,7 @@ class StatsPage extends StatefulWidget {
     this.sessionStore,
     this.refreshToken = 0,
     this.active = true,
+    this.onReadingFinished,
   });
 
   /// 书架存储。
@@ -40,6 +41,9 @@ class StatsPage extends StatefulWidget {
 
   /// 当前 Tab 是否可见；隐藏时只标记待刷新，避免后台页面重复查询。
   final bool active;
+
+  /// 阅读会话落盘并关闭阅读页后通知，供阅微自动同步。
+  final VoidCallback? onReadingFinished;
 
   @override
   State<StatsPage> createState() => _StatsPageState();
@@ -62,6 +66,7 @@ class _StatsPageState extends State<StatsPage> {
     _bookOpener = BookOpener(
       library: widget.library,
       progressStore: widget.progressStore,
+      onReadingFinished: widget.onReadingFinished,
     );
     if (widget.active) _reload();
   }
