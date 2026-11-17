@@ -4592,7 +4592,11 @@ class PagePainter {
     required int startLine,
     required int endLine,
   }) {
-    final metrics = _verticalMetricsFor(layout, style);
+    final metrics = TextLayoutEngine.verticalGlyphMetrics(
+      layout.text,
+      style,
+      runs: layout.runs,
+    );
     if (metrics.isEmpty) {
       return;
     }
@@ -4680,43 +4684,6 @@ class PagePainter {
     }
 
     // 注音由独立注音趟绘制（可越出块盒，见 paint 主循环）。
-  }
-
-  List<VerticalGlyphMetric> _verticalMetricsFor(
-    TextLayoutResult layout,
-    ComputedStyle style,
-  ) {
-    final metrics = TextLayoutEngine.verticalGlyphMetrics(layout.text, style);
-    if (!layout.runs.any(
-      (run) => run.style.layoutFingerprint != style.layoutFingerprint,
-    )) {
-      return metrics;
-    }
-    return [
-      for (final metric in metrics)
-        _verticalMetricForRun(layout, style, metric),
-    ];
-  }
-
-  VerticalGlyphMetric _verticalMetricForRun(
-    TextLayoutResult layout,
-    ComputedStyle style,
-    VerticalGlyphMetric metric,
-  ) {
-    final runStyle = _runStyleAtOffset(layout.runs, metric.start) ?? style;
-    if (runStyle.layoutFingerprint == style.layoutFingerprint) return metric;
-    final text = layout.text.substring(metric.start, metric.end);
-    final measured = TextLayoutEngine.verticalGlyphMetrics(text, runStyle);
-    final advance = metric.combine
-        ? runStyle.fontSize
-        : measured.fold(0.0, (sum, item) => sum + item.advance);
-    return VerticalGlyphMetric(
-      start: metric.start,
-      end: metric.end,
-      advance: math.max(0, advance + runStyle.letterSpacing),
-      upright: metric.upright,
-      combine: metric.combine,
-    );
   }
 
   /// 竖排画一个字形（正立居中 / 顺时针旋转 90°）。

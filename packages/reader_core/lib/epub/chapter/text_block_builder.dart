@@ -1419,6 +1419,8 @@ class TextBlockBuilder {
       rubies: rubies,
       inlineBoxes: paragraph.elements.boxes,
       preserveContentWidth:
+          metrics.list.measureStyle.writingMode !=
+              CssWritingMode.horizontalTb ||
           metrics.list.measureStyle.cssFloat != CssFloat.none ||
           styles.preservesContainerWidth(context.ancestors),
       firstLineStyle: firstLineStyle,
@@ -1663,6 +1665,11 @@ class TextBlockBuilder {
     _BodyStyle body,
     _BlockMetrics metrics,
   ) {
+    final verticalLength = _verticalFlexColumnLength(
+      context,
+      metrics.list.measureStyle,
+    );
+    if (verticalLength != null) return verticalLength;
     final position = context.position;
     return floatSideOfStyle(body.style) == null &&
             position.containerFloat != null &&
@@ -1677,6 +1684,36 @@ class TextBlockBuilder {
               context.ancestors,
             ),
           );
+  }
+
+  /// 横向 Flex 中竖排子项的内联轴是纵向；父盒横向留白不能缩短列长。
+  double? _verticalFlexColumnLength(
+    _BlockContext context,
+    ComputedStyle style,
+  ) {
+    if (style.writingMode == CssWritingMode.horizontalTb ||
+        style.isOutOfFlow ||
+        context.ancestors.length < 2) {
+      return null;
+    }
+    final parent = styles.chainStyle(
+      context.ancestors.sublist(0, context.ancestors.length - 1),
+    );
+    if (parent.display != CssDisplay.flex ||
+        parent.flexDirection != CssFlexDirection.row ||
+        parent.writingMode != CssWritingMode.horizontalTb) {
+      return null;
+    }
+    final parentBox = BoxModel.fromStyle(parent, containingWidth: contentWidth);
+    final available = parentBox.resolveContentHeight(
+      math.max(
+        0,
+        contentHeight - parent.margin.vertical - parentBox.verticalInset,
+      ),
+      containingHeight: contentHeight,
+    );
+    final box = BoxModel.fromStyle(style, containingWidth: contentWidth);
+    return math.max(1, available - style.margin.vertical - box.verticalInset);
   }
 
   TextLayoutResult _layoutBounds(
