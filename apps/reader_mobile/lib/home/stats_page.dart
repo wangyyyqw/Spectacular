@@ -12,9 +12,6 @@ import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
 
-/// 统计页只计入不少于该时长的阅读记录，更短的记录不展示也不参与统计。
-const _minimumStatsSessionDuration = Duration(minutes: 5);
-
 /// 统计页：图书时长、阅读日历、每日平均与按书排行，保留完整统计数据汇总。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
@@ -107,7 +104,7 @@ class _StatsPageState extends State<StatsPage> {
           await (_sessionStore?.list() ??
               Future<List<ReadingSession>>.value(const []));
       final recordedSessions = storedSessions.where(
-        (session) => session.duration >= _minimumStatsSessionDuration,
+        (session) => session.duration >= minimumCountedSessionDuration,
       );
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
@@ -115,6 +112,9 @@ class _StatsPageState extends State<StatsPage> {
       final sessions = insights.sessions;
       final readingByDay = insights.byDay;
       final rows = <_BookReadingStat>[];
+      final sessionBookIds = {
+        for (final session in storedSessions) session.bookId,
+      };
       var started = 0;
       var finished = 0;
       var totalCharacters = 0;
@@ -143,12 +143,19 @@ class _StatsPageState extends State<StatsPage> {
         }
         totalCharacters += bookWeights?.totalCharacters ?? 0;
         rows.add(
-          _BookReadingStat(book: book, progress: current, percent: percent),
+          _BookReadingStat(
+            book: book,
+            progress: current,
+            percent: percent,
+            recentReadAt: sessionBookIds.contains(book.id)
+                ? insights.byBook[book.id]?.lastEndedAt
+                : book.lastReadAt,
+          ),
         );
       }
       rows.sort((left, right) {
-        final leftTime = left.book.lastReadAt;
-        final rightTime = right.book.lastReadAt;
+        final leftTime = left.recentReadAt;
+        final rightTime = right.recentReadAt;
         if (leftTime == null && rightTime == null) {
           return right.book.addedAt.compareTo(left.book.addedAt);
         }
@@ -394,11 +401,15 @@ class _BookReadingStat {
     required this.book,
     required this.progress,
     required this.percent,
+    required this.recentReadAt,
   });
 
   final BookEntry book;
   final ReaderProgress? progress;
   final int? percent;
+
+  /// 最近阅读时间：有会话的书取满五分钟会话的结束时间，无会话的历史书沿用最后阅读时间。
+  final DateTime? recentReadAt;
 }
 
 /// 数字统一使用等宽字形，避免刷新时左右跳动。
@@ -567,9 +578,7 @@ class _RecentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = stats.rows
-        .where((row) => row.book.lastReadAt != null)
-        .toList();
+    final rows = stats.rows.where((row) => row.recentReadAt != null).toList();
     return _Section(
       title: '最近阅读',
       detail: rows.isEmpty ? null : '按最后阅读排序',
@@ -679,7 +688,7 @@ class _RecentBookRow extends StatelessWidget {
       Expanded(child: _ProgressLine(percent: stat.percent)),
       const SizedBox(width: 12),
       Text(
-        _relativeTime(stat.book.lastReadAt),
+        _relativeTime(stat.recentReadAt),
         style: TextStyle(
           fontSize: 11,
           color: Theme.of(context).colorScheme.onSurfaceVariant,

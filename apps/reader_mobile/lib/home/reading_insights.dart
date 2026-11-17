@@ -1,5 +1,8 @@
 import '../storage/reading_session_store.dart';
 
+/// 统计只计入不少于该时长的阅读会话，更短的会话不展示也不参与统计。
+const minimumCountedSessionDuration = Duration(minutes: 5);
+
 /// 一次会话在某个自然日内的有效部分。
 class ReadingDayPortion {
   const ReadingDayPortion({
@@ -30,12 +33,17 @@ class BookReadingTotals {
   int sessions = 0;
   int pageTurns = 0;
   int charactersRead = 0;
+  DateTime? lastEndedAt;
 
   void add(ReadingSession session) {
     duration += session.duration;
     sessions++;
     pageTurns += _nonNegative(session.pageTurns);
     charactersRead += _nonNegative(session.charactersRead);
+    final last = lastEndedAt;
+    if (last == null || session.endedAt.isAfter(last)) {
+      lastEndedAt = session.endedAt;
+    }
   }
 }
 
