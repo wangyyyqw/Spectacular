@@ -13,6 +13,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 
 import 'chapter_layout_job.dart';
+import 'block_style_helpers.dart';
 import 'container_blocks.dart' show InlineFloatContainer, containerFragmentsFor;
 import 'text_coordinates.dart' show sliceTextRuns;
 
@@ -161,7 +162,11 @@ class ChapterPageLayout {
     final paginator = Paginator(
       pageHeight: snapshot.height,
       pageWidth: snapshot.width,
-      topPadding: await _chapterTopPadding(blocks),
+      topPadding: await chapterTopPadding(
+        blocks,
+        snapshot.topInset,
+        checkpoint: budget.checkpoint,
+      ),
       trimTextEdges: snapshot.trimTextEdges,
     );
     final pages = <PageContent>[];
@@ -175,35 +180,6 @@ class ChapterPageLayout {
     }
     budget.check();
     return pages;
-  }
-
-  /// 章首出血图从页顶开始，正文不重复预留安全区和页眉槽。
-  /// 替换图片的绘制盒已贴顶，占位也须抵消上外边距，避免后文覆盖图片。
-  Future<double> _chapterTopPadding(List<PageBlock> blocks) async {
-    PageBlock? first;
-    for (final block in blocks) {
-      await budget.checkpoint();
-      if (!block.absolute &&
-          block.style?.display != CssDisplay.none &&
-          (block.layout.lineCount > 0 || block.height > 0)) {
-        first = block;
-        break;
-      }
-    }
-    final hasBackground =
-        first?.style?.backgroundLayers.any(
-          (layer) => layer.image != null || layer.gradient != null,
-        ) ??
-        false;
-    if (first == null ||
-        first.floatSide != null ||
-        !first.bleedTop ||
-        first.bleedBottom ||
-        first.layout.text.isNotEmpty ||
-        !hasBackground) {
-      return 0;
-    }
-    return -snapshot.topInset - (first.isReplaced ? first.spaceBefore : 0);
   }
 
   Future<List<PageContent>> _withFixedOverlays(
@@ -458,7 +434,11 @@ class _FloatPagination {
 
   Future<List<PageContent>> run() async {
     topPadding = floatContext == null
-        ? await layout._chapterTopPadding(blocks)
+        ? await chapterTopPadding(
+            blocks,
+            layout.snapshot.topInset,
+            checkpoint: budget.checkpoint,
+          )
         : 0;
     nextFlowLeading = await _nextLeading();
     for (var index = 0; index < blocks.length; index++) {

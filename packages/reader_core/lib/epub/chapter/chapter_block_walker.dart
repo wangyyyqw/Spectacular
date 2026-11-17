@@ -664,7 +664,7 @@ class ChapterBlockWalker {
               containingHeight: height,
             )
             ?.top ??
-        0;
+        (scope.style.bottom == null ? await _fixedStaticTop(scope.start) : 0);
     // 固定容器锚定整页，绘制器添加阅读内缩前先还原其页面坐标。
     top -= styles.snapshot.topInset;
     final children = flow.blocks.sublist(scope.start);
@@ -684,6 +684,30 @@ class ChapterBlockWalker {
         top += block.leadingExtent + block.height + block.trailingExtent;
       }
     }
+  }
+
+  /// 上下偏移均为 auto 时，固定父盒保留前方普通流折叠后的静态位置。
+  Future<double> _fixedStaticTop(int start) async {
+    final preceding = await collapseMarginsIgnoringFloatsAsync(
+      flow.blocks.sublist(0, start),
+      checkpoint: inline.measure.budget.checkpoint,
+    );
+    var top =
+        styles.snapshot.topInset +
+        await chapterTopPadding(
+          preceding,
+          styles.snapshot.topInset,
+          checkpoint: inline.measure.budget.checkpoint,
+        );
+    for (final block in preceding) {
+      await inline.measure.budget.checkpoint();
+      if (!block.absolute &&
+          block.floatSide == null &&
+          block.style?.display != CssDisplay.none) {
+        top += block.leadingExtent + block.height + block.trailingExtent;
+      }
+    }
+    return top;
   }
 
   Future<bool> _finishMulticol(
