@@ -205,7 +205,10 @@ void main() {
           )
           .first,
     );
-    expect(find.text(title), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(BottomSheet), matching: find.text(title)),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -218,8 +221,8 @@ void main() {
       }
       expect(find.text('+2 本'), findsOneWidget);
       final rowHeight = tester.getSize(_key('day-2026-11-1')).height;
-      expect(rowHeight, 92 * scale);
-      expect(tester.getSize(_key('day-2026-11-8')).height, rowHeight);
+      expect(rowHeight, (44 + 4 * 7) * scale);
+      expect(tester.getSize(_key('day-2026-11-8')).height, 44 * scale);
       final overflow = tester.getRect(_key('more-2026-11-2'));
       final fourth = tester.getRect(_key('bar-0-3-0'));
       final lastOnSecondDay = tester.getRect(_key('bar-0-2-0'));

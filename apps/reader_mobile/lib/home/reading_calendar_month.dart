@@ -26,7 +26,9 @@ class ReadingCalendarMonth {
     Map<String, String> bookTitles = const {},
   }) : start = DateTime(date.year, date.month) {
     final end = DateTime(start.year, start.month + 1);
+    final titles = {...insights.bookTitles, ...bookTitles};
     final totals = <DateTime, Map<String, Duration>>{};
+    final monthTotals = <String, Duration>{};
     for (final portion in insights.portions) {
       if (portion.date.isBefore(start) ||
           !portion.date.isBefore(end) ||
@@ -36,18 +38,23 @@ class ReadingCalendarMonth {
       final books = totals.putIfAbsent(portion.date, () => {});
       books[portion.bookId] =
           (books[portion.bookId] ?? Duration.zero) + portion.duration;
+      monthTotals[portion.bookId] =
+          (monthTotals[portion.bookId] ?? Duration.zero) + portion.duration;
     }
     days = Map.unmodifiable({
-      for (final day in totals.entries)
-        day.key: _entries(day.value, {...insights.bookTitles, ...bookTitles}),
+      for (final day in totals.entries) day.key: _entries(day.value, titles),
     });
-    final entries = days.values.expand((entries) => entries);
-    total = entries.fold(Duration.zero, (sum, entry) => sum + entry.duration);
-    bookCount = entries.map((entry) => entry.bookId).toSet().length;
+    monthBooks = _entries(monthTotals, titles);
+    total = monthBooks.fold(
+      Duration.zero,
+      (sum, entry) => sum + entry.duration,
+    );
+    bookCount = monthBooks.length;
   }
 
   final DateTime start;
   late final Map<DateTime, List<BookDurationEntry>> days;
+  late final List<BookDurationEntry> monthBooks;
   late final Duration total;
   late final int bookCount;
 

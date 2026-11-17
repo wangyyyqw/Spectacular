@@ -255,7 +255,10 @@ class _BookDurationChartState extends State<BookDurationChart>
         style: TextButton.styleFrom(
           minimumSize: const Size(48, 48),
           padding: const EdgeInsets.symmetric(horizontal: 4),
-          textStyle: const TextStyle(fontSize: 12),
+          textStyle: TextStyle(
+            fontSize: 12,
+            fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+          ),
         ),
         iconAlignment: IconAlignment.end,
         icon: const AppIcon(AppGlyph.chevronRight, size: 16),
@@ -562,19 +565,22 @@ class _PeriodButton extends StatelessWidget {
         child: TextButton(
           key: ValueKey('stats-book-duration-period-${period.name}'),
           onPressed: onTap,
-          style: _style(scheme),
+          style: _style(Theme.of(context)),
           child: Text(period.label),
         ),
       ),
     );
   }
 
-  ButtonStyle _style(ColorScheme scheme) => TextButton.styleFrom(
+  ButtonStyle _style(ThemeData theme) => TextButton.styleFrom(
     minimumSize: const Size(0, 48),
     padding: const EdgeInsets.symmetric(horizontal: 2),
-    foregroundColor: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+    foregroundColor: selected
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onSurfaceVariant,
     textStyle: TextStyle(
       fontSize: 12,
+      fontFamily: theme.textTheme.bodyMedium?.fontFamily,
       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
     ),
   );

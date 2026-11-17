@@ -199,7 +199,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final center = size / 2;
-    final innerRadius = math.max(28.0, size * 0.115);
+    final innerRadius = _innerRadius(size);
     final maxLength = _maxPetalLength(size);
     final maxAverage = averages.fold<Duration>(
       Duration.zero,
@@ -294,7 +294,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     final dx = position.dx - center.dx;
     final dy = position.dy - center.dy;
     final radius = math.sqrt(dx * dx + dy * dy);
-    final innerRadius = math.max(28.0, size.width * 0.115);
+    final innerRadius = _innerRadius(size.width);
     final maxLength = _maxPetalLength(size.width);
     if (radius < innerRadius * 0.5 || radius > innerRadius + maxLength + 12) {
       return;
@@ -324,7 +324,9 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     double size,
   ) {
     final angle = average.weekday * 2 * math.pi / 7;
-    final radius = math.max(28.0, size * 0.115) + length * 0.6;
+    final radius = _innerRadius(size) + length * 0.6;
+    final scheme = Theme.of(context).colorScheme;
+    final selected = average.weekday == _selectedWeekday;
     final extent = _petalLabelExtent(length, angle);
     return Positioned(
       left: size / 2 + radius * math.sin(angle) - extent / 2,
@@ -342,7 +344,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
               style: TextStyle(
                 fontSize: 12,
                 height: 1.15,
-                color: Theme.of(context).colorScheme.onPrimary,
+                color: selected ? scheme.onPrimary : scheme.onSurface,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -506,7 +508,10 @@ class _WeekdayDetail extends StatelessWidget {
           style: TextButton.styleFrom(
             minimumSize: const Size(48, 48),
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            textStyle: const TextStyle(fontSize: 12),
+            textStyle: TextStyle(
+              fontSize: 12,
+              fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+            ),
           ),
           iconAlignment: IconAlignment.end,
           icon: const AppIcon(AppGlyph.chevronRight, size: 16),
@@ -571,7 +576,7 @@ class _WeekdayPetalPainter extends CustomPainter {
       final weekday = index;
       final selected = weekday == selectedWeekday;
       final paint = Paint()
-        ..color = petalColor.withValues(alpha: selected ? 0.92 : 0.72);
+        ..color = selected ? petalColor : petalColor.withValues(alpha: 0.22);
       _drawPetal(
         canvas,
         center,
@@ -665,6 +670,8 @@ double _petalLabelExtent(double length, double angle) {
   }
   return low * 0.9;
 }
+
+double _innerRadius(double size) => math.max(40.0, size * 0.16);
 
 double _maxPetalLength(double size) => math.max(60.0, size * 0.25);
 
