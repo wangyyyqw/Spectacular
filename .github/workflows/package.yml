@@ -63,16 +63,12 @@ jobs:
           } > key.properties
           chmod 600 app/reamicro-release.jks key.properties
       - name: 构建 Android Release
-        working-directory: apps/reader_mobile
-        run: |
-          flutter build apk --release --no-pub
-          mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/spectacular-android-universal.apk
+        run: tool/build_apk.sh --allow-downloads
       - name: 上传 Android 产物
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: spectacular-android
-          path: apps/reader_mobile/dist/spectacular-android-universal.apk
+          name: spectacular-android-arm64
+          path: apps/reader_mobile/dist/spectacular-reader-release.apk
           retention-days: 14
 
   windows:
