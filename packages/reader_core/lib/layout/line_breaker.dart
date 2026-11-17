@@ -4980,9 +4980,15 @@ abstract final class TextLayoutEngine {
     String text,
     ComputedStyle style, {
     double textScaleFactor = 1,
+    List<StyledRun> runs = const [],
   }) {
     final metrics = <VerticalGlyphMetric>[];
-    final em = style.fontSize;
+    ComputedStyle styleAt(int offset) =>
+        runs
+            .where((run) => offset >= run.start && offset < run.end)
+            .map((run) => run.style)
+            .firstOrNull ??
+        style;
     var offset = 0;
     for (final rune in text.runes) {
       final length = rune > 0xFFFF ? 2 : 1;
@@ -4992,12 +4998,21 @@ abstract final class TextLayoutEngine {
         CssTextOrientation.sideways => false,
         CssTextOrientation.mixed => _isUprightRune(rune),
       };
-      final advance = upright ? em : _measureChar(char, style, textScaleFactor);
+      final runStyle = styleAt(offset);
+      final advance = upright
+          ? runStyle.fontSize
+          : _measureChar(char, runStyle, textScaleFactor);
       metrics.add(
         VerticalGlyphMetric(
           start: offset,
           end: offset + length,
-          advance: advance,
+          advance: math.max(
+            0,
+            advance +
+                (runStyle.layoutFingerprint != style.layoutFingerprint
+                    ? runStyle.letterSpacing
+                    : 0),
+          ),
           upright: upright,
         ),
       );
@@ -5026,11 +5041,18 @@ abstract final class TextLayoutEngine {
           index += 1;
           continue;
         }
+        final runStyle = styleAt(metrics[index].start);
         combined.add(
           VerticalGlyphMetric(
             start: metrics[index].start,
             end: metrics[end - 1].end,
-            advance: em,
+            advance: math.max(
+              0,
+              runStyle.fontSize +
+                  (runStyle.layoutFingerprint != style.layoutFingerprint
+                      ? runStyle.letterSpacing
+                      : 0),
+            ),
             upright: true,
             combine: true,
           ),
@@ -5084,7 +5106,7 @@ abstract final class TextLayoutEngine {
   /// 横排测量结果 → 竖排列（CSS Writing Modes §3）。
   ///
   /// - 列数 = 横排行数；列宽 = CSS 行高（`line-height` 解算值）；
-  /// - 列长 = 该行横排宽（近似：拉丁字形旋转后按原宽计，见已知限制）；
+  /// - 列长与绘制使用同一套逐字纵向度量，包含正立空格与行内字号；
   /// - `vertical-rl` 首列在最右（列从右向左推进），`vertical-lr` 在左；
   /// - 块宽 = 列数 × 列宽，块高 = 最长列；行内 `top` 恒为 0。
   static TextLayoutResult _verticalFromLines({
@@ -5109,19 +5131,31 @@ abstract final class TextLayoutEngine {
       columnWidth = math.max(1.0, style.fontSize * 1.2);
     }
     final count = lines.length;
+    final metrics = verticalGlyphMetrics(text, style, runs: runs);
     final rl = style.writingMode == CssWritingMode.verticalRl;
     final columns = <LineBox>[];
     var longest = 0.0;
+    var metricIndex = 0;
     for (var i = 0; i < count; i++) {
       final line = lines[i];
       final columnX = rl ? (count - 1 - i) * columnWidth : i * columnWidth;
-      longest = math.max(longest, line.width);
+      // 竖排逐字绘制使用纵向 advance；横排字宽不能作为含空格、正立拉丁字的盒高。
+      var extent = 0.0;
+      while (metricIndex < metrics.length &&
+          metrics[metricIndex].start < line.end) {
+        final metric = metrics[metricIndex++];
+        if (metric.start >= line.start) extent += metric.advance;
+      }
+      extent += line.ellipsized
+          ? line.ellipsisWidth
+          : (line.hyphenated ? line.hyphenWidth : 0);
+      longest = math.max(longest, extent);
       columns.add(
         LineBox(
           start: line.start,
           end: line.end,
           top: 0,
-          height: line.width,
+          height: extent,
           baseline: 0,
           width: columnWidth,
           offsetX: columnX,

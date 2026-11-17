@@ -552,6 +552,7 @@ abstract final class TextHitTester {
     return TextLayoutEngine.verticalGlyphMetrics(
       box.slice.block.layout.text,
       style,
+      runs: box.slice.block.layout.runs,
     );
   }
 
