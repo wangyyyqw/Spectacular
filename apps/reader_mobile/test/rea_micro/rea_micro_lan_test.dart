@@ -61,6 +61,8 @@ void main() {
           'book': <String, Object?>{
             'uuid': 'book-a',
             'title': '本地书',
+            'author': '测试作者',
+            'cloudId': 42,
             'epubcfi': 'epubcfi(/6/8!/4/2/1)',
             'chapter': '第三章',
             'progress': 37.5,
@@ -77,6 +79,9 @@ void main() {
     expect(manifest.books, hasLength(1));
     final book = manifest.books.single;
     expect(book.uuid, 'book-a');
+    expect(book.title, '本地书');
+    expect(book.author, '测试作者');
+    expect(book.cloudId, 42);
     expect(book.cfi, 'epubcfi(/6/8!/4/2/1)');
     expect(book.chapterName, '第三章');
     expect(book.progress, closeTo(0.375, 0.0001));
@@ -123,6 +128,7 @@ Map<String, Object?> _manifestJson({Object? finished = false}) {
           'uuid': 'book-a',
           'title': '本地书',
           'author': '作者',
+          'cloudId': 42,
           'epubcfi': 'epubcfi(/6/8!/4/2/1)',
           'chapter': '第三章',
           'progress': 37.5,

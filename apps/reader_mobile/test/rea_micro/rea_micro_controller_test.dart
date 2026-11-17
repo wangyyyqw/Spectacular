@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_lan.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
@@ -58,6 +59,37 @@ class _TestSessionStore implements ReadingSessionStore {
 
   @override
   Future<List<ReadingSession>> list() async => List<ReadingSession>.of(items);
+}
+
+class _MemoryProgressStore implements ReaderProgressStore {
+  final Map<String, ReaderProgress> items = <String, ReaderProgress>{};
+
+  @override
+  Future<ReaderProgress?> load(String bookId) async => items[bookId];
+
+  @override
+  Future<void> save(String bookId, ReaderProgress progress) async {
+    items[bookId] = progress;
+  }
+
+  @override
+  Future<void> clear(String bookId) async {
+    items.remove(bookId);
+  }
+
+  @override
+  Future<Map<String, ReaderProgress>> snapshot() async => Map.of(items);
+}
+
+class _FakeLan extends ReaMicroLanClient {
+  _FakeLan(this.manifest);
+
+  final ReaMicroLanManifest manifest;
+
+  @override
+  Future<ReaMicroLanManifest> fetchManifest(ReaMicroLanSyncPeer peer) async {
+    return manifest;
+  }
 }
 
 class _FakeApi implements ReaMicroApi {
@@ -237,6 +269,7 @@ Future<ReaMicroController> _createController(
   _FakeApi api, {
   bool signedIn = true,
   ReaderProgressStore? progressStore,
+  ReaMicroLanClient? lan,
 }) async {
   if (signedIn) {
     await ReaMicroStore(library).saveToken('token');
@@ -245,6 +278,7 @@ Future<ReaMicroController> _createController(
     library: library,
     api: api,
     progressStore: progressStore,
+    lan: lan,
   );
   await controller.initialize();
   return controller;
@@ -817,5 +851,65 @@ void main() {
     expect(linked, 1);
     expect(controller.links['book-a']?.cloudBookId, 21);
     expect((await ReaMicroStore(library).loadLinks())['book-a']?.name, '本地书');
+  });
+
+  test('局域网进度按书名和作者匹配本地书籍', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'local-book',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final progressStore = _MemoryProgressStore();
+    final manifest = ReaMicroLanManifest.fromJson(<String, Object?>{
+      'userId': 1,
+      'deviceId': 'device-b',
+      'generatedAt': 1763380800000,
+      'books': <Object?>[
+        <String, Object?>{
+          'uuid': 'reamicro-book-uuid',
+          'progressUpdatedAt': 1763380700000,
+          'book': <String, Object?>{
+            'uuid': 'reamicro-book-uuid',
+            'title': '本地书',
+            'author': '作者',
+            'cloudId': 21,
+            'epubcfi': 'epubcfi(/6/8!/4/2/1)',
+            'chapter': '第三章',
+            'progress': 37.5,
+          },
+        },
+      ],
+    });
+    final controller = await _createController(
+      library,
+      _FakeApi(),
+      progressStore: progressStore,
+      lan: _FakeLan(manifest),
+    );
+    addTearDown(controller.dispose);
+
+    final message = await controller.syncWithLanPeer(
+      const ReaMicroLanSyncPeer(
+        host: '127.0.0.1',
+        port: 1,
+        userId: 1,
+        deviceId: 'device-b',
+        nickname: '测试用户',
+        deviceName: '测试设备',
+      ),
+    );
+
+    expect(message, '已从 测试设备 合并 1 本阅读位置');
+    expect(progressStore.items['local-book']?.cfi, 'epubcfi(/6/8!/4/2/1)');
+    expect(
+      progressStore.items['local-book']?.readingPercent,
+      closeTo(0.375, 0.0001),
+    );
+    expect(progressStore.items['local-book']?.chapterTitle, '第三章');
   });
 }

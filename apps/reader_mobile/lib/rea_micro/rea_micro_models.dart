@@ -718,6 +718,9 @@ class ReaMicroLanBookProgress {
   /// 创建局域网进度。
   const ReaMicroLanBookProgress({
     required this.uuid,
+    required this.title,
+    required this.author,
+    required this.cloudId,
     required this.cfi,
     required this.chapterName,
     required this.progress,
@@ -727,6 +730,15 @@ class ReaMicroLanBookProgress {
 
   /// 书籍 UUID，与本地书库标识一致。
   final String uuid;
+
+  /// 阅微书名，用于本地书籍身份不一致时匹配。
+  final String title;
+
+  /// 阅微作者。
+  final String author;
+
+  /// 阅微云端书籍标识。
+  final int cloudId;
 
   /// EPUB CFI 位置。
   final String cfi;
@@ -752,6 +764,9 @@ class ReaMicroLanBookProgress {
     final snapshot = book is Map<String, Object?> ? book : entry;
     return ReaMicroLanBookProgress(
       uuid: _stringValue(entry['uuid']) ?? '',
+      title: _stringValue(snapshot['title']) ?? '',
+      author: _stringValue(snapshot['author']) ?? '',
+      cloudId: _intValue(snapshot['cloudId']),
       cfi: _stringValue(snapshot['epubcfi']) ?? '',
       chapterName: _stringValue(snapshot['chapter']) ?? '',
       progress: _progressValue(snapshot['progress']),

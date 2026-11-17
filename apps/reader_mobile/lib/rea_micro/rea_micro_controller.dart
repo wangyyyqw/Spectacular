@@ -987,11 +987,16 @@ class ReaMicroController extends ChangeNotifier {
       var applied = 0;
       var skipped = 0;
       var failed = 0;
+      var unmatched = 0;
       for (final remote in manifest.books) {
         if (!remote.usable) continue;
-        final localBook = await _library.bookById(remote.uuid);
-        if (localBook == null) continue;
-        final state = _progressStates[remote.uuid];
+        final localBook = await _matchLanBook(remote);
+        if (localBook == null) {
+          unmatched += 1;
+          continue;
+        }
+        final bookId = localBook.id;
+        final state = _progressStates[bookId];
         if (state?.dirty == true) {
           skipped += 1;
           continue;
@@ -1009,14 +1014,14 @@ class ReaMicroController extends ChangeNotifier {
           continue;
         }
         if (state?.cfi == remote.cfi) {
-          _progressStates[remote.uuid] = state!.copyWith(
+          _progressStates[bookId] = state!.copyWith(
             remoteUpdatedAt: remote.updatedAt,
           );
           skipped += 1;
           continue;
         }
         final ok = await _applyRemoteProgress(
-          remote.uuid,
+          bookId,
           cfi: remote.cfi,
           chapterName: remote.chapterName,
           progress: remote.progress,
@@ -1036,11 +1041,14 @@ class ReaMicroController extends ChangeNotifier {
           : peer.nickname.isNotEmpty
           ? peer.nickname
           : '局域网设备';
+      final unmatchedHint = unmatched > 0 ? '，$unmatched 本未匹配本地书籍' : '';
       final message = failed == 0
           ? applied == 0
-                ? '与 $device 没有新的阅读位置'
-                : '已从 $device 合并 $applied 本阅读位置'
-          : '已从 $device 合并 $applied 本，$failed 本位置不可用';
+                ? unmatched > 0
+                      ? '与 $device 没有可合并的阅读位置$unmatchedHint'
+                      : '与 $device 没有新的阅读位置'
+                : '已从 $device 合并 $applied 本阅读位置$unmatchedHint'
+          : '已从 $device 合并 $applied 本，$failed 本位置不可用$unmatchedHint';
       _lanMessage = message;
       if (applied > 0) {
         if (_links.isNotEmpty) {
@@ -1057,6 +1065,40 @@ class ReaMicroController extends ChangeNotifier {
       _lanSyncing = false;
       _notify();
     }
+  }
+
+  /// 在本地书库中定位阅微设备上报的书。
+  ///
+  /// 阅微的书籍 UUID 与 Spectacular 的本地书籍标识来源不同，不能只按 UUID
+  /// 查找；依次尝试本地标识、已有云端关联和唯一的书名加作者匹配。
+  Future<BookEntry?> _matchLanBook(ReaMicroLanBookProgress remote) async {
+    final direct = await _library.bookById(remote.uuid);
+    if (direct != null) return direct;
+    if (remote.cloudId > 0) {
+      for (final entry in _links.entries) {
+        if (entry.value.cloudBookId != remote.cloudId) continue;
+        final linked = await _library.bookById(entry.key);
+        if (linked != null) return linked;
+      }
+    }
+    final title = _normalizeBookText(remote.title);
+    if (title.isEmpty) return null;
+    final author = _normalizeBookText(remote.author);
+    final matches = <BookEntry>[];
+    for (final book in await _library.list()) {
+      if (_normalizeBookText(book.title) != title) continue;
+      if (author.isNotEmpty && _normalizeBookText(book.author) != author) {
+        continue;
+      }
+      final existing = _links[book.id];
+      if (existing != null &&
+          remote.cloudId > 0 &&
+          existing.cloudBookId != remote.cloudId) {
+        continue;
+      }
+      matches.add(book);
+    }
+    return matches.length == 1 ? matches.single : null;
   }
 
   /// 扫描局域网授权登录设备。
