@@ -143,7 +143,7 @@ class ChapterStyleResolver {
     final container = retainedContainers[view];
     return container != null &&
         ((container.style.width != null && !container.style.width!.isAuto) ||
-            container.style.intrinsicWidth != null ||
+            container.style.hasIntrinsicWidth ||
             MulticolGeometry.fromStyle(
                   container.style,
                   container.contentWidth,
@@ -157,7 +157,7 @@ class ChapterStyleResolver {
     List<SelectorElement> chain,
     double contentWidth,
   ) {
-    if (computed.intrinsicWidth == null) return computed;
+    if (!computed.hasIntrinsicWidth) return computed;
     final authored = chainStyle(chain);
     final used = authored.withIntrinsicMargins(
       contentWidth: contentWidth,
@@ -640,7 +640,7 @@ class ChapterStyleResolver {
     final ancestorStyle = chainStyle(chain.sublist(0, index + 1));
     final retained = retainedContainers[chain[index]];
     if (retained != null) {
-      projection.hasIntrinsicContainer |= retained.style.intrinsicWidth != null;
+      projection.hasIntrinsicContainer |= retained.style.hasIntrinsicWidth;
       projection.left = retained.contentLeft;
       projection.right =
           contentWidth - retained.contentLeft - retained.flowWidth;

@@ -304,7 +304,7 @@ void main() {
     expect(direct.padding.left, 60);
   });
 
-  test('内在宽度仅作用于 width，继承和文字覆盖保持独立模式', () {
+  test('首选内在宽度继承和文字覆盖保持独立模式', () {
     for (final value in ['min-content', 'max-content', 'fit-content']) {
       final style = _compute('width:$value');
       expect(style.intrinsicWidth, CssIntrinsicWidth.parse(value));
@@ -324,6 +324,35 @@ void main() {
       );
       expect(invalid.height!.value, 20);
       expect(invalid.minWidth!.value, 30);
+    }
+  });
+
+  test('最大内容宽接受前缀别名，显式继承与文字覆盖保留约束', () {
+    for (final value in [
+      'min-content',
+      'max-content',
+      'fit-content',
+      '-moz-fit-content',
+      '-webkit-fit-content',
+    ]) {
+      final style = _compute('max-width:80px;max-width:$value');
+      final mode = CssIntrinsicWidth.parse(value);
+      expect(style.maxWidth, isNull);
+      expect(style.intrinsicMaxWidth, mode);
+      expect(style.withTypography(fontSize: 24).intrinsicMaxWidth, mode);
+      expect(
+        _compute('max-width:inherit', parent: style).intrinsicMaxWidth,
+        mode,
+      );
+      expect(_compute('', parent: style).intrinsicMaxWidth, isNull);
+      expect(
+        _compute('max-width:initial', parent: style).intrinsicMaxWidth,
+        isNull,
+      );
+      expect(
+        _compute('max-width:$value;max-width:none').hasIntrinsicWidth,
+        isFalse,
+      );
     }
   });
 

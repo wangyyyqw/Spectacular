@@ -99,7 +99,7 @@ class ChapterTextMeasurer {
   double textWidthFor(ComputedStyle style, {bool preserveNarrowWidth = false}) {
     final width = style.contentBoxWidth(contentWidth);
     return preserveNarrowWidth ||
-            style.intrinsicWidth != null ||
+            style.hasIntrinsicWidth ||
             (style.width != null && !style.width!.isAuto)
         ? width
         : math.max(24.0, width);
