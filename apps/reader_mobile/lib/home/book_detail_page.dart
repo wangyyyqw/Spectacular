@@ -9,6 +9,7 @@ import 'package:reader_ui/reader_session.dart';
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
 import 'finish_book_sheet.dart';
+import 'reading_insights.dart';
 import '../storage/book_review_store.dart';
 import '../storage/reading_session_store.dart';
 
@@ -765,7 +766,7 @@ class _BookReadingStats {
     var charactersRead = 0;
 
     for (final session in sessions) {
-      if (session.duration <= Duration.zero ||
+      if (session.duration < minimumCountedSessionDuration ||
           !session.endedAt.isAfter(session.startedAt)) {
         continue;
       }

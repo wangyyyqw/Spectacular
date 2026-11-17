@@ -323,6 +323,53 @@ void main() {
     );
   });
 
+  testWidgets('详情页阅读记录不汇总低于五分钟的会话', (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(
+        buildTestEpub(title: '短会话书', identifier: 'detail-short-session'),
+      );
+      final sessions = store.readingSessionStore()!;
+      await sessions.add(
+        bookId: entry.id,
+        startedAt: today.add(const Duration(hours: 9)),
+        endedAt: today.add(const Duration(hours: 9, minutes: 4, seconds: 59)),
+        pageTurns: 9,
+        charactersRead: 900,
+      );
+      await sessions.add(
+        bookId: entry.id,
+        startedAt: today.add(const Duration(hours: 10)),
+        endedAt: today.add(const Duration(hours: 10, minutes: 5)),
+        pageTurns: 1,
+        charactersRead: 10,
+      );
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('book-detail-total-duration')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    String valueOf(String key) =>
+        tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
+
+    expect(valueOf('book-detail-total-duration'), '5 分钟');
+    expect(valueOf('book-detail-session-count'), '1');
+    expect(valueOf('book-detail-page-turns'), '1');
+    expect(valueOf('book-detail-characters-read'), '10');
+  });
+
   testWidgets('详情页可标记读完并保存评分与书评', (tester) async {
     late BookEntry entry;
     await tester.runAsync(() async {
