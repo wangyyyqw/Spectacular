@@ -512,6 +512,52 @@ void main() {
     );
   });
 
+  testWidgets('最近阅读只按满五分钟的会话排列，短记录的书不列出，无会话的历史书保留', (tester) async {
+    final now = DateTime.now();
+    final keptEnd = now.subtract(const Duration(days: 2));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([
+            _book('short', '短记录样本', lastReadAt: now),
+            _book('kept', '满五分钟样本', lastReadAt: now),
+            _book(
+              'legacy',
+              '无会话样本',
+              lastReadAt: now.subtract(const Duration(days: 3)),
+            ),
+          ], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore([
+            ReadingSession(
+              bookId: 'short',
+              startedAt: now.subtract(const Duration(minutes: 4, seconds: 59)),
+              endedAt: now,
+              duration: const Duration(minutes: 4, seconds: 59),
+            ),
+            ReadingSession(
+              bookId: 'kept',
+              startedAt: keptEnd.subtract(const Duration(minutes: 5)),
+              endedAt: keptEnd,
+              duration: const Duration(minutes: 5),
+            ),
+          ]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollTo(tester, find.text('最近阅读'), 300);
+    expect(find.byKey(const ValueKey('stats-open-short')), findsNothing);
+    expect(find.text('2 天前'), findsOneWidget);
+    expect(find.text('3 天前'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('stats-open-kept'))).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const ValueKey('stats-open-legacy'))).dy,
+      ),
+    );
+  });
+
   testWidgets('首次加载失败时显示重试入口', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
