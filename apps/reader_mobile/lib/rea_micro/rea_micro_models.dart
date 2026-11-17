@@ -119,6 +119,362 @@ class ReaMicroChartPoint {
   }
 }
 
+/// 阅微账号的完整阅读概览。
+class ReaMicroOverview {
+  /// 创建概览。
+  const ReaMicroOverview({
+    required this.years,
+    required this.readDays,
+    required this.totalDurationSeconds,
+    required this.bookCount,
+    required this.finishedBookCount,
+    required this.registerTimestamp,
+    required this.topBooks,
+    required this.listeningDurationSeconds,
+    required this.readingDurationSeconds,
+  });
+
+  /// 有阅读记录的年份。
+  final List<int> years;
+
+  /// 累计阅读天数。
+  final int readDays;
+
+  /// 累计阅读时长（秒）。
+  final int totalDurationSeconds;
+
+  /// 阅读过的书籍数。
+  final int bookCount;
+
+  /// 已读完书籍数。
+  final int finishedBookCount;
+
+  /// 注册时间（毫秒时间戳，0 表示未提供）。
+  final int registerTimestamp;
+
+  /// 阅读时长最高的书籍。
+  final List<ReaMicroTopBook> topBooks;
+
+  /// 听书时长（秒）。
+  final int listeningDurationSeconds;
+
+  /// 阅读时长（秒）。
+  final int readingDurationSeconds;
+
+  /// 从接口数据解析。
+  factory ReaMicroOverview.fromJson(Map<String, Object?> json) {
+    return ReaMicroOverview(
+      years: _intList(json['years']),
+      readDays: _intValue(json['readDays']),
+      totalDurationSeconds: _intValue(json['totalDuration']),
+      bookCount: _intValue(json['bookCount']),
+      finishedBookCount: _intValue(json['finishedBookCount']),
+      registerTimestamp: _timestampMillis(json['registerTimestamp']),
+      topBooks: _topBooks(json['topBooks']),
+      listeningDurationSeconds: _intValue(json['listeningDuration']),
+      readingDurationSeconds: _intValue(json['readingDuration']),
+    );
+  }
+}
+
+/// 阅读时长最高的书籍。
+class ReaMicroTopBook {
+  /// 创建条目。
+  const ReaMicroTopBook({
+    required this.cover,
+    required this.name,
+    required this.durationSeconds,
+    required this.bookId,
+    required this.readDays,
+    required this.listeningDurationSeconds,
+    required this.readingDurationSeconds,
+  });
+
+  /// 封面地址。
+  final String cover;
+
+  /// 书名。
+  final String name;
+
+  /// 该周期阅读时长（秒）。
+  final int durationSeconds;
+
+  /// 云端书籍标识。
+  final String bookId;
+
+  /// 阅读天数。
+  final int readDays;
+
+  /// 听书时长（秒）。
+  final int listeningDurationSeconds;
+
+  /// 阅读时长（秒）。
+  final int readingDurationSeconds;
+
+  /// 从接口数据解析。
+  factory ReaMicroTopBook.fromJson(Map<String, Object?> json) {
+    return ReaMicroTopBook(
+      cover: _stringValue(json['cover']) ?? '',
+      name: _stringValue(json['name']) ?? '',
+      durationSeconds: _intValue(json['duration']),
+      bookId: _stringValue(json['bookId']) ?? json['bookId']?.toString() ?? '',
+      readDays: _intValue(json['readDays']),
+      listeningDurationSeconds: _intValue(json['listeningDuration']),
+      readingDurationSeconds: _intValue(json['readingDuration']),
+    );
+  }
+}
+
+/// 阅微周/月统计中的单日时长。
+class ReaMicroDayDuration {
+  /// 创建单日时长。
+  const ReaMicroDayDuration({
+    required this.day,
+    required this.durationSeconds,
+    required this.listeningDurationSeconds,
+    required this.readingDurationSeconds,
+  });
+
+  /// 当月日期（1～31）。
+  final int day;
+
+  /// 当日总时长（秒）。
+  final int durationSeconds;
+
+  /// 当日听书时长（秒）。
+  final int listeningDurationSeconds;
+
+  /// 当日阅读时长（秒）。
+  final int readingDurationSeconds;
+
+  /// 从接口数据解析。
+  factory ReaMicroDayDuration.fromJson(Map<String, Object?> json) {
+    return ReaMicroDayDuration(
+      day: _intValue(json['day']),
+      durationSeconds: _intValue(json['duration']),
+      listeningDurationSeconds: _intValue(json['listeningDuration']),
+      readingDurationSeconds: _intValue(json['readingDuration']),
+    );
+  }
+}
+
+/// 阅微年度统计中的单月时长。
+class ReaMicroMonthDuration {
+  /// 创建单月时长。
+  const ReaMicroMonthDuration({
+    required this.month,
+    required this.durationSeconds,
+    required this.listeningDurationSeconds,
+    required this.readingDurationSeconds,
+  });
+
+  /// 月份（1～12）。
+  final int month;
+
+  /// 当月总时长（秒）。
+  final int durationSeconds;
+
+  /// 当月听书时长（秒）。
+  final int listeningDurationSeconds;
+
+  /// 当月阅读时长（秒）。
+  final int readingDurationSeconds;
+
+  /// 从接口数据解析。
+  factory ReaMicroMonthDuration.fromJson(Map<String, Object?> json) {
+    return ReaMicroMonthDuration(
+      month: _intValue(json['month']),
+      durationSeconds: _intValue(json['duration']),
+      listeningDurationSeconds: _intValue(json['listeningDuration']),
+      readingDurationSeconds: _intValue(json['readingDuration']),
+    );
+  }
+}
+
+/// 阅微周、月或年度统计。
+class ReaMicroPeriodStats {
+  /// 创建周期统计。
+  const ReaMicroPeriodStats({
+    required this.days,
+    required this.months,
+    required this.readDays,
+    required this.totalDurationSeconds,
+    required this.bookCount,
+    required this.finishedBookCount,
+    required this.continuousReadDays,
+    required this.averageDailyDurationSeconds,
+    required this.topBooks,
+    required this.listeningDurationSeconds,
+    required this.readingDurationSeconds,
+  });
+
+  /// 周/月统计中的逐日数据。
+  final List<ReaMicroDayDuration> days;
+
+  /// 年度统计中的逐月数据。
+  final List<ReaMicroMonthDuration> months;
+
+  /// 本周期阅读天数。
+  final int readDays;
+
+  /// 本周期总时长（秒）。
+  final int totalDurationSeconds;
+
+  /// 本周期阅读书籍数。
+  final int bookCount;
+
+  /// 本周期读完书籍数。
+  final int finishedBookCount;
+
+  /// 连续阅读天数。
+  final int continuousReadDays;
+
+  /// 日均时长（秒）。
+  final int averageDailyDurationSeconds;
+
+  /// 本周期阅读时长最高的书籍。
+  final List<ReaMicroTopBook> topBooks;
+
+  /// 听书时长（秒）。
+  final int listeningDurationSeconds;
+
+  /// 阅读时长（秒）。
+  final int readingDurationSeconds;
+
+  /// 从接口数据解析。
+  factory ReaMicroPeriodStats.fromJson(Map<String, Object?> json) {
+    return ReaMicroPeriodStats(
+      days: <ReaMicroDayDuration>[
+        if (json['days'] is List<Object?>)
+          for (final item in json['days']! as List<Object?>)
+            if (item is Map<String, Object?>)
+              ReaMicroDayDuration.fromJson(item),
+      ]..sort((left, right) => left.day.compareTo(right.day)),
+      months: <ReaMicroMonthDuration>[
+        if (json['months'] is List<Object?>)
+          for (final item in json['months']! as List<Object?>)
+            if (item is Map<String, Object?>)
+              ReaMicroMonthDuration.fromJson(item),
+      ]..sort((left, right) => left.month.compareTo(right.month)),
+      readDays: _intValue(json['readDays']),
+      totalDurationSeconds: _intValue(json['totalDuration']),
+      bookCount: _intValue(json['bookCount']),
+      finishedBookCount: _intValue(json['finishedBookCount']),
+      continuousReadDays: _intValue(json['continuousReadDays']),
+      averageDailyDurationSeconds: _intValue(json['avgDailyDuration']),
+      topBooks: _topBooks(json['topBooks']),
+      listeningDurationSeconds: _intValue(json['listeningDuration']),
+      readingDurationSeconds: _intValue(json['readingDuration']),
+    );
+  }
+}
+
+/// 阅微云端的一本书阅读记录。
+class ReaMicroBookRecord {
+  /// 创建记录。
+  const ReaMicroBookRecord({
+    required this.bookId,
+    required this.cloudBookId,
+    required this.name,
+    required this.author,
+    required this.cover,
+    required this.progress,
+    required this.totalReadTimeSeconds,
+    required this.readDays,
+    required this.finishReadTime,
+    required this.listeningDurationSeconds,
+    required this.readingDurationSeconds,
+  });
+
+  /// 阅微书籍标识。
+  final int bookId;
+
+  /// 云端书籍标识。
+  final int cloudBookId;
+
+  /// 书名。
+  final String name;
+
+  /// 作者。
+  final String author;
+
+  /// 封面地址。
+  final String cover;
+
+  /// 全书进度（0～1）。
+  final double progress;
+
+  /// 累计阅读时长（秒）。
+  final int totalReadTimeSeconds;
+
+  /// 阅读天数。
+  final int readDays;
+
+  /// 读完时间（毫秒时间戳，0 表示未读完）。
+  final int finishReadTime;
+
+  /// 听书时长（秒）。
+  final int listeningDurationSeconds;
+
+  /// 阅读时长（秒）。
+  final int readingDurationSeconds;
+
+  /// 是否已读完。
+  bool get finished => finishReadTime > 0 || progress >= 1;
+
+  /// 从接口数据解析。
+  factory ReaMicroBookRecord.fromJson(Map<String, Object?> json) {
+    return ReaMicroBookRecord(
+      bookId: _intValue(json['bookId']),
+      cloudBookId: _intValue(json['cloudBookId']),
+      name: _stringValue(json['name']) ?? '',
+      author: _stringValue(json['author']) ?? '',
+      cover: _stringValue(json['cover']) ?? '',
+      progress: _progressValue(json['progress']),
+      totalReadTimeSeconds: _intValue(json['totalReadTime']),
+      readDays: _intValue(json['readDays']),
+      finishReadTime: _timestampMillis(json['finishReadTime']),
+      listeningDurationSeconds: _intValue(json['listeningDuration']),
+      readingDurationSeconds: _intValue(json['readingDuration']),
+    );
+  }
+}
+
+/// 阅微完整阅读数据快照。
+class ReaMicroCloudStats {
+  /// 创建快照。
+  const ReaMicroCloudStats({
+    required this.overview,
+    required this.week,
+    required this.month,
+    required this.year,
+    required this.chart,
+    required this.books,
+    required this.fetchedAt,
+  });
+
+  /// 累计概览。
+  final ReaMicroOverview overview;
+
+  /// 本周统计。
+  final ReaMicroPeriodStats week;
+
+  /// 本月统计。
+  final ReaMicroPeriodStats month;
+
+  /// 本年度统计。
+  final ReaMicroPeriodStats year;
+
+  /// 最近 30 天趋势。
+  final List<ReaMicroChartPoint> chart;
+
+  /// 账号全部书籍阅读记录。
+  final List<ReaMicroBookRecord> books;
+
+  /// 拉取时间。
+  final DateTime fetchedAt;
+}
+
 /// 阅微云端书籍搜索结果。
 class ReaMicroCloudBook {
   /// 创建云端书籍。
@@ -477,6 +833,18 @@ int _intValue(Object? value) {
 }
 
 String? _stringValue(Object? value) => value is String ? value : null;
+
+List<int> _intList(Object? value) => <int>[
+  if (value is List<Object?>)
+    for (final item in value)
+      if (_intValue(item) > 0) _intValue(item),
+];
+
+List<ReaMicroTopBook> _topBooks(Object? value) => <ReaMicroTopBook>[
+  if (value is List<Object?>)
+    for (final item in value)
+      if (item is Map<String, Object?>) ReaMicroTopBook.fromJson(item),
+];
 
 double _progressValue(Object? value) {
   final raw = value is num

@@ -65,7 +65,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _reaMicro.scheduleReadingSync();
+      _reaMicro.handleAppResumed();
     }
   }
 
@@ -172,6 +172,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         refreshToken: _statsRefreshToken,
         active: _index == 1,
         onReadingFinished: _onReadingFinished,
+        reaMicro: _reaMicro,
       ),
       ReviewsPage(library: widget.library, active: _index == 2),
       ProfilePage(library: widget.library, reaMicro: _reaMicro),

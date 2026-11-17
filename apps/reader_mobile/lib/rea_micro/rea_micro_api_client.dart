@@ -23,6 +23,25 @@ abstract interface class ReaMicroApi {
     int limit = 30,
   });
 
+  /// 读取账号完整阅读概览。
+  Future<ReaMicroOverview> fetchOverview(String token);
+
+  /// 读取指定日期所在周的统计。
+  Future<ReaMicroPeriodStats> fetchWeekStats(String token, {DateTime? date});
+
+  /// 读取指定月份的统计。
+  Future<ReaMicroPeriodStats> fetchMonthStats(
+    String token, {
+    int? year,
+    int? month,
+  });
+
+  /// 读取指定年份的统计。
+  Future<ReaMicroPeriodStats> fetchYearStats(String token, {int? year});
+
+  /// 读取账号全部书籍的阅读记录。
+  Future<List<ReaMicroBookRecord>> fetchBookRecords(String token);
+
   /// 按书名和作者搜索阅微云端书籍。
   Future<ReaMicroCloudBook?> searchCloudBook(
     String token, {
@@ -140,6 +159,90 @@ class ReaMicroApiClient implements ReaMicroApi {
         if (item is Map<String, Object?>) ReaMicroChartPoint.fromJson(item),
     ]..sort((left, right) => left.day.compareTo(right.day));
     return points;
+  }
+
+  @override
+  Future<ReaMicroOverview> fetchOverview(String token) async {
+    final data = await _post(
+      'rest/statistic/get-overview-read-duration',
+      const <String, Object?>{},
+      token: token,
+    );
+    if (data is! Map<String, Object?>) {
+      throw const ReaMicroException('阅读概览格式不正确');
+    }
+    return ReaMicroOverview.fromJson(data);
+  }
+
+  @override
+  Future<ReaMicroPeriodStats> fetchWeekStats(
+    String token, {
+    DateTime? date,
+  }) async {
+    final value = date ?? DateTime.now();
+    return _fetchPeriodStats(
+      'rest/statistic/get-week-read-duration',
+      token,
+      <String, Object?>{'date': _dateOnly(value)},
+    );
+  }
+
+  @override
+  Future<ReaMicroPeriodStats> fetchMonthStats(
+    String token, {
+    int? year,
+    int? month,
+  }) async {
+    final value = DateTime.now();
+    return _fetchPeriodStats(
+      'rest/statistic/get-month-read-duration',
+      token,
+      <String, Object?>{
+        'year': year ?? value.year,
+        'month': month ?? value.month,
+      },
+    );
+  }
+
+  @override
+  Future<ReaMicroPeriodStats> fetchYearStats(String token, {int? year}) async {
+    return _fetchPeriodStats(
+      'rest/statistic/get-year-read-duration',
+      token,
+      <String, Object?>{'year': year ?? DateTime.now().year},
+    );
+  }
+
+  Future<ReaMicroPeriodStats> _fetchPeriodStats(
+    String endpoint,
+    String token,
+    Map<String, Object?> body,
+  ) async {
+    final data = await _post(endpoint, body, token: token);
+    if (data is! Map<String, Object?>) {
+      throw const ReaMicroException('阅读统计格式不正确');
+    }
+    return ReaMicroPeriodStats.fromJson(data);
+  }
+
+  @override
+  Future<List<ReaMicroBookRecord>> fetchBookRecords(String token) async {
+    const pageSize = 200;
+    final records = <ReaMicroBookRecord>[];
+    for (var page = 1; page <= 20; page++) {
+      final data = await _post(
+        'rest/reader/get-read-record-list-by-all',
+        <String, Object?>{'pageNum': page, 'pageSize': pageSize},
+        token: token,
+      );
+      final rawList = _responseList(data);
+      records.addAll(<ReaMicroBookRecord>[
+        for (final item in rawList)
+          if (item is Map<String, Object?>) ReaMicroBookRecord.fromJson(item),
+      ]);
+      if (rawList.length < pageSize) break;
+    }
+    return records;
   }
 
   @override
@@ -298,3 +401,20 @@ int _intValue(Object? value) {
 }
 
 String? _stringValue(Object? value) => value is String ? value : null;
+
+List<Object?> _responseList(Object? data) {
+  return switch (data) {
+    final List<Object?> list => list,
+    final Map<String, Object?> map when map['list'] is List<Object?> =>
+      map['list']! as List<Object?>,
+    final Map<String, Object?> map when map['records'] is List<Object?> =>
+      map['records']! as List<Object?>,
+    _ => const <Object?>[],
+  };
+}
+
+String _dateOnly(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}-$month-$day';
+}

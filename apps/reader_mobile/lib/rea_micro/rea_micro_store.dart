@@ -21,6 +21,7 @@ class ReaMicroStore {
   static const String _lastSyncKey = 'reamicro.sync.lastAt';
   static const String _progressKey = 'reamicro.progress.state';
   static const String _deviceIdKey = 'reamicro.device.id';
+  static const String _cloudPrimaryKey = 'reamicro.cloud.primary';
   static const int _maxUploadedKeys = 5000;
 
   /// 读取访问令牌。
@@ -186,6 +187,14 @@ class ReaMicroStore {
 
   /// 切换账号时清除进度时间戳，避免把另一账号的位置当成已同步状态。
   Future<void> clearProgressStates() => _library.setSetting(_progressKey, '');
+
+  /// 读取是否把阅微作为唯一阅读数据源。
+  Future<bool> loadCloudPrimary() async =>
+      (await _library.getSetting(_cloudPrimaryKey)) == '1';
+
+  /// 保存唯一数据源选择。
+  Future<void> saveCloudPrimary(bool value) =>
+      _library.setSetting(_cloudPrimaryKey, value ? '1' : '0');
 
   /// 读取或生成用于区分本机的设备标识。
   Future<String> loadOrCreateDeviceId() async {

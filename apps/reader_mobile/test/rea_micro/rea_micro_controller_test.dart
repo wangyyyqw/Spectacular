@@ -23,6 +23,12 @@ class _TestLibrary extends LibraryStore {
     if (value != null && value.id == id) return value;
     return super.bookById(id);
   }
+
+  @override
+  Future<List<BookEntry>> list() async {
+    final value = book;
+    return value == null ? super.list() : <BookEntry>[value];
+  }
 }
 
 class _TestSessionStore implements ReadingSessionStore {
@@ -63,6 +69,32 @@ class _FakeApi implements ReaMicroApi {
   final List<_ProgressUpload> progressUploads = <_ProgressUpload>[];
   ReaMicroReadProgress? remoteProgress;
   int userCalls = 0;
+  int recordCalls = 0;
+  ReaMicroOverview overview = const ReaMicroOverview(
+    years: <int>[],
+    readDays: 0,
+    totalDurationSeconds: 0,
+    bookCount: 0,
+    finishedBookCount: 0,
+    registerTimestamp: 0,
+    topBooks: <ReaMicroTopBook>[],
+    listeningDurationSeconds: 0,
+    readingDurationSeconds: 0,
+  );
+  ReaMicroPeriodStats period = const ReaMicroPeriodStats(
+    days: <ReaMicroDayDuration>[],
+    months: <ReaMicroMonthDuration>[],
+    readDays: 0,
+    totalDurationSeconds: 0,
+    bookCount: 0,
+    finishedBookCount: 0,
+    continuousReadDays: 0,
+    averageDailyDurationSeconds: 0,
+    topBooks: <ReaMicroTopBook>[],
+    listeningDurationSeconds: 0,
+    readingDurationSeconds: 0,
+  );
+  List<ReaMicroBookRecord> bookRecords = <ReaMicroBookRecord>[];
 
   @override
   Future<ReaMicroUser> fetchUser(String token) async {
@@ -86,6 +118,40 @@ class _FakeApi implements ReaMicroApi {
       throw const ReaMicroException('登录已失效', unauthorized: true);
     }
     return const <ReaMicroChartPoint>[];
+  }
+
+  @override
+  Future<ReaMicroOverview> fetchOverview(String token) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    return overview;
+  }
+
+  @override
+  Future<ReaMicroPeriodStats> fetchWeekStats(
+    String token, {
+    DateTime? date,
+  }) async => period;
+
+  @override
+  Future<ReaMicroPeriodStats> fetchMonthStats(
+    String token, {
+    int? year,
+    int? month,
+  }) async => period;
+
+  @override
+  Future<ReaMicroPeriodStats> fetchYearStats(String token, {int? year}) async =>
+      period;
+
+  @override
+  Future<List<ReaMicroBookRecord>> fetchBookRecords(String token) async {
+    recordCalls += 1;
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    return bookRecords;
   }
 
   @override
@@ -637,5 +703,119 @@ void main() {
     final saved = await progressStore.load('book-a');
     expect(saved?.cfi, 'epubcfi(/6/10!/4/2/1)');
     expect(api.progressUploads.single.cfi, 'epubcfi(/6/10!/4/2/1)');
+  });
+
+  test('多端较新的云端位置优先于尚未上报的本地位置', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi()
+      ..remoteProgress = ReaMicroReadProgress(
+        cloudBookId: '11',
+        cfi: 'epubcfi(/6/8!/4/2/1)',
+        chapterName: '第三章',
+        progress: 0.6,
+        readFinishTime: DateTime.now().millisecondsSinceEpoch + 60000,
+      );
+    final progressStore = MemoryReaderProgressStore();
+    final controller = await _createController(
+      library,
+      api,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+
+    await controller.trackedProgressStore!.save(
+      'book-a',
+      const ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        contentRevision: 'rev-1',
+        readingPercent: 0.1,
+        chapterTitle: '第一章',
+      ),
+    );
+    final result = await controller.syncProgress();
+
+    expect(result.success, isTrue);
+    expect(result.requests, 1);
+    expect(api.progressUploads, isEmpty);
+    final saved = await progressStore.load('book-a');
+    expect(saved?.cfi, 'epubcfi(/6/8!/4/2/1)');
+    expect(saved?.readingPercent, 0.6);
+  });
+
+  test('开启唯一数据源后持久化并读取完整云端统计', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi()
+      ..overview = const ReaMicroOverview(
+        years: <int>[2025, 2026],
+        readDays: 42,
+        totalDurationSeconds: 7200,
+        bookCount: 8,
+        finishedBookCount: 3,
+        registerTimestamp: 0,
+        topBooks: <ReaMicroTopBook>[],
+        listeningDurationSeconds: 1200,
+        readingDurationSeconds: 6000,
+      );
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+
+    await controller.setCloudAsPrimary(true);
+
+    expect(controller.cloudAsPrimary, isTrue);
+    expect(await ReaMicroStore(library).loadCloudPrimary(), isTrue);
+    expect(controller.cloudStats?.overview.totalDurationSeconds, 7200);
+    expect(controller.cloudStats?.overview.years, <int>[2025, 2026]);
+  });
+
+  test('按书名和作者自动关联云端书籍', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi()
+      ..bookRecords = <ReaMicroBookRecord>[
+        const ReaMicroBookRecord(
+          bookId: 8,
+          cloudBookId: 21,
+          name: '本地书',
+          author: '作者',
+          cover: '',
+          progress: 0.3,
+          totalReadTimeSeconds: 600,
+          readDays: 2,
+          finishReadTime: 0,
+          listeningDurationSeconds: 0,
+          readingDurationSeconds: 600,
+        ),
+      ];
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+
+    final linked = await controller.autoLinkMatchingBooks();
+
+    expect(linked, 1);
+    expect(controller.links['book-a']?.cloudBookId, 21);
+    expect((await ReaMicroStore(library).loadLinks())['book-a']?.name, '本地书');
   });
 }

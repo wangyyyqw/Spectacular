@@ -22,6 +22,7 @@ class ReaMicroPage extends StatefulWidget {
 class _ReaMicroPageState extends State<ReaMicroPage> {
   final _email = TextEditingController();
   final _code = TextEditingController();
+  bool _switchingCloudSource = false;
 
   @override
   void initState() {
@@ -60,6 +61,19 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(result.message)));
+  }
+
+  Future<void> _setCloudPrimary(bool value) async {
+    if (_switchingCloudSource) return;
+    setState(() => _switchingCloudSource = true);
+    await widget.controller.setCloudAsPrimary(value);
+    if (!mounted) return;
+    setState(() => _switchingCloudSource = false);
+    final message = widget.controller.error ?? widget.controller.notice;
+    if (message != null && message.trim().isNotEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _openLanPage() async {
@@ -241,6 +255,27 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
       if (user != null) ...[const SizedBox(height: 18), _StatsGrid(user: user)],
       const SizedBox(height: 24),
       _ChartCard(points: controller.chart),
+      const SizedBox(height: 24),
+      _section(context, '数据源', [
+        SwitchListTile(
+          key: const ValueKey<String>('reamicro-cloud-primary'),
+          secondary: Icon(
+            controller.cloudAsPrimary
+                ? Icons.cloud_done_outlined
+                : Icons.cloud_sync_outlined,
+          ),
+          title: const Text('以阅微为唯一数据源'),
+          subtitle: Text(
+            controller.cloudAsPrimary
+                ? '统计页显示阅微完整阅读数据；阅读时长、进度自动上报并按最后修改时间多端合并'
+                : '开启后以阅微为准，统计、阅读时长和阅读位置均与云端同步',
+          ),
+          value: controller.cloudAsPrimary,
+          onChanged: _switchingCloudSource
+              ? null
+              : (value) => unawaited(_setCloudPrimary(value)),
+        ),
+      ]),
       const SizedBox(height: 24),
       _section(context, '阅读同步', [
         ListTile(

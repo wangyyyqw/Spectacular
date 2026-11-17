@@ -243,4 +243,136 @@ void main() {
     expect(progress?.progress, 0.375);
     expect(progress?.readFinishTime, 1763380800000);
   });
+
+  test('读取完整阅读概览、周期统计与书籍记录', () async {
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        final path = request.url.path;
+        if (path.endsWith('get-overview-read-duration')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'years': <Object?>[2025, 2026],
+              'readDays': 42,
+              'totalDuration': 7200,
+              'bookCount': 8,
+              'finishedBookCount': 3,
+              'registerTimestamp': 1763380800,
+              'topBooks': <Object?>[
+                <String, Object?>{
+                  'name': '常用书',
+                  'duration': 1800,
+                  'bookId': '8',
+                  'readDays': 6,
+                },
+              ],
+              'listeningDuration': 1200,
+              'readingDuration': 6000,
+            },
+          });
+        }
+        if (path.endsWith('get-week-read-duration') ||
+            path.endsWith('get-month-read-duration')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'days': <Object?>[
+                <String, Object?>{
+                  'day': 17,
+                  'duration': 1800,
+                  'readingDuration': 1500,
+                  'listeningDuration': 300,
+                },
+              ],
+              'readDays': 1,
+              'totalDuration': 1800,
+              'bookCount': 1,
+              'finishedBookCount': 0,
+              'continuousReadDays': 1,
+              'avgDailyDuration': 1800,
+            },
+          });
+        }
+        if (path.endsWith('get-year-read-duration')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'months': <Object?>[
+                <String, Object?>{
+                  'month': 11,
+                  'duration': 3600,
+                  'readingDuration': 3000,
+                  'listeningDuration': 600,
+                },
+              ],
+              'readDays': 2,
+              'totalDuration': 3600,
+              'bookCount': 2,
+              'finishedBookCount': 1,
+              'continuousReadDays': 2,
+              'avgDailyDuration': 1800,
+            },
+          });
+        }
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{
+            'list': <Object?>[
+              <String, Object?>{
+                'bookId': 8,
+                'cloudBookId': 21,
+                'name': '云端书',
+                'author': '作者',
+                'cover': 'https://example.test/cover.jpg',
+                'progress': 0.3,
+                'totalReadTime': 600,
+                'readDays': 2,
+                'finishReadTime': 0,
+                'listeningDuration': 0,
+                'readingDuration': 600,
+              },
+            ],
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    final overview = await api.fetchOverview('token');
+    final week = await api.fetchWeekStats(
+      'token',
+      date: DateTime(2026, 11, 18),
+    );
+    final month = await api.fetchMonthStats('token', year: 2026, month: 11);
+    final year = await api.fetchYearStats('token', year: 2026);
+    final records = await api.fetchBookRecords('token');
+
+    expect(overview.totalDurationSeconds, 7200);
+    expect(overview.topBooks.single.name, '常用书');
+    expect(week.days.single.day, 17);
+    expect(month.days.single.durationSeconds, 1800);
+    expect(year.months.single.month, 11);
+    expect(records.single.cloudBookId, 21);
+    expect(records.single.totalReadTimeSeconds, 600);
+
+    final bodies = <String, Object?>{
+      for (final request in requests)
+        request.url.path.split('/').last: jsonDecode(request.body),
+    };
+    expect(bodies['get-week-read-duration'], <String, Object?>{
+      'date': '2026-11-18',
+    });
+    expect(bodies['get-month-read-duration'], <String, Object?>{
+      'year': 2026,
+      'month': 11,
+    });
+    expect(bodies['get-year-read-duration'], <String, Object?>{'year': 2026});
+    expect(bodies['get-read-record-list-by-all'], <String, Object?>{
+      'pageNum': 1,
+      'pageSize': 200,
+    });
+  });
 }

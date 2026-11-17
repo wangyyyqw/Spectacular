@@ -3,8 +3,11 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_models.dart';
 import 'book_cover_image.dart';
 import 'book_duration_chart.dart';
+import 'cloud_stats_view.dart';
 import 'reading_calendar.dart';
 import 'reading_insights.dart';
 import 'book_reading_ranking.dart';
@@ -25,6 +28,7 @@ class StatsPage extends StatefulWidget {
     this.refreshToken = 0,
     this.active = true,
     this.onReadingFinished,
+    this.reaMicro,
   });
 
   /// 书架存储。
@@ -45,6 +49,9 @@ class StatsPage extends StatefulWidget {
   /// 阅读会话落盘并关闭阅读页后通知，供阅微自动同步。
   final VoidCallback? onReadingFinished;
 
+  /// 阅微同步控制器；开启唯一数据源后改用云端完整阅读数据。
+  final ReaMicroController? reaMicro;
+
   @override
   State<StatsPage> createState() => _StatsPageState();
 }
@@ -55,6 +62,7 @@ class _StatsPageState extends State<StatsPage> {
   int _reloadToken = 0;
   bool _dirty = true;
   String? _error;
+  bool _cloudMode = false;
 
   ReadingSessionStore? get _sessionStore =>
       widget.sessionStore ?? widget.library.readingSessionStore();
@@ -63,6 +71,8 @@ class _StatsPageState extends State<StatsPage> {
   void initState() {
     super.initState();
     widget.library.addListener(_onLibraryChanged);
+    widget.reaMicro?.addListener(_onReaMicroChanged);
+    _cloudMode = widget.reaMicro?.cloudAsPrimary ?? false;
     _bookOpener = BookOpener(
       library: widget.library,
       progressStore: widget.progressStore,
@@ -74,6 +84,7 @@ class _StatsPageState extends State<StatsPage> {
   @override
   void dispose() {
     widget.library.removeListener(_onLibraryChanged);
+    widget.reaMicro?.removeListener(_onReaMicroChanged);
     super.dispose();
   }
 
@@ -83,7 +94,15 @@ class _StatsPageState extends State<StatsPage> {
     final becameActive = !oldWidget.active && widget.active;
     if ((becameActive && _dirty) ||
         oldWidget.refreshToken != widget.refreshToken ||
-        oldWidget.sessionStore != widget.sessionStore) {
+        oldWidget.sessionStore != widget.sessionStore ||
+        oldWidget.reaMicro != widget.reaMicro ||
+        (oldWidget.reaMicro?.cloudAsPrimary ?? false) !=
+            (widget.reaMicro?.cloudAsPrimary ?? false)) {
+      if (oldWidget.reaMicro != widget.reaMicro) {
+        oldWidget.reaMicro?.removeListener(_onReaMicroChanged);
+        widget.reaMicro?.addListener(_onReaMicroChanged);
+      }
+      _cloudMode = widget.reaMicro?.cloudAsPrimary ?? false;
       _reload();
     }
   }
@@ -96,8 +115,34 @@ class _StatsPageState extends State<StatsPage> {
     _reload();
   }
 
+  void _onReaMicroChanged() {
+    if (!mounted) return;
+    final cloud = widget.reaMicro?.cloudAsPrimary ?? false;
+    if (cloud != _cloudMode) {
+      _cloudMode = cloud;
+      if (widget.active) {
+        _reload();
+      } else {
+        _dirty = true;
+        setState(() {});
+      }
+      return;
+    }
+    setState(() {});
+  }
+
   Future<void> _reload() async {
     _dirty = false;
+    final controller = widget.reaMicro;
+    if (controller != null && controller.cloudAsPrimary) {
+      final token = ++_reloadToken;
+      if (widget.active && controller.signedIn) {
+        await controller.refreshCloudStats();
+      }
+      if (!mounted || token != _reloadToken) return;
+      setState(() {});
+      return;
+    }
     final token = ++_reloadToken;
     try {
       final books = await widget.library.list();
@@ -256,6 +301,17 @@ class _StatsPageState extends State<StatsPage> {
     }
   }
 
+  Future<void> _refresh() async {
+    final controller = widget.reaMicro;
+    if (controller != null && controller.cloudAsPrimary) {
+      await controller.syncAll();
+      await controller.refreshCloudStats(force: true);
+      if (mounted) setState(() {});
+      return;
+    }
+    await _reload();
+  }
+
   Future<void> _openBook(BookEntry entry) async {
     await _bookOpener.open(context, entry);
     if (mounted) {
@@ -263,8 +319,39 @@ class _StatsPageState extends State<StatsPage> {
     }
   }
 
+  Future<void> _openCloudBook(ReaMicroBookRecord record) async {
+    final controller = widget.reaMicro;
+    if (controller == null) return;
+    String? localBookId;
+    for (final entry in controller.links.entries) {
+      if (entry.value.cloudBookId == record.cloudBookId) {
+        localBookId = entry.key;
+        break;
+      }
+    }
+    if (localBookId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本地书库没有这本已关联的书，可在阅微同步中重新匹配')),
+      );
+      return;
+    }
+    final book = await widget.library.bookById(localBookId);
+    if (!mounted) return;
+    if (book == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('本地书籍已不在书架中')));
+      return;
+    }
+    await _bookOpener.open(context, book);
+    if (mounted) await _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final controller = widget.reaMicro;
+    if (controller != null && controller.cloudAsPrimary) {
+      return _buildCloud(context, controller);
+    }
     final stats = _stats;
     return Scaffold(
       appBar: AppBar(
@@ -275,7 +362,7 @@ class _StatsPageState extends State<StatsPage> {
           IconButton(
             key: const ValueKey<String>('stats-refresh'),
             tooltip: '刷新统计',
-            onPressed: _reload,
+            onPressed: _refresh,
             icon: const AppIcon(AppGlyph.refresh),
           ),
         ],
@@ -286,7 +373,7 @@ class _StatsPageState extends State<StatsPage> {
                 ? const _StatsSkeleton()
                 : _StatsError(onRetry: _reload)
           : RefreshIndicator(
-              onRefresh: _reload,
+              onRefresh: _refresh,
               child: Center(
                 child: SizedBox(
                   width: 680,
@@ -341,6 +428,42 @@ class _StatsPageState extends State<StatsPage> {
                   ),
                 ),
               ),
+            ),
+    );
+  }
+
+  Widget _buildCloud(BuildContext context, ReaMicroController controller) {
+    final stats = controller.cloudStats;
+    return Scaffold(
+      appBar: AppBar(
+        centerTitle: false,
+        scrolledUnderElevation: 0,
+        title: const Text('统计'),
+        actions: <Widget>[
+          IconButton(
+            key: const ValueKey<String>('stats-refresh'),
+            tooltip: '刷新阅微统计',
+            onPressed: _refresh,
+            icon: const AppIcon(AppGlyph.refresh),
+          ),
+        ],
+        bottom: const _AppBarHairline(),
+      ),
+      body: stats == null
+          ? controller.loadingCloudStats
+                ? const _StatsSkeleton()
+                : _StatsError(
+                    onRetry: _refresh,
+                    message: controller.cloudStatsError ?? '阅微统计加载失败',
+                  )
+          : CloudStatsView(
+              stats: stats,
+              linkedCloudBookIds: <int>{
+                for (final link in controller.links.values) link.cloudBookId,
+              },
+              loading: controller.loadingCloudStats,
+              onRefresh: _refresh,
+              onOpenBook: _openCloudBook,
             ),
     );
   }
@@ -540,9 +663,10 @@ class _StatsSkeleton extends StatelessWidget {
 
 /// 首次加载失败：保留可操作的重试，不把用户困在骨架里。
 class _StatsError extends StatelessWidget {
-  const _StatsError({required this.onRetry});
+  const _StatsError({required this.onRetry, this.message = '统计加载失败'});
 
   final Future<void> Function() onRetry;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -556,9 +680,10 @@ class _StatsError extends StatelessWidget {
           children: [
             AppIcon(AppGlyph.error, size: 32, color: muted),
             const SizedBox(height: 12),
-            const Text(
-              '统计加载失败',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 4),
             Text('请稍后重试', style: TextStyle(fontSize: 13, color: muted)),

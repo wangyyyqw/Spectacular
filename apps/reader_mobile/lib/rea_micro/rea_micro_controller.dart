@@ -88,6 +88,12 @@ class ReaMicroController extends ChangeNotifier {
   bool _lanLoggingIn = false;
   bool _lanSyncing = false;
   String? _lanMessage;
+  bool _cloudAsPrimary = false;
+  ReaMicroCloudStats? _cloudStats;
+  DateTime? _cloudStatsAt;
+  bool _loadingCloudStats = false;
+  String? _cloudStatsError;
+  Timer? _cloudSyncTimer;
 
   /// 是否已登录。
   bool get signedIn => _token != null;
@@ -150,6 +156,21 @@ class ReaMicroController extends ChangeNotifier {
   /// 最近一次操作提示。
   String? get notice => _notice;
 
+  /// 是否把阅微作为唯一阅读数据源。
+  bool get cloudAsPrimary => _cloudAsPrimary && signedIn;
+
+  /// 最近一次拉取的阅微完整阅读数据。
+  ReaMicroCloudStats? get cloudStats => _cloudStats;
+
+  /// 上次拉取完整阅读数据的时间。
+  DateTime? get cloudStatsAt => _cloudStatsAt;
+
+  /// 正在拉取阅微完整阅读数据。
+  bool get loadingCloudStats => _loadingCloudStats;
+
+  /// 完整阅读数据拉取失败原因。
+  String? get cloudStatsError => _cloudStatsError;
+
   /// 首次加载本地令牌、账号缓存、书籍关联和同步时间。
   Future<void> initialize() async {
     if (_initialized) return;
@@ -160,12 +181,23 @@ class ReaMicroController extends ChangeNotifier {
     _lastSyncAt = await _store.loadLastSyncAt();
     _progressStates = await _store.loadProgressStates();
     _deviceId = await _store.loadOrCreateDeviceId();
+    _cloudAsPrimary = await _store.loadCloudPrimary();
+    if (_token == null && _cloudAsPrimary) {
+      _cloudAsPrimary = false;
+      await _store.saveCloudPrimary(false);
+    }
     _notify();
     if (_token != null) {
       await refresh(silent: true);
-      if (!_disposed && _links.isNotEmpty) {
-        scheduleReadingSync(delay: const Duration(seconds: 5));
-        scheduleProgressSync(delay: const Duration(seconds: 7));
+      if (!_disposed && _token != null) {
+        if (_cloudAsPrimary) {
+          _startCloudAutoSync();
+          await syncAll();
+          await refreshCloudStats(silent: true);
+        } else if (_links.isNotEmpty) {
+          scheduleReadingSync(delay: const Duration(seconds: 5));
+          scheduleProgressSync(delay: const Duration(seconds: 7));
+        }
       }
     }
   }
@@ -193,7 +225,7 @@ class ReaMicroController extends ChangeNotifier {
     _progressSyncTimer?.cancel();
     _progressSyncTimer = Timer(delay, () async {
       if (_disposed) return;
-      if (_syncingProgress) {
+      if (_syncing || _syncingProgress) {
         scheduleProgressSync(delay: delay);
         return;
       }
@@ -206,6 +238,9 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null || _busy) return;
     await _refreshInternal(token, silent: silent);
+    if (!_disposed && _token == token && _cloudAsPrimary) {
+      await refreshCloudStats(force: true, silent: silent);
+    }
   }
 
   Future<void> _refreshInternal(String token, {required bool silent}) async {
@@ -242,6 +277,182 @@ class ReaMicroController extends ChangeNotifier {
     final last = _lastRefreshAt;
     if (last != null && DateTime.now().difference(last) < maxAge) return;
     await refresh(silent: true);
+  }
+
+  /// 切换是否把阅微作为唯一阅读数据源。
+  Future<void> setCloudAsPrimary(bool value) async {
+    if (value && !signedIn) {
+      _error = '请先登录阅微账号';
+      _notify();
+      return;
+    }
+    if (_cloudAsPrimary == value) return;
+    _cloudAsPrimary = value;
+    _error = null;
+    await _store.saveCloudPrimary(value);
+    if (!value) {
+      _stopCloudAutoSync();
+      _notice = '已改为使用本地阅读数据';
+      _notify();
+      return;
+    }
+    _startCloudAutoSync();
+    _notice = '已开启阅微唯一数据源，正在同步';
+    _notify();
+    try {
+      final linked = await autoLinkMatchingBooks();
+      await syncAll();
+      await refreshCloudStats(force: true, silent: true);
+      _notice = linked == 0 ? '已开启阅微唯一数据源' : '已开启阅微唯一数据源并自动关联 $linked 本书';
+      _notify();
+    } catch (error) {
+      await _handleError(error);
+      _notify();
+    }
+  }
+
+  /// 按书名与作者自动关联本地书籍和阅微云端阅读记录。
+  Future<int> autoLinkMatchingBooks() async {
+    final token = _token;
+    if (token == null) return 0;
+    final List<ReaMicroBookRecord> records;
+    try {
+      records = _cloudStats?.books ?? await _api.fetchBookRecords(token);
+    } catch (error) {
+      await _handleError(error);
+      rethrow;
+    }
+    final localBooks = await _library.list();
+    final next = Map<String, ReaMicroBookLink>.of(_links);
+    var linked = 0;
+    for (final record in records) {
+      if (record.cloudBookId <= 0 || record.name.trim().isEmpty) continue;
+      if (next.values.any((link) => link.cloudBookId == record.cloudBookId)) {
+        continue;
+      }
+      final title = _normalizeBookText(record.name);
+      final author = _normalizeBookText(record.author);
+      final candidates = <BookEntry>[
+        for (final book in localBooks)
+          if (!next.containsKey(book.id) &&
+              _normalizeBookText(book.title) == title &&
+              (author.isEmpty || _normalizeBookText(book.author) == author))
+            book,
+      ];
+      if (candidates.length != 1) continue;
+      final book = candidates.single;
+      next[book.id] = ReaMicroBookLink(
+        cloudBookId: record.cloudBookId,
+        name: record.name,
+        author: record.author,
+        linkedAt: DateTime.now(),
+      );
+      linked += 1;
+    }
+    if (linked == 0) return 0;
+    _links = next;
+    await _store.saveLinks(_links);
+    for (final bookId in next.keys) {
+      await _seedProgressStatesForBook(bookId, markDirty: false);
+    }
+    await _persistProgressStatesNow();
+    _notice = '已自动关联 $linked 本阅微书籍';
+    _notify();
+    return linked;
+  }
+
+  /// 拉取阅微完整阅读概览、周期统计、趋势和全部书籍记录。
+  Future<void> refreshCloudStats({
+    bool force = false,
+    bool silent = false,
+  }) async {
+    final token = _token;
+    if (token == null || !_cloudAsPrimary || _loadingCloudStats) return;
+    final last = _cloudStatsAt;
+    if (!force &&
+        _cloudStats != null &&
+        last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 2)) {
+      return;
+    }
+    _loadingCloudStats = true;
+    if (!silent) _cloudStatsError = null;
+    _notify();
+    try {
+      final now = DateTime.now();
+      final results = await Future.wait<Object?>(<Future<Object?>>[
+        _api.fetchOverview(token),
+        _api.fetchWeekStats(token, date: now),
+        _api.fetchMonthStats(token, year: now.year, month: now.month),
+        _api.fetchYearStats(token, year: now.year),
+        _api.fetchReadTimeChart(token),
+        _api.fetchBookRecords(token),
+      ]);
+      if (_token != token) return;
+      final books =
+          List<ReaMicroBookRecord>.of(results[5]! as List<ReaMicroBookRecord>)
+            ..sort((left, right) {
+              final compared = right.totalReadTimeSeconds.compareTo(
+                left.totalReadTimeSeconds,
+              );
+              return compared != 0 ? compared : left.name.compareTo(right.name);
+            });
+      _cloudStats = ReaMicroCloudStats(
+        overview: results[0]! as ReaMicroOverview,
+        week: results[1]! as ReaMicroPeriodStats,
+        month: results[2]! as ReaMicroPeriodStats,
+        year: results[3]! as ReaMicroPeriodStats,
+        chart: List<ReaMicroChartPoint>.unmodifiable(
+          results[4]! as List<ReaMicroChartPoint>,
+        ),
+        books: List<ReaMicroBookRecord>.unmodifiable(books),
+        fetchedAt: DateTime.now(),
+      );
+      _cloudStatsAt = _cloudStats!.fetchedAt;
+      _cloudStatsError = null;
+    } catch (error) {
+      await _handleError(error);
+      _cloudStatsError = _messageOf(error);
+    } finally {
+      _loadingCloudStats = false;
+      _notify();
+    }
+  }
+
+  /// 应用回到前台时按当前数据源模式执行同步。
+  void handleAppResumed() {
+    if (_disposed || !signedIn) return;
+    if (_cloudAsPrimary) {
+      unawaited(_syncCloudNow());
+    } else {
+      scheduleReadingSync();
+      scheduleProgressSync();
+    }
+  }
+
+  Future<void> _syncCloudNow() async {
+    await syncAll();
+    await refreshCloudStats(force: true, silent: true);
+  }
+
+  void _startCloudAutoSync() {
+    _cloudSyncTimer?.cancel();
+    _cloudSyncTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      if (_disposed ||
+          !_cloudAsPrimary ||
+          !signedIn ||
+          _syncing ||
+          _syncingProgress ||
+          _loadingCloudStats) {
+        return;
+      }
+      unawaited(_syncCloudNow());
+    });
+  }
+
+  void _stopCloudAutoSync() {
+    _cloudSyncTimer?.cancel();
+    _cloudSyncTimer = null;
   }
 
   /// 发送邮箱验证码。
@@ -308,6 +519,9 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 退出登录，保留本地阅读记录和书籍关联。
   Future<void> logout() async {
+    _stopCloudAutoSync();
+    _cloudAsPrimary = false;
+    await _store.saveCloudPrimary(false);
     await _store.clearAuth();
     await _progressPersist;
     _progressStates = <String, ReaMicroProgressState>{};
@@ -320,6 +534,9 @@ class ReaMicroController extends ChangeNotifier {
     _lanLoginDevices = const <ReaMicroLanLoginDevice>[];
     _lanSyncPeers = const <ReaMicroLanSyncPeer>[];
     _lanMessage = null;
+    _cloudStats = null;
+    _cloudStatsAt = null;
+    _cloudStatsError = null;
     _error = null;
     _notice = '已退出阅微账号';
     _notify();
@@ -568,7 +785,7 @@ class ReaMicroController extends ChangeNotifier {
     _notify();
     var uploaded = 0;
     var pulled = 0;
-    final uploadedBooks = <String>{};
+    final handledBooks = <String>{};
     String? failure;
     try {
       for (final entry in List<MapEntry<String, ReaMicroProgressState>>.of(
@@ -584,8 +801,41 @@ class ReaMicroController extends ChangeNotifier {
           continue;
         }
         try {
+          if (pullCloud) {
+            final remote = await _api.fetchReadProgress(
+              token,
+              cloudBookId: link.cloudBookId.toString(),
+            );
+            if (remote != null && remote.usable) {
+              if (remote.cfi == state.cfi) {
+                _progressStates[entry.key] = state.copyWith(
+                  dirty: false,
+                  remoteUpdatedAt: remote.readFinishTime > state.remoteUpdatedAt
+                      ? remote.readFinishTime
+                      : state.remoteUpdatedAt,
+                );
+                handledBooks.add(entry.key);
+                continue;
+              }
+              if (remote.readFinishTime > state.localUpdatedAt) {
+                final applied = await _applyRemoteProgress(
+                  entry.key,
+                  cfi: remote.cfi,
+                  chapterName: remote.chapterName,
+                  progress: remote.progress,
+                  updatedAt: remote.readFinishTime,
+                  queueCloud: false,
+                );
+                if (applied) {
+                  handledBooks.add(entry.key);
+                  pulled += 1;
+                  continue;
+                }
+              }
+            }
+          }
           await _uploadProgressState(token, entry.key, state, link);
-          uploadedBooks.add(entry.key);
+          handledBooks.add(entry.key);
           uploaded += 1;
         } catch (error) {
           failure ??= _messageOf(error);
@@ -603,7 +853,7 @@ class ReaMicroController extends ChangeNotifier {
           final link = entry.value;
           final state = _progressStates[bookId];
           if (state?.dirty == true) continue;
-          if (uploadedBooks.contains(bookId)) continue;
+          if (handledBooks.contains(bookId)) continue;
           try {
             final remote = await _api.fetchReadProgress(
               token,
@@ -1042,11 +1292,19 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   Future<void> _clearExpiredAuth() async {
+    _stopCloudAutoSync();
+    if (_cloudAsPrimary) {
+      _cloudAsPrimary = false;
+      await _store.saveCloudPrimary(false);
+    }
     await _store.clearAuth();
     _token = null;
     _user = null;
     _chart = const <ReaMicroChartPoint>[];
     _lastRefreshAt = null;
+    _cloudStats = null;
+    _cloudStatsAt = null;
+    _cloudStatsError = null;
   }
 
   String _messageOf(Object error) =>
@@ -1061,6 +1319,7 @@ class ReaMicroController extends ChangeNotifier {
     _disposed = true;
     _autoSyncTimer?.cancel();
     _progressSyncTimer?.cancel();
+    _cloudSyncTimer?.cancel();
     _api.close();
     super.dispose();
   }
@@ -1141,3 +1400,6 @@ String _formatDuration(int seconds) {
   final remain = minutes % 60;
   return remain == 0 ? '$hours 小时' : '$hours 小时 $remain 分钟';
 }
+
+String _normalizeBookText(String value) =>
+    value.toLowerCase().replaceAll(RegExp(r'[\s\u3000《》〈〉]'), '').trim();

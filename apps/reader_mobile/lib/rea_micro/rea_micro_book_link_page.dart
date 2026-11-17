@@ -25,6 +25,7 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
   List<BookEntry>? _books;
   String? _error;
   String _query = '';
+  bool _autoMatching = false;
 
   @override
   void initState() {
@@ -65,6 +66,27 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
     }
   }
 
+  Future<void> _autoMatch() async {
+    if (_autoMatching) return;
+    setState(() => _autoMatching = true);
+    try {
+      final count = await widget.controller.autoLinkMatchingBooks();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(count == 0 ? '没有找到可自动匹配的书籍' : '已自动关联 $count 本书'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('$error')));
+    } finally {
+      if (mounted) setState(() => _autoMatching = false);
+    }
+  }
+
   List<BookEntry> get _visibleBooks {
     final books = _books ?? const <BookEntry>[];
     final query = _query.trim().toLowerCase();
@@ -85,6 +107,18 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
       appBar: AppBar(
         title: const Text('匹配阅微书籍'),
         actions: [
+          IconButton(
+            key: const ValueKey<String>('reamicro-auto-link'),
+            tooltip: '按书名和作者自动匹配',
+            onPressed: _autoMatching ? null : _autoMatch,
+            icon: _autoMatching
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome_outlined),
+          ),
           IconButton(
             tooltip: '刷新本地书架',
             onPressed: _loadBooks,
