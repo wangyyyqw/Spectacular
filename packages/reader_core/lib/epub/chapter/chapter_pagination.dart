@@ -275,7 +275,10 @@ class ChapterPageLayout {
     final result = <PageContent>[];
     for (final page in pages) {
       await budget.checkpoint();
-      final positioned = Paginator.positionContainerOverlays(page);
+      final positioned = Paginator.positionContainerOverlays(
+        page,
+        pageWidth: snapshot.width,
+      );
       result.add(
         background == null ? positioned : positioned.withBackground(background),
       );
@@ -646,17 +649,28 @@ class _FloatPagination {
   }
 
   void _addAbsolute(PageBlock block) {
+    final retained = block.containers.any(
+      (fragment) => fragment.container.style.position == CssPosition.absolute,
+    );
     slices.add(
       PageBlockSlice(
         block: block,
         startLine: 0,
         endLine: block.layout.lineCount,
-        height: block.height,
+        height: retained
+            ? block.leadingExtent + block.height + block.trailingExtent
+            : block.height,
+        leadingExtent: retained ? block.leadingExtent : 0,
+        trailingExtent: retained ? block.trailingExtent : 0,
         overlay: true,
-        absoluteTop: (block.absoluteTop ?? y)
-            .clamp(0.0, math.max(0.0, height - 1))
-            .toDouble(),
-        leftInset: block.absoluteLeft ?? 0,
+        absoluteTop: retained
+            ? y + (block.absoluteTop ?? 0)
+            : (block.absoluteTop ?? y)
+                  .clamp(0.0, math.max(0.0, height - 1))
+                  .toDouble(),
+        leftInset: retained && !(block.style?.isOutOfFlow ?? false)
+            ? block.leftInset
+            : block.absoluteLeft ?? 0,
       ),
     );
   }
