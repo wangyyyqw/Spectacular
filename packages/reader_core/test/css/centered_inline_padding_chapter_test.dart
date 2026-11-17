@@ -125,7 +125,11 @@ void main() {
       final run = page.slices.single.block.layout.runs
           .where((run) => !run.syntheticFontFallback)
           .single;
-      expect(run.style.fontFamily, contains('ControlFallback'));
+      expect(
+        _glyphBounds(lines.last).width,
+        closeTo(run.style.fontSize * 3, .01),
+        reason: '子集字库每字占一格；验证实际选中字体，不依赖内部注册别名',
+      );
       expect(run.style.fontSize, closeTo(14.28, .001));
       expect(run.leadingInset, closeTo(_padding, .001));
       expect(run.trailingInset, closeTo(_padding, .001));
