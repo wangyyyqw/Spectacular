@@ -93,19 +93,25 @@ class _FootnoteVisibility {
   }
 }
 
-/// 聚合前应用作者 display 和空白规则，所有后续坐标均以聚合原文为准。
+/// 聚合前应用作者 display、定位块化和空白规则，后续坐标均以聚合原文为准。
 BlockDocument aggregateAnchorDocument(
   BlockDocument display,
   ChapterRawStyles styles,
 ) => TextAggregator.aggregate(
   display,
-  inlineDisplay: (node, _) =>
-      switch (styles.styleOf(node).values['display']?.trim().toLowerCase()) {
-        'block' => CssDisplay.block,
-        'none' => CssDisplay.none,
-        'inline-block' => CssDisplay.inlineBlock,
-        _ => CssDisplay.inline,
-      },
+  inlineDisplay: (node, _) {
+    final style = styles.styleOf(node);
+    // 绝对/固定定位会块化行内盒，必须在聚合拆分块级后代前保留完整父盒。
+    if (style.isOutOfFlow && style.display != CssDisplay.none) {
+      return CssDisplay.block;
+    }
+    return switch (style.values['display']?.trim().toLowerCase()) {
+      'block' => CssDisplay.block,
+      'none' => CssDisplay.none,
+      'inline-block' => CssDisplay.inlineBlock,
+      _ => CssDisplay.inline,
+    };
+  },
   whiteSpaceFor: (node, _) => styles.styleOf(node).whiteSpace,
 );
 

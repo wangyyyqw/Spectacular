@@ -23,8 +23,10 @@ const _height = 773.1694444444445;
 
 Future<List<PageContent>> _pages({
   String tag = 'c',
+  String display = 'block',
   String extraCss = '',
   String after = 'AFTER',
+  bool withFlow = true,
 }) async {
   final source = await const EpubFormatOpener().openBytes(
     auditZip({
@@ -39,14 +41,15 @@ Future<List<PageContent>> _pages({
       'c.xhtml':
           '<html xmlns="http://www.w3.org/1999/xhtml"><head><style>'
           'body {margin:0;padding:0;font-family:Ahem;color:black;}'
-          '.panel {position:fixed;top:450px;left:20px;right:20px;display:block;'
+          '.panel {position:fixed;top:450px;left:20px;right:20px;display:$display;'
           'padding:10px 15px;border:2px solid rgba(255,255,255,0);'
           'background:rgba(255,250,250,.5);border-radius:10px;box-sizing:border-box;'
           'font-weight:normal;margin:0;text-align:center;}'
           '.panel p {margin:12px 0;font-size:18px;line-height:1.6;text-align:left;text-indent:0;}'
-          '$extraCss</style></head><body><p style="margin:0;">FLOW</p>'
+          '$extraCss</style></head><body>'
+          '${withFlow ? '<p style="margin:0;">FLOW</p>' : ''}'
           '<$tag class="panel"><p>FIRST</p><p>SECOND</p></$tag>'
-          '<p style="margin:0;">$after</p></body></html>',
+          '${withFlow ? '<p style="margin:0;">$after</p>' : ''}</body></html>',
     }),
     options: const ReaderOpenOptions(
       contentWidth: _width,
@@ -66,8 +69,12 @@ Future<List<PageContent>> _pages({
   return source.loadChapter(0);
 }
 
-Future<PageContent> _page({String tag = 'c', String extraCss = ''}) async =>
-    (await _pages(tag: tag, extraCss: extraCss)).single;
+Future<PageContent> _page({
+  String tag = 'c',
+  String display = 'block',
+  String extraCss = '',
+}) async =>
+    (await _pages(tag: tag, display: display, extraCss: extraCss)).single;
 
 Future<ByteData> _paint(PageContent page) async {
   final recorder = ui.PictureRecorder();
@@ -90,9 +97,14 @@ List<int> _pixel(ByteData data, int x, int y) => [
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  for (final tag in ['c', 'div']) {
-    test('$tag 固定面板整体定位，透明边框和半透明背景只绘一次且保留圆角', () async {
-      final page = await _page(tag: tag);
+  for (final (tag, display) in [
+    ('c', 'block'),
+    ('div', 'block'),
+    ('span', 'inline'),
+    ('x-panel', 'inline-block'),
+  ]) {
+    test('$tag/$display 固定面板整体定位，透明边框和半透明背景只绘一次且保留圆角', () async {
+      final page = await _page(tag: tag, display: display);
       final overlays = page.slices.where((slice) => slice.overlay).toList();
       expect(overlays, hasLength(2));
       expect(overlays.map((slice) => slice.block.layout.text), [
@@ -148,7 +160,46 @@ void main() {
       expect(first.block.startCfi, isNotNull);
       expect(last.block.startCfi, isNotNull);
     });
+
+    test('$tag/$display 仅有固定面板的章节仍显示完整父框和文字', () async {
+      final page = (await _pages(
+        tag: tag,
+        display: display,
+        withFlow: false,
+      )).single;
+      expect(page.slices, hasLength(2));
+      expect(page.slices.every((slice) => slice.overlay), isTrue);
+      expect(page.slices.map((slice) => slice.block.layout.text), [
+        'FIRST',
+        'SECOND',
+      ]);
+      expect(page.usedHeight, 0);
+      final first = page.slices.first;
+      final last = page.slices.last;
+      final panel = first.block.containers.single.container;
+      expect(last.block.containers.single.container, same(panel));
+      expect(first.absoluteTop, 450 - _insets.top);
+      expect(panel.left, 20 - _insets.left);
+      expect(panel.width, closeTo(_size.width - 40, .01));
+      expect(first.block.startCfi, isNotNull);
+      expect(last.block.startCfi, isNotNull);
+      expect(_pixel(await _paint(page), 28, 465)[0], closeTo(128, 1));
+    });
   }
+
+  test('隐藏的固定行内容器不生成覆盖层，也不拆分正文或占据空间', () async {
+    final page = await _page(tag: 'span', display: 'none');
+    expect(page.slices.any((slice) => slice.overlay), isFalse);
+    expect(page.slices.map((slice) => slice.block.layout.text), [
+      'FLOW',
+      'AFTER',
+    ]);
+    expect(
+      page.slices.every((slice) => slice.block.containers.isEmpty),
+      isTrue,
+    );
+    expect(page.slices.every((slice) => slice.block.startCfi != null), isTrue);
+  });
 
   test('固定面板的可见实线边框四侧连续，子段落不重复描边', () async {
     final page = await _page(

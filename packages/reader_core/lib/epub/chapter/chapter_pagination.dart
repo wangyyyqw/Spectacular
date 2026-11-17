@@ -210,8 +210,21 @@ class ChapterPageLayout {
     List<PageContent> pages,
     List<PageBlock> fixed,
   ) async {
-    if (fixed.isEmpty || pages.isEmpty) return pages;
+    if (fixed.isEmpty) return pages;
     final overlays = await _fixedSlices(fixed);
+    // 仅有固定内容的章节也需要页面承载，不能在空正文的兜底页生成前丢弃覆盖层。
+    if (pages.isEmpty) {
+      return [
+        PageContent(
+          spineIndex: snapshot.spineIndex,
+          pageIndex: 0,
+          slices: overlays,
+          usedHeight: 0,
+          pageHeight: snapshot.height,
+          topPadding: 0,
+        ),
+      ];
+    }
     final result = <PageContent>[];
     for (final page in pages) {
       await budget.checkpoint();
