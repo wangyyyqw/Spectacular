@@ -5,6 +5,11 @@ on:
     branches:
       - ReaMicro
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 发布 ci-latest Release（默认只构建，不发版）
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -188,6 +193,7 @@ jobs:
 
   publish:
     name: 发布 CI 产物
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
     needs:
       - android
       - windows
