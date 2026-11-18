@@ -185,6 +185,8 @@ void main() {
       _shell(ReviewsPage(library: library, reviewStore: store)),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('reviews-filter-pending')),
     );

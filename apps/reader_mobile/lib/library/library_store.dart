@@ -17,6 +17,8 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/revision_relocator.dart';
+import 'package:reader_ui/annotations/annotation.dart'
+    show ReaderAnnotationType;
 import 'package:reader_ui/decorations/decoration_image_store.dart';
 
 import '../reader/reader_decoration_image_store.dart';
@@ -39,6 +41,8 @@ part 'library_sweep_paths.dart';
 
 /// 导入成功的实际结果，覆盖更新不会新建用户数据。
 enum BookImportOutcome { added, updated, unchanged }
+
+typedef BookNoteCounts = ({int thoughts, int marks, DateTime updatedAt});
 
 /// 阅读状态（P4-04）：未读 / 在读 / 已读。
 enum BookReadingStatus {
@@ -749,6 +753,66 @@ class LibraryStore {
   DriftAnnotationStore? annotationStore(String bookId) {
     final db = _db;
     return db == null ? null : DriftAnnotationStore(db, bookId);
+  }
+
+  Future<Map<String, BookNoteCounts>> bookNoteCounts() async {
+    final db = _db;
+    if (db == null) return {};
+    final notes = db.annotations;
+    final books = db.books;
+    final thought = notes.type.equals(
+      ReaderAnnotationType.thought.storageValue,
+    );
+    final mark = notes.type.equals(ReaderAnnotationType.mark.storageValue);
+    final thoughts = notes.id.count(filter: thought);
+    final marks = notes.id.count(filter: mark);
+    final updatedAt = notes.updatedAt.max();
+    final query = db.selectOnly(notes)
+      ..join([
+        innerJoin(books, books.id.equalsExp(notes.bookId), useColumns: false),
+      ])
+      ..addColumns([books.uuid, thoughts, marks, updatedAt])
+      ..where(books.deletedAt.isNull() & (thought | mark))
+      ..groupBy([books.uuid]);
+    return {
+      for (final row in await query.get())
+        row.read(books.uuid)!: (
+          thoughts: row.read(thoughts)!,
+          marks: row.read(marks)!,
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(row.read(updatedAt)!),
+        ),
+    };
+  }
+
+  Future<Map<String, Duration>> bookReadingDurations(
+    Duration minimumSession,
+  ) async {
+    final db = _db;
+    if (db == null) return {};
+    final sessions = db.readingSessions;
+    final books = db.books;
+    final total = sessions.durationMs.sum();
+    final query = db.selectOnly(sessions)
+      ..join([
+        innerJoin(
+          books,
+          books.id.equalsExp(sessions.bookId),
+          useColumns: false,
+        ),
+      ])
+      ..addColumns([books.uuid, total])
+      ..where(
+        books.deletedAt.isNull() &
+            sessions.endedAt.isBiggerThan(sessions.startedAt) &
+            sessions.durationMs.isBiggerOrEqualValue(
+              minimumSession.inMilliseconds,
+            ),
+      )
+      ..groupBy([books.uuid]);
+    return {
+      for (final row in await query.get())
+        row.read(books.uuid)!: Duration(milliseconds: row.read(total)!),
+    };
   }
 
   /// 当前书的手工装饰存储；彻底删除或更换图片时检查全库引用。
