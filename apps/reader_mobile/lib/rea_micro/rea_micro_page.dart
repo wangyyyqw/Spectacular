@@ -326,11 +326,11 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.cloud_upload_outlined),
-          title: const Text('对象存储同步'),
+          title: const Text('云端同步'),
           subtitle: Text(
             controller.s3Configured
                 ? controller.s3Message ?? '已配置，自动同步本地与阅微图书文件'
-                : '配置阅微内置存储或 S3 后多端同步图书文件',
+                : '配置阅微内置存储、S3、WebDAV 或 GitHub 后多端同步图书文件',
           ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push<void>(
