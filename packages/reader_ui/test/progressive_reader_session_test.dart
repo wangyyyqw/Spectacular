@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/source/chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -5,18 +7,33 @@ import 'package:reader_ui/virtual_pager.dart';
 
 import 'support/progressive_source.dart';
 
-Future<ReaderSession> _open(
+ReaderSession _newSession(
   ProgressiveTestSource source, {
-  int spine = 0,
-}) async {
-  final store = MemoryReaderProgressStore();
-  await store.save('渐进翻页', ReaderProgress(spineIndex: spine, pageIndex: 0));
-  final session = ReaderSession(source: source, store: store, bookId: '渐进翻页');
+  String? contentRevision,
+}) {
+  final session = ReaderSession(
+    source: source,
+    store: MemoryReaderProgressStore(),
+    bookId: '渐进翻页',
+    contentRevision: contentRevision,
+  );
   addTearDown(() async {
     await session.flushProgress();
     session.dispose();
     source.cancelPendingLayouts();
   });
+  return session;
+}
+
+Future<ReaderSession> _open(
+  ProgressiveTestSource source, {
+  int spine = 0,
+}) async {
+  final session = _newSession(source);
+  await session.store.save(
+    session.bookId,
+    ReaderProgress(spineIndex: spine, pageIndex: 0),
+  );
   await session.open();
   return session;
 }
@@ -210,6 +227,51 @@ void main() {
     expect(session.page!.pageIndex, 4);
     expect(session.readingCfi, progressiveCfi(1, 4));
   });
+
+  const targetIndex = 8;
+  for (final savedIndex in [targetIndex, 1]) {
+    final hintMatches = savedIndex == targetIndex;
+    test(
+      hintMatches
+          ? '同布局打开横排长章，已发布页命中页内原文 CFI 就不等整章'
+          : '打开横排长章时旧页码已发布但原文 CFI 未发布，不能提前采用旧页码',
+      () async {
+        final source = ProgressiveTestSource(counts: [1, 40], initialPages: 3);
+        final session = _newSession(source, contentRevision: '同一原文');
+        final target = source.chapters[1][targetIndex];
+        final saved = ReaderProgress(
+          spineIndex: 1,
+          pageIndex: savedIndex,
+          cfi: target.slices.first.block.cfiAt(3)!,
+          contentRevision: session.contentRevision,
+          layoutFingerprint: session.layoutFingerprint,
+        );
+        await session.store.save(session.bookId, saved);
+        var opened = false;
+        unawaited(session.open().then<void>((_) => opened = true));
+        await Future<void>.delayed(Duration.zero);
+        expect(opened, isFalse);
+        expect(session.page, isNull);
+
+        source.publish(1, hintMatches ? targetIndex + 2 : targetIndex);
+        await Future<void>.delayed(Duration.zero);
+        expect(source.handles[1]!.isComplete, isFalse);
+        expect(opened, hintMatches, reason: '只有已发布窗口包含原文 CFI 才可结束打开');
+        expect(session.page, hintMatches ? same(target) : isNull);
+        expect(session.progress?.cfi, hintMatches ? saved.cfi : null);
+
+        source.complete(1);
+        await Future<void>.delayed(Duration.zero);
+        expect(opened, isTrue);
+        expect(session.page, same(target));
+        expect(session.progress?.cfi, saved.cfi);
+        expect(session.pageTurns, 0);
+        await session.flushProgress();
+        expect(session.persistWriteCount, 0);
+        expect(await session.store.load(session.bookId), saved);
+      },
+    );
+  }
 
   test('取消后台余章后重启继续同章，已显示页保留身份', () async {
     final source = ProgressiveTestSource();
