@@ -102,11 +102,13 @@ jobs:
         working-directory: apps/reader_mobile
         run: |
           flutter build windows --release --no-pub
+          New-Item -ItemType Directory -Force dist/windows-x64 | Out-Null
+          Copy-Item build/windows/x64/runner/Release/* dist/windows-x64 -Recurse -Force
       - name: 上传 Windows 产物
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: spectacular-windows-x64
-          path: apps/reader_mobile/build/windows/x64/runner/Release/
+          path: apps/reader_mobile/dist/windows-x64/
           retention-days: 14
 
   macos:
@@ -214,7 +216,7 @@ jobs:
             echo '```'
             echo ''
             echo '- `spectacular-reader-release.apk`：Android 安装包'
-            echo '- `spectacular-windows-x64/`：Windows 应用目录，网页下载只需解压一次'
+            echo '- `spectacular-windows-x64/`：Windows 应用目录，网页下载解压一次即得到 exe'
             echo '- `spectacular-macos-arm64-unsigned.zip`：macOS 应用，解压一次即可'
             echo '- `spectacular-ios-unsigned.zip`：iOS 应用，解压一次即可'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -247,7 +249,12 @@ jobs:
           cp release/spectacular-android-arm64/spectacular-reader-release.apk release/
           cp release/spectacular-macos-arm64/spectacular-macos-arm64-unsigned.zip release/
           cp release/spectacular-ios-unsigned/spectacular-ios-unsigned.zip release/
-          (cd release && zip -qr spectacular-windows-x64.zip spectacular-windows-x64)
+          (cd release/spectacular-windows-x64 && zip -qr ../spectacular-windows-x64.zip .)
+          unzip -l release/spectacular-windows-x64.zip | grep -q 'reader_mobile.exe'
+          if unzip -Z1 release/spectacular-windows-x64.zip | grep -q '^spectacular-windows-x64/'; then
+            echo 'Windows 发布包仍包含多余目录层' >&2
+            exit 1
+          fi
           ls -lh release
       - name: 发布滚动 Release
         shell: bash
