@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_detail_page.dart';
+import 'package:reader_mobile/home/reviews_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/storage/db.dart';
@@ -390,29 +391,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final markButton = find.byKey(
-      const ValueKey<String>('book-detail-mark-finished'),
-    );
-    await tester.scrollUntilVisible(
-      markButton,
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.ensureVisible(markButton);
-    await tester.pumpAndSettle();
-    await tester.tap(markButton);
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('book-detail-finish-rating-5')),
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('book-detail-finish-review')),
-      '值得反复阅读。',
-    );
-    await tester.tap(
-      find.byKey(const ValueKey<String>('book-detail-finish-save')),
-    );
-    await tester.pumpAndSettle();
+    await _saveDetailReview(tester, rating: 5, content: '值得反复阅读。');
 
     late ReaderProgress? savedProgress;
     late Map<String, BookReview> reviews;
@@ -444,6 +423,74 @@ void main() {
       '值得反复阅读。',
     );
   });
+
+  testWidgets('详情保存书评后切回已加载的书评页，只改星级保留最新正文', (tester) async {
+    final entry = (await tester.runAsync(
+      () => store.importBytes(buildTestEpub(title: '跨页书评')),
+    ))!;
+    final progress = MemoryReaderProgressStore();
+    Widget tabs(bool reviewsActive) => MaterialApp(
+      home: IndexedStack(
+        index: reviewsActive ? 0 : 1,
+        children: [
+          ReviewsPage(library: store, active: reviewsActive),
+          BookDetailPage(entry: entry, library: store, progressStore: progress),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(tabs(true));
+    await tester.pumpAndSettle();
+    expect(find.text('写书评'), findsOneWidget);
+
+    await tester.pumpWidget(tabs(false));
+    await tester.pumpAndSettle();
+    const content = '详情页写入的正文';
+    await _saveDetailReview(tester, rating: 5, content: content);
+    final reviews = store.reviewStore()!;
+    expect((await reviews.snapshot())[entry.id]?.content, content);
+
+    await tester.pumpWidget(tabs(true));
+    await tester.pumpAndSettle();
+    expect(find.text('已写 1'), findsOneWidget);
+    expect(find.text('写书评'), findsNothing);
+    await tester.tap(find.text(content));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('review-content'));
+    expect(tester.widget<TextField>(input).controller!.text, content);
+    await tester.tap(find.byKey(const ValueKey('review-rating-4')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pumpAndSettle();
+    final saved = (await reviews.snapshot())[entry.id]!;
+    expect(saved.rating, 4);
+    expect(saved.content, content);
+  });
+}
+
+Future<void> _saveDetailReview(
+  WidgetTester tester, {
+  required int rating,
+  required String content,
+}) async {
+  final mark = find.byKey(const ValueKey('book-detail-mark-finished'));
+  await tester.scrollUntilVisible(
+    mark,
+    300,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(mark);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(ValueKey('book-detail-finish-rating-$rating')));
+  await tester.enterText(
+    find.byKey(const ValueKey('book-detail-finish-review')),
+    content,
+  );
+  await tester.tap(find.byKey(const ValueKey('book-detail-finish-save')));
+  await tester.pumpAndSettle();
 }
 
 String _dateKey(DateTime date) {

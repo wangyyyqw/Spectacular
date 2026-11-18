@@ -42,7 +42,7 @@ class ReviewsPage extends StatefulWidget {
   /// 可注入的书评存储；为空时使用书架数据库实现。
   final BookReviewStore? reviewStore;
 
-  /// 当前 Tab 是否可见；隐藏时只标记待刷新。
+  /// 当前标签是否可见；重新显示时读取最新书评。
   final bool active;
 
   @override
@@ -58,7 +58,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   bool _searching = false;
   String _query = '';
   int _reloadToken = 0;
-  bool _dirty = true;
+  int _editToken = 0;
   String? _error;
 
   BookReviewStore? get _store =>
@@ -81,21 +81,21 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   void didUpdateWidget(ReviewsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.library != widget.library) {
+    final libraryChanged = oldWidget.library != widget.library;
+    if (libraryChanged) {
       oldWidget.library.removeListener(_onLibraryChanged);
       widget.library.addListener(_onLibraryChanged);
-      _dirty = true;
     }
-    if (oldWidget.reviewStore != widget.reviewStore) _dirty = true;
-    if (widget.active && _dirty) _reload();
+    if (oldWidget.active != widget.active ||
+        libraryChanged ||
+        oldWidget.reviewStore != widget.reviewStore) {
+      _editToken++;
+      if (widget.active) _reload();
+    }
   }
 
   void _onLibraryChanged() {
-    if (!widget.active) {
-      _dirty = true;
-      return;
-    }
-    _reload();
+    if (widget.active) _reload();
   }
 
   void _toggleSearch() {
@@ -127,13 +127,13 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Future<void> _reload() async {
-    _dirty = false;
     final token = ++_reloadToken;
     try {
+      final store = _store;
       final books = await widget.library.list();
-      final reviews = await _store?.snapshot() ?? const <String, BookReview>{};
+      final reviews = await store?.snapshot() ?? const <String, BookReview>{};
       final ids = books.map((book) => book.id).toSet();
-      if (mounted && token == _reloadToken) {
+      if (mounted && widget.active && token == _reloadToken) {
         setState(() {
           _books = books;
           _reviews = {
@@ -144,7 +144,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
         });
       }
     } catch (_) {
-      if (!mounted || token != _reloadToken) return;
+      if (!mounted || !widget.active || token != _reloadToken) return;
       if (_books == null) {
         setState(() => _error = '书评加载失败');
       } else {
@@ -165,7 +165,26 @@ class _ReviewsPageState extends State<ReviewsPage> {
           .showSnackBar(const SnackBar(content: Text('当前无法保存书评')));
       return;
     }
-    final review = _reviews[book.id];
+    final token = ++_editToken;
+    final BookReview? review;
+    try {
+      review = (await store.snapshot())[book.id];
+    } catch (_) {
+      if (mounted && widget.active && token == _editToken) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('书评读取失败，请重试')));
+      }
+      return;
+    }
+    if (!mounted || !widget.active || token != _editToken) return;
+    await _showEditor(book, store, review);
+  }
+
+  Future<void> _showEditor(
+    BookEntry book,
+    BookReviewStore store,
+    BookReview? review,
+  ) async {
     final draft = await showModalBottomSheet<_ReviewDraft>(
       context: context,
       isScrollControlled: true,
@@ -181,11 +200,11 @@ class _ReviewsPageState extends State<ReviewsPage> {
             : store.save(book.id, rating: draft.rating, content: draft.content),
       ),
     );
-    if (draft == null || !mounted) {
+    if (draft == null || !mounted || !widget.active) {
       return;
     }
     await _reload();
-    if (mounted) {
+    if (mounted && widget.active) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(draft.delete ? '书评已删除' : '书评已保存')));
@@ -193,6 +212,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Future<void> _openReview(BookEntry book, BookReview review) async {
+    final token = ++_editToken;
     final edit = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -200,7 +220,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
       backgroundColor: Colors.transparent,
       builder: (_) => _ReviewDetailSheet(book: book, review: review),
     );
-    if (edit == true && mounted) {
+    if (edit == true && mounted && widget.active && token == _editToken) {
       await _edit(book);
     }
   }
