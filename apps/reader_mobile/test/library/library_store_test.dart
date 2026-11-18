@@ -5,6 +5,8 @@ import 'package:drift/native.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:reader_core/editing.dart' show EpubEditSummary;
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 
@@ -18,6 +20,22 @@ import '../support/test_epub.dart';
     store: LibraryStore(database: db, directoryProvider: () async => dir),
     db: db,
   );
+}
+
+Future<T> _withDiskLibrary<T>(
+  Directory root,
+  Future<T> Function(LibraryStore) run,
+) async {
+  final db = await AppDatabase.open(
+    File(p.join(root.path, AppDatabase.fileName)),
+  );
+  try {
+    return await run(
+      LibraryStore(database: db, directoryProvider: () async => root),
+    );
+  } finally {
+    await db.close();
+  }
 }
 
 void main() {
@@ -642,6 +660,119 @@ void main() {
       ),
       throwsA(isA<LibraryImportException>()),
     );
+  });
+
+  test('书库换根后两次启动均能打开原书，保留封面并清理无引用版本', () async {
+    final temp = await Directory.systemTemp.createTemp('library-root-');
+    addTearDown(() => temp.delete(recursive: true));
+    final before = await Directory(p.join(temp.path, 'before')).create();
+    final bytes = buildTestEpub(cover: true);
+    final entry = await _withDiskLibrary(
+      before,
+      (store) => store.importBytes(bytes),
+    );
+    final cover = await File(entry.coverPath!).readAsBytes();
+    final relative = p.relative(entry.filePath, from: before.path);
+    final after = await before.rename(p.join(temp.path, 'after'));
+    final source = File(p.join(after.path, relative));
+    final retired = await Directory(
+      p.join(source.parent.parent.path, 'retired'),
+    ).create();
+    await source.copy(p.join(retired.path, 'source.epub'));
+    final orphan = await Directory(p.join(after.path, 'books', 'orphan'))
+        .create();
+
+    for (var startup = 0; startup < 2; startup++) {
+      await _withDiskLibrary(after, (store) async {
+        await store.sweepOrphans();
+        expect(await source.exists(), isTrue, reason: '启动清理不得删除活动 EPUB');
+        final current = (await store.list()).single;
+        expect(current.id, entry.id);
+        expect(current.filePath, source.path);
+        expect(await store.readBytes(current), bytes);
+        expect(await File(current.coverPath!).readAsBytes(), cover);
+        final opened = await EpubChapterSource.openFile(File(current.filePath));
+        try {
+          expect(opened.chapterCount, 1);
+        } finally {
+          opened.close();
+        }
+        expect(await retired.exists(), isFalse);
+        expect(await orphan.exists(), isFalse);
+      });
+    }
+  });
+
+  test('换根后同路径文件摘要不符，不改指针也不删除本书其他版本', () async {
+    final temp = await Directory.systemTemp.createTemp('library-unconfirmed-');
+    addTearDown(() => temp.delete(recursive: true));
+    final before = await Directory(p.join(temp.path, 'before')).create();
+    final bytes = buildTestEpub();
+    final entry = await _withDiskLibrary(
+      before,
+      (store) => store.importBytes(bytes),
+    );
+    final relative = p.relative(entry.filePath, from: before.path);
+    final after = await before.rename(p.join(temp.path, 'after'));
+    final source = File(p.join(after.path, relative));
+    final other = await Directory(p.join(source.parent.parent.path, 'other'))
+        .create();
+    final retained = await source.copy(p.join(other.path, 'source.epub'));
+    await source.writeAsBytes(buildTestEpub(title: '不属于这个版本的书'));
+    final orphan = await Directory(p.join(after.path, 'books', 'orphan'))
+        .create();
+
+    await _withDiskLibrary(after, (store) async {
+      await store.sweepOrphans();
+      expect((await store.bookById(entry.id))!.filePath, entry.filePath);
+      expect(await source.exists(), isTrue);
+      expect(await retained.readAsBytes(), bytes);
+      expect(await orphan.exists(), isFalse);
+    });
+  });
+
+  test('换根后保留重键前目录中的封面、草稿快照、基线与历史版本', () async {
+    final temp = await Directory.systemTemp.createTemp('library-edit-roots-');
+    addTearDown(() => temp.delete(recursive: true));
+    final before = await Directory(p.join(temp.path, 'before')).create();
+    final original = buildTestEpub();
+    final edited = buildTestEpub(cover: true, paragraphs: ['编辑后的正文']);
+    final current = await _withDiskLibrary(before, (store) async {
+      final book = await store.importBytes(original);
+      final edit = await store.commitEditedFile(
+        book.id,
+        book.contentRevision!,
+        await File(p.join(temp.path, 'edited.epub')).writeAsBytes(edited),
+        const EpubEditSummary(changedPaths: {'OEBPS/c1.xhtml'}, cssOnly: false),
+      );
+      await store.persistEditDraft(
+        edit.id,
+        edit.contentRevision!,
+        (blob) => {
+          '资源': blob('插图', Uint8List.fromList([7, 8])),
+        },
+      );
+      return store.updateBytes(edit.id, buildTestEpub(identifier: '换版后的标识'));
+    });
+    final cover = await File(current.coverPath!).readAsBytes();
+    final after = await before.rename(p.join(temp.path, 'after'));
+
+    await _withDiskLibrary(after, (store) async {
+      await store.sweepOrphans();
+      final book = (await store.bookById(current.id))!;
+      expect(await File(book.coverPath!).readAsBytes(), cover);
+      final draft = (await store.loadEditDraft(book.id, allowStale: true))!;
+      expect(await draft.sourceFile.readAsBytes(), edited);
+      expect(draft.readBlob(draft.data['资源'] as String), [7, 8]);
+      final versions = await store.editVersions(book.id);
+      expect(
+        versions.map((version) => version.kind),
+        unorderedEquals(['original', 'previous']),
+      );
+      for (final version in versions) {
+        expect(await version.sourceFile.readAsBytes(), original);
+      }
+    });
   });
 
   test('孤儿扫描清理未入库目录和临时文件，保留在册书籍', () async {
