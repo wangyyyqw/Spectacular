@@ -97,6 +97,30 @@ void _expectRows(PageContent page) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('同章浮动不影响普通正文的段前、段后强制分页', () async {
+    final source = await const EpubFormatOpener().openBytes(
+      _epub(
+        '',
+        '<p style="break-before:page">第一段</p>'
+        '<p style="break-before:page;break-after:page">第二段</p>'
+        '<p style="float:left;width:24px">浮</p>'
+        '<p style="break-after:page">第三段</p>',
+      ),
+      options: const ReaderOpenOptions(contentWidth: 350, contentHeight: 700),
+    );
+    addTearDown(source.close);
+    final pages = await source.loadChapter(0);
+    expect([
+      for (final page in pages)
+        [for (final slice in page.slices) slice.block.layout.text],
+    ], [
+      ['第一段'],
+      ['第二段'],
+      ['浮', '第三段'],
+    ]);
+    expect(pages.last.slices.first.overlay, isTrue);
+  });
+
   for (final align in ['right', 'center']) {
     test('自动宽右浮动按最终盒宽重新计算 $align 对齐', () async {
       final source = await _open(

@@ -592,6 +592,7 @@ class _FloatPagination {
   }
 
   Future<void> _layoutFlowBlock(PageBlock block, int index) async {
+    if (block.pageBreakBefore && slices.isNotEmpty) await closePage();
     await _applyClear(block);
     await _keepWithNext(block, index);
     final rows = block.table == null ? 0 : Paginator.splittableTableRows(block);
@@ -609,6 +610,7 @@ class _FloatPagination {
     } else {
       await _layoutText(block);
     }
+    if (block.pageBreakAfter && slices.isNotEmpty) await closePage();
   }
 
   Future<List<double?>> _nextLeading() async {
@@ -1219,7 +1221,6 @@ class _FloatPagination {
       start = fit.block == null ? first : fit.end;
       if (start < rows) await closePage();
     }
-    if (block.pageBreakAfter) await closePage();
   }
 
   Future<_TableFit> _fitTableRows(
@@ -1298,7 +1299,6 @@ class _FloatPagination {
 
   // 取带、提交和收页保持同一循环，避免游标已前进但片段尚未保存。
   Future<void> _layoutMulticol(PageBlock block) async {
-    if (block.pageBreakBefore && slices.isNotEmpty) await closePage();
     await _clearMulticolArea(block);
     final flow = MulticolFlow(block.multicolContent!);
     var first = true;
@@ -1330,7 +1330,7 @@ class _FloatPagination {
         ));
         first = false;
       }
-      if (!flow.isDone || band.pageBreak || block.pageBreakAfter) {
+      if (!flow.isDone || band.pageBreak) {
         if (slices.isNotEmpty) await closePage();
       }
     }
