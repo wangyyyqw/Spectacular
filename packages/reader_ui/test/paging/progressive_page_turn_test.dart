@@ -47,6 +47,7 @@ void main() {
     key.currentState!.controller.request(true);
     await tester.pump(const Duration(milliseconds: 16));
     expect(key.currentState!.controller.active, isTrue);
+    expect(source.backgroundPaused, isTrue, reason: '翻页活动暂停后台排版');
     source.publish(1, 3);
     await tester.pump(const Duration(milliseconds: 16));
     expect(key.currentState!.controller.active, isTrue);
@@ -58,6 +59,7 @@ void main() {
       reason: '总页数补全在动画结束后刷新快照',
     );
     await tester.pumpAndSettle();
+    expect(source.backgroundPaused, isFalse, reason: '动画结束后恢复空闲排版');
     expect(session.page, same(first));
     expect(session.pageTurns, 1);
     expect(images, contains(source.chapters[1][1]));

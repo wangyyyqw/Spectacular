@@ -214,13 +214,10 @@ class _PreparseSource extends _Source implements ScheduledAnchorChapterSource {
 
 void main() {
   // 保留完整交互顺序，才能核验章内翻页、后台取消和前台重试共享同一准备任务。
-  testWidgets('空闲到 80% 只预解析，切后台取消，回前台在章尾复用两阶段准备', (tester) async {
+  testWidgets('本章首屏空闲就准备邻章，切后台取消，回前台继续准备', (tester) async {
     final source = _PreparseSource();
     final store = MemoryReaderProgressStore();
-    await store.save(
-      '原文预取',
-      const ReaderProgress(spineIndex: 0, pageIndex: 14),
-    );
+    await store.save('原文预取', const ReaderProgress(spineIndex: 0, pageIndex: 0));
     final session = ReaderSession(source: source, store: store, bookId: '原文预取');
     await session.open();
     addTearDown(session.dispose);
@@ -232,18 +229,12 @@ void main() {
       prepare: (page) async => images.add(page.spineIndex),
     );
     await tester.pumpWidget(view());
-    await tester.pumpAndSettle();
-    expect(source.preparations, isEmpty, reason: '15/20 未到 80%');
-    expect(source.loads, [0]);
-
-    final turn = await session.preparePageTurn(true);
-    expect(session.commitPageTurn(turn!), isTrue);
-    await tester.pumpWidget(view());
     await tester.pump(const Duration(milliseconds: 99));
     expect(source.preparations, isEmpty);
+    expect(source.loads, [0]);
     await tester.pump(const Duration(milliseconds: 1));
     final first = source.preparations.single;
-    expect(first.priority, ChapterLayoutPriority.prefetch);
+    expect(first.priority, ChapterLayoutPriority.background);
     expect(first.handle.spine, 1);
     expect(source.loads, [0]);
     expect(images.toSet(), {0}, reason: '解析阶段不准备下一章图片');
@@ -266,10 +257,10 @@ void main() {
     expect(source.preparations, hasLength(2));
     source.preparations.last.handle.complete();
     await tester.pumpAndSettle();
-    expect(source.loads, [0, 1], reason: '17/20 的前向储备不足四页才排版');
+    expect(source.loads, [0, 1], reason: '本章首屏空闲时就排版下一章');
     expect(images, contains(1));
     expect(session.page!.spineIndex, 0);
-    expect(session.page!.pageIndex, 16);
+    expect(session.page!.pageIndex, 1);
     await tester.pumpWidget(const SizedBox.shrink());
     await session.flushProgress();
   });
@@ -615,7 +606,7 @@ void main() {
   }
 
   for (final mode in [PageTurnMode.cover, PageTurnMode.none]) {
-    testWidgets('${mode.label} 前方四页已就绪时不抢跑邻章', (tester) async {
+    testWidgets('${mode.label} 前方四页已就绪时仍在空闲预排一个邻章', (tester) async {
       final source = _LongChapterSource();
       final session = ReaderSession(
         source: source,
@@ -627,7 +618,7 @@ void main() {
       final key = GlobalKey<PageTurnViewState>();
       await tester.pumpWidget(_inputView(session, key, mode: mode));
       await tester.pumpAndSettle();
-      expect(source.loads, [0]);
+      expect(source.loads, [0, 1]);
       expect(session.page!.spineIndex, 0);
       expect(session.pageTurns, 0);
       if (mode == PageTurnMode.none) expect(key.currentState!.snapshotCount, 0);

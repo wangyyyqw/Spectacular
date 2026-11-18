@@ -266,7 +266,7 @@ void main() {
     });
   }
 
-  test('后台等待帧时前台可抢占，取消立即唤醒旧预算', () async {
+  test('后台等待空闲时前台可抢占，取消立即唤醒旧预算', () async {
     final started = Completer<void>();
     final order = <String>[];
     final scheduler = ChapterLayoutScheduler(
@@ -299,14 +299,17 @@ void main() {
   });
 
   for (final priority in [ChapterLayoutPriority.background]) {
-    test('${priority.name} 等待帧期间升为阅读立即继续同一作业', () async {
+    test('${priority.name} 等待动画结束期间升为阅读立即继续同一作业', () async {
+      final binding = SchedulerBinding.instance;
+      final callback = binding.scheduleFrameCallback((_) {});
+      addTearDown(() => binding.cancelFrameCallbackWithId(callback));
       final budget = LayoutBudget(priority: priority, isCurrent: () => true);
       var completed = false;
       final waiting = budget.checkpoint(force: true).then((_) {
         completed = true;
       });
       await Future<void>.delayed(Duration.zero);
-      expect(completed, isFalse, reason: '后台不能用零延迟事件连续占用主线程');
+      expect(completed, isFalse, reason: '动画活动期间框架不能执行空闲任务');
       budget.promote(ChapterLayoutPriority.reading);
       await waiting;
       expect(completed, isTrue);
@@ -333,11 +336,11 @@ void main() {
     await expectLater(cancelled, throwsA(isA<ChapterLoadCancelled>()));
   });
 
-  test('稳定页交付后的后台工作在静止时继续，动画活动时让帧并允许预取接管', () async {
+  test('后台工作从首批之前就在空闲时继续，动画期间暂停并允许预取接管', () async {
     final budget = LayoutBudget(
       priority: ChapterLayoutPriority.background,
       isCurrent: () => true,
-    )..continueWhenIdle = true;
+    );
     var completed = false;
     final idle = budget.checkpoint(force: true).then((_) => completed = true);
     await Future<void>.value();
@@ -351,11 +354,79 @@ void main() {
         .checkpoint(force: true)
         .then((_) => completed = true);
     await Future<void>.delayed(Duration.zero);
-    expect(completed, isFalse, reason: '动画活动时后台不能连续占用两帧之间的主线程');
+    expect(completed, isFalse, reason: '动画活动期间不再每帧继续后台排版');
     budget.promote(ChapterLayoutPriority.prefetch);
     await animated;
     expect(completed, isTrue);
     expect(budget.yieldCount, 2);
+  });
+
+  test('翻页暂停后台作业，恢复后接着计算而不重新构块', () async {
+    final gate = Completer<void>();
+    final started = Completer<void>();
+    var runs = 0;
+    var continued = false;
+    final scheduler = ChapterLayoutScheduler(
+      isCurrent: (_) => true,
+      run: (_, budget, _) async {
+        runs += 1;
+        started.complete();
+        await gate.future;
+        await budget.checkpoint();
+        continued = true;
+        return _pages();
+      },
+    );
+    addTearDown(scheduler.close);
+    final handle = scheduler.schedule(
+      _snapshot('暂停恢复'),
+      priority: ChapterLayoutPriority.background,
+      retainResult: true,
+    );
+    await started.future;
+    scheduler.setBackgroundPaused(true);
+    gate.complete();
+    await Future<void>.delayed(Duration.zero);
+    expect(continued, isFalse, reason: '手势阶段即使没有活动动画帧也暂停');
+    scheduler.setBackgroundPaused(false);
+    expect(await handle.result, hasLength(1));
+    expect(continued, isTrue);
+    expect(runs, 1);
+  });
+
+  test('暂停中的同键阅读请求立即接管，后台取消也不依赖恢复', () async {
+    var runs = 0;
+    final scheduler = ChapterLayoutScheduler(
+      isCurrent: (_) => true,
+      run: (_, budget, _) async {
+        runs += 1;
+        return _pages();
+      },
+    )..setBackgroundPaused(true);
+    addTearDown(scheduler.close);
+    final background = scheduler.schedule(
+      _snapshot('接管'),
+      priority: ChapterLayoutPriority.background,
+      retainResult: true,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(runs, 0, reason: '后台作业启动也必须等待空闲');
+    final reading = scheduler.schedule(
+      _snapshot('接管'),
+      priority: ChapterLayoutPriority.reading,
+      retainResult: true,
+    );
+    expect(await reading.result, hasLength(1));
+    expect(await background.result, hasLength(1));
+    expect(runs, 1);
+    final cancelled = scheduler.schedule(
+      _snapshot('取消'),
+      priority: ChapterLayoutPriority.background,
+      retainResult: true,
+    );
+    cancelled.cancel();
+    await expectLater(cancelled.result, throwsA(isA<ChapterLoadCancelled>()));
+    expect(runs, 1);
   });
 
   test('待执行队列依次处理阅读、预取、后台，几何作业不并发', () async {
@@ -510,6 +581,24 @@ void main() {
       },
     );
   }
+
+  test('原文准备期间提升阅读优先级会传给准备任务', () async {
+    final gate = Completer<void>();
+    final priorities = <ChapterLayoutPriority>[];
+    final handle = PreparingChapterHandle(
+      (_) async {
+        await gate.future;
+        throw const ChapterLoadCancelled();
+      },
+      priority: ChapterLayoutPriority.background,
+      onPriorityChanged: priorities.add,
+    );
+    handle.setPriority(ChapterLayoutPriority.reading);
+    expect(priorities, [ChapterLayoutPriority.reading]);
+    handle.cancel();
+    gate.complete();
+    await expectLater(handle.result, throwsA(isA<ChapterLoadCancelled>()));
+  });
 
   test('原文与字体准备期间取消可立即结束，不进入实际排版', () async {
     final gate = Completer<void>();

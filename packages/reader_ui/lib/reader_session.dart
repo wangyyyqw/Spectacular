@@ -343,7 +343,7 @@ class ReaderSession extends ChangeNotifier {
       page.content,
   ];
 
-  /// 当前页达到章内 80% 时预解析下一章，不准备装饰、字体、分页或图片。
+  /// 静止阅读时预解析下一章，不准备装饰、字体、分页或图片。
   Future<void> preparseNextChapter({bool Function()? shouldContinue}) async {
     final current = page;
     final anchors = source;
@@ -351,9 +351,7 @@ class ReaderSession extends ChangeNotifier {
         _loading ||
         _jumpLoadingTitle != null ||
         current == null ||
-        !isChapterComplete(current.spineIndex) ||
         anchors is! ScheduledAnchorChapterSource ||
-        (current.pageIndex + 1) * 5 < chapterPageCount * 4 ||
         current.spineIndex + 1 >= source.chapterCount ||
         !(shouldContinue?.call() ?? true)) {
       return;
@@ -365,7 +363,7 @@ class ReaderSession extends ChangeNotifier {
         spine: spine,
         handle: anchors.scheduleAnchorChapter(
           spine,
-          priority: ChapterLayoutPriority.prefetch,
+          priority: ChapterLayoutPriority.background,
         ),
       );
     }
@@ -386,19 +384,30 @@ class ReaderSession extends ChangeNotifier {
     bool next, {
     bool Function()? shouldContinue,
     int pageBudget = VirtualPager.turnPrefetchPageBudget,
+    bool idle = false,
   }) async {
     if (_disposed || _loading || _jumpLoadingTitle != null) return null;
-    // 短章可能在 80% 之前就进入四页储备窗口，保留原有排版时机，
-    // 避免短章接超长章时反而更晚开始；长章先复用已预解析的结构。
     try {
       return await _pager?.prefetchChapter(
         next ? 1 : -1,
         shouldContinue: shouldContinue,
         pageBudget: pageBudget,
+        fromChapterBoundary: idle,
+        priority: idle
+            ? ChapterLayoutPriority.background
+            : ChapterLayoutPriority.prefetch,
       );
     } on ChapterLoadCancelled {
       // 用户导航或重排可抢占预取，下次空闲时再准备。
       return null;
+    }
+  }
+
+  void setBackgroundLayoutPaused(bool paused) {
+    if (!_disposed && source is BackgroundLayoutChapterSource) {
+      (source as BackgroundLayoutChapterSource).setBackgroundLayoutPaused(
+        paused,
+      );
     }
   }
 
@@ -542,6 +551,9 @@ class ReaderSession extends ChangeNotifier {
 
   Future<List<PageContent>> _prefetchChapter(int spineIndex) =>
       _loadChapter(spineIndex, priority: ChapterLayoutPriority.prefetch);
+
+  Future<List<PageContent>> _backgroundChapter(int spineIndex) =>
+      _loadChapter(spineIndex, priority: ChapterLayoutPriority.background);
 
   ProgressiveChapterLoadHandle _progressiveChapter(
     int spineIndex,
@@ -1423,6 +1435,9 @@ class ReaderSession extends ChangeNotifier {
         prefetchLoader: source is ScheduledChapterSource
             ? _prefetchChapter
             : null,
+        backgroundLoader: source is ScheduledChapterSource
+            ? _backgroundChapter
+            : null,
         progressiveLoader: source is ProgressiveChapterSource
             ? _progressiveChapter
             : null,
@@ -1966,6 +1981,9 @@ class ReaderSession extends ChangeNotifier {
         prefetchRadius: 2,
         prefetchLoader: source is ScheduledChapterSource
             ? _prefetchChapter
+            : null,
+        backgroundLoader: source is ScheduledChapterSource
+            ? _backgroundChapter
             : null,
         progressiveLoader: source is ProgressiveChapterSource
             ? _progressiveChapter
