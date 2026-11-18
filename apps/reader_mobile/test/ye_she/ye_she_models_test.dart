@@ -139,4 +139,50 @@ void main() {
     expect(auction.isLeading, isTrue);
     expect(auction.endTime, isNotNull);
   });
+
+  test('五类排行榜解析列表、主指标与当前用户排名', () {
+    final read = YeSheRankBoard.fromJson(<String, dynamic>{
+      'rankDate': '2026-11-17',
+      'list': <Object?>[
+        <String, dynamic>{
+          'rank': '1',
+          'userId': '9',
+          'nickName': '甲',
+          'duration': '3660',
+          'title': '青士',
+          'titleLevel': '2',
+        },
+      ],
+      'my': <String, dynamic>{'rank': '8', 'duration': '600'},
+    }, YeSheRankKind.readDuration);
+    final wealth = YeSheRankBoard.fromJson(<String, dynamic>{
+      'list': <Object?>[
+        <String, dynamic>{
+          'rank': 2,
+          'nickName': '乙',
+          'totalAmount': '900',
+          'totalProfit': '1000',
+          'totalLoss': '100',
+        },
+      ],
+      'my': <String, dynamic>{'rank': 3, 'totalAmount': '700'},
+    }, YeSheRankKind.wealth);
+    final title = YeSheRankBoard.fromJson(<String, dynamic>{
+      'list': <Object?>[
+        <String, dynamic>{'rank': 1, 'nickName': '丙', 'titleLevel': 5},
+      ],
+      'my': <String, dynamic>{'rank': 0, 'titleLevel': 2},
+    }, YeSheRankKind.communityTitle);
+
+    expect(read.rankDate, '2026-11-17');
+    expect(read.entries.single.nickName, '甲');
+    expect(read.entries.single.value, 3660);
+    expect(read.my.rank, 8);
+    expect(read.my.value, 600);
+    expect(wealth.entries.single.value, 900);
+    expect(wealth.entries.single.totalProfit, 1000);
+    expect(wealth.my.value, 700);
+    expect(title.entries.single.value, 5);
+    expect(title.my.rank, 0);
+  });
 }

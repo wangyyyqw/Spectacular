@@ -27,6 +27,7 @@ class _YeShePageState extends State<YeShePage>
   late final YeSheController _controller;
   late final bool _ownsController;
   late final TabController _tabController;
+  YeSheRankKind _rankKind = YeSheRankKind.readDuration;
 
   @override
   void initState() {
@@ -60,7 +61,8 @@ class _YeShePageState extends State<YeShePage>
               onPressed:
                   _controller.loadingStudy ||
                       _controller.loadingPlay ||
-                      _controller.loadingDiscover
+                      _controller.loadingDiscover ||
+                      _controller.loadingRanks
                   ? null
                   : () => unawaited(_controller.refreshAll()),
               icon: const AppIcon(AppGlyph.refresh),
@@ -128,6 +130,7 @@ class _YeShePageState extends State<YeShePage>
         _errorCard(_controller.studyError),
         _accountCard(),
         _titleCard(),
+        _rankCard(),
         _inventoryCard(),
         _societyCard(),
         _guildCard(),
@@ -294,6 +297,96 @@ class _YeShePageState extends State<YeShePage>
                 ]),
               ],
             ),
+    );
+  }
+
+  Widget _rankCard() {
+    final board = _controller.ranks[_rankKind];
+    final theme = Theme.of(context);
+    return _YeCard(
+      key: const ValueKey<String>('ye-she-ranks'),
+      icon: AppGlyph.stats,
+      title: '排行榜',
+      subtitle: board == null
+          ? '阅读、财富、聚宝楼、收藏与名帖'
+          : '${_rankKind.label}${board.rankDate.isEmpty ? '' : ' · ${board.rankDate}'}',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: <Widget>[
+              for (final kind in YeSheRankKind.values)
+                ChoiceChip(
+                  key: ValueKey<String>('ye-she-rank-${kind.name}'),
+                  label: Text(kind.label),
+                  selected: kind == _rankKind,
+                  onSelected: (_) => setState(() => _rankKind = kind),
+                ),
+            ],
+          ),
+          if (_controller.loadingRanks)
+            const Padding(
+              padding: EdgeInsets.only(top: 10),
+              child: LinearProgressIndicator(),
+            ),
+          if (_controller.ranksError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                _controller.ranksError!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          if (board == null)
+            const _EmptyHint('排行榜暂不可用')
+          else if (board.entries.isEmpty)
+            const _EmptyHint('榜单暂时没有记录')
+          else
+            for (final entry in board.entries.take(20))
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  radius: 14,
+                  child: Text(
+                    '${entry.rank}',
+                    style: theme.textTheme.labelSmall,
+                  ),
+                ),
+                title: Text(
+                  entry.nickName.isEmpty ? '阅微用户' : entry.nickName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  <String>[
+                    if (entry.title.trim().isNotEmpty) entry.title,
+                    if (entry.titleLevel > 0) '名帖 ${entry.titleLevel} 级',
+                    '${entry.level} 级',
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Text(_rankValueText(_rankKind, entry.value)),
+              ),
+          if (board != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                board.my.rank > 0
+                    ? '我的排名：第 ${board.my.rank} 名 · '
+                          '${_rankValueText(_rankKind, board.my.value)}'
+                    : '我的排名：尚未上榜',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -2205,6 +2298,26 @@ String _formatDateTime(DateTime value) {
   String two(int number) => number.toString().padLeft(2, '0');
   return '${local.year}-${two(local.month)}-${two(local.day)} '
       '${two(local.hour)}:${two(local.minute)}';
+}
+
+String _rankValueText(YeSheRankKind kind, int value) {
+  return switch (kind) {
+    YeSheRankKind.readDuration => _formatRankDuration(value),
+    YeSheRankKind.wealth || YeSheRankKind.auction => '$value 铜',
+    YeSheRankKind.collectionValue => '$value',
+    YeSheRankKind.communityTitle => '$value 级',
+  };
+}
+
+String _formatRankDuration(int seconds) {
+  if (seconds <= 0) return '0 分';
+  final hours = seconds ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  if (hours > 0) {
+    return minutes > 0 ? '$hours 小时 $minutes 分' : '$hours 小时';
+  }
+  if (minutes > 0) return '$minutes 分';
+  return '$seconds 秒';
 }
 
 String _signed(int value) => value > 0 ? '+$value' : '$value';

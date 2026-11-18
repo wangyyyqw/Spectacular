@@ -1690,6 +1690,162 @@ class YeSheMedalTreasure {
   final String previousWinnerAvatar;
 }
 
+/// 阅微排行榜类型。
+enum YeSheRankKind {
+  /// 阅读时长榜。
+  readDuration('阅读时长'),
+
+  /// 财富榜。
+  wealth('财富'),
+
+  /// 聚宝楼拍卖榜。
+  auction('聚宝楼'),
+
+  /// 收藏价值榜。
+  collectionValue('收藏价值'),
+
+  /// 名帖榜。
+  communityTitle('名帖');
+
+  const YeSheRankKind(this.label);
+
+  /// 页面展示名称。
+  final String label;
+}
+
+/// 排行榜条目。
+class YeSheRankEntry {
+  const YeSheRankEntry({
+    this.rank = 0,
+    this.userId = 0,
+    this.nickName = '',
+    this.avatar = '',
+    this.level = 0,
+    this.title = '',
+    this.titleLevel = 0,
+    this.value = 0,
+    this.totalProfit = 0,
+    this.totalLoss = 0,
+    this.totalAmount = 0,
+    this.upgradePityCount = 0,
+    this.callingCardId,
+  });
+
+  factory YeSheRankEntry.fromJson(
+    Map<String, dynamic> json,
+    YeSheRankKind kind,
+  ) {
+    return YeSheRankEntry(
+      rank: yeSheInt(json['rank']),
+      userId: yeSheInt(json['userId']),
+      nickName: yeSheText(json['nickName']),
+      avatar: yeSheText(json['avatar']),
+      level: yeSheInt(json['level']),
+      title: yeSheText(json['title']),
+      titleLevel: yeSheInt(json['titleLevel']),
+      value: _rankValue(json, kind),
+      totalProfit: yeSheInt(json['totalProfit']),
+      totalLoss: yeSheInt(json['totalLoss']),
+      totalAmount: yeSheInt(json['totalAmount']),
+      upgradePityCount: yeSheInt(json['upgradePityCount']),
+      callingCardId: json['callingCardId'] == null
+          ? null
+          : yeSheInt(json['callingCardId']),
+    );
+  }
+
+  final int rank;
+  final int userId;
+  final String nickName;
+  final String avatar;
+  final int level;
+  final String title;
+  final int titleLevel;
+
+  /// 当前榜单的主指标：阅读时长、财富总额、拍卖额、收藏价值或名帖等级。
+  final int value;
+
+  final int totalProfit;
+  final int totalLoss;
+  final int totalAmount;
+  final int upgradePityCount;
+  final int? callingCardId;
+}
+
+/// 当前用户在榜单中的位置。
+class YeSheRankMy {
+  const YeSheRankMy({
+    this.rank = 0,
+    this.value = 0,
+    this.totalProfit = 0,
+    this.totalLoss = 0,
+    this.totalAmount = 0,
+    this.titleLevel = 0,
+    this.upgradePityCount = 0,
+  });
+
+  factory YeSheRankMy.fromJson(Map<String, dynamic> json, YeSheRankKind kind) {
+    return YeSheRankMy(
+      rank: yeSheInt(json['rank']),
+      value: _rankValue(json, kind),
+      totalProfit: yeSheInt(json['totalProfit']),
+      totalLoss: yeSheInt(json['totalLoss']),
+      totalAmount: yeSheInt(json['totalAmount']),
+      titleLevel: yeSheInt(json['titleLevel']),
+      upgradePityCount: yeSheInt(json['upgradePityCount']),
+    );
+  }
+
+  final int rank;
+  final int value;
+  final int totalProfit;
+  final int totalLoss;
+  final int totalAmount;
+  final int titleLevel;
+  final int upgradePityCount;
+}
+
+/// 一类排行榜的完整结果。
+class YeSheRankBoard {
+  const YeSheRankBoard({
+    required this.kind,
+    this.rankDate = '',
+    this.entries = const <YeSheRankEntry>[],
+    this.my = const YeSheRankMy(),
+  });
+
+  factory YeSheRankBoard.fromJson(
+    Map<String, dynamic> json,
+    YeSheRankKind kind,
+  ) {
+    final rawList = json['list'] ?? json['items'];
+    return YeSheRankBoard(
+      kind: kind,
+      rankDate: yeSheText(json['rankDate']),
+      entries: <YeSheRankEntry>[
+        for (final item in yeSheMapList(rawList))
+          YeSheRankEntry.fromJson(item, kind),
+      ],
+      my: YeSheRankMy.fromJson(yeSheMap(json['my']), kind),
+    );
+  }
+
+  final YeSheRankKind kind;
+  final String rankDate;
+  final List<YeSheRankEntry> entries;
+  final YeSheRankMy my;
+}
+
+int _rankValue(Map<String, dynamic> json, YeSheRankKind kind) {
+  return switch (kind) {
+    YeSheRankKind.readDuration => yeSheInt(json['duration']),
+    YeSheRankKind.wealth ||
+    YeSheRankKind.auction => yeSheInt(json['totalAmount']),
+    YeSheRankKind.collectionValue => yeSheInt(json['collectionValue']),
+    YeSheRankKind.communityTitle => yeSheInt(json['titleLevel']),
+  };
+}
+
 /// 一次写操作结果。
 class YeSheActionResult {
   const YeSheActionResult({

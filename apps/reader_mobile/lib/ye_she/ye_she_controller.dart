@@ -24,12 +24,14 @@ class YeSheController extends ChangeNotifier {
   bool _loadingStudy = false;
   bool _loadingPlay = false;
   bool _loadingDiscover = false;
+  bool _loadingRanks = false;
   bool _authExpired = false;
   bool _actionBusy = false;
   String _actionName = '';
   String? _studyError;
   String? _playError;
   String? _discoverError;
+  String? _ranksError;
 
   YeSheAccountStatus? _account;
   YeSheTitle? _title;
@@ -62,6 +64,8 @@ class YeSheController extends ChangeNotifier {
   List<YeSheRumor> _rumors = const <YeSheRumor>[];
   List<YeSheThought> _thoughts = const <YeSheThought>[];
   YeSheMedalTreasure? _medalTreasure;
+  Map<YeSheRankKind, YeSheRankBoard> _ranks =
+      const <YeSheRankKind, YeSheRankBoard>{};
 
   /// 是否已有阅微令牌。
   bool get signedIn => tokenProvider()?.trim().isNotEmpty == true;
@@ -77,6 +81,9 @@ class YeSheController extends ChangeNotifier {
 
   /// 见闻是否正在加载。
   bool get loadingDiscover => _loadingDiscover;
+
+  /// 排行榜是否正在加载。
+  bool get loadingRanks => _loadingRanks;
 
   /// 登录是否已在请求过程中失效。
   bool get authExpired => _authExpired;
@@ -95,6 +102,9 @@ class YeSheController extends ChangeNotifier {
 
   /// 见闻局部错误。
   String? get discoverError => _discoverError;
+
+  /// 排行榜局部错误。
+  String? get ranksError => _ranksError;
 
   YeSheAccountStatus? get account => _account;
   YeSheTitle? get title => _title;
@@ -125,6 +135,7 @@ class YeSheController extends ChangeNotifier {
   List<YeSheRumor> get rumors => _rumors;
   List<YeSheThought> get thoughts => _thoughts;
   YeSheMedalTreasure? get medalTreasure => _medalTreasure;
+  Map<YeSheRankKind, YeSheRankBoard> get ranks => _ranks;
 
   /// 首次加载三个页签。
   Future<void> loadAll() async {
@@ -134,6 +145,7 @@ class YeSheController extends ChangeNotifier {
       refreshStudy(),
       refreshPlay(),
       refreshDiscover(),
+      refreshRanks(),
     ]);
   }
 
@@ -145,7 +157,75 @@ class YeSheController extends ChangeNotifier {
       refreshStudy(),
       refreshPlay(),
       refreshDiscover(),
+      refreshRanks(),
     ]);
+  }
+
+  /// 刷新五类排行榜；单类失败不影响其他榜单。
+  Future<void> refreshRanks() async {
+    if (!_canLoad() || _loadingRanks) return;
+    _loadingRanks = true;
+    _ranksError = null;
+    _notify();
+    final failures = <String>[];
+    final results = await Future.wait<YeSheRankBoard?>(
+      <Future<YeSheRankBoard?>>[
+        _attemptRank(
+          '阅读时长',
+          YeSheRankKind.readDuration,
+          _api.fetchReadDurationRank(),
+          failures,
+        ),
+        _attemptRank(
+          '财富',
+          YeSheRankKind.wealth,
+          _api.fetchWealthRank(),
+          failures,
+        ),
+        _attemptRank(
+          '聚宝楼',
+          YeSheRankKind.auction,
+          _api.fetchAuctionRank(),
+          failures,
+        ),
+        _attemptRank(
+          '收藏价值',
+          YeSheRankKind.collectionValue,
+          _api.fetchCollectionValueRank(),
+          failures,
+        ),
+        _attemptRank(
+          '名帖',
+          YeSheRankKind.communityTitle,
+          _api.fetchCommunityTitleRank(),
+          failures,
+        ),
+      ],
+    );
+    if (_disposed) return;
+    final next = Map<YeSheRankKind, YeSheRankBoard>.of(_ranks);
+    for (final board in results) {
+      if (board != null) next[board.kind] = board;
+    }
+    _ranks = Map<YeSheRankKind, YeSheRankBoard>.unmodifiable(next);
+    _loadingRanks = false;
+    _ranksError = _failureText(failures);
+    _notify();
+  }
+
+  Future<YeSheRankBoard?> _attemptRank(
+    String name,
+    YeSheRankKind kind,
+    Future<YeSheJson> request,
+    List<String> failures,
+  ) async {
+    try {
+      return YeSheRankBoard.fromJson(await request, kind);
+    } catch (error) {
+      _recordAuth(error);
+      failures.add('$name榜：${_messageOf(error)}');
+      return null;
+    }
   }
 
   /// 刷新文房。

@@ -289,6 +289,21 @@ abstract interface class YeSheApi {
     int size = 20,
   });
 
+  /// 阅读时长榜。
+  Future<YeSheJson> fetchReadDurationRank();
+
+  /// 财富榜。
+  Future<YeSheJson> fetchWealthRank();
+
+  /// 聚宝楼拍卖榜。
+  Future<YeSheJson> fetchAuctionRank();
+
+  /// 收藏价值榜。
+  Future<YeSheJson> fetchCollectionValueRank();
+
+  /// 名帖榜。
+  Future<YeSheJson> fetchCommunityTitleRank();
+
   /// 释放网络客户端。
   void close();
 }
@@ -515,7 +530,9 @@ class YeSheApiClient implements YeSheApi {
     required int propId,
     required int quantity,
   }) => _post(
-    'rest/community/buy-voucher-shop',
+    // 阅微客户端用 BuyVoucherShopReq 请求体调用百杂铺购买接口；
+    // 服务端没有独立的 buy-voucher-shop 路由。
+    'rest/community/buy-daily-shop',
     body: <String, Object?>{'propId': propId, 'quantity': quantity},
   );
 
@@ -720,6 +737,24 @@ class YeSheApiClient implements YeSheApi {
     'rest/community/get-mark-collectors',
     body: <String, Object?>{'markId': markId, 'page': page, 'size': size},
   );
+
+  @override
+  Future<YeSheJson> fetchReadDurationRank() =>
+      _post('rest/rank/get-read-duration-rank');
+
+  @override
+  Future<YeSheJson> fetchWealthRank() => _post('rest/rank/get-wealth-rank');
+
+  @override
+  Future<YeSheJson> fetchAuctionRank() => _post('rest/rank/get-auction-rank');
+
+  @override
+  Future<YeSheJson> fetchCollectionValueRank() =>
+      _post('rest/rank/get-collection-value-rank');
+
+  @override
+  Future<YeSheJson> fetchCommunityTitleRank() =>
+      _post('rest/rank/get-community-title-rank');
 
   Future<YeSheJson> _post(
     String endpoint, {

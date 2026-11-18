@@ -168,4 +168,55 @@ void main() {
       'https://example.test/rest/community/abandon-community-title',
     );
   });
+
+  test('玉机阁兑换复用百杂铺购买接口', () async {
+    late http.Request request;
+    final api = YeSheApiClient(
+      tokenProvider: () => 'token',
+      baseUrl: 'https://example.test/',
+      client: MockClient((value) async {
+        request = value;
+        return _json(<String, Object?>{'code': 0, 'data': <String, Object?>{}});
+      }),
+    );
+    addTearDown(api.close);
+
+    await api.buyVoucherShop(propId: 17, quantity: 2);
+
+    expect(
+      request.url.toString(),
+      'https://example.test/rest/community/buy-daily-shop',
+    );
+    expect(jsonDecode(request.body), <String, Object?>{
+      'propId': 17,
+      'quantity': 2,
+    });
+  });
+
+  test('阅微排行榜使用 rest/rank 路由', () async {
+    final requests = <String>[];
+    final api = YeSheApiClient(
+      tokenProvider: () => 'token',
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request.url.path);
+        return _json(<String, Object?>{'code': 0, 'data': <String, Object?>{}});
+      }),
+    );
+    addTearDown(api.close);
+
+    await api.fetchReadDurationRank();
+    await api.fetchWealthRank();
+    await api.fetchAuctionRank();
+    await api.fetchCollectionValueRank();
+    await api.fetchCommunityTitleRank();
+
+    expect(requests, <String>[
+      '/rest/rank/get-read-duration-rank',
+      '/rest/rank/get-wealth-rank',
+      '/rest/rank/get-auction-rank',
+      '/rest/rank/get-collection-value-rank',
+      '/rest/rank/get-community-title-rank',
+    ]);
+  });
 }
