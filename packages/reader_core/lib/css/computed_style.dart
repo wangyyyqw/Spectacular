@@ -1529,14 +1529,19 @@ class ComputedStyle {
     // 计算值的列表长度独立于图像数；继承后可能被更多背景层使用。
     return (cssValueTokens(raw, separator: ',') ?? const ['0%'])
         .map((value) {
-          final length =
+          final axis =
               CssBackgroundDeclarations.axis(
                 value,
                 fontSize: cssFontSize,
                 rootFontSize: cssRootFontSize,
               ) ??
-              const CssLength(0, isPercent: true);
-          return '${length.value}${length.isPercent ? '%' : 'px'}';
+              (length: const CssLength(0, isPercent: true), offset: 0.0);
+          final length = axis.length;
+          final base = '${length.value}${length.isPercent ? '%' : 'px'}';
+          return axis.offset == 0
+              ? base
+              : 'calc($base ${axis.offset < 0 ? '-' : '+'} '
+                    '${axis.offset.abs()}px)';
         })
         .join(', ');
   }
@@ -7123,26 +7128,24 @@ class ComputedStyle {
     required double fontSize,
     required double rootFontSize,
   }) {
-    final fallback =
-        _parseBackgroundPosition(
-          raw == null ? null : _splitTopLevel(raw, ',').first,
-          fontSize: fontSize,
-          rootFontSize: rootFontSize,
-        ) ??
-        const CssBackgroundPosition(
-          x: CssLength(0, isPercent: true),
-          y: CssLength(0, isPercent: true),
-        );
-    CssLength? axis(String? value) => value == null
+    final pair = raw == null
+        ? null
+        : CssBackgroundDeclarations.position(_splitTopLevel(raw, ',').first);
+    ({CssLength length, double offset})? axis(String? value) => value == null
         ? null
         : CssBackgroundDeclarations.axis(
             _splitTopLevel(value, ',').first,
             fontSize: fontSize,
             rootFontSize: rootFontSize,
           );
+    const initial = (length: CssLength(0, isPercent: true), offset: 0.0);
+    final horizontal = axis(x) ?? axis(pair?.$1) ?? initial;
+    final vertical = axis(y) ?? axis(pair?.$2) ?? initial;
     return CssBackgroundPosition(
-      x: axis(x) ?? fallback.x,
-      y: axis(y) ?? fallback.y,
+      x: horizontal.length,
+      y: vertical.length,
+      xOffset: horizontal.offset,
+      yOffset: vertical.offset,
     );
   }
 
@@ -7193,41 +7196,6 @@ class ComputedStyle {
       token,
       fontSize: fontSize,
       rootFontSize: rootFontSize,
-    );
-  }
-
-  static CssBackgroundPosition? _parseBackgroundPosition(
-    String? raw, {
-    required double fontSize,
-    required double rootFontSize,
-  }) {
-    final value = raw?.trim().toLowerCase();
-    if (value == null || value.isEmpty) {
-      return null;
-    }
-    final tokens = value.split(RegExp(r'\s+'));
-    CssLength parseOne(String token) => switch (token) {
-      'left' || 'top' => const CssLength(0, isPercent: true),
-      'right' || 'bottom' => const CssLength(100, isPercent: true),
-      'center' => const CssLength(50, isPercent: true),
-      _ =>
-        _resolveCssLength(
-              token,
-              fontSize: fontSize,
-              rootFontSize: rootFontSize,
-            ) ??
-            const CssLength(50, isPercent: true),
-    };
-    final first = tokens.first;
-    final second = tokens.length > 1 ? tokens[1] : 'center';
-    // 双关键字允许交换书写顺序；长度和百分比仍固定先横轴、后纵轴。
-    final swap =
-        ((first == 'top' || first == 'bottom') &&
-            const {'left', 'center', 'right'}.contains(second)) ||
-        (first == 'center' && (second == 'left' || second == 'right'));
-    return CssBackgroundPosition(
-      x: parseOne(swap ? second : first),
-      y: parseOne(swap ? first : second),
     );
   }
 
@@ -7687,7 +7655,9 @@ class ComputedStyle {
         return null;
       }
       return Color(
-        hex.length <= 4 || hex.length == 6 ? 0xFF000000 | parsed : parsed,
+        hex.length == 4 || hex.length == 8
+            ? ((parsed & 0xFF) << 24) | (parsed >> 8)
+            : 0xFF000000 | parsed,
       );
     }
     final rgb = RegExp(r'^rgba?\(([^)]+)\)$').firstMatch(value);
