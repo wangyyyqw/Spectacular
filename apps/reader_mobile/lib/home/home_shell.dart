@@ -9,7 +9,9 @@ import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
 
-/// 四底栏应用壳：书架 / 统计 / 书评 / 我的。
+const _railBreakpoint = 840.0;
+
+/// 首页应用壳：宽窗使用侧栏，窄窗保留底栏。
 class HomeShell extends StatefulWidget {
   /// 创建壳。
   const HomeShell({
@@ -61,8 +63,37 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  Widget _buildBody(List<Widget> pages) {
-    final content = IndexedStack(index: _index, children: pages);
+  void _selectDestination(int index) {
+    setState(() {
+      _index = index;
+      if (index == 0) {
+        _bookshelfRefreshToken += 1;
+      } else if (index == 1) {
+        _statsRefreshToken += 1;
+      }
+    });
+  }
+
+  Widget _buildBody() {
+    final content = IndexedStack(
+      index: _index,
+      children: [
+        BookshelfPage(
+          library: widget.library,
+          progressStore: widget.progressStore,
+          refreshToken: _bookshelfRefreshToken,
+          allowImport: widget.storageRecovery == null,
+        ),
+        StatsPage(
+          library: widget.library,
+          progressStore: widget.progressStore,
+          refreshToken: _statsRefreshToken,
+          active: _index == 1,
+        ),
+        ReviewsPage(library: widget.library, active: _index == 2),
+        ProfilePage(library: widget.library),
+      ],
+    );
     final recovery = widget.storageRecovery;
     if (recovery == null) return content;
     return SafeArea(
@@ -114,9 +145,7 @@ class _HomeShellState extends State<HomeShell> {
     ],
   );
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  List<BottomNavigationBarItem> _navigationItems(ThemeData theme) {
     final navigationTheme = theme.bottomNavigationBarTheme;
     final unselectedColor =
         navigationTheme.unselectedItemColor ??
@@ -125,93 +154,88 @@ class _HomeShellState extends State<HomeShell> {
         navigationTheme.selectedItemColor ?? theme.colorScheme.onSurface;
     final navigationBackground =
         navigationTheme.backgroundColor ?? theme.canvasColor;
-    final pages = <Widget>[
-      BookshelfPage(
-        library: widget.library,
-        progressStore: widget.progressStore,
-        refreshToken: _bookshelfRefreshToken,
-        allowImport: widget.storageRecovery == null,
-      ),
-      StatsPage(
-        library: widget.library,
-        progressStore: widget.progressStore,
-        refreshToken: _statsRefreshToken,
-        active: _index == 1,
-      ),
-      ReviewsPage(library: widget.library, active: _index == 2),
-      ProfilePage(library: widget.library),
-    ];
-    return Scaffold(
-      body: _buildBody(pages),
-      bottomNavigationBar: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(color: Theme.of(context).dividerColor),
+    return [
+      for (final (label, glyph) in const [
+        ('书架', AppGlyph.bookshelf),
+        ('统计', AppGlyph.stats),
+        ('书评', AppGlyph.review),
+        ('我的', AppGlyph.profile),
+      ])
+        BottomNavigationBarItem(
+          label: label,
+          icon: AppIcon(glyph, size: 24, color: unselectedColor),
+          activeIcon: AppIcon(
+            glyph,
+            size: 24,
+            color: selectedColor,
+            filled: true,
+            cutoutColor: navigationBackground,
           ),
         ),
-        child: BottomNavigationBar(
-          currentIndex: _index,
-          onTap: (value) {
-            setState(() {
-              _index = value;
-              if (value == 0) {
-                _bookshelfRefreshToken += 1;
-              } else if (value == 1) {
-                _statsRefreshToken += 1;
-              }
-            });
-          },
-          items: <BottomNavigationBarItem>[
-            BottomNavigationBarItem(
-              icon: AppIcon(
-                AppGlyph.bookshelf,
-                size: 24,
-                color: unselectedColor,
-              ),
-              activeIcon: AppIcon(
-                AppGlyph.bookshelf,
-                size: 24,
-                color: selectedColor,
-                filled: true,
-                cutoutColor: navigationBackground,
-              ),
-              label: '书架',
-            ),
-            BottomNavigationBarItem(
-              icon: AppIcon(AppGlyph.stats, size: 24, color: unselectedColor),
-              activeIcon: AppIcon(
-                AppGlyph.stats,
-                size: 24,
-                color: selectedColor,
-                filled: true,
-              ),
-              label: '统计',
-            ),
-            BottomNavigationBarItem(
-              icon: AppIcon(AppGlyph.review, size: 24, color: unselectedColor),
-              activeIcon: AppIcon(
-                AppGlyph.review,
-                size: 24,
-                color: selectedColor,
-                filled: true,
-                cutoutColor: navigationBackground,
-              ),
-              label: '书评',
-            ),
-            BottomNavigationBarItem(
-              icon: AppIcon(AppGlyph.profile, size: 24, color: unselectedColor),
-              activeIcon: AppIcon(
-                AppGlyph.profile,
-                size: 24,
-                color: selectedColor,
-                filled: true,
-                cutoutColor: navigationBackground,
-              ),
-              label: '我的',
-            ),
-          ],
-        ),
+    ];
+  }
+
+  Widget _buildRail(ThemeData theme, List<BottomNavigationBarItem> items) {
+    return NavigationRail(
+      extended: true,
+      scrollable: true,
+      minWidth: 56,
+      minExtendedWidth: 160,
+      backgroundColor:
+          theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor,
+      useIndicator: false,
+      unselectedIconTheme: const IconThemeData(opacity: 1),
+      selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w600,
       ),
+      unselectedLabelTextStyle: theme.textTheme.bodyMedium?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+      selectedIndex: _index,
+      onDestinationSelected: _selectDestination,
+      destinations: [
+        for (final item in items)
+          NavigationRailDestination(
+            icon: item.icon,
+            selectedIcon: item.activeIcon,
+            label: Text(item.label!),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final items = _navigationItems(theme);
+    final pages = Expanded(child: _buildBody());
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useRail = constraints.maxWidth >= _railBreakpoint;
+        return Scaffold(
+          body: Row(
+            children: [
+              if (useRail) ...[
+                _buildRail(theme, items),
+                VerticalDivider(width: 1, color: theme.dividerColor),
+              ],
+              pages,
+            ],
+          ),
+          bottomNavigationBar: useRail
+              ? null
+              : DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: theme.dividerColor)),
+                  ),
+                  child: BottomNavigationBar(
+                    currentIndex: _index,
+                    onTap: _selectDestination,
+                    items: items,
+                  ),
+                ),
+        );
+      },
     );
   }
 }
