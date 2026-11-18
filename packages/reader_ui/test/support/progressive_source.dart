@@ -24,6 +24,8 @@ class ProgressiveTestHandle implements ProgressiveChapterLoadHandle {
   @override
   List<PageContent> availablePages = const [];
   @override
+  int? pageCount;
+  @override
   Future<List<PageContent>> get firstPages => _first.future;
   @override
   Future<List<PageContent>> get result => _result.future;
@@ -44,9 +46,16 @@ class ProgressiveTestHandle implements ProgressiveChapterLoadHandle {
     _updates.add(availablePages);
   }
 
+  void publishPageCount(int count) {
+    if (_result.isCompleted) return;
+    pageCount = count;
+    if (_first.isCompleted) _updates.add(availablePages);
+  }
+
   void complete(List<PageContent> pages) {
     if (_result.isCompleted) return;
     _complete = true;
+    pageCount = pages.length;
     availablePages = List.unmodifiable(pages);
     if (!_first.isCompleted) _first.complete(availablePages);
     _result.complete(availablePages);
@@ -145,6 +154,8 @@ class ProgressiveTestSource
 
   void publish(int spine, int count) =>
       handles[spine]!.publish(chapters[spine].take(count).toList());
+  void publishPageCount(int spine) =>
+      handles[spine]!.publishPageCount(chapters[spine].length);
   void complete(int spine) => handles[spine]!.complete(chapters[spine]);
 
   @override

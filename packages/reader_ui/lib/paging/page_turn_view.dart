@@ -71,6 +71,8 @@ class PageTurnViewState extends State<PageTurnView>
   Object? _lastWarm;
   bool _showAnimation = false;
   bool _revisionDirty = false;
+  bool _pageCountsDirty = false;
+  late int _pageCountRevision = widget.session.pageCountRevision;
   bool _pageDirty = false;
   bool _warmSuspended = false;
   PageContent? _renderedPage;
@@ -80,6 +82,7 @@ class PageTurnViewState extends State<PageTurnView>
   bool _staticPaperReady = false;
   int _staticToken = 0;
   final _window = <int, PageContent>{};
+  final _snapshotPageCounts = <PageContent, int>{};
   final _captures = <PageContent, _WindowCapture>{};
   final _imagePreparations = <PageContent, Future<void>>{};
   final _pendingCaptures = <_WindowCapture>[];
@@ -110,6 +113,9 @@ class PageTurnViewState extends State<PageTurnView>
   @override
   void didUpdateWidget(PageTurnView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final countsChanged =
+        _pageCountRevision != widget.session.pageCountRevision;
+    _pageCountRevision = widget.session.pageCountRevision;
     if (oldWidget.revision != widget.revision ||
         oldWidget.mode != widget.mode ||
         oldWidget.rtl != widget.rtl) {
@@ -117,6 +123,12 @@ class PageTurnViewState extends State<PageTurnView>
         _revisionDirty = true;
       } else {
         _invalidate(retainStaticImage: true);
+      }
+    } else if (countsChanged) {
+      if (controller.active) {
+        _pageCountsDirty = true;
+      } else {
+        _refreshPageCounts();
       }
     }
     if (oldWidget.preload != widget.preload) {
@@ -127,6 +139,7 @@ class PageTurnViewState extends State<PageTurnView>
 
   void _invalidate({bool retainStaticImage = false}) {
     _revisionDirty = false;
+    _pageCountsDirty = false;
     if (controller.active) controller.cancel();
     _captureToken++;
     _pauseWarmup();
@@ -138,6 +151,7 @@ class PageTurnViewState extends State<PageTurnView>
     _captures.clear();
     _imagePreparations.clear();
     _cache.clear();
+    _snapshotPageCounts.clear();
     _clearBackgroundImage();
     if (retainStaticImage &&
         _staticImage != null &&
@@ -148,6 +162,26 @@ class PageTurnViewState extends State<PageTurnView>
       unawaited(_restoreStaticPaper());
     } else {
       _clearStaticImage();
+    }
+  }
+
+  void _refreshPageCounts() {
+    _pageCountsDirty = false;
+    bool stale(PageContent page) =>
+        _snapshotPageCounts[page] !=
+        widget.session.pageCountOf(page.spineIndex);
+    final restore = _staticPage != null && stale(_staticPage!);
+    _captureToken++;
+    _pauseWarmup();
+    _capturePage = null;
+    _captures.clear();
+    _cache.removeWhere(stale);
+    _snapshotPageCounts.removeWhere((page, _) => stale(page));
+    // 只重绘页码变化的纸面，保留邻页窗口、图片准备和正在补全的章节作业。
+    if (restore) {
+      _staticToken++;
+      _staticPaperReady = false;
+      unawaited(_restoreStaticPaper());
     }
   }
 
@@ -195,6 +229,7 @@ class PageTurnViewState extends State<PageTurnView>
         _invalidate(retainStaticImage: true);
         return;
       }
+      if (_pageCountsDirty) _refreshPageCounts();
       if (_pageDirty) _cancelPendingCaptures();
     }
     _scheduleWarm();
@@ -345,6 +380,7 @@ class PageTurnViewState extends State<PageTurnView>
     _windowPage = page;
     _pauseWarmup();
     _cache.retainPages(_windowPages);
+    _snapshotPageCounts.removeWhere((page, _) => !_retainCapture(page));
   }
 
   bool _retainCapture(PageContent page) =>
@@ -486,12 +522,18 @@ class PageTurnViewState extends State<PageTurnView>
     PageContent page,
     bool Function() valid,
   ) async {
+    final pageCount = widget.session.pageCountOf(page.spineIndex);
     var current = _usesCurrentBoundary(page);
     if (!current) setState(() => _capturePage = page);
     try {
       for (var attempt = 0; attempt < 2; attempt++) {
         await WidgetsBinding.instance.endOfFrame;
-        if (!valid()) return null;
+        // 活动翻页继续取得纸面，页码版本差异留到落页后局部刷新。
+        if (!valid() ||
+            (!controller.active &&
+                pageCount != widget.session.pageCountOf(page.spineIndex))) {
+          return null;
+        }
         if (current && !_usesCurrentBoundary(page)) {
           // 导航或动画可能在等待帧时替换当前边界，改用该页自己的捕获纸面。
           current = false;
@@ -503,6 +545,7 @@ class PageTurnViewState extends State<PageTurnView>
         if (boundary is RenderRepaintBoundary && !boundary.debugNeedsPaint) {
           final image = boundary.toImageSync(pixelRatio: _ratio);
           _cache.put(page, image);
+          _snapshotPageCounts[page] = pageCount;
           return image;
         }
       }

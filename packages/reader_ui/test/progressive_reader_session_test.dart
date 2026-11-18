@@ -95,6 +95,35 @@ void main() {
     expect(source.requests, [0, 1]);
   });
 
+  test('总数确定后立即显示，页界通知不改变页面、阅读进度或整章完成状态', () async {
+    final source = ProgressiveTestSource();
+    final session = await _open(source, spine: 1);
+    final page = session.page;
+    final progress = session.progress;
+    final revisions = (
+      session.generation,
+      session.navigationRevision,
+      session.layoutRevision,
+    );
+    source.publishPageCount(1);
+    expect(session.chapterPageCount, 6);
+    expect(session.pageLabelOf(page!), '1/6');
+    expect(session.pageCountRevision, 1);
+    expect(session.isChapterComplete(1), isFalse);
+    expect(session.page, same(page));
+    expect(session.progress, progress);
+    expect(session.progress!.finished, isFalse);
+    expect((
+      session.generation,
+      session.navigationRevision,
+      session.layoutRevision,
+    ), revisions);
+    source.complete(1);
+    await Future<void>.delayed(Duration.zero);
+    expect(session.isChapterComplete(1), isTrue);
+    expect(session.pageCountRevision, 1, reason: '缓存收尾不重复刷新同一总数');
+  });
+
   test('已发布末页等待同章追加并提升优先级，不跳到下一章', () async {
     final source = ProgressiveTestSource();
     final session = await _open(source, spine: 1);
@@ -186,16 +215,40 @@ void main() {
     final session = await _open(source, spine: 1);
     final first = session.page;
     final original = source.handles[1]!;
+    source.publishPageCount(1);
     session.cancelPendingLoads();
     expect(original.cancelled, isTrue);
     expect(session.page, same(first));
     final next = session.next();
     await Future<void>.delayed(Duration.zero);
     expect(source.handles[1], isNot(same(original)));
+    expect(source.handles[1]!.pageCount, isNull);
+    expect(session.chapterPageCount, 6, reason: '同版面重试保留已确定总数');
     source.complete(1);
     expect(await next, isTrue);
     await session.previous();
     expect(session.page, same(first));
+  });
+
+  test('准确总数移出章节页窗口后仍可复用', () async {
+    final source = ProgressiveTestSource(
+      counts: [2, 3, 4, 5, 6, 7],
+      heldSpines: {},
+    );
+    final pager = VirtualPager(
+      spineCount: source.chapterCount,
+      loader: source.loadChapter,
+      progressiveLoader: (spine, priority) =>
+          source.scheduleProgressiveChapter(spine, priority: priority),
+    );
+    await pager.initialize();
+    for (var spine = 1; spine < source.chapterCount; spine++) {
+      expect(await pager.goTo(spine, 0), isTrue);
+    }
+    expect(pager.loadedSpines, isNot(contains(0)));
+    expect(pager.pageCountOf(0), 2);
+    expect(pager.loadedSpines, hasLength(VirtualPager.loadedSpineLimit));
+    source.cancelPendingLayouts();
   });
 
   test('空首批仍等待正文，不能视为空章跳过', () async {

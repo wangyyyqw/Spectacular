@@ -40,7 +40,12 @@ abstract interface class ProgressiveChapterLoadHandle
     implements ChapterLoadHandle {
   Future<List<PageContent>> get firstPages;
   List<PageContent> get availablePages;
+
+  /// 稳定页追加或准确总页数确定时，发送当前已交付的页面列表。
   Stream<List<PageContent>> get updates;
+
+  /// 完整页界确定后即可提供准确总数；未知为 null，不代表完整结果已交付。
+  int? get pageCount;
 
   /// 仅完整章节成功交付时为 true；取消和失败不构成章节完成。
   bool get isComplete;

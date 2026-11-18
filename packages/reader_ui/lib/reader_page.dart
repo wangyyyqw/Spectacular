@@ -2849,7 +2849,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _tempHighlight,
       _bodyPadding(),
       _cornerInfo,
-      _session.pageCountRevision,
     );
     if (_effectiveTurnMode == PageTurnMode.scroll) {
       final padding = _bodyPadding();

@@ -130,6 +130,36 @@ void main() {
     expect(scheduler.contains('共享'), isFalse);
   });
 
+  test('没有稳定首页时总数只更新元数据，不提前交付空首批', () async {
+    final gate = Completer<void>();
+    final pages = _pages();
+    final scheduler = ChapterLayoutScheduler(
+      isCurrent: (_) => true,
+      run: (_, budget, _) async {
+        budget.publishPageCount!(pages.length);
+        await gate.future;
+        return pages;
+      },
+    );
+    addTearDown(scheduler.close);
+    final handle = scheduler.schedule(
+      _snapshot('无前缀总数'),
+      priority: ChapterLayoutPriority.reading,
+      retainResult: true,
+      progressive: true,
+    );
+    var firstReady = false;
+    unawaited(handle.firstPages.then((_) => firstReady = true));
+    await Future<void>.delayed(Duration.zero);
+    expect(handle.pageCount, 1);
+    expect(firstReady, isFalse);
+    expect(handle.availablePages, isEmpty);
+    expect(handle.isComplete, isFalse);
+    gate.complete();
+    expect(await handle.firstPages, same(pages));
+    expect(await handle.result, same(pages));
+  });
+
   test('首页交付后余章降级，同键前台接管与取消不会重启作业', () async {
     final gate = Completer<void>();
     final first = _pages();

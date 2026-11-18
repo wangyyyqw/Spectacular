@@ -1089,6 +1089,8 @@ class _EmptyChapterHandle implements ProgressiveChapterLoadHandle {
   @override
   bool get isComplete => true;
   @override
+  int get pageCount => 0;
+  @override
   ChapterLayoutPriority get priority => ChapterLayoutPriority.background;
   @override
   void setPriority(ChapterLayoutPriority priority) {}
