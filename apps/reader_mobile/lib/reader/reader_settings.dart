@@ -13,6 +13,78 @@ import 'package:reader_ui/tap_zones.dart';
 
 import '../library/library_store.dart';
 
+/// 听书偏好。
+class ReaderTtsSettings {
+  /// 创建听书偏好。
+  const ReaderTtsSettings({
+    this.rate = 0.5,
+    this.pitch = 1,
+    this.volume = 1,
+    this.autoTurnPage = true,
+  });
+
+  /// 语速（0～1，平台默认正常语速约为 0.5）。
+  final double rate;
+
+  /// 音调。
+  final double pitch;
+
+  /// 音量。
+  final double volume;
+
+  /// 读完当前页后是否自动翻页。
+  final bool autoTurnPage;
+
+  /// 默认听书偏好。
+  static const ReaderTtsSettings defaults = ReaderTtsSettings();
+
+  /// 复制并替换指定字段。
+  ReaderTtsSettings copyWith({
+    double? rate,
+    double? pitch,
+    double? volume,
+    bool? autoTurnPage,
+  }) => ReaderTtsSettings(
+    rate: rate ?? this.rate,
+    pitch: pitch ?? this.pitch,
+    volume: volume ?? this.volume,
+    autoTurnPage: autoTurnPage ?? this.autoTurnPage,
+  );
+
+  /// 从 JSON 还原。
+  factory ReaderTtsSettings.fromJson(Map<String, Object?> json) =>
+      ReaderTtsSettings(
+        rate: _double(json['rate'], defaults.rate).clamp(0.1, 1),
+        pitch: _double(json['pitch'], defaults.pitch).clamp(0.5, 2),
+        volume: _double(json['volume'], defaults.volume).clamp(0, 1),
+        autoTurnPage: json['autoTurnPage'] is bool
+            ? json['autoTurnPage']! as bool
+            : defaults.autoTurnPage,
+      );
+
+  /// 序列化。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'rate': rate,
+    'pitch': pitch,
+    'volume': volume,
+    'autoTurnPage': autoTurnPage,
+  };
+
+  static double _double(Object? value, double fallback) =>
+      value is num ? value.toDouble() : fallback;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReaderTtsSettings &&
+      other.rate == rate &&
+      other.pitch == pitch &&
+      other.volume == volume &&
+      other.autoTurnPage == autoTurnPage;
+
+  @override
+  int get hashCode => Object.hash(rate, pitch, volume, autoTurnPage);
+}
+
 /// 阅读排版与主题设置（P4-21）：持久化在 settings 表。
 class ReaderSettings {
   /// 创建设置。
@@ -34,6 +106,7 @@ class ReaderSettings {
     this.keepScreenOn = false,
     this.volumeKeyPaging = false,
     this.markSettings = const ReaderMarkSettings(),
+    this.tts = ReaderTtsSettings.defaults,
   });
 
   /// 字号。
@@ -90,6 +163,9 @@ class ReaderSettings {
   /// 划线的默认外观和自定义颜色。
   final ReaderMarkSettings markSettings;
 
+  /// 听书偏好。
+  final ReaderTtsSettings tts;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -123,6 +199,7 @@ class ReaderSettings {
     bool keepScreenOn = false,
     bool volumeKeyPaging = false,
     ReaderMarkSettings markSettings = const ReaderMarkSettings(),
+    ReaderTtsSettings tts = ReaderTtsSettings.defaults,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -141,6 +218,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -164,6 +242,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -185,6 +264,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换主题。
@@ -206,6 +286,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换背景。
@@ -227,6 +308,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换墨水屏开关。
@@ -248,6 +330,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换页边距。
@@ -269,6 +352,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 修改四角显示，保留全部阅读偏好。
@@ -290,6 +374,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -311,6 +396,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换翻页方式。
@@ -332,6 +418,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换屏幕常亮开关。
@@ -353,6 +440,7 @@ class ReaderSettings {
     keepScreenOn: enabled,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    tts: tts,
   );
 
   /// 复制并替换音量键翻页开关。
@@ -374,6 +462,29 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: enabled,
     markSettings: markSettings,
+    tts: tts,
+  );
+
+  /// 修改听书偏好，保留正文排版和阅读交互设置。
+  ReaderSettings copyWithTts(ReaderTtsSettings value) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    cornerInfo: cornerInfo,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
+    tts: value,
   );
 
   /// 修改划线偏好，保留全部正文排版与阅读交互设置。
@@ -396,6 +507,7 @@ class ReaderSettings {
         keepScreenOn: keepScreenOn,
         volumeKeyPaging: volumeKeyPaging,
         markSettings: value,
+        tts: tts,
       );
 
   @override
@@ -417,7 +529,8 @@ class ReaderSettings {
       other.pageTurnMode == pageTurnMode &&
       other.keepScreenOn == keepScreenOn &&
       other.volumeKeyPaging == volumeKeyPaging &&
-      other.markSettings == markSettings;
+      other.markSettings == markSettings &&
+      other.tts == tts;
 
   @override
   int get hashCode => Object.hash(
@@ -438,6 +551,7 @@ class ReaderSettings {
     keepScreenOn,
     volumeKeyPaging,
     markSettings,
+    tts,
   );
 }
 
@@ -472,6 +586,7 @@ class ReaderSettingsStore {
   static const String keyMarkJoinBackgroundLines =
       'reader.mark.joinBackgroundLines';
   static const String keyMarkCustomColors = 'reader.mark.customColors';
+  static const String keyTts = 'reader.tts';
 
   /// 九宫格点击区域（JSON）。
   static const String keyTapZones = 'reader.tapZones';
@@ -512,6 +627,7 @@ class ReaderSettingsStore {
       volumeKeyPaging:
           (await _library.getSetting(keyVolumeKeyPaging)) == 'true',
       markSettings: await _loadMarkSettings(),
+      tts: _readTts(await _library.getSetting(keyTts)),
     );
   }
 
@@ -545,6 +661,18 @@ class ReaderSettingsStore {
       return ReaderTapZones.fromJson(jsonDecode(raw));
     } catch (_) {
       return ReaderTapZones.defaults;
+    }
+  }
+
+  static ReaderTtsSettings _readTts(String? raw) {
+    if (raw == null || raw.isEmpty) return ReaderTtsSettings.defaults;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, Object?>
+          ? ReaderTtsSettings.fromJson(value)
+          : ReaderTtsSettings.defaults;
+    } catch (_) {
+      return ReaderTtsSettings.defaults;
     }
   }
 
@@ -680,6 +808,7 @@ class ReaderSettingsStore {
             .toList(),
       ),
     );
+    await _library.setSetting(keyTts, jsonEncode(settings.tts.toJson()));
   }
 
   static double? _readDouble(String? value) {

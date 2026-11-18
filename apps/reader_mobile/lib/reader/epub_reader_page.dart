@@ -36,6 +36,7 @@ import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
 import 'reader_font_store.dart';
+import 'reader_tts_controller.dart';
 
 /// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
 ///
@@ -237,6 +238,105 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     widget.onSettingsChanged?.call(next);
   }
 
+  Future<void> _toggleTts() async {
+    final controller = _ttsController;
+    if (controller?.speaking == true) {
+      await controller?.stop();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('已暂停听书')));
+      }
+      return;
+    }
+    final session = _readerSession;
+    if (session == null || !session.hasContent) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('正文尚未准备好')));
+      }
+      return;
+    }
+    final settings = await _showTtsSettings();
+    if (settings == null || !mounted) return;
+    _changeSettings(_settings.copyWithTts(settings));
+    if (_readerSession?.currentText.trim().isEmpty != false) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('当前页没有可朗读的文字')));
+      return;
+    }
+    unawaited(_ensureTtsController().start(settings));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('开始听书，再点一次暂停')));
+  }
+
+  Future<ReaderTtsSettings?> _showTtsSettings() {
+    var draft = _settings.tts;
+    return showModalBottomSheet<ReaderTtsSettings>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('听书设置', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              _TtsSlider(
+                label: '语速',
+                value: draft.rate,
+                min: 0.2,
+                max: 1,
+                onChanged: (value) =>
+                    setSheetState(() => draft = draft.copyWith(rate: value)),
+              ),
+              _TtsSlider(
+                label: '音调',
+                value: draft.pitch,
+                min: 0.5,
+                max: 2,
+                onChanged: (value) =>
+                    setSheetState(() => draft = draft.copyWith(pitch: value)),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('读完后自动翻页'),
+                value: draft.autoTurnPage,
+                onChanged: (value) => setSheetState(
+                  () => draft = draft.copyWith(autoTurnPage: value),
+                ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                key: const ValueKey<String>('tts-start'),
+                onPressed: () => Navigator.of(context).pop(draft),
+                icon: const Icon(Icons.headphones),
+                label: const Text('开始朗读'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  ReaderTtsController _ensureTtsController() {
+    final existing = _ttsController;
+    if (existing != null) return existing;
+    final controller = ReaderTtsController(
+      textProvider: () async => _readerSession?.currentText ?? '',
+      nextPage: () async => await _readerSession?.next() ?? false,
+    );
+    controller.onError = (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('听书失败：$error')));
+    };
+    _ttsController = controller;
+    return controller;
+  }
+
   @override
   void didUpdateWidget(covariant EpubReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -253,6 +353,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   DecodedImageCache? _imageCache;
   ReadingSessionTracker? _readingTracker;
   ReaderSession? _readerSession;
+  ReaderTtsController? _ttsController;
   late final Future<EpubChapterSource> _sourceTask;
   Future<void Function()>? _anchorBinding;
   Future<void>? _sourceCloseTask;
@@ -420,9 +521,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
         unawaited(tracker?.pause() ?? Future<void>.value());
+        unawaited(_ttsController?.stop() ?? Future<void>.value());
         _flushProgressInBackground();
       case AppLifecycleState.detached:
         unawaited(tracker?.finish() ?? Future<void>.value());
+        unawaited(_ttsController?.stop() ?? Future<void>.value());
         _flushProgressInBackground();
     }
   }
@@ -475,6 +578,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final onClosed = widget.onClosed;
     session?.removeListener(_syncReadingStats);
     _readerSession = null;
+    unawaited(_ttsController?.dispose() ?? Future<void>.value());
+    _ttsController = null;
     WidgetsBinding.instance.removeObserver(this);
     _search?.dispose();
     _imageCache?.clear();
@@ -604,6 +709,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onVolumeKeyPagingChanged: (enabled) =>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
+      onTts: _toggleTts,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
       onEditTarget: _canEditBook ? _openEditor : null,
       onLog: (event, fields) =>
@@ -677,6 +783,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   void _bindReaderSession(ReaderSession session) {
+    unawaited(_ttsController?.stop() ?? Future<void>.value());
     _readerSession?.removeListener(_syncReadingStats);
     _readerSession = session;
     _trackedPageTurns = session.pageTurns;
@@ -740,6 +847,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       _readingTracker?.start();
     } else {
       unawaited(_readingTracker?.pause() ?? Future<void>.value());
+      unawaited(_ttsController?.stop() ?? Future<void>.value());
     }
   }
 
@@ -782,3 +890,38 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 /// 路径兼容与归档解压统一交给书籍资源，解压不再占用阅读界面线程。
 Future<Uint8List?> _loadImageBytes(EpubChapterSource source, String url) =>
     source.readImageBytes(url);
+
+class _TtsSlider extends StatelessWidget {
+  const _TtsSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: <Widget>[
+      SizedBox(width: 42, child: Text(label)),
+      Expanded(
+        child: Slider(
+          value: value.clamp(min, max),
+          min: min,
+          max: max,
+          onChanged: onChanged,
+        ),
+      ),
+      SizedBox(
+        width: 42,
+        child: Text(value.toStringAsFixed(2), textAlign: TextAlign.end),
+      ),
+    ],
+  );
+}

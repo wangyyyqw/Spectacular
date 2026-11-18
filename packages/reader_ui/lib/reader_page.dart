@@ -154,6 +154,7 @@ class ReaderPage extends StatefulWidget {
     this.onKeepScreenOnChanged,
     this.volumeKeyPaging = false,
     this.onVolumeKeyPagingChanged,
+    this.onTts,
   });
 
   /// 编辑预览中单击正文直接请求编辑；普通阅读仍保留翻页和脚注语义。
@@ -284,6 +285,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 音量键翻页开关变化（调用方持久化）。
   final ValueChanged<bool>? onVolumeKeyPagingChanged;
+
+  /// 听书入口；为 null 时菜单不显示听书按钮。
+  final VoidCallback? onTts;
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
@@ -2554,6 +2558,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               chapterLabel: _chapterLabelOf(page),
               onBack: _exitReader,
               onEdit: widget.onOpenEditor,
+              onTts: widget.onTts,
               onToggleDayNight: _toggleDayNight,
               nightMode:
                   (_theme ?? ReaderTheme.white).background.computeLuminance() <
@@ -3005,9 +3010,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
     return [
       // 页眉只在章节第一页自动隐藏，续页含出血或背景图也保留。
-      if (widget.showPageFooter &&
-          _cornerInfo.hasHeader &&
-          page.pageIndex > 0)
+      if (widget.showPageFooter && _cornerInfo.hasHeader && page.pageIndex > 0)
         Positioned(
           left: padding.left,
           right: padding.right,
