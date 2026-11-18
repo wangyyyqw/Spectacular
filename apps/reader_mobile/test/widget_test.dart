@@ -59,6 +59,10 @@ void main() {
 
     await tester.tap(find.text('书评'));
     await _settle(tester);
+    expect(find.byKey(const ValueKey('notes-tab')), findsOneWidget);
+    expect(find.byTooltip('刷新笔记'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+    await _settle(tester);
     expect(find.text('导入书籍后可以在这里写书评'), findsOneWidget);
 
     await tester.tap(find.text('我的'));

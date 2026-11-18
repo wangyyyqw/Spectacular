@@ -103,6 +103,12 @@ Future<void> _pumpReviews(
     ),
   );
   await tester.pumpAndSettle();
+  await _openReviewsTab(tester);
+}
+
+Future<void> _openReviewsTab(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -188,6 +194,7 @@ void main() {
     );
     await tester.pumpWidget(tabs(true));
     await tester.pumpAndSettle();
+    await _openReviewsTab(tester);
     final pending = Completer<void>();
     store.pendingSnapshot = pending;
     await tester.tap(find.text('写书评'));
@@ -202,8 +209,10 @@ void main() {
     await tester.pumpAndSettle();
     pending.complete();
     await tester.pumpAndSettle();
-    expect(find.text(content), findsOneWidget);
     expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    await tester.tap(find.byKey(ValueKey('review-card-${book.id}')));
+    await tester.pumpAndSettle();
+    expect(find.text(content), findsOneWidget);
   });
 
   testWidgets('等待编辑时打开另一本书评，旧编辑器不遮住全文', (tester) async {
@@ -329,9 +338,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openReviewsTab(tester);
 
-    expect(find.textContaining('还没有书评'), findsOneWidget);
-    expect(find.text('待写书评'), findsWidgets);
+    expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
     await tester.tap(find.text('写书评'));
     await tester.pumpAndSettle();
 
@@ -345,8 +354,7 @@ void main() {
     await tester.tap(save);
     await tester.pumpAndSettle();
 
-    expect(find.text('我的书评'), findsOneWidget);
-    expect(find.text('这是一段新的书评。'), findsOneWidget);
+    expect(find.text('已写 1 篇 · 待写 0 本 · 平均 4.0 星'), findsOneWidget);
     expect(store.items[book.id]?.rating, 4);
 
     await tester.tap(
@@ -354,6 +362,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('review-detail')), findsOneWidget);
+    expect(find.text('这是一段新的书评。'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey<String>('review-detail-edit')));
     await tester.pumpAndSettle();
     final delete = find.byKey(const ValueKey<String>('review-delete'));
@@ -364,7 +373,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.items, isEmpty);
-    expect(find.textContaining('还没有书评'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('review-pending-review-book')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('书评详情展示完整正文并可进入编辑', (tester) async {
@@ -493,14 +505,8 @@ void main() {
       });
     await _pumpReviews(tester, books: books, store: store);
 
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('reviews-summary-value-已写书评')),
-          )
-          .data,
-      '2 篇',
-    );
+    const summary = '已写 2 篇 · 待写 1 本 · 平均 4.0 星';
+    expect(find.text(summary), findsOneWidget);
     await tester.tap(find.byTooltip('搜索书评'));
     await tester.pumpAndSettle();
 
@@ -517,14 +523,7 @@ void main() {
       find.byKey(const ValueKey<String>('review-card-alive')),
       findsNothing,
     );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('reviews-summary-value-已写书评')),
-          )
-          .data,
-      '2 篇',
-    );
+    expect(find.text(summary), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const ValueKey<String>('reviews-search-field')),
@@ -555,14 +554,7 @@ void main() {
       find.byKey(const ValueKey<String>('review-card-star')),
       findsOneWidget,
     );
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('reviews-summary-value-已写书评')),
-          )
-          .data,
-      '2 篇',
-    );
+    expect(find.text(summary), findsOneWidget);
   });
 
   testWidgets('书评页可按已写和待写状态筛选', (tester) async {

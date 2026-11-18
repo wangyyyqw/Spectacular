@@ -441,6 +441,8 @@ void main() {
 
     await tester.pumpWidget(tabs(true));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+    await tester.pumpAndSettle();
     expect(find.text('写书评'), findsOneWidget);
 
     await tester.pumpWidget(tabs(false));
@@ -454,8 +456,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('已写 1'), findsOneWidget);
     expect(find.text('写书评'), findsNothing);
-    await tester.tap(find.text(content));
+    await tester.tap(find.byKey(ValueKey('review-card-${entry.id}')));
     await tester.pumpAndSettle();
+    expect(find.text(content), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
     await tester.pumpAndSettle();
     final input = find.byKey(const ValueKey('review-content'));
