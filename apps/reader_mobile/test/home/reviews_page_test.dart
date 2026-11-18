@@ -20,6 +20,7 @@ class _MemoryReviewStore implements BookReviewStore {
   final Map<String, BookReview> items = <String, BookReview>{};
   bool failSnapshot = false;
   bool failSave = false;
+  Completer<void>? pendingSnapshot;
   Completer<void>? pendingSave;
   int saveCalls = 0;
 
@@ -51,7 +52,9 @@ class _MemoryReviewStore implements BookReviewStore {
   @override
   Future<Map<String, BookReview>> snapshot() async {
     if (failSnapshot) throw StateError('读取失败');
-    return Map<String, BookReview>.unmodifiable(items);
+    final snapshot = Map<String, BookReview>.unmodifiable(items);
+    await pendingSnapshot?.future;
+    return snapshot;
   }
 }
 
@@ -146,6 +149,96 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('书评加载失败，请重试'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('编辑前读取失败不使用缓存，重试带入最新正文', (tester) async {
+    final book = _book('retry-edit', '重试编辑', '作者');
+    final store = _MemoryReviewStore();
+    await _pumpReviews(tester, books: [book], store: store);
+    const content = '列表加载后保存的新正文';
+    store.items[book.id] = _review(book.id, content);
+    store.failSnapshot = true;
+
+    await tester.tap(find.text('写书评'));
+    await tester.pumpAndSettle();
+    expect(find.text('书评读取失败，请重试'), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    expect(store.saveCalls, 0);
+
+    store.failSnapshot = false;
+    await tester.tap(find.text('写书评'));
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('review-content'));
+    expect(tester.widget<TextField>(input).controller!.text, content);
+  });
+
+  testWidgets('读取编辑快照期间切走再返回，旧请求不弹出编辑器', (tester) async {
+    final book = _book('switch-edit', '切换标签', '作者');
+    final library = _FakeLibrary([book]);
+    final store = _MemoryReviewStore();
+    Widget tabs(bool active) => MaterialApp(
+      home: IndexedStack(
+        index: active ? 0 : 1,
+        children: [
+          ReviewsPage(library: library, reviewStore: store, active: active),
+          const SizedBox.shrink(),
+        ],
+      ),
+    );
+    await tester.pumpWidget(tabs(true));
+    await tester.pumpAndSettle();
+    final pending = Completer<void>();
+    store.pendingSnapshot = pending;
+    await tester.tap(find.text('写书评'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+
+    await tester.pumpWidget(tabs(false));
+    const content = '切换标签后保存的新正文';
+    store.items[book.id] = _review(book.id, content);
+    store.pendingSnapshot = null;
+    await tester.pumpWidget(tabs(true));
+    await tester.pumpAndSettle();
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(find.text(content), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+  });
+
+  testWidgets('等待编辑时打开另一本书评，旧编辑器不遮住全文', (tester) async {
+    final first = _book('first', '待写的书', '作者');
+    final second = _book('second', '已写的书', '作者');
+    final store = _MemoryReviewStore()
+      ..items[second.id] = _review(second.id, '另一篇书评');
+    await _pumpReviews(tester, books: [first, second], store: store);
+    final pending = Completer<void>();
+    store.pendingSnapshot = pending;
+    await tester.tap(find.text('写书评'));
+    await tester.pump();
+    await tester.tap(find.byKey(ValueKey('review-card-${second.id}')));
+    await tester.pumpAndSettle();
+
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-detail')), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+  });
+
+  testWidgets('读取编辑快照期间卸载页面，迟到的失败不再操作页面', (tester) async {
+    final store = _MemoryReviewStore();
+    await _pumpReviews(
+      tester,
+      books: [_book('dispose', '页面卸载', '作者')],
+      store: store,
+    );
+    final pending = Completer<void>();
+    store.pendingSnapshot = pending;
+    await tester.tap(find.text('写书评'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    pending.completeError(StateError('读取失败'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
