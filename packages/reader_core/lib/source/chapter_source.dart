@@ -59,7 +59,10 @@ abstract interface class ReaderPreparationHandle<T> {
 
 abstract interface class ScheduledAnchorChapterSource
     implements AnchorChapterSource {
-  ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(int spineIndex);
+  ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  });
 }
 
 /// 每章冻结排版输入前先核验该章装饰与字体。

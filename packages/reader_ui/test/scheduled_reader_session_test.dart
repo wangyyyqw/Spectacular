@@ -179,8 +179,9 @@ class _ScheduledPositionSource extends _AnchorTocSource
 
   @override
   ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(
-    int spineIndex,
-  ) => anchors[spineIndex] = _Preparation<AnchorChapter>();
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) => anchors[spineIndex] = _Preparation<AnchorChapter>();
 
   @override
   ReaderPreparationHandle<String?> scheduleCfiForReadingPercent(
@@ -333,6 +334,30 @@ void main() {
     expect(source.handles.first.priority, ChapterLayoutPriority.reading);
     expect(source.handles.last.priority, ChapterLayoutPriority.prefetch);
     expect(session.progress?.spineIndex, 0);
+  });
+
+  test('预解析失败后清除等待者，下次请求重试且不修改阅读错误', () async {
+    final source = _ScheduledPositionSource();
+    final session = await _open(source);
+    addTearDown(session.dispose);
+    final original = session.page;
+    final first = session.preparseNextChapter();
+    final failed = source.anchors[1]!;
+    failed.completion.completeError(StateError('原文准备失败'));
+    await expectLater(first, throwsStateError);
+    expect(session.error, isNull);
+    expect(session.page, same(original));
+
+    final retry = session.preparseNextChapter();
+    final second = source.anchors[1]!;
+    expect(second, isNot(same(failed)));
+    second.completion.complete(
+      AnchorChapter(spineIndex: 1, href: '1.xhtml', blocks: const []),
+    );
+    await retry;
+    expect(source.handles, hasLength(1), reason: '失败和重试都不请求章节排版');
+    expect(session.page, same(original));
+    await session.flushProgress();
   });
 
   // 保持一次会话内的连续交互，直接核验任务接管；等待者由会话统一清理。
