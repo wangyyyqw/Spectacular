@@ -27,6 +27,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   late final TextEditingController _prefix;
   String _provider = 'S3';
   bool _saving = false;
+  bool _expanding = false;
   bool _showSecret = false;
   bool _cloudLoading = false;
   ReaMicroS3CloudConfig? _cloudConfig;
@@ -69,6 +70,8 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     prefix: _prefix.text,
   );
 
+  bool get _isMote => _provider.trim().toUpperCase() == 'MOTE';
+
   Future<void> _loadCloudOverview({bool fillForm = false}) async {
     if (_cloudLoading) return;
     setState(() {
@@ -97,7 +100,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   void _fillFromCloud(ReaMicroS3CloudConfig cloud) {
     final config = cloud.config;
     if (config == null || !cloud.enabled) {
-      _show('阅微账号没有可载入的 S3 配置');
+      _show('阅微账号没有可载入的存储配置');
       return;
     }
     setState(() {
@@ -109,14 +112,14 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
       _secretKey.text = config.secretKey;
       _prefix.text = config.prefix;
     });
-    _show('已载入阅微账号中的 S3 配置');
+    _show('已载入阅微账号中的存储配置');
   }
 
   Future<void> _saveToCloud() async {
     if (_saving) return;
     final config = _config;
     if (!config.usable) {
-      _show('请填写端点、存储桶、区域、Access Key 和 Secret Key');
+      _show(_isMote ? '请填写同步目录' : '请填写端点、存储桶、区域、Access Key 和 Secret Key');
       return;
     }
     setState(() => _saving = true);
@@ -151,11 +154,74 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     }
   }
 
+  Future<void> _expandQuota() async {
+    final quota = _quota;
+    if (_expanding || quota == null) return;
+    final credit = quota.credit;
+    if (credit < 60) {
+      _show('至少需要 60 积分才能扩容；扩容积分必须为 60 的整数倍');
+      return;
+    }
+    final units = credit ~/ 60;
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        var value = 60;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('扩容对象存储'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('可用积分 ${quota.credit}，每 60 积分扩容 1 GiB。'),
+                const SizedBox(height: 16),
+                Text('本次使用 $value 积分，扩容 ${value ~/ 60} GiB'),
+                Slider(
+                  value: value.toDouble(),
+                  min: 60,
+                  max: (units * 60).toDouble(),
+                  divisions: units,
+                  label: '$value 积分',
+                  onChanged: (next) =>
+                      setDialogState(() => value = (next / 60).round() * 60),
+                ),
+              ],
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(value),
+                child: const Text('确认扩容'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _expanding = true);
+    try {
+      final next = await widget.controller.expandStorageQuota(credit: selected);
+      if (!mounted) return;
+      setState(() => _quota = next);
+      _show('扩容成功，当前容量 ${next.capacityGib} GiB');
+      await _loadCloudOverview();
+    } catch (error) {
+      if (mounted) _show('$error');
+    } finally {
+      if (mounted) setState(() => _expanding = false);
+    }
+  }
+
   Future<void> _save({bool syncAfter = false}) async {
     if (_saving) return;
     final config = _config;
     if (!config.usable) {
-      _show('请填写端点、存储桶、区域、Access Key 和 Secret Key');
+      _show(_isMote ? '请填写同步目录' : '请填写端点、存储桶、区域、Access Key 和 Secret Key');
       return;
     }
     setState(() => _saving = true);
@@ -165,9 +231,9 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
       if (syncAfter) {
         final result = await widget.controller.syncS3();
         if (!mounted) return;
-        _show(result?.message ?? widget.controller.s3Message ?? '已保存 S3 配置');
+        _show(result?.message ?? widget.controller.s3Message ?? '已保存存储配置');
       } else {
-        _show('已保存 S3 配置');
+        _show('已保存存储配置');
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -202,9 +268,8 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      '使用与阅微相同的 S3 兼容对象存储和同步目录，'
-                      '自动上传本地新增或变更的图书，并下载本机缺失的阅微图书。'
-                      '密钥只保存在本机应用私有设置中。',
+                      '使用阅微内置存储或与阅微相同的 S3 兼容对象存储和同步目录，'
+                      '自动上传本地新增或变更的图书，并下载本机缺失的阅微图书。',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ),
@@ -257,6 +322,34 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                               '已使用 ${_formatBytes(_quota!.usedBytes)} / '
                               '${_formatBytes(_quota!.capacityBytes)}',
                             ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: <Widget>[
+                                Expanded(
+                                  child: Text(
+                                    '每 60 积分可扩容 1 GiB',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ),
+                                TextButton.icon(
+                                  onPressed: _expanding || _quota!.credit < 60
+                                      ? null
+                                      : () => unawaited(_expandQuota()),
+                                  icon: _expanding
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.add_circle_outline),
+                                  label: const Text('扩容'),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -297,7 +390,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                     Card(
                       child: ListTile(
                         leading: const Icon(Icons.lock_outline),
-                        title: const Text('阅微账号已保存 S3 配置'),
+                        title: const Text('阅微账号已保存存储配置'),
                         subtitle: Text(
                           _cloudConfig?.config == null
                               ? '配置无法用当前账号解密'
@@ -312,65 +405,95 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   ],
                 ],
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _endpoint,
-                  decoration: const InputDecoration(
-                    labelText: '服务端点',
-                    hintText: 'https://s3.example.com',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.url,
-                  textInputAction: TextInputAction.next,
+                SegmentedButton<String>(
+                  segments: const <ButtonSegment<String>>[
+                    ButtonSegment<String>(
+                      value: 'MOTE',
+                      label: Text('阅微内置存储'),
+                      icon: Icon(Icons.cloud_outlined),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'S3',
+                      label: Text('自建 S3'),
+                      icon: Icon(Icons.storage_outlined),
+                    ),
+                  ],
+                  selected: <String>{_isMote ? 'MOTE' : 'S3'},
+                  onSelectionChanged: (selection) {
+                    if (selection.isEmpty) return;
+                    setState(() => _provider = selection.first);
+                  },
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _bucket,
-                  decoration: const InputDecoration(
-                    labelText: '存储桶',
-                    hintText: 'reamicro',
-                    border: OutlineInputBorder(),
-                  ),
-                  textInputAction: TextInputAction.next,
+                const SizedBox(height: 10),
+                Text(
+                  _isMote
+                      ? '使用阅微账号的内置对象存储，无需填写密钥；'
+                            '配置会加密保存到阅微账号，并在其他设备登录后自动恢复。'
+                      : '使用自建 S3 兼容对象存储，密钥只保存在本机应用私有设置中。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _region,
-                  decoration: const InputDecoration(
-                    labelText: '区域',
-                    hintText: 'us-east-1 或 auto',
-                    border: OutlineInputBorder(),
+                if (!_isMote) ...<Widget>[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _endpoint,
+                    decoration: const InputDecoration(
+                      labelText: '服务端点',
+                      hintText: 'https://s3.example.com',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.next,
                   ),
-                  textInputAction: TextInputAction.next,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _accessKey,
-                  decoration: const InputDecoration(
-                    labelText: 'Access Key',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bucket,
+                    decoration: const InputDecoration(
+                      labelText: '存储桶',
+                      hintText: 'reamicro',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
                   ),
-                  textInputAction: TextInputAction.next,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _secretKey,
-                  obscureText: !_showSecret,
-                  decoration: InputDecoration(
-                    labelText: 'Secret Key',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      tooltip: _showSecret ? '隐藏密钥' : '显示密钥',
-                      onPressed: () =>
-                          setState(() => _showSecret = !_showSecret),
-                      icon: Icon(
-                        _showSecret
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _region,
+                    decoration: const InputDecoration(
+                      labelText: '区域',
+                      hintText: 'us-east-1 或 auto',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _accessKey,
+                    decoration: const InputDecoration(
+                      labelText: 'Access Key',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _secretKey,
+                    obscureText: !_showSecret,
+                    decoration: InputDecoration(
+                      labelText: 'Secret Key',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        tooltip: _showSecret ? '隐藏密钥' : '显示密钥',
+                        onPressed: () =>
+                            setState(() => _showSecret = !_showSecret),
+                        icon: Icon(
+                          _showSecret
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
                       ),
                     ),
+                    textInputAction: TextInputAction.next,
                   ),
-                  textInputAction: TextInputAction.next,
-                ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: _prefix,
@@ -414,7 +537,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                         ? null
                         : () => unawaited(_removeCloudConfig()),
                     icon: const Icon(Icons.cloud_off_outlined),
-                    label: const Text('移除阅微账号中的 S3 配置'),
+                    label: const Text('移除阅微账号中的存储配置'),
                   ),
                 ],
                 if (controller.s3Configured) ...<Widget>[
@@ -434,7 +557,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   TextButton.icon(
                     onPressed: _saving ? null : () => unawaited(_clear()),
                     icon: const Icon(Icons.delete_outline),
-                    label: const Text('清除 S3 配置'),
+                    label: const Text('清除对象存储配置'),
                   ),
                 ],
               ],

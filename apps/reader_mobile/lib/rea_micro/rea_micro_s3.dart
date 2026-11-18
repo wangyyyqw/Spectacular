@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:pointycastle/export.dart';
 
 import '../library/library_store.dart';
+import 'rea_micro_api_client.dart';
 import 'rea_micro_cbor.dart';
 
 /// S3 同步失败。
@@ -92,13 +93,20 @@ class ReaMicroS3Config {
   /// 阅微同步提供方；当前支持 `S3` 与账号内置 `Mote`。
   final String provider;
 
+  /// 规范化后的提供方标识。
+  String get normalizedProvider => provider.trim().toUpperCase();
+
+  /// 是否使用阅微账号内置存储。
+  bool get isMote => normalizedProvider == 'MOTE';
+
   /// 是否具备同步所需的全部字段。
-  bool get usable =>
-      normalizedEndpoint.isNotEmpty &&
-      bucket.trim().isNotEmpty &&
-      region.trim().isNotEmpty &&
-      accessKey.trim().isNotEmpty &&
-      secretKey.isNotEmpty;
+  bool get usable => isMote
+      ? normalizedPrefix.isNotEmpty
+      : normalizedEndpoint.isNotEmpty &&
+            bucket.trim().isNotEmpty &&
+            region.trim().isNotEmpty &&
+            accessKey.trim().isNotEmpty &&
+            secretKey.isNotEmpty;
 
   /// 去掉末尾斜杠的端点。
   String get normalizedEndpoint {
@@ -124,7 +132,7 @@ class ReaMicroS3Config {
   /// 阅微用于定位本地清单缓存的配置指纹。
   String fingerprint(String userId) {
     final payload = <String>[
-      'S3',
+      normalizedProvider,
       normalizedEndpoint,
       bucket.trim(),
       normalizedPrefix,
@@ -544,6 +552,108 @@ class ReaMicroS3HttpClient implements ReaMicroS3Client {
   }
 }
 
+/// 阅微账号内置对象存储客户端。
+///
+/// 对象读写通过阅微签发临时地址，实际字节仍直接走对象存储，
+/// 因此与 APK 的 `Mote` 同步协议保持一致。
+class ReaMicroMoteS3Client implements ReaMicroS3Client {
+  /// 创建客户端。
+  ReaMicroMoteS3Client({
+    required this.api,
+    required this.token,
+    http.Client? httpClient,
+    this.timeout = const Duration(seconds: 30),
+  }) : _http = httpClient ?? http.Client();
+
+  /// 阅微内置对象存储接口。
+  final ReaMicroMoteSyncApi api;
+
+  /// 当前账号令牌。
+  final String token;
+
+  /// 单次传输超时。
+  final Duration timeout;
+
+  final http.Client _http;
+
+  @override
+  Future<ReaMicroS3Object?> get(String key) async {
+    final head = await api.fetchMoteHead(token, objectKey: key);
+    if (!head.exists) return null;
+    final signed = await api.fetchMoteDownloadUrl(token, objectKey: key);
+    late final http.Response response;
+    try {
+      response = await _http.get(Uri.parse(signed.url)).timeout(timeout);
+    } on TimeoutException {
+      throw const ReaMicroS3Exception('从阅微对象存储下载超时');
+    } on http.ClientException catch (error) {
+      throw ReaMicroS3Exception('从阅微对象存储下载失败：${error.message}');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ReaMicroS3Exception('从阅微对象存储下载失败：HTTP ${response.statusCode}');
+    }
+    final etag = head.etag.trim().isNotEmpty
+        ? head.etag.trim()
+        : (response.headers['etag'] ?? '').trim();
+    return ReaMicroS3Object(
+      bytes: Uint8List.fromList(response.bodyBytes),
+      etag: etag,
+    );
+  }
+
+  @override
+  Future<String> put(
+    String key,
+    Uint8List bytes, {
+    String contentType = 'application/octet-stream',
+    String? ifMatch,
+    String? ifNoneMatch,
+  }) async {
+    final signed = await api.fetchMoteUploadUrl(
+      token,
+      objectKey: key,
+      contentLength: bytes.length,
+      ifMatch: ifMatch ?? '',
+      ifNoneMatch: ifNoneMatch == '*',
+    );
+    late final http.Response response;
+    try {
+      response = await _http
+          .put(
+            Uri.parse(signed.url),
+            headers: <String, String>{'Content-Type': contentType},
+            body: bytes,
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ReaMicroS3Exception('向阅微对象存储上传超时');
+    } on http.ClientException catch (error) {
+      throw ReaMicroS3Exception('向阅微对象存储上传失败：${error.message}');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ReaMicroS3Exception('向阅微对象存储上传失败：HTTP ${response.statusCode}');
+    }
+    await api.confirmMoteUpload(
+      token,
+      objectKey: key,
+      contentLength: bytes.length,
+    );
+    final head = await api.fetchMoteHead(token, objectKey: key);
+    if (!head.exists) {
+      throw const ReaMicroS3Exception('阅微对象存储未确认上传结果');
+    }
+    final etag = head.etag.trim().isNotEmpty
+        ? head.etag.trim()
+        : (response.headers['etag'] ?? '').trim();
+    return etag;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    await api.deleteMoteObject(token, objectKey: key);
+  }
+}
+
 /// S3 文件描述。
 class ReaMicroS3File {
   /// 创建文件描述。
@@ -735,6 +845,9 @@ class ReaMicroS3SyncResult {
     this.links = const <String, int>{},
     this.bookmarkBases = const <String, String>{},
     this.syncedBookmarks = 0,
+    this.deleted = 0,
+    this.localBookUuids = const <String, String>{},
+    this.pendingDeletions = const <String>{},
   });
 
   /// 新上传或更新的书籍数。
@@ -760,6 +873,15 @@ class ReaMicroS3SyncResult {
 
   /// 本次实际合并或上传的书签文件数。
   final int syncedBookmarks;
+
+  /// 本次新增的本地删除墓碑数。
+  final int deleted;
+
+  /// 本地书籍 ID → S3 书籍 UUID，供下次识别本地删除。
+  final Map<String, String> localBookUuids;
+
+  /// 尚未成功提交到云端清单的删除 UUID。
+  final Set<String> pendingDeletions;
 }
 
 /// 阅微 S3 书籍同步引擎。
@@ -777,6 +899,8 @@ class ReaMicroS3SyncEngine {
     required this.deviceId,
     this.cloudIds = const <String, int>{},
     this.bookmarkBases = const <String, String>{},
+    this.localBookUuids = const <String, String>{},
+    this.pendingDeletions = const <String>{},
     this.onStatus,
   });
 
@@ -801,11 +925,18 @@ class ReaMicroS3SyncEngine {
   /// 本地书籍 ID → 上次与云端一致的书签文件哈希。
   final Map<String, String> bookmarkBases;
 
+  /// 上次同步完成时本地书籍 ID → S3 书籍 UUID。
+  final Map<String, String> localBookUuids;
+
+  /// 尚未成功提交到云端清单的删除 UUID。
+  final Set<String> pendingDeletions;
+
   /// 进度回调。
   final void Function(String message)? onStatus;
 
   static const String _shardId = 'spectacular';
   static const String _manifestContentType = 'application/cbor';
+  static const Duration _deletionRetention = Duration(days: 30);
 
   /// 执行一次增量同步。
   Future<ReaMicroS3SyncResult> sync({
@@ -868,6 +999,8 @@ class ReaMicroS3SyncEngine {
     }
 
     final tombstones = <String, String>{};
+    final deletionEntries = <String, Map<String, Object?>>{};
+    final ownDeletionEntries = <String, Map<String, Object?>>{};
     for (final shardId in _asList(manifest['d']).whereType<String>()) {
       final objectId = _asString(_asMap(manifest['dp'])[shardId]);
       if (objectId.isEmpty) continue;
@@ -875,30 +1008,38 @@ class ReaMicroS3SyncEngine {
         final shardObject = await client.get(_deletionKey(shardId, objectId));
         if (shardObject == null) continue;
         final shard = _asMap(ReaMicroCborDecoder.decode(shardObject.bytes));
-        final now = DateTime.now().millisecondsSinceEpoch;
-        for (final entry in _asList(shard['a'])) {
-          final map = _asMap(entry);
+        final rawEntries = <Object?>[
+          ..._asList(shard['e']),
+          ..._asList(shard['a']),
+        ];
+        for (final entry in rawEntries) {
+          final map = _deletionEntryFromCbor(entry);
           final uuid = _asString(map['u']);
-          final expiresAt = _asInt(map['x']);
-          if (uuid.isEmpty || expiresAt <= now) continue;
-          final revision = _asMap(map['r']);
-          final order =
-              _asInt(revision['t']).toString().padLeft(20, '0') +
-              _asInt(revision['c']).toString().padLeft(10, '0') +
-              _asString(revision['d']);
-          final existing = tombstones[uuid];
-          if (existing == null || order.compareTo(existing) > 0) {
-            tombstones[uuid] = order;
+          if (uuid.isEmpty) continue;
+          final order = _deletionRevisionOrder(map);
+          final existing = deletionEntries[uuid];
+          if (existing == null ||
+              order.compareTo(_deletionRevisionOrder(existing)) > 0) {
+            deletionEntries[uuid] = map;
           }
+          if (shardId == _shardId) ownDeletionEntries[uuid] = map;
         }
       } on ReaMicroS3Exception catch (error) {
         onStatus?.call('删除分片 $shardId 读取失败：${error.message}');
       }
     }
-    tombstones.forEach((uuid, revision) {
+    final nowAtRead = DateTime.now().millisecondsSinceEpoch;
+    deletionEntries.forEach((uuid, entry) {
+      final expiresAt = _asInt(entry['x']);
+      if (expiresAt <= nowAtRead) return;
+      final revision = _deletionRevisionOrder(entry);
       final book = books[uuid];
       if (book != null && revision.compareTo(book.revisionOrder) >= 0) {
         books.remove(uuid);
+        tombstones[uuid] = revision;
+      } else if (_deletionTargetsBook(entry, book)) {
+        books.remove(uuid);
+        tombstones[uuid] = revision;
       }
     });
 
@@ -906,12 +1047,15 @@ class ReaMicroS3SyncEngine {
     final matchedRemote = <String>{};
     final links = <String, int>{};
     final nextBookmarkBases = Map<String, String>.of(bookmarkBases);
+    final currentLocalUuids = <String, String>{};
     var uploaded = 0;
     var skipped = 0;
     var failed = 0;
     var syncedBookmarks = 0;
+    var deleted = 0;
 
     for (final local in localBooks) {
+      currentLocalUuids[local.id] = localBookUuids[local.id] ?? local.id;
       final file = File(local.filePath);
       if (!await file.exists()) {
         skipped += 1;
@@ -941,6 +1085,7 @@ class ReaMicroS3SyncEngine {
         }
       }
       final uuid = matched?.uuid ?? local.id;
+      currentLocalUuids[local.id] = uuid;
       final now = DateTime.now().millisecondsSinceEpoch;
       final epubMatches =
           matched != null &&
@@ -1050,6 +1195,71 @@ class ReaMicroS3SyncEngine {
       }
     }
 
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final currentLocalIds = <String>{for (final local in localBooks) local.id};
+    final currentLocalUuidValues = <String>{...currentLocalUuids.values};
+    final deletionCandidates =
+        <String>{
+          ...pendingDeletions,
+          for (final entry in localBookUuids.entries)
+            if (!currentLocalIds.contains(entry.key) &&
+                !currentLocalUuidValues.contains(entry.value))
+              entry.value,
+        }..removeWhere(
+          (uuid) => uuid.isEmpty || currentLocalUuidValues.contains(uuid),
+        );
+    for (final uuid in deletionCandidates) {
+      final remote = books[uuid];
+      final existing = deletionEntries[uuid];
+      final existingRevision = _asMap(existing?['r']);
+      final remoteIsNewer =
+          remote != null &&
+          (existing == null ||
+              remote.revisionOrder.compareTo(_deletionRevisionOrder(existing)) >
+                  0);
+      final revisionTimestamp = remoteIsNewer
+          ? max(now, remote.revisionTimestamp)
+          : max(now, _asInt(existingRevision['t']));
+      final revisionCounter = remoteIsNewer
+          ? (revisionTimestamp == remote.revisionTimestamp
+                ? remote.revisionCounter + 1
+                : 0)
+          : (revisionTimestamp == _asInt(existingRevision['t'])
+                ? _asInt(existingRevision['c']) + 1
+                : 0);
+      final revision = <String, Object?>{
+        't': revisionTimestamp,
+        'c': revisionCounter,
+        'd': deviceId,
+      };
+      final target = remote != null
+          ? <String, Object?>{
+              't': remote.revisionTimestamp,
+              'c': remote.revisionCounter,
+              'd': remote.deviceId,
+            }
+          : _asMap(existing?['t']);
+      final entry = <String, Object?>{
+        'u': uuid,
+        'r': revision,
+        if (target.isNotEmpty) 't': target,
+        'd': now,
+        'x': now + _deletionRetention.inMilliseconds,
+      };
+      ownDeletionEntries[uuid] = entry;
+      deletionEntries[uuid] = entry;
+      tombstones[uuid] = _deletionRevisionOrder(entry);
+      books.remove(uuid);
+      if (!pendingDeletions.contains(uuid)) deleted += 1;
+    }
+    ownDeletionEntries.removeWhere((uuid, entry) {
+      final expiresAt = _asInt(entry['x']);
+      if (expiresAt <= now || currentLocalUuidValues.contains(uuid)) {
+        return true;
+      }
+      return false;
+    });
+
     var downloaded = 0;
     if (restoreMissing) {
       final localFingerprints = <String>{};
@@ -1099,6 +1309,7 @@ class ReaMicroS3SyncEngine {
           if (book.cloudId > 0) {
             links[imported.id] = book.cloudId;
           }
+          currentLocalUuids[imported.id] = book.uuid;
           downloaded += 1;
           localFingerprints.add(book.fingerprint);
         } catch (error) {
@@ -1124,6 +1335,48 @@ class ReaMicroS3SyncEngine {
       shardBytes,
       contentType: _manifestContentType,
     );
+    String? deletionShardObjectId;
+    if (ownDeletionEntries.isNotEmpty) {
+      final deletionBytes = ReaMicroCborEncoder.encode(<String, Object?>{
+        'e': ownDeletionEntries.values.toList(growable: false),
+      });
+      final deletionSha = sha256.convert(deletionBytes).toString();
+      deletionShardObjectId = _objectId(deletionSha, revision);
+      await client.put(
+        _deletionKey(_shardId, deletionShardObjectId),
+        deletionBytes,
+        contentType: _manifestContentType,
+      );
+    }
+    final nextDeletionShards = <Object?>[
+      for (final value in _asList(manifest['d']).whereType<String>())
+        if (value != _shardId) value,
+      if (ownDeletionEntries.isNotEmpty) _shardId,
+    ];
+    final nextDeletionRevisions = Map<String, Object?>.of(
+      _asMap(manifest['dr']),
+    );
+    final nextDeletionExpirations = Map<String, Object?>.of(
+      _asMap(manifest['de']),
+    );
+    final nextDeletionPointers = Map<String, Object?>.of(
+      _asMap(manifest['dp']),
+    );
+    if (ownDeletionEntries.isEmpty || deletionShardObjectId == null) {
+      nextDeletionRevisions.remove(_shardId);
+      nextDeletionExpirations.remove(_shardId);
+      nextDeletionPointers.remove(_shardId);
+    } else {
+      nextDeletionRevisions[_shardId] = revision;
+      nextDeletionExpirations[_shardId] = ownDeletionEntries.values
+          .map((entry) => _asInt(entry['x']))
+          .where((value) => value > now)
+          .fold<int>(
+            now + _deletionRetention.inMilliseconds,
+            (earliest, value) => min(earliest, value),
+          );
+      nextDeletionPointers[_shardId] = deletionShardObjectId;
+    }
     final shardIds = <Object?>[
       for (final value in _asList(manifest['s']).whereType<String>())
         if (value != _shardId) value,
@@ -1139,6 +1392,10 @@ class ReaMicroS3SyncEngine {
         ..._asMap(manifest['sp']),
         _shardId: shardObjectId,
       },
+      'd': nextDeletionShards,
+      'dr': nextDeletionRevisions,
+      'de': nextDeletionExpirations,
+      'dp': nextDeletionPointers,
     };
     final etag = manifestObject?.etag ?? '';
     if (manifestObject == null) {
@@ -1163,8 +1420,13 @@ class ReaMicroS3SyncEngine {
     final parts = <String>[
       if (uploaded > 0) '上传 $uploaded 本',
       if (downloaded > 0) '下载 $downloaded 本',
+      if (deleted > 0) '删除 $deleted 本',
       if (syncedBookmarks > 0) '同步 $syncedBookmarks 本书签',
-      if (uploaded == 0 && downloaded == 0 && syncedBookmarks == 0) '没有新的书籍变更',
+      if (uploaded == 0 &&
+          downloaded == 0 &&
+          deleted == 0 &&
+          syncedBookmarks == 0)
+        '没有新的书籍变更',
       if (skipped > 0) '$skipped 本已是最新',
       if (failed > 0) '$failed 本失败',
     ];
@@ -1177,7 +1439,49 @@ class ReaMicroS3SyncEngine {
       links: links,
       bookmarkBases: nextBookmarkBases,
       syncedBookmarks: syncedBookmarks,
+      deleted: deleted,
+      localBookUuids: currentLocalUuids,
+      pendingDeletions: const <String>{},
     );
+  }
+
+  static Map<String, Object?> _deletionEntryFromCbor(Object? value) {
+    final source = _asMap(value);
+    final entry = Map<String, Object?>.of(source);
+    final revision = source['r'];
+    entry['r'] = revision is Map
+        ? Map<String, Object?>.of(_asMap(revision))
+        : _deletionRevisionFromLegacy(source['r'] ?? source['t'], source['d']);
+    final target = source['t'];
+    entry['t'] = target is Map
+        ? Map<String, Object?>.of(_asMap(target))
+        : _deletionRevisionFromLegacy(target, source['d']);
+    return entry;
+  }
+
+  static Map<String, Object?> _deletionRevisionFromLegacy(
+    Object? value,
+    Object? device,
+  ) => <String, Object?>{'t': _asInt(value), 'c': 0, 'd': _asString(device)};
+
+  static String _deletionRevisionOrder(Map<String, Object?> entry) {
+    final revision = _asMap(entry['r']);
+    return _asInt(revision['t']).toString().padLeft(20, '0') +
+        _asInt(revision['c']).toString().padLeft(10, '0') +
+        _asString(revision['d']);
+  }
+
+  static bool _deletionTargetsBook(
+    Map<String, Object?> entry,
+    ReaMicroS3Book? book,
+  ) {
+    if (book == null) return false;
+    final target = _asMap(entry['t']);
+    if (target.isEmpty) return false;
+    return _asInt(target['t']).toString().padLeft(20, '0') +
+            _asInt(target['c']).toString().padLeft(10, '0') +
+            _asString(target['d']) ==
+        book.revisionOrder;
   }
 
   Future<Uint8List?> _readLocalCover(BookEntry local) async {

@@ -6,6 +6,43 @@ import 'package:http/http.dart' as http;
 
 import 'rea_micro_models.dart';
 
+/// 阅微账号内置对象存储的同步接口。
+///
+/// APK 通过该组接口签发临时地址，再由客户端直接上传或下载对象；
+/// 与用户自行填写的 S3 兼容存储相互独立。
+abstract interface class ReaMicroMoteSyncApi {
+  /// 读取对象状态。
+  Future<ReaMicroS3ObjectHead> fetchMoteHead(
+    String token, {
+    required String objectKey,
+  });
+
+  /// 获取上传地址。
+  Future<ReaMicroS3SignedUrl> fetchMoteUploadUrl(
+    String token, {
+    required String objectKey,
+    required int contentLength,
+    String ifMatch = '',
+    bool ifNoneMatch = false,
+  });
+
+  /// 确认对象已上传。
+  Future<void> confirmMoteUpload(
+    String token, {
+    required String objectKey,
+    required int contentLength,
+  });
+
+  /// 获取下载地址。
+  Future<ReaMicroS3SignedUrl> fetchMoteDownloadUrl(
+    String token, {
+    required String objectKey,
+  });
+
+  /// 删除对象。
+  Future<void> deleteMoteObject(String token, {required String objectKey});
+}
+
 /// 阅微数据接口；抽出接口便于同步逻辑使用内存实现测试。
 abstract interface class ReaMicroApi {
   /// 发送邮箱验证码。
@@ -42,6 +79,31 @@ abstract interface class ReaMicroApi {
   /// 读取账号全部书籍的阅读记录。
   Future<List<ReaMicroBookRecord>> fetchBookRecords(String token);
 
+  /// 读取指定日期所在周的书籍阅读记录。
+  Future<List<ReaMicroBookRecord>> fetchBookRecordsByWeek(
+    String token, {
+    DateTime? date,
+  });
+
+  /// 读取指定月份的书籍阅读记录。
+  Future<List<ReaMicroBookRecord>> fetchBookRecordsByMonth(
+    String token, {
+    int? year,
+    int? month,
+  });
+
+  /// 读取指定年份的书籍阅读记录。
+  Future<List<ReaMicroBookRecord>> fetchBookRecordsByYear(
+    String token, {
+    int? year,
+  });
+
+  /// 读取账号有划线或想法的书籍。
+  Future<List<ReaMicroMarkBook>> fetchMarkBooks(String token);
+
+  /// 从阅微阅读记录中隐藏一本书。
+  Future<void> hideBookRecord(String token, {required int bookId});
+
   /// 按书名和作者搜索阅微云端书籍。
   Future<ReaMicroCloudBook?> searchCloudBook(
     String token, {
@@ -49,11 +111,50 @@ abstract interface class ReaMicroApi {
     String author = '',
   });
 
+  /// 读取阅微云端书籍详情。
+  Future<ReaMicroCloudBook?> fetchCloudBookInfo(
+    String token, {
+    required int bookId,
+    bool byPublisherId = false,
+  });
+
+  /// 将本地书登记为用户书，返回用户书与匹配到的云端标识。
+  Future<ReaMicroUserBookRegistration> registerUserBook(
+    String token, {
+    required String name,
+    required String author,
+    required String md5,
+    String cover = '',
+    String coverMd5 = '',
+  });
+
+  /// 在阅微创建出版书。
+  Future<ReaMicroCloudBookRegistration> createCloudBook(
+    String token, {
+    required String name,
+    required String author,
+    String subtitle = '',
+    String intro = '',
+    String publisher = '',
+    String isbn = '',
+    String publishDate = '',
+    String price = '',
+  });
+
+  /// 建立用户书与出版书的关联。
+  Future<void> relateCloudBook(
+    String token, {
+    required int userBookId,
+    required int publisherId,
+  });
+
   /// 按日上报阅读时长。
   Future<void> updateReadTimeByDate(
     String token,
-    List<ReaMicroReadTimeEntry> entries,
-  );
+    List<ReaMicroReadTimeEntry> entries, {
+    List<ReaMicroReadSessionLog> sessionLogs = const <ReaMicroReadSessionLog>[],
+    bool sessionAccounting = false,
+  });
 
   /// 上报一本书的当前阅读位置。
   Future<void> updateReadProgress(
@@ -100,6 +201,43 @@ abstract interface class ReaMicroApi {
     required bool publish,
   });
 
+  /// 点赞一条阅微书评。
+  Future<void> actReview(
+    String token, {
+    required int reviewId,
+    int actionType = ReaMicroReviewActionState.likeType,
+  });
+
+  /// 取消点赞一条阅微书评。
+  Future<void> unactReview(
+    String token, {
+    required int reviewId,
+    int actionType = ReaMicroReviewActionState.likeType,
+  });
+
+  /// 读取当前账号对一条书评已执行过的互动。
+  Future<ReaMicroReviewActionState> checkReviewAction(
+    String token, {
+    required int reviewId,
+  });
+
+  /// 读取一条书评的互动用户。
+  Future<ReaMicroReviewActorPage> fetchReviewActors(
+    String token, {
+    required int reviewId,
+    int actionType = ReaMicroReviewActionState.likeType,
+    int page = 1,
+    int pageSize = 20,
+  });
+
+  /// 读取书评流；[cloudBookId] 为空时读取全站书评。
+  Future<List<ReaMicroBookReview>> fetchReviewFlow(
+    String token, {
+    int? cloudBookId,
+    int page = 1,
+    int pageSize = 20,
+  });
+
   /// 读取账号的读完里程碑。
   Future<List<ReaMicroMilestone>> fetchMilestones(
     String token, {
@@ -122,6 +260,12 @@ abstract interface class ReaMicroApi {
   /// 读取对象存储配额。
   Future<ReaMicroStorageQuota> fetchStorageQuota(String token);
 
+  /// 使用积分扩容对象存储；[credit] 必须为 60 的整数倍。
+  Future<ReaMicroStorageQuota> expandStorageQuota(
+    String token, {
+    required int credit,
+  });
+
   /// 读取对象存储积分流水。
   Future<ReaMicroCreditLedgerPage> fetchCreditLedger(
     String token, {
@@ -129,12 +273,15 @@ abstract interface class ReaMicroApi {
     int pageSize = 20,
   });
 
+  /// 读取阅微离线朗读引擎与官方音色目录。
+  Future<ReaMicroTtsCatalog> fetchTtsVoices(String token);
+
   /// 释放网络客户端。
   void close();
 }
 
 /// 阅微 HTTP 接口实现。
-class ReaMicroApiClient implements ReaMicroApi {
+class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
   /// 创建客户端。
   ReaMicroApiClient({
     http.Client? client,
@@ -286,14 +433,26 @@ class ReaMicroApiClient implements ReaMicroApi {
 
   @override
   Future<List<ReaMicroBookRecord>> fetchBookRecords(String token) async {
+    return _fetchBookRecords(
+      'rest/reader/get-read-record-list-by-all',
+      token,
+      const <String, Object?>{},
+    );
+  }
+
+  Future<List<ReaMicroBookRecord>> _fetchBookRecords(
+    String endpoint,
+    String token,
+    Map<String, Object?> body,
+  ) async {
     const pageSize = 200;
     final records = <ReaMicroBookRecord>[];
     for (var page = 1; page <= 20; page++) {
-      final data = await _post(
-        'rest/reader/get-read-record-list-by-all',
-        <String, Object?>{'pageNum': page, 'pageSize': pageSize},
-        token: token,
-      );
+      final data = await _post(endpoint, <String, Object?>{
+        ...body,
+        'pageNum': page,
+        'pageSize': pageSize,
+      }, token: token);
       final rawList = _responseList(data);
       records.addAll(<ReaMicroBookRecord>[
         for (final item in rawList)
@@ -302,6 +461,76 @@ class ReaMicroApiClient implements ReaMicroApi {
       if (rawList.length < pageSize) break;
     }
     return records;
+  }
+
+  @override
+  Future<List<ReaMicroBookRecord>> fetchBookRecordsByWeek(
+    String token, {
+    DateTime? date,
+  }) {
+    return _fetchBookRecords(
+      'rest/reader/get-read-record-list-by-week',
+      token,
+      <String, Object?>{'date': _dateOnly(date ?? DateTime.now())},
+    );
+  }
+
+  @override
+  Future<List<ReaMicroBookRecord>> fetchBookRecordsByMonth(
+    String token, {
+    int? year,
+    int? month,
+  }) {
+    final now = DateTime.now();
+    return _fetchBookRecords(
+      'rest/reader/get-read-record-list-by-month',
+      token,
+      <String, Object?>{'year': year ?? now.year, 'month': month ?? now.month},
+    );
+  }
+
+  @override
+  Future<List<ReaMicroBookRecord>> fetchBookRecordsByYear(
+    String token, {
+    int? year,
+  }) {
+    return _fetchBookRecords(
+      'rest/reader/get-read-record-list-by-year',
+      token,
+      <String, Object?>{'year': year ?? DateTime.now().year},
+    );
+  }
+
+  @override
+  Future<List<ReaMicroMarkBook>> fetchMarkBooks(String token) async {
+    const pageSize = 100;
+    final books = <ReaMicroMarkBook>[];
+    final seen = <String>{};
+    for (var page = 1; page <= 50; page++) {
+      final data = await _post(
+        'rest/read/get-mark-book-list',
+        <String, Object?>{'pageNum': page, 'pageSize': pageSize},
+        token: token,
+      );
+      final rawList = _responseList(data);
+      for (final item in rawList) {
+        if (item is! Map<String, Object?>) continue;
+        final book = ReaMicroMarkBook.fromJson(item);
+        if (book.bookId <= 0 && book.cloudBookId <= 0) continue;
+        final key = '${book.bookId}|${book.cloudBookId}';
+        if (!seen.add(key)) continue;
+        books.add(book);
+      }
+      if (rawList.length < pageSize) break;
+    }
+    return books;
+  }
+
+  @override
+  Future<void> hideBookRecord(String token, {required int bookId}) async {
+    await _post('rest/reader/hide-read-record', <String, Object?>{
+      'bookId': bookId,
+    }, token: token);
   }
 
   @override
@@ -333,13 +562,116 @@ class ReaMicroApiClient implements ReaMicroApi {
   }
 
   @override
+  Future<ReaMicroCloudBook?> fetchCloudBookInfo(
+    String token, {
+    required int bookId,
+    bool byPublisherId = false,
+  }) async {
+    final data = await _post(
+      byPublisherId
+          ? 'rest/book/get-cloud-info-by-i-d'
+          : 'rest/book/get-cloud-info',
+      <String, Object?>{'bookId': bookId},
+      token: token,
+    );
+    final json = _objectData(data);
+    if (json == null) return null;
+    final book = ReaMicroCloudBook.fromJson(json);
+    return book.cloudBookId > 0 && book.name.isNotEmpty ? book : null;
+  }
+
+  @override
+  Future<ReaMicroUserBookRegistration> registerUserBook(
+    String token, {
+    required String name,
+    required String author,
+    required String md5,
+    String cover = '',
+    String coverMd5 = '',
+  }) async {
+    final data = await _post('rest/book/post-user-book', <String, Object?>{
+      'name': name,
+      'author': author,
+      'md5': md5,
+      'cover': cover,
+      'coverMd5': coverMd5,
+    }, token: token);
+    final json = _objectData(data);
+    if (json == null) {
+      throw const ReaMicroException('阅微未返回用户书登记结果');
+    }
+    final result = ReaMicroUserBookRegistration.fromJson(json);
+    if (result.userBookId <= 0) {
+      throw const ReaMicroException('阅微用户书登记结果缺少标识');
+    }
+    return result;
+  }
+
+  @override
+  Future<ReaMicroCloudBookRegistration> createCloudBook(
+    String token, {
+    required String name,
+    required String author,
+    String subtitle = '',
+    String intro = '',
+    String publisher = '',
+    String isbn = '',
+    String publishDate = '',
+    String price = '',
+  }) async {
+    final data = await _post('rest/book/post-cloud-book', <String, Object?>{
+      'name': name,
+      'author': author,
+      'subtitle': subtitle,
+      'original': '',
+      'intro': intro,
+      'cover': '',
+      'translator': '',
+      'publisher': publisher,
+      'publishDate': publishDate,
+      'price': price,
+      'isbn': isbn,
+      'bookAlias': '',
+      'wordCount': '',
+      'status': '',
+    }, token: token);
+    final json = _objectData(data);
+    if (json == null) {
+      throw const ReaMicroException('阅微未返回云端书籍结果');
+    }
+    final result = ReaMicroCloudBookRegistration.fromJson(json);
+    if (result.cloudBookId <= 0 || result.publisherId <= 0) {
+      throw const ReaMicroException('阅微云端书籍结果缺少关联标识');
+    }
+    return result;
+  }
+
+  @override
+  Future<void> relateCloudBook(
+    String token, {
+    required int userBookId,
+    required int publisherId,
+  }) async {
+    await _post('rest/book/relate-cloud-book', <String, Object?>{
+      'userBookId': userBookId,
+      'bookPublisherId': publisherId,
+    }, token: token);
+  }
+
+  @override
   Future<void> updateReadTimeByDate(
     String token,
-    List<ReaMicroReadTimeEntry> entries,
-  ) async {
+    List<ReaMicroReadTimeEntry> entries, {
+    List<ReaMicroReadSessionLog> sessionLogs = const <ReaMicroReadSessionLog>[],
+    bool sessionAccounting = false,
+  }) async {
     if (entries.isEmpty) return;
     await _post('rest/reader/update-read-time-by-date', <String, Object?>{
       'list': <Object?>[for (final entry in entries) entry.toJson()],
+      if (sessionLogs.isNotEmpty)
+        'sessionLogs': <Object?>[for (final log in sessionLogs) log.toJson()],
+      if (sessionLogs.isNotEmpty || sessionAccounting)
+        'sessionAccounting': sessionAccounting,
     }, token: token);
   }
 
@@ -469,10 +801,101 @@ class ReaMicroApiClient implements ReaMicroApi {
     await _post('rest/rating/rate-review', <String, Object?>{
       if (bookId != null && bookId > 0) 'bookId': bookId,
       if (cloudBookId != null && cloudBookId > 0) 'cloudBookId': cloudBookId,
-      'rating': rating.clamp(1, 5),
+      'rating': rating.clamp(1, 10),
       'comment': comment.trim(),
       'status': publish ? 2 : 1,
     }, token: token);
+  }
+
+  @override
+  Future<void> actReview(
+    String token, {
+    required int reviewId,
+    int actionType = ReaMicroReviewActionState.likeType,
+  }) async {
+    await _post('rest/rating/act-review', <String, Object?>{
+      'reviewId': reviewId,
+      'actionType': actionType,
+    }, token: token);
+  }
+
+  @override
+  Future<void> unactReview(
+    String token, {
+    required int reviewId,
+    int actionType = ReaMicroReviewActionState.likeType,
+  }) async {
+    await _post('rest/rating/unact-review', <String, Object?>{
+      'reviewId': reviewId,
+      'actionType': actionType,
+    }, token: token);
+  }
+
+  @override
+  Future<ReaMicroReviewActionState> checkReviewAction(
+    String token, {
+    required int reviewId,
+  }) async {
+    final data = await _post(
+      'rest/rating/check-review-action',
+      <String, Object?>{'reviewId': reviewId},
+      token: token,
+    );
+    if (data is! Map<String, Object?>) {
+      return ReaMicroReviewActionState.empty;
+    }
+    return ReaMicroReviewActionState.fromJson(data);
+  }
+
+  @override
+  Future<ReaMicroReviewActorPage> fetchReviewActors(
+    String token, {
+    required int reviewId,
+    int actionType = ReaMicroReviewActionState.likeType,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final data = await _post('rest/rating/get-review-actors', <String, Object?>{
+      'reviewId': reviewId,
+      'actionType': actionType,
+      'pageNum': page,
+      'pageSize': pageSize,
+    }, token: token);
+    if (data is! Map<String, Object?>) {
+      return const ReaMicroReviewActorPage(
+        items: <ReaMicroReviewActor>[],
+        total: 0,
+      );
+    }
+    return ReaMicroReviewActorPage.fromJson(data);
+  }
+
+  @override
+  Future<List<ReaMicroBookReview>> fetchReviewFlow(
+    String token, {
+    int? cloudBookId,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final data = await _post(
+      'rest/rating/get-review-flow-v2',
+      <String, Object?>{
+        'pageNum': page,
+        'pageSize': pageSize,
+        if (cloudBookId != null && cloudBookId > 0) 'bookId': cloudBookId,
+      },
+      token: token,
+    );
+    final raw = switch (data) {
+      final Map<String, Object?> map when map['reviews'] is List<Object?> =>
+        map['reviews']! as List<Object?>,
+      final List<Object?> list => list,
+      _ => const <Object?>[],
+    };
+    return <ReaMicroBookReview>[
+      for (final item in raw)
+        if (item is Map<String, Object?>) ReaMicroBookReview.fromJson(item),
+    ];
   }
 
   @override
@@ -551,6 +974,20 @@ class ReaMicroApiClient implements ReaMicroApi {
   }
 
   @override
+  Future<ReaMicroStorageQuota> expandStorageQuota(
+    String token, {
+    required int credit,
+  }) async {
+    final data = await _post('rest/s3/expand-storage-quota', <String, Object?>{
+      'credit': credit,
+    }, token: token);
+    if (data is Map<String, Object?> && data.containsKey('capacityBytes')) {
+      return ReaMicroStorageQuota.fromJson(data);
+    }
+    return fetchStorageQuota(token);
+  }
+
+  @override
   Future<ReaMicroCreditLedgerPage> fetchCreditLedger(
     String token, {
     int page = 1,
@@ -566,18 +1003,124 @@ class ReaMicroApiClient implements ReaMicroApi {
     return ReaMicroCreditLedgerPage.fromJson(data);
   }
 
+  @override
+  Future<ReaMicroTtsCatalog> fetchTtsVoices(String token) async {
+    final data = await _get('rest/tts/voices', token: token);
+    if (data is! Map<String, Object?>) {
+      throw const ReaMicroException('阅微朗读音色目录格式不正确');
+    }
+    return ReaMicroTtsCatalog.fromJson(data);
+  }
+
+  @override
+  Future<ReaMicroS3ObjectHead> fetchMoteHead(
+    String token, {
+    required String objectKey,
+  }) async {
+    final data = await _post('rest/s3/sync/head-object', <String, Object?>{
+      'objectKey': objectKey,
+    }, token: token);
+    final json = _objectData(data);
+    if (json == null) {
+      throw const ReaMicroException('阅微对象存储状态格式不正确');
+    }
+    return ReaMicroS3ObjectHead.fromJson(json);
+  }
+
+  @override
+  Future<ReaMicroS3SignedUrl> fetchMoteUploadUrl(
+    String token, {
+    required String objectKey,
+    required int contentLength,
+    String ifMatch = '',
+    bool ifNoneMatch = false,
+  }) async {
+    final data = await _post(
+      'rest/s3/sync/get-upload-url',
+      _moteObjectBody(
+        objectKey,
+        contentLength: contentLength,
+        ifMatch: ifMatch,
+        ifNoneMatch: ifNoneMatch,
+      ),
+      token: token,
+    );
+    final json = _objectData(data);
+    if (json == null) {
+      throw const ReaMicroException('阅微对象存储未返回上传地址');
+    }
+    final result = ReaMicroS3SignedUrl.fromJson(json);
+    if (result.url.trim().isEmpty) {
+      throw const ReaMicroException('阅微对象存储上传地址为空');
+    }
+    return result;
+  }
+
+  @override
+  Future<void> confirmMoteUpload(
+    String token, {
+    required String objectKey,
+    required int contentLength,
+  }) async {
+    await _post(
+      'rest/s3/sync/confirm-upload',
+      _moteObjectBody(objectKey, contentLength: contentLength),
+      token: token,
+    );
+  }
+
+  @override
+  Future<ReaMicroS3SignedUrl> fetchMoteDownloadUrl(
+    String token, {
+    required String objectKey,
+  }) async {
+    final data = await _post(
+      'rest/s3/sync/get-download-url',
+      _moteObjectBody(objectKey),
+      token: token,
+    );
+    final json = _objectData(data);
+    if (json == null) {
+      throw const ReaMicroException('阅微对象存储未返回下载地址');
+    }
+    final result = ReaMicroS3SignedUrl.fromJson(json);
+    if (result.url.trim().isEmpty) {
+      throw const ReaMicroException('阅微对象存储下载地址为空');
+    }
+    return result;
+  }
+
+  @override
+  Future<void> deleteMoteObject(
+    String token, {
+    required String objectKey,
+  }) async {
+    await _post(
+      'rest/s3/sync/delete-object',
+      _moteObjectBody(objectKey),
+      token: token,
+    );
+  }
+
+  Map<String, Object?> _moteObjectBody(
+    String objectKey, {
+    int contentLength = 0,
+    String ifMatch = '',
+    bool ifNoneMatch = false,
+  }) => <String, Object?>{
+    'objectKey': objectKey,
+    if (ifMatch.trim().isNotEmpty) 'ifMatch': ifMatch.trim(),
+    if (ifNoneMatch) 'ifNoneMatch': true,
+    if (contentLength > 0) 'contentLength': contentLength,
+  };
+
   Future<Object?> _post(
     String endpoint,
     Map<String, Object?> body, {
     String? token,
   }) async {
     final uri = Uri.parse('$baseUrl$endpoint');
-    final headers = <String, String>{
-      'Accept': 'application/json',
-      'Content-Type': 'application/json; charset=utf-8',
-      'platform': Platform.isIOS || Platform.isMacOS ? 'ios' : 'android',
-      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
-    };
+    final headers = _headers(token);
     late final http.Response response;
     try {
       response = await _client
@@ -590,6 +1133,34 @@ class ReaMicroApiClient implements ReaMicroApi {
     } on http.ClientException catch (error) {
       throw ReaMicroException('阅微接口请求失败：${error.message}');
     }
+    return _decodeResponse(response);
+  }
+
+  Future<Object?> _get(String endpoint, {String? token}) async {
+    final uri = Uri.parse('$baseUrl$endpoint');
+    late final http.Response response;
+    try {
+      response = await _client
+          .get(uri, headers: _headers(token))
+          .timeout(timeout);
+    } on TimeoutException {
+      throw const ReaMicroException('阅微接口请求超时，请稍后重试');
+    } on SocketException {
+      throw const ReaMicroException('无法连接阅微服务器，请检查网络');
+    } on http.ClientException catch (error) {
+      throw ReaMicroException('阅微接口请求失败：${error.message}');
+    }
+    return _decodeResponse(response);
+  }
+
+  Map<String, String> _headers(String? token) => <String, String>{
+    'Accept': 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
+    'platform': Platform.isIOS || Platform.isMacOS ? 'ios' : 'android',
+    if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+  };
+
+  Object? _decodeResponse(http.Response response) {
     final raw = utf8.decode(response.bodyBytes, allowMalformed: true);
     Object? decoded;
     try {
@@ -646,6 +1217,19 @@ int _intValue(Object? value) {
 }
 
 String? _stringValue(Object? value) => value is String ? value : null;
+
+Map<String, Object?>? _objectData(Object? data) {
+  return switch (data) {
+    final Map<String, Object?> map when map['data'] is Map<String, Object?> =>
+      map['data']! as Map<String, Object?>,
+    final Map<String, Object?> map => map,
+    final List<Object?> list when list.isNotEmpty =>
+      list.first is Map<String, Object?>
+          ? list.first! as Map<String, Object?>
+          : null,
+    _ => null,
+  };
+}
 
 List<Object?> _responseList(Object? data) {
   return switch (data) {

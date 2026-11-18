@@ -7,6 +7,7 @@ import 'rea_micro_controller.dart';
 import 'rea_micro_lan_page.dart';
 import 'rea_micro_models.dart';
 import 'rea_micro_rating_page.dart';
+import 'rea_micro_records_page.dart';
 import 'rea_micro_s3_page.dart';
 
 /// 阅微账号、阅读数据与同步设置页。
@@ -59,7 +60,7 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
   }
 
   Future<void> _syncNow() async {
-    final result = await widget.controller.syncAll();
+    final result = await widget.controller.syncEverything(refreshStats: true);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(result.message)));
@@ -329,7 +330,7 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
           subtitle: Text(
             controller.s3Configured
                 ? controller.s3Message ?? '已配置，自动同步本地与阅微图书文件'
-                : '配置 S3 后多端同步图书文件',
+                : '配置阅微内置存储或 S3 后多端同步图书文件',
           ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push<void>(
@@ -353,6 +354,18 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
             MaterialPageRoute<void>(
               builder: (context) =>
                   ReaMicroBookLinkPage(controller: controller),
+            ),
+          ),
+        ),
+        ListTile(
+          key: const ValueKey<String>('reamicro-records'),
+          leading: const Icon(Icons.history_edu_outlined),
+          title: const Text('阅读记录与标注'),
+          subtitle: const Text('查看周/月/年阅读记录、隐藏记录和标注书籍'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (context) => ReaMicroRecordsPage(controller: controller),
             ),
           ),
         ),

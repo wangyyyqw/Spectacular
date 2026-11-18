@@ -26,6 +26,8 @@ class ReaMicroStore {
   static const String _s3ConfigKey = 'reamicro.s3.config';
   static const String _s3LastSyncKey = 'reamicro.s3.lastAt';
   static const String _s3BookmarkBasesKey = 'reamicro.s3.bookmark.bases';
+  static const String _s3LocalBookUuidsKey = 'reamicro.s3.localBookUuids';
+  static const String _s3PendingDeletionsKey = 'reamicro.s3.pendingDeletions';
   static const String _markIdsKey = 'reamicro.mark.ids';
   static const int _maxUploadedKeys = 5000;
 
@@ -260,6 +262,58 @@ class ReaMicroStore {
   /// 清除书签文件同步基准。
   Future<void> clearS3BookmarkBases() =>
       _library.setSetting(_s3BookmarkBasesKey, '');
+
+  /// 读取上次同步完成时本地书籍 ID → S3 书籍 UUID。
+  Future<Map<String, String>> loadS3LocalBookUuids() async {
+    final raw = await _library.getSetting(_s3LocalBookUuidsKey);
+    if (raw == null || raw.isEmpty) return <String, String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) return <String, String>{};
+      return <String, String>{
+        for (final entry in decoded.entries)
+          if (entry.value is String && (entry.value! as String).isNotEmpty)
+            entry.key: entry.value! as String,
+      };
+    } on FormatException {
+      return <String, String>{};
+    }
+  }
+
+  /// 保存本地书籍与 S3 UUID 的对应关系，供下次同步识别本地删除。
+  Future<void> saveS3LocalBookUuids(Map<String, String> values) =>
+      _library.setSetting(_s3LocalBookUuidsKey, jsonEncode(values));
+
+  /// 清除本地书籍与 S3 UUID 的对应关系。
+  Future<void> clearS3LocalBookUuids() =>
+      _library.setSetting(_s3LocalBookUuidsKey, '');
+
+  /// 读取尚未成功提交到云端清单的删除墓碑。
+  Future<Set<String>> loadS3PendingDeletions() async {
+    final raw = await _library.getSetting(_s3PendingDeletionsKey);
+    if (raw == null || raw.isEmpty) return <String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List<Object?>) return <String>{};
+      return <String>{
+        for (final item in decoded)
+          if (item is String && item.isNotEmpty) item,
+      };
+    } on FormatException {
+      return <String>{};
+    }
+  }
+
+  /// 保存尚未成功提交到云端清单的删除墓碑。
+  Future<void> saveS3PendingDeletions(Set<String> values) =>
+      _library.setSetting(
+        _s3PendingDeletionsKey,
+        jsonEncode(values.toList(growable: false)),
+      );
+
+  /// 清除待提交删除墓碑。
+  Future<void> clearS3PendingDeletions() =>
+      _library.setSetting(_s3PendingDeletionsKey, '');
 
   /// 读取本地标注 ID → 云端标注 ID。
   Future<Map<String, int>> loadMarkIds() async {

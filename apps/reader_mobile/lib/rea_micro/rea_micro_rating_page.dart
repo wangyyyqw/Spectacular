@@ -165,6 +165,15 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
   bool _publish = true;
   int _rating = 0;
   String? _error;
+  String? _interactionError;
+  bool _loadingInteractions = true;
+  bool _liking = false;
+  bool _liked = false;
+  int _likeCount = 0;
+  int _actorTotal = 0;
+  List<ReaMicroReviewActor> _actors = const <ReaMicroReviewActor>[];
+  List<ReaMicroBookReview> _flow = const <ReaMicroBookReview>[];
+  ReaMicroBookReview? _review;
 
   @override
   void initState() {
@@ -184,16 +193,89 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
     );
     if (!mounted) return;
     setState(() {
-      _rating = review?.rating.clamp(0, 5) ?? 0;
+      _review = review;
+      _rating = review?.rating.clamp(0, 10) ?? 0;
       _comment.text = review?.comment ?? '';
-      _publish = review?.published ?? true;
+      _publish = review == null || !review.statusKnown || review.published;
+      _likeCount = review?.likeCount ?? 0;
       _loading = false;
     });
+    await _loadInteractions(review);
+  }
+
+  Future<void> _loadInteractions(ReaMicroBookReview? review) async {
+    if (!mounted) return;
+    setState(() {
+      _loadingInteractions = true;
+      _interactionError = null;
+    });
+    var flow = const <ReaMicroBookReview>[];
+    var actors = const <ReaMicroReviewActor>[];
+    var actorTotal = 0;
+    var liked = false;
+    String? failure;
+    try {
+      flow = await widget.controller.loadReviewFlow(
+        cloudBookId: widget.link.cloudBookId,
+      );
+    } catch (error) {
+      failure = error.toString();
+    }
+    if (review != null && review.id > 0) {
+      try {
+        final state = await widget.controller.loadReviewAction(review.id);
+        liked = state.liked;
+      } catch (error) {
+        failure ??= error.toString();
+      }
+      try {
+        final page = await widget.controller.loadReviewActors(review.id);
+        actors = page.items;
+        actorTotal = page.total;
+      } catch (error) {
+        failure ??= error.toString();
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _flow = flow;
+      _actors = actors;
+      _actorTotal = actorTotal;
+      _liked = liked;
+      _interactionError = failure;
+      _loadingInteractions = false;
+    });
+  }
+
+  Future<void> _toggleLike() async {
+    final review = _review;
+    if (_liking || review == null || review.id <= 0) return;
+    setState(() {
+      _liking = true;
+      _interactionError = null;
+    });
+    final next = !_liked;
+    final result = await widget.controller.setReviewLiked(review.id, next);
+    if (!mounted) return;
+    if (!result.success) {
+      setState(() {
+        _liking = false;
+        _interactionError = result.message;
+      });
+      return;
+    }
+    setState(() {
+      _liked = next;
+      _likeCount = (_likeCount + (next ? 1 : -1)).clamp(0, 1 << 31).toInt();
+    });
+    await _loadInteractions(review);
+    if (!mounted) return;
+    setState(() => _liking = false);
   }
 
   Future<void> _save() async {
     if (_rating <= 0) {
-      setState(() => _error = '请选择 1～5 星评分');
+      setState(() => _error = '请选择 1～10 分评分');
       return;
     }
     setState(() {
@@ -235,28 +317,29 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
                   children: <Widget>[
                     const Text('评分'),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
                       children: <Widget>[
-                        for (var star = 1; star <= 5; star++)
-                          IconButton(
-                            tooltip: '$star 星',
-                            onPressed: _saving
+                        for (var score = 1; score <= 10; score++)
+                          ChoiceChip(
+                            key: ValueKey<String>('reamicro-rating-$score'),
+                            label: Text('$score'),
+                            selected: _rating == score,
+                            onSelected: _saving
                                 ? null
-                                : () => setState(
-                                    () => _rating = _rating == star ? 0 : star,
+                                : (selected) => setState(
+                                    () => _rating = selected ? score : 0,
                                   ),
-                            icon: Icon(
-                              star <= _rating ? Icons.star : Icons.star_border,
-                              color: star <= _rating
-                                  ? Colors.amber
-                                  : Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                            ),
                           ),
                       ],
                     ),
                     const SizedBox(height: 8),
+                    Text(
+                      _rating <= 0 ? '尚未评分' : '已选 $_rating 分（满分 10 分）',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 10),
                     TextField(
                       key: const ValueKey<String>('reamicro-review-comment'),
                       controller: _comment,
@@ -279,6 +362,109 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
                           ? null
                           : (value) => setState(() => _publish = value),
                     ),
+                    const Divider(height: 24),
+                    Row(
+                      children: <Widget>[
+                        IconButton(
+                          key: const ValueKey<String>('reamicro-review-like'),
+                          tooltip: _liked ? '取消点赞' : '点赞',
+                          onPressed:
+                              _liking || _review == null || _review!.id <= 0
+                              ? null
+                              : () => unawaited(_toggleLike()),
+                          icon: Icon(
+                            _liked ? Icons.favorite : Icons.favorite_border,
+                            color: _liked ? Colors.redAccent : null,
+                          ),
+                        ),
+                        Text('$_likeCount 人点赞'),
+                        if (_actorTotal > 0) ...<Widget>[
+                          const SizedBox(width: 10),
+                          Text('· $_actorTotal 人互动'),
+                        ],
+                        const Spacer(),
+                        if (_loadingInteractions)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                      ],
+                    ),
+                    if (_actors.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          '互动用户：${_actors.take(8).map((item) => item.userName).where((name) => name.isNotEmpty).join('、')}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    if (_interactionError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          _interactionError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '本书书评动态',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    if (_flow.isEmpty)
+                      Text(
+                        _loadingInteractions ? '正在读取书评动态…' : '还没有公开书评',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      )
+                    else
+                      for (final item in _flow.take(5))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      item.userName.isEmpty
+                                          ? '阅微读者'
+                                          : item.userName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${item.rating}/10',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ],
+                              ),
+                              if (item.comment.trim().isNotEmpty)
+                                Text(
+                                  item.comment,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                            ],
+                          ),
+                        ),
                     if (_error != null)
                       Text(
                         _error!,
@@ -352,14 +538,28 @@ class _MilestoneCard extends StatelessWidget {
             const SizedBox(height: 6),
             Row(
               children: <Widget>[
-                for (var star = 1; star <= 5; star++)
-                  Icon(
-                    star <= milestone.rating ? Icons.star : Icons.star_border,
-                    size: 18,
-                    color: star <= milestone.rating
-                        ? Colors.amber
-                        : theme.colorScheme.onSurfaceVariant,
+                Wrap(
+                  spacing: 1,
+                  children: <Widget>[
+                    for (var score = 1; score <= 10; score++)
+                      Icon(
+                        score <= milestone.rating
+                            ? Icons.star
+                            : Icons.star_border,
+                        size: 14,
+                        color: score <= milestone.rating
+                            ? Colors.amber
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${milestone.rating}/10',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
+                ),
                 const SizedBox(width: 8),
                 Text(
                   _formatTimestamp(milestone.ratingTime),

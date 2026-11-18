@@ -213,6 +213,7 @@ void main() {
     expect(requests.single, entries.keys.toList());
     final archive = ZipDecoder().decodeBytes(archiveBytes);
     expect(archive.first.name, 'mimetype');
+    expect(archive.first.compression, CompressionType.none);
     expect(
       utf8.decode(archive.first.content as List<int>),
       'application/epub+zip',
@@ -307,6 +308,7 @@ void main() {
 
     final archive = ZipDecoder().decodeBytes(archiveBytes);
     expect(archive.first.name, 'mimetype');
+    expect(archive.first.compression, CompressionType.none);
     expect(
       utf8.decode(archive.first.content as List<int>),
       'application/epub+zip',

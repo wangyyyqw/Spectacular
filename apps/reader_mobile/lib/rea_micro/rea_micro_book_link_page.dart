@@ -235,6 +235,7 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
     text: widget.book.author,
   );
   ReaMicroCloudBook? _result;
+  ReaMicroCloudPublisher? _publisher;
   String? _error;
   bool _searching = false;
   bool _linking = false;
@@ -255,6 +256,7 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
       _searching = true;
       _error = null;
       _result = null;
+      _publisher = null;
     });
     try {
       final result = await widget.controller.searchCloudBook(
@@ -264,6 +266,7 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
       if (!mounted) return;
       setState(() {
         _result = result;
+        _publisher = result?.linkablePublisher;
         if (result == null) _error = '没有找到匹配的阅微云端书籍';
       });
     } catch (error) {
@@ -274,7 +277,7 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
     }
   }
 
-  Future<void> _linkBook() async {
+  Future<void> _linkBookOnly() async {
     final result = _result;
     if (result == null || _linking) return;
     setState(() {
@@ -294,6 +297,35 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
       setState(() {
         _linking = false;
         _error = '关联失败：$error';
+      });
+    }
+  }
+
+  Future<void> _registerBook({bool createNew = false}) async {
+    if (_linking) return;
+    final result = createNew ? null : _result;
+    if (!createNew && result == null) return;
+    setState(() {
+      _linking = true;
+      _error = null;
+    });
+    try {
+      await widget.controller.registerAndLinkBook(
+        widget.book.id,
+        cloudBook: result,
+        publisher: createNew ? null : _publisher,
+      );
+      if (!mounted) return;
+      setState(() {
+        _changed = true;
+        _linking = false;
+      });
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _linking = false;
+        _error = '登记失败：$error';
       });
     }
   }
@@ -417,13 +449,50 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
                         result.author.isEmpty ? '未知作者' : result.author,
                         style: theme.textTheme.bodySmall,
                       ),
-                      if (result.publishers.isNotEmpty) ...[
+                      if (result.publisherNames.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
-                          result.publishers.join(' / '),
+                          result.publisherNames.join(' / '),
                           style: theme.textTheme.bodySmall,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      if (result.publishers.any(
+                        (publisher) => publisher.publisherId > 0,
+                      )) ...[
+                        const SizedBox(height: 10),
+                        DropdownButtonFormField<int>(
+                          key: const ValueKey<String>(
+                            'reamicro-cloud-publisher',
+                          ),
+                          initialValue: _publisher?.publisherId,
+                          decoration: const InputDecoration(labelText: '关联出版方'),
+                          items: <DropdownMenuItem<int>>[
+                            for (final publisher in result.publishers)
+                              if (publisher.publisherId > 0)
+                                DropdownMenuItem<int>(
+                                  value: publisher.publisherId,
+                                  child: Text(
+                                    publisher.displayName.isEmpty
+                                        ? '出版方 ${publisher.publisherId}'
+                                        : publisher.displayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                          ],
+                          onChanged: _linking
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setState(() {
+                                    _publisher = result.publishers.firstWhere(
+                                      (publisher) =>
+                                          publisher.publisherId == value,
+                                    );
+                                  });
+                                },
                         ),
                       ],
                       const SizedBox(height: 8),
@@ -432,14 +501,26 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
                         style: theme.textTheme.labelSmall,
                       ),
                       const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.tonalIcon(
-                          key: const ValueKey<String>('reamicro-link-book'),
-                          onPressed: _linking ? null : _linkBook,
-                          icon: const Icon(Icons.link),
-                          label: Text(_linking ? '关联中…' : '关联这本书'),
-                        ),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: <Widget>[
+                          OutlinedButton.icon(
+                            key: const ValueKey<String>('reamicro-link-book'),
+                            onPressed: _linking ? null : _linkBookOnly,
+                            icon: const Icon(Icons.link),
+                            label: const Text('仅关联阅读数据'),
+                          ),
+                          FilledButton.tonalIcon(
+                            key: const ValueKey<String>(
+                              'reamicro-register-link-book',
+                            ),
+                            onPressed: _linking ? null : _registerBook,
+                            icon: const Icon(Icons.cloud_upload_outlined),
+                            label: Text(_linking ? '关联中…' : '登记并关联'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -447,6 +528,15 @@ class _BookLinkSheetState extends State<_BookLinkSheet> {
               ),
             ],
             const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const ValueKey<String>('reamicro-register-cloud-book'),
+              onPressed: _linking
+                  ? null
+                  : () => unawaited(_registerBook(createNew: true)),
+              icon: const Icon(Icons.add_link),
+              label: const Text('在阅微新建书籍并关联'),
+            ),
+            const SizedBox(height: 8),
             TextButton(
               onPressed: () => Navigator.of(context).pop(_changed),
               child: const Text('关闭'),

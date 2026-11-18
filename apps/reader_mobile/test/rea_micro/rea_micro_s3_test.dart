@@ -7,7 +7,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_cbor.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_s3.dart';
 
 import '../support/test_epub.dart';
@@ -33,6 +35,32 @@ void main() {
       3,
     );
     expect(roundTrip?.toJson(), config.toJson());
+  });
+
+  test('阅微内置存储无需 S3 密钥即可判定可用，且缓存指纹按提供方区分', () {
+    const mote = ReaMicroS3Config(
+      endpoint: '',
+      bucket: '',
+      region: '',
+      accessKey: '',
+      secretKey: '',
+      prefix: 'reamicro',
+      provider: 'MOTE',
+    );
+    const s3 = ReaMicroS3Config(
+      endpoint: '',
+      bucket: '',
+      region: '',
+      accessKey: '',
+      secretKey: '',
+      prefix: 'reamicro',
+      provider: 'S3',
+    );
+    expect(mote.isMote, isTrue);
+    expect(mote.usable, isTrue);
+    expect(s3.usable, isFalse);
+    expect(mote.fingerprint('1'), isNot(s3.fingerprint('1')));
+    expect(mote.copyWith(provider: 'S3').usable, isFalse);
   });
 
   test('CBOR 编码与解码保持类型和字段', () {
@@ -285,7 +313,130 @@ void main() {
     );
   });
 
-  test('删除墓碑阻止已删除图书重新下载', () async {
+  test('本地删除生成删除分片并阻止其他设备恢复', () async {
+    final root = await Directory.systemTemp.createTemp('reamicro-s3-delete-');
+    addTearDown(() => root.delete(recursive: true));
+    final store = _MemoryS3();
+    final libraryA = _TestLibrary(root, 'delete-a');
+    final libraryB = _TestLibrary(root, 'delete-b');
+    final bookA = await libraryA.add(
+      buildTestEpub(title: '待删除', author: '作者', identifier: 's3-delete'),
+    );
+
+    final resultA = await _engine(
+      libraryA,
+      store,
+      userId: '7',
+      deviceId: 'device-a',
+    ).sync();
+    final uuid = resultA.localBookUuids[bookA.id];
+    expect(uuid, bookA.id);
+
+    libraryA.books.remove(bookA);
+    final deleted = await _engine(
+      libraryA,
+      store,
+      userId: '7',
+      deviceId: 'device-a',
+      localBookUuids: resultA.localBookUuids,
+    ).sync();
+
+    expect(deleted.deleted, 1);
+    expect(deleted.pendingDeletions, isEmpty);
+    expect(deleted.localBookUuids, isEmpty);
+    final manifest =
+        ReaMicroCborDecoder.decode(
+              store.object('team/read/manifest.cbor')!.bytes,
+            )!
+            as Map<String, Object?>;
+    expect(manifest['d'], contains('spectacular'));
+    final deletionPointer =
+        (manifest['dp']! as Map<String, Object?>)['spectacular'];
+    expect(deletionPointer, isA<String>());
+    final deletionShard =
+        ReaMicroCborDecoder.decode(
+              store
+                  .object(
+                    'team/read/deletions/spectacular/$deletionPointer.cbor',
+                  )!
+                  .bytes,
+            )!
+            as Map<String, Object?>;
+    final tombstone =
+        (deletionShard['e']! as List<Object?>).single as Map<String, Object?>;
+    expect(tombstone['u'], uuid);
+    expect(tombstone['r'], isA<Map<String, Object?>>());
+    expect(tombstone['t'], isA<Map<String, Object?>>());
+    expect(
+      (manifest['de']! as Map<String, Object?>)['spectacular'],
+      isA<int>(),
+    );
+
+    final resultB = await _engine(
+      libraryB,
+      store,
+      userId: '7',
+      deviceId: 'device-b',
+    ).sync();
+    expect(resultB.downloaded, 0);
+    expect(await libraryB.list(), isEmpty);
+  });
+
+  test('新安装的空基线不会删除云端现有图书', () async {
+    final root = await Directory.systemTemp.createTemp('reamicro-s3-empty-');
+    addTearDown(() => root.delete(recursive: true));
+    final store = _MemoryS3();
+    final libraryA = _TestLibrary(root, 'empty-a');
+    final libraryB = _TestLibrary(root, 'empty-b');
+    await libraryA.add(
+      buildTestEpub(title: '保留书', author: '作者', identifier: 's3-empty'),
+    );
+    await _engine(libraryA, store, userId: '7', deviceId: 'device-a').sync();
+
+    final resultB = await _engine(
+      libraryB,
+      store,
+      userId: '7',
+      deviceId: 'device-b',
+      localBookUuids: const <String, String>{},
+    ).sync();
+
+    expect(resultB.downloaded, 1);
+    expect(resultB.deleted, 0);
+    expect(resultB.localBookUuids, hasLength(1));
+    expect((await libraryB.list()).single.title, '保留书');
+  });
+
+  test('删除分片提交失败时保留待删除状态', () async {
+    final root = await Directory.systemTemp.createTemp('reamicro-s3-delretry-');
+    addTearDown(() => root.delete(recursive: true));
+    final store = _MemoryS3()..manifestConflicts = 3;
+    final library = _TestLibrary(root, 'delete-retry');
+    final pending = <String>{'deleted-book'};
+
+    await expectLater(
+      _engine(
+        library,
+        store,
+        userId: '7',
+        deviceId: 'device-a',
+        localBookUuids: const <String, String>{'gone': 'deleted-book'},
+        pendingDeletions: pending,
+      ).sync(),
+      throwsA(isA<ReaMicroS3ConflictException>()),
+    );
+
+    expect(
+      store.keys.where(
+        (key) => key.startsWith('team/read/deletions/spectacular/'),
+      ),
+      isNotEmpty,
+    );
+    expect(store.object('team/read/manifest.cbor'), isNull);
+    expect(pending, <String>{'deleted-book'});
+  });
+
+  test('删除墓碑旧 a 字段仍可读取', () async {
     final root = await Directory.systemTemp.createTemp('reamicro-s3-tomb-');
     addTearDown(() => root.delete(recursive: true));
     final store = _MemoryS3();
@@ -368,6 +519,108 @@ void main() {
     expect(manifest['d'], <Object?>['other']);
     expect((manifest['dp']! as Map<String, Object?>)['other'], 'delete-1');
   });
+
+  test('Mote 客户端通过阅微签发地址上传、读取并删除对象', () async {
+    final transport = _FakeMoteApi();
+    final client = ReaMicroMoteS3Client(
+      api: transport,
+      token: 'token',
+      httpClient: MockClient((request) async {
+        if (request.method == 'PUT') {
+          transport.uploadedBytes = request.bodyBytes;
+          transport.exists = true;
+          return http.Response(
+            '',
+            200,
+            headers: <String, String>{'etag': '"uploaded-etag"'},
+          );
+        }
+        return http.Response.bytes(
+          transport.uploadedBytes ?? <int>[],
+          200,
+          headers: <String, String>{'etag': '"download-etag"'},
+        );
+      }),
+    );
+    final bytes = Uint8List.fromList(<int>[1, 2, 3, 4]);
+
+    final etag = await client.put(
+      'sync/book.epub',
+      bytes,
+      contentType: 'application/epub+zip',
+      ifNoneMatch: '*',
+    );
+    final object = await client.get('sync/book.epub');
+    await client.delete('sync/book.epub');
+
+    expect(etag, '"uploaded-etag"');
+    expect(transport.uploadKey, 'sync/book.epub');
+    expect(transport.uploadLength, bytes.length);
+    expect(transport.uploadIfNoneMatch, isTrue);
+    expect(transport.confirmKey, 'sync/book.epub');
+    expect(transport.uploadedBytes, bytes);
+    expect(object?.bytes, bytes);
+    expect(object?.etag, '"uploaded-etag"');
+    expect(transport.deletedKey, 'sync/book.epub');
+  });
+}
+
+class _FakeMoteApi implements ReaMicroMoteSyncApi {
+  bool exists = false;
+  Uint8List? uploadedBytes;
+  String? uploadKey;
+  int uploadLength = 0;
+  bool uploadIfNoneMatch = false;
+  String? confirmKey;
+  String? deletedKey;
+
+  @override
+  Future<ReaMicroS3ObjectHead> fetchMoteHead(
+    String token, {
+    required String objectKey,
+  }) async => ReaMicroS3ObjectHead(
+    exists: exists,
+    contentLength: uploadedBytes?.length ?? 0,
+    etag: exists ? '"uploaded-etag"' : '',
+  );
+
+  @override
+  Future<ReaMicroS3SignedUrl> fetchMoteUploadUrl(
+    String token, {
+    required String objectKey,
+    required int contentLength,
+    String ifMatch = '',
+    bool ifNoneMatch = false,
+  }) async {
+    uploadKey = objectKey;
+    uploadLength = contentLength;
+    uploadIfNoneMatch = ifNoneMatch;
+    return const ReaMicroS3SignedUrl(url: 'https://storage.test/upload');
+  }
+
+  @override
+  Future<void> confirmMoteUpload(
+    String token, {
+    required String objectKey,
+    required int contentLength,
+  }) async {
+    confirmKey = objectKey;
+  }
+
+  @override
+  Future<ReaMicroS3SignedUrl> fetchMoteDownloadUrl(
+    String token, {
+    required String objectKey,
+  }) async => const ReaMicroS3SignedUrl(url: 'https://storage.test/download');
+
+  @override
+  Future<void> deleteMoteObject(
+    String token, {
+    required String objectKey,
+  }) async {
+    deletedKey = objectKey;
+    exists = false;
+  }
 }
 
 ReaMicroS3SyncEngine _engine(
@@ -377,6 +630,8 @@ ReaMicroS3SyncEngine _engine(
   required String deviceId,
   Map<String, int> cloudIds = const <String, int>{},
   Map<String, String> bookmarkBases = const <String, String>{},
+  Map<String, String> localBookUuids = const <String, String>{},
+  Set<String> pendingDeletions = const <String>{},
 }) => ReaMicroS3SyncEngine(
   library: library,
   config: const ReaMicroS3Config(
@@ -392,6 +647,8 @@ ReaMicroS3SyncEngine _engine(
   deviceId: deviceId,
   cloudIds: cloudIds,
   bookmarkBases: bookmarkBases,
+  localBookUuids: localBookUuids,
+  pendingDeletions: pendingDeletions,
 );
 
 class _MemoryS3 implements ReaMicroS3Client {

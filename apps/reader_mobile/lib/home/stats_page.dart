@@ -304,7 +304,7 @@ class _StatsPageState extends State<StatsPage> {
   Future<void> _refresh() async {
     final controller = widget.reaMicro;
     if (controller != null && controller.cloudAsPrimary) {
-      await controller.syncAll();
+      await controller.syncEverything();
       await controller.refreshCloudStats(force: true);
       if (mounted) setState(() {});
       return;
@@ -329,7 +329,22 @@ class _StatsPageState extends State<StatsPage> {
         break;
       }
     }
+    if (localBookId == null && controller.s3Configured) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('正在从阅微对象存储恢复《${record.name}》…')));
+      }
+      await controller.syncS3(silent: true);
+      for (final entry in controller.links.entries) {
+        if (entry.value.cloudBookId == record.cloudBookId) {
+          localBookId = entry.key;
+          break;
+        }
+      }
+    }
     if (localBookId == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('本地书库没有这本已关联的书，可在阅微同步中重新匹配')),
       );

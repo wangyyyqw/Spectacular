@@ -164,7 +164,7 @@ class ReaMicroOverview {
   /// 从接口数据解析。
   factory ReaMicroOverview.fromJson(Map<String, Object?> json) {
     return ReaMicroOverview(
-      years: _intList(json['years']),
+      years: _yearList(json['years']),
       readDays: _intValue(json['readDays']),
       totalDurationSeconds: _intValue(json['totalDuration']),
       bookCount: _intValue(json['bookCount']),
@@ -475,6 +475,159 @@ class ReaMicroCloudStats {
   final DateTime fetchedAt;
 }
 
+/// 阅微有标注的书籍。
+class ReaMicroMarkBook {
+  /// 创建标注书籍。
+  const ReaMicroMarkBook({
+    required this.bookId,
+    required this.cloudBookId,
+    required this.name,
+    required this.author,
+    required this.cover,
+    required this.thoughtCount,
+    required this.underlineCount,
+  });
+
+  /// 阅微内部书籍标识。
+  final int bookId;
+
+  /// 云端书籍标识。
+  final int cloudBookId;
+
+  /// 书名。
+  final String name;
+
+  /// 作者。
+  final String author;
+
+  /// 封面地址。
+  final String cover;
+
+  /// 想法数量。
+  final int thoughtCount;
+
+  /// 划线数量。
+  final int underlineCount;
+
+  /// 标注总数。
+  int get markCount => thoughtCount + underlineCount;
+
+  /// 从接口数据解析。
+  factory ReaMicroMarkBook.fromJson(Map<String, Object?> json) =>
+      ReaMicroMarkBook(
+        bookId: _intValue(json['bookId']),
+        cloudBookId: _intValue(json['cloudBookId']),
+        name: _stringValue(json['bookName']) ?? '',
+        author: _stringValue(json['bookAuthor']) ?? '',
+        cover: _stringValue(json['bookCover']) ?? '',
+        thoughtCount: _intValue(json['thoughtCount']),
+        underlineCount: _intValue(json['underlineCount']),
+      );
+}
+
+/// 阅读记录统计周期。
+enum ReaMicroRecordPeriod {
+  /// 周。
+  week,
+
+  /// 月。
+  month,
+
+  /// 年。
+  year,
+}
+
+/// 一条阅读时长会话日志。
+///
+/// 服务端按 [id] 去重，因此同一次阅读在多次重试时也能保持稳定。
+class ReaMicroReadSessionLog {
+  /// 创建会话日志。
+  const ReaMicroReadSessionLog({
+    required this.id,
+    required this.cloudBookId,
+    required this.startedAt,
+    required this.endedAt,
+    required this.durationSeconds,
+    required this.recordDay,
+    this.listening = false,
+  });
+
+  /// 稳定会话标识。
+  final String id;
+
+  /// 云端书籍标识。
+  final int cloudBookId;
+
+  /// 开始时间（毫秒时间戳）。
+  final int startedAt;
+
+  /// 结束时间（毫秒时间戳）。
+  final int endedAt;
+
+  /// 会话时长（秒）。
+  final int durationSeconds;
+
+  /// 归属日期，格式为 `yyyy-MM-dd`。
+  final String recordDay;
+
+  /// 是否为听书。
+  final bool listening;
+
+  /// 转换为阅微接口请求体。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'bookId': cloudBookId,
+    'startedAt': startedAt,
+    'endedAt': endedAt,
+    'duration': durationSeconds,
+    'listening': listening,
+    'recordDay': recordDay,
+  };
+}
+
+/// 阅微云端书籍的出版方条目。
+class ReaMicroCloudPublisher {
+  /// 创建出版方条目。
+  const ReaMicroCloudPublisher({
+    required this.publisherId,
+    this.name = '',
+    this.publisher = '',
+    this.cover = '',
+  });
+
+  /// 出版方标识；建立用户书关联时使用。
+  final int publisherId;
+
+  /// 书名或出版方展示名称（接口不同版本字段不同）。
+  final String name;
+
+  /// 出版社名称。
+  final String publisher;
+
+  /// 封面地址。
+  final String cover;
+
+  /// 展示名称。
+  String get displayName =>
+      publisher.trim().isNotEmpty ? publisher.trim() : name.trim();
+
+  /// 从接口数据解析。
+  factory ReaMicroCloudPublisher.fromJson(Map<String, Object?> json) {
+    final id = _intValue(
+      json['bookPublisherId'] ??
+          json['publisherId'] ??
+          json['id'] ??
+          json['cloudBookId'],
+    );
+    return ReaMicroCloudPublisher(
+      publisherId: id,
+      name: _stringValue(json['name']) ?? '',
+      publisher: _stringValue(json['publisher']) ?? '',
+      cover: _stringValue(json['cover']) ?? '',
+    );
+  }
+}
+
 /// 阅微云端书籍搜索结果。
 class ReaMicroCloudBook {
   /// 创建云端书籍。
@@ -482,7 +635,9 @@ class ReaMicroCloudBook {
     required this.cloudBookId,
     required this.name,
     this.author = '',
-    this.publishers = const <String>[],
+    this.subtitle = '',
+    this.original = '',
+    this.publishers = const <ReaMicroCloudPublisher>[],
   });
 
   /// 云端书籍标识，阅读时长上报使用该值。
@@ -494,30 +649,121 @@ class ReaMicroCloudBook {
   /// 作者。
   final String author;
 
+  /// 副标题。
+  final String subtitle;
+
+  /// 原作名。
+  final String original;
+
   /// 出版方信息。
-  final List<String> publishers;
+  final List<ReaMicroCloudPublisher> publishers;
+
+  /// 可直接用于用户书关联的出版方。
+  ReaMicroCloudPublisher? get linkablePublisher {
+    for (final publisher in publishers) {
+      if (publisher.publisherId > 0) return publisher;
+    }
+    return null;
+  }
+
+  /// 出版方展示文本。
+  List<String> get publisherNames => <String>[
+    for (final publisher in publishers)
+      if (publisher.displayName.isNotEmpty) publisher.displayName,
+  ];
 
   /// 从接口数据解析。
   factory ReaMicroCloudBook.fromJson(Map<String, Object?> json) {
-    final publishers = <String>[];
-    final rawPublishers = json['bookPublishers'];
+    final publishers = <ReaMicroCloudPublisher>[];
+    final rawPublishers = json['bookPublishers'] ?? json['publishers'];
     if (rawPublishers is List<Object?>) {
       for (final item in rawPublishers) {
         if (item is String && item.trim().isNotEmpty) {
-          publishers.add(item.trim());
+          publishers.add(
+            ReaMicroCloudPublisher(publisherId: 0, publisher: item.trim()),
+          );
         } else if (item is Map<String, Object?>) {
-          final name = _stringValue(item['name']);
-          if (name != null && name.trim().isNotEmpty) {
-            publishers.add(name.trim());
+          final publisher = ReaMicroCloudPublisher.fromJson(item);
+          if (publisher.publisherId > 0 || publisher.displayName.isNotEmpty) {
+            publishers.add(publisher);
           }
         }
       }
     }
     return ReaMicroCloudBook(
-      cloudBookId: _intValue(json['cloudBookId']),
-      name: _stringValue(json['name']) ?? '',
-      author: _stringValue(json['author']) ?? '',
+      cloudBookId: _intValue(
+        json['cloudBookId'] ?? json['CloudBookId'] ?? json['cloudBookID'],
+      ),
+      name: _stringValue(json['name']) ?? _stringValue(json['BookName']) ?? '',
+      author:
+          _stringValue(json['author']) ??
+          _stringValue(json['BookAuthor']) ??
+          '',
+      subtitle: _stringValue(json['subtitle']) ?? '',
+      original: _stringValue(json['original']) ?? '',
       publishers: publishers,
+    );
+  }
+}
+
+/// 阅微用户书登记结果。
+class ReaMicroUserBookRegistration {
+  /// 创建登记结果。
+  const ReaMicroUserBookRegistration({
+    required this.userBookId,
+    this.cloudBookId = 0,
+    this.publisherId = 0,
+    this.publisher = '',
+  });
+
+  /// 用户书标识。
+  final int userBookId;
+
+  /// 接口已匹配到的云端书标识。
+  final int cloudBookId;
+
+  /// 接口已匹配到的出版方标识。
+  final int publisherId;
+
+  /// 接口返回的出版方名称。
+  final String publisher;
+
+  /// 从接口数据解析。
+  factory ReaMicroUserBookRegistration.fromJson(Map<String, Object?> json) {
+    return ReaMicroUserBookRegistration(
+      userBookId: _intValue(json['id'] ?? json['userBookId']),
+      cloudBookId: _intValue(
+        json['cloudBookID'] ?? json['cloudBookId'] ?? json['bookId'],
+      ),
+      publisherId: _intValue(json['bookPublisherId'] ?? json['publisherId']),
+      publisher: _stringValue(json['publisher']) ?? '',
+    );
+  }
+}
+
+/// 阅微出版书创建结果。
+class ReaMicroCloudBookRegistration {
+  /// 创建出版书结果。
+  const ReaMicroCloudBookRegistration({
+    required this.cloudBookId,
+    required this.publisherId,
+  });
+
+  /// 云端书标识。
+  final int cloudBookId;
+
+  /// 出版方标识，用于建立用户书关联。
+  final int publisherId;
+
+  /// 从接口数据解析。
+  factory ReaMicroCloudBookRegistration.fromJson(Map<String, Object?> json) {
+    return ReaMicroCloudBookRegistration(
+      cloudBookId: _intValue(
+        json['cloudBookId'] ?? json['CloudBookId'] ?? json['cloudBookID'],
+      ),
+      publisherId: _intValue(
+        json['bookPublisherId'] ?? json['publisherId'] ?? json['CloudBookId'],
+      ),
     );
   }
 }
@@ -529,6 +775,8 @@ class ReaMicroBookLink {
     required this.cloudBookId,
     required this.name,
     this.author = '',
+    this.userBookId = 0,
+    this.publisherId = 0,
     required this.linkedAt,
   });
 
@@ -541,6 +789,12 @@ class ReaMicroBookLink {
   /// 云端作者。
   final String author;
 
+  /// 阅微用户书标识；为 0 表示还未登记到阅微。
+  final int userBookId;
+
+  /// 阅微出版方标识；为 0 表示还未建立出版书关联。
+  final int publisherId;
+
   /// 关联时间。
   final DateTime linkedAt;
 
@@ -550,6 +804,8 @@ class ReaMicroBookLink {
         cloudBookId: _intValue(json['cloudBookId']),
         name: _stringValue(json['name']) ?? '',
         author: _stringValue(json['author']) ?? '',
+        userBookId: _intValue(json['userBookId']),
+        publisherId: _intValue(json['publisherId']),
         linkedAt: DateTime.fromMillisecondsSinceEpoch(
           _intValue(json['linkedAt']),
         ),
@@ -560,6 +816,8 @@ class ReaMicroBookLink {
     'cloudBookId': cloudBookId,
     'name': name,
     'author': author,
+    'userBookId': userBookId,
+    'publisherId': publisherId,
     'linkedAt': linkedAt.millisecondsSinceEpoch,
   };
 }
@@ -1166,19 +1424,23 @@ class ReaMicroBookReview {
     required this.style,
     required this.seal,
     required this.popularity,
+    this.statusKnown = false,
   });
 
   /// 书评标识。
   final int id;
 
-  /// 评分 1～5，0 表示未评分。
+  /// 评分 1～10，0 表示未评分。
   final int rating;
 
   /// 书评正文。
   final String comment;
 
-  /// 状态，1 为私有、2 为公开发布。
+  /// 状态，1 为私有、2 为公开发布；接口未返回时为 0。
   final int status;
+
+  /// 接口是否返回了发布状态。
+  final bool statusKnown;
 
   /// 发布时间（毫秒时间戳）。
   final int publishTime;
@@ -1214,7 +1476,7 @@ class ReaMicroBookReview {
   final int popularity;
 
   /// 是否已公开发布。
-  bool get published => status == 2;
+  bool get published => statusKnown && status == 2;
 
   /// 解析接口数据。
   factory ReaMicroBookReview.fromJson(Map<String, Object?> json) {
@@ -1243,6 +1505,114 @@ class ReaMicroBookReview {
       style: _stringValue(json['style']) ?? '',
       seal: _stringValue(json['seal']) ?? '',
       popularity: _intValue(json['popularity']),
+      statusKnown: json.containsKey('status'),
+    );
+  }
+}
+
+/// 阅微书评互动用户分页。
+class ReaMicroReviewActorPage {
+  /// 创建互动用户分页。
+  const ReaMicroReviewActorPage({required this.items, required this.total});
+
+  /// 当前页用户。
+  final List<ReaMicroReviewActor> items;
+
+  /// 互动用户总数。
+  final int total;
+
+  /// 从接口数据解析。
+  factory ReaMicroReviewActorPage.fromJson(Map<String, Object?> json) {
+    final raw = json['items'];
+    return ReaMicroReviewActorPage(
+      items: <ReaMicroReviewActor>[
+        if (raw is List<Object?>)
+          for (final item in raw)
+            if (item is Map<String, Object?>)
+              ReaMicroReviewActor.fromJson(item),
+      ],
+      total: _intValue(json['total']),
+    );
+  }
+}
+
+/// 阅微书评互动用户。
+class ReaMicroReviewActor {
+  /// 创建互动用户。
+  const ReaMicroReviewActor({
+    required this.userId,
+    required this.userName,
+    required this.title,
+    required this.titleLevel,
+    required this.userAvatar,
+    required this.userLevel,
+    required this.vip,
+    required this.actedAt,
+    required this.actionType,
+    required this.collectionName,
+  });
+
+  final int userId;
+  final String userName;
+  final String title;
+  final int titleLevel;
+  final String userAvatar;
+  final int userLevel;
+  final bool vip;
+
+  /// 互动时间（毫秒时间戳）。
+  final int actedAt;
+
+  /// 互动类型，0 为点赞。
+  final int actionType;
+
+  /// 用户称号或收藏名。
+  final String collectionName;
+
+  /// 从接口数据解析。
+  factory ReaMicroReviewActor.fromJson(Map<String, Object?> json) =>
+      ReaMicroReviewActor(
+        userId: _intValue(json['userId']),
+        userName: _stringValue(json['userName']) ?? '',
+        title: _stringValue(json['title']) ?? '',
+        titleLevel: _intValue(json['titleLevel']),
+        userAvatar: _stringValue(json['userAvatar']) ?? '',
+        userLevel: _intValue(json['userLevel']),
+        vip: json['vip'] == true || _intValue(json['vip']) > 0,
+        actedAt: _timestampMillis(json['actedAt']),
+        actionType: _intValue(json['actionType']),
+        collectionName: _stringValue(json['collectionName']) ?? '',
+      );
+}
+
+/// 当前账号对一条书评已执行过的互动。
+class ReaMicroReviewActionState {
+  /// 创建互动状态。
+  const ReaMicroReviewActionState({required this.actionTypes});
+
+  /// 点赞互动类型。
+  static const int likeType = 0;
+
+  /// 已执行过的互动类型。
+  final Set<int> actionTypes;
+
+  /// 是否已点赞。
+  bool get liked => actionTypes.contains(likeType);
+
+  /// 空状态。
+  static const ReaMicroReviewActionState empty = ReaMicroReviewActionState(
+    actionTypes: <int>{},
+  );
+
+  /// 从接口数据解析。
+  factory ReaMicroReviewActionState.fromJson(Map<String, Object?> json) {
+    final raw = json['actionTypes'];
+    return ReaMicroReviewActionState(
+      actionTypes: <int>{
+        if (raw is List<Object?>)
+          for (final item in raw)
+            if (_intValue(item) >= 0) _intValue(item),
+      },
     );
   }
 }
@@ -1460,6 +1830,173 @@ class ReaMicroS3CloudConfigResponse {
       );
 }
 
+/// 阅微内置对象存储返回的临时访问地址。
+class ReaMicroS3SignedUrl {
+  /// 创建访问地址。
+  const ReaMicroS3SignedUrl({required this.url});
+
+  /// 上传或下载地址。
+  final String url;
+
+  /// 从接口数据解析。
+  factory ReaMicroS3SignedUrl.fromJson(Map<String, Object?> json) =>
+      ReaMicroS3SignedUrl(url: _stringValue(json['url']) ?? '');
+}
+
+/// 阅微内置对象存储的对象状态。
+class ReaMicroS3ObjectHead {
+  /// 创建对象状态。
+  const ReaMicroS3ObjectHead({
+    required this.exists,
+    required this.contentLength,
+    required this.etag,
+  });
+
+  /// 对象是否存在。
+  final bool exists;
+
+  /// 对象字节数。
+  final int contentLength;
+
+  /// 对象 ETag。
+  final String etag;
+
+  /// 从接口数据解析。
+  factory ReaMicroS3ObjectHead.fromJson(Map<String, Object?> json) =>
+      ReaMicroS3ObjectHead(
+        exists: json['exists'] == true,
+        contentLength: _intValue(json['contentLength']),
+        etag: _stringValue(json['etag']) ?? '',
+      );
+}
+
+/// 阅微朗读引擎下载项。
+class ReaMicroTtsEngine {
+  /// 创建引擎项。
+  const ReaMicroTtsEngine({
+    required this.platform,
+    required this.abi,
+    required this.version,
+    required this.downloadUrl,
+    required this.sha256,
+    required this.size,
+  });
+
+  /// 平台标识。
+  final String platform;
+
+  /// CPU 架构。
+  final String abi;
+
+  /// 引擎版本。
+  final String version;
+
+  /// 下载地址。
+  final String downloadUrl;
+
+  /// 压缩包校验值。
+  final String sha256;
+
+  /// 压缩包字节数。
+  final int size;
+
+  /// 从接口数据解析。
+  factory ReaMicroTtsEngine.fromJson(Map<String, Object?> json) =>
+      ReaMicroTtsEngine(
+        platform: _stringValue(json['platform']) ?? '',
+        abi: _stringValue(json['abi']) ?? '',
+        version: _stringValue(json['version']) ?? '',
+        downloadUrl: _stringValue(json['downloadUrl']) ?? '',
+        sha256: _stringValue(json['sha256']) ?? '',
+        size: _intValue(json['size']),
+      );
+}
+
+/// 阅微官方离线朗读音色。
+class ReaMicroTtsVoice {
+  /// 创建音色。
+  const ReaMicroTtsVoice({
+    required this.id,
+    required this.downloadUrl,
+    this.name = '',
+    this.language = '',
+    this.quality = '',
+    this.folderName = '',
+    this.modelDirectory = '',
+    this.numberOfSpeakers = 0,
+  });
+
+  /// 音色标识。
+  final String id;
+
+  /// 模型下载地址。
+  final String downloadUrl;
+
+  /// 显示名称。
+  final String name;
+
+  /// 语言。
+  final String language;
+
+  /// 音质。
+  final String quality;
+
+  /// 解压目录名。
+  final String folderName;
+
+  /// 模型目录。
+  final String modelDirectory;
+
+  /// 说话人数量。
+  final int numberOfSpeakers;
+
+  /// 界面显示名称。
+  String get displayName => name.trim().isEmpty ? id : name;
+
+  /// 从接口数据解析。
+  factory ReaMicroTtsVoice.fromJson(Map<String, Object?> json) {
+    final id = _stringValue(json['id']) ?? '';
+    return ReaMicroTtsVoice(
+      id: id,
+      downloadUrl: _stringValue(json['downloadUrl']) ?? '',
+      name: _stringValue(json['name']) ?? '',
+      language: _stringValue(json['language']) ?? '',
+      quality: _stringValue(json['quality']) ?? '',
+      folderName: _stringValue(json['folderName']) ?? '',
+      modelDirectory: _stringValue(json['modelDirectory']) ?? '',
+      numberOfSpeakers: _intValue(json['numberOfSpeakers']),
+    );
+  }
+}
+
+/// 阅微朗读引擎与音色目录。
+class ReaMicroTtsCatalog {
+  /// 创建目录。
+  const ReaMicroTtsCatalog({required this.engines, required this.voices});
+
+  /// 可下载的离线引擎。
+  final List<ReaMicroTtsEngine> engines;
+
+  /// 可下载的官方音色。
+  final List<ReaMicroTtsVoice> voices;
+
+  /// 从接口数据解析。
+  factory ReaMicroTtsCatalog.fromJson(Map<String, Object?> json) =>
+      ReaMicroTtsCatalog(
+        engines: <ReaMicroTtsEngine>[
+          if (json['engines'] is List<Object?>)
+            for (final item in json['engines']! as List<Object?>)
+              if (item is Map<String, Object?>)
+                ReaMicroTtsEngine.fromJson(item),
+        ],
+        voices: <ReaMicroTtsVoice>[
+          if (json['voices'] is List<Object?>)
+            for (final item in json['voices']! as List<Object?>)
+              if (item is Map<String, Object?>) ReaMicroTtsVoice.fromJson(item),
+        ],
+      );
+}
+
 /// 阅微写操作结果。
 class ReaMicroActionResult {
   /// 创建结果。
@@ -1508,11 +2045,19 @@ int _intValue(Object? value) {
 
 String? _stringValue(Object? value) => value is String ? value : null;
 
-List<int> _intList(Object? value) => <int>[
-  if (value is List<Object?>)
-    for (final item in value)
-      if (_intValue(item) > 0) _intValue(item),
-];
+List<int> _yearList(Object? value) {
+  final years = <int>{};
+  if (value is List<Object?>) {
+    for (final item in value) {
+      final year = item is Map<String, Object?>
+          ? _intValue(item['year'])
+          : _intValue(item);
+      if (year > 0) years.add(year);
+    }
+  }
+  final result = years.toList(growable: false)..sort();
+  return result;
+}
 
 List<ReaMicroTopBook> _topBooks(Object? value) => <ReaMicroTopBook>[
   if (value is List<Object?>)

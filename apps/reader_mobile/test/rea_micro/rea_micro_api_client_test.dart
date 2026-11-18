@@ -178,8 +178,113 @@ void main() {
       final result = await search(data);
       expect(result?.cloudBookId, 42);
       expect(result?.name, '云端书名');
-      expect(result?.publishers, <String>['出版社', '出版方']);
+      expect(result?.publisherNames, <String>['出版社', '出版方']);
     }
+  });
+
+  test('云端书籍登记、补全与关联使用阅微 2.3.4 接口字段', () async {
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        final path = request.url.path;
+        if (path.endsWith('get-cloud-info')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'cloudBookId': 42,
+              'name': '云端书名',
+              'author': '云端作者',
+              'subtitle': '副标题',
+              'original': '原作名',
+              'bookPublishers': <Object?>[
+                <String, Object?>{'bookPublisherId': 88, 'publisher': '出版社'},
+              ],
+            },
+          });
+        }
+        if (path.endsWith('get-cloud-info-by-i-d')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{'cloudBookId': 42, 'name': '按出版方查询'},
+          });
+        }
+        if (path.endsWith('post-user-book')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'id': 7001,
+              'cloudBookID': 42,
+              'bookPublisherId': 88,
+              'publisher': '出版社',
+            },
+          });
+        }
+        if (path.endsWith('post-cloud-book')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{'cloudBookId': 43, 'bookPublisherId': 89},
+          });
+        }
+        return _json(<String, Object?>{'code': 0, 'data': true});
+      }),
+    );
+    addTearDown(api.close);
+
+    final info = await api.fetchCloudBookInfo('token', bookId: 42);
+    final byPublisher = await api.fetchCloudBookInfo(
+      'token',
+      bookId: 88,
+      byPublisherId: true,
+    );
+    final registered = await api.registerUserBook(
+      'token',
+      name: '本地书名',
+      author: '本地作者',
+      md5: 'abc123',
+    );
+    final created = await api.createCloudBook(
+      'token',
+      name: '新书',
+      author: '作者',
+      intro: '简介',
+    );
+    await api.relateCloudBook(
+      'token',
+      userBookId: registered.userBookId,
+      publisherId: registered.publisherId,
+    );
+
+    expect(info?.cloudBookId, 42);
+    expect(info?.name, '云端书名');
+    expect(info?.author, '云端作者');
+    expect(info?.subtitle, '副标题');
+    expect(info?.original, '原作名');
+    expect(info?.linkablePublisher?.publisherId, 88);
+    expect(info?.publisherNames, <String>['出版社']);
+    expect(byPublisher?.name, '按出版方查询');
+    expect(registered.userBookId, 7001);
+    expect(registered.cloudBookId, 42);
+    expect(registered.publisherId, 88);
+    expect(registered.publisher, '出版社');
+    expect(created.cloudBookId, 43);
+    expect(created.publisherId, 89);
+    expect(jsonDecode(requests[0].body), <String, Object?>{'bookId': 42});
+    expect(jsonDecode(requests[1].body), <String, Object?>{'bookId': 88});
+    expect(jsonDecode(requests[2].body), <String, Object?>{
+      'name': '本地书名',
+      'author': '本地作者',
+      'md5': 'abc123',
+      'cover': '',
+      'coverMd5': '',
+    });
+    expect(jsonDecode(requests[3].body), containsPair('name', '新书'));
+    expect(jsonDecode(requests[3].body), containsPair('intro', '简介'));
+    expect(jsonDecode(requests[4].body), <String, Object?>{
+      'userBookId': 7001,
+      'bookPublisherId': 88,
+    });
   });
 
   test('上报阅读位置提交 CFI、章节名与进度', () async {
@@ -355,6 +460,17 @@ void main() {
             },
           });
         }
+        if (path.endsWith('expand-storage-quota')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'capacityBytes': '2147483648',
+              'capacityGib': '2',
+              'credit': '0',
+              'usedBytes': '268435456',
+            },
+          });
+        }
         return _json(<String, Object?>{'code': 0, 'data': true});
       }),
     );
@@ -368,6 +484,7 @@ void main() {
       enabled: true,
       encryptedConfig: 'new-ciphertext',
     );
+    final expanded = await api.expandStorageQuota('token', credit: 60);
 
     expect(cloud.enabled, isTrue);
     expect(cloud.encryptedConfig, 'ciphertext');
@@ -385,6 +502,129 @@ void main() {
       'enabled': true,
       'encryptedConfig': 'new-ciphertext',
     });
+    expect(expanded.capacityGib, 2);
+    expect(jsonDecode(requests[4].body), <String, Object?>{'credit': 60});
+  });
+
+  test('阅微内置对象存储签发上传下载地址并读取对象状态', () async {
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        final path = request.url.path;
+        if (path.endsWith('head-object')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'exists': true,
+              'contentLength': 12,
+              'etag': '"etag-1"',
+            },
+          });
+        }
+        if (path.endsWith('get-upload-url') ||
+            path.endsWith('get-download-url')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'url': 'https://storage.test/signed-object',
+            },
+          });
+        }
+        return _json(<String, Object?>{'code': 0, 'data': true});
+      }),
+    );
+    addTearDown(api.close);
+
+    final head = await api.fetchMoteHead('token', objectKey: 'sync/book.epub');
+    final upload = await api.fetchMoteUploadUrl(
+      'token',
+      objectKey: 'sync/book.epub',
+      contentLength: 12,
+      ifMatch: '"old"',
+      ifNoneMatch: true,
+    );
+    await api.confirmMoteUpload(
+      'token',
+      objectKey: 'sync/book.epub',
+      contentLength: 12,
+    );
+    final download = await api.fetchMoteDownloadUrl(
+      'token',
+      objectKey: 'sync/book.epub',
+    );
+    await api.deleteMoteObject('token', objectKey: 'sync/book.epub');
+
+    expect(head.exists, isTrue);
+    expect(head.contentLength, 12);
+    expect(head.etag, '"etag-1"');
+    expect(upload.url, 'https://storage.test/signed-object');
+    expect(download.url, 'https://storage.test/signed-object');
+    expect(jsonDecode(requests[0].body), <String, Object?>{
+      'objectKey': 'sync/book.epub',
+    });
+    expect(jsonDecode(requests[1].body), <String, Object?>{
+      'objectKey': 'sync/book.epub',
+      'ifMatch': '"old"',
+      'ifNoneMatch': true,
+      'contentLength': 12,
+    });
+    expect(jsonDecode(requests[2].body), <String, Object?>{
+      'objectKey': 'sync/book.epub',
+      'contentLength': 12,
+    });
+    expect(jsonDecode(requests[4].body), <String, Object?>{
+      'objectKey': 'sync/book.epub',
+    });
+    for (final request in requests) {
+      expect(request.headers['Authorization'], 'Bearer token');
+    }
+  });
+
+  test('读取阅微离线朗读引擎与官方音色目录', () async {
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{
+            'engines': <Object?>[
+              <String, Object?>{
+                'platform': 'android',
+                'abi': 'arm64-v8a',
+                'version': '1.13.8',
+                'downloadUrl': 'https://example.test/engine.zip',
+                'sha256': 'abc',
+                'size': 123,
+              },
+            ],
+            'voices': <Object?>[
+              <String, Object?>{
+                'id': 'vits-piper-zh_CN-chaowen-medium',
+                'downloadUrl': 'https://example.test/voice.tar.bz2',
+              },
+            ],
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    final catalog = await api.fetchTtsVoices('token');
+
+    expect(requests.single.method, 'GET');
+    expect(requests.single.url.path, endsWith('rest/tts/voices'));
+    expect(requests.single.headers['Authorization'], 'Bearer token');
+    expect(catalog.engines.single.abi, 'arm64-v8a');
+    expect(catalog.engines.single.size, 123);
+    expect(catalog.voices.single.id, 'vits-piper-zh_CN-chaowen-medium');
+    expect(
+      catalog.voices.single.displayName,
+      'vits-piper-zh_CN-chaowen-medium',
+    );
   });
 
   test('读取完整阅读概览、周期统计与书籍记录', () async {
@@ -398,7 +638,10 @@ void main() {
           return _json(<String, Object?>{
             'code': 0,
             'data': <String, Object?>{
-              'years': <Object?>[2025, 2026],
+              'years': <Object?>[
+                <String, Object?>{'year': 2025, 'duration': '10'},
+                <String, Object?>{'year': 2026, 'duration': '20'},
+              ],
               'readDays': 42,
               'totalDuration': 7200,
               'bookCount': 8,
@@ -494,6 +737,7 @@ void main() {
     final records = await api.fetchBookRecords('token');
 
     expect(overview.totalDurationSeconds, 7200);
+    expect(overview.years, <int>[2025, 2026]);
     expect(overview.topBooks.single.name, '常用书');
     expect(week.days.single.day, 17);
     expect(month.days.single.durationSeconds, 1800);
@@ -516,6 +760,187 @@ void main() {
     expect(bodies['get-read-record-list-by-all'], <String, Object?>{
       'pageNum': 1,
       'pageSize': 200,
+    });
+  });
+
+  test('读取周期记录、标注书籍并提交书评互动', () async {
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        final path = request.url.path;
+        if (path.endsWith('get-mark-book-list')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'list': <Object?>[
+                <String, Object?>{
+                  'bookId': '8',
+                  'cloudBookId': '21',
+                  'bookName': '有标注的书',
+                  'bookAuthor': '作者',
+                  'bookCover': 'https://example.test/cover.jpg',
+                  'thoughtCount': 2,
+                  'underlineCount': 3,
+                },
+              ],
+            },
+          });
+        }
+        if (path.endsWith('check-review-action')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'actionTypes': <Object?>[0],
+            },
+          });
+        }
+        if (path.endsWith('get-review-actors')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'items': <Object?>[
+                <String, Object?>{
+                  'userId': '2',
+                  'userName': '点赞用户',
+                  'actedAt': '1763380800000',
+                  'actionType': 0,
+                },
+              ],
+              'total': '1',
+            },
+          });
+        }
+        if (path.endsWith('get-review-flow-v2')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'reviews': <Object?>[
+                <String, Object?>{
+                  'id': '9',
+                  'rating': 9,
+                  'comment': '很好看',
+                  'bookName': '有标注的书',
+                  'userName': '书评用户',
+                },
+              ],
+            },
+          });
+        }
+        if (path.contains('get-read-record-list-by-')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'list': <Object?>[
+                <String, Object?>{
+                  'bookId': '8',
+                  'cloudBookId': '21',
+                  'name': '有标注的书',
+                  'author': '作者',
+                  'progress': 51.66,
+                  'totalReadTime': '600',
+                  'readDays': 2,
+                  'readingDuration': '600',
+                  'listeningDuration': '0',
+                },
+              ],
+            },
+          });
+        }
+        return _json(<String, Object?>{'code': 0, 'data': true});
+      }),
+    );
+    addTearDown(api.close);
+
+    final week = await api.fetchBookRecordsByWeek(
+      'token',
+      date: DateTime(2026, 11, 18),
+    );
+    final month = await api.fetchBookRecordsByMonth(
+      'token',
+      year: 2026,
+      month: 11,
+    );
+    final year = await api.fetchBookRecordsByYear('token', year: 2026);
+    final markBooks = await api.fetchMarkBooks('token');
+    final action = await api.checkReviewAction('token', reviewId: 9);
+    final actors = await api.fetchReviewActors('token', reviewId: 9);
+    final flow = await api.fetchReviewFlow('token', cloudBookId: 21);
+    await api.actReview('token', reviewId: 9);
+    await api.unactReview('token', reviewId: 9);
+    await api.hideBookRecord('token', bookId: 8);
+    await api.updateReadTimeByDate(
+      'token',
+      const <ReaMicroReadTimeEntry>[
+        ReaMicroReadTimeEntry(
+          cloudBookId: 21,
+          date: '2026-11-18',
+          durationSeconds: 60,
+        ),
+      ],
+      sessionLogs: const <ReaMicroReadSessionLog>[
+        ReaMicroReadSessionLog(
+          id: 'session-1',
+          cloudBookId: 21,
+          startedAt: 1763380800000,
+          endedAt: 1763380860000,
+          durationSeconds: 60,
+          recordDay: '2026-11-18',
+        ),
+      ],
+      sessionAccounting: true,
+    );
+
+    expect(week.single.progress, closeTo(0.5166, 0.0001));
+    expect(month.single.totalReadTimeSeconds, 600);
+    expect(year.single.cloudBookId, 21);
+    expect(markBooks.single.markCount, 5);
+    expect(action.liked, isTrue);
+    expect(actors.total, 1);
+    expect(actors.items.single.userName, '点赞用户');
+    expect(flow.single.rating, 9);
+    expect(flow.single.comment, '很好看');
+
+    final bodies = <String, Object?>{
+      for (final request in requests)
+        request.url.path.split('/').last: jsonDecode(request.body),
+    };
+    expect(bodies['get-read-record-list-by-week'], <String, Object?>{
+      'date': '2026-11-18',
+      'pageNum': 1,
+      'pageSize': 200,
+    });
+    expect(bodies['get-read-record-list-by-month'], <String, Object?>{
+      'year': 2026,
+      'month': 11,
+      'pageNum': 1,
+      'pageSize': 200,
+    });
+    expect(bodies['get-read-record-list-by-year'], <String, Object?>{
+      'year': 2026,
+      'pageNum': 1,
+      'pageSize': 200,
+    });
+    expect(bodies['act-review'], <String, Object?>{
+      'reviewId': 9,
+      'actionType': 0,
+    });
+    expect(bodies['unact-review'], <String, Object?>{
+      'reviewId': 9,
+      'actionType': 0,
+    });
+    expect(bodies['hide-read-record'], <String, Object?>{'bookId': 8});
+    final update = bodies['update-read-time-by-date']! as Map<String, Object?>;
+    expect(update['sessionAccounting'], isTrue);
+    expect((update['sessionLogs']! as List<Object?>).single, <String, Object?>{
+      'id': 'session-1',
+      'bookId': 21,
+      'startedAt': 1763380800000,
+      'endedAt': 1763380860000,
+      'duration': 60,
+      'listening': false,
+      'recordDay': '2026-11-18',
     });
   });
 }
