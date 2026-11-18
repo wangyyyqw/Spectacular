@@ -1,9 +1,7 @@
-name: 多平台自动打包
+name: 多平台手动打包
 
 on:
-  push:
-    branches:
-      - ReaMicro
+  # 仅手动触发，避免推送分支时自动消耗 Actions 额度。
   workflow_dispatch:
     inputs:
       publish_release:
