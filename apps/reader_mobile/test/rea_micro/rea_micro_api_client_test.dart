@@ -310,6 +310,83 @@ void main() {
     expect(jsonDecode(requests[3].body), <String, Object?>{'milestoneId': 7});
   });
 
+  test('读取云端 S3 配置、配额与积分流水', () async {
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        final path = request.url.path;
+        if (path.endsWith('get-s3-sync-cloud-config')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'enabled': true,
+              'encryptedConfig': 'ciphertext',
+            },
+          });
+        }
+        if (path.endsWith('get-storage-quota')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'capacityBytes': '1073741824',
+              'capacityGib': '1',
+              'credit': '9',
+              'usedBytes': '268435456',
+            },
+          });
+        }
+        if (path.endsWith('credit-ledger')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{
+              'list': <Object?>[
+                <String, Object?>{
+                  'action': 'READ',
+                  'amount': 2,
+                  'balanceAfter': 9,
+                  'objectKey': 'book.epub',
+                  'operation': '阅读奖励',
+                  'createTime': 1794909600,
+                },
+              ],
+              'hasMore': true,
+            },
+          });
+        }
+        return _json(<String, Object?>{'code': 0, 'data': true});
+      }),
+    );
+    addTearDown(api.close);
+
+    final cloud = await api.fetchS3CloudConfig('token');
+    final quota = await api.fetchStorageQuota('token');
+    final ledger = await api.fetchCreditLedger('token', page: 2, pageSize: 5);
+    await api.updateS3CloudConfig(
+      'token',
+      enabled: true,
+      encryptedConfig: 'new-ciphertext',
+    );
+
+    expect(cloud.enabled, isTrue);
+    expect(cloud.encryptedConfig, 'ciphertext');
+    expect(quota.capacityGib, 1);
+    expect(quota.usedBytes, 268435456);
+    expect(quota.credit, 9);
+    expect(ledger.hasMore, isTrue);
+    expect(ledger.items.single.operation, '阅读奖励');
+    expect(ledger.items.single.createTime, 1794909600000);
+    expect(jsonDecode(requests[2].body), <String, Object?>{
+      'page': 2,
+      'pageSize': 5,
+    });
+    expect(jsonDecode(requests[3].body), <String, Object?>{
+      'enabled': true,
+      'encryptedConfig': 'new-ciphertext',
+    });
+  });
+
   test('读取完整阅读概览、周期统计与书籍记录', () async {
     final requests = <http.Request>[];
     final api = ReaMicroApiClient(

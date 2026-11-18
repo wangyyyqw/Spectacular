@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'rea_micro_controller.dart';
+import 'rea_micro_models.dart';
 import 'rea_micro_s3.dart';
 
 /// 阅微对象存储同步设置页。
@@ -24,19 +25,27 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   late final TextEditingController _accessKey;
   late final TextEditingController _secretKey;
   late final TextEditingController _prefix;
+  String _provider = 'S3';
   bool _saving = false;
   bool _showSecret = false;
+  bool _cloudLoading = false;
+  ReaMicroS3CloudConfig? _cloudConfig;
+  ReaMicroStorageQuota? _quota;
+  ReaMicroCreditLedgerPage? _ledger;
+  String? _cloudError;
 
   @override
   void initState() {
     super.initState();
     final config = widget.controller.s3Config ?? ReaMicroS3Config.empty;
+    _provider = config.provider;
     _endpoint = TextEditingController(text: config.endpoint);
     _bucket = TextEditingController(text: config.bucket);
     _region = TextEditingController(text: config.region);
     _accessKey = TextEditingController(text: config.accessKey);
     _secretKey = TextEditingController(text: config.secretKey);
     _prefix = TextEditingController(text: config.prefix);
+    unawaited(_loadCloudOverview());
   }
 
   @override
@@ -51,6 +60,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   }
 
   ReaMicroS3Config get _config => ReaMicroS3Config(
+    provider: _provider,
     endpoint: _endpoint.text,
     bucket: _bucket.text,
     region: _region.text,
@@ -58,6 +68,88 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     secretKey: _secretKey.text,
     prefix: _prefix.text,
   );
+
+  Future<void> _loadCloudOverview({bool fillForm = false}) async {
+    if (_cloudLoading) return;
+    setState(() {
+      _cloudLoading = true;
+      _cloudError = null;
+    });
+    try {
+      final cloud = await widget.controller.fetchCloudS3Config();
+      final quota = await widget.controller.fetchStorageQuota();
+      final ledger = await widget.controller.fetchCreditLedger(pageSize: 5);
+      if (!mounted) return;
+      setState(() {
+        _cloudConfig = cloud;
+        _quota = quota;
+        _ledger = ledger;
+      });
+      if (fillForm) _fillFromCloud(cloud);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cloudError = '$error');
+    } finally {
+      if (mounted) setState(() => _cloudLoading = false);
+    }
+  }
+
+  void _fillFromCloud(ReaMicroS3CloudConfig cloud) {
+    final config = cloud.config;
+    if (config == null || !cloud.enabled) {
+      _show('阅微账号没有可载入的 S3 配置');
+      return;
+    }
+    setState(() {
+      _provider = config.provider;
+      _endpoint.text = config.endpoint;
+      _bucket.text = config.bucket;
+      _region.text = config.region;
+      _accessKey.text = config.accessKey;
+      _secretKey.text = config.secretKey;
+      _prefix.text = config.prefix;
+    });
+    _show('已载入阅微账号中的 S3 配置');
+  }
+
+  Future<void> _saveToCloud() async {
+    if (_saving) return;
+    final config = _config;
+    if (!config.usable) {
+      _show('请填写端点、存储桶、区域、Access Key 和 Secret Key');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.controller.saveS3Config(config);
+      await widget.controller.saveCloudS3Config(config, enabled: true);
+      if (!mounted) return;
+      _show('已保存并加密同步到阅微账号');
+      await _loadCloudOverview();
+    } catch (error) {
+      if (mounted) _show('$error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _removeCloudConfig() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await widget.controller.saveCloudS3Config(
+        ReaMicroS3Config.empty,
+        enabled: false,
+      );
+      if (!mounted) return;
+      _show('已移除阅微账号中的 S3 配置');
+      await _loadCloudOverview();
+    } catch (error) {
+      if (mounted) _show('$error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   Future<void> _save({bool syncAfter = false}) async {
     if (_saving) return;
@@ -117,6 +209,108 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                     ),
                   ),
                 ),
+                if (_cloudLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 16),
+                    child: LinearProgressIndicator(),
+                  )
+                else if (_cloudError != null)
+                  Card(
+                    margin: const EdgeInsets.only(top: 16),
+                    child: ListTile(
+                      leading: const Icon(Icons.cloud_off_outlined),
+                      title: const Text('阅微账号同步信息不可用'),
+                      subtitle: Text(_cloudError!),
+                      trailing: TextButton(
+                        onPressed: () => unawaited(_loadCloudOverview()),
+                        child: const Text('重试'),
+                      ),
+                    ),
+                  )
+                else ...<Widget>[
+                  if (_quota != null) ...<Widget>[
+                    const SizedBox(height: 16),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Row(
+                              children: <Widget>[
+                                const Icon(Icons.cloud_queue),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '阅微对象存储',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
+                                ),
+                                const Spacer(),
+                                Text('${_quota!.credit} 积分'),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            LinearProgressIndicator(value: _quota!.usedRatio),
+                            const SizedBox(height: 8),
+                            Text(
+                              '已使用 ${_formatBytes(_quota!.usedBytes)} / '
+                              '${_formatBytes(_quota!.capacityBytes)}',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (_ledger != null && _ledger!.items.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 10),
+                    Card(
+                      child: ExpansionTile(
+                        leading: const Icon(Icons.receipt_long_outlined),
+                        title: const Text('最近积分流水'),
+                        children: <Widget>[
+                          for (final item in _ledger!.items)
+                            ListTile(
+                              dense: true,
+                              title: Text(
+                                item.operation.trim().isEmpty
+                                    ? item.action
+                                    : item.operation,
+                              ),
+                              subtitle: Text(
+                                item.objectKey.isEmpty
+                                    ? _formatDateTimeValue(item.createTime)
+                                    : item.objectKey,
+                              ),
+                              trailing: Text(
+                                item.amount >= 0
+                                    ? '+${item.amount}'
+                                    : '${item.amount}',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (_cloudConfig?.enabled == true) ...<Widget>[
+                    const SizedBox(height: 10),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.lock_outline),
+                        title: const Text('阅微账号已保存 S3 配置'),
+                        subtitle: Text(
+                          _cloudConfig?.config == null
+                              ? '配置无法用当前账号解密'
+                              : '提供方：${_cloudConfig!.config!.provider}',
+                        ),
+                        trailing: TextButton(
+                          onPressed: () => _fillFromCloud(_cloudConfig!),
+                          child: const Text('载入'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
                 const SizedBox(height: 16),
                 TextField(
                   controller: _endpoint,
@@ -207,6 +401,22 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                       : const Icon(Icons.sync),
                   label: Text(controller.s3Syncing ? '正在同步…' : '保存并立即同步'),
                 ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : () => unawaited(_saveToCloud()),
+                  icon: const Icon(Icons.cloud_upload_outlined),
+                  label: const Text('保存并加密同步到阅微账号'),
+                ),
+                if (_cloudConfig?.enabled == true) ...<Widget>[
+                  const SizedBox(height: 6),
+                  TextButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : () => unawaited(_removeCloudConfig()),
+                    icon: const Icon(Icons.cloud_off_outlined),
+                    label: const Text('移除阅微账号中的 S3 配置'),
+                  ),
+                ],
                 if (controller.s3Configured) ...<Widget>[
                   const SizedBox(height: 18),
                   Card(
@@ -240,5 +450,23 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     String two(int number) => number.toString().padLeft(2, '0');
     return '${local.year}-${two(local.month)}-${two(local.day)} '
         '${two(local.hour)}:${two(local.minute)}';
+  }
+
+  static String _formatDateTimeValue(int milliseconds) {
+    if (milliseconds <= 0) return '时间未知';
+    return _formatDateTime(DateTime.fromMillisecondsSinceEpoch(milliseconds));
+  }
+
+  static String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const units = <String>['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    var value = bytes.toDouble();
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    final digits = value >= 100 || unit == 0 ? 0 : 1;
+    return '${value.toStringAsFixed(digits)} ${units[unit]}';
   }
 }

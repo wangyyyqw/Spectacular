@@ -109,6 +109,26 @@ abstract interface class ReaMicroApi {
   /// 删除读完里程碑。
   Future<void> deleteMilestone(String token, {required int milestoneId});
 
+  /// 读取阅微账号保存的 S3 同步配置。
+  Future<ReaMicroS3CloudConfigResponse> fetchS3CloudConfig(String token);
+
+  /// 更新阅微账号保存的 S3 同步配置。
+  Future<void> updateS3CloudConfig(
+    String token, {
+    required bool enabled,
+    required String encryptedConfig,
+  });
+
+  /// 读取对象存储配额。
+  Future<ReaMicroStorageQuota> fetchStorageQuota(String token);
+
+  /// 读取对象存储积分流水。
+  Future<ReaMicroCreditLedgerPage> fetchCreditLedger(
+    String token, {
+    int page = 1,
+    int pageSize = 20,
+  });
+
   /// 释放网络客户端。
   void close();
 }
@@ -490,6 +510,60 @@ class ReaMicroApiClient implements ReaMicroApi {
     await _post('rest/rating/delete-milestone', <String, Object?>{
       'milestoneId': milestoneId,
     }, token: token);
+  }
+
+  @override
+  Future<ReaMicroS3CloudConfigResponse> fetchS3CloudConfig(String token) async {
+    final data = await _post(
+      'rest/user/get-s3-sync-cloud-config',
+      const <String, Object?>{},
+      token: token,
+    );
+    if (data is! Map<String, Object?>) {
+      throw const ReaMicroException('阅微云端同步配置格式不正确');
+    }
+    return ReaMicroS3CloudConfigResponse.fromJson(data);
+  }
+
+  @override
+  Future<void> updateS3CloudConfig(
+    String token, {
+    required bool enabled,
+    required String encryptedConfig,
+  }) async {
+    await _post('rest/user/update-s3-sync-cloud-config', <String, Object?>{
+      'enabled': enabled,
+      'encryptedConfig': enabled ? encryptedConfig : '',
+    }, token: token);
+  }
+
+  @override
+  Future<ReaMicroStorageQuota> fetchStorageQuota(String token) async {
+    final data = await _post(
+      'rest/s3/get-storage-quota',
+      const <String, Object?>{},
+      token: token,
+    );
+    if (data is! Map<String, Object?>) {
+      throw const ReaMicroException('对象存储配额格式不正确');
+    }
+    return ReaMicroStorageQuota.fromJson(data);
+  }
+
+  @override
+  Future<ReaMicroCreditLedgerPage> fetchCreditLedger(
+    String token, {
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final data = await _post('rest/s3/credit-ledger', <String, Object?>{
+      'page': page,
+      'pageSize': pageSize,
+    }, token: token);
+    if (data is! Map<String, Object?>) {
+      throw const ReaMicroException('对象存储积分流水格式不正确');
+    }
+    return ReaMicroCreditLedgerPage.fromJson(data);
   }
 
   Future<Object?> _post(

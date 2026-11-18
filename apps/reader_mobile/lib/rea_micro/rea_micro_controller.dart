@@ -278,6 +278,89 @@ class ReaMicroController extends ChangeNotifier {
     _notify();
   }
 
+  /// 读取阅微账号保存的 S3 配置并解密。
+  Future<ReaMicroS3CloudConfig> fetchCloudS3Config() async {
+    final token = _token;
+    final user = _user;
+    if (token == null || user == null) {
+      throw const ReaMicroException('请先登录阅微账号');
+    }
+    try {
+      final result = await _api.fetchS3CloudConfig(token);
+      final config = result.encryptedConfig.trim().isEmpty
+          ? null
+          : ReaMicroS3ConfigCrypto.decrypt(result.encryptedConfig, user.id);
+      return ReaMicroS3CloudConfig(
+        enabled: result.enabled,
+        encryptedConfig: result.encryptedConfig,
+        config: config,
+      );
+    } on ReaMicroException catch (error) {
+      await _handleError(error);
+      rethrow;
+    }
+  }
+
+  /// 加密保存 S3 配置到阅微账号；[enabled] 为假时移除云端配置。
+  Future<void> saveCloudS3Config(
+    ReaMicroS3Config config, {
+    required bool enabled,
+  }) async {
+    final token = _token;
+    final user = _user;
+    if (token == null || user == null) {
+      throw const ReaMicroException('请先登录阅微账号');
+    }
+    if (enabled && !config.usable) {
+      throw const ReaMicroException('S3 配置不完整，无法保存到阅微账号');
+    }
+    try {
+      await _api.updateS3CloudConfig(
+        token,
+        enabled: enabled,
+        encryptedConfig: enabled
+            ? ReaMicroS3ConfigCrypto.encrypt(config, user.id)
+            : '',
+      );
+      _s3Message = enabled ? '已加密保存到阅微账号' : '已移除阅微账号中的 S3 配置';
+      _notify();
+    } on ReaMicroException catch (error) {
+      await _handleError(error);
+      rethrow;
+    }
+  }
+
+  /// 读取阅微对象存储配额。
+  Future<ReaMicroStorageQuota> fetchStorageQuota() async {
+    final token = _token;
+    if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    try {
+      return await _api.fetchStorageQuota(token);
+    } on ReaMicroException catch (error) {
+      await _handleError(error);
+      rethrow;
+    }
+  }
+
+  /// 读取阅微对象存储积分流水。
+  Future<ReaMicroCreditLedgerPage> fetchCreditLedger({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final token = _token;
+    if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    try {
+      return await _api.fetchCreditLedger(
+        token,
+        page: page,
+        pageSize: pageSize,
+      );
+    } on ReaMicroException catch (error) {
+      await _handleError(error);
+      rethrow;
+    }
+  }
+
   Future<void> _clearS3BookmarkBases() async {
     _s3BookmarkBases = <String, String>{};
     await _store.clearS3BookmarkBases();

@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:pointycastle/export.dart';
 
 import '../library/library_store.dart';
 import 'rea_micro_cbor.dart';
@@ -37,6 +39,7 @@ class ReaMicroS3Config {
     required this.accessKey,
     required this.secretKey,
     required this.prefix,
+    this.provider = 'S3',
   });
 
   /// 空配置。
@@ -47,6 +50,7 @@ class ReaMicroS3Config {
     accessKey: '',
     secretKey: '',
     prefix: 'reamicro',
+    provider: 'S3',
   );
 
   /// 从 JSON 恢复。
@@ -57,6 +61,7 @@ class ReaMicroS3Config {
     }
 
     return ReaMicroS3Config(
+      provider: read('provider', 'S3'),
       endpoint: read('endpoint'),
       bucket: read('bucket'),
       region: read('region', 'us-east-1'),
@@ -83,6 +88,9 @@ class ReaMicroS3Config {
 
   /// 同步目录前缀。
   final String prefix;
+
+  /// 阅微同步提供方；当前支持 `S3` 与账号内置 `Mote`。
+  final String provider;
 
   /// 是否具备同步所需的全部字段。
   bool get usable =>
@@ -127,6 +135,7 @@ class ReaMicroS3Config {
 
   /// 转换为可持久化 JSON。
   Map<String, Object?> toJson() => <String, Object?>{
+    'provider': provider,
     'endpoint': endpoint,
     'bucket': bucket,
     'region': region,
@@ -143,7 +152,9 @@ class ReaMicroS3Config {
     String? accessKey,
     String? secretKey,
     String? prefix,
+    String? provider,
   }) => ReaMicroS3Config(
+    provider: provider ?? this.provider,
     endpoint: endpoint ?? this.endpoint,
     bucket: bucket ?? this.bucket,
     region: region ?? this.region,
@@ -151,6 +162,104 @@ class ReaMicroS3Config {
     secretKey: secretKey ?? this.secretKey,
     prefix: prefix ?? this.prefix,
   );
+}
+
+/// 阅微账号加密保存的 S3 配置。
+class ReaMicroS3CloudConfig {
+  /// 创建云端配置。
+  const ReaMicroS3CloudConfig({
+    required this.enabled,
+    required this.encryptedConfig,
+    this.config,
+  });
+
+  /// 云端是否启用了配置同步。
+  final bool enabled;
+
+  /// 云端返回的加密配置原文。
+  final String encryptedConfig;
+
+  /// 已解密并解析的配置；无法解密时为空。
+  final ReaMicroS3Config? config;
+
+  /// 是否可直接载入配置。
+  bool get usable => enabled && config != null && config!.usable;
+}
+
+/// 与阅微一致的账号级 S3 配置加密。
+///
+/// 密钥取 `reamicro-s3-config-v1:<userId>` 的前 16 个 UTF-8 字节，
+/// 使用 AES-128-CBC 和 PKCS#7 填充，输出为 `IV + 密文` 的 Base64。
+class ReaMicroS3ConfigCrypto {
+  ReaMicroS3ConfigCrypto._();
+
+  static const String _keyPrefix = 'reamicro-s3-config-v1:';
+
+  /// 加密配置。
+  static String encrypt(ReaMicroS3Config config, int userId) {
+    final plain = Uint8List.fromList(utf8.encode(jsonEncode(config.toJson())));
+    final padding = 16 - plain.length % 16;
+    final padded = Uint8List(plain.length + padding)
+      ..setRange(0, plain.length, plain)
+      ..fillRange(plain.length, plain.length + padding, padding);
+    final iv = Uint8List.fromList(
+      List<int>.generate(16, (_) => Random.secure().nextInt(256)),
+    );
+    final cipher = CBCBlockCipher(AESEngine())
+      ..init(
+        true,
+        ParametersWithIV<KeyParameter>(KeyParameter(_key(userId)), iv),
+      );
+    final encrypted = Uint8List(padded.length);
+    for (var offset = 0; offset < padded.length; offset += 16) {
+      cipher.processBlock(padded, offset, encrypted, offset);
+    }
+    return base64Encode(<int>[...iv, ...encrypted]);
+  }
+
+  /// 解密配置；格式或填充无效时返回空。
+  static ReaMicroS3Config? decrypt(String value, int userId) {
+    try {
+      final raw = base64Decode(value.trim());
+      if (raw.length <= 16 || raw.length % 16 != 0) return null;
+      final iv = Uint8List.sublistView(raw, 0, 16);
+      final encrypted = Uint8List.sublistView(raw, 16);
+      final cipher = CBCBlockCipher(AESEngine())
+        ..init(
+          false,
+          ParametersWithIV<KeyParameter>(KeyParameter(_key(userId)), iv),
+        );
+      final plain = Uint8List(encrypted.length);
+      for (var offset = 0; offset < encrypted.length; offset += 16) {
+        cipher.processBlock(encrypted, offset, plain, offset);
+      }
+      final padding = plain.last;
+      if (padding < 1 ||
+          padding > 16 ||
+          plain.length < padding ||
+          plain
+              .sublist(plain.length - padding)
+              .any((byte) => byte != padding)) {
+        return null;
+      }
+      final decoded = jsonDecode(
+        utf8.decode(Uint8List.sublistView(plain, 0, plain.length - padding)),
+      );
+      if (decoded is! Map<String, Object?>) return null;
+      return ReaMicroS3Config.fromJson(decoded);
+    } on FormatException {
+      return null;
+    } on ArgumentError {
+      return null;
+    }
+  }
+
+  static Uint8List _key(int userId) {
+    final bytes = utf8.encode('$_keyPrefix$userId');
+    final key = Uint8List(16);
+    key.setRange(0, min(16, bytes.length), bytes.take(16));
+    return key;
+  }
 }
 
 /// 一次 S3 对象读取结果。

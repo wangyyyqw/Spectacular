@@ -1333,6 +1333,133 @@ class ReaMicroMilestone {
   }
 }
 
+/// 阅微账号的对象存储配额。
+class ReaMicroStorageQuota {
+  /// 创建配额。
+  const ReaMicroStorageQuota({
+    required this.capacityBytes,
+    required this.capacityGib,
+    required this.credit,
+    required this.usedBytes,
+  });
+
+  /// 总容量（字节）。
+  final int capacityBytes;
+
+  /// 总容量（GiB，服务端直接返回）。
+  final int capacityGib;
+
+  /// 可用于扩容的积分。
+  final int credit;
+
+  /// 已使用容量（字节）。
+  final int usedBytes;
+
+  /// 已使用比例，无容量时为 0。
+  double get usedRatio => capacityBytes <= 0
+      ? 0
+      : (usedBytes / capacityBytes).clamp(0.0, 1.0).toDouble();
+
+  /// 从接口数据解析。
+  factory ReaMicroStorageQuota.fromJson(Map<String, Object?> json) =>
+      ReaMicroStorageQuota(
+        capacityBytes: _intValue(json['capacityBytes']),
+        capacityGib: _intValue(json['capacityGib']),
+        credit: _intValue(json['credit']),
+        usedBytes: _intValue(json['usedBytes']),
+      );
+}
+
+/// 一条对象存储积分流水。
+class ReaMicroCreditLedgerItem {
+  /// 创建流水。
+  const ReaMicroCreditLedgerItem({
+    required this.action,
+    required this.amount,
+    required this.balanceAfter,
+    required this.objectKey,
+    required this.operation,
+    required this.createTime,
+  });
+
+  /// 积分动作。
+  final String action;
+
+  /// 本次变更积分。
+  final int amount;
+
+  /// 变更后余额。
+  final int balanceAfter;
+
+  /// 关联对象。
+  final String objectKey;
+
+  /// 操作说明。
+  final String operation;
+
+  /// 发生时间（毫秒时间戳）。
+  final int createTime;
+
+  /// 从接口数据解析。
+  factory ReaMicroCreditLedgerItem.fromJson(Map<String, Object?> json) =>
+      ReaMicroCreditLedgerItem(
+        action: _stringValue(json['action']) ?? '',
+        amount: _intValue(json['amount']),
+        balanceAfter: _intValue(json['balanceAfter']),
+        objectKey: _stringValue(json['objectKey']) ?? '',
+        operation: _stringValue(json['operation']) ?? '',
+        createTime: _timestampMillis(json['createTime']),
+      );
+}
+
+/// 对象存储积分流水分页。
+class ReaMicroCreditLedgerPage {
+  /// 创建分页。
+  const ReaMicroCreditLedgerPage({required this.items, required this.hasMore});
+
+  /// 当前页流水。
+  final List<ReaMicroCreditLedgerItem> items;
+
+  /// 是否还有下一页。
+  final bool hasMore;
+
+  /// 从接口数据解析。
+  factory ReaMicroCreditLedgerPage.fromJson(Map<String, Object?> json) {
+    final raw = json['list'];
+    return ReaMicroCreditLedgerPage(
+      items: <ReaMicroCreditLedgerItem>[
+        if (raw is List<Object?>)
+          for (final item in raw)
+            if (item is Map<String, Object?>)
+              ReaMicroCreditLedgerItem.fromJson(item),
+      ],
+      hasMore: json['hasMore'] == true,
+    );
+  }
+}
+
+/// 阅微账号保存的 S3 同步配置响应。
+class ReaMicroS3CloudConfigResponse {
+  /// 创建响应。
+  const ReaMicroS3CloudConfigResponse({
+    required this.enabled,
+    required this.encryptedConfig,
+  });
+
+  /// 云端是否启用。
+  final bool enabled;
+
+  /// 配置密文。
+  final String encryptedConfig;
+
+  /// 从接口数据解析。
+  factory ReaMicroS3CloudConfigResponse.fromJson(Map<String, Object?> json) =>
+      ReaMicroS3CloudConfigResponse(
+        enabled: json['enabled'] == true,
+        encryptedConfig: _stringValue(json['encryptedConfig']) ?? '',
+      );
+}
+
 /// 阅微写操作结果。
 class ReaMicroActionResult {
   /// 创建结果。

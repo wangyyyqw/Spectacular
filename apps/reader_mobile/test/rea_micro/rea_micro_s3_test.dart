@@ -13,6 +13,28 @@ import 'package:reader_mobile/rea_micro/rea_micro_s3.dart';
 import '../support/test_epub.dart';
 
 void main() {
+  test('账号 S3 配置加密与阅微使用的 AES-128-CBC 格式一致', () {
+    const encrypted =
+        'AAECAwQFBgcICQoLDA0OD5p8bTcR0DDhb+8tWXAtCLpdEXIYtpGeZD4cKGjGIOFc'
+        'JMNdjKgdWFvbZtFUiCQ1Oe6BeRYzE+ljqM9hnoymn8pltSlNr6aS7x+JkYzR2fb7'
+        'tCBqfMz7MDS6ihDthNl2vzHDZXcPNUtl3j42N8fJZtUL9ai7X+dHHGvXj3U8ba'
+        '+ZbTMusL1POUHjA+kBO0SEJ9tJ8fHgfJRoPhfL0QfPjoM=';
+
+    final config = ReaMicroS3ConfigCrypto.decrypt(encrypted, 3);
+
+    expect(config, isNotNull);
+    expect(config!.provider, 'S3');
+    expect(config.endpoint, 'https://s3.example.com');
+    expect(config.bucket, 'bucket');
+    expect(config.secretKey, 'secret');
+
+    final roundTrip = ReaMicroS3ConfigCrypto.decrypt(
+      ReaMicroS3ConfigCrypto.encrypt(config, 3),
+      3,
+    );
+    expect(roundTrip?.toJson(), config.toJson());
+  });
+
   test('CBOR 编码与解码保持类型和字段', () {
     final source = <String, Object?>{
       'v': 1,

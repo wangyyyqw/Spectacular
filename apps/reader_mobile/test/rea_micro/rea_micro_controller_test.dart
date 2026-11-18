@@ -9,6 +9,7 @@ import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_lan.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_s3.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
@@ -163,6 +164,20 @@ class _FakeApi implements ReaMicroApi {
     listeningDurationSeconds: 0,
     readingDurationSeconds: 0,
   );
+  ReaMicroS3CloudConfigResponse s3CloudConfig =
+      const ReaMicroS3CloudConfigResponse(enabled: false, encryptedConfig: '');
+  ReaMicroStorageQuota storageQuota = const ReaMicroStorageQuota(
+    capacityBytes: 1073741824,
+    capacityGib: 1,
+    credit: 0,
+    usedBytes: 0,
+  );
+  ReaMicroCreditLedgerPage creditLedger = const ReaMicroCreditLedgerPage(
+    items: <ReaMicroCreditLedgerItem>[],
+    hasMore: false,
+  );
+  final List<ReaMicroS3Config> cloudS3Uploads = <ReaMicroS3Config>[];
+  bool cloudS3Enabled = false;
   ReaMicroPeriodStats period = const ReaMicroPeriodStats(
     days: <ReaMicroDayDuration>[],
     months: <ReaMicroMonthDuration>[],
@@ -387,6 +402,50 @@ class _FakeApi implements ReaMicroApi {
       throw const ReaMicroException('登录已失效', unauthorized: true);
     }
     return List<ReaMicroMilestone>.of(milestones);
+  }
+
+  @override
+  Future<ReaMicroS3CloudConfigResponse> fetchS3CloudConfig(String token) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    return s3CloudConfig;
+  }
+
+  @override
+  Future<void> updateS3CloudConfig(
+    String token, {
+    required bool enabled,
+    required String encryptedConfig,
+  }) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    cloudS3Enabled = enabled;
+    if (enabled) {
+      final config = ReaMicroS3ConfigCrypto.decrypt(encryptedConfig, 1);
+      if (config != null) cloudS3Uploads.add(config);
+    }
+  }
+
+  @override
+  Future<ReaMicroStorageQuota> fetchStorageQuota(String token) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    return storageQuota;
+  }
+
+  @override
+  Future<ReaMicroCreditLedgerPage> fetchCreditLedger(
+    String token, {
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    if (unauthorized) {
+      throw const ReaMicroException('登录已失效', unauthorized: true);
+    }
+    return creditLedger;
   }
 
   @override
@@ -991,6 +1050,38 @@ void main() {
     expect(await ReaMicroStore(library).loadCloudPrimary(), isTrue);
     expect(controller.cloudStats?.overview.totalDurationSeconds, 7200);
     expect(controller.cloudStats?.overview.years, <int>[2025, 2026]);
+  });
+
+  test('S3 配置加密保存到阅微账号并可重新载入', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    const config = ReaMicroS3Config(
+      endpoint: 'https://s3.example.com',
+      bucket: 'bucket',
+      region: 'us-east-1',
+      accessKey: 'access',
+      secretKey: 'secret',
+      prefix: 'reamicro',
+    );
+
+    await controller.saveCloudS3Config(config, enabled: true);
+
+    expect(api.cloudS3Enabled, isTrue);
+    expect(api.cloudS3Uploads.single.toJson(), config.toJson());
+    api.s3CloudConfig = ReaMicroS3CloudConfigResponse(
+      enabled: true,
+      encryptedConfig: ReaMicroS3ConfigCrypto.encrypt(config, 1),
+    );
+    final cloud = await controller.fetchCloudS3Config();
+
+    expect(cloud.enabled, isTrue);
+    expect(cloud.usable, isTrue);
+    expect(cloud.config?.bucket, 'bucket');
+
+    await controller.saveCloudS3Config(config, enabled: false);
+    expect(api.cloudS3Enabled, isFalse);
   });
 
   test('按书名和作者自动关联云端书籍', () async {
