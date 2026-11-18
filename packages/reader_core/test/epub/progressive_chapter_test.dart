@@ -192,6 +192,45 @@ void main() {
     expect(source.chapterLayoutCount, 1);
   });
 
+  test('正式引擎横排长章在完成前持续交付第 9、17、31 页且页界与身份不变', () async {
+    final body = _prose(180);
+    final source = await _source(body);
+    final handle = source.scheduleProgressiveChapter(0);
+    final prefixLengths = <int>[];
+    final early = <(PageContent, Object)>[];
+    final subscription = handle.updates.listen((pages) {
+      if (handle.isComplete) return;
+      prefixLengths.add(pages.length);
+      for (final page in pages.skip(early.length)) {
+        early.add((page, _geometry(page)));
+      }
+    });
+    final complete = await handle.result;
+    await subscription.cancel();
+    expect(complete.length, greaterThan(32));
+
+    final baseline = await _source(body);
+    final expected = await baseline.loadChapter(0);
+    expect(complete.map(_geometry), expected.map(_geometry));
+    for (var index = 0; index < early.length; index++) {
+      final (page, geometry) = early[index];
+      expect(page.pageIndex, index);
+      expect(
+        geometry,
+        _geometry(expected[index]),
+        reason: '第 ${index + 1} 页首次交付的布局',
+      );
+      expect(complete[index], same(page), reason: '第 ${index + 1} 页完成后不能替换');
+    }
+    for (final (target, next) in [(9, 17), (17, 31), (31, complete.length)]) {
+      expect(
+        prefixLengths,
+        contains(inInclusiveRange(target, next - 1)),
+        reason: '整章共 ${complete.length} 页，第 $target 页须先于第 $next 页交付',
+      );
+    }
+  });
+
   test('avoid 后继单行的末边距未稳定时不能因已有两页就发布首页', () async {
     final prefix = [
       _box('正文', 70),
@@ -206,25 +245,16 @@ void main() {
     final unsafe = paginator.measureChapter(blocks: prefix).pages;
     expect(unsafe, hasLength(2));
     expect(unsafe.first.slices.map((slice) => slice.block.layout.text), ['正文']);
-    final blocks = collapseMarginsIgnoringFloats(prefix);
-    final stable = await paginator
-        .paginate(
-          blocks: blocks,
-          stableBlockCount: stableMarginPrefixLength(blocks),
-        )
-        .toList();
+    final margins = ProgressiveMargins();
+    Future<void> checkpoint() async {}
+    await margins.append(prefix, checkpoint);
+    final cursor = StablePageCursor(paginator, margins.blocks, 0);
+    final stable = await cursor.advance(margins.stableCount, checkpoint);
     expect(stable, isEmpty);
-    final appended = collapseMarginsIgnoringFloats([
-      ...prefix,
-      _box('新段', 30),
-      _box('再后继', 30),
-    ]);
-    final pages = await paginator
-        .paginate(
-          blocks: appended,
-          stableBlockCount: stableMarginPrefixLength(appended),
-        )
-        .toList();
+    final added = [_box('新段', 30), _box('再后继', 30)];
+    await margins.append(added, checkpoint);
+    final pages = await cursor.advance(margins.stableCount, checkpoint);
+    final appended = collapseMarginsIgnoringFloats([...prefix, ...added]);
     expect(pages.first.slices.map((slice) => slice.block.layout.text), [
       '正文',
       '标题',

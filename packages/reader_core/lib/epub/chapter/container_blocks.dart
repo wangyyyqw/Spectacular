@@ -39,19 +39,6 @@ Future<List<PageBlock>> collapseMarginsIgnoringFloatsAsync(
   return work.result;
 }
 
-/// 已折叠前缀的末个在流块和尾部空块链仍可能随下一块改变，保留在途。
-int stableMarginPrefixLength(List<PageBlock> blocks) {
-  for (var index = blocks.length - 1; index >= 0; index--) {
-    final block = blocks[index];
-    if (!block.absolute &&
-        block.floatSide == null &&
-        !_isSelfCollapsingEmptyBlock(block)) {
-      return index;
-    }
-  }
-  return 0;
-}
-
 /// 浮动分页会把一段拆为多个块，仍保留容器真实首末标记供装饰占位使用。
 List<PageContainerFragment> containerFragmentsFor(
   PageBlock block, {
@@ -231,7 +218,19 @@ class _MarginCollapseWork {
       _flowCount < 2 && !_parentMarginChanged ? source : _blocks;
 
   Iterable<int> steps() sync* {
-    for (final current in source) {
+    yield* append(source);
+    if (_lastEmptyBlock case final block?) {
+      _blocks.add(
+        block.withSpacing(
+          spaceBefore: _pendingEmptyMargins!.extent,
+          spaceAfter: 0,
+        ),
+      );
+    }
+  }
+
+  Iterable<int> append(Iterable<PageBlock> added) sync* {
+    for (final current in added) {
       yield 0;
       if (current.floatSide != null || current.absolute) {
         if (current.floatParentMargins case final parents?) {
@@ -248,14 +247,6 @@ class _MarginCollapseWork {
         continue;
       }
       yield* _flowBlock(current);
-    }
-    if (_lastEmptyBlock case final block?) {
-      _blocks.add(
-        block.withSpacing(
-          spaceBefore: _pendingEmptyMargins!.extent,
-          spaceAfter: 0,
-        ),
-      );
     }
   }
 
@@ -324,6 +315,18 @@ class _MarginCollapseWork {
     }
     _pendingFloatIndices.clear();
   }
+}
+
+/// 已折叠前缀的末个在流块和尾部空块链仍可能随下一块改变，保留在途。
+class ProgressiveMargins {
+  final _work = _MarginCollapseWork(const []);
+  List<PageBlock> get blocks => _work._blocks;
+  int get stableCount => _work._previous ?? 0;
+
+  Future<void> append(
+    Iterable<PageBlock> added,
+    Future<void> Function() checkpoint,
+  ) => _consumeContainerSteps(_work.append(added), checkpoint);
 }
 
 /// 无行内容、装饰或独立高度的空块，上下外边距可穿透折叠。
