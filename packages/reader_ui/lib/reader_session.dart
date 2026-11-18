@@ -1333,7 +1333,7 @@ class ReaderSession extends ChangeNotifier {
   /// 已映射页数。
   int get mappedPageCount => _pager?.mappedPageCount ?? 0;
 
-  /// 当前章页数（P8-10 页家具；章未加载为 0）。
+  /// 当前章的准确总页数；页界尚未确定为 0。
   int get chapterPageCount {
     final current = page;
     if (current == null) {
@@ -1343,9 +1343,7 @@ class ReaderSession extends ChangeNotifier {
   }
 
   /// 总页数未确定时返回 0，不能把已发布数量当作整章页数。
-  int pageCountOf(int spineIndex) => isChapterComplete(spineIndex)
-      ? _pager?.spinePages[spineIndex]?.length ?? 0
-      : 0;
+  int pageCountOf(int spineIndex) => _pager?.pageCountOf(spineIndex) ?? 0;
 
   bool isChapterComplete(int spineIndex) =>
       _pager?.isChapterComplete(spineIndex) ?? false;

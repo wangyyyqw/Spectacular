@@ -67,6 +67,7 @@ class ChapterPageLayout {
     final ChapterPaginationResult result;
     if (traits.floats) {
       final floated = await _FloatPagination(this, input).run();
+      _publishPageCount(floated);
       final pages = await _withFixedOverlays(floated, overlays);
       result = ChapterPaginationResult(
         pages: await _finishChapterPages(pages, background),
@@ -111,6 +112,7 @@ class ChapterPageLayout {
   ) async {
     final replay = await _replayIndex(cachedIndex, blocks);
     if (replay.pages case final pages?) {
+      _publishPageCount(pages);
       return ChapterPaginationResult(
         pages: await _finishChapterPages(
           await _withFixedOverlays(pages, fixed),
@@ -120,6 +122,7 @@ class ChapterPageLayout {
       );
     }
     final pages = await _measurePages(blocks);
+    _publishPageCount(pages);
     final finished = await _finishChapterPages(
       await _withFixedOverlays(pages, fixed),
       background,
@@ -130,6 +133,12 @@ class ChapterPageLayout {
       pageIndex: skipIndex ? null : await _encodeIndex(finished, blocks),
       indexDiagnostic: replay.diagnostic,
     );
+  }
+
+  void _publishPageCount(List<PageContent> pages) {
+    budget.check();
+    // 空正文也由正式入口补一页；覆盖层和背景处理不会再改变页界。
+    budget.publishPageCount?.call(pages.isEmpty ? 1 : pages.length);
   }
 
   Future<Uint8List> _encodeIndex(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -125,6 +127,35 @@ PageBlock _box(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('正式引擎完整页界确定即发布总数，缓存收尾仍在后台且首页身份不变', () async {
+    final source = await _source(_prose());
+    final handle = source.scheduleProgressiveChapter(0);
+    final first = await handle.firstPages;
+    expect(handle.pageCount, isNull, reason: '稳定前缀不能当作整章总数');
+    final counted = Completer<int>();
+    final subscription = handle.updates.listen((_) {
+      if (handle.pageCount case final count?) {
+        source.setBackgroundLayoutPaused(true);
+        if (!counted.isCompleted) counted.complete(count);
+      }
+    });
+    addTearDown(subscription.cancel);
+    final count = await counted.future;
+    expect(count, greaterThan(first.length));
+    expect(handle.isComplete, isFalse, reason: '总数不等待页索引和缓存统计');
+    expect(handle.availablePages.first, same(first.first));
+    final shared = source.scheduleProgressiveChapter(0);
+    expect((await shared.firstPages).first, same(first.first));
+    expect(shared.pageCount, count, reason: '同键新等待者立即取得已确定总数');
+    shared.cancel();
+    await subscription.cancel();
+    source.setBackgroundLayoutPaused(false);
+    final pages = await handle.result;
+    expect(pages, hasLength(count));
+    expect(pages.first, same(first.first));
+    expect(source.chapterLayoutCount, 1);
+  });
+
   test('正式引擎先交付稳定首页，完整消费者接管同一作业且页面不回变', () async {
     final body = '<h3>章节标题</h3>${_prose()}';
     final source = await _source(body);
@@ -249,6 +280,7 @@ void main() {
       final handle = source.scheduleProgressiveChapter(0);
       final first = await handle.firstPages;
       expect(handle.isComplete, isTrue);
+      expect(handle.pageCount, first.length);
       expect(await handle.result, same(first));
     });
   }

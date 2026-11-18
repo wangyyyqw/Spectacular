@@ -60,6 +60,7 @@ class VirtualPager {
   final Map<int, List<PageContent>> _spinePages = {};
   final List<int> _spineOrder = <int>[];
   final Map<int, int> _spinePageCounts = <int, int>{};
+  final Map<int, int> _chapterPageCounts = <int, int>{};
   final Map<int, int> _pageOffsets = <int, int>{};
   final Map<int, Future<void>> _pendingLoads = {};
   final Set<int> _pendingPrefetchSpines = {};
@@ -87,6 +88,9 @@ class VirtualPager {
 
   bool isChapterComplete(int spine) =>
       _spinePages.containsKey(spine) && !_partialSpines.contains(spine);
+
+  /// 同一版面的准确总数可以先于完整结果交付，并在页窗口移出后复用。
+  int pageCountOf(int spine) => _chapterPageCounts[spine] ?? 0;
 
   Future<List<PageContent>> completeChapter(
     int spine, {
@@ -396,7 +400,12 @@ class VirtualPager {
       }
       final pages = await handle.firstPages;
       if (identical(_progressiveLoads[spine], handle)) {
-        _storeSpine(spine, pages, complete: handle.isComplete);
+        _storeSpine(
+          spine,
+          pages,
+          complete: handle.isComplete,
+          pageCount: handle.pageCount,
+        );
       }
       return;
     }
@@ -462,7 +471,12 @@ class VirtualPager {
     _partialSpines.add(spine);
     _pageSubscriptions[spine] = handle.updates.listen((pages) {
       if (identical(_progressiveLoads[spine], handle)) {
-        _storeSpine(spine, pages, complete: handle.isComplete);
+        _storeSpine(
+          spine,
+          pages,
+          complete: handle.isComplete,
+          pageCount: handle.pageCount,
+        );
       }
     });
     unawaited(
@@ -550,9 +564,15 @@ class VirtualPager {
     ),
   );
 
-  void _storeSpine(int spine, List<PageContent> pages, {bool complete = true}) {
+  void _storeSpine(
+    int spine,
+    List<PageContent> pages, {
+    bool complete = true,
+    int? pageCount,
+  }) {
     final previous = _spinePages[spine];
     final wasComplete = isChapterComplete(spine);
+    final previousCount = pageCountOf(spine);
     // 同配置下被取消的后台作业可重启；此前可见页仍保留原身份。
     if (previous != null && !wasComplete) {
       if (pages.length < previous.length) return;
@@ -560,14 +580,19 @@ class VirtualPager {
     }
     _spinePages[spine] = List<PageContent>.unmodifiable(pages);
     if (complete) _partialSpines.remove(spine);
+    final count = complete ? pages.length : pageCount;
+    if (count != null) _chapterPageCounts[spine] = count;
+    final totalsChanged = previousCount != pageCountOf(spine);
     _recordPageCount(spine, pages.length);
     _touchSpine(spine);
     _trimSpinePages();
     // 普通完整章由原预热等待者消费；空章通知会重复启动跨章扫描。
     if (pages.isNotEmpty &&
         (!complete || previous != null && !wasComplete) &&
-        (previous?.length != pages.length || wasComplete != complete)) {
-      onPagesAvailable?.call(previous != null && !wasComplete && complete);
+        (totalsChanged ||
+            previous?.length != pages.length ||
+            wasComplete != complete)) {
+      onPagesAvailable?.call(totalsChanged);
     }
   }
 
