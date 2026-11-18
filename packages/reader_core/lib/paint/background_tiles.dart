@@ -193,14 +193,18 @@ double _roundedLength(double length, double available) {
   final x = _axisTiles(
     mode: layer.repeat.x,
     length: tile.width,
-    offset: layer.position.x.resolve(bounds.width - tile.width) ?? 0,
+    offset:
+        (layer.position.x.resolve(bounds.width - tile.width) ?? 0) +
+        layer.position.xOffset,
     origin: (start: bounds.left, end: bounds.right),
     painting: (start: painting.left, end: painting.right),
   );
   final y = _axisTiles(
     mode: layer.repeat.y,
     length: tile.height,
-    offset: layer.position.y.resolve(bounds.height - tile.height) ?? 0,
+    offset:
+        (layer.position.y.resolve(bounds.height - tile.height) ?? 0) +
+        layer.position.yOffset,
     origin: (start: bounds.top, end: bounds.bottom),
     painting: (start: painting.top, end: painting.bottom),
   );

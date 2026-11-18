@@ -3071,7 +3071,8 @@ class PagePainter {
         continue;
       }
       final style = run.style;
-      final hasBackground = style.backgroundColor.a > 0;
+      final hasBackground =
+          style.backgroundColor.a > 0 || style.backgroundLayers.isNotEmpty;
       final hasBorder = style.borders.hasBorder;
       if ((!hasBackground && !hasBorder && style.boxShadow == null) ||
           run.end <= run.start) {
@@ -3125,19 +3126,16 @@ class PagePainter {
         );
         _paintOuterShadow(canvas, rect, style);
         if (hasBackground) {
-          final radii = style.borders.radiiFor(rect.size);
-          final backgroundColor = inkMode
-              ? _monochromeBackground(style.backgroundColor)
-              : style.backgroundColor;
-          canvas.drawRRect(
-            RRect.fromRectAndCorners(
-              rect,
-              topLeft: radii.topLeft,
-              topRight: radii.topRight,
-              bottomRight: radii.bottomRight,
-              bottomLeft: radii.bottomLeft,
-            ),
-            Paint()..color = backgroundColor,
+          _paintBackground(
+            canvas,
+            rect,
+            style,
+            startsBlock: true,
+            endsBlock: true,
+            backgroundColorOverride: inkMode && style.backgroundColor.a > 0
+                ? _monochromeBackground(style.backgroundColor)
+                : null,
+            imageColorFilter: inkMode ? _inkImageFilter : null,
           );
         }
         _paintInnerShadow(canvas, rect, style);

@@ -324,6 +324,26 @@ void main() {
     );
   });
 
+  test('四位和八位十六进制颜色的末尾分量是透明度', () {
+    const colors = {
+      '#abcd': Color(0xddaabbcc),
+      '#aabbccdd': Color(0xddaabbcc),
+      '#FFD7A958': Color(0x58ffd7a9),
+      '#000000ff': Color(0xff000000),
+      '#ffffff00': Color(0x00ffffff),
+    };
+    for (final entry in colors.entries) {
+      final parsed = style(
+        'p',
+        'p { color:${entry.key}; '
+            'background-color:${entry.key}; border:1px solid ${entry.key}; }',
+      );
+      expect(parsed.color, entry.value, reason: entry.key);
+      expect(parsed.backgroundColor, entry.value, reason: entry.key);
+      expect(parsed.borders.top.color, entry.value, reason: entry.key);
+    }
+  });
+
   test('字重/斜体/字体族/text-align', () {
     final style1 = style(
       'p',

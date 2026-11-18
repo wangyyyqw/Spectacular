@@ -95,6 +95,61 @@ void _layerParsingTest() {
   });
 }
 
+void _edgePositionTests() {
+  const positions = {
+    'right 20px center': Offset(84, 34),
+    'center right 20px': Offset(84, 34),
+    'bottom 10px right 20px': Offset(84, 58),
+    'right 20px bottom 10px': Offset(84, 58),
+    'left 20px top 10px': Offset(20, 10),
+    'top 10px left 20px': Offset(20, 10),
+    'right 25% bottom 10%': Offset(78, 61.2),
+    'right -2px bottom -2px': Offset(106, 70),
+  };
+  test('三/四值边缘偏移按缩放后的剩余空间解算，允许负值与百分比', () {
+    for (final entry in positions.entries) {
+      final position = _style('background-position:${entry.key}')
+          .backgroundPosition;
+      expect(
+        position.x.resolve(104)! + position.xOffset,
+        closeTo(entry.value.dx, 1e-8),
+        reason: entry.key,
+      );
+      expect(
+        position.y.resolve(68)! + position.yOffset,
+        closeTo(entry.value.dy, 1e-8),
+        reason: entry.key,
+      );
+    }
+  });
+  _edgePaintingTests(positions);
+}
+
+void _edgePaintingTests(Map<String, Offset> positions) {
+  for (final wholePage in [false, true]) {
+    test('${wholePage ? '整页' : '块级'}背景边缘偏移绘制保留指定空隙', () async {
+      final image = await _redImage();
+      addTearDown(image.dispose);
+      for (final entry in positions.entries) {
+        final bytes = await _render(
+          _style(
+            'background-image:url(bg://red);background-size:16px 12px;'
+            'background-repeat:no-repeat;background-position:${entry.key}',
+          ),
+          image,
+          wholePage: wholePage,
+        );
+        expect(
+          _pixel(bytes, entry.value + const Offset(8, 6)),
+          _red,
+          reason: entry.key,
+        );
+        expect(_pixel(bytes, const Offset(60, 40)), _white, reason: entry.key);
+      }
+    });
+  }
+}
+
 Future<ui.Image> _redImage() async {
   final recorder = ui.PictureRecorder();
   Canvas(recorder).drawColor(const Color(0xFFFF0000), BlendMode.src);
@@ -195,6 +250,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   _parsingTests();
   _layerParsingTest();
+  _edgePositionTests();
   _paintingTests();
 }
 

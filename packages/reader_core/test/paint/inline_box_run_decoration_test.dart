@@ -131,6 +131,7 @@ void main() {
       'text-decoration-color': '#ff0000',
     },
     '背景': {'background-color': '#ff0000'},
+    '渐变背景': {'background-image': 'linear-gradient(red, red)'},
     '边框': {'border': '2px solid #ff0000'},
   };
   for (final table in [false, true]) {

@@ -157,6 +157,47 @@ void main() {
     expect(style.backgroundPosition.y.value, 0);
   });
 
+  test('多背景边缘偏移经过简写和继承后保留父字号的像素偏移', () {
+    final parent = _compute(
+      'font-size:20px;background:'
+      'url(a) right 1em center / 16px 12px no-repeat,'
+      'url(b) bottom 2em right 25% / 16px 12px no-repeat',
+    );
+    final child = _compute(
+      'font-size:10px;background-image:url(c),url(d);'
+      'background-position:inherit',
+      parent: parent,
+    );
+    for (final style in [parent, child]) {
+      final first = style.backgroundLayers[0].position;
+      final second = style.backgroundLayers[1].position;
+      expect(first.x.resolve(104)! + first.xOffset, 84);
+      expect(first.y.resolve(68)! + first.yOffset, 34);
+      expect(second.x.resolve(104)! + second.xOffset, 78);
+      expect(second.y.resolve(68)! + second.yOffset, 28);
+    }
+    final overridden = _compute(
+      'background-position:right 20px center;background-position-x:10%',
+    ).backgroundPosition;
+    expect(overridden.x.resolve(100)! + overridden.xOffset, 10);
+  });
+
+  test('边缘偏移的非法轴组合保留较早有效声明', () {
+    for (final invalid in [
+      'right 20px left',
+      'center 20px top',
+      '20px right bottom',
+      'right 10px bottom 20px center',
+      'right bad top',
+    ]) {
+      final position = _compute(
+        'background-position:10% 20%;background-position:$invalid',
+      ).backgroundPosition;
+      expect(position.x.value, 10, reason: invalid);
+      expect(position.y.value, 20, reason: invalid);
+    }
+  });
+
   test('字符串标记经过样式表和内联解析后保留原文与转义', () {
     final cases = <String, String>{
       r'"AbC中文★"': 'AbC中文★',
