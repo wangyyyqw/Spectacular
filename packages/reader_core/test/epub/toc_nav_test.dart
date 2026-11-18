@@ -90,6 +90,25 @@ void main() {
     expect(document.toc[1].spineIndex, 1);
   });
 
+  test('NAV 中的转义文本只解码一次，不会被当成标签或丢失目录层级', () async {
+    final nav = _navOk.replaceFirst(
+      '<li><a href="c1.xhtml">第一章</a></li>',
+      '<li><a href="c1.xhtml">List&lt;T&gt;&nbsp;&amp; Map</a>'
+      '<ol><li><a href="c2.xhtml#s2">&amp;lt;</a></li></ol></li>',
+    );
+    final result = await openEpub(
+      buildZip(_files(nav: true, ncx: false, brokenNav: false, navText: nav)),
+    );
+    final document = result.document!;
+    addTearDown(document.archive.close);
+    expect(document.tocSource, 'nav');
+    final entry = document.toc.first;
+    expect(entry.title, 'List<T>\u00a0& Map');
+    expect(entry.children.single.title, '&lt;');
+    expect(entry.children.single.fragment, 's2');
+    expect(entry.children.single.spineIndex, 1);
+  });
+
   test('NAV 损坏时回退 NCX', () async {
     final result = await openEpub(
       buildZip(_files(nav: true, ncx: true, brokenNav: true)),

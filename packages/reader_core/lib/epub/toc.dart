@@ -366,7 +366,10 @@ extension TocFallback on TocParser {
 
     final XmlDocument document;
     try {
-      document = XmlDocument.parse(_stripBom(_sanitizeEntities(text)));
+      document = XmlDocument.parse(
+        _stripBom(text),
+        entityMapping: const XmlDefaultEntityMapping.html5(),
+      );
     } on FormatException catch (error) {
       throw EpubException('E_TOC_NAV_XML', 'NAV 解析失败：${error.message}');
     }
@@ -560,21 +563,6 @@ abstract final class TocDegrader {
     ];
     return (entries: rebuilt, warnings: warnings);
   }
-}
-
-String _sanitizeEntities(String text) {
-  return text.replaceAllMapped(RegExp(r'&([a-zA-Z][a-zA-Z0-9]+);'), (match) {
-    const known = <String, String>{
-      'amp': '&',
-      'lt': '<',
-      'gt': '>',
-      'quot': '"',
-      'apos': "'",
-      'nbsp': ' ',
-    };
-    final replacement = known[match[1]];
-    return replacement ?? match[0]!;
-  });
 }
 
 /// 目录清洗统计。
