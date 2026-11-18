@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_lan.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_lan_rsa.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_lan_server.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 
 void main() {
   test('授权端显示登录申请并用请求方公钥加密令牌', () async {
@@ -244,6 +245,22 @@ void main() {
           progress: 0.42,
           updatedAt: 1700000000000,
           finished: false,
+          marks: const <ReaMicroLanMark>[
+            ReaMicroLanMark(
+              startCfi: 'epubcfi(/6/4!/4/2,/1:0,/1:6)',
+              endCfi: 'epubcfi(/6/4!/4/2,/1:0,/1:12)',
+              kind: 0,
+              chapter: '',
+              quote: '测试划线',
+              note: '',
+              style: 0,
+              color: '#fff4c542',
+              synced: 1,
+              cloudId: 88,
+              createdAt: 1700000000000,
+              updatedAt: 1700000001000,
+            ),
+          ],
         ),
       ],
     );
@@ -272,6 +289,14 @@ void main() {
     expect(snapshot['title'], '测试书');
     expect(snapshot['epubcfi'], 'epubcfi(/6/4!/4/2)');
     expect(book['progressUpdatedAt'], 1700000000000);
+    final marks = book['marks']! as List<Object?>;
+    expect(marks, hasLength(1));
+    final mark = marks.single! as Map<String, Object?>;
+    expect(mark['startCfi'], 'epubcfi(/6/4!/4/2,/1:0,/1:6)');
+    expect(mark['quote'], '测试划线');
+    expect(mark['color'], '#fff4c542');
+    expect(mark['cloudId'], 88);
+    expect(mark['updatedAt'], 1700000001000);
     final files = book['files']! as List<Object?>;
     expect(files, hasLength(3));
     expect(

@@ -2629,25 +2629,58 @@ class ReaMicroController extends ChangeNotifier {
     final entries = await _library.list();
     final progress = await _rawProgressStore?.snapshot() ??
         const <String, ReaderProgress>{};
-    return <ReaMicroLanServedBook>[
-      for (final entry in entries)
-        if (entry.filePath.trim().isNotEmpty)
-          ReaMicroLanServedBook(
-            uuid: entry.id,
-            title: entry.title,
-            author: entry.author,
-            filePath: entry.filePath,
-            cloudId: _links[entry.id]?.cloudBookId ?? 0,
-            cfi: progress[entry.id]?.cfi ?? '',
-            chapterName: progress[entry.id]?.chapterTitle ?? '',
-            progress: progress[entry.id]?.readingPercent ?? 0,
-            updatedAt:
-                _progressStates[entry.id]?.localUpdatedAt ??
-                entry.lastReadAt?.millisecondsSinceEpoch ??
-                0,
-            finished: progress[entry.id]?.finished ?? false,
-          ),
-    ];
+    final books = <ReaMicroLanServedBook>[];
+    for (final entry in entries) {
+      if (entry.filePath.trim().isEmpty) continue;
+      books.add(
+        ReaMicroLanServedBook(
+          uuid: entry.id,
+          title: entry.title,
+          author: entry.author,
+          filePath: entry.filePath,
+          cloudId: _links[entry.id]?.cloudBookId ?? 0,
+          cfi: progress[entry.id]?.cfi ?? '',
+          chapterName: progress[entry.id]?.chapterTitle ?? '',
+          progress: progress[entry.id]?.readingPercent ?? 0,
+          updatedAt:
+              _progressStates[entry.id]?.localUpdatedAt ??
+              entry.lastReadAt?.millisecondsSinceEpoch ??
+              0,
+          finished: progress[entry.id]?.finished ?? false,
+          marks: await _lanMarksOf(entry),
+        ),
+      );
+    }
+    return books;
+  }
+
+  /// 将本机标注转换为局域网清单可用的快照。
+  Future<List<ReaMicroLanMark>> _lanMarksOf(BookEntry entry) async {
+    try {
+      final annotations = await _library.listBookAnnotations(entry.id);
+      return <ReaMicroLanMark>[
+        for (final annotation in annotations)
+          if (annotation.startCfi.trim().isNotEmpty)
+            ReaMicroLanMark(
+              startCfi: annotation.startCfi,
+              endCfi: annotation.endCfi,
+              kind: annotation.type.storageValue,
+              chapter: '',
+              quote: annotation.quote,
+              note: annotation.note ?? '',
+              style: annotation.style.storageValue,
+              color: _colorToRemote(annotation.color),
+              synced: (_markIds['${entry.id}|${annotation.id}'] ?? 0) > 0
+                  ? 1
+                  : 0,
+              cloudId: _markIds['${entry.id}|${annotation.id}'] ?? 0,
+              createdAt: annotation.createdAt.millisecondsSinceEpoch,
+              updatedAt: annotation.updatedAt.millisecondsSinceEpoch,
+            ),
+      ];
+    } catch (_) {
+      return const <ReaMicroLanMark>[];
+    }
   }
 
   void _onLanLoginRequestsChanged(List<ReaMicroLanLoginRequest> requests) {
