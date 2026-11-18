@@ -99,6 +99,12 @@ bool retainsContainer(BlockNode node, ComputedStyle style) {
     'footer',
     'blockquote',
     'figure',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
   };
   final splitInlineFlow =
       node is PromotedBlockNode ||
