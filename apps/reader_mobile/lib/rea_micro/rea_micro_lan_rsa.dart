@@ -46,11 +46,50 @@ class ReaMicroLanRsa {
     return base64Encode(subjectPublicKeyInfo.encode());
   }
 
+  /// 解析请求方提交的 X.509 RSA 公钥。
+  static RSAPublicKey decodePublicKey(String encoded) {
+    final decoded = base64Decode(encoded.trim());
+    final subjectPublicKeyInfo = ASN1Sequence.fromBytes(decoded);
+    final elements = subjectPublicKeyInfo.elements;
+    if (elements == null ||
+        elements.length < 2 ||
+        elements[1] is! ASN1BitString) {
+      throw const FormatException('RSA 公钥格式不正确');
+    }
+    final bitString = elements[1] as ASN1BitString;
+    final values = bitString.stringValues;
+    if (values is! List<int> || values.isEmpty) {
+      throw const FormatException('RSA 公钥内容为空');
+    }
+    final rsa = ASN1Sequence.fromBytes(Uint8List.fromList(values));
+    final parameters = rsa.elements;
+    if (parameters == null ||
+        parameters.length < 2 ||
+        parameters[0] is! ASN1Integer ||
+        parameters[1] is! ASN1Integer) {
+      throw const FormatException('RSA 公钥参数不完整');
+    }
+    final modulus = (parameters[0] as ASN1Integer).integer;
+    final exponent = (parameters[1] as ASN1Integer).integer;
+    if (modulus == null || exponent == null) {
+      throw const FormatException('RSA 公钥参数为空');
+    }
+    return RSAPublicKey(modulus, exponent);
+  }
+
   /// 使用 RSA/ECB/PKCS1Padding 解密服务端返回的令牌。
   static String decryptToken(String encrypted, RSAPrivateKey key) {
     final engine = PKCS1Encoding(RSAEngine())
       ..init(false, PrivateKeyParameter<RSAPrivateKey>(key));
     final clear = engine.process(base64Decode(encrypted.trim()));
     return utf8.decode(clear, allowMalformed: true).trim();
+  }
+
+  /// 使用请求方公钥加密访问令牌，返回 Base64 密文。
+  static String encryptToken(String token, RSAPublicKey key) {
+    final engine = PKCS1Encoding(RSAEngine())
+      ..init(true, PublicKeyParameter<RSAPublicKey>(key));
+    final encrypted = engine.process(Uint8List.fromList(utf8.encode(token)));
+    return base64Encode(encrypted);
   }
 }

@@ -12,6 +12,7 @@ import '../library/library_store.dart';
 import '../storage/reading_session_store.dart';
 import 'rea_micro_api_client.dart';
 import 'rea_micro_lan.dart';
+import 'rea_micro_lan_server.dart';
 import 'rea_micro_models.dart';
 import 'rea_micro_progress_mapping.dart';
 import 'rea_micro_progress_store.dart';
@@ -50,6 +51,8 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroStore? store,
     ReaderProgressStore? progressStore,
     ReaMicroLanClient? lan,
+    ReaMicroLanLoginServer? lanLoginServer,
+    bool enableLanLoginServer = true,
     ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
   }) : _library = library,
        _api = api ?? ReaMicroApiClient(),
@@ -57,10 +60,13 @@ class ReaMicroController extends ChangeNotifier {
        _rawProgressStore = progressStore,
        // ignore: prefer_initializing_formals
        _s3ClientFactory = s3ClientFactory,
+       _lanLoginServerEnabled = enableLanLoginServer,
+       _lanLoginServer = lanLoginServer ?? ReaMicroLanLoginServer(),
        _lan = lan ?? ReaMicroLanClient() {
     _trackedProgressStore = progressStore == null
         ? null
         : ReaMicroTrackingProgressStore(progressStore, _onLocalProgressSaved);
+    _lanLoginServer.onRequestsChanged = _onLanLoginRequestsChanged;
   }
 
   final LibraryStore _library;
@@ -68,6 +74,8 @@ class ReaMicroController extends ChangeNotifier {
   final ReaMicroStore _store;
   final ReaderProgressStore? _rawProgressStore;
   final ReaMicroLanClient _lan;
+  final ReaMicroLanLoginServer _lanLoginServer;
+  final bool _lanLoginServerEnabled;
   final ReaMicroS3Client Function(ReaMicroS3Config config)? _s3ClientFactory;
   late final ReaderProgressStore? _trackedProgressStore;
 
@@ -98,6 +106,9 @@ class ReaMicroController extends ChangeNotifier {
   bool _lanScanning = false;
   bool _lanLoggingIn = false;
   bool _lanSyncing = false;
+  List<ReaMicroLanLoginRequest> _lanLoginRequests =
+      const <ReaMicroLanLoginRequest>[];
+  String? _lanAuthorizationError;
   String? _lanMessage;
   bool _cloudAsPrimary = false;
   ReaMicroCloudStats? _cloudStats;
@@ -173,6 +184,15 @@ class ReaMicroController extends ChangeNotifier {
   /// 正在与局域网设备同步。
   bool get lanSyncing => _lanSyncing;
 
+  /// 其他设备发往本机、等待批准的登录申请。
+  List<ReaMicroLanLoginRequest> get lanLoginRequests => _lanLoginRequests;
+
+  /// 本机局域网授权服务是否正在监听。
+  bool get lanAuthorizationRunning => _lanLoginServer.running;
+
+  /// 本机局域网授权服务错误。
+  String? get lanAuthorizationError => _lanAuthorizationError;
+
   /// 最近一次局域网操作结果。
   String? get lanMessage => _lanMessage;
 
@@ -246,6 +266,7 @@ class ReaMicroController extends ChangeNotifier {
     if (_token != null) {
       await refresh(silent: true);
       if (!_disposed && _token != null) {
+        await _startLanAuthorization();
         await _restoreCloudS3Config(silent: true);
         if (_cloudAsPrimary) {
           _startCloudAutoSync();
@@ -1141,6 +1162,7 @@ class ReaMicroController extends ChangeNotifier {
       await _refreshInternal(token, silent: true);
       await _seedProgressStatesFromLocal(markDirty: false);
       await _restoreCloudS3Config(silent: true);
+      await _startLanAuthorization();
       scheduleReadingSync(delay: const Duration(seconds: 2));
       return true;
     } catch (error) {
@@ -1155,6 +1177,7 @@ class ReaMicroController extends ChangeNotifier {
   /// 退出登录，保留本地阅读记录和书籍关联。
   Future<void> logout() async {
     _stopCloudAutoSync();
+    await _stopLanAuthorization();
     _cloudAsPrimary = false;
     await _store.saveCloudPrimary(false);
     await _store.clearAuth();
@@ -1169,6 +1192,7 @@ class ReaMicroController extends ChangeNotifier {
     _lastRefreshAt = null;
     _lanLoginDevices = const <ReaMicroLanLoginDevice>[];
     _lanSyncPeers = const <ReaMicroLanSyncPeer>[];
+    _lanLoginRequests = const <ReaMicroLanLoginRequest>[];
     _lanMessage = null;
     _cloudStats = null;
     _cloudStatsAt = null;
@@ -2458,8 +2482,8 @@ class ReaMicroController extends ChangeNotifier {
     _error = null;
     _notify();
     try {
-      _lanLoginDevices = await _lan.discoverLoginDevices(
-        excludeUserId: _user?.id.toString(),
+      _lanLoginDevices = await _withLanAdvertisementPaused(
+        () => _lan.discoverLoginDevices(excludeUserId: _user?.id.toString()),
       );
       _lanMessage = _lanLoginDevices.isEmpty
           ? '未发现开启局域网登录的阅微设备'
@@ -2496,6 +2520,7 @@ class ReaMicroController extends ChangeNotifier {
       _notice = '已通过局域网授权登录';
       await _refreshInternal(token, silent: true);
       await _restoreCloudS3Config(silent: true);
+      await _startLanAuthorization();
       scheduleReadingSync(delay: const Duration(seconds: 2));
       return true;
     } catch (error) {
@@ -2514,7 +2539,9 @@ class ReaMicroController extends ChangeNotifier {
     _error = null;
     _notify();
     try {
-      final peers = await _lan.discoverSyncPeers(excludeDeviceId: _deviceId);
+      final peers = await _withLanAdvertisementPaused(
+        () => _lan.discoverSyncPeers(excludeDeviceId: _deviceId),
+      );
       final userId = _user?.id;
       _lanSyncPeers = userId == null
           ? peers
@@ -2531,6 +2558,115 @@ class ReaMicroController extends ChangeNotifier {
     } finally {
       _lanScanning = false;
       _notify();
+    }
+  }
+
+  /// 批准其他设备的局域网授权登录申请。
+  Future<void> approveLanLoginRequest(String requestId) async {
+    _lanAuthorizationError = null;
+    _lanMessage = null;
+    try {
+      await _lanLoginServer.approve(requestId);
+      _lanMessage = '已批准该设备登录';
+    } catch (error) {
+      _lanAuthorizationError = _messageOf(error);
+    }
+    _notify();
+  }
+
+  /// 拒绝其他设备的局域网授权登录申请。
+  Future<void> rejectLanLoginRequest(String requestId) async {
+    _lanAuthorizationError = null;
+    _lanMessage = null;
+    try {
+      await _lanLoginServer.reject(requestId);
+      _lanMessage = '已拒绝该设备登录';
+    } catch (error) {
+      _lanAuthorizationError = _messageOf(error);
+    }
+    _notify();
+  }
+
+  /// 重试启动本机局域网授权服务。
+  Future<void> retryLanAuthorization() async {
+    await _startLanAuthorization(force: true);
+    _notify();
+  }
+
+  Future<void> _startLanAuthorization({bool force = false}) async {
+    if (!_lanLoginServerEnabled) return;
+    final token = _token;
+    final user = _user;
+    if (token == null || user == null) return;
+    if (_lanLoginServer.running && !force) {
+      _lanLoginServer.updateToken(token);
+      return;
+    }
+    try {
+      await _lanLoginServer.start(
+        userId: user.id,
+        nickname: user.nickName,
+        avatar: user.avatar,
+        token: token,
+        deviceId: _deviceId ?? 'spectacular',
+        deviceName: Platform.isWindows ? 'Windows 电脑' : 'Spectacular 设备',
+        syncBooks: _buildLanSyncBooks,
+      );
+      _lanAuthorizationError = _lanLoginServer.lastError;
+    } catch (error) {
+      _lanAuthorizationError = _messageOf(error);
+    }
+  }
+
+  Future<void> _stopLanAuthorization() async {
+    _lanLoginRequests = const <ReaMicroLanLoginRequest>[];
+    _lanAuthorizationError = null;
+    await _lanLoginServer.stop();
+  }
+
+  /// 构造同账号设备可读取的本地书籍快照。
+  Future<List<ReaMicroLanServedBook>> _buildLanSyncBooks() async {
+    final entries = await _library.list();
+    final progress = await _rawProgressStore?.snapshot() ??
+        const <String, ReaderProgress>{};
+    return <ReaMicroLanServedBook>[
+      for (final entry in entries)
+        if (entry.filePath.trim().isNotEmpty)
+          ReaMicroLanServedBook(
+            uuid: entry.id,
+            title: entry.title,
+            author: entry.author,
+            filePath: entry.filePath,
+            cloudId: _links[entry.id]?.cloudBookId ?? 0,
+            cfi: progress[entry.id]?.cfi ?? '',
+            chapterName: progress[entry.id]?.chapterTitle ?? '',
+            progress: progress[entry.id]?.readingPercent ?? 0,
+            updatedAt:
+                _progressStates[entry.id]?.localUpdatedAt ??
+                entry.lastReadAt?.millisecondsSinceEpoch ??
+                0,
+            finished: progress[entry.id]?.finished ?? false,
+          ),
+    ];
+  }
+
+  void _onLanLoginRequestsChanged(List<ReaMicroLanLoginRequest> requests) {
+    _lanLoginRequests = requests;
+    _notify();
+  }
+
+  Future<T> _withLanAdvertisementPaused<T>(Future<T> Function() action) async {
+    final shouldResume = _lanLoginServer.running;
+    if (shouldResume) await _lanLoginServer.pauseAdvertisement();
+    try {
+      return await action();
+    } finally {
+      if (shouldResume) {
+        await _lanLoginServer.resumeAdvertisement();
+        if (_lanLoginServer.lastError != null) {
+          _lanAuthorizationError = _lanLoginServer.lastError;
+        }
+      }
     }
   }
 
@@ -2695,6 +2831,7 @@ class ReaMicroController extends ChangeNotifier {
 
   Future<void> _clearExpiredAuth() async {
     _stopCloudAutoSync();
+    await _stopLanAuthorization();
     if (_cloudAsPrimary) {
       _cloudAsPrimary = false;
       await _store.saveCloudPrimary(false);
@@ -2723,6 +2860,7 @@ class ReaMicroController extends ChangeNotifier {
     _autoSyncTimer?.cancel();
     _progressSyncTimer?.cancel();
     _cloudSyncTimer?.cancel();
+    unawaited(_lanLoginServer.stop());
     _api.close();
     super.dispose();
   }

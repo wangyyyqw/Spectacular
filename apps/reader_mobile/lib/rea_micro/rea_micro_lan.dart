@@ -87,6 +87,7 @@ class ReaMicroLanClient {
   ReaMicroLanClient({
     this.discoveryTimeout = const Duration(seconds: 4),
     this.socketTimeout = const Duration(seconds: 8),
+    this.loginTimeout = const Duration(minutes: 2),
   });
 
   /// 等待 mDNS 返回记录的时间。
@@ -94,6 +95,9 @@ class ReaMicroLanClient {
 
   /// 单次局域网连接或读取的超时。
   final Duration socketTimeout;
+
+  /// 等待另一台设备人工批准登录的最长时间。
+  final Duration loginTimeout;
 
   /// 扫描局域网授权登录设备。
   Future<List<ReaMicroLanLoginDevice>> discoverLoginDevices({
@@ -195,7 +199,7 @@ class ReaMicroLanClient {
       socket.write('REQUEST|$model|$publicKey\n');
       await socket.flush();
       for (var attempt = 0; attempt < 3; attempt++) {
-        final line = await _nextLine(iterator);
+        final line = await _nextLine(iterator, timeout: loginTimeout);
         if (line == 'REJECT') {
           throw const ReaMicroException('设备拒绝了本次局域网授权登录');
         }
@@ -446,9 +450,12 @@ class ReaMicroLanClient {
         .transform(const LineSplitter()),
   );
 
-  Future<String> _nextLine(StreamIterator<String> iterator) async {
+  Future<String> _nextLine(
+    StreamIterator<String> iterator, {
+    Duration? timeout,
+  }) async {
     final hasLine = await iterator.moveNext().timeout(
-      socketTimeout,
+      timeout ?? socketTimeout,
       onTimeout: () => false,
     );
     if (!hasLine) {
@@ -770,7 +777,6 @@ bool _isJsonWhitespace(int byte) =>
 ///
 /// Windows 上断开或虚拟的网卡可能让组播设置返回 `WSAENOPROTOOPT` 或
 /// `WSAEADDRNOTAVAIL`，单个坏网卡不应阻断整个设备发现。
-@visibleForTesting
 Future<List<T>> selectReachableMulticastInterfaces<T>(
   Iterable<T> candidates,
   Future<bool> Function(T candidate) canJoin,

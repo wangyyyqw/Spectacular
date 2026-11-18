@@ -782,6 +782,7 @@ Future<ReaMicroController> _createController(
     api: api,
     progressStore: progressStore,
     lan: lan,
+    enableLanLoginServer: false,
     s3ClientFactory: s3ClientFactory,
   );
   await controller.initialize();

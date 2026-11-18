@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'rea_micro_controller.dart';
 import 'rea_micro_lan.dart';
+import 'rea_micro_lan_server.dart';
 
 /// 局域网授权登录与设备阅读进度同步页。
 class ReaMicroLanPage extends StatefulWidget {
@@ -55,6 +56,22 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
     }
   }
 
+  Future<void> _approve(ReaMicroLanLoginRequest request) async {
+    await widget.controller.approveLanLoginRequest(request.id);
+    if (!mounted) return;
+    final message =
+        widget.controller.lanAuthorizationError ?? widget.controller.lanMessage;
+    if (message != null && message.isNotEmpty) _showMessage(message);
+  }
+
+  Future<void> _reject(ReaMicroLanLoginRequest request) async {
+    await widget.controller.rejectLanLoginRequest(request.id);
+    if (!mounted) return;
+    final message =
+        widget.controller.lanAuthorizationError ?? widget.controller.lanMessage;
+    if (message != null && message.isNotEmpty) _showMessage(message);
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
@@ -104,9 +121,11 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
                   ),
                 ],
                 const SizedBox(height: 20),
-                if (signedIn)
-                  ..._peerList(controller)
-                else
+                if (signedIn) ...<Widget>[
+                  ..._authorizationSection(controller),
+                  const SizedBox(height: 20),
+                  ..._peerList(controller),
+                ] else
                   ..._loginList(controller),
               ],
             ),
@@ -114,6 +133,88 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
         );
       },
     );
+  }
+
+  List<Widget> _authorizationSection(ReaMicroController controller) {
+    final requests = controller.lanLoginRequests;
+    return <Widget>[
+      Text('本机授权登录', style: Theme.of(context).textTheme.labelMedium),
+      const SizedBox(height: 10),
+      Card(
+        child: ListTile(
+          leading: Icon(
+            controller.lanAuthorizationRunning
+                ? Icons.verified_user_outlined
+                : Icons.gpp_maybe_outlined,
+            color: controller.lanAuthorizationRunning
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.error,
+          ),
+          title: Text(
+            controller.lanAuthorizationRunning ? '其他设备可搜索本机并申请登录' : '本机授权服务未启动',
+          ),
+          subtitle: Text(
+            controller.lanAuthorizationRunning
+                ? requests.isEmpty
+                      ? '暂无待授权申请；批准后令牌只加密回传给申请设备'
+                      : '有 ${requests.length} 台设备等待授权'
+                : controller.lanAuthorizationError ?? '请检查本地网络后重试',
+          ),
+          trailing: controller.lanAuthorizationRunning
+              ? const Icon(Icons.radar, size: 20)
+              : TextButton(
+                  onPressed: () =>
+                      unawaited(controller.retryLanAuthorization()),
+                  child: const Text('重试'),
+                ),
+        ),
+      ),
+      if (requests.isNotEmpty) ...<Widget>[
+        const SizedBox(height: 8),
+        for (final request in requests)
+          Card(
+            key: ValueKey<String>('reamicro-login-request-${request.id}'),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    request.deviceModel,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '申请时间：${_formatTime(request.receivedAt)}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: <Widget>[
+                      TextButton(
+                        key: ValueKey<String>(
+                          'reamicro-login-reject-${request.id}',
+                        ),
+                        onPressed: () => unawaited(_reject(request)),
+                        child: const Text('拒绝'),
+                      ),
+                      const SizedBox(width: 4),
+                      FilledButton(
+                        key: ValueKey<String>(
+                          'reamicro-login-approve-${request.id}',
+                        ),
+                        onPressed: () => unawaited(_approve(request)),
+                        child: const Text('批准登录'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ];
   }
 
   List<Widget> _loginList(ReaMicroController controller) {
@@ -194,6 +295,11 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
         ),
     ];
   }
+}
+
+String _formatTime(DateTime value) {
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${two(value.hour)}:${two(value.minute)}:${two(value.second)}';
 }
 
 class _IntroCard extends StatelessWidget {
