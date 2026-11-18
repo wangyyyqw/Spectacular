@@ -7,7 +7,7 @@ import 'package:reader_core/position/location_anchor.dart';
 import '../library/revision_anchor_store.dart';
 import 'db.dart';
 
-/// 标注存储的 drift 实现：同一区间保留一条划线或想法。
+/// 标注存储的 drift 实现：同版同选区合并，保留待定位的旧标注。
 class DriftAnnotationStore
     implements ReaderAnnotationStore, RelocatableAnnotationStore {
   /// 创建存储。
@@ -67,7 +67,7 @@ class DriftAnnotationStore
         '${math.Random().nextInt(0x7FFFFFFF).toRadixString(36)}';
     final row = await _db.transaction(() async {
       if (await _binding.writable() == null) return null;
-      final existing =
+      final candidates =
           await (_db.select(_db.annotations)
                 ..where(
                   (table) =>
@@ -81,6 +81,14 @@ class DriftAnnotationStore
                   (table) => OrderingTerm.desc(table.updatedAt),
                 ]))
               .get();
+      final existing = candidates.where((row) {
+        if (anchor == null) return row.anchorJson == null && row.quote == quote;
+        final saved = AnchorRecord.decode(row.anchorJson);
+        return anchor.isResolved &&
+            saved != null &&
+            saved.isResolved &&
+            saved.effective.revision == anchor.effective.revision;
+      }).toList();
       if (existing.isNotEmpty) {
         return _updateRange(
           existing,
