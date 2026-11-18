@@ -80,8 +80,7 @@ class LayoutBudget {
   final bool Function()? wantsProgressivePages;
   final Future<void>? Function()? waitForBackground;
   final CancelToken token = CancelToken();
-  final Completer<void> _cancelled = Completer<void>();
-  Completer<void> _promoted = Completer<void>();
+  Completer<void>? _idleWake;
   final Stopwatch _slice = Stopwatch()..start();
   int maxSliceMicroseconds = 0;
   int yieldCount = 0;
@@ -92,10 +91,7 @@ class LayoutBudget {
     if (_priority == next) return;
     final previous = _priority;
     _priority = next;
-    if (next.index < previous.index) {
-      _promoted.complete();
-      _promoted = Completer<void>();
-    }
+    if (next.index < previous.index) _wakeIdle();
   }
 
   void promote(ChapterLayoutPriority next) {
@@ -104,7 +100,12 @@ class LayoutBudget {
 
   void cancel() {
     token.cancel();
-    if (!_cancelled.isCompleted) _cancelled.complete();
+    _wakeIdle();
+  }
+
+  void _wakeIdle() {
+    final wake = _idleWake;
+    if (wake != null && !wake.isCompleted) wake.complete();
   }
 
   void check() {
@@ -151,20 +152,27 @@ class LayoutBudget {
   }
 
   Future<void> _waitForIdle() async {
+    final scheduler = SchedulerBinding.instance;
     while (priority == ChapterLayoutPriority.background) {
       final paused = waitForBackground?.call();
-      await Future.any([
-        paused ??
-            SchedulerBinding.instance.scheduleTask<void>(
-              () {},
-              Priority.idle,
-              debugLabel: '章节空闲排版',
-            ),
-        _cancelled.future,
-        _promoted.future,
-      ]);
+      if (paused == null && scheduler.transientCallbackCount == 0) {
+        await Future<void>.delayed(Duration.zero);
+        check();
+        if (waitForBackground?.call() == null &&
+            scheduler.transientCallbackCount == 0) {
+          return;
+        }
+        continue;
+      }
+      final wake = _idleWake = Completer<void>();
+      unawaited(
+        (paused ?? scheduler.endOfFrame).then((_) {
+          if (identical(_idleWake, wake)) _wakeIdle();
+        }),
+      );
+      await wake.future;
+      _idleWake = null;
       check();
-      if (paused == null && waitForBackground?.call() == null) return;
     }
   }
 }

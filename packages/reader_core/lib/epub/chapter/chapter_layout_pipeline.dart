@@ -89,8 +89,13 @@ class ChapterLayoutPipeline {
             warning: null,
           );
     final watch = Stopwatch()..start();
-    final pages = await ChapterPageLayout(input.snapshot, budget, textCache)
-        .paginate(
+    final pages =
+        await ChapterPageLayout(
+          input.snapshot,
+          budget,
+          textCache,
+          cursor: head?.cursor,
+        ).paginate(
           blocks.flow,
           blocks.fixed,
           blocks.background,

@@ -366,6 +366,30 @@ void main() {
     await expectLater(cancelled, throwsA(isA<ChapterLoadCancelled>()));
   });
 
+  test('动画未结束时后台排版等待帧信号，不反复轮询低优先级任务', () async {
+    final binding = SchedulerBinding.instance;
+    final strategy = binding.schedulingStrategy;
+    var idleChecks = 0;
+    binding.schedulingStrategy = ({required priority, required scheduler}) {
+      if (priority == Priority.idle.value) idleChecks++;
+      return strategy(priority: priority, scheduler: scheduler);
+    };
+    final callback = binding.scheduleFrameCallback((_) {});
+    addTearDown(() {
+      binding.cancelFrameCallbackWithId(callback);
+      binding.schedulingStrategy = strategy;
+    });
+    final budget = LayoutBudget(
+      priority: ChapterLayoutPriority.background,
+      isCurrent: () => true,
+    );
+    final waiting = budget.checkpoint(force: true);
+    await Future<void>.delayed(const Duration(milliseconds: 15));
+    budget.promote(ChapterLayoutPriority.reading);
+    await waiting;
+    expect(idleChecks, 0);
+  });
+
   test('后台工作从首批之前就在空闲时继续，动画期间暂停并允许预取接管', () async {
     final budget = LayoutBudget(
       priority: ChapterLayoutPriority.background,

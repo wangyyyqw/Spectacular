@@ -233,25 +233,21 @@ class VirtualPager {
         return null;
       }
       await _loadSpine(spine, prefetch: true, priority: priority);
-      await _waitForPage(
-        spine,
-        direction < 0
-            ? -1
-            : spine == origin.$1
-            ? origin.$2 + pageBudget
-            : 0,
-        prefetch: true,
-        priority: priority,
-      );
+      final target = direction < 0
+          ? -1
+          : spine == origin.$1
+          ? origin.$2 + pageBudget
+          : 0;
+      await _waitForPage(spine, target, prefetch: true, priority: priority);
       if (token != _navigationToken ||
           origin != _currentReal ||
           !(shouldContinue?.call() ?? true)) {
         return null;
       }
       final pages = _spinePages[spine];
-      if (pages != null && pages.isNotEmpty) {
-        return direction > 0 ? pages.first : pages.last;
-      }
+      if (pages == null || pages.isEmpty) continue;
+      if (target < 0) return pages.last;
+      if (target < pages.length) return pages[target];
     }
     return null;
   }

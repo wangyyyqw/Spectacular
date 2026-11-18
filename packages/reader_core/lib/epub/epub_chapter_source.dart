@@ -892,12 +892,7 @@ class EpubChapterSource
     ChapterStructure structure,
     void Function() check,
   ) async {
-    final faces = _styles.usedBookFonts(
-      structure.sheets,
-      structure.selectors,
-      _overrides,
-      contentWidth,
-    );
+    final faces = structure.usedBookFonts(_overrides);
     await _fonts.ensure(faces);
     check();
     return _freezeLayout(spine, {

@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/cascade.dart';
-import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -13,6 +13,7 @@ import 'package:reader_core/epub/zip_source.dart';
 import 'package:reader_core/epub/chapter/book_fonts.dart';
 import 'package:reader_core/epub/chapter/book_resources.dart';
 import 'package:reader_core/epub/chapter/chapter_selectors.dart';
+import 'package:reader_core/epub/chapter/chapter_structure.dart';
 import 'package:reader_core/epub/chapter/chapter_styles.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
@@ -339,60 +340,76 @@ void main() {
     );
   });
 
-  test('只选命中元素的书内字族，准备缓存共享选择器且保留原作者声明', () async {
+  test('结构准备保留字体声明命中与顺序，切换覆盖复用同一章的候选', () async {
     final resources = await _resources(
       body: '<p class="visible" style="font-family:inline_font">正文</p>',
+      head: '''<style>
+@font-face {font-family:inline_font;src:local("宋体")}
+@font-face {font-family:rule_font;src:local("宋体")}
+@font-face {font-family:variable_font;src:local("宋体")}
+@font-face {font-family:pseudo_font;src:local("宋体")}
+@font-face {font-family:first_font;src:local("宋体")}
+@font-face {font-family:after_font;src:local("宋体")}
+@font-face {font-family:line_font;src:local("宋体")}
+@font-face {font-family:RULE_FONT;font-weight:700;src:local("黑体")}
+@font-face {font-family:wide_font;src:local("宋体")}
+@font-face {font-family:unused_font;src:local("宋体")}
+.visible {font-family:rule_font;--choice:variable_font;counter-reset:count}
+.visible::before {content:'前缀';font-family:pseudo_font}
+.visible::first-letter {font-family:first_font;font-size:24px}
+@media (min-width:500px) {.visible:after {content:'后缀';font:italic 16px after_font}}
+.visible:first-line {font-family:line_font}
+@media (min-width:500px) {.visible {font-family:wide_font}}
+.absent, .absent::after {font-family:unused_font}
+</style>''',
     );
     addTearDown(resources.close);
     final fonts = BookFonts(resources, onFontsChanged: (_) {});
     addTearDown(fonts.close);
     final styles = ChapterStyles(resources, fonts);
     addTearDown(styles.close);
-    final sheets = [
-      CssParser.parse('''
-@font-face {font-family:inline_font;src:local("宋体")}
-@font-face {font-family:rule_font;src:local("宋体")}
-@font-face {font-family:variable_font;src:local("宋体")}
-@font-face {font-family:pseudo_font;src:local("宋体")}
-@font-face {font-family:first_font;src:local("宋体")}
-@font-face {font-family:wide_font;src:local("宋体")}
-@font-face {font-family:unused_font;src:local("宋体")}
-.visible {font-family:rule_font;--choice:variable_font;counter-reset:count}
-.visible::before {content:'前缀';font-family:pseudo_font}
-.visible::first-letter {font-family:first_font;font-size:24px}
-@media (min-width:500px) {.visible {font-family:wide_font}}
-.absent {font-family:unused_font}
-'''),
-    ];
-    final parsed = await resources.prepareChapter(0);
-    final selectors = ChapterSelectors(parsed.root);
+    final structures = ChapterStructureStore(
+      resources,
+      styles,
+      ComputedStyle(const {}),
+    );
+    addTearDown(structures.close);
+    final narrow = await structures.prepare(0, 320);
+    final sheets = narrow.sheets;
     const normal = ReaderOverrides();
-    final used = styles.usedBookFonts(sheets, selectors, normal, 320);
+    final used = narrow.usedBookFonts(normal);
     expect(used.map((face) => face.family), [
       'inline_font',
       'rule_font',
       'variable_font',
       'pseudo_font',
       'first_font',
+      'after_font',
+      'line_font',
+      'RULE_FONT',
+    ]);
+    expect(narrow.fontFamilies, contains('inline_font'));
+    expect(narrow.fontFamilies, isNot(contains('variable_font')));
+    final wide = await structures.prepare(0, 640);
+    expect(wide.usedBookFonts(normal).map((face) => face.family), [
+      ...used.map((face) => face.family),
+      'wide_font',
     ]);
     expect(
-      styles
-          .usedBookFonts(sheets, selectors, normal, 640)
-          .map((face) => face.family),
-      contains('wide_font'),
-    );
-    expect(
-      styles.usedBookFonts(
-        sheets,
-        selectors,
+      narrow.usedBookFonts(
         const ReaderOverrides(
           fontFamily: 'user_test',
           overrideEmbeddedFonts: true,
         ),
-        640,
       ),
       isEmpty,
     );
+    expect(
+      (await structures.prepare(0, 320)).usedBookFonts(normal),
+      same(used),
+    );
+    expect(structures.preparations, 2);
+    expect(fonts.faceCount, 0);
     final base = styles.prepareBase(sheets);
     expect(styles.prepare(sheets), same(base));
     await fonts.ensure(used);

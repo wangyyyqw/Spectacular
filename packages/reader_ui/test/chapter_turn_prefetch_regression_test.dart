@@ -173,7 +173,6 @@ void main() {
       contentTopInset: 56.075,
       contentSideInsets: (left: 8.8, right: 8.53333333333336),
     );
-    expect(session.chapterPageCount, 20);
     expect(session.page!.pageIndex, 17);
     var prefetchFinished = false;
     final pending = [
@@ -183,6 +182,7 @@ void main() {
       }),
     ];
     await started.future;
+    expect(session.chapterPageCount, 20);
 
     for (var pageIndex = 18; pageIndex <= 19; pageIndex++) {
       final turn = await session.preparePageTurn(true);

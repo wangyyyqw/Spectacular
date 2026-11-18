@@ -2449,14 +2449,16 @@ class Paginator {
     required int maxPages,
     required _PaginationProgress progress,
     CancelToken? token,
-    int? stableBlockCount,
+    StablePageCursor? cursor,
   }) sync* {
     var slices = <PageBlockSlice>[];
     var used = 0.0;
     var available = pageHeight - topPadding;
     var firstPage = true;
     // 相邻块上下边距折叠（CSS 2.1 §8.3.1）：段距不再按两段 margin 相加。
-    final flow = PageBlock.collapseAdjacentMargins(blocks);
+    final flow = cursor == null
+        ? PageBlock.collapseAdjacentMargins(blocks)
+        : blocks;
     // 续框必须完整留在页面内，不能让文字容差吃掉边框和内边距。
     final fitTolerance =
         flow.any(
@@ -2540,12 +2542,13 @@ class Paginator {
       return page;
     }
 
-    for (var blockIndex = 0; blockIndex < flow.length; blockIndex++) {
+    for (var blockIndex = 0; ; blockIndex++) {
       if (token?.isCancelled ?? false) return;
-      if (stableBlockCount != null &&
-          !_hasStableLookahead(flow, blockIndex, stableBlockCount)) {
-        return;
+      while (cursor?._stableCount != null &&
+          !_hasStableLookahead(flow, blockIndex, cursor!._stableCount!)) {
+        yield const _PaginationStep.needBlocks();
       }
+      if (blockIndex >= flow.length) break;
       if (blockIndex % 16 == 0) yield const _PaginationStep.checkpoint();
       final block = flow[blockIndex];
       // display: none 的块不占位（P2-15）。
@@ -3279,7 +3282,7 @@ class Paginator {
 
     // 收尾：未达上限时记录末页；已截断则丢弃在途部分页（P7-16
     // 截断语义——页数恰为上限，已产出页保留）。
-    if (stableBlockCount == null && progress.pageCount < maxPages) {
+    if (progress.pageCount < maxPages) {
       final page = record();
       if (page != null) yield _PaginationStep.page(page);
     }
@@ -3498,10 +3501,61 @@ class _TablePieceWork {
 }
 
 class _PaginationStep {
-  const _PaginationStep.page(this.page);
-  const _PaginationStep.checkpoint() : page = null;
+  const _PaginationStep.page(this.page) : needsBlocks = false;
+  const _PaginationStep.checkpoint() : page = null, needsBlocks = false;
+  const _PaginationStep.needBlocks() : page = null, needsBlocks = true;
 
   final PageContent? page;
+  final bool needsBlocks;
+}
+
+class StablePageCursor {
+  StablePageCursor(Paginator paginator, this._blocks, int spineIndex) {
+    _steps = paginator
+        ._paginateSteps(
+          blocks: _blocks,
+          spineIndex: spineIndex,
+          maxPages: Paginator.maxPagesPerChapter,
+          progress: _PaginationProgress(),
+          cursor: this,
+        )
+        .iterator;
+  }
+
+  late final Iterator<_PaginationStep> _steps;
+  final List<PageBlock> _blocks;
+  final _pages = <PageContent>[];
+  int? _stableCount = 0;
+
+  Future<List<PageContent>> advance(
+    int stableCount,
+    Future<void> Function() checkpoint,
+  ) async {
+    _stableCount = stableCount;
+    final start = _pages.length;
+    await _consume(checkpoint);
+    return _pages.sublist(start);
+  }
+
+  Future<List<PageContent>> finish(
+    List<PageBlock> complete,
+    Future<void> Function() checkpoint,
+  ) async {
+    final stable = _stableCount!;
+    _blocks.replaceRange(stable, _blocks.length, complete.skip(stable));
+    _stableCount = null;
+    await _consume(checkpoint);
+    return _pages;
+  }
+
+  Future<void> _consume(Future<void> Function() checkpoint) async {
+    while (_steps.moveNext()) {
+      final step = _steps.current;
+      if (step.needsBlocks) break;
+      if (step.page case final page?) _pages.add(page);
+      await checkpoint();
+    }
+  }
 }
 
 /// 异步增量分页：按与同步入口相同的断点产出，并响应取消与时间预算。
@@ -3513,7 +3567,6 @@ extension PaginatorStreaming on Paginator {
     CancelToken? token,
     Future<void> Function()? budgetCheck,
     int maxPages = Paginator.maxPagesPerChapter,
-    int? stableBlockCount,
   }) async* {
     final progress = _PaginationProgress();
     final steps = _paginateSteps(
@@ -3522,7 +3575,6 @@ extension PaginatorStreaming on Paginator {
       maxPages: maxPages,
       progress: progress,
       token: token,
-      stableBlockCount: stableBlockCount,
     );
     for (final step in steps) {
       if (token?.isCancelled ?? false) return;

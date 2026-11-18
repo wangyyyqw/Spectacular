@@ -32,27 +32,12 @@ class ChapterPaginationResult {
 
 /// 只依赖本次冻结的尺寸、字形与预算，不持有书籍资源或阅读会话。
 class ChapterPageLayout {
-  ChapterPageLayout(this.snapshot, this.budget, this.textCache);
+  ChapterPageLayout(this.snapshot, this.budget, this.textCache, {this.cursor});
 
   final LayoutSnapshot snapshot;
   final LayoutBudget budget;
   final TextLayoutCache textCache;
-
-  /// 只消费稳定输入触发的正式收页，前缀末尾不生成章节尾页或页索引。
-  Future<List<PageContent>> paginateStablePrefix(
-    List<PageBlock> blocks,
-    int stableBlockCount,
-    PageBackground? background, {
-    required int maxPages,
-  }) async {
-    final pages = await _measurePages(
-      blocks,
-      stableBlockCount: stableBlockCount,
-      maxPages: maxPages,
-    );
-    if (pages.isEmpty) return const [];
-    return _finishChapterPages(pages, background);
-  }
+  final StablePageCursor? cursor;
 
   Future<ChapterPaginationResult> paginate(
     List<PageBlock> blocks,
@@ -70,7 +55,7 @@ class ChapterPageLayout {
       _publishPageCount(floated);
       final pages = await _withFixedOverlays(floated, overlays);
       result = ChapterPaginationResult(
-        pages: await _finishChapterPages(pages, background),
+        pages: await finishPages(pages, background),
       );
     } else {
       result = await _paginateOrdinary(
@@ -114,7 +99,7 @@ class ChapterPageLayout {
     if (replay.pages case final pages?) {
       _publishPageCount(pages);
       return ChapterPaginationResult(
-        pages: await _finishChapterPages(
+        pages: await finishPages(
           await _withFixedOverlays(pages, fixed),
           background,
         ),
@@ -123,7 +108,7 @@ class ChapterPageLayout {
     }
     final pages = await _measurePages(blocks);
     _publishPageCount(pages);
-    final finished = await _finishChapterPages(
+    final finished = await finishPages(
       await _withFixedOverlays(pages, fixed),
       background,
     );
@@ -183,11 +168,10 @@ class ChapterPageLayout {
     );
   }
 
-  Future<List<PageContent>> _measurePages(
-    List<PageBlock> blocks, {
-    int? stableBlockCount,
-    int maxPages = Paginator.maxPagesPerChapter,
-  }) async {
+  Future<List<PageContent>> _measurePages(List<PageBlock> blocks) async {
+    if (cursor case final prepared?) {
+      return prepared.finish(blocks, budget.checkpoint);
+    }
     final paginator = Paginator(
       pageHeight: snapshot.height,
       pageWidth: snapshot.width,
@@ -204,8 +188,6 @@ class ChapterPageLayout {
       spineIndex: snapshot.spineIndex,
       token: budget.token,
       budgetCheck: budget.checkpoint,
-      stableBlockCount: stableBlockCount,
-      maxPages: maxPages,
     )) {
       pages.add(page);
     }
@@ -275,7 +257,7 @@ class ChapterPageLayout {
     return overlays;
   }
 
-  Future<List<PageContent>> _finishChapterPages(
+  Future<List<PageContent>> finishPages(
     List<PageContent> source,
     PageBackground? background,
   ) async {
