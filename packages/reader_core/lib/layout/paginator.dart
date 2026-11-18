@@ -2449,6 +2449,7 @@ class Paginator {
     required int maxPages,
     required _PaginationProgress progress,
     CancelToken? token,
+    int? stableBlockCount,
   }) sync* {
     var slices = <PageBlockSlice>[];
     var used = 0.0;
@@ -2541,6 +2542,10 @@ class Paginator {
 
     for (var blockIndex = 0; blockIndex < flow.length; blockIndex++) {
       if (token?.isCancelled ?? false) return;
+      if (stableBlockCount != null &&
+          !_hasStableLookahead(flow, blockIndex, stableBlockCount)) {
+        return;
+      }
       if (blockIndex % 16 == 0) yield const _PaginationStep.checkpoint();
       final block = flow[blockIndex];
       // display: none 的块不占位（P2-15）。
@@ -3274,10 +3279,31 @@ class Paginator {
 
     // 收尾：未达上限时记录末页；已截断则丢弃在途部分页（P7-16
     // 截断语义——页数恰为上限，已产出页保留）。
-    if (progress.pageCount < maxPages) {
+    if (stableBlockCount == null && progress.pageCount < maxPages) {
       final page = record();
       if (page != null) yield _PaginationStep.page(page);
     }
+  }
+
+  /// 未闭合尾块及其组不参与决策，avoid 的后继单行与末边距也必须稳定。
+  static bool _hasStableLookahead(
+    List<PageBlock> blocks,
+    int index,
+    int stableCount,
+  ) {
+    if (index >= stableCount ||
+        (blocks[index].breakAfterAvoid && index + 1 >= stableCount)) {
+      return false;
+    }
+    final group = blocks[index].groupId;
+    if (group == 0 || (index > 0 && blocks[index - 1].groupId == group)) {
+      return true;
+    }
+    var end = index + 1;
+    while (end < blocks.length && blocks[end].groupId == group) {
+      end += 1;
+    }
+    return end <= stableCount;
   }
 }
 
@@ -3487,6 +3513,7 @@ extension PaginatorStreaming on Paginator {
     CancelToken? token,
     Future<void> Function()? budgetCheck,
     int maxPages = Paginator.maxPagesPerChapter,
+    int? stableBlockCount,
   }) async* {
     final progress = _PaginationProgress();
     final steps = _paginateSteps(
@@ -3495,6 +3522,7 @@ extension PaginatorStreaming on Paginator {
       maxPages: maxPages,
       progress: progress,
       token: token,
+      stableBlockCount: stableBlockCount,
     );
     for (final step in steps) {
       if (token?.isCancelled ?? false) return;

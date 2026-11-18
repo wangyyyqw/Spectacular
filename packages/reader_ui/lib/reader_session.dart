@@ -324,6 +324,19 @@ class ReaderSession extends ChangeNotifier {
   /// 成功换入新分页快照时递增；重排失败仍沿用旧快照。
   int get layoutRevision => _layoutRevision;
 
+  int _availablePagesRevision = 0;
+  int _pageCountRevision = 0;
+
+  /// 后台只追加可用页，不使正在翻动的排版与导航代次失效。
+  int get availablePagesRevision => _availablePagesRevision;
+  int get pageCountRevision => _pageCountRevision;
+
+  void _pagesAvailable(bool totalsChanged) {
+    _availablePagesRevision += 1;
+    if (totalsChanged) _pageCountRevision += 1;
+    _notify();
+  }
+
   /// 已加载的真实邻页；预热不触发正文重新测量。
   List<PageContent> get adjacentPages => [
     for (final page in _pager?.prefetchedPages ?? const <VirtualPage>[])
@@ -338,6 +351,7 @@ class ReaderSession extends ChangeNotifier {
         _loading ||
         _jumpLoadingTitle != null ||
         current == null ||
+        !isChapterComplete(current.spineIndex) ||
         anchors is! ScheduledAnchorChapterSource ||
         (current.pageIndex + 1) * 5 < chapterPageCount * 4 ||
         current.spineIndex + 1 >= source.chapterCount ||
@@ -392,12 +406,16 @@ class ReaderSession extends ChangeNotifier {
   void cancelTurnPrefetch({int? keepDirection}) {
     final currentSpine = page?.spineIndex;
     final protectedSpines = {
-      for (final request in _chapterLoads.values)
-        if (request.priority == ChapterLayoutPriority.reading ||
+      ?currentSpine,
+      for (final entry in _chapterLoads.entries)
+        if ((entry.key is ProgressiveChapterLoadHandle
+                    ? (entry.key as ProgressiveChapterLoadHandle).priority
+                    : entry.value.priority) ==
+                ChapterLayoutPriority.reading ||
             (keepDirection != null &&
                 currentSpine != null &&
-                (request.spine - currentSpine) * keepDirection > 0))
-          request.spine,
+                (entry.value.spine - currentSpine) * keepDirection > 0))
+          entry.value.spine,
       if (_turnPreparation case final preparation?)
         if (keepDirection != null &&
             currentSpine != null &&
@@ -411,7 +429,10 @@ class ReaderSession extends ChangeNotifier {
     }
     final cancelled = <int>{};
     for (final entry in _chapterLoads.entries.toList()) {
-      if (entry.value.priority == ChapterLayoutPriority.prefetch &&
+      final priority = entry.key is ProgressiveChapterLoadHandle
+          ? (entry.key as ProgressiveChapterLoadHandle).priority
+          : entry.value.priority;
+      if (priority != ChapterLayoutPriority.reading &&
           !protectedSpines.contains(entry.value.spine)) {
         entry.key.cancel();
         cancelled.add(entry.value.spine);
@@ -495,8 +516,9 @@ class ReaderSession extends ChangeNotifier {
     }
     return ScrollChapterLayout.fromPages(
       spineIndex,
-      _pager?.spinePages[spineIndex] ??
-          await _loadChapter(spineIndex, priority: priority),
+      _pager == null
+          ? await _loadChapter(spineIndex, priority: priority)
+          : await _pager!.completeChapter(spineIndex, priority: priority),
     );
   }
 
@@ -521,6 +543,23 @@ class ReaderSession extends ChangeNotifier {
   Future<List<PageContent>> _prefetchChapter(int spineIndex) =>
       _loadChapter(spineIndex, priority: ChapterLayoutPriority.prefetch);
 
+  ProgressiveChapterLoadHandle _progressiveChapter(
+    int spineIndex,
+    ChapterLayoutPriority priority,
+  ) {
+    final handle = (source as ProgressiveChapterSource)
+        .scheduleProgressiveChapter(spineIndex, priority: priority);
+    _chapterLoads[handle] = (spine: spineIndex, priority: priority);
+    if (priority == ChapterLayoutPriority.reading) cancelTurnPrefetch();
+    unawaited(
+      handle.result.then<void>(
+        (_) => _chapterLoads.remove(handle),
+        onError: (Object _, StackTrace _) => _chapterLoads.remove(handle),
+      ),
+    );
+    return handle;
+  }
+
   void _cancelChapterWaiters() {
     _cancelTurnPreparation();
     _positionPreparation?.cancel();
@@ -528,6 +567,9 @@ class ReaderSession extends ChangeNotifier {
     for (final handle in _chapterLoads.keys.toList()) {
       handle.cancel();
     }
+    _pager?.discardCancelledPrefetch(
+      _chapterLoads.values.map((request) => request.spine),
+    );
     _chapterLoads.clear();
   }
 
@@ -564,15 +606,14 @@ class ReaderSession extends ChangeNotifier {
       return;
     }
     final anchors = this.source;
-    if (prefetch && anchors is ScheduledChapterSource) {
-      // 页缓存可能比原文缓存活得久；预热沿用可取消的低优先级准备入口。
-      await _loadChapter(
-        target.spineIndex,
-        priority: ChapterLayoutPriority.prefetch,
-      );
-    } else if (anchors is ScheduledAnchorChapterSource) {
+    if (anchors is ScheduledAnchorChapterSource) {
       await _awaitPositionPreparation(
-        anchors.scheduleAnchorChapter(target.spineIndex),
+        anchors.scheduleAnchorChapter(
+          target.spineIndex,
+          priority: prefetch
+              ? ChapterLayoutPriority.prefetch
+              : ChapterLayoutPriority.reading,
+        ),
       );
     } else if (anchors is AnchorChapterSource) {
       await anchors.loadAnchorChapter(target.spineIndex);
@@ -1058,8 +1099,7 @@ class ReaderSession extends ChangeNotifier {
       // 章节已分页：按 CFI 定位页号（重排后页号会变，CFI 不变）。
       final targetSpine = pager.current?.spineIndex;
       if (targetSpine == null) return false;
-      final pages =
-          pager.spinePages[targetSpine] ?? await _loadChapter(targetSpine);
+      final pages = await pager.completeChapter(targetSpine);
       if (token != _jumpToken) {
         return false;
       }
@@ -1122,8 +1162,9 @@ class ReaderSession extends ChangeNotifier {
     if (current == null) {
       return const <PageContent>[];
     }
-    return _pager?.spinePages[current.spineIndex] ??
-        await _loadChapter(current.spineIndex);
+    return _pager == null
+        ? await _loadChapter(current.spineIndex)
+        : await _pager!.completeChapter(current.spineIndex);
   }
 
   /// 跳转加载中的目标章名（null = 不在跳转中，P4-12 全屏浮层用）。
@@ -1236,6 +1277,7 @@ class ReaderSession extends ChangeNotifier {
     if (_suppressRestoredFinished) return false;
     final lastSpineIndex = _lastReadableSpineIndex;
     if (lastSpineIndex == null || spineIndex != lastSpineIndex) return false;
+    if (!isChapterComplete(spineIndex)) return false;
     final pages = _pager?.spinePages[lastSpineIndex]?.length ?? 0;
     return pages > 0 && pageIndex >= pages - 1;
   }
@@ -1263,7 +1305,7 @@ class ReaderSession extends ChangeNotifier {
     final pages = _pager?.spinePages ?? const <int, List<PageContent>>{};
     for (var index = source.chapterCount - 1; index >= 0; index--) {
       final chapter = pages[index];
-      if (chapter == null) {
+      if (chapter == null || !isChapterComplete(index)) {
         return null;
       }
       if (chapter.isNotEmpty) {
@@ -1285,12 +1327,23 @@ class ReaderSession extends ChangeNotifier {
     if (current == null) {
       return 0;
     }
-    return _pager?.spinePages[current.spineIndex]?.length ?? 0;
+    return pageCountOf(current.spineIndex);
   }
 
-  /// 已加载章节的页数，供目标纸面页眉和跨章预热使用。
-  int pageCountOf(int spineIndex) =>
-      _pager?.spinePages[spineIndex]?.length ?? 0;
+  /// 总页数未确定时返回 0，不能把已发布数量当作整章页数。
+  int pageCountOf(int spineIndex) => isChapterComplete(spineIndex)
+      ? _pager?.spinePages[spineIndex]?.length ?? 0
+      : 0;
+
+  bool isChapterComplete(int spineIndex) =>
+      _pager?.isChapterComplete(spineIndex) ?? false;
+
+  String pageLabelOf(PageContent page) {
+    final count = pageCountOf(page.spineIndex);
+    return count == 0
+        ? '第 ${page.pageIndex + 1} 页'
+        : '${page.pageIndex + 1}/$count';
+  }
 
   /// 当前页文本（用于测试/无障碍）。
   String get currentText => _textOf(page);
@@ -1370,6 +1423,10 @@ class ReaderSession extends ChangeNotifier {
         prefetchLoader: source is ScheduledChapterSource
             ? _prefetchChapter
             : null,
+        progressiveLoader: source is ProgressiveChapterSource
+            ? _progressiveChapter
+            : null,
+        onPagesAvailable: _pagesAvailable,
       );
       await pager.initialize(
         startSpine: usableCache ? savedSpine ?? saved?.spineIndex ?? 0 : 0,
@@ -1445,7 +1502,7 @@ class ReaderSession extends ChangeNotifier {
     final parsed = EpubCfi.parse(cfi);
     final spine = parsed == null ? null : spineIndexOfCfi(parsed);
     if (spine == null || spine < 0 || spine >= source.chapterCount) return;
-    final pages = pager.spinePages[spine] ?? await _loadChapter(spine);
+    final pages = await pager.completeChapter(spine);
     if (_disposed || generation != _generation) return;
     final anchor = ReaderAnchor(cfi: cfi);
     final index =
@@ -1910,6 +1967,10 @@ class ReaderSession extends ChangeNotifier {
         prefetchLoader: source is ScheduledChapterSource
             ? _prefetchChapter
             : null,
+        progressiveLoader: source is ProgressiveChapterSource
+            ? _progressiveChapter
+            : null,
+        onPagesAvailable: _pagesAvailable,
       );
       await pager.initialize(
         startSpine: spine,

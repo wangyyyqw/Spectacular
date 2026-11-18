@@ -29,11 +29,16 @@ import 'multicol_blocks.dart';
 
 /// 文档序遍历只负责分发与容器上下文，各类构块拥有独立职责。
 class ChapterBlockWalker {
-  ChapterBlockWalker(this.styles, this.inline, this.content, this.flow)
-    : text = TextBlockBuilder(styles, inline, content, flow),
-      generated = GeneratedBlockBuilder(styles, inline, content),
-      images = ImageBlockBuilder(styles, inline, content),
-      tables = TableBlockBuilder(styles, inline, flow);
+  ChapterBlockWalker(
+    this.styles,
+    this.inline,
+    this.content,
+    this.flow, {
+    this.onRootChild,
+  }) : text = TextBlockBuilder(styles, inline, content, flow),
+       generated = GeneratedBlockBuilder(styles, inline, content),
+       images = ImageBlockBuilder(styles, inline, content),
+       tables = TableBlockBuilder(styles, inline, flow);
 
   static const floatGroupBase = 500000;
   static const _headings = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'};
@@ -41,6 +46,7 @@ class ChapterBlockWalker {
   final InlineContentBuilder inline;
   final GeneratedChapterContent content;
   final ChapterFlow flow;
+  final Future<void> Function()? onRootChild;
   final TextBlockBuilder text;
   final GeneratedBlockBuilder generated;
   final ImageBlockBuilder images;
@@ -501,6 +507,14 @@ class ChapterBlockWalker {
       if (scope.isFlexRow && flow.blocks.length > start) {
         final item = await _positionedBlocks(start, positioned: false);
         if (item.isNotEmpty) scope.flexItems.add(item);
+      }
+      if (identical(scope.node, root) &&
+          scope.retained == null &&
+          !scope.isPageRootFlexColumn &&
+          !scope.isFixedContainer &&
+          !scope.isAbsoluteContainer &&
+          floatSideOfStyle(scope.style) == null) {
+        await onRootChild?.call();
       }
     }
   }

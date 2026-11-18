@@ -39,6 +39,19 @@ Future<List<PageBlock>> collapseMarginsIgnoringFloatsAsync(
   return work.result;
 }
 
+/// 已折叠前缀的末个在流块和尾部空块链仍可能随下一块改变，保留在途。
+int stableMarginPrefixLength(List<PageBlock> blocks) {
+  for (var index = blocks.length - 1; index >= 0; index--) {
+    final block = blocks[index];
+    if (!block.absolute &&
+        block.floatSide == null &&
+        !_isSelfCollapsingEmptyBlock(block)) {
+      return index;
+    }
+  }
+  return 0;
+}
+
 /// 浮动分页会把一段拆为多个块，仍保留容器真实首末标记供装饰占位使用。
 List<PageContainerFragment> containerFragmentsFor(
   PageBlock block, {

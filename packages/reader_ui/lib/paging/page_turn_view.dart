@@ -525,7 +525,14 @@ class PageTurnViewState extends State<PageTurnView>
     if (_usesWindow) _syncWindow();
     final page = widget.session.page;
     final generation = widget.session.generation;
-    final key = (page, widget.revision, _size, _ratio, generation);
+    final key = (
+      page,
+      widget.revision,
+      _size,
+      _ratio,
+      generation,
+      widget.session.availablePagesRevision,
+    );
     if (page == null || _size.isEmpty || key == _lastWarm) return;
     _lastWarm = key;
     _warmTimer?.cancel();

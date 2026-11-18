@@ -1,7 +1,14 @@
+import 'dart:async';
+
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 /// 章节页加载器。
 typedef SpinePagesLoader = Future<List<PageContent>> Function(int spineIndex);
+typedef ProgressiveSpineLoader = ProgressiveChapterLoadHandle Function(
+  int spineIndex,
+  ChapterLayoutPriority priority,
+);
 
 /// 已加载窗口中的页位置；跨窗口定位应使用章节号与章内页号。
 class VirtualPage {
@@ -28,12 +35,16 @@ class VirtualPager {
     required this.spineCount,
     required this.loader,
     this.prefetchLoader,
+    this.progressiveLoader,
+    this.onPagesAvailable,
     this.prefetchRadius = 1,
   }) : assert(spineCount >= 0);
 
   final int spineCount;
   final SpinePagesLoader loader;
   final SpinePagesLoader? prefetchLoader;
+  final ProgressiveSpineLoader? progressiveLoader;
+  final void Function(bool totalsChanged)? onPagesAvailable;
 
   /// 当前页前后各自预热的真实邻页数。
   final int prefetchRadius;
@@ -50,6 +61,11 @@ class VirtualPager {
   final Map<int, int> _pageOffsets = <int, int>{};
   final Map<int, Future<void>> _pendingLoads = {};
   final Set<int> _pendingPrefetchSpines = {};
+  final Set<int> _partialSpines = {};
+  final Map<int, ProgressiveChapterLoadHandle> _progressiveLoads = {};
+  final Map<int, StreamSubscription<List<PageContent>>> _pageSubscriptions = {};
+  final Map<ProgressiveChapterLoadHandle, List<ChapterLayoutPriority>>
+  _pageWaitPriorities = {};
   final Set<VirtualPage> _preparedTargets = Set<VirtualPage>.identity();
   (int, int)? _currentReal;
   bool _initialized = false;
@@ -66,6 +82,24 @@ class VirtualPager {
   VirtualPage? get current =>
       _currentReal == null ? null : _pageAt(_currentReal!);
   int get mappedPageCount => _mappedPageCount;
+
+  bool isChapterComplete(int spine) =>
+      _spinePages.containsKey(spine) && !_partialSpines.contains(spine);
+
+  Future<List<PageContent>> completeChapter(
+    int spine, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) async {
+    final prefetch = priority != ChapterLayoutPriority.reading;
+    // 完整消费者直接走完整入口；已有渐进作业则接管，避免重复构块。
+    await _loadSpine(
+      spine,
+      prefetch: prefetch,
+      progressive: _partialSpines.contains(spine),
+    );
+    await _waitForPage(spine, -1, prefetch: prefetch);
+    return _spinePages[spine]!;
+  }
 
   /// 未加载邻章可能有内容；导航时才确认并跳过空章。
   bool get hasPrevious => _hasPageInDirection(-1);
@@ -132,10 +166,18 @@ class VirtualPager {
     for (var step = 0; step < distance; step++) {
       if (!valid()) return null;
       var adjacent = _cachedAdjacent(position, direction);
+      if (adjacent == null &&
+          direction > 0 &&
+          !isChapterComplete(position.$1)) {
+        await _waitForPage(position.$1, position.$2 + 1, prefetch: prefetch);
+        if (!valid()) return null;
+        adjacent = _cachedAdjacent(position, direction);
+      }
       var spine = position.$1 + direction;
       while (adjacent == null && spine >= 0 && spine < spineCount) {
         if (!valid()) return null;
         await _loadSpine(spine, prefetch: prefetch);
+        await _waitForPage(spine, direction < 0 ? -1 : 0, prefetch: prefetch);
         if (!valid()) return null;
         adjacent = _loadedEdge(spine, direction);
         spine += direction;
@@ -178,6 +220,15 @@ class VirtualPager {
         return null;
       }
       await _loadSpine(spine, prefetch: true);
+      await _waitForPage(
+        spine,
+        direction < 0
+            ? -1
+            : spine == origin.$1
+            ? origin.$2 + pageBudget
+            : 0,
+        prefetch: true,
+      );
       if (token != _navigationToken ||
           origin != _currentReal ||
           !(shouldContinue?.call() ?? true)) {
@@ -195,7 +246,12 @@ class VirtualPager {
     var position = _currentReal!;
     for (var count = 0; count < limit; count++) {
       final next = _cachedAdjacent(position, direction);
-      if (next == null) return position.$1 + direction;
+      if (next == null) {
+        // 已发布尾页尚非章尾；储备请求接管本章余页，不跨过未排正文。
+        return direction > 0 && !isChapterComplete(position.$1)
+            ? position.$1
+            : position.$1 + direction;
+      }
       position = next;
     }
     return null;
@@ -205,6 +261,8 @@ class VirtualPager {
   void discardCancelledPrefetch(Iterable<int> spines) {
     for (final spine in spines) {
       if (_pendingPrefetchSpines.remove(spine)) _pendingLoads.remove(spine);
+      _progressiveLoads.remove(spine);
+      unawaited(_pageSubscriptions.remove(spine)?.cancel());
     }
   }
 
@@ -271,16 +329,20 @@ class VirtualPager {
     return ++_navigationToken;
   }
 
-  Future<bool> _movePage(int direction) {
+  Future<bool> _movePage(int direction) async {
     _ensureInitialized();
     final token = _beginNavigation();
     final position = _currentReal;
-    if (position == null) return Future.value(false);
+    if (position == null) return false;
     final index = position.$2 + direction;
+    if (direction > 0 && !isChapterComplete(position.$1)) {
+      await _waitForPage(position.$1, index, prefetch: false);
+      if (token != _navigationToken) return false;
+    }
     final pages = _spinePages[position.$1]!;
     if (index >= 0 && index < pages.length) {
       _currentReal = (position.$1, index);
-      return Future.value(true);
+      return true;
     }
     return _findPage(
       position.$1 + direction,
@@ -293,6 +355,7 @@ class VirtualPager {
   Future<bool> _findPage(int spine, int page, int direction, int token) async {
     for (; spine >= 0 && spine < spineCount; spine += direction) {
       await _loadSpine(spine);
+      await _waitForPage(spine, page, prefetch: false);
       if (token != _navigationToken) return false;
       final pages = _spinePages[spine]!;
       if (pages.isEmpty) continue;
@@ -305,7 +368,20 @@ class VirtualPager {
     return false;
   }
 
-  Future<void> _loadSpine(int spine, {bool prefetch = false}) async {
+  Future<void> _loadSpine(
+    int spine, {
+    bool prefetch = false,
+    bool progressive = true,
+  }) async {
+    if (progressive && progressiveLoader != null && !isChapterComplete(spine)) {
+      final handle =
+          _progressiveLoads[spine] ?? _startProgressive(spine, prefetch);
+      final pages = await handle.firstPages;
+      if (identical(_progressiveLoads[spine], handle)) {
+        _storeSpine(spine, pages, complete: handle.isComplete);
+      }
+      return;
+    }
     if (_spinePages.containsKey(spine)) {
       _touchSpine(spine);
       return;
@@ -348,11 +424,119 @@ class VirtualPager {
     }
   }
 
-  void _storeSpine(int spine, List<PageContent> pages) {
+  ProgressiveChapterLoadHandle _startProgressive(int spine, bool prefetch) {
+    final handle = progressiveLoader!(
+      spine,
+      prefetch ? ChapterLayoutPriority.prefetch : ChapterLayoutPriority.reading,
+    );
+    _progressiveLoads[spine] = handle;
+    _partialSpines.add(spine);
+    _pageSubscriptions[spine] = handle.updates.listen((pages) {
+      if (identical(_progressiveLoads[spine], handle)) {
+        _storeSpine(spine, pages, complete: handle.isComplete);
+      }
+    });
+    unawaited(
+      handle.result.then<void>(
+        (pages) {
+          if (identical(_progressiveLoads[spine], handle)) {
+            _storeSpine(spine, pages);
+            _progressiveLoads.remove(spine);
+            unawaited(_pageSubscriptions.remove(spine)?.cancel());
+          }
+        },
+        onError: (Object _, StackTrace _) {
+          if (identical(_progressiveLoads[spine], handle)) {
+            _progressiveLoads.remove(spine);
+            unawaited(_pageSubscriptions.remove(spine)?.cancel());
+          }
+        },
+      ),
+    );
+    return handle;
+  }
+
+  Future<void> _waitForPage(
+    int spine,
+    int page, {
+    required bool prefetch,
+  }) async {
+    bool ready() =>
+        isChapterComplete(spine) ||
+        (page >= 0 && (_spinePages[spine]?.length ?? 0) > page);
+    if (ready()) return;
+    await _loadSpine(spine, prefetch: prefetch);
+    if (ready()) return;
+    final handle = _progressiveLoads[spine]!;
+    final priorities = _pageWaitPriorities.putIfAbsent(handle, () => []);
+    final priority = prefetch
+        ? ChapterLayoutPriority.prefetch
+        : ChapterLayoutPriority.reading;
+    priorities.add(priority);
+    _refreshWaitPriority(handle, priorities);
+    try {
+      await _awaitPagePublication(handle, ready);
+    } finally {
+      priorities.remove(priority);
+      _refreshWaitPriority(handle, priorities);
+      if (priorities.isEmpty) _pageWaitPriorities.remove(handle);
+    }
+  }
+
+  Future<void> _awaitPagePublication(
+    ProgressiveChapterLoadHandle handle,
+    bool Function() ready,
+  ) async {
+    final completion = Completer<void>();
+    final subscription = handle.updates.listen((_) {
+      if (ready() && !completion.isCompleted) completion.complete();
+    });
+    unawaited(
+      handle.result.then<void>(
+        (_) {
+          if (!completion.isCompleted) completion.complete();
+        },
+        onError: (Object error, StackTrace stack) {
+          if (!completion.isCompleted) completion.completeError(error, stack);
+        },
+      ),
+    );
+    try {
+      await completion.future;
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  void _refreshWaitPriority(
+    ProgressiveChapterLoadHandle handle,
+    List<ChapterLayoutPriority> priorities,
+  ) => handle.setPriority(
+    priorities.fold(
+      ChapterLayoutPriority.background,
+      (first, next) => first.index < next.index ? first : next,
+    ),
+  );
+
+  void _storeSpine(int spine, List<PageContent> pages, {bool complete = true}) {
+    final previous = _spinePages[spine];
+    final wasComplete = isChapterComplete(spine);
+    // 同配置下被取消的后台作业可重启；此前可见页仍保留原身份。
+    if (previous != null && !wasComplete) {
+      if (pages.length < previous.length) return;
+      pages = [...previous, ...pages.skip(previous.length)];
+    }
     _spinePages[spine] = List<PageContent>.unmodifiable(pages);
+    if (complete) _partialSpines.remove(spine);
     _recordPageCount(spine, pages.length);
     _touchSpine(spine);
     _trimSpinePages();
+    // 普通完整章由原预热等待者消费；空章通知会重复启动跨章扫描。
+    if (pages.isNotEmpty &&
+        (!complete || previous != null && !wasComplete) &&
+        (previous?.length != pages.length || wasComplete != complete)) {
+      onPagesAvailable?.call(previous != null && !wasComplete && complete);
+    }
   }
 
   void _commitCurrent((int, int) position) {
@@ -376,7 +560,11 @@ class VirtualPager {
         (spine) => spine != currentSpine && !preparedSpines.contains(spine),
       );
       if (removeAt < 0) break;
-      _spinePages.remove(_spineOrder.removeAt(removeAt));
+      final spine = _spineOrder.removeAt(removeAt);
+      _spinePages.remove(spine);
+      _partialSpines.remove(spine);
+      _progressiveLoads.remove(spine)?.cancel();
+      unawaited(_pageSubscriptions.remove(spine)?.cancel());
     }
   }
 
@@ -419,13 +607,16 @@ class VirtualPager {
     if (position == null) return false;
     final index = position.$2 + direction;
     if (index >= 0 && index < _spinePages[position.$1]!.length) return true;
+    if (direction > 0 && !isChapterComplete(position.$1)) return true;
     for (
       var spine = position.$1 + direction;
       spine >= 0 && spine < spineCount;
       spine += direction
     ) {
       final pages = _spinePages[spine];
-      if (pages == null || pages.isNotEmpty) return true;
+      if (pages == null || pages.isNotEmpty || !isChapterComplete(spine)) {
+        return true;
+      }
     }
     return false;
   }
@@ -435,13 +626,16 @@ class VirtualPager {
     if (index >= 0 && index < _spinePages[position.$1]!.length) {
       return (position.$1, index);
     }
+    if (direction > 0 && !isChapterComplete(position.$1)) return null;
     for (
       var spine = position.$1 + direction;
       spine >= 0 && spine < spineCount;
       spine += direction
     ) {
       final pages = _spinePages[spine];
-      if (pages == null) return null;
+      if (pages == null || (direction < 0 && !isChapterComplete(spine))) {
+        return null;
+      }
       if (pages.isNotEmpty) {
         return (spine, direction < 0 ? pages.length - 1 : 0);
       }
