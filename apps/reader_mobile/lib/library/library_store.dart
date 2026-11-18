@@ -35,6 +35,7 @@ import 'revision_anchor_store.dart' show requireAnchorRecord;
 part 'library_revision.dart';
 part 'library_editing.dart';
 part 'library_edit_drafts.dart';
+part 'library_sweep_paths.dart';
 
 /// 导入成功的实际结果，覆盖更新不会新建用户数据。
 enum BookImportOutcome { added, updated, unchanged }
@@ -1539,31 +1540,30 @@ class LibraryStore {
     final rows = await (db.select(
       db.books,
     )..where((table) => table.deletedAt.isNull())).get();
-    final knownFiles = <String>{
+    final paths = _LibrarySweepPaths(Directory(p.join(root.path, 'books')));
+    await paths.resolveReferences(db, rows);
+    await _sweepEditDrafts([
       for (final row in rows)
-        if (row.sourcePath != null) p.normalize(row.sourcePath!),
-      for (final row in rows)
-        if (row.coverPath != null) p.normalize(row.coverPath!),
-    };
-    knownFiles.addAll(await _protectedEditFiles());
-    await _sweepEditDrafts(rows);
-    return _sweepBookDirectory(Directory('${root.path}/books'), {
-      for (final row in rows) row.uuid,
-    }, knownFiles);
+        if (!paths.deferredBookIds.contains(row.uuid)) row,
+    ]);
+    return _sweepBookDirectory(paths, {for (final row in rows) row.uuid});
   }
 
   Future<({int removed, int bytes})> _sweepBookDirectory(
-    Directory booksDirectory,
+    _LibrarySweepPaths paths,
     Set<String> knownIds,
-    Set<String> knownFiles,
   ) async {
+    final booksDirectory = paths.booksDirectory;
+    final knownFiles = paths.files;
     if (!await booksDirectory.exists()) return (removed: 0, bytes: 0);
     var removed = 0;
     var bytes = 0;
     await for (final entity in booksDirectory.list(followLinks: false)) {
       if (entity is Directory) {
         // books/<id>/；未知标识且无活动文件引用即为孤儿目录。
-        if (knownIds.contains(p.basename(entity.path)) ||
+        final id = p.basename(entity.path);
+        if (paths.deferredBookIds.contains(id)) continue;
+        if (knownIds.contains(id) ||
             knownFiles.any((path) => p.isWithin(entity.path, path))) {
           final retired = await _sweepRetiredVersions(entity, knownFiles);
           removed += retired.removed;
