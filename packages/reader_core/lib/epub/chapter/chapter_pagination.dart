@@ -38,6 +38,22 @@ class ChapterPageLayout {
   final LayoutBudget budget;
   final TextLayoutCache textCache;
 
+  /// 只消费稳定输入触发的正式收页，前缀末尾不生成章节尾页或页索引。
+  Future<List<PageContent>> paginateStablePrefix(
+    List<PageBlock> blocks,
+    int stableBlockCount,
+    PageBackground? background, {
+    required int maxPages,
+  }) async {
+    final pages = await _measurePages(
+      blocks,
+      stableBlockCount: stableBlockCount,
+      maxPages: maxPages,
+    );
+    if (pages.isEmpty) return const [];
+    return _finishChapterPages(pages, background);
+  }
+
   Future<ChapterPaginationResult> paginate(
     List<PageBlock> blocks,
     List<PageBlock> fixed,
@@ -158,7 +174,11 @@ class ChapterPageLayout {
     );
   }
 
-  Future<List<PageContent>> _measurePages(List<PageBlock> blocks) async {
+  Future<List<PageContent>> _measurePages(
+    List<PageBlock> blocks, {
+    int? stableBlockCount,
+    int maxPages = Paginator.maxPagesPerChapter,
+  }) async {
     final paginator = Paginator(
       pageHeight: snapshot.height,
       pageWidth: snapshot.width,
@@ -175,6 +195,8 @@ class ChapterPageLayout {
       spineIndex: snapshot.spineIndex,
       token: budget.token,
       budgetCheck: budget.checkpoint,
+      stableBlockCount: stableBlockCount,
+      maxPages: maxPages,
     )) {
       pages.add(page);
     }

@@ -64,13 +64,22 @@ class LayoutSnapshot {
 
 /// 每次工作片结束时核验取消和实际依赖；后台一次只占用一帧内的预算。
 class LayoutBudget {
-  LayoutBudget({required this._priority, required this.isCurrent});
+  LayoutBudget({
+    required this._priority,
+    required this.isCurrent,
+    this.publishPages,
+    this.wantsProgressivePages,
+  });
 
   ChapterLayoutPriority _priority;
   final bool Function() isCurrent;
+  final void Function(List<PageContent>)? publishPages;
+  final bool Function()? wantsProgressivePages;
   final CancelToken token = CancelToken();
   final Completer<void> _cancelled = Completer<void>();
-  Completer<void> _promotedToReading = Completer<void>();
+  Completer<void> _promoted = Completer<void>();
+  // 首批正文交付后静止阅读可继续工作；有动画时仍每帧让出。
+  bool continueWhenIdle = false;
   final Stopwatch _slice = Stopwatch()..start();
   int maxSliceMicroseconds = 0;
   int yieldCount = 0;
@@ -79,10 +88,11 @@ class LayoutBudget {
 
   set priority(ChapterLayoutPriority next) {
     if (_priority == next) return;
+    final previous = _priority;
     _priority = next;
-    if (next == ChapterLayoutPriority.reading) {
-      _promotedToReading.complete();
-      _promotedToReading = Completer<void>();
+    if (next.index < previous.index) {
+      _promoted.complete();
+      _promoted = Completer<void>();
     }
   }
 
@@ -116,7 +126,12 @@ class LayoutBudget {
     if (!force && elapsed < limit) return null;
     if (elapsed > maxSliceMicroseconds) maxSliceMicroseconds = elapsed;
     yieldCount += 1;
-    return _yield(priority == ChapterLayoutPriority.background);
+    final activeAnimation =
+        SchedulerBinding.instance.transientCallbackCount > 0;
+    return _yield(
+      priority == ChapterLayoutPriority.background &&
+          (!continueWhenIdle || activeAnimation),
+    );
   }
 
   Future<void> _yield(bool waitForFrame) async {
@@ -124,7 +139,7 @@ class LayoutBudget {
       await Future.any([
         SchedulerBinding.instance.endOfFrame,
         _cancelled.future,
-        _promotedToReading.future,
+        _promoted.future,
       ]);
     } else {
       // 邻章预取每片仍限 2ms，但不把数十个片段串成数十帧等待。
@@ -160,31 +175,40 @@ class ChapterLayoutScheduler {
 
   bool contains(String key) => _jobs.containsKey(key);
 
-  ChapterLoadHandle schedule(
+  ProgressiveChapterLoadHandle schedule(
     LayoutSnapshot snapshot, {
     required ChapterLayoutPriority priority,
     required bool retainResult,
+    bool progressive = false,
   }) {
     final job = _jobs.putIfAbsent(snapshot.key, () => _ChapterJob(snapshot));
     final waiter = _ChapterWaiter(
       () => _removeIdle(job),
+      onPriorityChanged: () {
+        job.refreshPriority();
+        _preempt(job.priority, requestedJob: job);
+        unawaited(_drain());
+      },
       priority: priority,
       retainResult: retainResult,
+      progressive: progressive,
     );
     job.waiters.add(waiter);
+    if (job.pages.isNotEmpty) waiter.publish(job.pages);
     job.refreshPriority();
     if (_closed) {
       waiter.cancel();
     } else {
-      _preempt(priority);
+      _preempt(priority, requestedJob: job);
       unawaited(_drain());
     }
     return waiter;
   }
 
-  void _preempt(ChapterLayoutPriority priority) {
+  void _preempt(ChapterLayoutPriority priority, {_ChapterJob? requestedJob}) {
     final running = _running;
     if (running == null ||
+        identical(running, requestedJob) ||
         running.budget?.token.isCancelled == true ||
         running.priority.index <= priority.index) {
       return;
@@ -206,7 +230,7 @@ class ChapterLayoutScheduler {
   }
 
   void _removeIdle(_ChapterJob job) {
-    job.waiters.removeWhere((waiter) => waiter.isComplete);
+    job.waiters.removeWhere((waiter) => waiter.isSettled);
     if (job.waiters.isNotEmpty) {
       job.refreshPriority();
       if (identical(job, _running)) {
@@ -250,8 +274,11 @@ class ChapterLayoutScheduler {
     final budget = job.budget = LayoutBudget(
       priority: job.priority,
       isCurrent: () =>
-          job.waiters.any((waiter) => !waiter.isComplete) &&
+          job.waiters.any((waiter) => !waiter.isSettled) &&
           isCurrent(job.snapshot),
+      wantsProgressivePages: () =>
+          job.waiters.any((waiter) => waiter.progressive && !waiter.isSettled),
+      publishPages: job.publish,
     );
     try {
       budget.check();
@@ -285,34 +312,84 @@ class _ChapterJob {
   ChapterLayoutPriority priority = ChapterLayoutPriority.background;
   final Set<_ChapterWaiter> waiters = {};
   LayoutBudget? budget;
+  List<PageContent> pages = const [];
 
   bool get retainResult =>
-      waiters.any((waiter) => !waiter.isComplete && waiter.retainResult);
+      waiters.any((waiter) => !waiter.isSettled && waiter.retainResult);
+
+  void publish(List<PageContent> next) {
+    pages = next;
+    for (final waiter in waiters.toList()) {
+      waiter.publish(next);
+    }
+    refreshPriority();
+    budget?.continueWhenIdle = true;
+  }
 
   void refreshPriority() {
-    priority = waiters
-        .where((waiter) => !waiter.isComplete)
+    final active = waiters.where((waiter) => !waiter.isSettled);
+    if (active.isEmpty) return;
+    priority = active
         .map((waiter) => waiter.priority)
         .reduce((first, next) => first.index < next.index ? first : next);
     budget?.priority = priority;
   }
 }
 
-class _ChapterWaiter implements ChapterLoadHandle {
+class _ChapterWaiter implements ProgressiveChapterLoadHandle {
   _ChapterWaiter(
     this.onCancel, {
+    this.onPriorityChanged,
     this.priority = ChapterLayoutPriority.reading,
     this.retainResult = false,
+    this.progressive = false,
   }) {
     // 句柄可能在调用者 await 之前取消；保留原错误并避免未观察异常。
     unawaited(result.then<void>((_) {}, onError: (Object _, StackTrace _) {}));
+    unawaited(
+      firstPages.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
   }
 
   final void Function() onCancel;
-  final ChapterLayoutPriority priority;
+  final void Function()? onPriorityChanged;
+  @override
+  ChapterLayoutPriority priority;
   final bool retainResult;
+  final bool progressive;
   final Completer<List<PageContent>> _completion = Completer();
-  bool get isComplete => _completion.isCompleted;
+  final Completer<List<PageContent>> _first = Completer();
+  final _updates = StreamController<List<PageContent>>.broadcast(sync: true);
+  bool _complete = false;
+  bool get isSettled => _completion.isCompleted;
+  @override
+  List<PageContent> availablePages = const [];
+  @override
+  bool get isComplete => _complete;
+
+  @override
+  Future<List<PageContent>> get firstPages => _first.future;
+
+  @override
+  Stream<List<PageContent>> get updates => _updates.stream;
+
+  @override
+  void setPriority(ChapterLayoutPriority next) {
+    if (isSettled || priority == next) return;
+    priority = next;
+    onPriorityChanged?.call();
+  }
+
+  void publish(List<PageContent> pages) {
+    if (isSettled) return;
+    availablePages = pages;
+    if (!_first.isCompleted) {
+      // 首页交付后释放前台预算，余章继续由同一作业后台构块。
+      if (progressive) priority = ChapterLayoutPriority.background;
+      _first.complete(pages);
+    }
+    _updates.add(pages);
+  }
 
   @override
   Future<List<PageContent>> get result => _completion.future;
@@ -324,40 +401,76 @@ class _ChapterWaiter implements ChapterLoadHandle {
   }
 
   void complete(List<PageContent> pages) {
-    if (!isComplete) _completion.complete(pages);
+    if (isSettled) return;
+    _complete = true;
+    availablePages = pages;
+    if (!_first.isCompleted) _first.complete(pages);
+    _completion.complete(pages);
+    _updates.add(pages);
+    unawaited(_updates.close());
   }
 
   void completeError(Object error, StackTrace stack) {
-    if (!isComplete) _completion.completeError(error, stack);
+    if (isSettled) return;
+    if (!_first.isCompleted) _first.completeError(error, stack);
+    _completion.completeError(error, stack);
+    unawaited(_updates.close());
   }
 }
 
 /// 准备原文和字体的等待者也可立即取消，随后不会进入排版队列。
-class PreparingChapterHandle implements ChapterLoadHandle {
+class PreparingChapterHandle implements ProgressiveChapterLoadHandle {
   PreparingChapterHandle(
     Future<ChapterLoadHandle> Function(bool Function() isCancelled) prepare, {
     void Function()? onCancel,
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
   }) {
     _waiter = _ChapterWaiter(() {
       onCancel?.call();
       _scheduled?.cancel();
-    });
+    }, priority: priority);
     unawaited(_prepare(prepare));
   }
 
   late final _ChapterWaiter _waiter;
   ChapterLoadHandle? _scheduled;
+  StreamSubscription<List<PageContent>>? _subscription;
 
   Future<void> _prepare(
     Future<ChapterLoadHandle> Function(bool Function() isCancelled) prepare,
   ) async {
     try {
-      final scheduled = _scheduled = await prepare(() => _waiter.isComplete);
-      if (_waiter.isComplete) scheduled.cancel();
+      final scheduled = _scheduled = await prepare(() => _waiter.isSettled);
+      if (_waiter.isSettled) scheduled.cancel();
+      if (scheduled is ProgressiveChapterLoadHandle) {
+        if (scheduled.availablePages.isEmpty) {
+          scheduled.setPriority(_waiter.priority);
+        }
+        _subscription = scheduled.updates.listen((pages) {
+          _relayPages(scheduled, pages);
+        });
+        if (scheduled.availablePages.isNotEmpty) {
+          _relayPages(scheduled, scheduled.availablePages);
+        }
+      }
       final pages = await scheduled.result;
       _waiter.complete(pages);
     } catch (error, stack) {
       _waiter.completeError(error, stack);
+    } finally {
+      await _subscription?.cancel();
+    }
+  }
+
+  void _relayPages(
+    ProgressiveChapterLoadHandle scheduled,
+    List<PageContent> pages,
+  ) {
+    _waiter.priority = scheduled.priority;
+    if (scheduled.isComplete) {
+      _waiter.complete(pages);
+    } else {
+      _waiter.publish(pages);
     }
   }
 
@@ -365,7 +478,24 @@ class PreparingChapterHandle implements ChapterLoadHandle {
   Future<List<PageContent>> get result => _waiter.result;
 
   @override
+  Future<List<PageContent>> get firstPages => _waiter.firstPages;
+  @override
+  List<PageContent> get availablePages => _waiter.availablePages;
+  @override
+  Stream<List<PageContent>> get updates => _waiter.updates;
+  @override
+  bool get isComplete => _waiter.isComplete;
+  @override
+  ChapterLayoutPriority get priority => _waiter.priority;
+  @override
+  void setPriority(ChapterLayoutPriority next) {
+    _waiter.setPriority(next);
+    final scheduled = _scheduled;
+    if (scheduled is ProgressiveChapterLoadHandle) scheduled.setPriority(next);
+  }
+
+  @override
   void cancel() {
-    if (!_waiter.isComplete) _waiter.cancel();
+    if (!_waiter.isSettled) _waiter.cancel();
   }
 }

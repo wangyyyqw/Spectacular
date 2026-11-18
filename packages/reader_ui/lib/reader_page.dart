@@ -995,7 +995,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 滑杆气泡文案：章名 + 章内页。
   String _chapterLabelOf(PageContent page) =>
       '${_chapterTitleOf(page.spineIndex)} · '
-      '${page.pageIndex + 1}/${_session.chapterPageCount} 页';
+      '${_session.pageLabelOf(page)}${_session.isChapterComplete(page.spineIndex) ? ' 页' : ''}';
 
   /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
   void _toggleReaderMenu() {
@@ -1160,6 +1160,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final page = _session.page;
     if (selection == null ||
         page == null ||
+        (_session.isChapterComplete(page.spineIndex) &&
+            page.pageIndex >= _session.chapterPageCount - 1)) {
+      return;
+    }
+    await _session.chapterPages();
+    if (!mounted ||
+        !identical(selection, _selection) ||
+        !identical(page, _session.page) ||
         page.pageIndex >= _session.chapterPageCount - 1) {
       return;
     }
@@ -1251,7 +1259,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     SemanticsService.sendAnnouncement(
       View.of(context),
-      '第 ${page.pageIndex + 1} 页，共 $totalPages 页',
+      totalPages > 0
+          ? '第 ${page.pageIndex + 1} 页，共 $totalPages 页'
+          : '第 ${page.pageIndex + 1} 页',
       TextDirection.ltr,
     );
   }
@@ -2839,6 +2849,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _tempHighlight,
       _bodyPadding(),
       _cornerInfo,
+      _session.pageCountRevision,
     );
     if (_effectiveTurnMode == PageTurnMode.scroll) {
       final padding = _bodyPadding();
@@ -2999,15 +3010,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final data = ReaderCornerData(
       bookTitle: widget.bookTitle,
       chapterTitle: _chapterTitleOf(page.spineIndex),
-      pageLabel:
-          '${page.pageIndex + 1}/${_session.pageCountOf(page.spineIndex)}',
+      pageLabel: _session.pageLabelOf(page),
       progress: _bookProgressOf(page),
     );
     return [
       // 页眉只在章节第一页自动隐藏，续页含出血或背景图也保留。
-      if (widget.showPageFooter &&
-          _cornerInfo.hasHeader &&
-          page.pageIndex > 0)
+      if (widget.showPageFooter && _cornerInfo.hasHeader && page.pageIndex > 0)
         Positioned(
           left: padding.left,
           right: padding.right,
@@ -3016,8 +3024,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             child: ReaderPageHeader(
               theme: _effectiveTheme,
               title: _chapterTitleOf(page.spineIndex),
-              pageLabel:
-                  '${page.pageIndex + 1}/${_session.pageCountOf(page.spineIndex)}',
+              pageLabel: _session.pageLabelOf(page),
               inkMode: _inkMode,
               info: _cornerInfo,
               data: data,

@@ -56,6 +56,7 @@ class EpubChapterSource
         PreparedChapterSource,
         BookTypographyFontSource,
         ScheduledChapterSource,
+        ProgressiveChapterSource,
         CurrentReadingChapterSource,
         SpineLayoutDependencyChapterSource,
         ReaderTextOverlaySource {
@@ -739,7 +740,21 @@ class EpubChapterSource
     int spineIndex, {
     ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
     bool retainResult = true,
-  }) {
+  }) => _scheduleChapter(spineIndex, priority, retainResult, false);
+
+  @override
+  ProgressiveChapterLoadHandle scheduleProgressiveChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+    bool retainResult = true,
+  }) => _scheduleChapter(spineIndex, priority, retainResult, true);
+
+  ProgressiveChapterLoadHandle _scheduleChapter(
+    int spineIndex,
+    ChapterLayoutPriority priority,
+    bool retainResult,
+    bool progressive,
+  ) {
     if (!_closed && isChapterMissing(spineIndex)) return _emptyChapterHandle();
     final key = _preparationKey;
     final preparation = _structures.schedule(
@@ -753,9 +768,10 @@ class EpubChapterSource
         key,
         cancelled,
         preparation,
-        (priority: priority, retain: retainResult),
+        (priority: priority, retain: retainResult, progressive: progressive),
       ),
       onCancel: preparation.cancel,
+      priority: priority,
     );
     _waitingLayouts.add(handle);
     unawaited(
@@ -772,7 +788,7 @@ class EpubChapterSource
     String preparationKey,
     bool Function() cancelled,
     ChapterPreparationHandle<ChapterStructure> preparation,
-    ({ChapterLayoutPriority priority, bool retain}) request,
+    ({ChapterLayoutPriority priority, bool retain, bool progressive}) request,
   ) async {
     void check() {
       if (_closed || cancelled() || preparationKey != _preparationKey) {
@@ -799,6 +815,7 @@ class EpubChapterSource
         snapshot,
         priority: request.priority,
         retainResult: request.retain,
+        progressive: request.progressive,
       );
     } on EpubException catch (error) {
       if (error.code != 'E_SPINE_MISSING') rethrow;
@@ -940,7 +957,14 @@ class EpubChapterSource
     }
     if (cached != null) _blockCacheHits += 1;
     if (cached == null) _chapterLayoutCount += 1;
-    final result = await _pipeline.run(input, budget, cached: cached);
+    final result = await _pipeline.run(
+      input,
+      budget,
+      cached: cached,
+      onPages: budget.wantsProgressivePages?.call() == true
+          ? budget.publishPages
+          : null,
+    );
     budget.check();
     if (result.indexDiagnostic case final diagnostic?) {
       _logInvalidation(diagnostic, snapshot.key, snapshot.key);
@@ -1006,12 +1030,24 @@ class EpubChapterSource
     if (snapshot != null) _completed.setCurrent(snapshot.key);
   }
 
-  ChapterLoadHandle _emptyChapterHandle() => _EmptyChapterHandle();
+  ProgressiveChapterLoadHandle _emptyChapterHandle() => _EmptyChapterHandle();
 }
 
-class _EmptyChapterHandle implements ChapterLoadHandle {
+class _EmptyChapterHandle implements ProgressiveChapterLoadHandle {
   @override
   Future<List<PageContent>> get result => Future.value(const []);
+  @override
+  Future<List<PageContent>> get firstPages => result;
+  @override
+  List<PageContent> get availablePages => const [];
+  @override
+  Stream<List<PageContent>> get updates => const Stream.empty();
+  @override
+  bool get isComplete => true;
+  @override
+  ChapterLayoutPriority get priority => ChapterLayoutPriority.background;
+  @override
+  void setPriority(ChapterLayoutPriority priority) {}
   @override
   void cancel() {}
 }

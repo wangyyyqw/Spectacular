@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -11,6 +12,7 @@ import 'package:reader_core/epub/chapter/book_resources.dart';
 import 'package:reader_core/epub/chapter/chapter_layout_job.dart';
 
 import '../support/css_chapter_book.dart';
+
 import 'package:reader_core/source/chapter_source.dart';
 
 late BookFontView _fonts;
@@ -126,6 +128,56 @@ void main() {
     expect(await third.result, same(pages));
     expect(runs, 1);
     expect(scheduler.contains('共享'), isFalse);
+  });
+
+  test('首页交付后余章降级，同键前台接管与取消不会重启作业', () async {
+    final gate = Completer<void>();
+    final first = _pages();
+    var runs = 0;
+    late LayoutBudget budget;
+    final scheduler = ChapterLayoutScheduler(
+      isCurrent: (_) => true,
+      run: (_, current, retain) async {
+        runs += 1;
+        budget = current;
+        current.publishPages!(first);
+        await gate.future;
+        current.check();
+        return first;
+      },
+    );
+    addTearDown(scheduler.close);
+    final initial = scheduler.schedule(
+      _snapshot('渐进'),
+      priority: ChapterLayoutPriority.prefetch,
+      retainResult: true,
+      progressive: true,
+    );
+    expect(await initial.firstPages, same(first));
+    expect(budget.priority, ChapterLayoutPriority.background);
+    final replay = scheduler.schedule(
+      _snapshot('渐进'),
+      priority: ChapterLayoutPriority.prefetch,
+      retainResult: true,
+      progressive: true,
+    );
+    expect(await replay.firstPages, same(first));
+    expect(budget.token.isCancelled, isFalse, reason: '同键重放不能抢占自己的后台作业');
+    initial.setPriority(ChapterLayoutPriority.reading);
+    expect(budget.priority, ChapterLayoutPriority.reading);
+    final full = scheduler.schedule(
+      _snapshot('渐进'),
+      priority: ChapterLayoutPriority.reading,
+      retainResult: true,
+    );
+    expect(await full.firstPages, same(first));
+    initial.cancel();
+    expect(initial.isComplete, isFalse, reason: '取消不代表完整章节就绪');
+    expect(budget.token.isCancelled, isFalse);
+    gate.complete();
+    expect(await full.result, same(first));
+    expect(await replay.result, same(first));
+    expect(runs, 1);
   });
 
   test('保留页面的等待者取消后，剩余后台等待者不常驻完整结果', () async {
@@ -281,6 +333,31 @@ void main() {
     await expectLater(cancelled, throwsA(isA<ChapterLoadCancelled>()));
   });
 
+  test('稳定页交付后的后台工作在静止时继续，动画活动时让帧并允许预取接管', () async {
+    final budget = LayoutBudget(
+      priority: ChapterLayoutPriority.background,
+      isCurrent: () => true,
+    )..continueWhenIdle = true;
+    var completed = false;
+    final idle = budget.checkpoint(force: true).then((_) => completed = true);
+    await Future<void>.value();
+    expect(completed, isFalse, reason: '静止时也必须让出事件循环处理输入');
+    await idle;
+    final binding = SchedulerBinding.instance;
+    final callback = binding.scheduleFrameCallback((_) {});
+    addTearDown(() => binding.cancelFrameCallbackWithId(callback));
+    completed = false;
+    final animated = budget
+        .checkpoint(force: true)
+        .then((_) => completed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(completed, isFalse, reason: '动画活动时后台不能连续占用两帧之间的主线程');
+    budget.promote(ChapterLayoutPriority.prefetch);
+    await animated;
+    expect(completed, isTrue);
+    expect(budget.yieldCount, 2);
+  });
+
   test('待执行队列依次处理阅读、预取、后台，几何作业不并发', () async {
     final gate = Completer<void>();
     final order = <String>[];
@@ -397,6 +474,42 @@ void main() {
     expect(finished, containsAll(['运行', '排队', '关闭后']));
     expect(finished, hasLength(3));
   });
+
+  for (final completedBeforePreparation in [false, true]) {
+    test(
+      '准备句柄完整交付保持终态：${completedBeforePreparation ? '已有完整结果' : '实时完成'}',
+      () async {
+        final gate = Completer<void>();
+        final pages = _pages();
+        final scheduler = ChapterLayoutScheduler(
+          isCurrent: (_) => true,
+          run: (_, budget, retain) async {
+            await gate.future;
+            return pages;
+          },
+        );
+        addTearDown(scheduler.close);
+        final scheduled = scheduler.schedule(
+          _snapshot('完整转发'),
+          priority: ChapterLayoutPriority.reading,
+          retainResult: true,
+          progressive: true,
+        );
+        if (completedBeforePreparation) {
+          gate.complete();
+          await scheduled.result;
+        }
+        final handle = PreparingChapterHandle((_) async => scheduled);
+        if (!completedBeforePreparation) {
+          await Future<void>.delayed(Duration.zero);
+          gate.complete();
+        }
+        expect(await handle.firstPages, same(pages));
+        expect(handle.isComplete, isTrue, reason: '完整页不能先被转发成未知总数的部分章');
+        expect(await handle.result, same(pages));
+      },
+    );
+  }
 
   test('原文与字体准备期间取消可立即结束，不进入实际排版', () async {
     final gate = Completer<void>();
