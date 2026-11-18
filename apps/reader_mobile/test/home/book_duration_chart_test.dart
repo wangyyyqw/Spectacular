@@ -192,7 +192,7 @@ void main() {
     expect(_text(tester, 'range'), '今天 · 2026年11月15日');
   });
 
-  testWidgets('四本书和其他按顺序左对齐排列在圆环下方，时长占比可见', (tester) async {
+  testWidgets('圆环下方的书目与其他共用同一刻度，条长对应当前周期时长占比', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2026, 11, 15, 8), 100),
       _session('b', DateTime(2026, 11, 15, 9), 80),
@@ -210,18 +210,29 @@ void main() {
     );
     expect(rows, findsNWidgets(5));
     var previousBottom = ring.bottom;
-    for (final (id, share) in [
-      ('a', '29.4%'),
-      ('b', '23.5%'),
-      ('c', '17.6%'),
-      ('d', '11.8%'),
-      ('other', '17.6%'),
+    Rect? firstTrack;
+    for (final (id, minutes, share) in [
+      ('a', 100, '29.4%'),
+      ('b', 80, '23.5%'),
+      ('c', 60, '17.6%'),
+      ('d', 40, '11.8%'),
+      ('other', 60, '17.6%'),
     ]) {
       final tag = tester.getRect(_key('tag-$id'));
+      final bar = find.descendant(
+        of: _key('tag-$id'),
+        matching: find.byType(LinearProgressIndicator),
+      );
+      final track = tester.getRect(bar);
+      firstTrack ??= track;
+      expect(track.left, firstTrack.left);
+      expect(track.width, firstTrack.width);
+      expect(tester.widget<LinearProgressIndicator>(bar).value, minutes / 340);
+      expect(tag.height, greaterThanOrEqualTo(kMinInteractiveDimension));
       expect(tag.top, greaterThanOrEqualTo(previousBottom));
       expect(tag.left, list.left);
       expect(tag.right, list.right);
-      expect(_text(tester, 'share-$id'), '占比 $share');
+      expect(_text(tester, 'share-$id'), share);
       previousBottom = tag.bottom;
     }
     expect(_text(tester, 'value-other'), '1 小时');

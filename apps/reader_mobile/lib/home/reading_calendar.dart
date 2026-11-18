@@ -74,10 +74,8 @@ class _ReadingCalendarState extends State<ReadingCalendar>
       key: const ValueKey('stats-reading-calendar'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _navigation(),
-        const SizedBox(height: 4),
-        _summary(month),
-        const SizedBox(height: 16),
+        _monthHeader(month),
+        const SizedBox(height: 12),
         _grid(month),
         if (month.days.isEmpty)
           const Padding(
@@ -99,15 +97,33 @@ class _ReadingCalendarState extends State<ReadingCalendar>
     ),
   );
 
-  Widget _navigation() => Row(
+  Widget _monthHeader(ReadingCalendarMonth month) => Row(
     children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${month.start.year}年${month.start.month}月',
+              key: const ValueKey('stats-calendar-month'),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(height: 4),
+            _summary(month),
+          ],
+        ),
+      ),
+      const SizedBox(width: 8),
       IconButton(
         key: const ValueKey('stats-calendar-previous'),
         tooltip: '上个月',
         onPressed: () => _shiftMonth(-1),
         icon: const AppIcon(AppGlyph.chevronLeft),
       ),
-      Expanded(child: _monthButton()),
       IconButton(
         key: const ValueKey('stats-calendar-next'),
         tooltip: '下个月',
@@ -115,16 +131,6 @@ class _ReadingCalendarState extends State<ReadingCalendar>
         icon: const AppIcon(AppGlyph.chevronRight),
       ),
     ],
-  );
-
-  Widget _monthButton() => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 15),
-    child: Text(
-      '${_visibleMonth.year}年${_visibleMonth.month}月',
-      key: const ValueKey('stats-calendar-month'),
-      textAlign: TextAlign.center,
-      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-    ),
   );
 
   Widget _grid(ReadingCalendarMonth month) => LayoutBuilder(
@@ -164,8 +170,9 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   );
 }
 
-Widget _weekdays(BuildContext context) => Padding(
-  padding: const EdgeInsets.only(bottom: 10),
+Widget _weekdays(BuildContext context) => Container(
+  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+  padding: const EdgeInsets.symmetric(vertical: 6),
   child: Row(
     children: [
       for (final label in ['日', '一', '二', '三', '四', '五', '六'])
@@ -185,7 +192,6 @@ Widget _weekdays(BuildContext context) => Padding(
 
 const _barHeight = 18.0;
 const _laneGap = 3.0;
-const _minLanesHeight = (_barHeight + _laneGap) * 3;
 const _doneColor = Color(0xFF4E8E47);
 
 class _CalendarWeek extends StatelessWidget {
@@ -224,35 +230,34 @@ class _CalendarWeek extends StatelessWidget {
         ),
         ExcludeSemantics(
           child: IgnorePointer(
-            child: Column(
-              children: [
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: _minLanesHeight * scale,
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 4 * scale),
-                    child: Column(
-                      children: [
-                        for (var lane = 0; lane < laneCount; lane++)
-                          _lane(spans, lane, scale),
-                      ],
-                    ),
-                  ),
-                ),
-                Row(
-                  children: [
-                    for (var column = 0; column < 7; column++)
-                      Expanded(child: _dayLabel(context, column)),
-                  ],
-                ),
-              ],
-            ),
+            child: _weekContent(context, spans, laneCount, scale),
           ),
         ),
       ],
     );
   }
+
+  Widget _weekContent(
+    BuildContext context,
+    List<ReadingCalendarSpan> spans,
+    int laneCount,
+    double scale,
+  ) => ConstrainedBox(
+    constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        if (laneCount > 0) SizedBox(height: 4 * scale),
+        for (var lane = 0; lane < laneCount; lane++) _lane(spans, lane, scale),
+        Row(
+          children: [
+            for (var column = 0; column < 7; column++)
+              Expanded(child: _dayLabel(context, column)),
+          ],
+        ),
+      ],
+    ),
+  );
 
   Widget _lane(List<ReadingCalendarSpan> spans, int lane, double scale) {
     final laneSpans = [

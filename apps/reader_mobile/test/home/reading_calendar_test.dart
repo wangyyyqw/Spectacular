@@ -267,6 +267,24 @@ void main() {
     }
   });
 
+  testWidgets('紧凑月历将空周收至点击高度，多书周仍完整展开', (tester) async {
+    await _pump(tester, _fourThenFiveBooks());
+    final month = tester.getRect(_key('month'));
+    final summary = tester.getRect(_key('summary'));
+    final previous = tester.getRect(_key('previous'));
+    final next = tester.getRect(_key('next'));
+    expect(month.left, summary.left);
+    expect(month.bottom, lessThanOrEqualTo(summary.top));
+    expect(previous.right, next.left);
+    expect(previous.width, greaterThanOrEqualTo(kMinInteractiveDimension));
+    final empty = tester.getRect(_key('day-2026-11-8'));
+    final busy = tester.getRect(_key('day-2026-11-1'));
+    expect(empty.height, kMinInteractiveDimension);
+    expect(busy.height, greaterThan(empty.height));
+    await _tap(tester, 'day-2026-11-8');
+    expect(find.text('这一天没有阅读记录'), findsOneWidget);
+  });
+
   testWidgets('箭头可浏览空月和跨年月份，月份标题不打开选择面板', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2025, 12, 31, 9), 10),
