@@ -1520,16 +1520,21 @@ class ReaderSession extends ChangeNotifier {
     final parsed = EpubCfi.parse(cfi);
     final spine = parsed == null ? null : spineIndexOfCfi(parsed);
     if (spine == null || spine < 0 || spine >= source.chapterCount) return;
+    final anchor = ReaderAnchor(cfi: cfi);
+    if (!continuous && !pager.isChapterComplete(spine)) {
+      final ready = pager.spinePages[spine] ?? const <PageContent>[];
+      final exact = _matchingAnchorPage(ready, anchor, preferredPageIndex);
+      if (exact != null) {
+        if (pager.current?.spineIndex != spine ||
+            pager.current?.pageIndex != exact) {
+          await pager.goTo(spine, exact);
+        }
+        return;
+      }
+    }
     final pages = await pager.completeChapter(spine);
     if (_disposed || generation != _generation) return;
-    final anchor = ReaderAnchor(cfi: cfi);
-    final index =
-        preferredPageIndex != null &&
-            preferredPageIndex >= 0 &&
-            preferredPageIndex < pages.length &&
-            _pageContainsAnchor(pages[preferredPageIndex], anchor)
-        ? preferredPageIndex
-        : _locatePage(pages, anchor);
+    final index = _locatePage(pages, anchor, preferredPageIndex);
     final moved = await pager.goTo(spine, index);
     if (_disposed || generation != _generation || !continuous) return;
     if (!moved || pager.current?.spineIndex != spine) return;
@@ -2044,7 +2049,11 @@ class ReaderSession extends ChangeNotifier {
 
   /// 在新分页里按锚点定位：优先找包含「块 CFI + 近似行」的页，
   /// 找不到该行时退化为块所在页，再退化为 CFI ≥ 目标的页。
-  static int _locatePage(List<PageContent> pages, ReaderAnchor anchor) {
+  static int _locatePage(
+    List<PageContent> pages,
+    ReaderAnchor anchor, [
+    int? preferredPageIndex,
+  ]) {
     if (pages.isEmpty) {
       return 0;
     }
@@ -2055,11 +2064,8 @@ class ReaderSession extends ChangeNotifier {
     }
     final target = parsedTarget.rangeStart ?? parsedTarget;
     final targetPath = _cfiPath(target);
-    for (final page in pages) {
-      if (_pageContainsAnchor(page, anchor)) {
-        return page.pageIndex;
-      }
-    }
+    final exact = _matchingAnchorPage(pages, anchor, preferredPageIndex);
+    if (exact != null) return exact;
     var fallback = -1;
     for (final page in pages) {
       for (final slice in page.slices) {
@@ -2082,6 +2088,23 @@ class ReaderSession extends ChangeNotifier {
       }
     }
     return fallback >= 0 ? fallback : pages.last.pageIndex;
+  }
+
+  static int? _matchingAnchorPage(
+    List<PageContent> pages,
+    ReaderAnchor anchor,
+    int? preferred,
+  ) {
+    if (preferred != null &&
+        preferred >= 0 &&
+        preferred < pages.length &&
+        _pageContainsAnchor(pages[preferred], anchor)) {
+      return preferred;
+    }
+    for (final page in pages) {
+      if (_pageContainsAnchor(page, anchor)) return page.pageIndex;
+    }
+    return null;
   }
 
   static bool _pageContainsAnchor(PageContent page, ReaderAnchor anchor) {
