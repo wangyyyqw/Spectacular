@@ -313,6 +313,80 @@ class ReaMicroLanClient {
     }
   }
 
+  /// 把本机标注回传给对端设备的同一本书。
+  ///
+  /// 旧版阅微设备不认识该命令时会返回 `ERR`，此时按不支持处理并返回 0，
+  /// 不影响本次同步的其余结果。
+  Future<int> pushBookMarks(
+    ReaMicroLanSyncPeer peer, {
+    required String uuid,
+    required List<ReaMicroLanMark> marks,
+  }) async {
+    if (uuid.trim().isEmpty || marks.isEmpty) return 0;
+    final payloadBytes = utf8.encode(
+      jsonEncode(<String, Object?>{
+        'uuid': uuid,
+        'marks': <Map<String, Object?>>[
+          for (final mark in marks)
+            if (mark.usable) mark.toJson(),
+        ],
+      }),
+    );
+    if (payloadBytes.isEmpty) return 0;
+    final socket = await _connect(peer.host, peer.port);
+    final reader = _SocketFrameReader(socket, timeout: socketTimeout);
+    try {
+      socket.write('PUSH_MARKS ${payloadBytes.length}\n');
+      socket.add(payloadBytes);
+      await socket.flush();
+      final line = await reader.readLine();
+      if (line == null) {
+        throw const ReaMicroException('局域网设备未返回标注写入结果');
+      }
+      final parts = line.trim().split(RegExp(r'\s+'));
+      final command = parts.isEmpty ? '' : parts.first;
+      if (command == 'OK') {
+        final merged = parts.length >= 2 ? int.tryParse(parts[1]) : null;
+        unawaited(
+          ReaderLog.instance.log(
+            'reamicro_lan_marks',
+            fields: <String, Object?>{
+              'phase': 'ok',
+              'host': peer.host,
+              'port': peer.port,
+              'received': marks.length,
+              'merged': merged ?? 0,
+            },
+          ),
+        );
+        return merged ?? 0;
+      }
+      if (command == 'ERR') {
+        unawaited(
+          ReaderLog.instance.log(
+            'reamicro_lan_marks',
+            fields: <String, Object?>{
+              'phase': 'unsupported',
+              'host': peer.host,
+              'port': peer.port,
+            },
+          ),
+        );
+        return 0;
+      }
+      throw const ReaMicroException('局域网设备返回了无法识别的标注写入结果');
+    } finally {
+      try {
+        socket.write('BYE\n');
+        await socket.flush();
+      } catch (_) {
+        // 对端可能已主动断开，不影响已经读取的结果。
+      }
+      await reader.cancel();
+      socket.destroy();
+    }
+  }
+
   /// 从对端设备读取一本书的全部文件，并重建为 EPUB 字节。
   ///
   /// 阅微设备按解析后的目录保存书籍，`GET_FILES` 一次可读取多个相对路径。

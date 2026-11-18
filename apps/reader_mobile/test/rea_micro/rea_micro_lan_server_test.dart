@@ -333,6 +333,63 @@ void main() {
     filesSocket.destroy();
   });
 
+  test('同步端接收另一台设备回传的标注', () async {
+    final received = Completer<(String, List<ReaMicroLanMark>)>();
+    final server = ReaMicroLanLoginServer(discoveryEnabled: false);
+    addTearDown(server.stop);
+    await server.start(
+      userId: 7,
+      nickname: '同步端',
+      avatar: '',
+      token: 'access-token-123',
+      deviceId: 'test-device',
+      syncBooks: () async => const <ReaMicroLanServedBook>[],
+      mergeMarks: (uuid, marks) async {
+        if (!received.isCompleted) received.complete((uuid, marks));
+        return marks.length;
+      },
+    );
+    final client = ReaMicroLanClient();
+    final merged = await client.pushBookMarks(
+      ReaMicroLanSyncPeer(
+        host: '127.0.0.1',
+        port: server.port!,
+        userId: 7,
+        deviceId: 'phone-1',
+        nickname: '测试手机',
+        deviceName: '测试手机',
+      ),
+      uuid: 'book-1',
+      marks: const <ReaMicroLanMark>[
+        ReaMicroLanMark(
+          startCfi: 'epubcfi(/6/4!/4/2/1)',
+          endCfi: 'epubcfi(/6/4!/4/2/5)',
+          kind: 1,
+          chapter: '',
+          quote: '回传想法',
+          note: '写在手机上的想法',
+          style: 0,
+          color: '#cc00ff00',
+          synced: 0,
+          cloudId: 0,
+          createdAt: 1763380800000,
+          updatedAt: 1763380801000,
+        ),
+      ],
+    );
+
+    expect(merged, 1);
+    final (uuid, marks) = await received.future.timeout(
+      const Duration(seconds: 2),
+    );
+    expect(uuid, 'book-1');
+    expect(marks.single.startCfi, 'epubcfi(/6/4!/4/2/1)');
+    expect(marks.single.quote, '回传想法');
+    expect(marks.single.note, '写在手机上的想法');
+    expect(marks.single.color, '#cc00ff00');
+    expect(marks.single.updatedAt, 1763380801000);
+  });
+
   test('等待人工批准登录可超过普通帧超时', () async {
     final server = ReaMicroLanLoginServer(discoveryEnabled: false);
     addTearDown(server.stop);

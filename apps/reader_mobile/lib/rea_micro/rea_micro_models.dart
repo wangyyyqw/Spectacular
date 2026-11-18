@@ -1307,6 +1307,22 @@ class ReaMicroLanMark {
   /// 是否包含可合并的位置。
   bool get usable => startCfi.trim().isNotEmpty;
 
+  /// 转为局域网协议使用的 JSON。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'startCfi': startCfi,
+    'endCfi': endCfi,
+    'kind': kind,
+    'chapter': chapter,
+    'quote': quote,
+    'note': note,
+    'style': style,
+    'color': color,
+    'synced': synced,
+    'cloudId': cloudId,
+    'createdAt': createdAt,
+    'updatedAt': updatedAt,
+  };
+
   /// 从清单数据解析。
   factory ReaMicroLanMark.fromJson(Map<String, Object?> json) =>
       ReaMicroLanMark(

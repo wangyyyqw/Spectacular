@@ -108,6 +108,7 @@ class ReaMicroLanLoginServer {
   ServerSocket? _server;
   _MdnsServiceAdvertiser? _advertiser;
   Future<List<ReaMicroLanServedBook>> Function()? _syncBooksProvider;
+  Future<int> Function(String uuid, List<ReaMicroLanMark> marks)? _mergeMarks;
   final Map<String, _ServedArchive> _archiveCache = <String, _ServedArchive>{};
   final Map<String, _PendingLogin> _pending = <String, _PendingLogin>{};
   final List<ReaMicroLanLoginRequest> _requests = <ReaMicroLanLoginRequest>[];
@@ -146,6 +147,7 @@ class ReaMicroLanLoginServer {
     required String deviceId,
     String? deviceName,
     Future<List<ReaMicroLanServedBook>> Function()? syncBooks,
+    Future<int> Function(String uuid, List<ReaMicroLanMark> marks)? mergeMarks,
   }) async {
     if (userId <= 0) {
       throw const FormatException('局域网授权服务需要有效的阅微账号');
@@ -175,6 +177,7 @@ class ReaMicroLanLoginServer {
       48,
     );
     _syncBooksProvider = syncBooks;
+    _mergeMarks = mergeMarks;
     _lastError = null;
     try {
       final server = await ServerSocket.bind(
@@ -385,6 +388,10 @@ class ReaMicroLanLoginServer {
         await _handleFileRequest(socket, reader, command);
         return;
       }
+      if (command.startsWith('PUSH_MARKS ')) {
+        await _handlePushedMarks(socket, reader, command);
+        return;
+      }
       final request = _parseRequest(command);
       if (request == null) {
         socket.write('REJECT\n');
@@ -531,6 +538,72 @@ class ReaMicroLanLoginServer {
     );
   }
 
+  /// 接收另一台设备回传的标注并合并到本机同一本书。
+  Future<void> _handlePushedMarks(
+    Socket socket,
+    _LanFrameReader reader,
+    String command,
+  ) async {
+    final parts = command.split(RegExp(r'\s+'));
+    final length = parts.length >= 2 ? int.tryParse(parts[1]) : null;
+    if (length == null || length <= 0 || length > 4 * 1024 * 1024) {
+      socket.write('ERR invalid request\n');
+      await socket.flush();
+      return;
+    }
+    final payload = await reader.readBytes(length);
+    final decoded = jsonDecode(utf8.decode(payload, allowMalformed: true));
+    if (decoded is! Map<String, Object?>) {
+      socket.write('ERR invalid request\n');
+      await socket.flush();
+      return;
+    }
+    final uuid = decoded['uuid']?.toString().trim() ?? '';
+    final rawMarks = decoded['marks'];
+    final marks = <ReaMicroLanMark>[
+      if (rawMarks is List<Object?>)
+        for (final item in rawMarks)
+          if (item is Map<String, Object?>) ReaMicroLanMark.fromJson(item),
+    ];
+    final merger = _mergeMarks;
+    if (uuid.isEmpty || merger == null) {
+      socket.write('ERR unavailable\n');
+      await socket.flush();
+      return;
+    }
+    var merged = 0;
+    try {
+      merged = await merger(uuid, marks);
+    } catch (error) {
+      unawaited(
+        ReaderLog.instance.log(
+          'reamicro_lan_server',
+          fields: <String, Object?>{
+            'phase': 'marks_failed',
+            'uuid': uuid,
+            'error': error.toString(),
+          },
+        ),
+      );
+      socket.write('ERR marks failed\n');
+      await socket.flush();
+      return;
+    }
+    socket.write('OK $merged\n');
+    await socket.flush();
+    unawaited(
+      ReaderLog.instance.log(
+        'reamicro_lan_server',
+        fields: <String, Object?>{
+          'phase': 'marks',
+          'uuid': uuid,
+          'received': marks.length,
+          'merged': merged,
+        },
+      ),
+    );
+  }
+
   Future<void> _sendManifest(Socket socket) async {
     final provider = _syncBooksProvider;
     final books = provider == null
@@ -558,21 +631,7 @@ class ReaMicroLanLoginServer {
         ],
         'marks': <Map<String, Object?>>[
           for (final mark in book.marks)
-            if (mark.usable)
-              <String, Object?>{
-                'startCfi': mark.startCfi,
-                'endCfi': mark.endCfi,
-                'kind': mark.kind,
-                'chapter': mark.chapter,
-                'quote': mark.quote,
-                'note': mark.note,
-                'style': mark.style,
-                'color': mark.color,
-                'synced': mark.synced,
-                'cloudId': mark.cloudId,
-                'createdAt': mark.createdAt,
-                'updatedAt': mark.updatedAt,
-              },
+            if (mark.usable) mark.toJson(),
         ],
       });
     }

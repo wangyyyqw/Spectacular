@@ -2100,6 +2100,7 @@ class ReaMicroController extends ChangeNotifier {
       var failed = 0;
       var unmatched = 0;
       var mergedMarks = 0;
+      final matchedBooks = <String, (BookEntry, ReaMicroLanBookProgress)>{};
       for (final remote in manifest.books) {
         BookEntry? localBook;
         try {
@@ -2189,6 +2190,7 @@ class ReaMicroController extends ChangeNotifier {
           continue;
         }
         final bookId = localBook.id;
+        matchedBooks[bookId] = (localBook, remote);
         if (remote.cloudId > 0 && !nextLinks.containsKey(bookId)) {
           try {
             nextLinks[bookId] = ReaMicroBookLink(
@@ -2278,6 +2280,33 @@ class ReaMicroController extends ChangeNotifier {
         await _store.saveLinks(nextLinks);
       }
       await _persistProgressStatesNow();
+      var pushedBooks = 0;
+      var pushedMarks = 0;
+      var pushFailed = 0;
+      for (final entry in matchedBooks.values) {
+        final (localBook, remote) = entry;
+        try {
+          final marks = await _lanMarksOf(localBook);
+          if (marks.isEmpty) continue;
+          final merged = await _lan.pushBookMarks(
+            peer,
+            uuid: remote.uuid,
+            marks: marks,
+          );
+          if (merged > 0) {
+            pushedBooks += 1;
+            pushedMarks += merged;
+          }
+        } catch (error) {
+          pushFailed += 1;
+          _logLanSyncError(
+            _LanSyncStage.markPushFailed,
+            peer: peer,
+            cloudId: remote.cloudId,
+            error: error,
+          );
+        }
+      }
       final hints = <String>[
         if (unmatched > 0) '$unmatched 本未匹配本地书籍',
         if (downloadFailed > 0) '$downloadFailed 本文件下载失败',
@@ -2285,6 +2314,8 @@ class ReaMicroController extends ChangeNotifier {
         if (linkFailed > 0) '$linkFailed 本云端关联失败',
         if (markFailed > 0) '$markFailed 本标注合并失败',
         if (mergedMarks > 0) '合并 $mergedMarks 条标注',
+        if (pushedBooks > 0) '回传 $pushedBooks 本、$pushedMarks 条标注',
+        if (pushFailed > 0) '$pushFailed 本标注回传失败',
       ];
       final hintText = hints.isEmpty ? '' : '，${hints.join('、')}';
       final progressText = failed == 0
@@ -2327,6 +2358,8 @@ class ReaMicroController extends ChangeNotifier {
           'failed': failed,
           'unmatched': unmatched,
           'marks': mergedMarks,
+          'marks_pushed': pushedMarks,
+          'mark_push_failed': pushFailed,
         },
       );
       return _lanMessage!;
@@ -2611,6 +2644,7 @@ class ReaMicroController extends ChangeNotifier {
         deviceId: _deviceId ?? 'spectacular',
         deviceName: Platform.isWindows ? 'Windows 电脑' : 'Spectacular 设备',
         syncBooks: _buildLanSyncBooks,
+        mergeMarks: _mergeLanMarksFromPeer,
       );
       _lanAuthorizationError = _lanLoginServer.lastError;
     } catch (error) {
@@ -2681,6 +2715,16 @@ class ReaMicroController extends ChangeNotifier {
     } catch (_) {
       return const <ReaMicroLanMark>[];
     }
+  }
+
+  /// 合并局域网设备回传的标注。
+  Future<int> _mergeLanMarksFromPeer(
+    String uuid,
+    List<ReaMicroLanMark> marks,
+  ) async {
+    final book = await _library.bookById(uuid);
+    if (book == null) return 0;
+    return _mergeLanMarks(book.id, marks);
   }
 
   void _onLanLoginRequestsChanged(List<ReaMicroLanLoginRequest> requests) {
@@ -2921,6 +2965,7 @@ enum _LanSyncStage {
   matchFailed,
   linkFailed,
   markFailed,
+  markPushFailed,
   progressFailed,
   complete,
   failed,

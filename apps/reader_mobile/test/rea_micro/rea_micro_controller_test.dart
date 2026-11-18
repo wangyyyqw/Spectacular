@@ -121,6 +121,8 @@ class _FakeLan extends ReaMicroLanClient {
   final List<int>? archive;
   final List<List<int>>? archives;
   int downloadCalls = 0;
+  final List<(String, List<ReaMicroLanMark>)> pushedMarks =
+      <(String, List<ReaMicroLanMark>)>[];
 
   @override
   Future<ReaMicroLanManifest> fetchManifest(ReaMicroLanSyncPeer peer) async {
@@ -142,6 +144,16 @@ class _FakeLan extends ReaMicroLanClient {
     }
     downloadCalls += 1;
     return Uint8List.fromList(archive!);
+  }
+
+  @override
+  Future<int> pushBookMarks(
+    ReaMicroLanSyncPeer peer, {
+    required String uuid,
+    required List<ReaMicroLanMark> marks,
+  }) async {
+    pushedMarks.add((uuid, marks));
+    return marks.length;
   }
 }
 
@@ -2286,6 +2298,59 @@ void main() {
     expect(annotations.single.id, 'mark-lan-88');
     expect(annotations.single.note, '局域网想法');
     expect(annotations.single.color, 0xCC00FF00);
+  });
+
+  test('局域网同步把本机标注回传给对端', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '回传标注', identifier: 'urn:uuid:lan-mark-push'),
+    );
+    await library.importBookAnnotation(
+      book.id,
+      ReaderAnnotation(
+        id: 'local-mark-1',
+        type: ReaderAnnotationType.mark,
+        startCfi: 'epubcfi(/6/4!/4/2/1)',
+        endCfi: 'epubcfi(/6/4!/4/2/5)',
+        quote: '本机划线',
+        color: 0xFFF4C542,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(2000),
+      ),
+    );
+    final manifest = ReaMicroLanManifest.fromJson(<String, Object?>{
+      'userId': 1,
+      'deviceId': 'device-b',
+      'generatedAt': 1763380800000,
+      'books': <Object?>[
+        <String, Object?>{
+          'uuid': book.id,
+          'book': <String, Object?>{'title': book.title, 'author': book.author},
+        },
+      ],
+    });
+    final lan = _FakeLan(manifest);
+    final controller = await _createController(library, _FakeApi(), lan: lan);
+    addTearDown(controller.dispose);
+
+    final message = await controller.syncWithLanPeer(
+      const ReaMicroLanSyncPeer(
+        host: '127.0.0.1',
+        port: 1,
+        userId: 1,
+        deviceId: 'device-b',
+        nickname: '测试用户',
+        deviceName: '测试设备',
+      ),
+    );
+
+    expect(lan.pushedMarks, hasLength(1));
+    expect(lan.pushedMarks.single.$1, book.id);
+    final pushed = lan.pushedMarks.single.$2.single;
+    expect(pushed.startCfi, 'epubcfi(/6/4!/4/2/1)');
+    expect(pushed.quote, '本机划线');
+    expect(pushed.color, '#fff4c542');
+    expect(message, contains('回传 1 本、1 条标注'));
   });
 
   test('读取里程碑、发布书评并删除里程碑', () async {
