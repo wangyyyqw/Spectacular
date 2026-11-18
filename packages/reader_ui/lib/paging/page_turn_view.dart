@@ -515,6 +515,9 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   void _scheduleWarm() {
+    widget.session.setBackgroundLayoutPaused(
+      _warmSuspended || !widget.preload || controller.active,
+    );
     if (_warmSuspended || !widget.preload || !mounted) {
       return;
     }
@@ -545,6 +548,9 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   void _pauseWarmup() {
+    widget.session.setBackgroundLayoutPaused(
+      _warmSuspended || !widget.preload || controller.active,
+    );
     _warmToken++;
     _warmTimer?.cancel();
     _warmTimer = null;
@@ -633,6 +639,7 @@ class PageTurnViewState extends State<PageTurnView>
       final first = await widget.session.prefetchTurnChapter(
         true,
         shouldContinue: () => _canWarm(page, token, generation),
+        idle: true,
       );
       if (first != null && _canWarm(page, token, generation)) {
         // 内容排版可先行，首页原图等当前纸面完成后再让出一帧启动。
@@ -770,6 +777,7 @@ class PageTurnViewState extends State<PageTurnView>
     widget.session.cancelTurnPrefetch();
     controller.removeListener(_controllerChanged);
     controller.dispose();
+    widget.session.setBackgroundLayoutPaused(false);
     _cache.clear();
     _clearBackgroundImage();
     _clearStaticImage();

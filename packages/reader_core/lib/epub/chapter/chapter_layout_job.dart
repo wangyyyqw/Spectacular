@@ -62,24 +62,24 @@ class LayoutSnapshot {
   late final String typographyFingerprint = textOverlays.typographyFingerprint;
 }
 
-/// 每次工作片结束时核验取消和实际依赖；后台一次只占用一帧内的预算。
+/// 每次工作片结束时核验取消和实际依赖，后台片段交给框架空闲队列。
 class LayoutBudget {
   LayoutBudget({
     required this._priority,
     required this.isCurrent,
     this.publishPages,
     this.wantsProgressivePages,
+    this.waitForBackground,
   });
 
   ChapterLayoutPriority _priority;
   final bool Function() isCurrent;
   final void Function(List<PageContent>)? publishPages;
   final bool Function()? wantsProgressivePages;
+  final Future<void>? Function()? waitForBackground;
   final CancelToken token = CancelToken();
   final Completer<void> _cancelled = Completer<void>();
   Completer<void> _promoted = Completer<void>();
-  // 首批正文交付后静止阅读可继续工作；有动画时仍每帧让出。
-  bool continueWhenIdle = false;
   final Stopwatch _slice = Stopwatch()..start();
   int maxSliceMicroseconds = 0;
   int yieldCount = 0;
@@ -121,33 +121,49 @@ class LayoutBudget {
   Future<void>? checkpointIfNeeded({bool force = false}) {
     check();
     final elapsed = _slice.elapsedMicroseconds;
-    final background = priority != ChapterLayoutPriority.reading;
-    final limit = background ? 2000 : 4000;
-    if (!force && elapsed < limit) return null;
+    final idle = priority == ChapterLayoutPriority.background;
+    final limit = switch (priority) {
+      ChapterLayoutPriority.reading => 4000,
+      ChapterLayoutPriority.prefetch => 2000,
+      ChapterLayoutPriority.background => 1000,
+    };
+    if (!force &&
+        elapsed < limit &&
+        (!idle || waitForBackground?.call() == null)) {
+      return null;
+    }
     if (elapsed > maxSliceMicroseconds) maxSliceMicroseconds = elapsed;
     yieldCount += 1;
-    final activeAnimation =
-        SchedulerBinding.instance.transientCallbackCount > 0;
-    return _yield(
-      priority == ChapterLayoutPriority.background &&
-          (!continueWhenIdle || activeAnimation),
-    );
+    return _yield(idle);
   }
 
-  Future<void> _yield(bool waitForFrame) async {
-    if (waitForFrame) {
-      await Future.any([
-        SchedulerBinding.instance.endOfFrame,
-        _cancelled.future,
-        _promoted.future,
-      ]);
+  Future<void> _yield(bool idle) async {
+    if (idle) {
+      await _waitForIdle();
     } else {
-      // 邻章预取每片仍限 2ms，但不把数十个片段串成数十帧等待。
-      // 零延迟事件给输入、动画和前台抢占机会，随后继续尚未完成的排版。
+      // 需要的邻页优先于空闲工作，仍让出事件循环处理输入。
       await Future<void>.delayed(Duration.zero);
     }
     _slice.reset();
     check();
+  }
+
+  Future<void> _waitForIdle() async {
+    while (priority == ChapterLayoutPriority.background) {
+      final paused = waitForBackground?.call();
+      await Future.any([
+        paused ??
+            SchedulerBinding.instance.scheduleTask<void>(
+              () {},
+              Priority.idle,
+              debugLabel: '章节空闲排版',
+            ),
+        _cancelled.future,
+        _promoted.future,
+      ]);
+      check();
+      if (paused == null && waitForBackground?.call() == null) return;
+    }
   }
 }
 
@@ -172,6 +188,18 @@ class ChapterLayoutScheduler {
   _ChapterJob? _running;
   bool _draining = false;
   bool _closed = false;
+  Completer<void>? _backgroundResumed;
+
+  Future<void>? get backgroundResumeSignal => _backgroundResumed?.future;
+
+  void setBackgroundPaused(bool paused) {
+    if (paused) {
+      _backgroundResumed ??= Completer<void>();
+    } else {
+      _backgroundResumed?.complete();
+      _backgroundResumed = null;
+    }
+  }
 
   bool contains(String key) => _jobs.containsKey(key);
 
@@ -279,9 +307,13 @@ class ChapterLayoutScheduler {
       wantsProgressivePages: () =>
           job.waiters.any((waiter) => waiter.progressive && !waiter.isSettled),
       publishPages: job.publish,
+      waitForBackground: () => backgroundResumeSignal,
     );
     try {
       budget.check();
+      if (budget.priority == ChapterLayoutPriority.background) {
+        await budget.checkpoint(force: true);
+      }
       final pages = await run(job.snapshot, budget, () => job.retainResult);
       budget.check();
       for (final waiter in job.waiters.toList()) {
@@ -323,7 +355,6 @@ class _ChapterJob {
       waiter.publish(next);
     }
     refreshPriority();
-    budget?.continueWhenIdle = true;
   }
 
   void refreshPriority() {
@@ -423,12 +454,17 @@ class PreparingChapterHandle implements ProgressiveChapterLoadHandle {
   PreparingChapterHandle(
     Future<ChapterLoadHandle> Function(bool Function() isCancelled) prepare, {
     void Function()? onCancel,
+    void Function(ChapterLayoutPriority)? onPriorityChanged,
     ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
   }) {
-    _waiter = _ChapterWaiter(() {
-      onCancel?.call();
-      _scheduled?.cancel();
-    }, priority: priority);
+    _waiter = _ChapterWaiter(
+      () {
+        onCancel?.call();
+        _scheduled?.cancel();
+      },
+      priority: priority,
+      onPriorityChanged: () => onPriorityChanged?.call(_waiter.priority),
+    );
     unawaited(_prepare(prepare));
   }
 

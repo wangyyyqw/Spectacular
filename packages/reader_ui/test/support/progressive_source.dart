@@ -65,7 +65,8 @@ class ProgressiveTestHandle implements ProgressiveChapterLoadHandle {
 }
 
 /// 页发布和章完成由测试独立控制，暴露把临时尾页误当章尾的行为。
-class ProgressiveTestSource implements ProgressiveChapterSource {
+class ProgressiveTestSource
+    implements ProgressiveChapterSource, BackgroundLayoutChapterSource {
   ProgressiveTestSource({
     List<int> counts = const [1, 6, 1],
     this.heldSpines = const {1},
@@ -83,6 +84,10 @@ class ProgressiveTestSource implements ProgressiveChapterSource {
   final List<List<PageContent>> chapters;
   final handles = <int, ProgressiveTestHandle>{};
   final requests = <int>[];
+  bool backgroundPaused = false;
+
+  @override
+  void setBackgroundLayoutPaused(bool paused) => backgroundPaused = paused;
 
   static PageContent _page(int spine, int index) {
     final style = ComputedStyle(const {

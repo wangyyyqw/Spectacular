@@ -57,6 +57,7 @@ class EpubChapterSource
         BookTypographyFontSource,
         ScheduledChapterSource,
         ProgressiveChapterSource,
+        BackgroundLayoutChapterSource,
         CurrentReadingChapterSource,
         SpineLayoutDependencyChapterSource,
         ReaderTextOverlaySource {
@@ -762,15 +763,27 @@ class EpubChapterSource
       contentWidth,
       priority: priority,
     );
+    final budget = LayoutBudget(
+      priority: priority,
+      isCurrent: () => !_closed && key == _preparationKey,
+      waitForBackground: () => _scheduler.backgroundResumeSignal,
+    );
     final handle = PreparingChapterHandle(
       (cancelled) => _prepareAndSchedule(
         spineIndex,
         key,
         cancelled,
         preparation,
-        (priority: priority, retain: retainResult, progressive: progressive),
+        (budget: budget, retain: retainResult, progressive: progressive),
       ),
-      onCancel: preparation.cancel,
+      onCancel: () {
+        budget.cancel();
+        preparation.cancel();
+      },
+      onPriorityChanged: (next) {
+        budget.priority = next;
+        preparation.promote(next);
+      },
       priority: priority,
     );
     _waitingLayouts.add(handle);
@@ -788,7 +801,7 @@ class EpubChapterSource
     String preparationKey,
     bool Function() cancelled,
     ChapterPreparationHandle<ChapterStructure> preparation,
-    ({ChapterLayoutPriority priority, bool retain, bool progressive}) request,
+    ({LayoutBudget budget, bool retain, bool progressive}) request,
   ) async {
     void check() {
       if (_closed || cancelled() || preparationKey != _preparationKey) {
@@ -800,22 +813,12 @@ class EpubChapterSource
       check();
       final structure = await preparation.result;
       check();
-      await _prepareChapterDecoration(spine, preparationKey);
-      check();
-      final snapshot = await _prepareLayoutSnapshot(spine, structure, check);
-      if (!_scheduler.contains(snapshot.key)) {
-        _layoutInputs[snapshot.key] = _prepareLayoutInput(
-          snapshot,
-          structure,
-          structure.sheets,
-        );
-      }
-      check();
-      return _scheduler.schedule(
-        snapshot,
-        priority: request.priority,
-        retainResult: request.retain,
-        progressive: request.progressive,
+      return await _schedulePreparedLayout(
+        spine,
+        preparationKey,
+        structure,
+        check,
+        request,
       );
     } on EpubException catch (error) {
       if (error.code != 'E_SPINE_MISSING') rethrow;
@@ -824,6 +827,43 @@ class EpubChapterSource
     } finally {
       preparation.cancel();
     }
+  }
+
+  Future<ChapterLoadHandle> _schedulePreparedLayout(
+    int spine,
+    String preparationKey,
+    ChapterStructure structure,
+    void Function() check,
+    ({LayoutBudget budget, bool retain, bool progressive}) request,
+  ) async {
+    final budget = request.budget;
+    // 原文可在 isolate 中继续准备，主线程阶段必须先等待空闲或前台接管。
+    await budget.checkpoint(
+      force: budget.priority == ChapterLayoutPriority.background,
+    );
+    await _prepareChapterDecoration(spine, preparationKey);
+    check();
+    await budget.checkpoint(
+      force: budget.priority == ChapterLayoutPriority.background,
+    );
+    final snapshot = await _prepareLayoutSnapshot(spine, structure, check);
+    await budget.checkpoint(
+      force: budget.priority == ChapterLayoutPriority.background,
+    );
+    if (!_scheduler.contains(snapshot.key)) {
+      _layoutInputs[snapshot.key] = _prepareLayoutInput(
+        snapshot,
+        structure,
+        structure.sheets,
+      );
+    }
+    check();
+    return _scheduler.schedule(
+      snapshot,
+      priority: budget.priority,
+      retainResult: request.retain,
+      progressive: request.progressive,
+    );
   }
 
   Future<LayoutSnapshot> _prepareLayoutSnapshot(
@@ -1029,6 +1069,10 @@ class EpubChapterSource
     final snapshot = _lastSnapshots[spineIndex];
     if (snapshot != null) _completed.setCurrent(snapshot.key);
   }
+
+  @override
+  void setBackgroundLayoutPaused(bool paused) =>
+      _scheduler.setBackgroundPaused(paused);
 
   ProgressiveChapterLoadHandle _emptyChapterHandle() => _EmptyChapterHandle();
 }

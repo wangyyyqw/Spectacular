@@ -41,6 +41,7 @@ abstract interface class ProgressiveChapterLoadHandle
   Future<List<PageContent>> get firstPages;
   List<PageContent> get availablePages;
   Stream<List<PageContent>> get updates;
+
   /// 仅完整章节成功交付时为 true；取消和失败不构成章节完成。
   bool get isComplete;
   ChapterLayoutPriority get priority;
@@ -55,6 +56,11 @@ abstract interface class ProgressiveChapterSource
     ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
     bool retainResult = true,
   });
+}
+
+/// 翻页活动期间暂停低优先级排版，当前目标页的前台请求仍可执行。
+abstract interface class BackgroundLayoutChapterSource {
+  void setBackgroundLayoutPaused(bool paused);
 }
 
 /// 可取消、可按优先级调度的章节源。

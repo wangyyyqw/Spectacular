@@ -35,6 +35,7 @@ class VirtualPager {
     required this.spineCount,
     required this.loader,
     this.prefetchLoader,
+    this.backgroundLoader,
     this.progressiveLoader,
     this.onPagesAvailable,
     this.prefetchRadius = 1,
@@ -43,6 +44,7 @@ class VirtualPager {
   final int spineCount;
   final SpinePagesLoader loader;
   final SpinePagesLoader? prefetchLoader;
+  final SpinePagesLoader? backgroundLoader;
   final ProgressiveSpineLoader? progressiveLoader;
   final void Function(bool totalsChanged)? onPagesAvailable;
 
@@ -196,18 +198,22 @@ class VirtualPager {
     return (spine, direction < 0 ? pages.length - 1 : 0);
   }
 
-  /// 连续已就绪页不足预算时补一个非空邻章，返回该章朝向阅读侧的首页。
+  /// 补一个非空邻章；空闲准备从章界开始，紧急储备按已就绪页数判断。
   Future<PageContent?> prefetchChapter(
     int direction, {
     bool Function()? shouldContinue,
     int pageBudget = turnPrefetchPageBudget,
+    bool fromChapterBoundary = false,
+    ChapterLayoutPriority priority = ChapterLayoutPriority.prefetch,
   }) async {
     assert(direction == -1 || direction == 1);
     assert(pageBudget > 0);
     final origin = _currentReal;
     final token = _navigationToken;
     if (origin == null) return null;
-    final start = _spineBeyondReadyPages(direction, pageBudget);
+    final start = fromChapterBoundary
+        ? origin.$1 + direction
+        : _spineBeyondReadyPages(direction, pageBudget);
     if (start == null) return null;
     for (
       var spine = start;
@@ -219,7 +225,7 @@ class VirtualPager {
           !(shouldContinue?.call() ?? true)) {
         return null;
       }
-      await _loadSpine(spine, prefetch: true);
+      await _loadSpine(spine, prefetch: true, priority: priority);
       await _waitForPage(
         spine,
         direction < 0
@@ -228,6 +234,7 @@ class VirtualPager {
             ? origin.$2 + pageBudget
             : 0,
         prefetch: true,
+        priority: priority,
       );
       if (token != _navigationToken ||
           origin != _currentReal ||
@@ -372,10 +379,21 @@ class VirtualPager {
     int spine, {
     bool prefetch = false,
     bool progressive = true,
+    ChapterLayoutPriority? priority,
   }) async {
     if (progressive && progressiveLoader != null && !isChapterComplete(spine)) {
       final handle =
-          _progressiveLoads[spine] ?? _startProgressive(spine, prefetch);
+          _progressiveLoads[spine] ??
+          _startProgressive(spine, prefetch, priority);
+      final requested =
+          priority ??
+          (prefetch
+              ? ChapterLayoutPriority.prefetch
+              : ChapterLayoutPriority.reading);
+      if (handle.availablePages.isEmpty &&
+          requested.index < handle.priority.index) {
+        handle.setPriority(requested);
+      }
       final pages = await handle.firstPages;
       if (identical(_progressiveLoads[spine], handle)) {
         _storeSpine(spine, pages, complete: handle.isComplete);
@@ -394,12 +412,16 @@ class VirtualPager {
     if (pending == null || promote) {
       // 同章前台等待者提升共享作业，替换 Future 后旧结果不能覆盖新结果。
       late final Future<void> request;
-      request = (prefetch ? prefetchLoader ?? loader : loader)(spine)
-          .then((pages) {
-            if (identical(_pendingLoads[spine], request)) {
-              _storeSpine(spine, pages);
-            }
-          });
+      final load = priority == ChapterLayoutPriority.background
+          ? backgroundLoader ?? prefetchLoader ?? loader
+          : prefetch
+          ? prefetchLoader ?? loader
+          : loader;
+      request = load(spine).then((pages) {
+        if (identical(_pendingLoads[spine], request)) {
+          _storeSpine(spine, pages);
+        }
+      });
       _pendingLoads[spine] = pending = request;
       if (prefetch) {
         _pendingPrefetchSpines.add(spine);
@@ -424,10 +446,17 @@ class VirtualPager {
     }
   }
 
-  ProgressiveChapterLoadHandle _startProgressive(int spine, bool prefetch) {
+  ProgressiveChapterLoadHandle _startProgressive(
+    int spine,
+    bool prefetch,
+    ChapterLayoutPriority? priority,
+  ) {
     final handle = progressiveLoader!(
       spine,
-      prefetch ? ChapterLayoutPriority.prefetch : ChapterLayoutPriority.reading,
+      priority ??
+          (prefetch
+              ? ChapterLayoutPriority.prefetch
+              : ChapterLayoutPriority.reading),
     );
     _progressiveLoads[spine] = handle;
     _partialSpines.add(spine);
@@ -460,24 +489,27 @@ class VirtualPager {
     int spine,
     int page, {
     required bool prefetch,
+    ChapterLayoutPriority? priority,
   }) async {
     bool ready() =>
         isChapterComplete(spine) ||
         (page >= 0 && (_spinePages[spine]?.length ?? 0) > page);
     if (ready()) return;
-    await _loadSpine(spine, prefetch: prefetch);
+    await _loadSpine(spine, prefetch: prefetch, priority: priority);
     if (ready()) return;
     final handle = _progressiveLoads[spine]!;
     final priorities = _pageWaitPriorities.putIfAbsent(handle, () => []);
-    final priority = prefetch
-        ? ChapterLayoutPriority.prefetch
-        : ChapterLayoutPriority.reading;
-    priorities.add(priority);
+    final requested =
+        priority ??
+        (prefetch
+            ? ChapterLayoutPriority.prefetch
+            : ChapterLayoutPriority.reading);
+    priorities.add(requested);
     _refreshWaitPriority(handle, priorities);
     try {
       await _awaitPagePublication(handle, ready);
     } finally {
-      priorities.remove(priority);
+      priorities.remove(requested);
       _refreshWaitPriority(handle, priorities);
       if (priorities.isEmpty) _pageWaitPriorities.remove(handle);
     }

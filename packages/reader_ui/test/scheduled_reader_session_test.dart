@@ -336,6 +336,18 @@ void main() {
     expect(session.progress?.spineIndex, 0);
   });
 
+  test('完整章节来源的空闲预排使用后台优先级', () async {
+    final source = _ScheduledSource();
+    final session = await _open(source);
+    addTearDown(session.dispose);
+    final page = session.page;
+    final first = await session.prefetchTurnChapter(true, idle: true);
+    expect(first!.spineIndex, 1);
+    expect(source.handles.last.priority, ChapterLayoutPriority.background);
+    expect(session.page, same(page));
+    expect(session.pageTurns, 0);
+  });
+
   test('预解析失败后清除等待者，下次请求重试且不修改阅读错误', () async {
     final source = _ScheduledPositionSource();
     final session = await _open(source);

@@ -24,6 +24,41 @@ Future<ReaderSession> _open(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('章内首屏空闲就预排下一章，提前发布和后台补全不改变当前进度', () async {
+    final source = ProgressiveTestSource(counts: [20, 6, 1]);
+    final session = await _open(source);
+    final page = session.page;
+    final progress = session.progress;
+    expect(await session.prefetchTurnChapter(true), isNull);
+    final first = await session.prefetchTurnChapter(true, idle: true);
+    expect(first, same(source.chapters[1].first));
+    expect(source.requests, [0, 1], reason: '只预排下一章，不遍历后续章节');
+    expect(source.handles[1]!.priority, ChapterLayoutPriority.background);
+    source.complete(1);
+    await Future<void>.delayed(Duration.zero);
+    expect(session.isChapterComplete(1), isTrue);
+    expect(session.page, same(page));
+    expect(session.progress, progress);
+    expect(session.pageTurns, 0);
+  });
+
+  test('下一章尚无首页时前台接管空闲作业，提升而不重新加载', () async {
+    final source = ProgressiveTestSource(initialPages: 0);
+    final session = await _open(source);
+    final background = session.prefetchTurnChapter(true, idle: true);
+    await Future<void>.delayed(Duration.zero);
+    expect(source.handles[1]!.priority, ChapterLayoutPriority.background);
+    final crossing = session.preparePageTurn(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(source.handles[1]!.priority, ChapterLayoutPriority.reading);
+    source.publish(1, 1);
+    final turn = (await crossing)!;
+    expect(await background, same(turn.target.content));
+    expect(source.requests, [0, 1]);
+    expect(session.commitPageTurn(turn), isTrue);
+    source.complete(1);
+  });
+
   test('首页可准备并提交，追加不改变动画代次、页身份或提前标记读完', () async {
     final source = ProgressiveTestSource();
     final session = await _open(source);

@@ -81,6 +81,37 @@ void main() {
     expect(source.anchorPreparationCount, 1);
   });
 
+  for (final foreground in [false, true]) {
+    test('后台暂停时原文仍能准备，主线程阶段等待${foreground ? '前台接管' : '恢复空闲'}', () async {
+      final source = await openCssChapter(body: '<p>暂停准备与共享接管</p>');
+      addTearDown(() async {
+        source.close();
+        await source.preparationsStopped;
+      });
+      final decorated = <int>[];
+      source.setChapterPreparer((spine) async => decorated.add(spine));
+      source.setBackgroundLayoutPaused(true);
+      final handle = source.scheduleProgressiveChapter(
+        0,
+        priority: ChapterLayoutPriority.background,
+      );
+      await source.loadAnchorChapter(0);
+      await Future<void>.delayed(Duration.zero);
+      expect(source.anchorPreparationCount, 1);
+      expect(source.chapterLayoutCount, 0);
+      expect(decorated, isEmpty, reason: '原文线程返回后不得抢跑主线程准备');
+      if (foreground) {
+        handle.setPriority(ChapterLayoutPriority.reading);
+      } else {
+        source.setBackgroundLayoutPaused(false);
+      }
+      expect(await handle.result, isNotEmpty);
+      expect(source.anchorPreparationCount, 1);
+      expect(source.chapterLayoutCount, 1);
+      expect(decorated, [0]);
+    });
+  }
+
   test('低优先级预解析只准备原文，前台分页复用同章结构', () async {
     final source = await EpubChapterSource.open(
       buildMultiChapterEpub(chapters: ['当前章正文', '下一章原文' * 300]),
