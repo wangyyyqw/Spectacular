@@ -170,7 +170,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
         enabled: false,
       );
       if (!mounted) return;
-      _show('已移除阅微账号中的 S3 配置');
+      _show('已移除阅微账号中的同步配置');
       await _loadCloudOverview();
     } catch (error) {
       if (mounted) _show('$error');
@@ -683,7 +683,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   TextButton.icon(
                     onPressed: _saving ? null : () => unawaited(_clear()),
                     icon: const Icon(Icons.delete_outline),
-                    label: const Text('清除对象存储配置'),
+                    label: const Text('清除云端同步配置'),
                   ),
                 ],
               ],

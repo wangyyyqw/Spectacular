@@ -1490,7 +1490,7 @@ class ReaMicroS3SyncEngine {
       downloaded: downloaded,
       merged: books.length,
       failed: failed,
-      message: 'S3 同步完成：${parts.join('，')}（云端共 ${books.length} 本）',
+      message: '云端同步完成：${parts.join('，')}（云端共 ${books.length} 本）',
       links: links,
       bookmarkBases: nextBookmarkBases,
       syncedBookmarks: syncedBookmarks,

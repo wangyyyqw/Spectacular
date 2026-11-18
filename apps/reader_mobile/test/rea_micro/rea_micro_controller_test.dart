@@ -1822,10 +1822,10 @@ void main() {
     expect(controller.cloudAsPrimary, isTrue);
     expect(s3.puts, greaterThan(0));
     expect(controller.s3LastSyncAt, isNotNull);
-    expect(controller.s3Message, contains('S3 同步完成'));
+    expect(controller.s3Message, contains('云端同步完成'));
 
     final result = await controller.syncEverything();
-    expect(result.message, contains('S3 同步完成'));
+    expect(result.message, contains('云端同步完成'));
   });
 
   test('S3 同步保存本地 UUID 基线并在更换存储目录时清空', () async {
