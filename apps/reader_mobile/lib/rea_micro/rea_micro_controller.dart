@@ -10,6 +10,7 @@ import '../storage/reading_session_store.dart';
 import 'rea_micro_api_client.dart';
 import 'rea_micro_lan.dart';
 import 'rea_micro_models.dart';
+import 'rea_micro_progress_mapping.dart';
 import 'rea_micro_progress_store.dart';
 import 'rea_micro_s3.dart';
 import 'rea_micro_store.dart';
@@ -1973,15 +1974,23 @@ class ReaMicroController extends ChangeNotifier {
     if (spineIndex == null || spineIndex < 0) return false;
     final spineCount = book.spineCount ?? 0;
     if (spineCount > 0 && spineIndex >= spineCount) return false;
-    final normalized = progress.clamp(0.0, 1.0).toDouble();
+    final remoteProgress = progress.clamp(0.0, 1.0).toDouble();
+    final mapped = await mapReaMicroProgressToBook(
+      sourcePath: book.filePath,
+      cfi: cfi,
+      progress: remoteProgress,
+    );
+    final localCfi = mapped?.cfi ?? cfi;
+    final localSpineIndex = mapped?.spineIndex ?? spineIndex;
+    final normalized = mapped?.progress ?? remoteProgress;
     try {
       await store.save(
         bookId,
         ReaderProgress(
-          spineIndex: spineIndex,
+          spineIndex: localSpineIndex,
           pageIndex: 0,
           finished: finished,
-          cfi: cfi,
+          cfi: localCfi,
           contentRevision: revision,
           readingPercent: normalized,
           chapterTitle: chapterName.trim().isEmpty ? null : chapterName.trim(),
@@ -1995,7 +2004,7 @@ class ReaMicroController extends ChangeNotifier {
         ? updatedAt
         : DateTime.now().millisecondsSinceEpoch;
     _progressStates[bookId] = ReaMicroProgressState(
-      cfi: cfi,
+      cfi: localCfi,
       chapterName: chapterName.trim().isEmpty
           ? existing?.chapterName ?? ''
           : chapterName.trim(),
