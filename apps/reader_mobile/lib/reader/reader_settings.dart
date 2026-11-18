@@ -21,6 +21,8 @@ class ReaderTtsSettings {
     this.pitch = 1,
     this.volume = 1,
     this.autoTurnPage = true,
+    this.voiceName = '',
+    this.voiceLocale = '',
   });
 
   /// 语速（0～1，平台默认正常语速约为 0.5）。
@@ -35,6 +37,16 @@ class ReaderTtsSettings {
   /// 读完当前页后是否自动翻页。
   final bool autoTurnPage;
 
+  /// 选中的系统音色名称；为空时使用系统默认音色。
+  final String voiceName;
+
+  /// 选中音色的语言区域。
+  final String voiceLocale;
+
+  /// 是否选择了明确的系统音色。
+  bool get hasVoice =>
+      voiceName.trim().isNotEmpty && voiceLocale.trim().isNotEmpty;
+
   /// 默认听书偏好。
   static const ReaderTtsSettings defaults = ReaderTtsSettings();
 
@@ -44,11 +56,15 @@ class ReaderTtsSettings {
     double? pitch,
     double? volume,
     bool? autoTurnPage,
+    String? voiceName,
+    String? voiceLocale,
   }) => ReaderTtsSettings(
     rate: rate ?? this.rate,
     pitch: pitch ?? this.pitch,
     volume: volume ?? this.volume,
     autoTurnPage: autoTurnPage ?? this.autoTurnPage,
+    voiceName: voiceName ?? this.voiceName,
+    voiceLocale: voiceLocale ?? this.voiceLocale,
   );
 
   /// 从 JSON 还原。
@@ -60,6 +76,12 @@ class ReaderTtsSettings {
         autoTurnPage: json['autoTurnPage'] is bool
             ? json['autoTurnPage']! as bool
             : defaults.autoTurnPage,
+        voiceName: json['voiceName'] is String
+            ? json['voiceName']! as String
+            : defaults.voiceName,
+        voiceLocale: json['voiceLocale'] is String
+            ? json['voiceLocale']! as String
+            : defaults.voiceLocale,
       );
 
   /// 序列化。
@@ -68,6 +90,8 @@ class ReaderTtsSettings {
     'pitch': pitch,
     'volume': volume,
     'autoTurnPage': autoTurnPage,
+    'voiceName': voiceName,
+    'voiceLocale': voiceLocale,
   };
 
   static double _double(Object? value, double fallback) =>
@@ -79,10 +103,13 @@ class ReaderTtsSettings {
       other.rate == rate &&
       other.pitch == pitch &&
       other.volume == volume &&
-      other.autoTurnPage == autoTurnPage;
+      other.autoTurnPage == autoTurnPage &&
+      other.voiceName == voiceName &&
+      other.voiceLocale == voiceLocale;
 
   @override
-  int get hashCode => Object.hash(rate, pitch, volume, autoTurnPage);
+  int get hashCode =>
+      Object.hash(rate, pitch, volume, autoTurnPage, voiceName, voiceLocale);
 }
 
 /// 阅读排版与主题设置（P4-21）：持久化在 settings 表。

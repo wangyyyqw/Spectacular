@@ -269,7 +269,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         .showSnackBar(const SnackBar(content: Text('开始听书，再点一次暂停')));
   }
 
-  Future<ReaderTtsSettings?> _showTtsSettings() {
+  Future<ReaderTtsSettings?> _showTtsSettings() async {
+    final voices = await loadReaderTtsVoices();
+    if (!mounted) return null;
     var draft = _settings.tts;
     return showModalBottomSheet<ReaderTtsSettings>(
       context: context,
@@ -283,6 +285,55 @@ class _EpubReaderPageState extends State<EpubReaderPage>
             children: <Widget>[
               Text('听书设置', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 12),
+              if (voices.isNotEmpty) ...[
+                DropdownButtonFormField<String>(
+                  key: ValueKey<String>(
+                    'tts-voice-${draft.voiceName}-${draft.voiceLocale}',
+                  ),
+                  initialValue: draft.hasVoice
+                      ? '${draft.voiceName}|${draft.voiceLocale}'
+                      : '',
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: '音色'),
+                  items: <DropdownMenuItem<String>>[
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('系统默认音色'),
+                    ),
+                    for (final voice in voices)
+                      DropdownMenuItem<String>(
+                        value: voice.key,
+                        child: Text(
+                          voice.label,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    if (value.isEmpty) {
+                      setSheetState(
+                        () => draft = draft.copyWith(
+                          voiceName: '',
+                          voiceLocale: '',
+                        ),
+                      );
+                      return;
+                    }
+                    final voice = voices.firstWhere(
+                      (item) => item.key == value,
+                      orElse: () => voices.first,
+                    );
+                    setSheetState(
+                      () => draft = draft.copyWith(
+                        voiceName: voice.name,
+                        voiceLocale: voice.locale,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
               _TtsSlider(
                 label: '语速',
                 value: draft.rate,
