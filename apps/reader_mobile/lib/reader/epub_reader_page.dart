@@ -329,7 +329,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       );
       _imageCache = DecodedImageCache(
         // 1080×2400 真机的两页背景与画廊图需共同驻留，仍受双上限约束。
-        maxEntries: 16,
+        maxEntries: 32,
         maxBytes: 32 << 20,
         loadBytes: (url) => _loadImageBytes(source, url),
       );
