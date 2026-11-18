@@ -43,7 +43,8 @@ abstract final class CssBackgroundDeclarations {
 
   static (String, String)? position(String raw) {
     final tokens = cssValueTokens(raw.toLowerCase());
-    if (tokens == null || tokens.isEmpty || tokens.length > 2) return null;
+    if (tokens == null || tokens.isEmpty || tokens.length > 4) return null;
+    if (tokens.length > 2) return _edgePosition(tokens);
     var x = tokens[0];
     var y = tokens.length == 1 ? 'center' : tokens[1];
     if (((x == 'top' || x == 'bottom') &&
@@ -56,6 +57,37 @@ abstract final class CssBackgroundDeclarations {
     return validAxis(x, horizontal: true) && validAxis(y, horizontal: false)
         ? (x, y)
         : null;
+  }
+
+  /// 三/四值语法中的长度跟随边缘，归一为左上原点的分轴计算值。
+  static (String, String)? _edgePosition(List<String> tokens) {
+    const edges = {'left', 'right', 'top', 'bottom', 'center'};
+    final groups = <(String, String)>[];
+    for (var i = 0; i < tokens.length; i++) {
+      final edge = tokens[i];
+      if (!edges.contains(edge)) return null;
+      var value = edge;
+      if (edge != 'center' &&
+          i + 1 < tokens.length &&
+          !edges.contains(tokens[i + 1])) {
+        final offset = tokens[++i];
+        if (!validAxis(offset, horizontal: true)) return null;
+        value = edge == 'right' || edge == 'bottom'
+            ? 'calc(100% - $offset)'
+            : offset;
+      }
+      groups.add((edge, value));
+    }
+    if (groups.length != 2) return null;
+    if (validAxis(groups[0].$1, horizontal: true) &&
+        validAxis(groups[1].$1, horizontal: false)) {
+      return (groups[0].$2, groups[1].$2);
+    }
+    if (validAxis(groups[1].$1, horizontal: true) &&
+        validAxis(groups[0].$1, horizontal: false)) {
+      return (groups[1].$2, groups[0].$2);
+    }
+    return null;
   }
 
   static bool validAxis(String raw, {required bool horizontal}) {
@@ -78,7 +110,7 @@ abstract final class CssBackgroundDeclarations {
         false;
   }
 
-  static CssLength? axis(
+  static ({CssLength length, double offset})? axis(
     String raw, {
     required double fontSize,
     required double rootFontSize,
@@ -90,20 +122,45 @@ abstract final class CssBackgroundDeclarations {
       'right' || 'bottom' => 100.0,
       _ => null,
     };
-    if (keyword != null) return CssLength(keyword, isPercent: true);
+    if (keyword != null) {
+      return (length: CssLength(keyword, isPercent: true), offset: 0);
+    }
     if (value.endsWith('%')) {
       final number = double.tryParse(value.substring(0, value.length - 1));
       if (number != null && number.isFinite) {
-        return CssLength(number, isPercent: true);
+        return (length: CssLength(number, isPercent: true), offset: 0);
       }
     }
-    final length = resolveCssNumericLength(
+    return _numericAxis(value, fontSize: fontSize, rootFontSize: rootFontSize);
+  }
+
+  static ({CssLength length, double offset})? _numericAxis(
+    String value, {
+    required double fontSize,
+    required double rootFontSize,
+  }) {
+    final atHundred = resolveCssNumericLength(
       value,
       fontSize: fontSize,
       rootFontSize: rootFontSize,
-      percentBase: 0,
+      percentBase: 100,
     );
-    return length == null ? null : CssLength(length);
+    if (atHundred == null || !atHundred.isFinite) return null;
+    // 通用 calc 入口将零基准视为未知；用两个非零基准分离百分比与像素。
+    final atTwoHundred = resolveCssNumericLength(
+      value,
+      fontSize: fontSize,
+      rootFontSize: rootFontSize,
+      percentBase: 200,
+    );
+    if (atTwoHundred == null || !atTwoHundred.isFinite) return null;
+    final percent = atTwoHundred - atHundred;
+    return percent == 0
+        ? (length: CssLength(atHundred), offset: 0)
+        : (
+            length: CssLength(percent, isPercent: true),
+            offset: atHundred - percent,
+          );
   }
 
   /// 一层无效即放弃整个简写，不能用残余 token 覆盖较早的有效声明。

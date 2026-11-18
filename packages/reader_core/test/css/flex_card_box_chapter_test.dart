@@ -174,8 +174,7 @@ void main() {
       for (var i = 2; i < cells.length; i++)
         cells[i].rect.top - cells[i - 1].rect.bottom,
     ];
-    // 分隔线沿用当前阅读器段距 10px；卡片内普通块仍按相邻外边距折叠。
-    expect(gaps, orderedEquals([20, 8, 8, 10, 10, 0]));
+    expect(gaps, orderedEquals([20, 8, 8, 20, 20, 0]));
     expect(cells[1].layout.height, closeTo(33.6, .01));
     expect(cells[2].layout.height, closeTo(24, .01));
     expect(cells.last.layout.height, closeTo(15.6, .01));

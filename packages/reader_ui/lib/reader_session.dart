@@ -10,6 +10,7 @@ import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/location_anchor.dart' show AnchorChapter;
 
 import 'virtual_pager.dart';
 
@@ -303,6 +304,8 @@ class ReaderSession extends ChangeNotifier {
   VirtualPager? _pager;
   final _chapterLoads =
       <ChapterLoadHandle, ({int spine, ChapterLayoutPriority priority})>{};
+  ({int spine, ReaderPreparationHandle<AnchorChapter> handle})?
+  _turnPreparation;
   ReaderPreparationHandle<Object?>? _positionPreparation;
   ReaderOverrides _overrides = const ReaderOverrides();
   bool _loading = false;
@@ -331,6 +334,43 @@ class ReaderSession extends ChangeNotifier {
       page.content,
   ];
 
+  /// 当前页达到章内 80% 时预解析下一章，不准备装饰、字体、分页或图片。
+  Future<void> preparseNextChapter({bool Function()? shouldContinue}) async {
+    final current = page;
+    final anchors = source;
+    if (_disposed ||
+        _loading ||
+        _jumpLoadingTitle != null ||
+        current == null ||
+        anchors is! ScheduledAnchorChapterSource ||
+        (current.pageIndex + 1) * 5 < chapterPageCount * 4 ||
+        current.spineIndex + 1 >= source.chapterCount ||
+        !(shouldContinue?.call() ?? true)) {
+      return;
+    }
+    final spine = current.spineIndex + 1;
+    if (_turnPreparation?.spine != spine) {
+      _cancelTurnPreparation();
+      _turnPreparation = (
+        spine: spine,
+        handle: anchors.scheduleAnchorChapter(
+          spine,
+          priority: ChapterLayoutPriority.prefetch,
+        ),
+      );
+    }
+    final preparation = _turnPreparation!;
+    try {
+      await preparation.handle.result;
+    } on ChapterLoadCancelled {
+      // 重排、反向导航或退出阅读时撤销等待，下次空闲可以重新准备。
+    } finally {
+      if (identical(_turnPreparation?.handle, preparation.handle)) {
+        _turnPreparation = null;
+      }
+    }
+  }
+
   /// 空闲时按阅读方向提前排版邻章，结果只进缓存，不修改阅读进度。
   Future<PageContent?> prefetchTurnChapter(
     bool next, {
@@ -338,6 +378,8 @@ class ReaderSession extends ChangeNotifier {
     int pageBudget = VirtualPager.turnPrefetchPageBudget,
   }) async {
     if (_disposed || _loading || _jumpLoadingTitle != null) return null;
+    // 短章可能在 80% 之前就进入四页储备窗口，保留原有排版时机，
+    // 避免短章接超长章时反而更晚开始；长章先复用已预解析的结构。
     try {
       return await _pager?.prefetchChapter(
         next ? 1 : -1,
@@ -360,7 +402,17 @@ class ReaderSession extends ChangeNotifier {
                 currentSpine != null &&
                 (request.spine - currentSpine) * keepDirection > 0))
           request.spine,
+      if (_turnPreparation case final preparation?)
+        if (keepDirection != null &&
+            currentSpine != null &&
+            (preparation.spine - currentSpine) * keepDirection > 0)
+          preparation.spine,
     };
+    if (_turnPreparation case final preparation?) {
+      if (!protectedSpines.contains(preparation.spine)) {
+        _cancelTurnPreparation();
+      }
+    }
     final cancelled = <int>{};
     for (final entry in _chapterLoads.entries.toList()) {
       if (entry.value.priority == ChapterLayoutPriority.prefetch &&
@@ -474,12 +526,18 @@ class ReaderSession extends ChangeNotifier {
       _loadChapter(spineIndex, priority: ChapterLayoutPriority.prefetch);
 
   void _cancelChapterWaiters() {
+    _cancelTurnPreparation();
     _positionPreparation?.cancel();
     _positionPreparation = null;
     for (final handle in _chapterLoads.keys.toList()) {
       handle.cancel();
     }
     _chapterLoads.clear();
+  }
+
+  void _cancelTurnPreparation() {
+    _turnPreparation?.handle.cancel();
+    _turnPreparation = null;
   }
 
   Future<T> _awaitPositionPreparation<T>(

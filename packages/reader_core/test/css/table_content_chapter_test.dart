@@ -213,10 +213,7 @@ void main() {
     for (var i = 0; i < 2; i++) {
       final box = _imageBoxes(cells[i].layout).single;
       final path = i == 0 ? 'red' : 'green';
-      expect(
-        box.style!.values['background-image'],
-        'url(OEBPS/Images/$path.png)',
-      );
+      expect(box.style!.backgroundImage, 'OEBPS/Images/$path.png');
       expect(box.layout.width, closeTo(150, .01));
       expect(box.layout.height, closeTo(150, .01));
     }
@@ -323,8 +320,8 @@ void main() {
         .singleWhere(
           (p) =>
               p.spec.payload is PageBlock &&
-              (p.spec.payload as PageBlock).style?.values['background-image'] ==
-                  'url(OEBPS/Images/red.png)',
+              (p.spec.payload as PageBlock).style?.backgroundImage ==
+                  'OEBPS/Images/red.png',
         );
     expect(redPlacement.spec.offset, 4, reason: '摘掉前置标签后，图片占位同步重映射');
     final pixels = await _paint(page, images);

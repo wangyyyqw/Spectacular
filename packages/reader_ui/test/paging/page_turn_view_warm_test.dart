@@ -6,6 +6,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_ui/paging/duokan_curl_shader.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
@@ -19,7 +20,7 @@ ComputedStyle _style() => ComputedStyle(const <String, String>{
   'font-family': 'Ahem',
 });
 
-PageContent _page(int spine) {
+PageContent _page(int spine, [int index = 0]) {
   final layout = TextLayoutEngine.layout(
     text: '第${spine + 1}章',
     style: _style(),
@@ -27,7 +28,7 @@ PageContent _page(int spine) {
   );
   return PageContent(
     spineIndex: spine,
-    pageIndex: 0,
+    pageIndex: index,
     slices: [
       PageBlockSlice(
         block: PageBlock(layout: layout, style: _style()),
@@ -160,7 +161,119 @@ class _LocatedChapterSource extends _Source {
   }
 }
 
+class _AnchorHandle implements ReaderPreparationHandle<AnchorChapter> {
+  _AnchorHandle(this.spine) {
+    result.ignore();
+  }
+  final int spine;
+  final completion = Completer<AnchorChapter>();
+  bool cancelled = false;
+
+  @override
+  Future<AnchorChapter> get result => completion.future;
+
+  void complete() => completion.complete(
+    AnchorChapter(spineIndex: spine, href: '$spine.xhtml', blocks: const []),
+  );
+
+  @override
+  void cancel() {
+    if (completion.isCompleted) return;
+    cancelled = true;
+    completion.completeError(const ChapterLoadCancelled());
+  }
+}
+
+class _PreparseSource extends _Source implements ScheduledAnchorChapterSource {
+  final preparations =
+      <({ChapterLayoutPriority priority, _AnchorHandle handle})>[];
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    loads.add(spineIndex);
+    return [
+      for (var index = 0; index < (spineIndex == 0 ? 20 : 1); index++)
+        _page(spineIndex, index),
+    ];
+  }
+
+  @override
+  ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) {
+    final handle = _AnchorHandle(spineIndex);
+    preparations.add((priority: priority, handle: handle));
+    return handle;
+  }
+
+  @override
+  Future<AnchorChapter> loadAnchorChapter(int spineIndex) =>
+      scheduleAnchorChapter(spineIndex).result;
+}
+
 void main() {
+  // 保留完整交互顺序，才能核验章内翻页、后台取消和前台重试共享同一准备任务。
+  testWidgets('空闲到 80% 只预解析，切后台取消，回前台在章尾复用两阶段准备', (tester) async {
+    final source = _PreparseSource();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      '原文预取',
+      const ReaderProgress(spineIndex: 0, pageIndex: 14),
+    );
+    final session = ReaderSession(source: source, store: store, bookId: '原文预取');
+    await session.open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    final images = <int>[];
+    Widget view() => _inputView(
+      session,
+      key,
+      prepare: (page) async => images.add(page.spineIndex),
+    );
+    await tester.pumpWidget(view());
+    await tester.pumpAndSettle();
+    expect(source.preparations, isEmpty, reason: '15/20 未到 80%');
+    expect(source.loads, [0]);
+
+    final turn = await session.preparePageTurn(true);
+    expect(session.commitPageTurn(turn!), isTrue);
+    await tester.pumpWidget(view());
+    await tester.pump(const Duration(milliseconds: 99));
+    expect(source.preparations, isEmpty);
+    await tester.pump(const Duration(milliseconds: 1));
+    final first = source.preparations.single;
+    expect(first.priority, ChapterLayoutPriority.prefetch);
+    expect(first.handle.spine, 1);
+    expect(source.loads, [0]);
+    expect(images.toSet(), {0}, reason: '解析阶段不准备下一章图片');
+
+    final sameDirection = await session.preparePageTurn(true);
+    expect(first.handle.cancelled, isFalse, reason: '同向章内翻页保留预解析');
+    expect(session.commitPageTurn(sameDirection!), isTrue);
+    await tester.pumpWidget(view());
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(source.preparations, hasLength(1), reason: '尚未完成的预解析共享等待');
+    key.currentState!.releaseCachedBitmaps();
+    await tester.pump();
+    expect(first.handle.cancelled, isTrue);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(source.preparations, hasLength(1));
+
+    key.currentState!.resumeWarmup();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(source.preparations, hasLength(2));
+    source.preparations.last.handle.complete();
+    await tester.pumpAndSettle();
+    expect(source.loads, [0, 1], reason: '17/20 的前向储备不足四页才排版');
+    expect(images, contains(1));
+    expect(session.page!.spineIndex, 0);
+    expect(session.page!.pageIndex, 16);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await session.flushProgress();
+  });
+
   testWidgets('跳转等待期间旧页延迟预热不重新加载邻章', (tester) async {
     final source = _GatedSource();
     final store = MemoryReaderProgressStore();

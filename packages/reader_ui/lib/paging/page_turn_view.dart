@@ -619,6 +619,10 @@ class PageTurnViewState extends State<PageTurnView>
     Future<ui.Image?> current,
   ) async {
     try {
+      await widget.session.preparseNextChapter(
+        shouldContinue: () => _canWarm(page, token, generation),
+      );
+      if (!_canWarm(page, token, generation)) return;
       final first = await widget.session.prefetchTurnChapter(
         true,
         shouldContinue: () => _canWarm(page, token, generation),

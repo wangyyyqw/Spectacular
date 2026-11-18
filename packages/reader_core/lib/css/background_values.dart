@@ -91,10 +91,15 @@ class CssBackgroundSize {
   int get hashCode => Object.hash(mode, width, height);
 }
 
-/// 背景位置（CSS background-position，关键字已折算成百分比/像素）。
+/// 背景位置（CSS background-position），相对左上原点的百分比/像素与偏移。
 class CssBackgroundPosition {
   /// 创建位置。
-  const CssBackgroundPosition({required this.x, required this.y});
+  const CssBackgroundPosition({
+    required this.x,
+    required this.y,
+    this.xOffset = 0,
+    this.yOffset = 0,
+  });
 
   /// 水平位置。
   final CssLength x;
@@ -102,12 +107,22 @@ class CssBackgroundPosition {
   /// 垂直位置。
   final CssLength y;
 
-  @override
-  bool operator ==(Object other) =>
-      other is CssBackgroundPosition && other.x == x && other.y == y;
+  /// 水平附加像素偏移，例如 right 20px 解算为 100% - 20px。
+  final double xOffset;
+
+  /// 垂直附加像素偏移。
+  final double yOffset;
 
   @override
-  int get hashCode => Object.hash(x, y);
+  bool operator ==(Object other) =>
+      other is CssBackgroundPosition &&
+      other.x == x &&
+      other.y == y &&
+      other.xOffset == xOffset &&
+      other.yOffset == yOffset;
+
+  @override
+  int get hashCode => Object.hash(x, y, xOffset, yOffset);
 }
 
 /// 背景绘制区域（CSS background-origin 的基础）。

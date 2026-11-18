@@ -70,6 +70,14 @@ class _PageImageAssets {
       }
       _addInlineImages(block, required, inlineWidths, width, scale);
       for (final cell in block.table?.cells ?? const <TableCellRender>[]) {
+        final rowBackground = cell.rowBackground;
+        if (rowBackground != null) {
+          _addStyle(
+            rowBackground.style,
+            required,
+            rowBackground.rect.width * scale,
+          );
+        }
         _addStyle(cell.style, required, cell.rect.width * scale);
         _addLayout(cell.layout, required, cell.rect.width, scale);
       }

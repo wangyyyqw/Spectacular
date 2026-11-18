@@ -553,13 +553,15 @@ class EpubChapterSource
 
   @override
   ReaderPreparationHandle<AnchorChapter> scheduleAnchorChapter(
-    int spineIndex,
-  ) => mapPreparation(_structures.schedule(spineIndex, contentWidth), (
-    structure,
-  ) {
-    if (_closed) throw const ChapterLoadCancelled();
-    return structure.anchor;
-  });
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+  }) => mapPreparation(
+    _structures.schedule(spineIndex, contentWidth, priority: priority),
+    (structure) {
+      if (_closed) throw const ChapterLoadCancelled();
+      return structure.anchor;
+    },
+  );
 
   @override
   double? readingPercentForCfi(String? cfi) =>

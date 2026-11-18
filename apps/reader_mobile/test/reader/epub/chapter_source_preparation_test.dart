@@ -81,6 +81,58 @@ void main() {
     expect(source.anchorPreparationCount, 1);
   });
 
+  test('低优先级预解析只准备原文，前台分页复用同章结构', () async {
+    final source = await EpubChapterSource.open(
+      buildMultiChapterEpub(chapters: ['当前章正文', '下一章原文' * 300]),
+      contentWidth: 366.6666666666667,
+      contentHeight: 773.1694444444443,
+    );
+    addTearDown(() async {
+      source.close();
+      await source.preparationsStopped;
+    });
+    final decorated = <int>[];
+    source.setChapterPreparer((spine) async => decorated.add(spine));
+    await source.loadChapter(0);
+    source.setCurrentReadingChapter(0);
+    final currentCfi = source.anchorChapter(0).cfiAt(2);
+    final preparation = source.scheduleAnchorChapter(
+      1,
+      priority: ChapterLayoutPriority.prefetch,
+    );
+    final chapter = await preparation.result;
+    expect(chapter.text, contains('下一章原文'));
+    expect(source.anchorPreparationCount, 2);
+    expect(source.chapterLayoutCount, 1);
+    expect(decorated, [0], reason: '原文预解析不能加载装饰或字体');
+    expect(source.anchorChapter(0).cfiAt(2), currentCfi);
+
+    final pages = await source.loadChapter(1);
+    expect(pages, isNotEmpty);
+    expect(source.anchorPreparationCount, 2, reason: '前台直接复用预解析结构');
+    expect(source.chapterLayoutCount, 2);
+    expect(decorated, [0, 1]);
+    expect(chapter.offsetFor(pages.first.slices.first.block.startCfi!), 0);
+  });
+
+  test('取消预解析等待者不影响同章前台排版', () async {
+    final source = await openCssChapter(body: '<p>取消共享预解析</p>');
+    addTearDown(() async {
+      source.close();
+      await source.preparationsStopped;
+    });
+    final preparation = source.scheduleAnchorChapter(
+      0,
+      priority: ChapterLayoutPriority.prefetch,
+    );
+    final reading = source.scheduleChapter(0);
+    preparation.cancel();
+    await expectLater(preparation.result, throwsA(isA<ChapterLoadCancelled>()));
+    expect(await reading.result, isNotEmpty);
+    expect(source.anchorPreparationCount, 1);
+    expect(source.chapterLayoutCount, 1);
+  });
+
   test('准备期间改变字号只允许最新请求提交', () async {
     final source = await openCssChapter(body: '<p>字号取消准备</p>');
     addTearDown(source.close);
