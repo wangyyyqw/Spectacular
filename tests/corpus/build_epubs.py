@@ -2,7 +2,8 @@
 """重建 test_corpus 下的最小 EPUB 样本与 manifest.json。
 
 文本均为自写原创内容，放弃著作权（CC0-1.0）；broken-resource 为故意破损的自建测试样本。
-不依赖第三方 Python 库：ZIP 由 zip 命令完成（-X0 存 mimetype，-Xr9 压缩其余），
+不依赖第三方 Python 库：优先用 zip 命令（-X0 存 mimetype，-Xr9 压缩其余），
+缺少 zip 命令时回退到标准库 zipfile，按 OCF 要求先写入不压缩的 mimetype，
 PNG 由标准库生成；多看全屏样本复用 assets/ 下的原创 JPEG。
 
 用法：python3 tests/corpus/build_epubs.py
@@ -17,6 +18,7 @@ import struct
 import subprocess
 import tempfile
 import uuid
+import zipfile
 import zlib
 from pathlib import Path
 from xml.etree import ElementTree
@@ -907,6 +909,16 @@ BUILDERS = [
 def zip_epub(book_id: str, files: dict[str, bytes], out_path: Path) -> None:
     if out_path.exists():
         out_path.unlink()
+    if shutil.which("zip") is None:
+        with zipfile.ZipFile(out_path, "w") as archive:
+            mimetype = zipfile.ZipInfo("mimetype")
+            mimetype.compress_type = zipfile.ZIP_STORED
+            archive.writestr(mimetype, MIMETYPE)
+            for rel in sorted(files):
+                entry = zipfile.ZipInfo(rel)
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(entry, files[rel])
+        return
     with tempfile.TemporaryDirectory(prefix=f"epub-{book_id}-") as tmp:
         staging = Path(tmp)
         (staging / "mimetype").write_bytes(MIMETYPE)
@@ -935,8 +947,6 @@ def validate_files(book_id: str, files: dict[str, bytes]) -> None:
 
 
 def main() -> None:
-    if shutil.which("zip") is None:
-        raise SystemExit("缺少 zip 命令")
     CORPUS_DIR.mkdir(parents=True, exist_ok=True)
     records = []
     for builder in BUILDERS:
