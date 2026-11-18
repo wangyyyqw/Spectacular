@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -72,6 +74,7 @@ class ChapterLayoutPipeline {
     PreparedChapterLayout input,
     LayoutBudget budget, {
     CompletedChapterLayout? cached,
+    Uint8List? pageIndex,
     void Function(List<PageContent>)? onPages,
   }) async {
     final head = onPages == null || cached != null
@@ -91,7 +94,7 @@ class ChapterLayoutPipeline {
           blocks.flow,
           blocks.fixed,
           blocks.background,
-          pageIndex: cached?.pageIndex,
+          pageIndex: cached?.pageIndex ?? pageIndex,
         );
     budget.check();
     _trace(ReaderTraceName.chapterPagination, watch, input.traceBook);

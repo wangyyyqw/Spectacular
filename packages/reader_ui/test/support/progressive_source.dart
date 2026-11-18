@@ -17,6 +17,7 @@ class ProgressiveTestHandle implements ProgressiveChapterLoadHandle {
   final _first = Completer<List<PageContent>>();
   final _result = Completer<List<PageContent>>();
   final _updates = StreamController<List<PageContent>>.broadcast(sync: true);
+  final _pageCounts = StreamController<int>.broadcast(sync: true);
   bool cancelled = false;
   bool _complete = false;
   @override
@@ -31,6 +32,8 @@ class ProgressiveTestHandle implements ProgressiveChapterLoadHandle {
   Future<List<PageContent>> get result => _result.future;
   @override
   Stream<List<PageContent>> get updates => _updates.stream;
+  @override
+  Stream<int> get pageCountUpdates => _pageCounts.stream;
   @override
   bool get isComplete => _complete;
   @override
@@ -49,18 +52,19 @@ class ProgressiveTestHandle implements ProgressiveChapterLoadHandle {
   void publishPageCount(int count) {
     if (_result.isCompleted) return;
     pageCount = count;
-    if (_first.isCompleted) _updates.add(availablePages);
+    _pageCounts.add(count);
   }
 
   void complete(List<PageContent> pages) {
     if (_result.isCompleted) return;
+    publishPageCount(pages.length);
     _complete = true;
-    pageCount = pages.length;
     availablePages = List.unmodifiable(pages);
     if (!_first.isCompleted) _first.complete(availablePages);
     _result.complete(availablePages);
     _updates.add(availablePages);
     unawaited(_updates.close());
+    unawaited(_pageCounts.close());
   }
 
   @override
@@ -70,6 +74,7 @@ class ProgressiveTestHandle implements ProgressiveChapterLoadHandle {
     if (!_first.isCompleted) _first.completeError(const ChapterLoadCancelled());
     _result.completeError(const ChapterLoadCancelled());
     unawaited(_updates.close());
+    unawaited(_pageCounts.close());
   }
 }
 

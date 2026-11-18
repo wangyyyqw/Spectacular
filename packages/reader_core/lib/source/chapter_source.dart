@@ -41,11 +41,14 @@ abstract interface class ProgressiveChapterLoadHandle
   Future<List<PageContent>> get firstPages;
   List<PageContent> get availablePages;
 
-  /// 稳定页追加或准确总页数确定时，发送当前已交付的页面列表。
+  /// 仅稳定页追加或完整页面交付时发送，不用于通知页数统计。
   Stream<List<PageContent>> get updates;
 
   /// 完整页界确定后即可提供准确总数；未知为 null，不代表完整结果已交付。
   int? get pageCount;
+
+  /// 准确总数独立发布，可早于首页；不得借此把章节标为完整。
+  Stream<int> get pageCountUpdates;
 
   /// 仅完整章节成功交付时为 true；取消和失败不构成章节完成。
   bool get isComplete;

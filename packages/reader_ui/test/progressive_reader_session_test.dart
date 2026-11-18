@@ -71,6 +71,7 @@ void main() {
       session.layoutRevision,
     );
     final available = session.availablePagesRevision;
+    final pageCounts = session.pageCountRevision;
     source.publish(1, 3);
     expect((
       session.generation,
@@ -78,7 +79,7 @@ void main() {
       session.layoutRevision,
     ), revisions);
     expect(session.availablePagesRevision, greaterThan(available));
-    expect(session.pageCountRevision, 0);
+    expect(session.pageCountRevision, pageCounts);
     expect(session.commitPageTurn(turn), isTrue);
     expect(session.page, same(first));
     expect(session.chapterPageCount, 0);
@@ -91,7 +92,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(session.chapterPageCount, 6);
     expect(session.pageLabelOf(session.page!), '2/6');
-    expect(session.pageCountRevision, 1);
+    expect(session.pageCountRevision, pageCounts + 1);
     expect(source.requests, [0, 1]);
   });
 

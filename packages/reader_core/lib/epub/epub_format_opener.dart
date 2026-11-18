@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:reader_core/source/format_opener.dart';
+import 'package:reader_core/cache/chapter_pagination_store.dart';
 
 import 'epub_chapter_source.dart';
 
@@ -10,6 +11,7 @@ class EpubFormatOpener implements ReaderFormatOpener<EpubChapterSource> {
   const EpubFormatOpener({
     this.verifyCrc,
     this.networkImageCacheDirectoryProvider,
+    this.paginationStore,
   });
 
   /// 未指定时保持原入口默认值：字节校验，文件按需读取时不校验。
@@ -17,6 +19,7 @@ class EpubFormatOpener implements ReaderFormatOpener<EpubChapterSource> {
 
   /// 宿主缓存根目录，首次读取网络图片时才获取；默认使用系统临时目录。
   final Future<Directory> Function()? networkImageCacheDirectoryProvider;
+  final ChapterPaginationStore? paginationStore;
 
   @override
   ReaderFormat get format => ReaderFormat.epub;
@@ -34,6 +37,7 @@ class EpubFormatOpener implements ReaderFormatOpener<EpubChapterSource> {
     trimTextEdges: options.trimTextEdges,
     contentVersion: options.contentVersion,
     networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
+    paginationStore: paginationStore,
   );
 
   @override
@@ -49,5 +53,6 @@ class EpubFormatOpener implements ReaderFormatOpener<EpubChapterSource> {
     trimTextEdges: options.trimTextEdges,
     contentVersion: options.contentVersion,
     networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
+    paginationStore: paginationStore,
   );
 }
