@@ -11,6 +11,7 @@ import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../storage/reading_session_store.dart';
 import 'rea_micro_api_client.dart';
+import 'rea_micro_github.dart';
 import 'rea_micro_lan.dart';
 import 'rea_micro_lan_server.dart';
 import 'rea_micro_models.dart';
@@ -18,6 +19,7 @@ import 'rea_micro_progress_mapping.dart';
 import 'rea_micro_progress_store.dart';
 import 'rea_micro_s3.dart';
 import 'rea_micro_store.dart';
+import 'rea_micro_webdav.dart';
 
 /// 一次阅读时长同步的结果。
 class ReaMicroSyncResult {
@@ -652,7 +654,7 @@ class ReaMicroController extends ChangeNotifier {
     final deviceId = _deviceId;
     if (config == null || !config.usable || user == null || deviceId == null) {
       if (!silent) {
-        _s3Message = '请先配置 S3 对象存储';
+        _s3Message = '请先配置云端同步';
         _notify();
       }
       return null;
@@ -669,6 +671,10 @@ class ReaMicroController extends ChangeNotifier {
           _s3ClientFactory?.call(config) ??
           (config.isMote && moteApi != null
               ? ReaMicroMoteS3Client(api: moteApi, token: _token!)
+              : config.isWebDav
+              ? ReaMicroWebDavClient(config)
+              : config.isGitHub
+              ? ReaMicroGitHubClient(config)
               : ReaMicroS3HttpClient(config));
       final engine = ReaMicroS3SyncEngine(
         library: _library,
@@ -736,7 +742,7 @@ class ReaMicroController extends ChangeNotifier {
       }
       return result;
     } catch (error) {
-      _s3Message = 'S3 同步失败：${_messageOf(error)}';
+      _s3Message = '${config.displayName} 同步失败：${_messageOf(error)}';
       return null;
     } finally {
       _s3Syncing = false;

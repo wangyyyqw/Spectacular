@@ -25,6 +25,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   late final TextEditingController _accessKey;
   late final TextEditingController _secretKey;
   late final TextEditingController _prefix;
+  late final TextEditingController _branch;
   String _provider = 'S3';
   bool _saving = false;
   bool _expanding = false;
@@ -39,13 +40,17 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   void initState() {
     super.initState();
     final config = widget.controller.s3Config ?? ReaMicroS3Config.empty;
-    _provider = config.provider;
+    _provider = config.normalizedProvider;
+    if (!const <String>{'MOTE', 'S3', 'WEBDAV', 'GITHUB'}.contains(_provider)) {
+      _provider = 'S3';
+    }
     _endpoint = TextEditingController(text: config.endpoint);
     _bucket = TextEditingController(text: config.bucket);
     _region = TextEditingController(text: config.region);
     _accessKey = TextEditingController(text: config.accessKey);
     _secretKey = TextEditingController(text: config.secretKey);
     _prefix = TextEditingController(text: config.prefix);
+    _branch = TextEditingController(text: config.branch);
     unawaited(_loadCloudOverview());
   }
 
@@ -57,6 +62,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     _accessKey.dispose();
     _secretKey.dispose();
     _prefix.dispose();
+    _branch.dispose();
     super.dispose();
   }
 
@@ -68,9 +74,19 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     accessKey: _accessKey.text,
     secretKey: _secretKey.text,
     prefix: _prefix.text,
+    branch: _branch.text,
   );
 
   bool get _isMote => _provider.trim().toUpperCase() == 'MOTE';
+  bool get _isWebDav => _provider.trim().toUpperCase() == 'WEBDAV';
+  bool get _isGitHub => _provider.trim().toUpperCase() == 'GITHUB';
+
+  String get _invalidHint => switch (_provider.trim().toUpperCase()) {
+    'MOTE' => '请填写同步目录',
+    'WEBDAV' => '请填写 WebDAV 地址；服务必须支持强 ETag 与条件写入',
+    'GITHUB' => '请填写私有仓库（所有者/仓库）和具备写入权限的 Token',
+    _ => '请填写端点、存储桶、区域、Access Key 和 Secret Key',
+  };
 
   Future<void> _loadCloudOverview({bool fillForm = false}) async {
     if (_cloudLoading) return;
@@ -104,13 +120,22 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
       return;
     }
     setState(() {
-      _provider = config.provider;
+      _provider = config.normalizedProvider;
+      if (!const <String>{
+        'MOTE',
+        'S3',
+        'WEBDAV',
+        'GITHUB',
+      }.contains(_provider)) {
+        _provider = 'S3';
+      }
       _endpoint.text = config.endpoint;
       _bucket.text = config.bucket;
       _region.text = config.region;
       _accessKey.text = config.accessKey;
       _secretKey.text = config.secretKey;
       _prefix.text = config.prefix;
+      _branch.text = config.branch;
     });
     _show('已载入阅微账号中的存储配置');
   }
@@ -119,7 +144,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     if (_saving) return;
     final config = _config;
     if (!config.usable) {
-      _show(_isMote ? '请填写同步目录' : '请填写端点、存储桶、区域、Access Key 和 Secret Key');
+      _show(_invalidHint);
       return;
     }
     setState(() => _saving = true);
@@ -221,7 +246,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
     if (_saving) return;
     final config = _config;
     if (!config.usable) {
-      _show(_isMote ? '请填写同步目录' : '请填写端点、存储桶、区域、Access Key 和 Secret Key');
+      _show(_invalidHint);
       return;
     }
     setState(() => _saving = true);
@@ -243,7 +268,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   Future<void> _clear() async {
     await widget.controller.clearS3Config();
     if (!mounted) return;
-    _show('已清除 S3 配置');
+    _show('已清除云端同步配置');
     Navigator.of(context).pop();
   }
 
@@ -259,7 +284,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
       builder: (context, child) {
         final controller = widget.controller;
         return Scaffold(
-          appBar: AppBar(title: const Text('对象存储同步')),
+          appBar: AppBar(title: const Text('云端同步')),
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
@@ -268,7 +293,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      '使用阅微内置存储或与阅微相同的 S3 兼容对象存储和同步目录，'
+                      '使用阅微内置存储、S3、WebDAV 或 GitHub 私有仓库保存同步目录，'
                       '自动上传本地新增或变更的图书，并下载本机缺失的阅微图书。',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
@@ -405,23 +430,32 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   ],
                 ],
                 const SizedBox(height: 16),
-                SegmentedButton<String>(
-                  segments: const <ButtonSegment<String>>[
-                    ButtonSegment<String>(
+                DropdownButtonFormField<String>(
+                  initialValue: _provider,
+                  decoration: const InputDecoration(
+                    labelText: '同步方式',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem<String>(
                       value: 'MOTE',
-                      label: Text('阅微内置存储'),
-                      icon: Icon(Icons.cloud_outlined),
+                      child: Text('阅微内置存储'),
                     ),
-                    ButtonSegment<String>(
+                    DropdownMenuItem<String>(
                       value: 'S3',
-                      label: Text('自建 S3'),
-                      icon: Icon(Icons.storage_outlined),
+                      child: Text('自建 S3'),
+                    ),
+                    DropdownMenuItem<String>(
+                      value: 'WEBDAV',
+                      child: Text('WebDAV'),
+                    ),
+                    DropdownMenuItem<String>(
+                      value: 'GITHUB',
+                      child: Text('GitHub 私有仓库'),
                     ),
                   ],
-                  selected: <String>{_isMote ? 'MOTE' : 'S3'},
-                  onSelectionChanged: (selection) {
-                    if (selection.isEmpty) return;
-                    setState(() => _provider = selection.first);
+                  onChanged: (value) {
+                    if (value != null) setState(() => _provider = value);
                   },
                 ),
                 const SizedBox(height: 10),
@@ -429,10 +463,16 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   _isMote
                       ? '使用阅微账号的内置对象存储，无需填写密钥；'
                             '配置会加密保存到阅微账号，并在其他设备登录后自动恢复。'
+                      : _isWebDav
+                      ? '使用支持强 ETag 与条件写入的 WebDAV 目录，'
+                            '书籍与进度按与阅微相同的对象路径保存。'
+                      : _isGitHub
+                      ? '使用 GitHub 私有仓库保存同步对象；每次写入生成一次提交，'
+                            '单文件上限 40 MiB。'
                       : '使用自建 S3 兼容对象存储，密钥只保存在本机应用私有设置中。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                if (!_isMote) ...<Widget>[
+                if (_provider.trim().toUpperCase() == 'S3') ...<Widget>[
                   const SizedBox(height: 12),
                   TextField(
                     controller: _endpoint,
@@ -482,6 +522,92 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
                         tooltip: _showSecret ? '隐藏密钥' : '显示密钥',
+                        onPressed: () =>
+                            setState(() => _showSecret = !_showSecret),
+                        icon: Icon(
+                          _showSecret
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                      ),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                ],
+                if (_isWebDav) ...<Widget>[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _endpoint,
+                    decoration: const InputDecoration(
+                      labelText: 'WebDAV 地址',
+                      hintText: 'https://dav.example.com/remote.php/dav/files/me',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _accessKey,
+                    decoration: const InputDecoration(
+                      labelText: '用户名',
+                      hintText: '可留空使用匿名访问',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _secretKey,
+                    obscureText: !_showSecret,
+                    decoration: InputDecoration(
+                      labelText: '密码',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        tooltip: _showSecret ? '隐藏密码' : '显示密码',
+                        onPressed: () =>
+                            setState(() => _showSecret = !_showSecret),
+                        icon: Icon(
+                          _showSecret
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                      ),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                ],
+                if (_isGitHub) ...<Widget>[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bucket,
+                    decoration: const InputDecoration(
+                      labelText: '仓库',
+                      hintText: '用户名/reamicro-backup',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _branch,
+                    decoration: const InputDecoration(
+                      labelText: '分支',
+                      hintText: '留空使用仓库默认分支',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _accessKey,
+                    obscureText: !_showSecret,
+                    decoration: InputDecoration(
+                      labelText: 'GitHub Token',
+                      helperText: '需要私有仓库的 Contents 读写权限，建议使用细粒度 Token',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        tooltip: _showSecret ? '隐藏令牌' : '显示令牌',
                         onPressed: () =>
                             setState(() => _showSecret = !_showSecret),
                         icon: Icon(

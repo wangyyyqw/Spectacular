@@ -41,6 +41,7 @@ class ReaMicroS3Config {
     required this.secretKey,
     required this.prefix,
     this.provider = 'S3',
+    this.branch = '',
   });
 
   /// 空配置。
@@ -52,6 +53,7 @@ class ReaMicroS3Config {
     secretKey: '',
     prefix: 'reamicro',
     provider: 'S3',
+    branch: '',
   );
 
   /// 从 JSON 恢复。
@@ -69,6 +71,7 @@ class ReaMicroS3Config {
       accessKey: read('accessKey'),
       secretKey: read('secretKey'),
       prefix: read('prefix', 'reamicro'),
+      branch: read('branch'),
     );
   }
 
@@ -93,20 +96,68 @@ class ReaMicroS3Config {
   /// 阅微同步提供方；当前支持 `S3` 与账号内置 `Mote`。
   final String provider;
 
+  /// GitHub 同步分支；留空使用仓库默认分支。
+  final String branch;
+
   /// 规范化后的提供方标识。
   String get normalizedProvider => provider.trim().toUpperCase();
 
   /// 是否使用阅微账号内置存储。
   bool get isMote => normalizedProvider == 'MOTE';
 
+  /// 是否使用 S3 兼容对象存储。
+  bool get isS3 => normalizedProvider == 'S3';
+
+  /// 是否使用 WebDAV 存储。
+  bool get isWebDav => normalizedProvider == 'WEBDAV';
+
+  /// 是否使用 GitHub 私有仓库。
+  bool get isGitHub => normalizedProvider == 'GITHUB';
+
+  /// 界面与提示使用的提供方名称。
+  String get displayName => switch (normalizedProvider) {
+    'MOTE' => '阅微内置存储',
+    'WEBDAV' => 'WebDAV',
+    'GITHUB' => 'GitHub',
+    _ => 'S3',
+  };
+
   /// 是否具备同步所需的全部字段。
-  bool get usable => isMote
-      ? normalizedPrefix.isNotEmpty
-      : normalizedEndpoint.isNotEmpty &&
-            bucket.trim().isNotEmpty &&
-            region.trim().isNotEmpty &&
-            accessKey.trim().isNotEmpty &&
-            secretKey.isNotEmpty;
+  bool get usable {
+    if (isMote) return normalizedPrefix.isNotEmpty;
+    if (isWebDav) {
+      final uri = Uri.tryParse(endpoint.trim());
+      return normalizedPrefix.isNotEmpty &&
+          uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.isNotEmpty &&
+          uri.userInfo.isEmpty &&
+          !uri.hasQuery &&
+          !uri.hasFragment;
+    }
+    if (isGitHub) {
+      return normalizedPrefix.isNotEmpty &&
+          accessKey.trim().isNotEmpty &&
+          RegExp(
+            r'^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9_.-]+$',
+          ).hasMatch(_githubRepositoryText) &&
+          !_githubRepositoryText.split('/').any((part) => part == '..');
+    }
+    return normalizedEndpoint.isNotEmpty &&
+        bucket.trim().isNotEmpty &&
+        region.trim().isNotEmpty &&
+        accessKey.trim().isNotEmpty &&
+        secretKey.isNotEmpty;
+  }
+
+  String get _githubRepositoryText {
+    final text = bucket.trim();
+    if (!text.startsWith('https://github.com/')) return text;
+    return text
+        .substring('https://github.com/'.length)
+        .replaceFirst(RegExp(r'\.git$'), '')
+        .replaceAll(RegExp(r'/+$'), '');
+  }
 
   /// 去掉末尾斜杠的端点。
   String get normalizedEndpoint {
@@ -137,6 +188,7 @@ class ReaMicroS3Config {
       bucket.trim(),
       normalizedPrefix,
       userId,
+      branch.trim(),
     ].join('|');
     return sha256.convert(utf8.encode(payload)).toString();
   }
@@ -150,6 +202,7 @@ class ReaMicroS3Config {
     'accessKey': accessKey,
     'secretKey': secretKey,
     'prefix': prefix,
+    'branch': branch,
   };
 
   /// 复制并覆盖部分字段。
@@ -161,6 +214,7 @@ class ReaMicroS3Config {
     String? secretKey,
     String? prefix,
     String? provider,
+    String? branch,
   }) => ReaMicroS3Config(
     provider: provider ?? this.provider,
     endpoint: endpoint ?? this.endpoint,
@@ -169,6 +223,7 @@ class ReaMicroS3Config {
     accessKey: accessKey ?? this.accessKey,
     secretKey: secretKey ?? this.secretKey,
     prefix: prefix ?? this.prefix,
+    branch: branch ?? this.branch,
   );
 }
 
