@@ -443,6 +443,72 @@ void main() {
     }
   });
 
+  test('新版复用文字位置时保留待定位旧笔记，只合并新版同一选区', () async {
+    const oldText = '松树枝头昨夜落满积雪';
+    const newText = '碧海远帆清晨渡过长江';
+    final oldBytes = buildRevisionTestEpub(
+      chapters: const [
+        RevisionTestChapter('first.xhtml', '旧章', [oldText]),
+      ],
+    );
+    final newBytes = buildRevisionTestEpub(
+      chapters: const [
+        RevisionTestChapter('new.xhtml', '新章', [newText]),
+      ],
+    );
+    final entry = await library.importBytes(oldBytes);
+    final chapter = (await buildRevisionAnchorBook(oldBytes)).chapter(0)!;
+    final offset = chapter.text.indexOf(oldText);
+    final startCfi = chapter.cfiAt(offset)!;
+    final endCfi = chapter.cfiAt(offset + oldText.length, end: true)!;
+    Future<ReaderAnnotation> addNote(
+      ReaderAnnotationStore store,
+      String quote,
+      String note,
+    ) async => (await store.add(
+      type: ReaderAnnotationType.thought,
+      startCfi: startCfi,
+      endCfi: endCfi,
+      quote: quote,
+      note: note,
+    ))!;
+
+    final oldNote = await addNote(
+      library.annotationStore(entry.id)!,
+      oldText,
+      '旧笔记正文',
+    );
+    expect(oldNote.relocationStatus, 'verified');
+    final current = await library.updateBytes(entry.id, newBytes);
+    final store = library.annotationStore(current.id)!;
+    final pending = (await store.list()).single;
+    expect(
+      (pending.startCfi, pending.endCfi, pending.relocationStatus),
+      (startCfi, endCfi, 'pending'),
+    );
+    final index = await buildRevisionAnchorBook(newBytes);
+    expect(index.capture(startCfi, endCfi: endCfi)?.quote, newText);
+
+    final newNote = await addNote(store, newText, '新笔记正文');
+    expect(newNote.id, isNot(oldNote.id));
+    expect(
+      (newNote.quote, newNote.note, newNote.relocationStatus),
+      (newText, '新笔记正文', 'verified'),
+    );
+    final merged = await addNote(store, newText, '新笔记补记');
+    expect(merged.id, newNote.id);
+    expect(
+      {
+        for (final item in await store.list())
+          item.id: (item.quote, item.note, item.relocationStatus),
+      },
+      {
+        oldNote.id: (oldText, '旧笔记正文', 'pending'),
+        newNote.id: (newText, '新笔记补记', 'verified'),
+      },
+    );
+  });
+
   test('真实 EPUB 跨段标注拆成跨章后核对新版实际范围', () async {
     final entry = await library.importBytes(original);
     final oldIndex = await buildRevisionAnchorBook(original);
