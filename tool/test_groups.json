@@ -59,6 +59,7 @@
     {
       "group": "storage",
       "paths": [
+        "packages/reader_core/test/cache/*_test.dart",
         "apps/reader_mobile/test/storage/*_test.dart",
         "apps/reader_mobile/test/library/library*_test.dart",
         "apps/reader_mobile/test/library/book_edit_repository_test.dart",

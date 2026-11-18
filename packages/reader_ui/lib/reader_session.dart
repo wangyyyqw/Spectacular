@@ -331,9 +331,13 @@ class ReaderSession extends ChangeNotifier {
   int get availablePagesRevision => _availablePagesRevision;
   int get pageCountRevision => _pageCountRevision;
 
-  void _pagesAvailable(bool totalsChanged) {
+  void _pagesAvailable() {
     _availablePagesRevision += 1;
-    if (totalsChanged) _pageCountRevision += 1;
+    _notify();
+  }
+
+  void _pageCountChanged() {
+    _pageCountRevision += 1;
     _notify();
   }
 
@@ -1440,6 +1444,7 @@ class ReaderSession extends ChangeNotifier {
             ? _progressiveChapter
             : null,
         onPagesAvailable: _pagesAvailable,
+        onPageCountChanged: _pageCountChanged,
       );
       await pager.initialize(
         startSpine: usableCache ? savedSpine ?? saved?.spineIndex ?? 0 : 0,
@@ -1987,6 +1992,7 @@ class ReaderSession extends ChangeNotifier {
             ? _progressiveChapter
             : null,
         onPagesAvailable: _pagesAvailable,
+        onPageCountChanged: _pageCountChanged,
       );
       await pager.initialize(
         startSpine: spine,

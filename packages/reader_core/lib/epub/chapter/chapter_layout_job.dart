@@ -181,11 +181,13 @@ class ChapterLayoutScheduler {
     required this.run,
     required this.isCurrent,
     this.onFinished,
+    this.onPageCount,
   });
 
   final ChapterLayoutRunner run;
   final bool Function(LayoutSnapshot) isCurrent;
   final void Function(LayoutSnapshot)? onFinished;
+  final void Function(LayoutSnapshot, int)? onPageCount;
   final Map<String, _ChapterJob> _jobs = {};
   _ChapterJob? _running;
   bool _draining = false;
@@ -310,7 +312,10 @@ class ChapterLayoutScheduler {
       wantsProgressivePages: () =>
           job.waiters.any((waiter) => waiter.progressive && !waiter.isSettled),
       publishPages: job.publish,
-      publishPageCount: job.publishPageCount,
+      publishPageCount: (count) {
+        if (job.retainResult) onPageCount?.call(job.snapshot, count);
+        job.publishPageCount(count);
+      },
       waitForBackground: () => backgroundResumeSignal,
     );
     try {
@@ -403,6 +408,7 @@ class _ChapterWaiter implements ProgressiveChapterLoadHandle {
   final Completer<List<PageContent>> _completion = Completer();
   final Completer<List<PageContent>> _first = Completer();
   final _updates = StreamController<List<PageContent>>.broadcast(sync: true);
+  final _pageCounts = StreamController<int>.broadcast(sync: true);
   bool _complete = false;
   bool get isSettled => _completion.isCompleted;
   @override
@@ -417,6 +423,9 @@ class _ChapterWaiter implements ProgressiveChapterLoadHandle {
 
   @override
   Stream<List<PageContent>> get updates => _updates.stream;
+
+  @override
+  Stream<int> get pageCountUpdates => _pageCounts.stream;
 
   @override
   void setPriority(ChapterLayoutPriority next) {
@@ -439,8 +448,7 @@ class _ChapterWaiter implements ProgressiveChapterLoadHandle {
   void publishPageCount(int count) {
     if (isSettled || pageCount == count) return;
     pageCount = count;
-    // 完整入口尚无首页时只记总数，不能把空列表当作首批页面交付。
-    if (_first.isCompleted) _updates.add(availablePages);
+    _pageCounts.add(count);
   }
 
   @override
@@ -454,20 +462,29 @@ class _ChapterWaiter implements ProgressiveChapterLoadHandle {
 
   void complete(List<PageContent> pages) {
     if (isSettled) return;
+    publishPageCount(pages.length);
+    if (isSettled) return;
     _complete = true;
-    pageCount = pages.length;
     availablePages = pages;
     if (!_first.isCompleted) _first.complete(pages);
     _completion.complete(pages);
     _updates.add(pages);
-    unawaited(_updates.close());
+    _closeStreams();
   }
 
   void completeError(Object error, StackTrace stack) {
     if (isSettled) return;
     if (!_first.isCompleted) _first.completeError(error, stack);
     _completion.completeError(error, stack);
-    unawaited(_updates.close());
+    _closeStreams();
+  }
+
+  void _closeStreams() {
+    // 同步监听者可能在通知中关书，等当前通知结束后再关闭流。
+    scheduleMicrotask(() {
+      unawaited(_updates.close());
+      unawaited(_pageCounts.close());
+    });
   }
 }
 
@@ -493,6 +510,7 @@ class PreparingChapterHandle implements ProgressiveChapterLoadHandle {
   late final _ChapterWaiter _waiter;
   ChapterLoadHandle? _scheduled;
   StreamSubscription<List<PageContent>>? _subscription;
+  StreamSubscription<int>? _countSubscription;
 
   Future<void> _prepare(
     Future<ChapterLoadHandle> Function(bool Function() isCancelled) prepare,
@@ -501,7 +519,12 @@ class PreparingChapterHandle implements ProgressiveChapterLoadHandle {
       final scheduled = _scheduled = await prepare(() => _waiter.isSettled);
       if (_waiter.isSettled) scheduled.cancel();
       if (scheduled is ProgressiveChapterLoadHandle) {
-        _waiter.pageCount = scheduled.pageCount;
+        if (scheduled.pageCount case final count?) {
+          _waiter.publishPageCount(count);
+        }
+        _countSubscription = scheduled.pageCountUpdates.listen(
+          _waiter.publishPageCount,
+        );
         if (scheduled.availablePages.isEmpty) {
           scheduled.setPriority(_waiter.priority);
         }
@@ -518,6 +541,7 @@ class PreparingChapterHandle implements ProgressiveChapterLoadHandle {
       _waiter.completeError(error, stack);
     } finally {
       await _subscription?.cancel();
+      await _countSubscription?.cancel();
     }
   }
 
@@ -526,7 +550,6 @@ class PreparingChapterHandle implements ProgressiveChapterLoadHandle {
     List<PageContent> pages,
   ) {
     _waiter.priority = scheduled.priority;
-    _waiter.pageCount = scheduled.pageCount;
     if (scheduled.isComplete) {
       _waiter.complete(pages);
     } else {
@@ -547,6 +570,8 @@ class PreparingChapterHandle implements ProgressiveChapterLoadHandle {
   bool get isComplete => _waiter.isComplete;
   @override
   int? get pageCount => _waiter.pageCount;
+  @override
+  Stream<int> get pageCountUpdates => _waiter.pageCountUpdates;
   @override
   ChapterLayoutPriority get priority => _waiter.priority;
   @override

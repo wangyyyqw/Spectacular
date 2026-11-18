@@ -133,11 +133,9 @@ void main() {
     final first = await handle.firstPages;
     expect(handle.pageCount, isNull, reason: '稳定前缀不能当作整章总数');
     final counted = Completer<int>();
-    final subscription = handle.updates.listen((_) {
-      if (handle.pageCount case final count?) {
-        source.setBackgroundLayoutPaused(true);
-        if (!counted.isCompleted) counted.complete(count);
-      }
+    final subscription = handle.pageCountUpdates.listen((count) {
+      source.setBackgroundLayoutPaused(true);
+      if (!counted.isCompleted) counted.complete(count);
     });
     addTearDown(subscription.cancel);
     final count = await counted.future;

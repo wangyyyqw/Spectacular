@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:reader_core/cache/chapter_pagination_store.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/perf/trace.dart';
@@ -339,9 +340,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   Future<EpubChapterSource> _openSource() async {
     // 导入已经校验归档，阅读期间只按需读取目标章节。
-    const ReaderFormatOpener<EpubChapterSource> opener = EpubFormatOpener(
+    final ReaderFormatOpener<EpubChapterSource> opener = EpubFormatOpener(
       verifyCrc: false,
       networkImageCacheDirectoryProvider: getTemporaryDirectory,
+      paginationStore: FileChapterPaginationStore(
+        directoryProvider: getApplicationSupportDirectory,
+      ),
     );
     final options = ReaderOpenOptions(contentVersion: widget.contentRevision);
     final path = widget.sourcePath;

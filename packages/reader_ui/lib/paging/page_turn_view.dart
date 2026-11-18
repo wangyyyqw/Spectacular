@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:reader_core/layout/paginator.dart';
 
 import '../reader_session.dart';
+import 'chapter_preload_controller.dart';
 import 'duokan_curl_shader.dart';
 import 'page_snapshot_cache.dart';
 import 'page_turn_controller.dart';
@@ -92,6 +93,14 @@ class PageTurnViewState extends State<PageTurnView>
   int _warmToken = 0;
   bool _warmingAllowed = false;
   bool _turnActive = false;
+  late final _chapterPreload = ChapterPreloadController(
+    widget.session,
+    onFirstPage: () {
+      if (!mounted) return;
+      _lastWarm = null;
+      _scheduleWarm();
+    },
+  );
 
   static const _warmDelay = Duration(milliseconds: 100);
   static const _busyRetryDelay = Duration(milliseconds: 50);
@@ -143,7 +152,6 @@ class PageTurnViewState extends State<PageTurnView>
     if (controller.active) controller.cancel();
     _captureToken++;
     _pauseWarmup();
-    widget.session.cancelTurnPrefetch();
     _capturePage = null;
     _lastWarm = null;
     _window.clear();
@@ -558,8 +566,8 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   void _scheduleWarm() {
-    widget.session.setBackgroundLayoutPaused(
-      _warmSuspended || !widget.preload || controller.active,
+    _chapterPreload.update(
+      paused: _warmSuspended || !widget.preload || controller.active,
     );
     if (_warmSuspended || !widget.preload || !mounted) {
       return;
@@ -591,8 +599,8 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   void _pauseWarmup() {
-    widget.session.setBackgroundLayoutPaused(
-      _warmSuspended || !widget.preload || controller.active,
+    _chapterPreload.update(
+      paused: _warmSuspended || !widget.preload || controller.active,
     );
     _warmToken++;
     _warmTimer?.cancel();
@@ -643,8 +651,9 @@ class PageTurnViewState extends State<PageTurnView>
     final current = animate
         ? (_usesWindow ? _enqueueWindowCapture(page) : _enqueueCapture(page))
         : Future<ui.Image?>.value();
-    // 当前页先发起，内容预排随后独立推进，慢图片不会推迟跨章准备。
-    unawaited(_warmChapter(page, token, generation, current));
+    if (_chapterPreload.firstPage case final first?) {
+      unawaited(_warmChapterResources(first, page, token, generation, current));
+    }
     await current;
     // 先两侧近邻，再准备第二页；同距离优先最近翻页方向，避免远页抢跑。
     for (var distance = 1; distance <= 2; distance++) {
@@ -668,23 +677,15 @@ class PageTurnViewState extends State<PageTurnView>
     }
   }
 
-  Future<void> _warmChapter(
+  Future<void> _warmChapterResources(
+    PageContent first,
     PageContent page,
     int token,
     int generation,
     Future<ui.Image?> current,
   ) async {
     try {
-      await widget.session.preparseNextChapter(
-        shouldContinue: () => _canWarm(page, token, generation),
-      );
-      if (!_canWarm(page, token, generation)) return;
-      final first = await widget.session.prefetchTurnChapter(
-        true,
-        shouldContinue: () => _canWarm(page, token, generation),
-        idle: true,
-      );
-      if (first != null && _canWarm(page, token, generation)) {
+      if (_canWarm(page, token, generation)) {
         // 内容排版可先行，首页原图等当前纸面完成后再让出一帧启动。
         await current;
         await WidgetsBinding.instance.endOfFrame;
@@ -817,6 +818,7 @@ class PageTurnViewState extends State<PageTurnView>
   void dispose() {
     _captureToken++;
     _warmTimer?.cancel();
+    _chapterPreload.dispose();
     widget.session.cancelTurnPrefetch();
     controller.removeListener(_controllerChanged);
     controller.dispose();
