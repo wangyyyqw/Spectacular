@@ -654,9 +654,67 @@ void main() {
     expect(pending.status, 'pending');
     expect(pending.current, same(moved.current));
     final decoded = AnchorRecord.decode(pending.encode())!;
+    expect(decoded.toJson()['semanticVersion'], 'source-text-v1');
     expect(decoded.original.toJson(), moved.original.toJson());
     expect(decoded.current!.toJson(), moved.current!.toJson());
     expect(decoded.isResolved, isFalse);
+  });
+
+  test('text-3 与规范 V1 共用来源 CFI，回写只改语义名', () {
+    final book = _book('v1', [
+      [before + quote + after],
+    ]);
+    final original = book.anchorAt(0, 3)!;
+    final current = book.anchorAt(0, before.length)!;
+    for (final status in ['verified', 'relocated', 'approximate', 'pending']) {
+      final record = AnchorRecord(
+        original: original,
+        current: current,
+        status: status,
+        reason: status == 'pending' ? '原文不唯一' : null,
+      );
+      final json = {...record.toJson(), 'semanticVersion': 'text-3'};
+      final decoded = AnchorRecord.decode(jsonEncode(json))!;
+      expect(decoded.isResolved, record.isResolved);
+      expect(jsonDecode(decoded.encode()), {
+        ...json,
+        'semanticVersion': 'source-text-v1',
+      });
+    }
+  });
+
+  test('无版号与 text-1、text-2 的旧坐标只作待定位证据', () {
+    final old = _book('v1', [
+      [before + quote + after],
+    ]);
+    final updated = _book('v2', [
+      ['新增序言'],
+      [before + quote + after],
+    ]);
+    final original = _range(old, 0, quote);
+    final current = _range(updated, 1, quote);
+    for (final version in [null, 'text-1', 'text-2']) {
+      final record = AnchorRecord(
+        original: original,
+        current: version == null ? null : current,
+        status: version == null ? 'verified' : 'relocated',
+        reason: '原记录说明',
+      );
+      final json = record.toJson()..remove('semanticVersion');
+      if (version != null) json['semanticVersion'] = version;
+      final decoded = AnchorRecord.decode(jsonEncode(json))!;
+      expect(decoded.status, 'pending');
+      expect(decoded.isResolved, isFalse);
+      expect(decoded.reason, contains('需重新定位'));
+      expect(decoded.reason, contains('原记录说明'));
+      expect(jsonDecode(decoded.encode()), {
+        ...json,
+        'semanticVersion': 'source-text-v1',
+        'status': 'pending',
+        'reason': decoded.reason,
+      });
+      expect(AnchorRecord.decode(decoded.encode())!.isResolved, isFalse);
+    }
   });
 
   test('坏 JSON、未知版本和非法偏移安全拒绝', () {
@@ -665,8 +723,16 @@ void main() {
     ]);
     final record = AnchorRecord(original: _range(book, 0, quote));
     expect(AnchorRecord.decode('broken'), isNull);
-    expect(AnchorRecord.decode('{"version":2}'), isNull);
     final json = jsonDecode(record.encode()) as Map<String, dynamic>;
+    for (final unsupported in [
+      {...json, 'version': 2},
+      {...json, 'semanticVersion': 'source-text-v2'},
+      {...json, 'semanticVersion': 3},
+      {...json, 'semanticVersion': 'text-2', 'status': 'unknown'},
+      {'scrollOffset': 12.5, 'layoutFingerprint': 'layout'},
+    ]) {
+      expect(AnchorRecord.decode(jsonEncode(unsupported)), isNull);
+    }
     final original = json['original'] as Map<String, dynamic>;
     final start = original['start'] as Map<String, dynamic>;
     start['charOffset'] = -1;

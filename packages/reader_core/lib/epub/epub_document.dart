@@ -381,7 +381,7 @@ class EpubDocumentImpl implements EpubDocument {
     );
     if (cache != null) {
       return cache.getOrCompute(
-        'font-obfuscation-v2:$algorithm:$path:${raw.length}',
+        'epub-font-v1:$algorithm:$path:${raw.length}',
         decrypt,
       );
     }

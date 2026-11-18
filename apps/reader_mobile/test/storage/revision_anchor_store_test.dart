@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -16,6 +17,14 @@ import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
+
+final _staleSave = throwsA(
+  isA<ReaderProgressSaveException>().having(
+    (error) => error.result,
+    '拒写原因',
+    ReaderProgressSaveResult.stale,
+  ),
+);
 
 void main() {
   late Directory directory;
@@ -247,12 +256,72 @@ void main() {
     expect(marked.locatorCfi, second.locatorCfi);
     await (db.update(db.books)..where((table) => table.id.equals(book.id)))
         .write(const BooksCompanion(contentRevision: Value('new-revision')));
-    await store.save('current', initial);
+    await expectLater(store.save('current', initial), _staleSave);
     expect(
       (await db.select(db.readingProgress).get()).single.toJson(),
       marked.toJson(),
     );
   });
+
+  for (final version in ['text-2', 'text-3']) {
+    test('开发版 $version 阅读进度保留原始证据，只恢复语义相同的精确位置', () async {
+      final original = index.capture(cfi(5))!;
+      final json = jsonEncode({
+        ...AnchorRecord(original: original).toJson(),
+        'semanticVersion': version,
+        'scrollOffset': 12.5,
+        'layoutFingerprint': '开发版布局',
+      });
+      await db
+          .into(db.readingProgress)
+          .insert(
+            ReadingProgressCompanion.insert(
+              bookId: Value(book.id),
+              locatorCfi: cfi(5),
+              updatedAt: 1,
+              anchorJson: Value(json),
+              pageIndex: const Value(3),
+              percent: const Value(36),
+            ),
+          );
+      final store = DriftProgressStore(db);
+      final loaded = (await store.load('current'))!;
+      expect(loaded.cfi, version == 'text-3' ? cfi(5) : isNull);
+      expect(loaded.approximate, version == 'text-2');
+      expect(
+        (
+          loaded.pageIndex,
+          loaded.readingPercent,
+          loaded.scrollOffset,
+          loaded.layoutFingerprint,
+        ),
+        (3, 0.36, 12.5, '开发版布局'),
+      );
+      expect(
+        (await db.select(db.readingProgress).getSingle()).anchorJson,
+        json,
+      );
+      await store.save(
+        'current',
+        ReaderProgress(
+          spineIndex: 0,
+          pageIndex: 4,
+          cfi: cfi(10),
+          contentRevision: index.revision,
+        ),
+      );
+      final saved =
+          (await db.select(db.readingProgress).getSingle()).anchorJson!;
+      final record = AnchorRecord.decode(saved)!;
+      expect(
+        (jsonDecode(saved) as Map)['semanticVersion'],
+        currentAnchorSemanticVersion,
+      );
+      expect(record.original.toJson(), original.toJson());
+      expect(record.effective.start.cfi, cfi(10));
+      expect(record.isResolved, isTrue);
+    });
+  }
 
   test('强制更换bookId后，旧ID能读取但不能保存或清除新版数据', () async {
     final store = DriftProgressStore(db);
@@ -267,9 +336,9 @@ void main() {
         );
     await (db.update(db.books)..where((table) => table.id.equals(book.id)))
         .write(const BooksCompanion(uuid: Value('new-id')));
-    await store.save(
-      'current',
-      const ReaderProgress(spineIndex: 0, pageIndex: 9),
+    await expectLater(
+      store.save('current', const ReaderProgress(spineIndex: 0, pageIndex: 9)),
+      _staleSave,
     );
     await store.clear('current');
     expect((await store.load('new-id'))!.pageIndex, 3);
@@ -411,14 +480,17 @@ void main() {
       ),
       isNull,
     );
-    await progress.save(
-      'current',
-      ReaderProgress(
-        spineIndex: 0,
-        pageIndex: 9,
-        cfi: cfi(20),
-        contentRevision: index.revision,
+    await expectLater(
+      progress.save(
+        'current',
+        ReaderProgress(
+          spineIndex: 0,
+          pageIndex: 9,
+          cfi: cfi(20),
+          contentRevision: index.revision,
+        ),
       ),
+      _staleSave,
     );
     expect((await progress.load('current'))!.pageIndex, 1);
   });

@@ -1,6 +1,6 @@
 name: reader_core
 description: "EPUB 排版引擎核心：解析、样式、布局、绘制与位置。"
-version: 0.0.1
+version: 1.0.0
 publish_to: 'none'
 homepage:
 

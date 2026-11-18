@@ -310,11 +310,10 @@ Future<AnchorRecord?> captureBookAnchor(
     original: existing?.original ?? anchor,
     current: existing == null ? null : anchor,
     status: approximate ? 'approximate' : 'verified',
-    semanticVersion: currentAnchorSemanticVersion,
   );
 }
 
-/// 只读取当前锚点格式，缺失或不支持的记录须重新建立。
+/// 读取可识别的锚点证据；不把旧版待定位记录当作精确位置。
 AnchorRecord requireAnchorRecord(String? source) {
   final record = AnchorRecord.decode(source);
   if (record == null) {

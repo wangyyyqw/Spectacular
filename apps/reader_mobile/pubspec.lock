@@ -781,14 +781,14 @@ packages:
       path: "../../packages/reader_core"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "1.0.0"
   reader_ui:
     dependency: "direct main"
     description:
       path: "../../packages/reader_ui"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "1.0.0"
   recase:
     dependency: transitive
     description:

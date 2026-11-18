@@ -251,7 +251,7 @@ void main() {
       '保留的书签',
     );
     expect(await _savedReadingData(db), before);
-    expect(db.schemaVersion, 2);
+    expect(db.schemaVersion, 1);
   });
 
   test('未知书籍明确返回身份失败，非正时长仍不写入噪声记录', () async {

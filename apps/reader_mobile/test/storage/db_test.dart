@@ -32,6 +32,77 @@ Future<int> _insertBook(
       ),
     );
 
+Future<File> _temporaryDatabaseFile() async {
+  final directory = await Directory.systemTemp.createTemp('reader-schema-');
+  addTearDown(() => directory.delete(recursive: true));
+  return File('${directory.path}/${AppDatabase.fileName}');
+}
+
+Future<void> _writeEdits(AppDatabase database, int bookId) async {
+  await database.customStatement(
+    'INSERT INTO edit_drafts (book_id, base_revision, source_path, directory, updated_at) '
+    'VALUES (?, ?, ?, ?, ?)',
+    [bookId, 'test-content', 'books/原书.epub', 'edits/草稿', 19],
+  );
+  await database.customStatement(
+    'INSERT INTO edit_versions (book_id, kind, revision, source_path, summary, created_at) '
+    'VALUES (?, ?, ?, ?, ?, ?)',
+    [bookId, 'original', '原修订', 'edits/原版.epub', '原版', 18],
+  );
+}
+
+Future<int> _seedDevelopmentDatabase(File file, int version) async {
+  final database = await AppDatabase.open(file);
+  try {
+    final bookId = await _insertBook(database);
+    await database.customStatement(
+      'INSERT INTO reading_progress (book_id, locator_cfi, percent, updated_at) VALUES (?, ?, ?, ?)',
+      [bookId, 'epubcfi(/6/2!/4/2/1:3)', 35.5, 17],
+    );
+    await database.customStatement(
+      'INSERT INTO annotations (id, book_id, type, start_cfi, end_cfi, quote, note, created_at, updated_at) '
+      'VALUES (?, ?, 1, ?, ?, ?, ?, 13, 15)',
+      ['note-1', bookId, '起点', '终点', '引用', '旧笔记正文'],
+    );
+    await database.customStatement("INSERT INTO settings VALUES ('主题', '墨色')");
+    if (version == 1) {
+      await database.customStatement('DROP TABLE edit_drafts');
+      await database.customStatement('DROP TABLE edit_versions');
+    } else {
+      await _writeEdits(database, bookId);
+      await database.customStatement('PRAGMA user_version = 2');
+    }
+    return bookId;
+  } finally {
+    await database.close();
+  }
+}
+
+Future<void> _expectUserRows(AppDatabase database, int bookId) async {
+  final book = await database.select(database.books).getSingle();
+  expect(
+    (book.id, book.uuid, book.contentRevision),
+    (bookId, 'urn:uuid:test-book', 'test-content'),
+  );
+  final progress = await database.select(database.readingProgress).getSingle();
+  expect(
+    (
+      progress.bookId,
+      progress.locatorCfi,
+      progress.percent,
+      progress.updatedAt,
+    ),
+    (bookId, 'epubcfi(/6/2!/4/2/1:3)', 35.5, 17),
+  );
+  final note = await database.select(database.annotations).getSingle();
+  expect(
+    (note.bookId, note.id, note.note, note.quote, note.updatedAt),
+    (bookId, 'note-1', '旧笔记正文', '引用', 15),
+  );
+  final setting = await database.select(database.settingsTable).getSingle();
+  expect((setting.key, setting.value), ('主题', '墨色'));
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -98,7 +169,7 @@ void main() {
           .customSelect('PRAGMA user_version')
           .getSingle()
           .then((row) => row.read<int>('user_version')),
-      2,
+      1,
     );
   });
 
@@ -112,43 +183,77 @@ void main() {
     expect((await database.select(database.books).get()).length, 1);
   });
 
-  test('v1 升级到 v2 只新增编辑表，既有书库和阅读数据保留', () async {
-    final directory = await Directory.systemTemp.createTemp(
-      'reader-v1-upgrade-',
-    );
-    final file = File('${directory.path}/reader.sqlite');
-    addTearDown(() => directory.delete(recursive: true));
-    final original = await AppDatabase.open(file);
-    final id = await _insertBook(original);
-    await original
-        .into(original.readingProgress)
-        .insert(
-          ReadingProgressCompanion.insert(
-            bookId: Value(id),
-            locatorCfi: '旧位置',
-            updatedAt: 17,
-          ),
-        );
-    await original.customStatement('DROP TABLE edit_drafts');
-    await original.customStatement('DROP TABLE edit_versions');
-    await original.customStatement('PRAGMA user_version = 1');
-    await original.close();
-    final migrated = await AppDatabase.open(file);
-    addTearDown(migrated.close);
-    await migrated.warmUp();
-    expect((await migrated.select(migrated.books).getSingle()).id, id);
-    expect(
-      (await migrated.select(migrated.readingProgress).getSingle()).locatorCfi,
-      '旧位置',
-    );
-    expect(await migrated.select(migrated.editDrafts).get(), isEmpty);
-    expect(await migrated.select(migrated.editVersions).get(), isEmpty);
-    expect(
-      (await migrated.customSelect('PRAGMA user_version').getSingle())
-          .read<int>('user_version'),
-      2,
-    );
-  });
+  for (final legacyVersion in [1, 2]) {
+    test('开发库 V$legacyVersion 原地归并：保留用户记录，编辑数据跨两次开库可用', () async {
+      final file = await _temporaryDatabaseFile();
+      final bookId = await _seedDevelopmentDatabase(file, legacyVersion);
+      for (var opening = 1; opening <= 2; opening++) {
+        final database = await AppDatabase.open(file);
+        try {
+          await _expectUserRows(database, bookId);
+          final version = await database
+              .customSelect('PRAGMA user_version')
+              .getSingle();
+          expect(version.read<int>('user_version'), 1);
+          if (legacyVersion == 1 && opening == 1) {
+            expect(await database.select(database.editDrafts).get(), isEmpty);
+            expect(await database.select(database.editVersions).get(), isEmpty);
+            await _writeEdits(database, bookId);
+          }
+          final draft = await database.select(database.editDrafts).getSingle();
+          expect(
+            (
+              draft.bookId,
+              draft.baseRevision,
+              draft.sourcePath,
+              draft.directory,
+              draft.updatedAt,
+            ),
+            (bookId, 'test-content', 'books/原书.epub', 'edits/草稿', 19),
+          );
+          final edit = await database.select(database.editVersions).getSingle();
+          expect(
+            (
+              edit.bookId,
+              edit.kind,
+              edit.revision,
+              edit.sourcePath,
+              edit.summary,
+              edit.createdAt,
+            ),
+            (bookId, 'original', '原修订', 'edits/原版.epub', '原版', 18),
+          );
+          expect(
+            await database.customSelect('PRAGMA foreign_key_check').get(),
+            isEmpty,
+          );
+        } finally {
+          await database.close();
+        }
+      }
+    });
+  }
+
+  for (final version in [0, 1, 2, 3]) {
+    test('非空无版本、结构不符或未知版本：拒开 V$version 不改写文件', () async {
+      final file = await _temporaryDatabaseFile();
+      await _seedDevelopmentDatabase(file, version == 1 ? 1 : 2);
+      final raw = sqlite.sqlite3.open(file.path);
+      if (version == 1 || version == 2) {
+        raw.execute('ALTER TABLE annotations RENAME COLUMN note TO other_note');
+      }
+      raw.execute('PRAGMA user_version = $version');
+      raw.close();
+      final before = await file.readAsBytes();
+      final database = await AppDatabase.open(file);
+      try {
+        await expectLater(database.warmUp(), throwsStateError);
+      } finally {
+        await database.close();
+      }
+      expect(await file.readAsBytes(), before);
+    });
+  }
 
   test('删书级联清理：spine/目录/标注/进度/索引/报告一并删除', () async {
     final database = await _openFresh();
