@@ -302,7 +302,6 @@ class _StatsPageState extends State<StatsPage> {
                       ),
                       _Section(
                         title: '阅读日历',
-                        detail: '按月',
                         child: ReadingCalendar(
                           insights: stats.insights,
                           bookTitles: {
@@ -462,12 +461,16 @@ class _Section extends StatelessWidget {
             spacing: 12,
             runSpacing: 6,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
+              Semantics(
+                container: true,
+                header: true,
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
                 ),
               ),
               if (detail != null)

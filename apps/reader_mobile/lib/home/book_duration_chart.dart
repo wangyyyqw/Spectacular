@@ -12,10 +12,11 @@ const _tagTitleStyle = TextStyle(
   fontWeight: FontWeight.w600,
 );
 const _tagDurationStyle = TextStyle(
-  fontSize: 12,
+  fontSize: 13,
   height: 1.4,
   fontFeatures: [FontFeature.tabularFigures()],
 );
+final _countingHint = '单次前台阅读满 ${minimumCountedSessionDuration.inMinutes} 分钟计入';
 
 /// 图书时长：按自然周期查看各书投入和占比，保留已移出书架的记录。
 class BookDurationChart extends StatefulWidget {
@@ -152,20 +153,27 @@ class _BookDurationChartState extends State<BookDurationChart>
     );
   }
 
-  Widget _periodSelector() => Row(
-    children: [
-      for (final period in BookDurationPeriod.values)
-        Expanded(
-          child: _PeriodButton(
-            period: period,
-            selected: _period == period,
-            onTap: () => setState(() {
-              _period = period;
-              _selectedBookId = null;
-            }),
-          ),
-        ),
-    ],
+  Widget _periodSelector() => Material(
+    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    borderRadius: BorderRadius.circular(6),
+    child: Padding(
+      padding: const EdgeInsets.all(2),
+      child: Row(
+        children: [
+          for (final period in BookDurationPeriod.values)
+            Expanded(
+              child: _PeriodButton(
+                period: period,
+                selected: _period == period,
+                onTap: () => setState(() {
+                  _period = period;
+                  _selectedBookId = null;
+                }),
+              ),
+            ),
+        ],
+      ),
+    ),
   );
 
   Widget _navigation(BookDurationSummary summary) {
@@ -240,9 +248,9 @@ class _BookDurationChartState extends State<BookDurationChart>
     children: [
       Expanded(
         child: Text(
-          '按实际前台阅读时长统计',
+          _countingHint,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 12,
             height: 1.4,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -308,7 +316,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         const Text('该时段没有阅读记录'),
         const SizedBox(height: 8),
         Text(
-          '阅读后可在这里查看每本书的用时。',
+          _countingHint,
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 12,
@@ -383,21 +391,21 @@ class _BookDurationChartState extends State<BookDurationChart>
   }
 
   Widget _legendContent(_DurationSlice slice, Duration total) => Container(
-    constraints: const BoxConstraints(minHeight: 52),
+    constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          width: 6,
-          height: 6,
-          margin: const EdgeInsets.only(right: 10),
-          decoration: BoxDecoration(
-            color: slice.color,
-            borderRadius: BorderRadius.circular(2),
-          ),
+        _legendText(slice, total),
+        const SizedBox(height: 6),
+        LinearProgressIndicator(
+          value: slice.duration.inMicroseconds / total.inMicroseconds,
+          color: slice.color,
+          backgroundColor: Theme.of(context).colorScheme.outlineVariant,
+          minHeight: 3,
+          borderRadius: BorderRadius.circular(2),
         ),
-        Expanded(child: _legendText(slice, total)),
       ],
     ),
   );
@@ -413,7 +421,7 @@ class _BookDurationChartState extends State<BookDurationChart>
           children: [
             _legendTitle(slice),
             const SizedBox(height: 4),
-            _legendValues(slice, total, inline: true),
+            _legendValues(slice, total),
           ],
         );
       }
@@ -421,44 +429,36 @@ class _BookDurationChartState extends State<BookDurationChart>
         children: [
           Expanded(child: _legendTitle(slice)),
           const SizedBox(width: 16),
-          _legendValues(slice, total, inline: false),
+          _legendValues(slice, total),
         ],
       );
     },
   );
 
-  Widget _legendValues(
-    _DurationSlice slice,
-    Duration total, {
-    required bool inline,
-  }) {
-    final style = _tagDurationStyle.copyWith(
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-    );
-    final values = [
+  Widget _legendValues(_DurationSlice slice, Duration total) => Wrap(
+    spacing: 8,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
       Text(
         formatReadingDuration(slice.duration),
         key: ValueKey('stats-book-duration-value-${slice.id ?? 'other'}'),
-        style: style.copyWith(
-          color: Theme.of(context).colorScheme.onSurface,
-          fontWeight: FontWeight.w500,
-        ),
+        style: _tagDurationStyle.copyWith(fontWeight: FontWeight.w500),
       ),
       Text(
-        '占比 ${_share(slice.duration, total)}',
+        _share(slice.duration, total),
         key: ValueKey('stats-book-duration-share-${slice.id ?? 'other'}'),
-        style: style.copyWith(fontSize: 11),
+        style: _tagDurationStyle.copyWith(
+          fontSize: 12,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
-    ];
-    return inline
-        ? Wrap(spacing: 8, children: values)
-        : Column(crossAxisAlignment: CrossAxisAlignment.end, children: values);
-  }
+    ],
+  );
 
   Widget _legendTitle(_DurationSlice slice) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
     children: [
-      Expanded(
+      Flexible(
         child: Text(
           slice.title,
           maxLines: 2,
@@ -545,41 +545,30 @@ class _PeriodButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-            width: selected ? 2 : 1,
-          ),
-        ),
-      ),
-      child: Semantics(
-        label: period.label,
-        button: true,
-        selected: selected,
-        onTap: onTap,
-        excludeSemantics: true,
-        child: TextButton(
-          key: ValueKey('stats-book-duration-period-${period.name}'),
-          onPressed: onTap,
-          style: _style(Theme.of(context)),
-          child: Text(period.label),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Semantics(
+    label: period.label,
+    button: true,
+    selected: selected,
+    onTap: onTap,
+    excludeSemantics: true,
+    child: TextButton(
+      key: ValueKey('stats-book-duration-period-${period.name}'),
+      onPressed: onTap,
+      style: _style(Theme.of(context)),
+      child: Text(period.label),
+    ),
+  );
 
   ButtonStyle _style(ThemeData theme) => TextButton.styleFrom(
-    minimumSize: const Size(0, 48),
+    minimumSize: const Size(0, kMinInteractiveDimension),
     padding: const EdgeInsets.symmetric(horizontal: 2),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+    backgroundColor: selected ? theme.colorScheme.primary : null,
     foregroundColor: selected
-        ? theme.colorScheme.onSurface
+        ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurfaceVariant,
     textStyle: TextStyle(
-      fontSize: 12,
+      fontSize: 13,
       fontFamily: theme.textTheme.bodyMedium?.fontFamily,
       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
     ),
