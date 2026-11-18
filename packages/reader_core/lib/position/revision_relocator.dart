@@ -26,7 +26,6 @@ abstract final class RevisionRelocator {
           current: approximate,
           status: 'approximate',
           reason: '原阅读位置无法精确匹配，已近似恢复',
-          semanticVersion: currentAnchorSemanticVersion,
         );
       }
     }
@@ -35,7 +34,6 @@ abstract final class RevisionRelocator {
       current: record.current,
       status: 'pending',
       reason: matcher.ambiguous ? '原文多处出现，无法可靠消歧' : '原文已修改或删除，需重新定位',
-      semanticVersion: currentAnchorSemanticVersion,
     );
   }
 
@@ -56,7 +54,6 @@ abstract final class RevisionRelocator {
           ? 'approximate'
           : (unchanged ? 'verified' : 'relocated'),
       reason: current.approximate ? '原内容位置只能近似还原' : null,
-      semanticVersion: currentAnchorSemanticVersion,
     );
   }
 

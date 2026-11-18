@@ -7,7 +7,7 @@ Spectacular Reader 的 Flutter 应用宿主，包含 Android、iOS、macOS 和 W
 - `lib/main.dart` 初始化日志、当前数据库、书库和进度存储，进入书架、统计、书评、我的四页应用壳。
 - `lib/library/` 负责 EPUB 文件导入、去重、内容摘要、修订替换、分组、标签和书籍生命周期。文件统一保存在 `books/<id>`，原 EPUB 不改写。
 - `lib/reader/epub_reader_page.dart` 通过核心 `EpubFormatOpener` 打开书籍，将进度、标注、装饰、偏好、用户字体和背景交给 `ReaderPage`；EPUB 解析、章节准备和排版实现位于 `reader_core`。
-- `lib/storage/` 使用同一个 drift 数据库保存书库、进度、标注、装饰、书评、阅读时段和设置。`AppDatabase.schemaVersion` 为 2，支持 v1 增量升级，增加编辑草稿和保留版本表，不清理用户阅读数据。
+- `lib/storage/` 只维护完整 V1。新库一次建齐全部表和索引；已知的早期 V1 只补建编辑草稿与保留版本两表，结构已完整的开发 V2 只将版本号归一为 1。两者均使用原 `reader.sqlite`，不复制或清空数据。未知版本或结构不符时保留原库，进入临时模式，不清理书籍文件。
 - `lib/search/scan_search_service.dart` 逐章扫描原文，返回上下文和 CFI；当前阅读搜索未使用 2-gram 索引。
 - `lib/reader/reading_session_tracker.dart` 记录前台阅读时段，`lib/home/stats_page.dart` 汇总统计；`lib/diagnostics/` 提供运行事件与日志导出。
 

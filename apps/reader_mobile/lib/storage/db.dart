@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
@@ -379,7 +381,7 @@ class SettingsTable extends Table {
   Set<Column<Object>> get primaryKey => <Column<Object>>{key};
 }
 
-/// 导入报告明细表（v2，P4-06）：修复项 / 警告分级落库。
+/// 导入报告明细表：修复项与警告分级落库。
 @DataClassName('ImportReportRow')
 class ImportReports extends Table {
   /// 主键。
@@ -579,28 +581,60 @@ class AppDatabase extends _$AppDatabase {
   /// 数据库文件名。
   static const String fileName = 'reader.sqlite';
 
-  /// 数据库结构版本，与书级排版版本分开；v2 增加草稿与编辑历史。
+  /// 完整的初始数据库结构，包含编辑草稿与保留版本。
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 1;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onCreate: (migrator) async {
+    onCreate: (migrator) => transaction(() async {
+      if (await _schemaSignature() != null) {
+        throw StateError('未标版本的数据库不是空库，已保留原文件');
+      }
       await migrator.createAll();
       await _createIndexes();
-    },
-    onUpgrade: (migrator, from, to) async {
-      if (from > to) throw StateError('数据库版本过新，不能降级打开');
-      if (from < 2) {
-        await migrator.createTable(editDrafts);
-        await migrator.createTable(editVersions);
+    }),
+    onUpgrade: (_, from, to) async {
+      if (from != 2 || to != 1) {
+        throw StateError('无法归并数据库版本 $from，已保留原文件');
       }
     },
     beforeOpen: (details) async {
+      if (details.versionBefore case final version?) {
+        await _mergeDevelopmentSchema(version);
+      }
       // §36.2：级联删除依赖外键约束。
       await customStatement('PRAGMA foreign_keys = ON');
     },
   );
+
+  /// 按名称排序的建表与索引 SQL 摘要；不读取用户数据和 SQLite 内部对象。
+  Future<String?> _schemaSignature() async {
+    final rows = await customSelect(
+      "SELECT sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY name",
+    ).get();
+    if (rows.isEmpty) return null;
+    final sql = rows.map((row) => row.read<String>('sql')).join('\n');
+    return sha256.convert(utf8.encode(sql)).toString();
+  }
+
+  /// 两份结构取自 64a484bb 和 d374f4b8；只有前者缺两张编辑表。
+  Future<void> _mergeDevelopmentSchema(int version) async {
+    const early =
+        'd3b05312c3c60cf4f22b15a95c8e374d26c0644e01f8efbe25e80a371249a258';
+    const complete =
+        'a8c85a6fd1d6fa292060787293a9d860af15795d144b12760208e942d73ef58a';
+    final signature = await _schemaSignature();
+    if (signature == complete) return;
+    if (version != 1 || signature != early) {
+      throw StateError('数据库结构不匹配已知的 V1 或开发 V2，已保留原文件');
+    }
+    await transaction(() async {
+      final migrator = createMigrator();
+      await migrator.createTable(editDrafts);
+      await migrator.createTable(editVersions);
+    });
+  }
 
   /// 新库索引随当前表结构一次创建。
   Future<void> _createIndexes() async {

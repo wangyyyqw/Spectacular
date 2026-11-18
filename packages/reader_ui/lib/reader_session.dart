@@ -1624,7 +1624,7 @@ class ReaderSession extends ChangeNotifier {
 
   /// 正文排版语义版本；正文解析或分页语义变化时递增。
   static const String layoutSemanticVersion =
-      'reader-layout-2:page-index-${PageIndex.currentSchemaVersion}';
+      'reader-layout-v1:page-index-${PageIndex.currentSchemaVersion}';
 
   /// 当前布局指纹（P2-24）。
   ///

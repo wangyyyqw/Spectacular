@@ -234,7 +234,6 @@ class DriftProgressStore implements ReaderProgressStore {
         current: original == null ? record.current : record.effective,
         status: record.status,
         reason: record.reason,
-        semanticVersion: record.semanticVersion,
       ).toJson(),
       ...metadata,
     });
