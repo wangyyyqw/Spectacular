@@ -98,6 +98,13 @@ void main() {
         matching: find.widgetWithText(FilledButton, '删除'),
       ),
     );
+    await tester.runAsync(() async {
+      final deadline = DateTime.now().add(const Duration(seconds: 3));
+      while ((await library.list()).length != 1 &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
     await _settle(tester, frames: 16);
 
     expect((await library.list()).map((entry) => entry.id), <String>[third.id]);

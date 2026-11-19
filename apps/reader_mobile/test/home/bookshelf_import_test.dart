@@ -103,6 +103,8 @@ void main() {
     await _settle(tester);
     expect(find.text('导入报告'), findsOneWidget, reason: '长按打开详情面板');
 
+    await tester.ensureVisible(find.text('删除本书'));
+    await tester.pump();
     await tester.tap(find.text('删除本书'));
     await _settle(tester);
     expect(find.text('删除《山海小记》'), findsOneWidget, reason: '删除需要确认');

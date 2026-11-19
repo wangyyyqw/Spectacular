@@ -94,7 +94,14 @@ void main() {
       api: api,
       enableLanLoginServer: false,
     );
-    addTearDown(controller.dispose);
+    var disposed = false;
+    void disposeController() {
+      if (disposed) return;
+      disposed = true;
+      controller.dispose();
+    }
+
+    addTearDown(disposeController);
     await controller.initialize();
 
     tester.view.physicalSize = const Size(1080, 2400);
@@ -123,5 +130,6 @@ void main() {
     expect(find.text('云端笔记正文'), findsOneWidget);
     expect(find.text('被划线的原文'), findsOneWidget);
     expect(find.text('这本书还没有笔记'), findsNothing);
+    disposeController();
   });
 }
