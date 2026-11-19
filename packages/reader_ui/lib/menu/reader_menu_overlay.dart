@@ -679,7 +679,7 @@ class _EntriesRow extends StatelessWidget {
   }
 }
 
-/// 四个阅读面板共用的凝光抽屉；标题区与滚到顶部的内容均可下拉收起。
+/// 四个阅读面板共用的凝光抽屉；顶部把手与滚到顶部的内容均可下拉收起。
 class _DrawerLayer extends StatefulWidget {
   const _DrawerLayer({
     super.key,
@@ -831,7 +831,7 @@ class _DrawerLayerState extends State<_DrawerLayer>
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             child: Column(
               children: [
-                _buildHeader(),
+                _buildHandle(),
                 Expanded(child: _buildScrollableContent()),
                 _buildNavigation(),
               ],
@@ -871,73 +871,46 @@ class _DrawerLayerState extends State<_DrawerLayer>
         ),
         child: SafeArea(
           top: false,
-          child: _EntriesRow(
-            fg: scheme.onSurface,
-            fill: scheme.surfaceContainerLow,
-            selected: widget.entry,
-            horizontal: true,
-            keyPrefix: 'drawer-entry',
-            onEntry: _switchEntry,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _EntriesRow(
+              fg: scheme.onSurface,
+              fill: scheme.surfaceContainerLow,
+              selected: widget.entry,
+              horizontal: true,
+              keyPrefix: 'drawer-entry',
+              onEntry: _switchEntry,
+            ),
           ),
         ),
       );
     },
   );
 
-  Widget _buildHeader() => Builder(
+  Widget _buildHandle() => Builder(
     builder: (context) {
       final scheme = Theme.of(context).colorScheme;
-      return Column(
-        children: [
-          Semantics(
-            label: '收起${widget.title}抽屉',
-            button: true,
-            onTap: _close,
-            child: SizedBox(
-              key: const ValueKey('reader-drawer-handle'),
-              height: 28,
-              width: double.infinity,
-              child: Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: scheme.onSurface.withValues(alpha: 0.22),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+      return Semantics(
+        label: '收起${widget.title}抽屉',
+        button: true,
+        onTap: _close,
+        child: SizedBox(
+          key: const ValueKey('reader-drawer-handle'),
+          height: 28,
+          width: double.infinity,
+          child: Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurface.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-          _buildTitle(scheme.onSurface),
-        ],
+        ),
       );
     },
-  );
-
-  Widget _buildTitle(Color foreground) => Padding(
-    padding: const EdgeInsets.only(left: 20, right: 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(
-            widget.title,
-            key: const ValueKey<String>('reader-drawer-title'),
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: foreground,
-            ),
-          ),
-        ),
-        IconButton(
-          key: const ValueKey('reader-drawer-close'),
-          tooltip: '关闭${widget.title}',
-          onPressed: _close,
-          icon: AppIcon(AppGlyph.close, color: foreground, size: 22),
-        ),
-      ],
-    ),
   );
 }
 

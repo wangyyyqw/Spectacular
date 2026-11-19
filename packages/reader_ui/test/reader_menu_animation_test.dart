@@ -94,7 +94,7 @@ void main() {
         expect(button.hitTestable(), findsOneWidget);
         expect(
           tester.getRect(button).bottom,
-          lessThanOrEqualTo(surface.bottom - 24),
+          lessThanOrEqualTo(surface.bottom - 24 - 16),
         );
       }
       await tester.timedDrag(
@@ -108,7 +108,7 @@ void main() {
     }
   });
 
-  testWidgets('标题区下拉跟手，小幅慢拉回弹，大幅慢拉收起', (tester) async {
+  testWidgets('顶部把手下拉跟手，小幅慢拉回弹，大幅慢拉收起', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     var closes = 0;
