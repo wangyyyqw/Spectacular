@@ -2540,7 +2540,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                         dismissible: false,
                       ),
                     if (_editingMargins)
-                      Positioned.fill(child: _buildMarginEditor()),
+                      Positioned.fill(
+                        child: ReaderPanelTheme(
+                          theme: _effectiveTheme ?? ReaderTheme.white,
+                          child: _buildMarginEditor(),
+                        ),
+                      ),
                     if (_relocatingAnnotation != null ||
                         _relocatingDecoration != null ||
                         _relocatingBookmark != null)
@@ -2981,6 +2986,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Widget _buildMarginEditor() => MarginEditor(
     margins: _activeMargins,
     defaults: _defaultMargins,
+    inkMode: _inkMode,
     onPreview: _previewMarginChange,
     onDragChanged: _marginDragChanged,
     showPageFurniture: widget.showPageFooter,

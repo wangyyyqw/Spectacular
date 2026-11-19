@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
 import '../page_furniture/page_furniture.dart';
+import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_margins.dart';
 
 /// 边距调节器（设计稿「排版 → 边距调节器」）：全屏编辑态，正文可见，
 /// 上下各拆「外/内」两段，可一直调到 0 让正文铺进安全区。
 ///
-/// 交互：点箭头步进 1，或沿对应方向拖动，按钮与边距按 1:1 同步移动；
-/// 「恢复默认」回到默认，「取消」丢弃改动，「保存」应用并退出。
+/// 交互：点箭头步进 1，沿对应方向拖动累计满 1 后更新；
+/// 「恢复初始默认值」回到默认，「取消」丢弃改动，「保留」应用整数草稿。
 class MarginEditor extends StatefulWidget {
   /// 创建编辑器。
   const MarginEditor({
@@ -20,6 +21,7 @@ class MarginEditor extends StatefulWidget {
     required this.onApply,
     this.onPreview,
     this.onDragChanged,
+    this.inkMode = false,
     this.showPageFurniture = true,
     this.headerHeight = PageFurniture.headerHeight,
     this.footerHeight = PageFurniture.footerHeight,
@@ -46,6 +48,9 @@ class MarginEditor extends StatefulWidget {
   /// 拖动开始/结束时通知上层，供正文预览合并重排；草稿仍逐次更新。
   final ValueChanged<bool>? onDragChanged;
 
+  /// 墨水屏关闭模糊，保留高对比度底板。
+  final bool inkMode;
+
   /// 是否按页眉页脚槽计算正文位置；关闭时内段直接连接屏幕外侧。
   final bool showPageFurniture;
   final double headerHeight;
@@ -65,8 +70,21 @@ class MarginEditor extends StatefulWidget {
 }
 
 class _MarginEditorState extends State<MarginEditor> {
-  late ReaderMargins _draft = widget.margins;
+  late ReaderMargins _draft = _integerMargins(widget.margins);
   int _activeDrags = 0;
+
+  ReaderMargins _integerMargins(ReaderMargins margins) {
+    double whole(double value, double max) =>
+        value.roundToDouble().clamp(0.0, max.floorToDouble());
+    return ReaderMargins(
+      left: whole(margins.left, widget.maxSide),
+      right: whole(margins.right, widget.maxSide),
+      topOuter: whole(margins.topOuter, widget.maxOuter),
+      topInner: whole(margins.topInner, widget.maxInner),
+      bottomInner: whole(margins.bottomInner, widget.maxInner),
+      bottomOuter: whole(margins.bottomOuter, widget.maxOuter),
+    );
+  }
 
   void _dragChanged(bool dragging) {
     _activeDrags += dragging ? 1 : -1;
@@ -95,6 +113,7 @@ class _MarginEditorState extends State<MarginEditor> {
           _verticalControls(top: true),
           _sideControls(),
           _verticalControls(top: false),
+          _buildActions(constraints.biggest),
         ],
       ),
     );
@@ -112,9 +131,9 @@ class _MarginEditorState extends State<MarginEditor> {
             showPageFurniture: widget.showPageFurniture,
             headerHeight: widget.headerHeight,
             footerHeight: widget.footerHeight,
-            color: scheme.onSurface.withValues(alpha: 0.06),
+            color: scheme.onSurface.withValues(alpha: 0.18),
             shadowColor: scheme.onSurface.withValues(alpha: 0.1),
-            lineColor: scheme.primary.withValues(alpha: 0.35),
+            lineColor: scheme.onSurface.withValues(alpha: 0.2),
           ),
           size: size,
         ),
@@ -130,64 +149,54 @@ class _MarginEditorState extends State<MarginEditor> {
     child: SafeArea(
       top: top,
       bottom: !top,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Padding(
-            padding: EdgeInsets.only(top: top ? 12 : 0, bottom: top ? 0 : 12),
-            child: _verticalRow(top: top),
-          ),
-          // 操作栏固定在底部，调节按钮在它上方移动，避免拖到保存按钮下面。
-          if (!top) ...<Widget>[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                '拖动调节 · 点数值精调 · 单位 dp',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  backgroundColor: Theme.of(context).colorScheme.surface,
-                ),
-              ),
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: top ? 12 + _bodyPadding.top : 0,
+          bottom: top ? 0 : 12 + _bodyPadding.bottom,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 272),
+            child: ReaderFrostedSurface(
+              inset: const EdgeInsets.symmetric(vertical: 4),
+              inkMode: widget.inkMode,
+              child: _verticalRow(top: top),
             ),
-            _buildActions(),
-            const SizedBox(height: 8),
-          ],
-        ],
+          ),
+        ),
       ),
     ),
   );
 
   Widget _verticalRow({required bool top}) => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    crossAxisAlignment: top ? CrossAxisAlignment.start : CrossAxisAlignment.end,
     children: <Widget>[
-      _verticalControl(top: top, outer: top),
-      const SizedBox(width: 12),
-      _verticalControl(top: top, outer: !top),
+      Expanded(
+        child: _verticalControl(top: top, outer: top),
+      ),
+      const SizedBox(
+        height: 24,
+        child: VerticalDivider(width: 1, thickness: 0.5),
+      ),
+      Expanded(
+        child: _verticalControl(top: top, outer: !top),
+      ),
     ],
   );
 
   Widget _verticalControl({required bool top, required bool outer}) {
     final value = _verticalValue(top: top, outer: outer);
-    final offset = outer
-        ? value
-        : (top ? _bodyPadding.top : _bodyPadding.bottom);
     final max = outer ? widget.maxOuter : widget.maxInner;
-    return Padding(
-      padding: EdgeInsets.only(top: top ? offset : 0, bottom: top ? 0 : offset),
-      child: _Pill(
-        key: ValueKey<String>(
-          'margin-${top ? 'top' : 'bottom'}-${outer ? 'outer' : 'inner'}',
-        ),
-        label: '${top ? '上' : '下'}${outer ? '外' : '内'}',
-        axis: Axis.vertical,
-        dragSign: top ? 1 : -1,
-        value: value,
-        max: max,
-        onDelta: (delta) => _changeVertical(delta, top: top, outer: outer),
-        onDragChanged: _dragChanged,
+    return _Pill(
+      key: ValueKey<String>(
+        'margin-${top ? 'top' : 'bottom'}-${outer ? 'outer' : 'inner'}',
       ),
+      label: '${top ? '上' : '下'}${outer ? '外' : '内'}',
+      axis: Axis.vertical,
+      dragSign: top ? 1 : -1,
+      value: value,
+      max: max,
+      onDelta: (delta) => _changeVertical(delta, top: top, outer: outer),
+      onDragChanged: _dragChanged,
     );
   }
 
@@ -199,7 +208,7 @@ class _MarginEditorState extends State<MarginEditor> {
     final max = outer ? widget.maxOuter : widget.maxInner;
     final next = (_verticalValue(top: top, outer: outer) + delta).clamp(
       0.0,
-      max,
+      max.floorToDouble(),
     );
     _apply(
       _draft.copyWith(
@@ -217,11 +226,9 @@ class _MarginEditorState extends State<MarginEditor> {
       bottom: false,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // 按上限预留移动空间，窄屏也保持按钮宽度稳定，左右不会相互覆盖。
-          final width = (constraints.maxWidth / 2 - widget.maxSide - 8).clamp(
-            52.0,
-            100.0,
-          );
+          // 窄屏且两侧留白较大时竖排触控区，箭头仍沿水平方向调节。
+          final available = (constraints.maxWidth - widget.maxSide * 2) / 2;
+          final width = available < 132 ? 56.0 : 132.0;
           return Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
@@ -237,20 +244,22 @@ class _MarginEditorState extends State<MarginEditor> {
   Widget _sideControl({required bool left, required double width}) {
     final value = left ? _draft.left : _draft.right;
     return Padding(
-      padding: EdgeInsets.only(
-        left: left ? 8 + value : 0,
-        right: left ? 0 : 8 + value,
-      ),
+      padding: EdgeInsets.only(left: left ? value : 0, right: left ? 0 : value),
       child: SizedBox(
         width: width,
-        child: _Pill(
-          key: ValueKey<String>('margin-${left ? 'left' : 'right'}'),
-          label: left ? '左' : '右',
-          dragSign: left ? 1 : -1,
-          value: value,
-          max: widget.maxSide,
-          onDelta: (delta) => _changeSide(delta, left: left),
-          onDragChanged: _dragChanged,
+        child: ReaderFrostedSurface(
+          inset: const EdgeInsets.symmetric(vertical: 4),
+          inkMode: widget.inkMode,
+          child: _Pill(
+            key: ValueKey<String>('margin-${left ? 'left' : 'right'}'),
+            label: left ? '左' : '右',
+            dragSign: left ? 1 : -1,
+            value: value,
+            max: widget.maxSide,
+            onDelta: (delta) => _changeSide(delta, left: left),
+            onDragChanged: _dragChanged,
+            stacked: width < 132,
+          ),
         ),
       ),
     );
@@ -258,40 +267,69 @@ class _MarginEditorState extends State<MarginEditor> {
 
   void _changeSide(double delta, {required bool left}) {
     final current = left ? _draft.left : _draft.right;
-    final next = (current + delta).clamp(0.0, widget.maxSide);
+    final next = (current + delta).clamp(0.0, widget.maxSide.floorToDouble());
     _apply(
       _draft.copyWith(left: left ? next : null, right: left ? null : next),
     );
   }
 
-  Widget _buildActions() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12),
-    child: Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 8,
-      runSpacing: 8,
-      children: <Widget>[
-        _ActionCapsule(
+  Widget _buildActions(Size size) => Positioned(
+    left: 0,
+    right: 0,
+    bottom: (size.height * 0.24).clamp(
+      _bodyPadding.bottom + 76,
+      double.infinity,
+    ),
+    child: SafeArea(
+      top: false,
+      child: Center(
+        child: SizedBox(
+          width: 208,
+          child: ReaderFrostedSurface(
+            inkMode: widget.inkMode,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ActionButton(
+                  key: const ValueKey<String>('margin-reset'),
+                  onTap: () => _apply(_integerMargins(widget.defaults)),
+                  icon: AppGlyph.restore,
+                  label: '恢复初始默认值',
+                ),
+                const Divider(height: 1, thickness: 0.5),
+                _buildDecisions(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildDecisions() => Row(
+    children: [
+      Expanded(
+        child: _ActionButton(
           key: const ValueKey<String>('margin-cancel'),
           onTap: widget.onCancel,
           icon: AppGlyph.close,
           label: '取消',
         ),
-        _ActionCapsule(
-          key: const ValueKey<String>('margin-reset'),
-          onTap: () => _apply(widget.defaults),
-          icon: AppGlyph.restore,
-          label: '恢复默认',
-        ),
-        _ActionCapsule(
+      ),
+      const SizedBox(
+        height: 24,
+        child: VerticalDivider(width: 1, thickness: 0.5),
+      ),
+      Expanded(
+        child: _ActionButton(
           key: const ValueKey<String>('margin-apply'),
           onTap: () => widget.onApply(_draft),
           icon: AppGlyph.check,
-          label: '保存',
+          label: '保留',
           primary: true,
         ),
-      ],
-    ),
+      ),
+    ],
   );
 }
 
@@ -306,6 +344,7 @@ class _Pill extends StatefulWidget {
     required this.onDragChanged,
     this.axis = Axis.horizontal,
     this.dragSign = 1,
+    this.stacked = false,
   });
 
   final String label;
@@ -319,6 +358,7 @@ class _Pill extends StatefulWidget {
 
   /// 指针沿轴移动时转成数值的方向；下边距与右边界取反，使胶囊随手指移动。
   final double dragSign;
+  final bool stacked;
 
   @override
   State<_Pill> createState() => _PillState();
@@ -327,6 +367,8 @@ class _Pill extends StatefulWidget {
 class _PillState extends State<_Pill> {
   bool _dragging = false;
   Offset _lastPosition = Offset.zero;
+  double _dragValue = 0;
+  double _dragRemainder = 0;
 
   Future<void> _editValue() async {
     final value = await showDialog<double>(
@@ -345,6 +387,8 @@ class _PillState extends State<_Pill> {
 
   void _dragStart(DragStartDetails details) {
     _lastPosition = details.globalPosition;
+    _dragValue = widget.value;
+    _dragRemainder = 0;
     setState(() => _dragging = true);
     widget.onDragChanged(true);
   }
@@ -353,7 +397,19 @@ class _PillState extends State<_Pill> {
     // 按钮也在移动，必须以屏幕坐标计增量，避免局部坐标产生抵消或跳变。
     final delta = details.globalPosition - _lastPosition;
     _lastPosition = details.globalPosition;
-    widget.onDelta(_axisDelta(delta));
+    _dragRemainder += _axisDelta(delta);
+    if ((_dragValue == 0 && _dragRemainder < 0) ||
+        (_dragValue == widget.max.floorToDouble() && _dragRemainder > 0)) {
+      _dragRemainder = 0;
+    }
+    final steps = _dragRemainder.truncateToDouble();
+    if (steps == 0) return;
+    _dragRemainder -= steps;
+    final next = (_dragValue + steps).clamp(0.0, widget.max.floorToDouble());
+    final change = next - _dragValue;
+    _dragValue = next;
+    if (next == 0 || next == widget.max.floorToDouble()) _dragRemainder = 0;
+    if (change != 0) widget.onDelta(change);
   }
 
   void _dragEnd() {
@@ -380,15 +436,10 @@ class _PillState extends State<_Pill> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final horizontal = widget.axis == Axis.horizontal;
-    return Material(
-      color: _dragging ? scheme.primaryContainer : scheme.surface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(4),
-        side: BorderSide(
-          color: _dragging ? scheme.primary : scheme.outlineVariant,
-        ),
-      ),
+    return ColoredBox(
+      color: _dragging
+          ? scheme.onSurface.withValues(alpha: 0.08)
+          : Colors.transparent,
       child: RawGestureDetector(
         behavior: HitTestBehavior.opaque,
         gestures: <Type, GestureRecognizerFactory>{
@@ -408,39 +459,61 @@ class _PillState extends State<_Pill> {
     );
   }
 
-  Widget _buildContent(ColorScheme scheme) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 2),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        _Arrow(
-          icon: AppGlyph.chevronUp,
-          onTap: widget.value >= widget.max ? null : () => widget.onDelta(1),
-        ),
-        Flexible(child: _buildValue(scheme)),
-        _Arrow(
-          icon: AppGlyph.chevronDown,
-          onTap: widget.value <= 0 ? null : () => widget.onDelta(-1),
-        ),
+  Widget _buildContent(ColorScheme scheme) {
+    final horizontal = widget.axis == Axis.horizontal;
+    final firstStep = horizontal ? -widget.dragSign : 1.0;
+    final first = _buildArrow(
+      horizontal ? AppGlyph.chevronLeft : AppGlyph.chevronUp,
+      firstStep,
+    );
+    final last = _buildArrow(
+      horizontal ? AppGlyph.chevronRight : AppGlyph.chevronDown,
+      -firstStep,
+    );
+    if (widget.stacked) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [first, _buildValue(scheme), last],
+      );
+    }
+    return Row(
+      children: [
+        first,
+        Expanded(child: _buildValue(scheme)),
+        last,
       ],
-    ),
+    );
+  }
+
+  Widget _buildArrow(AppGlyph icon, double step) => _Arrow(
+    icon: icon,
+    label: '${step > 0 ? '增加' : '减少'}${widget.label}边距',
+    onTap: (step > 0 ? widget.value >= widget.max.floor() : widget.value <= 0)
+        ? null
+        : () => widget.onDelta(step),
   );
 
   // 固定标签宽度，个位与两位数切换时按钮不会横向抖动。
   Widget _buildValue(ColorScheme scheme) => InkWell(
     key: ValueKey('margin-value-${widget.label}'),
     onTap: _editValue,
-    child: SizedBox(
-      width: (widget.label.length + 3) * 12,
-      height: 36,
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(
-          '${widget.label} ${_formatMargin(widget.value)}',
-          style: TextStyle(
-            fontSize: 12,
-            color: _dragging ? scheme.onPrimaryContainer : scheme.onSurface,
-            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+    child: Semantics(
+      label: '输入${widget.label}边距，当前 ${_formatMargin(widget.value)}',
+      excludeSemantics: true,
+      child: SizedBox(
+        height: 44,
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              '${widget.label} ${_formatMargin(widget.value)}',
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 13,
+                color: _dragging ? scheme.onPrimaryContainer : scheme.onSurface,
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
+            ),
           ),
         ),
       ),
@@ -448,8 +521,7 @@ class _PillState extends State<_Pill> {
   );
 }
 
-String _formatMargin(double value) =>
-    value.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '');
+String _formatMargin(double value) => value.round().toString();
 
 /// 精调输入与拖动共用增量回调，保留预览、取消和保存语义。
 class _MarginValueDialog extends StatefulWidget {
@@ -473,10 +545,9 @@ class _MarginValueDialogState extends State<_MarginValueDialog> {
 
   double? get _value {
     final text = _controller.text.trim();
-    // 显示一位小数；未编辑确认时保留拖动产生的原始精度。
-    final value = text == _initialText ? widget.value : double.tryParse(text);
-    return value != null && value.isFinite && value >= 0 && value <= widget.max
-        ? value
+    final value = int.tryParse(text);
+    return value != null && value >= 0 && value <= widget.max.floor()
+        ? value.toDouble()
         : null;
   }
 
@@ -493,13 +564,13 @@ class _MarginValueDialogState extends State<_MarginValueDialog> {
       key: const ValueKey('margin-value-input'),
       controller: _controller,
       autofocus: true,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: TextInputType.number,
       textInputAction: TextInputAction.done,
       decoration: InputDecoration(
         labelText: '边距',
         suffixText: 'dp',
-        helperText: '范围 0–${widget.max.round()}',
-        errorText: _value == null ? '请输入范围内的数值' : null,
+        helperText: '范围 0–${widget.max.floor()}，每次调节 1',
+        errorText: _value == null ? '请输入范围内的整数' : null,
       ),
       onChanged: (_) => setState(() {}),
       onSubmitted: (_) {
@@ -523,27 +594,32 @@ class _MarginValueDialogState extends State<_MarginValueDialog> {
 }
 
 class _Arrow extends StatelessWidget {
-  const _Arrow({required this.icon, required this.onTap});
+  const _Arrow({required this.icon, required this.label, required this.onTap});
 
   final AppGlyph icon;
+  final String label;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return InkResponse(
+    return InkWell(
       onTap: onTap,
-      radius: 16,
-      child: SizedBox(
-        width: 24,
-        height: 36,
-        child: Center(
-          child: AppIcon(
-            icon,
-            size: 18,
-            color: onTap == null
-                ? scheme.onSurface.withValues(alpha: 0.25)
-                : scheme.onSurface.withValues(alpha: 0.8),
+      child: Semantics(
+        label: label,
+        button: true,
+        enabled: onTap != null,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Center(
+            child: AppIcon(
+              icon,
+              size: 18,
+              color: onTap == null
+                  ? scheme.onSurface.withValues(alpha: 0.25)
+                  : scheme.onSurface.withValues(alpha: 0.8),
+            ),
           ),
         ),
       ),
@@ -551,8 +627,8 @@ class _Arrow extends StatelessWidget {
   }
 }
 
-class _ActionCapsule extends StatelessWidget {
-  const _ActionCapsule({
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
     super.key,
     required this.onTap,
     required this.icon,
@@ -568,21 +644,12 @@ class _ActionCapsule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final foreground = primary ? scheme.onPrimary : scheme.onSurfaceVariant;
-    return Material(
-      color: primary ? scheme.primary : scheme.surface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(4),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(4),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: _buildLabel(foreground),
-        ),
+    final foreground = primary ? scheme.primary : scheme.onSurfaceVariant;
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: 44,
+        child: Center(child: _buildLabel(foreground)),
       ),
     );
   }
@@ -590,12 +657,12 @@ class _ActionCapsule extends StatelessWidget {
   Widget _buildLabel(Color foreground) => Row(
     mainAxisSize: MainAxisSize.min,
     children: <Widget>[
-      AppIcon(icon, size: 14, color: foreground),
-      const SizedBox(width: 4),
+      AppIcon(icon, size: 16, color: foreground),
+      const SizedBox(width: 6),
       Text(
         label,
         style: TextStyle(
-          fontSize: 12,
+          fontSize: 13,
           color: foreground,
           fontWeight: primary ? FontWeight.w600 : FontWeight.normal,
         ),
@@ -664,14 +731,14 @@ class _MarginZonePainter extends CustomPainter {
     ];
     final hatch = Paint()
       ..color = color
-      ..strokeWidth = 5;
+      ..strokeWidth = 1;
     for (final zone in zones) {
       if (zone.width <= 0 || zone.height <= 0) {
         continue;
       }
       canvas.save();
       canvas.clipRect(zone);
-      const step = 16.0;
+      const step = 8.0;
       for (double x = zone.left - zone.height; x < zone.right; x += step) {
         canvas.drawLine(
           Offset(x, zone.top),

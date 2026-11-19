@@ -34,6 +34,7 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  liquid_glass_widgets: 1.17.0
   reader_core:
     path: ../../packages/reader_core
   reader_ui:
