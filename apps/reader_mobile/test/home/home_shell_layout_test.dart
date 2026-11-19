@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/home_shell.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -41,6 +42,29 @@ Future<void> _select(
 }
 
 void main() {
+  testWidgets('桌面往返书评页后搜索快捷键仍可聚焦', (tester) async {
+    await _showHome(tester, LibraryStore.memory());
+    final rail = find.byType(NavigationRail);
+    await _select(tester, rail, '书评');
+    await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+    await tester.pump();
+    final search = find.byKey(const ValueKey('reviews-search-field'));
+    final modifier =
+        Theme.of(tester.element(search)).platform == TargetPlatform.macOS
+        ? LogicalKeyboardKey.metaLeft
+        : LogicalKeyboardKey.controlLeft;
+    for (var visit = 0; visit < 2; visit++) {
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pump();
+      expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+      await _select(tester, rail, '统计');
+      await _select(tester, rail, '书评');
+    }
+    expect(tester.takeException(), isNull);
+  }, variant: _desktopPlatforms);
+
   testWidgets('桌面平台缩放窗口始终使用侧栏并保留当前页和书架搜索', (tester) async {
     await _showHome(tester, LibraryStore.memory());
     final rail = find.byType(NavigationRail);
@@ -48,6 +72,10 @@ void main() {
     final search = find.byKey(const ValueKey('bookshelf-search-field'));
     expect(rail, findsOneWidget);
     expect(bottom, findsNothing);
+    expect(
+      find.descendant(of: rail, matching: find.text('编辑器')),
+      findsOneWidget,
+    );
     expect(find.text('书架还是空的'), findsOneWidget);
     await tester.tap(find.byTooltip('搜索书架'));
     await tester.pump();
@@ -64,7 +92,7 @@ void main() {
     await tester.pump();
     expect(rail, findsOneWidget);
     expect(bottom, findsNothing);
-    expect(tester.widget<NavigationRail>(rail).selectedIndex, 3);
+    expect(tester.widget<NavigationRail>(rail).selectedIndex, 4);
     await _select(tester, rail, '书评');
     tester.view.physicalSize = _desktop;
     await tester.pump();
@@ -72,6 +100,8 @@ void main() {
     expect(find.byKey(const ValueKey('notes-tab')), findsOneWidget);
     await _select(tester, rail, '书架');
     expect(tester.widget<TextField>(search).controller!.text, '山海');
+    await _select(tester, rail, '编辑器');
+    expect(find.byKey(const ValueKey('editor-open-file')), findsOneWidget);
     expect(tester.takeException(), isNull);
   }, variant: _desktopPlatforms);
 
@@ -82,6 +112,7 @@ void main() {
       final bottom = find.byType(BottomNavigationBar);
       expect(find.byType(NavigationRail), findsNothing);
       expect(bottom, findsOneWidget);
+      expect(find.text('编辑器'), findsNothing);
       await _select(tester, bottom, '我的');
 
       tester.view.physicalSize = const Size(390, 844);

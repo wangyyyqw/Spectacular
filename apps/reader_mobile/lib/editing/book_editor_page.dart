@@ -96,7 +96,11 @@ class _BookEditorPageState extends State<BookEditorPage> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('如何处理未保存的修改？'),
-          content: const Text('保存会更新书籍；保留草稿可下次继续；放弃会删除本次草稿，不能恢复。'),
+          content: Text(
+            editor.saveDraft == null
+                ? '保存可选择 EPUB 的输出位置；放弃会丢失本次未保存的修改，原文件不变。'
+                : '保存会更新书籍；保留草稿可下次继续；放弃会删除本次草稿，不能恢复。',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -106,10 +110,11 @@ class _BookEditorPageState extends State<BookEditorPage> {
               onPressed: () => Navigator.pop(context, 'discard'),
               child: const Text('放弃修改并退出'),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, 'keep'),
-              child: const Text('保留草稿并退出'),
-            ),
+            if (editor.saveDraft != null)
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'keep'),
+                child: const Text('保留草稿并退出'),
+              ),
             FilledButton(
               onPressed: () => Navigator.pop(context, 'save'),
               child: const Text('保存书籍'),

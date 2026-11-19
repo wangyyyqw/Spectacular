@@ -4,6 +4,7 @@ import 'package:reader_core/position/locator.dart';
 import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
@@ -134,6 +135,60 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
 }
 
 void main() {
+  testWidgets(
+    '桌面统计宽窗双栏、窄窗单栏，缩放保留所选统计周期',
+    (tester) async {
+      tester.view
+        ..physicalSize = const Size(1280, 900)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: StatsPage(
+            library: _FakeLibrary([], const {}),
+            progressStore: _FakeProgressStore({}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('stats-desktop-sections')),
+        findsOneWidget,
+      );
+      final duration = find.text('图书时长');
+      final calendar = find.text('阅读日历');
+      expect(tester.getTopLeft(duration).dy, tester.getTopLeft(calendar).dy);
+      expect(
+        tester.getTopLeft(calendar).dx,
+        greaterThan(tester.getTopLeft(duration).dx),
+      );
+      await _tapControl(tester, 'stats-book-duration-period-quarter');
+      tester.view.physicalSize = const Size(600, 900);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(calendar).dy,
+        greaterThan(tester.getTopLeft(duration).dy),
+      );
+      final period = tester.widget<Semantics>(
+        find
+            .ancestor(
+              of: find.byKey(
+                const ValueKey('stats-book-duration-period-quarter'),
+              ),
+              matching: find.byType(Semantics),
+            )
+            .first,
+      );
+      expect(period.properties.selected, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
   testWidgets('首屏直接展示图书时长，移除摘要与概览且季度切换使用真实会话', (tester) async {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day, 8);
