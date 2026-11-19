@@ -1,10 +1,7 @@
 name: 多平台自动打包
 
 on:
-  push:
-    branches:
-      - ReaMicro
-  # 保留手动触发；发布 Release 仍需手动勾选。
+  # 仅保留手动触发；日常构建在本地完成，推送不再自动打包。
   workflow_dispatch:
     inputs:
       publish_release:

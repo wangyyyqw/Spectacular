@@ -1455,6 +1455,50 @@ void main() {
     expect(upload.progress, 0.25);
   });
 
+  test('登录不会自动关联云端书籍', () async {
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '本地书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026, 11, 17),
+        spineCount: 10,
+        contentRevision: 'rev-1',
+      );
+    final api = _FakeApi()
+      ..bookRecords = <ReaMicroBookRecord>[
+        const ReaMicroBookRecord(
+          bookId: 8,
+          cloudBookId: 21,
+          name: '本地书',
+          author: '作者',
+          cover: '',
+          progress: 0.3,
+          totalReadTimeSeconds: 600,
+          readDays: 2,
+          finishReadTime: 0,
+          listeningDurationSeconds: 0,
+          readingDurationSeconds: 600,
+        ),
+      ];
+    final controller = await _createController(
+      library,
+      api,
+      signedIn: false,
+    );
+    addTearDown(controller.dispose);
+
+    expect(
+      await controller.login(email: 'reader@example.com', code: '1234'),
+      isTrue,
+    );
+
+    expect(controller.links, isEmpty);
+    expect(await ReaMicroStore(library).loadLinks(), isEmpty);
+    expect(api.relateRequests, isEmpty);
+  });
+
   test('登录后关联书籍会把已有本地位置加入上报队列', () async {
     final library = _TestLibrary()
       ..book = BookEntry(

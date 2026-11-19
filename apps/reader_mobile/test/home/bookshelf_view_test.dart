@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 
 import '../support/test_epub.dart';
 
@@ -119,5 +120,47 @@ void main() {
       findsOneWidget,
     );
     expect(_listTitles(tester), <String>['C书', 'A书', 'B书']);
+  });
+
+  testWidgets('长按书籍可进入阅微公开阅读入口', (tester) async {
+    final library = LibraryStore.memory();
+    final progress = MemoryReaderProgressStore();
+    final reaMicro = ReaMicroController(
+      library: library,
+      progressStore: progress,
+      enableLanLoginServer: false,
+    );
+    addTearDown(reaMicro.dispose);
+    await reaMicro.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: progress,
+          reaMicro: reaMicro,
+          pickEpubFiles: () async => <String>[files.first.path],
+          readFile: (path) async => File(path).readAsBytesSync(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.byTooltip('导入 EPUB'));
+    await _settle(tester, frames: 12);
+    final entry = (await library.list()).single;
+
+    await tester.longPress(
+      find.byKey(ValueKey<String>('book-card-${entry.id}')),
+    );
+    await _settle(tester);
+    expect(find.text('关联阅微公开阅读'), findsOneWidget);
+
+    final publicReading =
+        find.byKey(const ValueKey<String>('book-detail-public-reading'));
+    await tester.ensureVisible(publicReading);
+    await _settle(tester);
+    await tester.tap(publicReading);
+    // 导入完成的提示还在展示，登录提示会排在它的 4 秒展示时间之后。
+    await _settle(tester, frames: 60);
+    expect(find.text('请先登录阅微账号'), findsOneWidget);
   });
 }
