@@ -47,10 +47,7 @@ class BookCoverImage extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (book.coverPath == null)
-                  placeholder
-                else
-                  _image(context, constraints, placeholder),
+                _image(context, constraints, placeholder),
                 if (showReadabilityBadge && book.readabilityLevel >= 2)
                   _ReadabilityBadge(book: book),
               ],
@@ -72,9 +69,26 @@ class BookCoverImage extends StatelessWidget {
     final decodeWidth = (logicalWidth * MediaQuery.devicePixelRatioOf(context))
         .ceil()
         .clamp(96, 1200);
-    return Image.file(
-      File(book.coverPath!),
-      key: ValueKey('cover-${book.coverPath}'),
+    if (book.coverPath != null) {
+      return Image.file(
+        File(book.coverPath!),
+        key: ValueKey('cover-${book.coverPath}'),
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.cover,
+        cacheWidth: decodeWidth,
+        gaplessPlayback: true,
+        excludeFromSemantics: true,
+        frameBuilder: (_, child, frame, loaded) =>
+            loaded || frame != null ? child : placeholder,
+        errorBuilder: (_, _, _) => placeholder,
+      );
+    }
+    final remote = _remoteCoverUrl(book.remoteCoverUrl);
+    if (remote == null) return placeholder;
+    return Image.network(
+      remote,
+      key: ValueKey('cover-$remote'),
       width: double.infinity,
       height: double.infinity,
       fit: BoxFit.cover,
@@ -86,7 +100,25 @@ class BookCoverImage extends StatelessWidget {
       errorBuilder: (_, _, _) => placeholder,
     );
   }
+
+  String? _remoteCoverUrl(String? value) {
+    final url = value?.trim() ?? '';
+    if (url.startsWith('https://') || url.startsWith('http://')) return url;
+    return null;
+  }
 }
+
+/// 把阅微封面地址附加到本地书目；本地已有封面时不替换。
+List<BookEntry> withRemoteCovers(
+  List<BookEntry> books,
+  Map<String, String> covers,
+) => <BookEntry>[
+  for (final book in books)
+    if (covers[book.id] case final cover?)
+      book.withRemoteCover(cover)
+    else
+      book,
+];
 
 class _CoverPlaceholder extends StatelessWidget {
   const _CoverPlaceholder({required this.book, required this.compact});

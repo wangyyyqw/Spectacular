@@ -159,4 +159,63 @@ void main() {
     expect(find.text('测试书'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('本地没有封面时使用阅微云端封面', (tester) async {
+    const url = 'https://cdn.reamicro.test/cloud.jpg';
+    final book = BookEntry(
+      id: 'remote-cover',
+      title: '云端封面',
+      author: '',
+      filePath: '',
+      addedAt: DateTime(2026),
+      remoteCoverUrl: url,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: BookCoverImage(book: book, width: 100, height: 160),
+          ),
+        ),
+      ),
+    );
+
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.image, isA<ResizeImage>());
+    expect(
+      (image.image as ResizeImage).imageProvider,
+      isA<NetworkImage>().having((value) => value.url, 'url', url),
+    );
+  });
+
+  testWidgets('本地封面存在时优先于阅微云端封面', (tester) async {
+    final directory = Directory.systemTemp.createTempSync('cover-remote');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final file = File('${directory.path}/local.png');
+    await tester.runAsync(() => _writeWideCover(file));
+    final book = BookEntry(
+      id: 'local-cover',
+      title: '本地封面',
+      author: '',
+      filePath: '',
+      addedAt: DateTime(2026),
+      coverPath: file.path,
+      remoteCoverUrl: 'https://cdn.reamicro.test/cloud.jpg',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: BookCoverImage(book: book, width: 100, height: 160),
+          ),
+        ),
+      ),
+    );
+
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(
+      (image.image as ResizeImage).imageProvider,
+      isA<FileImage>().having((value) => value.file.path, 'path', file.path),
+    );
+  });
 }

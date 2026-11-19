@@ -34,7 +34,7 @@ void main() {
           cloudBookId: 21,
           name: '本地书',
           author: '作者',
-          cover: '',
+          cover: 'https://cdn.reamicro.test/local.jpg',
           thoughtCount: 4,
           underlineCount: 2,
         ),
@@ -43,7 +43,7 @@ void main() {
           cloudBookId: 22,
           name: '仅云端笔记',
           author: '另一位作者',
-          cover: '',
+          cover: 'https://cdn.reamicro.test/cloud-note.jpg',
           thoughtCount: 1,
           underlineCount: 3,
         ),
@@ -55,6 +55,11 @@ void main() {
     expect(merge.extraBooks.single.title, '仅云端笔记');
     expect(merge.counts[merge.extraBooks.single.id]?.marks, 3);
     expect(merge.markBooks[local.id]?.cloudBookId, 21);
+    expect(merge.coverUrls[local.id], 'https://cdn.reamicro.test/local.jpg');
+    expect(
+      merge.extraBooks.single.remoteCoverUrl,
+      'https://cdn.reamicro.test/cloud-note.jpg',
+    );
   });
 
   test('云端书评并入本地列表并把十分制评分换算为五星', () {
@@ -70,7 +75,7 @@ void main() {
           bookId: 8,
           bookName: '本地书',
           bookAuthor: '作者',
-          bookCover: '',
+          bookCover: 'https://cdn.reamicro.test/local-review.jpg',
           rating: 9,
           comment: '云端书评正文',
           updatedAt: updatedAt,
@@ -81,7 +86,7 @@ void main() {
           bookId: 9,
           bookName: '仅云端书评',
           bookAuthor: '另一位作者',
-          bookCover: '',
+          bookCover: 'https://cdn.reamicro.test/cloud-review.jpg',
           rating: 0,
           comment: '只有正文',
           updatedAt: updatedAt,
@@ -95,6 +100,14 @@ void main() {
     expect(merge.durations[local.id], const Duration(hours: 2));
     expect(merge.extraBooks.single.title, '仅云端书评');
     expect(merge.reviews[merge.extraBooks.single.id]?.rating, isNull);
+    expect(
+      merge.coverUrls[local.id],
+      'https://cdn.reamicro.test/local-review.jpg',
+    );
+    expect(
+      merge.extraBooks.single.remoteCoverUrl,
+      'https://cdn.reamicro.test/cloud-review.jpg',
+    );
   });
 
   test('本地已导入的云端标注不重复显示', () {

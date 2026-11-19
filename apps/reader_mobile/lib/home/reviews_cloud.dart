@@ -11,6 +11,7 @@ class CloudNoteMerge {
     required this.extraBooks,
     required this.counts,
     required this.markBooks,
+    required this.coverUrls,
   });
 
   /// 本地书架没有的云端书；用于笔记列表直接展示。
@@ -21,6 +22,9 @@ class CloudNoteMerge {
 
   /// 本地书籍标识到阅微标注书标识的映射。
   final Map<String, ({int cloudBookId, int bookId})> markBooks;
+
+  /// 阅微标注书封面地址，按列表中的书籍标识索引。
+  final Map<String, String> coverUrls;
 }
 
 /// 阅微书评与本地书架的合并结果。
@@ -30,6 +34,7 @@ class CloudReviewMerge {
     required this.extraBooks,
     required this.reviews,
     required this.durations,
+    required this.coverUrls,
   });
 
   /// 本地书架没有的云端书。
@@ -40,6 +45,9 @@ class CloudReviewMerge {
 
   /// 云端累计阅读时长，按书籍标识索引。
   final Map<String, Duration> durations;
+
+  /// 阅微书评书封面地址，按列表中的书籍标识索引。
+  final Map<String, String> coverUrls;
 }
 
 /// 一条可展示的阅微书评。
@@ -126,6 +134,7 @@ CloudNoteMerge mergeCloudMarkBooks({
 }) {
   final mergedCounts = Map<String, BookNoteCounts>.of(counts);
   final markBookByLocal = <String, ({int cloudBookId, int bookId})>{};
+  final coverUrls = <String, String>{};
   final extraBooks = <BookEntry>[];
   for (final remote in markBooks) {
     final local = matchLocalBook(
@@ -152,6 +161,7 @@ CloudNoteMerge mergeCloudMarkBooks({
         cloudBookId: remote.cloudBookId,
         bookId: remote.bookId,
       );
+      coverUrls[local.id] = remote.cover.trim();
       continue;
     }
     final entry = cloudNoteBook(remote);
@@ -161,11 +171,13 @@ CloudNoteMerge mergeCloudMarkBooks({
       cloudBookId: remote.cloudBookId,
       bookId: remote.bookId,
     );
+    coverUrls[entry.id] = remote.cover.trim();
   }
   return CloudNoteMerge(
     extraBooks: extraBooks,
     counts: mergedCounts,
     markBooks: markBookByLocal,
+    coverUrls: coverUrls,
   );
 }
 
@@ -178,6 +190,7 @@ CloudReviewMerge mergeCloudReviews({
 }) {
   final mergedReviews = Map<String, BookReview>.of(reviews);
   final durations = <String, Duration>{};
+  final coverUrls = <String, String>{};
   final extraBooks = <BookEntry>[];
   final seen = <int>{};
   for (final record in records) {
@@ -193,6 +206,9 @@ CloudReviewMerge mergeCloudReviews({
     );
     final target = local ?? cloudReviewBook(record);
     if (local == null) extraBooks.add(target);
+    if (record.bookCover.trim().isNotEmpty) {
+      coverUrls[target.id] = record.bookCover.trim();
+    }
     final existing = mergedReviews[target.id];
     if (existing != null && existing.updatedAt.isAfter(record.updatedAt)) {
       continue;
@@ -212,6 +228,7 @@ CloudReviewMerge mergeCloudReviews({
     extraBooks: extraBooks,
     reviews: mergedReviews,
     durations: durations,
+    coverUrls: coverUrls,
   );
 }
 
@@ -302,6 +319,7 @@ BookEntry cloudNoteBook(ReaMicroMarkBook book) => BookEntry(
   author: book.author.trim(),
   filePath: '',
   addedAt: DateTime.fromMillisecondsSinceEpoch(0),
+  remoteCoverUrl: book.cover,
 );
 
 /// 本地书库缺失的阅微书评书占位。
@@ -311,6 +329,7 @@ BookEntry cloudReviewBook(CloudReviewRecord review) => BookEntry(
   author: review.bookAuthor.trim(),
   filePath: '',
   addedAt: review.updatedAt,
+  remoteCoverUrl: review.bookCover,
 );
 
 int _larger(int left, int right) => left > right ? left : right;

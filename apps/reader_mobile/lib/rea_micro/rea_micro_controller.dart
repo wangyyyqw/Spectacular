@@ -488,14 +488,25 @@ class ReaMicroController extends ChangeNotifier {
   }) async {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
-    final remoteId = cloudBookId > 0
-        ? cloudBookId
-        : bookId > 0
-        ? bookId
-        : 0;
-    if (remoteId <= 0) return const <ReaMicroMark>[];
+    final cloudId = cloudBookId > 0 ? cloudBookId.toString() : '';
+    final internalId = bookId > 0 ? bookId.toString() : '';
+    if (cloudId.isEmpty && internalId.isEmpty) {
+      return const <ReaMicroMark>[];
+    }
     try {
-      return await _api.fetchMarks(token, bookId: remoteId.toString());
+      final ids = <String>[
+        if (cloudId.isNotEmpty) cloudId,
+        if (internalId.isNotEmpty && internalId != cloudId) internalId,
+      ];
+      for (final id in ids) {
+        final marks = await _api.fetchMarks(token, bookId: id);
+        if (marks.isNotEmpty) return marks;
+      }
+      final all = await _api.fetchMarks(token);
+      return <ReaMicroMark>[
+        for (final mark in all)
+          if (ids.contains(mark.bookId.trim())) mark,
+      ];
     } on ReaMicroException catch (error) {
       await _handleError(error);
       rethrow;

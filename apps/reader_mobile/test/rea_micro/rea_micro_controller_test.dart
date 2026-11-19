@@ -2619,4 +2619,66 @@ void main() {
     expect(api.reviewActions, <bool>[true, false]);
     expect((await controller.loadReviewAction(9)).liked, isFalse);
   });
+
+  test('云端标注按内部书籍标识回退读取', () async {
+    final library = _TestLibrary();
+    final api = _FallbackMarkApi(internalMarks: <String>{'8'})
+      ..marks = <ReaMicroMark>[_cloudMark('8')];
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+
+    final marks = await controller.loadBookMarks(cloudBookId: 11, bookId: 8);
+
+    expect(marks.map((mark) => mark.bookId), <String>['8']);
+    expect(api.requestedBookIds, <String?>['11', '8']);
+  });
+
+  test('云端标注按全量列表过滤兜底', () async {
+    final library = _TestLibrary();
+    final api = _FallbackMarkApi(internalMarks: const <String>{})
+      ..marks = <ReaMicroMark>[_cloudMark('8'), _cloudMark('99')];
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+
+    final marks = await controller.loadBookMarks(cloudBookId: 11, bookId: 8);
+
+    expect(marks, hasLength(1));
+    expect(marks.single.bookId, '8');
+    expect(api.requestedBookIds, <String?>['11', '8', null]);
+  });
+}
+
+ReaMicroMark _cloudMark(String bookId) => ReaMicroMark(
+  id: 31,
+  bookId: bookId,
+  chapter: '第一章',
+  kind: 1,
+  startCfi: 'epubcfi(/6/2!/4/2/1:4)',
+  endCfi: 'epubcfi(/6/2!/4/2/1:12)',
+  quote: '原文',
+  note: '云端笔记正文',
+  style: 0,
+  color: '',
+  synced: 1,
+  createdAt: DateTime(2026).millisecondsSinceEpoch,
+  updatedAt: DateTime(2026).millisecondsSinceEpoch,
+);
+
+class _FallbackMarkApi extends _FakeApi {
+  _FallbackMarkApi({required this.internalMarks});
+
+  final Set<String> internalMarks;
+  final List<String?> requestedBookIds = <String?>[];
+
+  @override
+  Future<List<ReaMicroMark>> fetchMarks(
+    String token, {
+    String? bookId,
+    int pageSize = 200,
+  }) async {
+    requestedBookIds.add(bookId);
+    if (bookId == null) return List<ReaMicroMark>.of(marks);
+    if (!internalMarks.contains(bookId)) return const <ReaMicroMark>[];
+    return super.fetchMarks(token, bookId: bookId, pageSize: pageSize);
+  }
 }

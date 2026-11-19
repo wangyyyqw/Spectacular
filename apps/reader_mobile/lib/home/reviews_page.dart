@@ -220,7 +220,10 @@ class _ReviewsPageState extends State<ReviewsPage>
               links: controller.links,
               markBooks: remoteBooks,
             );
-            visibleBooks = <BookEntry>[...books, ...merge.extraBooks];
+            visibleBooks = <BookEntry>[
+              ...withRemoteCovers(books, merge.coverUrls),
+              ...merge.extraBooks,
+            ];
             visibleCounts = merge.counts;
             markBooks = merge.markBooks;
           } else {
@@ -259,7 +262,10 @@ class _ReviewsPageState extends State<ReviewsPage>
               links: controller.links,
               records: records,
             );
-            visibleBooks = <BookEntry>[...books, ...merge.extraBooks];
+            visibleBooks = <BookEntry>[
+              ...withRemoteCovers(books, merge.coverUrls),
+              ...merge.extraBooks,
+            ];
             visibleReviews = merge.reviews;
             visibleDurations = <String, Duration>{
               ...durations,

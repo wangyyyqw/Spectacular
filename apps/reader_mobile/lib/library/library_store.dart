@@ -71,6 +71,7 @@ class BookEntry {
     this.spineCount,
     this.readabilityLevel = 0,
     this.coverPath,
+    this.remoteCoverUrl,
     this.contentRevision,
     this.importOutcome = BookImportOutcome.added,
   });
@@ -104,6 +105,9 @@ class BookEntry {
 
   /// 封面缓存文件路径（§37.3 三级提取成功后落盘）；null 用占位。
   final String? coverPath;
+
+  /// 阅微云端封面地址；本地没有封面时用于列表展示。
+  final String? remoteCoverUrl;
 
   /// 原书 SHA-256，导入时计算并与条目一起保存。
   final String? contentRevision;
@@ -146,6 +150,27 @@ class BookEntry {
     coverPath: coverPath,
     importOutcome: importOutcome,
   );
+
+  /// 附加阅微封面；已有本地封面时保持本地封面优先。
+  BookEntry withRemoteCover(String? url) {
+    final value = url?.trim() ?? '';
+    if (value.isEmpty || (coverPath?.trim().isNotEmpty ?? false)) return this;
+    return BookEntry(
+      id: id,
+      title: title,
+      author: author,
+      description: description,
+      filePath: filePath,
+      addedAt: addedAt,
+      lastReadAt: lastReadAt,
+      spineCount: spineCount,
+      readabilityLevel: readabilityLevel,
+      coverPath: coverPath,
+      remoteCoverUrl: value,
+      contentRevision: contentRevision,
+      importOutcome: importOutcome,
+    );
+  }
 }
 
 /// 可与阅微书签文件往返的书签快照。
