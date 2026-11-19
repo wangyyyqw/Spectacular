@@ -8,13 +8,20 @@ import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import 'bookshelf_sort.dart';
 
-/// 我的页：书架设置、应用/引擎信息、诊断日志导出。
+/// 我的页：外观、书架设置、版本信息、诊断日志导出。
 class ProfilePage extends StatefulWidget {
   /// 创建页面。
-  const ProfilePage({super.key, required this.library});
+  const ProfilePage({
+    super.key,
+    required this.library,
+    this.onThemeModeChanged,
+  });
 
   /// 书架存储。
   final LibraryStore library;
+
+  /// 切换并保存应用界面主题。
+  final Future<void> Function(ThemeMode)? onThemeModeChanged;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -23,6 +30,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   PackageInfo? _packageInfo;
   bool _exporting = false;
+  bool _savingTheme = false;
   BookSortOrder _shelfSort = BookSortOrder.recent;
 
   @override
@@ -74,6 +82,38 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     setState(() => _shelfSort = selected);
     await widget.library.setSetting(bookshelfSortKey, selected.value);
+  }
+
+  Future<void> _chooseTheme(ThemeMode current) async {
+    final selected = await showDialog<ThemeMode>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('界面主题'),
+        content: RadioGroup<ThemeMode>(
+          groupValue: current,
+          onChanged: (mode) => Navigator.of(context).pop(mode),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile(value: ThemeMode.light, title: Text('日间模式')),
+              RadioListTile(value: ThemeMode.dark, title: Text('夜间模式')),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || selected == null || selected == current) return;
+    setState(() => _savingTheme = true);
+    try {
+      await widget.onThemeModeChanged!(selected);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('界面主题保存失败，请重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _savingTheme = false);
+    }
   }
 
   Future<void> _clearLogs() async {
@@ -148,6 +188,10 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           _identity(context),
           const SizedBox(height: 28),
+          if (widget.onThemeModeChanged != null) ...[
+            _appearance(context),
+            const SizedBox(height: 24),
+          ],
           _section(context, '阅读', [
             ListTile(
               key: const ValueKey<String>('bookshelf-sort-setting'),
@@ -190,6 +234,21 @@ class _ProfilePageState extends State<ProfilePage> {
         ],
       ),
     );
+  }
+
+  Widget _appearance(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return _section(context, '外观', [
+      ListTile(
+        leading: const AppIcon(AppGlyph.palette),
+        title: const Text('界面主题'),
+        subtitle: Text(dark ? '夜间模式' : '日间模式'),
+        trailing: const AppIcon(AppGlyph.chevronRight),
+        onTap: _savingTheme
+            ? null
+            : () => _chooseTheme(dark ? ThemeMode.dark : ThemeMode.light),
+      ),
+    ]);
   }
 
   Widget _identity(BuildContext context) {

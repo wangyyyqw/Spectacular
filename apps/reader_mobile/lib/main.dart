@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_core/reader_core.dart';
@@ -102,21 +103,98 @@ class ReaderApp extends StatelessWidget {
     LibraryStore library,
     ReaderProgressStore progressStore, {
     StartupStorage? recovery,
-  }) {
-    return MaterialApp(
-      title: 'Spectacular Reader',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-        value: readerSystemBarStyle(Theme.of(context).scaffoldBackgroundColor),
-        child: child!,
-      ),
-      home: HomeShell(
-        key: ObjectKey(library),
-        library: library,
-        progressStore: progressStore,
-        storageRecovery: recovery,
-      ),
-    );
+  }) => _ThemedReaderApp(
+    key: ObjectKey(library),
+    library: library,
+    progressStore: progressStore,
+    recovery: recovery,
+  );
+}
+
+class _ThemedReaderApp extends StatefulWidget {
+  const _ThemedReaderApp({
+    super.key,
+    required this.library,
+    required this.progressStore,
+    this.recovery,
+  });
+
+  final LibraryStore library;
+  final ReaderProgressStore progressStore;
+  final StartupStorage? recovery;
+
+  @override
+  State<_ThemedReaderApp> createState() => _ThemedReaderAppState();
+}
+
+class _ThemedReaderAppState extends State<_ThemedReaderApp> {
+  static const _themeModeKey = 'app.themeMode';
+  static const _window = OptionalMethodChannel(
+    'com.spectacular.reader_mobile/window',
+  );
+  static final _day = buildAppTheme();
+  static final _night = buildAppTheme(brightness: Brightness.dark);
+
+  late final Future<ThemeMode> _savedMode = _loadMode();
+  ThemeMode? _selectedMode;
+
+  Future<ThemeMode> _loadMode() async {
+    var mode = ThemeMode.light;
+    try {
+      final value = await widget.library.getSetting(_themeModeKey);
+      if (value == ThemeMode.dark.name) mode = ThemeMode.dark;
+    } catch (error) {
+      unawaited(
+        ReaderLog.instance.log(
+          'app_theme_load_failed',
+          fields: {'error': error},
+        ),
+      );
+    }
+    if (mounted) await _syncWindow(mode);
+    return mode;
   }
+
+  Future<void> _setMode(ThemeMode mode) async {
+    await widget.library.setSetting(_themeModeKey, mode.name);
+    if (!mounted) return;
+    setState(() => _selectedMode = mode);
+    await _syncWindow(mode);
+  }
+
+  Future<void> _syncWindow(ThemeMode mode) async {
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows)) {
+      await _window.invokeMethod<void>('setDarkMode', mode == ThemeMode.dark);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<ThemeMode>(
+    future: _savedMode,
+    builder: (context, snapshot) =>
+        snapshot.connectionState == ConnectionState.done
+        ? _buildApp(_selectedMode ?? snapshot.data ?? ThemeMode.light)
+        : const SizedBox.shrink(),
+  );
+
+  Widget _buildApp(ThemeMode mode) => MaterialApp(
+    title: 'Spectacular Reader',
+    debugShowCheckedModeBanner: false,
+    theme: _day,
+    darkTheme: _night,
+    themeMode: mode,
+    themeAnimationDuration: Duration.zero,
+    builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+      value: readerSystemBarStyle(Theme.of(context).scaffoldBackgroundColor),
+      child: child!,
+    ),
+    home: HomeShell(
+      library: widget.library,
+      progressStore: widget.progressStore,
+      storageRecovery: widget.recovery,
+      onThemeModeChanged: _setMode,
+    ),
+  );
 }

@@ -322,21 +322,30 @@ void Win32Window::OnDestroy() {
   // No-op; provided for subclasses.
 }
 
-void Win32Window::UpdateTitleBar(HWND const window) {
-  const BOOL enable_dark_mode = FALSE;
-  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                        &enable_dark_mode, sizeof(enable_dark_mode));
+void Win32Window::SetTitleBarDarkMode(bool dark) {
+  dark_title_bar_ = dark;
+  UpdateTitleBar(window_handle_);
+  RedrawWindow(window_handle_, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME);
+}
 
+void Win32Window::UpdateTitleBar(HWND const window) {
   HIGHCONTRASTW contrast{};
   contrast.cbSize = sizeof(contrast);
   const bool use_system_colors =
       SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
       (contrast.dwFlags & HCF_HIGHCONTRASTON);
+  const BOOL enable_dark_mode = dark_title_bar_ && !use_system_colors;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        &enable_dark_mode, sizeof(enable_dark_mode));
   constexpr DWORD kCaptionColorAttribute = 35;
   constexpr DWORD kTextColorAttribute = 36;
   constexpr COLORREF kSystemColor = 0xFFFFFFFFu;
-  const COLORREF caption = use_system_colors ? kSystemColor : RGB(246, 246, 244);
-  const COLORREF text = use_system_colors ? kSystemColor : RGB(34, 36, 39);
-  DwmSetWindowAttribute(window, kCaptionColorAttribute, &caption, sizeof(caption));
-  DwmSetWindowAttribute(window, kTextColorAttribute, &text, sizeof(text));
+  const COLORREF caption = enable_dark_mode ? RGB(27, 29, 31) : RGB(246, 246, 244);
+  const COLORREF text = enable_dark_mode ? RGB(231, 232, 228) : RGB(34, 36, 39);
+  const COLORREF caption_color = use_system_colors ? kSystemColor : caption;
+  const COLORREF text_color = use_system_colors ? kSystemColor : text;
+  DwmSetWindowAttribute(window, kCaptionColorAttribute, &caption_color,
+                        sizeof(caption_color));
+  DwmSetWindowAttribute(window, kTextColorAttribute, &text_color,
+                        sizeof(text_color));
 }

@@ -17,6 +17,22 @@ class MainFlutterWindow: NSWindow {
     self.setFrameAutosaveName(autosaveName)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    let appearanceChannel = FlutterMethodChannel(
+      name: "com.spectacular.reader_mobile/window",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    appearanceChannel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "setDarkMode" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let dark = call.arguments as? Bool else {
+        result(FlutterError(code: "invalid_argument", message: nil, details: nil))
+        return
+      }
+      self?.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+      result(nil)
+    }
 
     super.awakeFromNib()
   }
