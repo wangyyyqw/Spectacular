@@ -49,6 +49,8 @@ class PageTurnController extends ChangeNotifier {
   static const _catchUpFrameLimit = Duration(milliseconds: 16);
   static const _catchUpResponse = Duration(milliseconds: 50);
   static const _catchUpTravel = Duration(milliseconds: 320);
+  static const _dragCatchUpResponse = Duration(milliseconds: 32);
+  static const _dragCatchUpTravel = Duration(milliseconds: 160);
 
   /// 冷目标露底渐入，独立于折角位置的追赶。
   double get targetOpacity => _targetFade.isAnimating ? _targetFade.value : 1;
@@ -78,6 +80,7 @@ class PageTurnController extends ChangeNotifier {
   double _startProgress = 0;
   ui.Offset? _startPoint, _endPoint;
   double _releaseVelocity = 0;
+  Curve _settlingCurve = Curves.easeOutCubic;
   int? _generation;
   PageContent? _origin;
 
@@ -169,6 +172,7 @@ class PageTurnController extends ChangeNotifier {
       return;
     }
     if (!_dragging || phase == PageTurnPhase.settling) return;
+    final inputDelta = details.localPosition - _latest!;
     _latest = details.localPosition;
     final motion = _dragMotion!..update(_latest!.dx);
     final initialSign = motion.initialSign;
@@ -177,7 +181,7 @@ class PageTurnController extends ChangeNotifier {
     }
     if (phase == PageTurnPhase.dragging ||
         (phase == PageTurnPhase.preparing && originImage != null)) {
-      _updateDragFrame();
+      _updateDragFrame(inputDelta: inputDelta);
     }
   }
 
@@ -437,11 +441,17 @@ class PageTurnController extends ChangeNotifier {
     return phase == PageTurnPhase.preparing ? value.clamp(0.0, 0.08) : value;
   }
 
-  void _updateDragFrame() {
+  void _updateDragFrame({ui.Offset inputDelta = ui.Offset.zero}) {
     if (mode == PageTurnMode.simulation3d && (_lifting || _released)) return;
-    // 追赶期间只记录最新输入，同一帧内的手势不能重复推进显示位置。
-    if (_positionCatchUp.isActive) return;
-    _resolveDragFrame();
+    if (_positionCatchUp.isActive) {
+      if (mode == PageTurnMode.simulation3d || inputDelta == ui.Offset.zero) {
+        return;
+      }
+      // 补偿只由 ticker 推进，新手势位移仍立即叠加到当前显示位置。
+      _followCatchUpInput(inputDelta);
+    } else {
+      _resolveDragFrame();
+    }
     if (phase == PageTurnPhase.preparing && !_preparationVisible) {
       final token = _token;
       SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -451,6 +461,21 @@ class PageTurnController extends ChangeNotifier {
       });
     }
     notifyListeners();
+  }
+
+  void _followCatchUpInput(ui.Offset delta) {
+    if (mode == PageTurnMode.simulationBessel) {
+      final moved =
+          point! + ui.Offset(fromRight ? delta.dx : -delta.dx, delta.dy);
+      point = ui.Offset(
+        moved.dx.clamp(-size.width, size.width),
+        moved.dy.clamp(0.1, size.height - 0.1),
+      );
+      progress = ((size.width - point!.dx) / (2 * size.width)).clamp(0, 1);
+    } else {
+      final sign = next != rtl ? -1 : 1;
+      progress = (progress + delta.dx * sign / size.width).clamp(0, 1);
+    }
   }
 
   void _resolveDragFrame() {
@@ -494,7 +519,7 @@ class PageTurnController extends ChangeNotifier {
     _positionCatchUp.start();
   }
 
-  /// 丢帧只延长追赶；每帧最多推进一页宽的 5%，不能补跳等待期间的位移。
+  /// 丢帧只延长补偿；3D 每帧最多推进页宽的 5%，其余模式最多 10%。
   void _catchUpPositionFrame(Duration elapsed) {
     final delta = elapsed - _catchUpElapsed;
     _catchUpElapsed = elapsed;
@@ -529,10 +554,13 @@ class PageTurnController extends ChangeNotifier {
       _positionCatchUp.stop();
       return;
     }
-    // 接近触点时减速；较远时以一页宽 / 320ms 的上限追赶当前目标。
+    final curl = mode == PageTurnMode.simulation3d;
+    final response = curl ? _catchUpResponse : _dragCatchUpResponse;
+    final travel = curl ? _catchUpTravel : _dragCatchUpTravel;
+    // 接近触点时减速；非 3D 加快冷页面补偿，不延迟新的手势输入。
     final t = math.min(
-      frameMicros / _catchUpResponse.inMicroseconds,
-      size.width * frameMicros / (_catchUpTravel.inMicroseconds * distance),
+      frameMicros / response.inMicroseconds,
+      size.width * frameMicros / (travel.inMicroseconds * distance),
     );
     progress = previousProgress + (progress - previousProgress) * t;
     if (pointBased) point = ui.Offset.lerp(previousPoint, point, t);
@@ -602,8 +630,40 @@ class PageTurnController extends ChangeNotifier {
     if (pointBased) _preparePointEnd();
     _settling.duration = mode == PageTurnMode.simulation3d
         ? _curlDuration(_startPoint!, _endPoint!, lifting: false)
-        : pageTurnAnimationDuration;
+        : _dragSettlingDuration();
     unawaited(_runSettling(++_token));
+  }
+
+  Duration _dragSettlingDuration() {
+    final bessel = mode == PageTurnMode.simulationBessel;
+    final pixels = bessel
+        ? (_endPoint!.dx - _startPoint!.dx).abs()
+        : ((_complete ? 1 : 0) - _startProgress).abs() * size.width;
+    final remaining = (pixels / (size.width * (bessel ? 2 : 1))).clamp(
+      0.0,
+      1.0,
+    );
+    final maximum = pageTurnAnimationDuration.inMilliseconds;
+    var milliseconds = 120 + (maximum - 120) * remaining;
+    final sign = (next != rtl ? -1 : 1) * (_complete ? 1 : -1);
+    final velocity = _releaseVelocity * sign;
+    if (velocity > 0) {
+      milliseconds = math.min(milliseconds, pixels * 1000 / velocity);
+    }
+    final duration = Duration(
+      milliseconds: milliseconds.round().clamp(120, maximum),
+    );
+    // 快甩从松手速度接续并减速到零；静止松手与点击沿用既有缓出曲线。
+    final slope = pixels > 0
+        ? (velocity * duration.inMicroseconds / 1000000 / pixels).clamp(
+            0.0,
+            3.0,
+          )
+        : 0.0;
+    _settlingCurve = velocity > 0
+        ? Cubic(1 / 3, slope / 3, 2 / 3, 1)
+        : Curves.easeOutCubic;
+    return duration;
   }
 
   void _preparePointEnd() {
@@ -664,7 +724,7 @@ class PageTurnController extends ChangeNotifier {
       return;
     }
     final bessel = mode == PageTurnMode.simulationBessel;
-    final t = Curves.easeOutCubic.transform(_settling.value);
+    final t = _settlingCurve.transform(_settling.value);
     progress = _startProgress + ((_complete ? 1 : 0) - _startProgress) * t;
     if (bessel) point = ui.Offset.lerp(_startPoint, _endPoint, t);
     notifyListeners();

@@ -222,6 +222,60 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
 }
 
 void main() {
+  for (final reducedMotion in [false, true]) {
+    testWidgets('连续滚动${reducedMotion ? '减少动画时直接定位' : '短距离翻屏及时收尾'}', (
+      tester,
+    ) async {
+      final session = ReaderSession(
+        source: _SingleChapterSource(),
+        store: MemoryReaderProgressStore(),
+        bookId: '滚动过渡',
+      );
+      await session.open();
+      final key = GlobalKey<ContinuousScrollViewState>();
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        session.dispose();
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(disableAnimations: reducedMotion),
+            child: SizedBox(
+              width: 320,
+              height: 480,
+              child: ContinuousScrollView(
+                key: key,
+                session: session,
+                revision: 1,
+                padding: const EdgeInsets.all(20),
+                paperBuilder: (_, _) => const ColoredBox(color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable))
+          .position;
+      unawaited(key.currentState!.scrollPage(true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(position.pixels, greaterThan(0));
+      expect(position.isScrollingNotifier.value, !reducedMotion);
+      await tester.pumpAndSettle();
+      position.jumpTo(position.maxScrollExtent - 40);
+      unawaited(key.currentState!.scrollPage(true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 160));
+      expect(position.pixels, position.maxScrollExtent);
+      expect(position.isScrollingNotifier.value, isFalse);
+      await tester.pumpAndSettle();
+      await session.flushProgress();
+    });
+  }
+
   for (final emptyChapters in [0, 2]) {
     for (final swipe in [false, true]) {
       testWidgets('${emptyChapters == 0 ? '正常书尾' : '多个尾部空章'}'
