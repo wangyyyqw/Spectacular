@@ -196,7 +196,7 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
-  testWidgets('正则图片规则从真实存储加载背景，不生成手工记录', (tester) async {
+  testWidgets('正则点九图片规则从真实存储加载背景，不生成手工记录', (tester) async {
     final fixture = await _fixture(tester);
     addTearDown(() => tester.runAsync(fixture.close));
     final path = (await tester.runAsync(
@@ -218,7 +218,8 @@ void main() {
           isRegex: true,
           style: ReaderDecorationRuleStyle(
             backgroundImagePath: path,
-            backgroundImageFit: ReaderDecorationImageFit.tile,
+            backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+            backgroundImageNineSlice: const ReaderDecorationNineSlice(),
             backgroundOpacity: 0.5,
           ),
         ),

@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import '../icons/app_icon.dart';
 import 'decoration_highlight_editor.dart';
 import 'decoration_image_store.dart';
+import 'decoration_image_codec.dart';
+import 'decoration_nine_slice_editor.dart';
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
+import 'decoration_style.dart';
 import 'decoration_style_preview.dart';
 import 'style_controls.dart';
 
@@ -47,6 +50,7 @@ class _ReaderDecorationRuleEditorState
   int _previewGeneration = 0;
   bool _previewDone = false;
   bool _previewing = false;
+  bool _showAllPreviews = false;
   bool _pickingImage = false;
   String? _error;
   String? _previewError;
@@ -80,7 +84,6 @@ class _ReaderDecorationRuleEditorState
 
   void _set(String name, Object? value) => setState(() {
     _style = _style.withValues({name: value});
-    _resetPreview();
   });
 
   void _resetPreview() {
@@ -88,6 +91,7 @@ class _ReaderDecorationRuleEditorState
     _previews = const [];
     _previewDone = false;
     _previewError = null;
+    _showAllPreviews = false;
   }
 
   bool _validate() {
@@ -107,6 +111,7 @@ class _ReaderDecorationRuleEditorState
 
   Future<void> _preview() async {
     if (_previewing || !_validate()) return;
+    FocusScope.of(context).unfocus();
     final generation = _previewGeneration;
     setState(() {
       _previewing = true;
@@ -140,7 +145,26 @@ class _ReaderDecorationRuleEditorState
     setState(() => _pickingImage = true);
     try {
       final path = await widget.images!.pickImage();
-      if (path != null && mounted) _set('backgroundImagePath', path);
+      if (path != null) {
+        final decoded = await ReaderDecorationImageCodec.decode(
+          await widget.images!.loadImage(path),
+        );
+        final nineSlice = decoded.nineSlice;
+        decoded.image.dispose();
+        if (mounted) {
+          setState(
+            () => _style = _style.withValues({
+              'backgroundImagePath': path,
+              'backgroundImageFit':
+                  (nineSlice == null
+                          ? ReaderDecorationImageFit.cover
+                          : ReaderDecorationImageFit.nineSlice)
+                      .name,
+              'backgroundImageNineSlice': nineSlice?.toJson(),
+            }),
+          );
+        }
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -150,6 +174,20 @@ class _ReaderDecorationRuleEditorState
     } finally {
       if (mounted) setState(() => _pickingImage = false);
     }
+  }
+
+  void _insertRegex(String expression) {
+    final selection = _pattern.selection;
+    final start = selection.isValid ? selection.start : _pattern.text.length;
+    final end = selection.isValid ? selection.end : start;
+    _pattern.value = TextEditingValue(
+      text: _pattern.text.replaceRange(start, end, expression),
+      selection: TextSelection.collapsed(offset: start + expression.length),
+    );
+    setState(() {
+      _error = null;
+      _resetPreview();
+    });
   }
 
   void _pop([ReaderDecorationRule? rule]) {
@@ -207,25 +245,78 @@ class _ReaderDecorationRuleEditorState
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '自动装饰规则',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _close,
+                      tooltip: '关闭',
+                      icon: const AppIcon(AppGlyph.close),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: ReaderDecorationStylePreview(
+                  text:
+                      _previews.firstOrNull?.text ??
+                      (_regex || _pattern.text.isEmpty
+                          ? '让重要的文字更醒目。\n图片、底色与划线都可以在这里预览。'
+                          : _pattern.text),
+                  style: _style.decorationStyle,
+                  images: widget.images,
+                  inkMode: widget.inkMode,
+                  maxLines: 2,
+                ),
+              ),
               Flexible(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                   child: _form(context),
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    key: const ValueKey<String>('rule-save'),
-                    onPressed: _previewing || _pickingImage
-                        ? null
-                        : () {
-                            if (_validate()) _pop(_draft);
-                          },
-                    child: const Text('保存规则'),
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const ValueKey<String>('rule-preview'),
+                        onPressed: _previewing || _pickingImage
+                            ? null
+                            : _preview,
+                        icon: _previewing
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const AppIcon(AppGlyph.preview),
+                        label: const Text('预览匹配'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        key: const ValueKey<String>('rule-save'),
+                        onPressed: _previewing || _pickingImage
+                            ? null
+                            : () {
+                                if (_validate()) _pop(_draft);
+                              },
+                        child: const Text('保存规则'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -238,28 +329,10 @@ class _ReaderDecorationRuleEditorState
   Widget _form(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Row(
-        children: [
-          Text('自动装饰规则', style: Theme.of(context).textTheme.titleLarge),
-          const Spacer(),
-          IconButton(
-            onPressed: _close,
-            tooltip: '关闭',
-            icon: const AppIcon(AppGlyph.close),
-          ),
-        ],
-      ),
-      TextField(
-        key: const ValueKey<String>('rule-name'),
-        controller: _name,
-        onChanged: (_) => setState(() {}),
-        decoration: const InputDecoration(labelText: '名称（可选）'),
-      ),
-      const SizedBox(height: 14),
       TextField(
         key: const ValueKey<String>('rule-pattern'),
         controller: _pattern,
-        minLines: 2,
+        minLines: 1,
         maxLines: 4,
         onChanged: (_) => setState(() {
           _error = null;
@@ -287,6 +360,30 @@ class _ReaderDecorationRuleEditorState
           _resetPreview();
         }),
       ),
+      if (_regex)
+        PopupMenuButton<String>(
+          key: const ValueKey<String>('rule-regex-examples'),
+          tooltip: '插入常用表达式',
+          onSelected: _insertRegex,
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: r'\d+', child: Text(r'数字：\d+')),
+            PopupMenuItem(
+              value: r'“[^”]+”|「[^」]+」|『[^』]+』',
+              child: Text('引号内文字'),
+            ),
+            PopupMenuItem(value: r'\b[A-Za-z]+\b', child: Text('英文单词')),
+          ],
+          child: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Row(
+              children: [
+                AppIcon(AppGlyph.add, size: 18),
+                SizedBox(width: 8),
+                Text('插入常用表达式'),
+              ],
+            ),
+          ),
+        ),
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('区分大小写'),
@@ -296,32 +393,63 @@ class _ReaderDecorationRuleEditorState
           _resetPreview();
         }),
       ),
+      TextField(
+        key: const ValueKey<String>('rule-name'),
+        controller: _name,
+        onChanged: (_) => setState(() {}),
+        decoration: const InputDecoration(labelText: '名称（可选）'),
+      ),
       const Divider(),
-      const Text('规则不改变字体度量，不触发重排；后面的规则只覆盖已设置的同名属性。'),
-      const SizedBox(height: 12),
-      ReaderDecorationStylePreview(
-        text: _pattern.text.isEmpty ? '规则样式预览' : _pattern.text,
-        style: _style.decorationStyle,
-        images: widget.images,
-        inkMode: widget.inkMode,
+      AppExpansionTile(
+        key: const ValueKey<String>('rule-highlight'),
+        title: const Text('高亮与划线'),
+        subtitle: Text(_style.highlight?.style.label ?? '底色、染色、线条与跨行连块'),
+        initiallyExpanded: widget.rule.style.highlight != null,
+        tilePadding: EdgeInsets.zero,
+        children: [
+          ReaderDecorationHighlightEditor(
+            value: _style.highlight,
+            onChanged: (value) => _set('highlight', value?.toJson()),
+            inkMode: widget.inkMode,
+          ),
+        ],
+      ),
+      AppExpansionTile(
+        key: const ValueKey<String>('rule-background'),
+        title: const Text('图片与背景'),
+        subtitle: Text(
+          _style.backgroundImagePath == null
+              ? '本地图片、底色、透明度与圆角'
+              : '已设置背景图 · ${_style.backgroundImageFit.label}',
+        ),
+        initiallyExpanded: widget.rule.style.backgroundImagePath != null,
+        tilePadding: EdgeInsets.zero,
+        children: [_background()],
+      ),
+      AppExpansionTile(
+        key: const ValueKey<String>('rule-border'),
+        title: const Text('边框'),
+        subtitle: Text(
+          _style.borderWidth == 0
+              ? '未设置'
+              : '${_style.borderStyle.label} · ${_style.borderWidth} dp',
+        ),
+        tilePadding: EdgeInsets.zero,
+        children: [_border()],
       ),
       ReaderStyleColorField(
         label: '文字色',
         color: _style.color,
         onChanged: (value) => _set('color', value),
       ),
-      AppExpansionTile(
-        key: const ValueKey<String>('rule-highlight'),
-        title: const Text('高亮与划线'),
-        subtitle: Text(_style.highlight?.style.label ?? '底色、染色、线条与跨行连块'),
-        tilePadding: EdgeInsets.zero,
-        children: [
-          ReaderDecorationHighlightEditor(
-            value: _style.highlight,
-            onChanged: (value) => _set('highlight', value?.toJson()),
-          ),
-        ],
-      ),
+      const SizedBox(height: 12),
+      _previewResults(context),
+    ],
+  );
+
+  Widget _background() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
       ReaderStyleColorField(
         label: '背景色',
         color: _style.backgroundColor,
@@ -338,13 +466,27 @@ class _ReaderDecorationRuleEditorState
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const AppIcon(AppGlyph.image),
-          label: const Text('选择本地背景图'),
+          label: Text(_style.backgroundImagePath == null ? '选择本地背景图' : '更换背景图'),
         ),
       if (_style.backgroundImagePath != null) ...[
         ReaderDecorationImageFitField(
           value: _style.backgroundImageFit,
           onChanged: (fit) => _set('backgroundImageFit', fit.name),
         ),
+        if (widget.images != null)
+          ReaderDecorationNineSliceButton(
+            path: _style.backgroundImagePath!,
+            images: widget.images!,
+            value: _style.backgroundImageNineSlice,
+            onChanged: (selection) => setState(() {
+              _style = _style.withValues({
+                if (selection.path != null)
+                  'backgroundImagePath': selection.path,
+                'backgroundImageFit': ReaderDecorationImageFit.nineSlice.name,
+                'backgroundImageNineSlice': selection.nineSlice.toJson(),
+              });
+            }),
+          ),
         TextButton.icon(
           key: const ValueKey<String>('rule-remove-background-image'),
           onPressed: () => _set('backgroundImagePath', null),
@@ -353,7 +495,11 @@ class _ReaderDecorationRuleEditorState
         ),
       ],
       if (widget.images != null)
-        const Text('匹配到的文字使用同一张图片，按每行区间铺放；透明度和圆角同时作用于图片。'),
+        Text(
+          _style.backgroundImageFit == ReaderDecorationImageFit.nineSlice
+              ? '点九图按每行命中文字拉伸，保留素材边角；可调整图片透明度。'
+              : '每行命中的文字使用同一张图片；透明度和圆角同时作用于图片。',
+        ),
       ReaderStyleSlider(
         label: '背景透明度',
         value: _style.backgroundOpacity,
@@ -373,6 +519,12 @@ class _ReaderDecorationRuleEditorState
         suffix: ' dp',
         onChanged: (value) => _set('borderRadius', value),
       ),
+    ],
+  );
+
+  Widget _border() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
       ReaderBorderStyleField(
         value: _style.borderStyle,
         onChanged: (value) => _set('borderStyle', value.name),
@@ -393,36 +545,41 @@ class _ReaderDecorationRuleEditorState
         clearLabel: '默认灰色',
         onChanged: (value) => _set('borderColor', value),
       ),
-      OutlinedButton.icon(
-        key: const ValueKey<String>('rule-preview'),
-        onPressed: _previewing ? null : _preview,
-        icon: _previewing
-            ? const SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const AppIcon(AppGlyph.preview),
-        label: const Text('预览当前章（前 50 条）'),
-      ),
+    ],
+  );
+
+  Widget _previewResults(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
       if (_previewError != null)
         Text(
           _previewError!,
           style: TextStyle(color: Theme.of(context).colorScheme.error),
         ),
       if (!_previewing && _previews.isEmpty && _previewError == null)
-        Text(_previewDone ? '当前章没有命中结果' : '预览只在当前会话计算，不保存命中结果。'),
+        Text(
+          _previewDone ? '当前章没有匹配，请检查表达式或切换章节。' : '点击“预览匹配”查看当前章结果，最多显示 50 条。',
+        ),
       if (_previews.isNotEmpty)
         Text(
           '当前章命中 ${_previews.length} 条${_previews.length == 50 ? '（仅前 50 条）' : ''}',
         ),
-      for (final preview in _previews)
+      for (final preview in _previews.take(_showAllPreviews ? 50 : 5))
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: ReaderDecorationStylePreview(
             text: preview.text,
-            style: preview.style.decorationStyle,
+            style: _style.decorationStyle,
             images: widget.images,
             inkMode: widget.inkMode,
+          ),
+        ),
+      if (_previews.length > 5)
+        TextButton(
+          key: const ValueKey<String>('rule-preview-expand'),
+          onPressed: () => setState(() => _showAllPreviews = !_showAllPreviews),
+          child: Text(
+            _showAllPreviews ? '收起结果' : '查看其余 ${_previews.length - 5} 条',
           ),
         ),
     ],

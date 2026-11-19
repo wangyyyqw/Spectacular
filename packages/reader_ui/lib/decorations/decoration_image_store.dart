@@ -11,3 +11,8 @@ abstract interface class ReaderDecorationImageStore {
   /// 仅删除独立目录内、没有任何装饰引用的图片。
   Future<void> removeUnused(Set<String> referencedPaths);
 }
+
+abstract interface class ReaderDecorationNinePatchImageStore
+    implements ReaderDecorationImageStore {
+  Future<String> saveNinePatch(Uint8List bytes);
+}

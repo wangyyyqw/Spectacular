@@ -12,6 +12,9 @@ import 'package:reader_ui/decorations/decoration_geometry.dart';
 import 'package:reader_ui/decorations/decoration_painter.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/decorations/decoration_image_codec.dart';
+
+import 'support/decoration_test_images.dart';
 
 const _start = 'epubcfi(/6/2!/4/2/1:0)';
 const _end = 'epubcfi(/6/2!/4/2/1:20)';
@@ -135,6 +138,330 @@ void main() {
     expect(highlight.color, defaultHighlightColor);
     expect(highlight.effectiveOpacity, 1);
     expect(highlight.strokeWidth, 0.5);
+  });
+
+  test('点九内容区与拉伸区完整往返，新图片不会继承旧图片切片', () {
+    const nineSlice = ReaderDecorationNineSlice(
+      slice: Rect.fromLTRB(0.1, 0.1, 0.9, 0.9),
+      content: Rect.fromLTRB(0.2, 0.3, 0.8, 0.7),
+      scale: 1.5,
+    );
+    const rule = ReaderDecorationRuleStyle(
+      backgroundImagePath: '/local/bubble.png',
+      backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+      backgroundImageNineSlice: nineSlice,
+    );
+    final restored = ReaderDecorationRuleStyle.fromJson(rule.toJson());
+    expect(restored.backgroundImageNineSlice!.toJson(), nineSlice.toJson());
+    expect(restored.decorationStyle.changesMetrics, isFalse);
+    final replaced = restored.decorationStyle.merge(
+      const ReaderDecorationStyle(backgroundImagePath: '/local/new.png'),
+    );
+    expect(replaced.backgroundImageNineSlice, isNull);
+    final raw = nineSlice.toJson();
+    expect(
+      ReaderDecorationNineSlice.fromJson({
+        ...raw,
+        'content': {'left': 1, 'top': 0, 'right': 0, 'bottom': 1},
+      }),
+      isNull,
+    );
+    expect(
+      ReaderDecorationNineSlice.fromJson({
+        ...raw,
+        'slice': {'left': double.nan, 'top': 0, 'right': 1, 'bottom': 1},
+      }),
+      isNull,
+    );
+  });
+
+  test('点九PNG识别拉伸与内容标记，去除标记边并保留图案像素', () async {
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(decoded.image.dispose);
+    expect(decoded.image.width, 30);
+    expect(decoded.image.height, 20);
+    expect(
+      decoded.nineSlice!.slice,
+      const Rect.fromLTRB(5 / 30, 5 / 20, 25 / 30, 15 / 20),
+    );
+    expect(
+      decoded.nineSlice!.content,
+      const Rect.fromLTRB(8 / 30, 7 / 20, 22 / 30, 13 / 20),
+    );
+    final pixels = await _pixels(
+      (canvas) => canvas.drawImage(decoded.image, Offset.zero, Paint()),
+    );
+    expect(_color(pixels, 1, 1), _red);
+    expect(_color(pixels, 29, 0), _blue);
+    expect(_color(pixels, 1, 18), _green);
+    expect(_color(pixels, 29, 19), _yellow);
+  });
+
+  test('普通图片生成点九PNG，四边标记按源像素取整且图案像素不变', () async {
+    final source = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(source.image.dispose);
+    const config = ReaderDecorationNineSlice(
+      slice: Rect.fromLTRB(0.11, 0.17, 0.91, 0.83),
+      content: Rect.fromLTRB(0.25, 0.35, 0.75, 0.65),
+    );
+    final bytes = await ReaderDecorationImageCodec.encodeNinePatch(
+      source.image,
+      config,
+    );
+    final decoded = await ReaderDecorationImageCodec.decode(bytes);
+    addTearDown(decoded.image.dispose);
+    expect(decoded.image.width, source.image.width);
+    expect(decoded.image.height, source.image.height);
+    expect(
+      decoded.nineSlice!.slice,
+      const Rect.fromLTRB(3 / 30, 3 / 20, 27 / 30, 17 / 20),
+    );
+    expect(
+      decoded.nineSlice!.content,
+      const Rect.fromLTRB(8 / 30, 7 / 20, 23 / 30, 13 / 20),
+    );
+    expect(
+      decoded.nineSlice!.toJson(),
+      ReaderDecorationImageCodec.pixelAligned(source.image, config).toJson(),
+    );
+    final originalPixels = (await source.image.toByteData())!;
+    final restoredPixels = (await decoded.image.toByteData())!;
+    expect(
+      restoredPixels.buffer.asUint8List(),
+      originalPixels.buffer.asUint8List(),
+    );
+  });
+
+  test('点九拉伸仅改变中间，边角大小跟随字高，裁切不侵入相邻行', () async {
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(decoded.image.dispose);
+    const config = ReaderDecorationNineSlice(
+      slice: Rect.fromLTRB(5 / 30, 5 / 20, 25 / 30, 15 / 20),
+      content: Rect.fromLTRB(5 / 30, 5 / 20, 25 / 30, 15 / 20),
+    );
+    const style = ReaderDecorationStyle(
+      backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+      backgroundImageNineSlice: config,
+    );
+    for (final width in [30.0, 90.0]) {
+      final pixels = await _pixels(
+        (canvas) => ReaderDecorationPainter.paintBox(
+          canvas,
+          Rect.fromLTWH(20, 20, width, 10),
+          style,
+          image: decoded.image,
+        ),
+      );
+      expect(_color(pixels, 16, 16), _red);
+      expect(_color(pixels, 23, 23), 0xFFCCCCCC);
+      expect(_color(pixels, (20 + width + 3).toInt(), 16), _blue);
+      expect(_color(pixels, 16, 33), _green);
+    }
+    final larger = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintBox(
+        canvas,
+        const Rect.fromLTWH(30, 30, 90, 20),
+        style,
+        image: decoded.image,
+      ),
+    );
+    expect(_color(larger, 21, 21), _red);
+    expect(_alpha(larger, 19, 21), 0);
+    final clipped = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintBox(
+        canvas,
+        const Rect.fromLTWH(20, 20, 90, 10),
+        style,
+        image: decoded.image,
+        clipRect: const Rect.fromLTWH(0, 20, 160, 10),
+      ),
+    );
+    expect(_alpha(clipped, 16, 16), 0);
+    expect(_alpha(clipped, 23, 23), 255);
+  });
+
+  test('原生点九的内容边距不随文字长度拉伸，短句长句保留同样的边角', () async {
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(decoded.image.dispose);
+    final config = decoded.nineSlice!;
+    for (final width in [20.0, 80.0]) {
+      final rect = Rect.fromLTWH(40, 40, width, 12);
+      final bounds = config.imageRectFor(rect, const Size(30, 20));
+      expect(bounds.left, closeTo(24, 0.001));
+      expect(bounds.top, closeTo(26, 0.001));
+      expect(bounds.right, closeTo(40 + width + 16, 0.001));
+      expect(bounds.bottom, closeTo(66, 0.001));
+      final pixels = await _pixels(
+        (canvas) => ReaderDecorationPainter.paintBox(
+          canvas,
+          rect,
+          ReaderDecorationStyle(
+            backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+            backgroundImageNineSlice: config,
+          ),
+          image: decoded.image,
+        ),
+      );
+      expect(_alpha(pixels, 23, 27), 0);
+      expect(_color(pixels, 25, 27), _red);
+      expect(_color(pixels, (40 + width + 14).toInt(), 27), _blue);
+      expect(_color(pixels, 25, 64), _green);
+    }
+  });
+
+  test('原生点九拉伸区与内容区独立，互不相交时仍可导入和保存', () async {
+    final source = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(source.image.dispose);
+    const config = ReaderDecorationNineSlice(
+      slice: Rect.fromLTRB(0.6, 0.6, 0.9, 0.9),
+      content: Rect.fromLTRB(0.1, 0.1, 0.4, 0.4),
+    );
+    expect(
+      ReaderDecorationNineSlice.fromJson(config.toJson())!.toJson(),
+      config.toJson(),
+    );
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ReaderDecorationImageCodec.encodeNinePatch(source.image, config),
+    );
+    addTearDown(decoded.image.dispose);
+    expect(decoded.image.width, 30);
+    expect(decoded.image.height, 20);
+    expect(decoded.nineSlice!.toJson(), config.toJson());
+  });
+
+  test('同一高亮被文字色切分后，波浪线和圆角背景保持连续像素', () async {
+    final page = _page();
+    for (final style in [
+      ReaderAnnotationStyle.background,
+      ReaderAnnotationStyle.wavyUnderline,
+    ]) {
+      final highlight = _range(
+        ReaderDecorationStyle(
+          highlight: ReaderDecorationHighlight(
+            style: style,
+            color: _red,
+            joinLines: true,
+          ),
+        ),
+      );
+      final original = ReaderDecorationGeometry.boxesFor(page, [highlight]);
+      final split = ReaderDecorationGeometry.boxesFor(page, [
+        highlight,
+        _range(
+          const ReaderDecorationStyle(color: _blue),
+          start: 'epubcfi(/6/2!/4/2/1:3)',
+          end: 'epubcfi(/6/2!/4/2/1:7)',
+        ),
+      ]);
+      expect(split.length, greaterThan(original.length));
+      Future<ByteData> paint(List<ReaderDecorationBox> boxes) => _pixels(
+        (canvas) => ReaderDecorationPainter.paintHighlights(
+          canvas,
+          boxes,
+          foreground: style == ReaderAnnotationStyle.wavyUnderline,
+        ),
+      );
+      expect(
+        (await paint(split)).buffer.asUint8List(),
+        (await paint(original)).buffer.asUint8List(),
+      );
+    }
+  });
+
+  test('点九命中被其他规则切分时共用整行图案，不重复边角', () async {
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(decoded.image.dispose);
+    final page = _page();
+    final image = _range(
+      const ReaderDecorationStyle(
+        backgroundImagePath: '/local/bubble.png',
+        backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+        backgroundImageNineSlice: ReaderDecorationNineSlice(),
+      ),
+    );
+    final original = ReaderDecorationGeometry.boxesFor(page, [image]);
+    final split = ReaderDecorationGeometry.boxesFor(page, [
+      image,
+      _range(
+        const ReaderDecorationStyle(color: _blue),
+        start: 'epubcfi(/6/2!/4/2/1:3)',
+        end: 'epubcfi(/6/2!/4/2/1:7)',
+      ),
+    ]);
+    Future<ByteData> paint(List<ReaderDecorationBox> boxes) =>
+        _pixels((canvas) {
+          for (final box in boxes) {
+            for (final rect in box.rects) {
+              ReaderDecorationPainter.paintBox(
+                canvas,
+                rect,
+                box.style,
+                image: decoded.image,
+                imageAnchor: box.imageAnchorFor(rect),
+                clipRect: box.imageClipFor(rect, const Size(240, 180)),
+              );
+            }
+          }
+        });
+    expect(
+      (await paint(split)).buffer.asUint8List(),
+      (await paint(original)).buffer.asUint8List(),
+    );
+  });
+
+  test('竖排点九随字宽等比旋转，圆角高亮不加深行距连接处', () async {
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(decoded.image.dispose);
+    final vertical = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintBox(
+        canvas,
+        const Rect.fromLTWH(40, 20, 10, 60),
+        const ReaderDecorationStyle(
+          backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+          backgroundImageNineSlice: ReaderDecorationNineSlice(
+            slice: Rect.fromLTRB(5 / 30, 5 / 20, 25 / 30, 15 / 20),
+            content: Rect.fromLTRB(5 / 30, 5 / 20, 25 / 30, 15 / 20),
+          ),
+        ),
+        image: decoded.image,
+        vertical: true,
+      ),
+    );
+    expect(_color(vertical, 53, 16), _red);
+    expect(_color(vertical, 53, 83), _blue);
+    expect(_color(vertical, 37, 16), _green);
+    final highlight = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintHighlightBackground(
+        canvas,
+        [
+          [const Rect.fromLTWH(10, 10, 100, 20)],
+          [const Rect.fromLTWH(10, 36, 100, 20)],
+        ],
+        const ReaderDecorationHighlight(
+          color: _red,
+          opacity: 0.5,
+          borderRadius: 6,
+          joinLines: true,
+        ),
+      ),
+    );
+    expect(_alpha(highlight, 10, 10), 0);
+    expect(_alpha(highlight, 30, 29), inInclusiveRange(127, 128));
+    expect(_alpha(highlight, 30, 33), inInclusiveRange(127, 128));
   });
 
   test('九种高亮经正式行几何和绘制入口生成不同像素，染色走文字覆盖', () async {
@@ -433,7 +760,7 @@ void main() {
     expect(_color(missing, 25, 25), _yellow);
   });
 
-  test('四种图片铺放方式生成不同像素，规则样式完整往返且不改变度量', () async {
+  test('五种图片铺放方式生成不同像素，规则样式完整往返且不改变度量', () async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     for (final (left, color) in [(0.0, _red), (10.0, _green), (20.0, _blue)]) {
