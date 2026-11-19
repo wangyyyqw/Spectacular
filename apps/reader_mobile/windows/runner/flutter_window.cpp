@@ -1,5 +1,8 @@
 #include "flutter_window.h"
 
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
+
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -25,6 +28,7 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  RegisterAppearanceChannel();
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -37,6 +41,23 @@ bool FlutterWindow::OnCreate() {
   flutter_controller_->ForceRedraw();
 
   return true;
+}
+
+void FlutterWindow::RegisterAppearanceChannel() {
+  flutter::MethodChannel<flutter::EncodableValue> channel(
+      flutter_controller_->engine()->messenger(),
+      "com.spectacular.reader_mobile/window",
+      &flutter::StandardMethodCodec::GetInstance());
+  channel.SetMethodCallHandler([this](const auto& call, auto result) {
+    if (call.method_name() != "setDarkMode") {
+      result->NotImplemented();
+    } else if (const auto* dark = std::get_if<bool>(call.arguments())) {
+      SetTitleBarDarkMode(*dark);
+      result->Success();
+    } else {
+      result->Error("invalid_argument");
+    }
+  });
 }
 
 void FlutterWindow::OnDestroy() {

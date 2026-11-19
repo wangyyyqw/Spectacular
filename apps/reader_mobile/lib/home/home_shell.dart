@@ -19,6 +19,7 @@ class HomeShell extends StatefulWidget {
     required this.library,
     required this.progressStore,
     this.storageRecovery,
+    this.onThemeModeChanged,
   });
 
   /// 书架存储。
@@ -29,6 +30,9 @@ class HomeShell extends StatefulWidget {
 
   /// 数据库不可用时的恢复入口；正常页面与测试可省略。
   final StartupStorage? storageRecovery;
+
+  /// 切换并保存应用界面主题。
+  final Future<void> Function(ThemeMode)? onThemeModeChanged;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -92,7 +96,10 @@ class _HomeShellState extends State<HomeShell> {
           active: _index == 1,
         ),
         ReviewsPage(library: widget.library, active: _index == 2),
-        ProfilePage(library: widget.library),
+        ProfilePage(
+          library: widget.library,
+          onThemeModeChanged: widget.onThemeModeChanged,
+        ),
       ],
     );
     final recovery = widget.storageRecovery;

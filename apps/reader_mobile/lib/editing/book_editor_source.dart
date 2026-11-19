@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:re_highlight/languages/css.dart';
 import 'package:re_highlight/languages/xml.dart';
+import 'package:re_highlight/styles/github-dark.dart';
 import 'package:re_highlight/styles/github.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
@@ -104,6 +105,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
 
   Widget _code(BookEditorDocument doc) {
     final css = doc.path.toLowerCase().endsWith('.css');
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return CodeEditor(
       key: ValueKey(doc.path),
       controller: doc.code,
@@ -124,7 +126,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
             else
               'xml': CodeHighlightThemeMode(mode: langXml),
           },
-          theme: githubTheme,
+          theme: dark ? githubDarkTheme : githubTheme,
         ),
       ),
       indicatorBuilder: (_, editing, chunks, notifier) => Row(
