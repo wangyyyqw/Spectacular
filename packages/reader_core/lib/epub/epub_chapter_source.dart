@@ -361,7 +361,7 @@ class EpubChapterSource
   String get _configurationKey =>
       '$_cacheScope'
       'base=$_baseStyleKey|${contentWidth}x$contentHeight'
-      '|page=$baseContentHeight|top=$_contentTopInset|trim=$trimTextEdges'
+      '|page=$baseContentHeight|top=$_contentTopInset|trim=$trimTextEdges|edges=3'
       '|sides=${_contentSideInsets.left},${_contentSideInsets.right}'
       '|spacing=$textSpacingRevision|index=${PageIndex.currentSchemaVersion}'
       '|platform=${Platform.operatingSystem}:${Platform.operatingSystemVersion}'
