@@ -82,6 +82,7 @@ class _HomeShellState extends State<HomeShell> {
           library: widget.library,
           progressStore: widget.progressStore,
           refreshToken: _bookshelfRefreshToken,
+          active: _index == 0,
           allowImport: widget.storageRecovery == null,
         ),
         StatsPage(

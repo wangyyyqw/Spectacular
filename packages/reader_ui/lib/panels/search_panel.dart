@@ -63,6 +63,7 @@ class SearchPanel extends StatefulWidget {
     this.onSearchStream,
     required this.onSelect,
     this.onBack,
+    this.focusNode,
     this.debounce = const Duration(milliseconds: 300),
   });
 
@@ -77,6 +78,8 @@ class SearchPanel extends StatefulWidget {
 
   /// 返回（嵌在菜单 sheet 内时显示）。
   final VoidCallback? onBack;
+
+  final FocusNode? focusNode;
 
   /// 输入防抖时长（§29.4 建议 300ms）。
   final Duration debounce;
@@ -217,6 +220,7 @@ class _SearchPanelState extends State<SearchPanel> {
                   child: TextField(
                     key: const ValueKey<String>('search-input'),
                     controller: _controller,
+                    focusNode: widget.focusNode,
                     autofocus: true,
                     onChanged: _onChanged,
                     textInputAction: TextInputAction.search,

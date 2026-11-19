@@ -252,6 +252,36 @@ void main() {
     });
   }
 
+  testWidgets('鼠标右键和中键不进入主键点击翻页路径', (tester) async {
+    var turns = 0;
+    var menus = 0;
+    await _pumpGestureView(
+      tester,
+      ReaderView(
+        onPrevious: () => turns++,
+        onNext: () => turns++,
+        onSecondaryTap: () => menus++,
+      ),
+    );
+    final bounds = tester.getRect(find.byType(ReaderView));
+    for (final buttons in [kSecondaryButton, kMiddleMouseButton]) {
+      await tester.tapAt(
+        bounds.centerRight - const Offset(10, 0),
+        kind: PointerDeviceKind.mouse,
+        buttons: buttons,
+      );
+      await tester.pump();
+    }
+    expect(turns, 0);
+    expect(menus, 1);
+    await tester.tapAt(
+      bounds.centerRight - const Offset(10, 0),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pump();
+    expect(turns, 1);
+  });
+
   testWidgets('滚轮向下下一页、向上上一页，不受点击方向设置影响', (tester) async {
     final turns = <String>[];
     await _pumpGestureView(

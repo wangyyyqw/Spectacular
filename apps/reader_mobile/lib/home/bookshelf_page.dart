@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -40,6 +40,7 @@ class BookshelfPage extends StatefulWidget {
     required this.progressStore,
     this.refreshToken = 0,
     this.allowImport = true,
+    this.active = true,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
   });
@@ -55,6 +56,8 @@ class BookshelfPage extends StatefulWidget {
 
   /// 临时模式暂停新增与更新导入，避免将内存内容误认为已保存。
   final bool allowImport;
+
+  final bool active;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;
@@ -97,9 +100,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
   bool _searching = false;
   bool _selectionMode = false;
   bool _removing = false;
+  bool _pickingFiles = false;
   String _query = '';
   final Set<String> _selectedIds = <String>{};
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode(debugLabel: 'bookshelf-search');
+  final FocusNode _keyboardFocus = FocusNode(debugLabel: 'bookshelf-keyboard');
   Future<void>? _reloadTask;
   bool _reloadRequested = false;
 
@@ -130,6 +136,50 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (oldWidget.refreshToken != widget.refreshToken) {
       _loadPreferences();
     }
+    if (widget.active &&
+        (!oldWidget.active || oldWidget.refreshToken != widget.refreshToken)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.active) _keyboardFocus.requestFocus();
+      });
+    }
+  }
+
+  KeyEventResult _handleShelfKey(FocusNode node, KeyEvent event) {
+    if (!widget.active || ModalRoute.isCurrentOf(context) == false) {
+      return KeyEventResult.ignored;
+    }
+    final command = Theme.of(context).platform == TargetPlatform.macOS;
+    final bindings = <ShortcutActivator, VoidCallback>{
+      if (!_selectionMode) ...{
+        SingleActivator(
+          LogicalKeyboardKey.keyF,
+          meta: command,
+          control: !command,
+          includeRepeats: false,
+        ): _focusSearch,
+        SingleActivator(
+          LogicalKeyboardKey.keyO,
+          meta: command,
+          control: !command,
+          includeRepeats: false,
+        ): () =>
+            _import(),
+      },
+      if (_selectionMode || _searching)
+        const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
+            _selectionMode ? _exitSelectionMode : _toggleSearch,
+    };
+    for (final binding in bindings.entries) {
+      if (!binding.key.accepts(event, HardwareKeyboard.instance)) continue;
+      binding.value();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _focusSearch() {
+    if (!_searching) setState(() => _searching = true);
+    _searchFocus.requestFocus();
   }
 
   /// 读持久化的排序与视图模式（settings 表）。
@@ -305,7 +355,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
     });
     if (!_searching) {
-      FocusScope.of(context).unfocus();
+      _keyboardFocus.requestFocus();
+    } else {
+      _searchFocus.requestFocus();
     }
   }
 
@@ -326,7 +378,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   void _startSelection(BookEntry entry) {
     _searchController.clear();
-    FocusScope.of(context).unfocus();
+    _keyboardFocus.requestFocus();
     setState(() {
       _selectionMode = true;
       _searching = false;
@@ -346,6 +398,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _selectionMode = false;
       _selectedIds.clear();
     });
+    _keyboardFocus.requestFocus();
   }
 
   void _toggleSelected(String id) {
@@ -414,6 +467,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
   void dispose() {
     widget.library.removeListener(_reload);
     _searchController.dispose();
+    _searchFocus.dispose();
+    _keyboardFocus.dispose();
     _queue
       ..removeListener(_onQueueChanged)
       ..dispose();
@@ -567,7 +622,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
-    if (!widget.allowImport) return;
+    if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
+    setState(() => _pickingFiles = true);
     // ignore: avoid_print
     print('[import] 开始选择文件');
     if (mounted) {
@@ -588,6 +644,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
         setState(() => _error = '选择文件失败：$error');
       }
       return;
+    } finally {
+      if (mounted) setState(() => _pickingFiles = false);
     }
     // ignore: avoid_print
     print('[import] 选中 ${paths.length} 个文件');
@@ -629,6 +687,45 @@ class _BookshelfPageState extends State<BookshelfPage> {
       builder: (_) => BookDetailSheet(entry: entry, library: widget.library),
     );
     if (!mounted) {
+      return;
+    }
+    await _applyBookAction(entry, action);
+  }
+
+  Future<void> _openBookMenu(BookEntry entry, Offset position) async {
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final local = overlay.globalToLocal(position);
+    final action = await showMenu<String>(
+      context: context,
+      requestFocus: true,
+      position: RelativeRect.fromRect(
+        local & Size.zero,
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        const PopupMenuItem(value: 'open', child: Text('开始阅读')),
+        const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
+        const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
+        const PopupMenuItem(value: 'create-group', child: Text('新建分组')),
+        if (widget.allowImport)
+          const PopupMenuItem(value: 'update', child: Text('更新 EPUB')),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'delete',
+          child: Text(
+            '删除本书',
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
+      ],
+    );
+    if (mounted) await _applyBookAction(entry, action);
+  }
+
+  Future<void> _applyBookAction(BookEntry entry, String? action) async {
+    if (action == 'open') {
+      await _open(entry);
       return;
     }
     if (action == 'detail') {
@@ -850,10 +947,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final items = _items;
     final busy = _queue.isBusy;
     final visible = items == null ? null : _visible(items);
-    return Scaffold(
-      appBar: _buildAppBar(items, busy),
-      bottomNavigationBar: _selectionMode ? _buildSelectionBar() : null,
-      body: _buildBody(items, visible, busy),
+    return ExcludeFocus(
+      excluding: !widget.active,
+      child: Focus(
+        focusNode: _keyboardFocus,
+        autofocus: widget.active,
+        onKeyEvent: _handleShelfKey,
+        child: Scaffold(
+          appBar: _buildAppBar(items, busy || _pickingFiles),
+          bottomNavigationBar: _selectionMode ? _buildSelectionBar() : null,
+          body: _buildBody(items, visible, busy),
+        ),
+      ),
     );
   }
 
@@ -882,6 +987,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ? TextField(
               key: const ValueKey<String>('bookshelf-search-field'),
               controller: _searchController,
+              focusNode: _searchFocus,
               autofocus: true,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
@@ -1069,6 +1175,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               onSelect: () => _toggleSelected(item.entry.id),
               onOpen: _open,
               onLongPress: _openBookDetail,
+              onSecondaryTap: (position) => _openBookMenu(item.entry, position),
             );
           },
         );
@@ -1116,6 +1223,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onSelect: () => _toggleSelected(item.entry.id),
           onOpen: _open,
           onLongPress: _openBookDetail,
+          onSecondaryTap: (position) => _openBookMenu(item.entry, position),
         );
       },
     );
@@ -1567,6 +1675,7 @@ class _BookRow extends StatelessWidget {
     required this.onSelect,
     required this.onOpen,
     required this.onLongPress,
+    required this.onSecondaryTap,
   });
 
   final BookEntry entry;
@@ -1577,6 +1686,7 @@ class _BookRow extends StatelessWidget {
   final VoidCallback onSelect;
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
+  final ValueChanged<Offset> onSecondaryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1620,6 +1730,9 @@ class _BookRow extends StatelessWidget {
             onLongPress(entry);
           }
         },
+        onSecondaryTapUp: selectionMode
+            ? null
+            : (details) => onSecondaryTap(details.globalPosition),
         child: Ink(
           color: selectionMode && selected
               ? theme.colorScheme.surfaceContainerLow
@@ -1812,6 +1925,7 @@ class _BookCard extends StatelessWidget {
     required this.onSelect,
     required this.onOpen,
     required this.onLongPress,
+    required this.onSecondaryTap,
   });
 
   final BookEntry entry;
@@ -1822,6 +1936,7 @@ class _BookCard extends StatelessWidget {
   final VoidCallback onSelect;
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
+  final ValueChanged<Offset> onSecondaryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1872,6 +1987,9 @@ class _BookCard extends StatelessWidget {
           onLongPress(entry);
         }
       },
+      onSecondaryTapUp: selectionMode
+          ? null
+          : (details) => onSecondaryTap(details.globalPosition),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
