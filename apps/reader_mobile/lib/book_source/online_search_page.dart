@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
+import 'book_source_compat.dart';
 import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
@@ -23,6 +25,7 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
   List<OnlineSourceSearchResult>? _results;
   bool _searching = false;
   String? _error;
+  int _searchVersion = 0;
 
   @override
   void dispose() {
@@ -34,6 +37,7 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
     final query = _query.text.trim();
     if (query.isEmpty || _searching) return;
     FocusScope.of(context).unfocus();
+    final version = ++_searchVersion;
     setState(() {
       _searching = true;
       _error = null;
@@ -41,13 +45,33 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
     });
     try {
       final results = await widget.controller.search(query);
-      if (!mounted) return;
-      setState(() => _results = results);
+      if (!mounted || version != _searchVersion) return;
+      setState(() {
+        _results = results;
+        _searching = false;
+      });
+      unawaited(_enrichResults(version, results));
     } on Object catch (error) {
-      if (!mounted) return;
+      if (!mounted || version != _searchVersion) return;
       setState(() => _error = '搜索失败：$error');
     } finally {
-      if (mounted) setState(() => _searching = false);
+      if (mounted && version == _searchVersion && _searching) {
+        setState(() => _searching = false);
+      }
+    }
+  }
+
+  Future<void> _enrichResults(
+    int version,
+    List<OnlineSourceSearchResult> results,
+  ) async {
+    if (!results.any((result) => result.books.isNotEmpty)) return;
+    try {
+      final enriched = await widget.controller.enrichSearchResults(results);
+      if (!mounted || version != _searchVersion) return;
+      setState(() => _results = enriched);
+    } on Object {
+      // 详情字段补齐失败时保留搜索结果。
     }
   }
 
@@ -220,15 +244,38 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                subtitle: Text(
-                  <String>[
-                    if (book.author.isNotEmpty) book.author,
-                    if (book.kind.isNotEmpty) book.kind,
-                    if (book.wordCount.isNotEmpty) book.wordCount,
-                    if (book.lastChapter.isNotEmpty) book.lastChapter,
-                  ].join(' · '),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                isThreeLine: true,
+                subtitle: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      book.author.isEmpty ? '佚名' : book.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      onlineSearchTagLine(
+                        sourceName: result.source.name,
+                        status: book.status.isNotEmpty
+                            ? book.status
+                            : normalizeOnlineStatus(
+                                book.kind,
+                                lastChapter: book.lastChapter,
+                              ),
+                        wordCount: book.wordCount,
+                        chapterCount: book.chapterCount,
+                        updateTime: book.updateTime,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
                 trailing: const AppIcon(AppGlyph.chevronRight),
                 onTap: () => _openBook(result.source, book),

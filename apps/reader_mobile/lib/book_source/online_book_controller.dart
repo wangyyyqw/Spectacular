@@ -100,6 +100,31 @@ class OnlineBookController extends ChangeNotifier {
     return service.searchMany(_sources, query);
   }
 
+  /// 为搜索结果异步补齐详情页标签字段。
+  Future<List<OnlineSourceSearchResult>> enrichSearchResults(
+    List<OnlineSourceSearchResult> results,
+  ) async {
+    if (results.isEmpty) return results;
+    return Future.wait(
+      results.map((result) async {
+        if (result.books.isEmpty) return result;
+        try {
+          final books = await service.enrichSearchResults(
+            result.source,
+            result.books,
+          );
+          return OnlineSourceSearchResult(
+            source: result.source,
+            books: books,
+            error: result.error,
+          );
+        } on Object {
+          return result;
+        }
+      }),
+    );
+  }
+
   /// 按书架条目查找关联来源。
   BookSource? sourceForBook(String bookId) {
     final link = _links[bookId];

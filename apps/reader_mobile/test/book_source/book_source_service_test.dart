@@ -162,6 +162,122 @@ void main() {
     expect(books.single.bookUrl, 'https://example.com/detail?book_id=2002');
   });
 
+  test('搜索结果直接解析章节数与更新时间', () async {
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'ret_data': <Object?>[
+                <String, Object?>{
+                  'book_name': '标签书',
+                  'author': '作者',
+                  'book_url': 'https://example.com/book/1',
+                  'word_number': 13000,
+                  'chapter_count': 12,
+                  'update_time': '2025-06-11',
+                },
+              ],
+            }),
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'tag-search-source',
+      name: '番茄小说',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search?q={{key}}',
+      search: BookListRule(
+        bookList: '.ret_data[*]',
+        name: 'book_name',
+        author: 'author',
+        bookUrl: 'book_url',
+      ),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+
+    final books = await service.search(source, '标签书');
+
+    expect(books.single.wordCount, '1.3万字');
+    expect(books.single.chapterCount, 12);
+    expect(books.single.updateTime, '2025 06 11');
+  });
+
+  test('详情元数据补齐搜索结果章节数与更新时间', () async {
+    final timestamp = DateTime(2025, 6, 11).millisecondsSinceEpoch ~/ 1000;
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          final body = request.url.path == '/search'
+              ? <String, Object?>{
+                  'ret_data': <Object?>[
+                    <String, Object?>{
+                      'book_name': '短篇',
+                      'author': '作者',
+                      'book_url': 'https://example.com/book/1',
+                    },
+                  ],
+                }
+              : <String, Object?>{
+                  'data': <String, Object?>{
+                    'book_name': '短篇',
+                    'author': '作者',
+                    'word_number': 13000,
+                    'content_chapter_number': 1,
+                    'last_chapter_update_time': timestamp,
+                  },
+                };
+          return http.Response(
+            jsonEncode(body),
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'tag-detail-source',
+      name: '番茄小说',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search?q={{key}}',
+      search: BookListRule(
+        bookList: '.ret_data[*]',
+        name: 'book_name',
+        author: 'author',
+        bookUrl: 'book_url',
+      ),
+      bookInfo: BookInfoRule(
+        init: 'data',
+        name: 'book_name',
+        author: 'author',
+        wordCount: 'word_number',
+      ),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+
+    final books = await service.search(source, '短篇');
+    expect(books.single.chapterCount, 0);
+    expect(books.single.updateTime, isEmpty);
+
+    final enriched = await service.enrichSearchResults(source, books);
+
+    expect(enriched.single.wordCount, '1.3万字');
+    expect(enriched.single.chapterCount, 1);
+    expect(enriched.single.updateTime, '2025 06 11');
+  });
+
   test('封面通过书源请求器加载并使用引用页缓存', () async {
     var requests = 0;
     String? referer;

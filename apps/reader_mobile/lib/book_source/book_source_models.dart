@@ -14,7 +14,10 @@ class OnlineBook {
     this.coverUrl = '',
     this.intro = '',
     this.kind = '',
+    this.status = '',
     this.wordCount = '',
+    this.chapterCount = 0,
+    this.updateTime = '',
     this.lastChapter = '',
     this.bookOptions = const <String, Object?>{},
     this.tocOptions = const <String, Object?>{},
@@ -47,8 +50,17 @@ class OnlineBook {
   /// 分类或状态。
   final String kind;
 
+  /// 归一化后的连载状态。
+  final String status;
+
   /// 字数描述。
   final String wordCount;
+
+  /// 章节数量；未知时为 0。
+  final int chapterCount;
+
+  /// 最近更新时间，已格式化为展示文本。
+  final String updateTime;
 
   /// 最新章节。
   final String lastChapter;
@@ -69,7 +81,10 @@ class OnlineBook {
     String? coverUrl,
     String? intro,
     String? kind,
+    String? status,
     String? wordCount,
+    int? chapterCount,
+    String? updateTime,
     String? lastChapter,
     Map<String, Object?>? bookOptions,
     Map<String, Object?>? tocOptions,
@@ -84,7 +99,10 @@ class OnlineBook {
       coverUrl: coverUrl ?? this.coverUrl,
       intro: intro ?? this.intro,
       kind: kind ?? this.kind,
+      status: status ?? this.status,
       wordCount: wordCount ?? this.wordCount,
+      chapterCount: chapterCount ?? this.chapterCount,
+      updateTime: updateTime ?? this.updateTime,
       lastChapter: lastChapter ?? this.lastChapter,
       bookOptions: bookOptions ?? this.bookOptions,
       tocOptions: tocOptions ?? this.tocOptions,
@@ -130,6 +148,8 @@ class BookListRule {
     this.author = '',
     this.kind = '',
     this.wordCount = '',
+    this.chapterCount = '',
+    this.updateTime = '',
     this.lastChapter = '',
     this.intro = '',
     this.coverUrl = '',
@@ -143,6 +163,8 @@ class BookListRule {
       author: _string(json, 'author'),
       kind: _string(json, 'kind'),
       wordCount: _string(json, 'wordCount'),
+      chapterCount: _string(json, 'chapterCount'),
+      updateTime: _string(json, 'updateTime'),
       lastChapter: _string(json, 'lastChapter'),
       intro: _string(json, 'intro'),
       coverUrl: _string(json, 'coverUrl'),
@@ -155,6 +177,8 @@ class BookListRule {
   final String author;
   final String kind;
   final String wordCount;
+  final String chapterCount;
+  final String updateTime;
   final String lastChapter;
   final String intro;
   final String coverUrl;
@@ -168,6 +192,8 @@ class BookInfoRule {
     this.author = '',
     this.kind = '',
     this.wordCount = '',
+    this.chapterCount = '',
+    this.updateTime = '',
     this.lastChapter = '',
     this.intro = '',
     this.coverUrl = '',
@@ -181,6 +207,8 @@ class BookInfoRule {
       author: _string(json, 'author'),
       kind: _string(json, 'kind'),
       wordCount: _string(json, 'wordCount'),
+      chapterCount: _string(json, 'chapterCount'),
+      updateTime: _string(json, 'updateTime'),
       lastChapter: _string(json, 'lastChapter'),
       intro: _string(json, 'intro'),
       coverUrl: _string(json, 'coverUrl'),
@@ -193,6 +221,8 @@ class BookInfoRule {
   final String author;
   final String kind;
   final String wordCount;
+  final String chapterCount;
+  final String updateTime;
   final String lastChapter;
   final String intro;
   final String coverUrl;

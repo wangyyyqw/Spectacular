@@ -30,6 +30,104 @@ String normalizeOnlineWordCount(String raw) {
   return '${_trimDecimal(plain.toStringAsFixed(0))}字';
 }
 
+/// 将书源名称归一为搜索结果中使用的平台简称。
+String normalizeOnlinePlatformLabel(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return '';
+  final lower = text.toLowerCase();
+  const aliases = <String, String>{
+    'qidian': '起点',
+    '起点': '起点',
+    'jinjiang': '晋江',
+    '晋江': '晋江',
+    'zongheng': '纵横',
+    '纵横': '纵横',
+    'xirang': '息壤',
+    '息壤': '息壤',
+    'youdu': '有毒',
+    '有毒': '有毒',
+    'faloo': '飞卢',
+    '飞卢': '飞卢',
+    'ciweimao': '刺猬猫',
+    '刺猬猫': '刺猬猫',
+    'fanqie': '番茄',
+    '番茄': '番茄',
+    'gongzicp': '长佩',
+    '长佩': '长佩',
+    'sfacg': '菠萝包',
+    '菠萝包': '菠萝包',
+  };
+  for (final entry in aliases.entries) {
+    if (lower.contains(entry.key)) return entry.value;
+  }
+  return text;
+}
+
+/// 解析章节数量；无法识别或非正数时返回 0。
+int parseOnlineChapterCount(String raw) {
+  final text = raw.trim().replaceAll(',', '').replaceAll('，', '');
+  if (text.isEmpty) return 0;
+  final match = RegExp(r'\d+').firstMatch(text);
+  if (match == null) return 0;
+  final value = int.tryParse(match.group(0)!) ?? 0;
+  return value > 0 ? value : 0;
+}
+
+/// 将时间戳或常见日期文本格式化为 `yyyy MM dd`。
+String formatOnlineUpdateTime(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty || text == '0' || text.toLowerCase() == 'null') return '';
+  final numeric = int.tryParse(text);
+  if (numeric != null && numeric > 0) {
+    final millis = numeric < 10000000000 ? numeric * 1000 : numeric;
+    return _formatOnlineDate(
+      DateTime.fromMillisecondsSinceEpoch(millis).toLocal(),
+    );
+  }
+  final normalized = text
+      .replaceFirst('T', ' ')
+      .replaceFirst(RegExp(r'\.\d+Z?$'), '')
+      .trim();
+  final parsed = DateTime.tryParse(normalized);
+  if (parsed != null) return _formatOnlineDate(parsed.toLocal());
+  if (normalized.length < 8) return normalized;
+  return normalized.substring(0, 10).replaceAll('-', ' ').replaceAll('/', ' ');
+}
+
+/// 在线搜索结果标签行：平台 / 状态 / 字数 / 章节数 / 更新时间。
+String onlineSearchTagLine({
+  String platformName = '',
+  String sourceName = '',
+  String status = '',
+  String wordCount = '',
+  int chapterCount = 0,
+  String updateTime = '',
+}) {
+  final platform = normalizeOnlinePlatformLabel(
+    platformName.trim().isNotEmpty ? platformName : sourceName,
+  );
+  final time = formatOnlineUpdateTime(updateTime);
+  final values = <String>[
+    platform,
+    status.trim(),
+    wordCount.trim(),
+    if (chapterCount > 0) '$chapterCount章',
+    time,
+  ];
+  final seen = <String>{};
+  final parts = <String>[
+    for (final value in values)
+      if (value.isNotEmpty && seen.add(value)) value,
+  ];
+  return parts.isEmpty ? '详情加载中' : parts.join(' / ');
+}
+
+String _formatOnlineDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year.toString().padLeft(4, '0')} $month $day';
+}
+
 /// 将常见状态文本归一为连载、完结、断更或下架；无法识别时返回空串。
 String normalizeOnlineStatus(String raw, {String lastChapter = ''}) {
   final text = raw.trim();

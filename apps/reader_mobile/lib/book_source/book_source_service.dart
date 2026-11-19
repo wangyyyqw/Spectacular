@@ -12,6 +12,46 @@ import 'book_source_rule_engine.dart';
 import 'book_source_script.dart';
 import 'online_epub_builder.dart';
 
+const List<String> _onlineWordCountFields = <String>[
+  'wordCount',
+  'word_count',
+  'word_number',
+  'wordNum',
+  'word_num',
+  'words',
+  'total_words',
+  'totalWords',
+];
+
+const List<String> _onlineChapterCountFields = <String>[
+  'chapterCount',
+  'chapter_count',
+  'chapter_count_total',
+  'total_chapters',
+  'totalChapter',
+  'total_chapter',
+  'chapter_num',
+  'chapterNum',
+  'chapters_count',
+  'latest_chapter_index',
+  'serial_count',
+  'content_chapter_number',
+  'real_chapter_order',
+  'estimated_chapter_count',
+];
+
+const List<String> _onlineUpdateTimeFields = <String>[
+  'updateTime',
+  'updated_at',
+  'update_time',
+  'last_chapter_update_time',
+  'last_chapter_first_pass_time',
+  'latest_chapter_update_time',
+  'latest_update_time',
+  'firstPassTime',
+  'first_pass_time',
+];
+
 /// 单个来源的搜索结果或错误。
 class OnlineSourceSearchResult {
   const OnlineSourceSearchResult({
@@ -257,14 +297,24 @@ class BookSourceService {
               ]),
             );
         final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
-        final rawWordCount =
-            _field(node, source.search.wordCount, context, script).ifBlank(
-              _commonJsonField(node, const <String>[
-                'wordCount',
-                'words',
-                'word_count',
-              ]),
-            );
+        final rawWordCount = _field(
+          node,
+          source.search.wordCount,
+          context,
+          script,
+        ).ifBlank(_commonJsonField(node, _onlineWordCountFields));
+        final rawChapterCount = _field(
+          node,
+          source.search.chapterCount,
+          context,
+          script,
+        ).ifBlank(_commonJsonField(node, _onlineChapterCountFields));
+        final rawUpdateTime = _field(
+          node,
+          source.search.updateTime,
+          context,
+          script,
+        ).ifBlank(_commonJsonField(node, _onlineUpdateTimeFields));
         final book = OnlineBook(
           sourceId: source.id,
           sourceName: source.name,
@@ -285,7 +335,10 @@ class BookSourceService {
             ),
           ),
           kind: status.ifBlank(kindRaw),
+          status: status,
           wordCount: normalizeOnlineWordCount(rawWordCount),
+          chapterCount: parseOnlineChapterCount(rawChapterCount),
+          updateTime: formatOnlineUpdateTime(rawUpdateTime),
           lastChapter: lastChapter,
         );
         final identity = '${book.name}|${book.author}|${book.bookUrl}';
@@ -296,6 +349,70 @@ class BookSourceService {
     } finally {
       script.dispose();
     }
+  }
+
+  /// 从详情页补齐搜索结果的章节数、更新时间等标签字段。
+  ///
+  /// 单个详情失败或无响应时保留原搜索结果，不阻断搜索。
+  Future<List<OnlineBook>> enrichSearchResults(
+    BookSource source,
+    List<OnlineBook> books, {
+    int limit = 8,
+    int concurrency = 3,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    if (books.isEmpty || limit <= 0) return books;
+    final enriched = List<OnlineBook>.of(books);
+    final selected = math.min(limit, books.length);
+    final deadline = DateTime.now().add(timeout);
+    var cursor = 0;
+
+    Future<void> worker() async {
+      while (cursor < selected) {
+        final index = cursor++;
+        final book = books[index];
+        if (book.chapterCount > 0 &&
+            book.updateTime.isNotBlank &&
+            book.wordCount.isNotBlank &&
+            book.status.isNotBlank) {
+          continue;
+        }
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining <= Duration.zero) return;
+        try {
+          final info = await loadBookInfo(source, book).timeout(remaining);
+          enriched[index] = _mergeSearchMetadata(book, info);
+        } on Object {
+          // 详情不可用时继续展示搜索结果已有字段。
+        }
+      }
+    }
+
+    await Future.wait(<Future<void>>[
+      for (var index = 0; index < math.min(concurrency, selected); index++)
+        worker(),
+    ]);
+    return enriched;
+  }
+
+  OnlineBook _mergeSearchMetadata(OnlineBook base, OnlineBook detail) {
+    return base.copyWith(
+      author: base.author.isNotBlank ? base.author : detail.author,
+      coverUrl: base.coverUrl.isNotBlank ? base.coverUrl : detail.coverUrl,
+      intro: base.intro.isNotBlank ? base.intro : detail.intro,
+      kind: base.kind.isNotBlank ? base.kind : detail.kind,
+      status: base.status.isNotBlank ? base.status : detail.status,
+      wordCount: base.wordCount.isNotBlank ? base.wordCount : detail.wordCount,
+      chapterCount: base.chapterCount > 0
+          ? base.chapterCount
+          : detail.chapterCount,
+      updateTime: base.updateTime.isNotBlank
+          ? base.updateTime
+          : detail.updateTime,
+      lastChapter: base.lastChapter.isNotBlank
+          ? base.lastChapter
+          : detail.lastChapter,
+    );
   }
 
   /// 读取详情页字段并定位目录地址。
@@ -366,6 +483,20 @@ class BookSourceService {
         context,
         script,
       ).ifBlank(book.wordCount);
+      final chapterCountRaw = _field(
+        root,
+        source.bookInfo.chapterCount,
+        context,
+        script,
+      ).ifBlank(_commonJsonField(root, _onlineChapterCountFields));
+      final updateTimeRaw = _field(
+        root,
+        source.bookInfo.updateTime,
+        context,
+        script,
+      ).ifBlank(_commonJsonField(root, _onlineUpdateTimeFields));
+      final parsedChapterCount = parseOnlineChapterCount(chapterCountRaw);
+      final formattedUpdateTime = formatOnlineUpdateTime(updateTimeRaw);
       return book.copyWith(
         name: name,
         author: author,
@@ -387,7 +518,14 @@ class BookSourceService {
           ).ifBlank(book.intro),
         ),
         kind: status.ifBlank(kindRaw),
+        status: status,
         wordCount: normalizeOnlineWordCount(wordCount),
+        chapterCount: parsedChapterCount > 0
+            ? parsedChapterCount
+            : book.chapterCount,
+        updateTime: formattedUpdateTime.isNotEmpty
+            ? formattedUpdateTime
+            : book.updateTime,
         lastChapter: lastChapter,
       );
     } finally {

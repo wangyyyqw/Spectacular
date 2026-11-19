@@ -16,6 +16,36 @@ void main() {
       expect(normalizeOnlineWordCount('约 100 万字'), '约 100 万字');
     });
 
+    test('平台、章节数与更新时间标签', () {
+      expect(normalizeOnlinePlatformLabel('番茄小说'), '番茄');
+      expect(normalizeOnlinePlatformLabel('Fanqie Novel'), '番茄');
+      expect(normalizeOnlinePlatformLabel('起点中文网'), '起点');
+      expect(normalizeOnlinePlatformLabel('鲸落接口'), '鲸落接口');
+      expect(parseOnlineChapterCount('1,234章'), 1234);
+      expect(parseOnlineChapterCount('未知'), 0);
+
+      final timestamp = DateTime(2025, 6, 11).millisecondsSinceEpoch ~/ 1000;
+      expect(formatOnlineUpdateTime('$timestamp'), '2025 06 11');
+      expect(formatOnlineUpdateTime('2025-06-11T12:00:00'), '2025 06 11');
+      expect(formatOnlineUpdateTime('0'), '');
+
+      expect(
+        onlineSearchTagLine(
+          sourceName: '番茄小说',
+          status: '完结',
+          wordCount: '1.3万字',
+          chapterCount: 1,
+          updateTime: '2025-06-11',
+        ),
+        '番茄 / 完结 / 1.3万字 / 1章 / 2025 06 11',
+      );
+      expect(
+        onlineSearchTagLine(sourceName: '番茄', status: '番茄', wordCount: '1.3万字'),
+        '番茄 / 1.3万字',
+      );
+      expect(onlineSearchTagLine(), '详情加载中');
+    });
+
     test('状态文本与末章推断', () {
       expect(normalizeOnlineStatus('连载中'), '连载');
       expect(normalizeOnlineStatus('已下架'), '下架');
