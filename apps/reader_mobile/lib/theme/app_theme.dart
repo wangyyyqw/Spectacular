@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/system_ui.dart';
 
 const _ink = Color(0xFF222427);
 const _secondary = Color(0xFF686C71);
@@ -84,6 +85,7 @@ AppBarTheme _appBar(ColorScheme colors) => AppBarTheme(
   surfaceTintColor: Colors.transparent,
   elevation: 0,
   scrolledUnderElevation: 0,
+  systemOverlayStyle: readerSystemBarStyle(colors.surfaceContainerLow),
   centerTitle: false,
   titleTextStyle: TextStyle(
     fontFamily: 'builtin_hei',

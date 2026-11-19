@@ -13,6 +13,9 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 class OnlineSourceLoginActivity : Activity() {
     private lateinit var webView: WebView
@@ -33,6 +36,20 @@ class OnlineSourceLoginActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
+        }
+        applyEdgeToEdge(window)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout(),
+            )
+            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(safe.left, safe.top, safe.right, maxOf(safe.bottom, keyboard.bottom))
+            insets
         }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -92,6 +109,7 @@ class OnlineSourceLoginActivity : Activity() {
             ),
         )
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         webView.loadUrl(startUrl)
     }
 
