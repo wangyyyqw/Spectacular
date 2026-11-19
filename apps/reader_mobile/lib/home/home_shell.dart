@@ -77,9 +77,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (_exportingDiagnostics) return;
     final restored = await widget.storageRecovery!.retry();
     if (mounted && !restored) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('本地数据库仍不可用，请稍后重试')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('本地数据库仍不可用，请稍后重试')));
     }
   }
 
@@ -90,9 +89,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() => _exportingDiagnostics = false);
     if (!exported) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('诊断导出失败，请稍后重试')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('诊断导出失败，请稍后重试')));
     }
   }
 
@@ -127,7 +125,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           onReadingFinished: _onReadingFinished,
           reaMicro: _reaMicro,
         ),
-        ReviewsPage(library: widget.library, active: _index == 2),
+        ReviewsPage(
+          library: widget.library,
+          active: _index == 2,
+          reaMicro: _reaMicro,
+        ),
         ProfilePage(library: widget.library, reaMicro: _reaMicro),
       ],
     );
@@ -171,14 +173,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Widget _buildStorageMessage(ThemeData theme) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        '本地数据库不可用，当前为临时模式',
-        style: theme.textTheme.titleSmall,
-      ),
+      Text('本地数据库不可用，当前为临时模式', style: theme.textTheme.titleSmall),
       const SizedBox(height: 4),
-      const Text(
-        '持久化不可用，原书库与阅读记录暂时无法读取。原有文件已保留，恢复前已暂停导入。',
-      ),
+      const Text('持久化不可用，原书库与阅读记录暂时无法读取。原有文件已保留，恢复前已暂停导入。'),
     ],
   );
 

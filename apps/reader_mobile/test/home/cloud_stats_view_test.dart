@@ -93,13 +93,20 @@ void main() {
     expect(find.text('阅微唯一数据源'), findsOneWidget);
     expect(find.text('累计阅读'), findsOneWidget);
     expect(find.text('2 小时'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('云端书'), 300);
-    await tester.ensureVisible(find.text('云端书'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('cloud-stats-book-21')),
+      300,
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('cloud-stats-book-21')),
+    );
     await tester.pumpAndSettle();
-    expect(find.text('云端书'), findsOneWidget);
+    expect(find.text('云端书'), findsWidgets);
     expect(find.text('已关联本地书籍，可打开'), findsOneWidget);
 
-    await tester.tap(find.text('云端书'));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('cloud-stats-book-21')),
+    );
     expect(opened?.cloudBookId, 21);
   });
 }

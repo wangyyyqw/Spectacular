@@ -270,8 +270,8 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
           title: const Text('以阅微为唯一数据源'),
           subtitle: Text(
             controller.cloudAsPrimary
-                ? '统计页显示阅微完整阅读数据；阅读时长、进度自动上报并按最后修改时间多端合并'
-                : '开启后以阅微为准，统计、阅读时长和阅读位置均与云端同步',
+                ? '阅读时长、进度自动上报并按最后修改时间多端合并；统计页显示阅微完整阅读数据'
+                : '开启后以阅微为准同步阅读时长和阅读位置；统计页登录后仍显示阅微数据',
           ),
           value: controller.cloudAsPrimary,
           onChanged: _switchingCloudSource

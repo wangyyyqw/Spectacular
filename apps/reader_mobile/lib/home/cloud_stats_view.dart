@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../rea_micro/rea_micro_models.dart';
+import '../storage/reading_session_store.dart';
+import 'reading_calendar.dart';
+import 'reading_insights.dart';
+import 'stats_section.dart';
+import 'weekday_average_chart.dart';
 
-/// 阅微完整阅读数据视图。
-///
-/// 开启唯一数据源后，统计页以该视图替代本地会话汇总。
+const _cloudInsightBookId = '__reamicro__';
+const _cloudInsightBookTitle = '阅微阅读';
+
+/// 阅微阅读数据视图，沿用统计页自己的分区、日历和排行排版。
 class CloudStatsView extends StatefulWidget {
   /// 创建视图。
   const CloudStatsView({
@@ -49,7 +55,8 @@ class _CloudStatsViewState extends State<CloudStatsView> {
   @override
   Widget build(BuildContext context) {
     final stats = widget.stats;
-    final overview = stats.overview;
+    final insights = _buildInsights(stats);
+    final now = DateTime.now();
     return RefreshIndicator(
       onRefresh: widget.onRefresh,
       child: Center(
@@ -64,13 +71,21 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                 const SizedBox(height: 14),
               ],
               _SourceBanner(stats: stats),
-              const SizedBox(height: 18),
-              _SummaryGrid(overview: overview),
-              const SizedBox(height: 14),
-              _SplitCard(overview: overview),
-              const SizedBox(height: 24),
-              _Section(
-                title: '阅读趋势',
+              StatsSection(
+                title: '阅读概览',
+                detail: '更新于 ${_formatDateTime(stats.fetchedAt)}',
+                showDivider: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _SummaryGrid(overview: stats.overview),
+                    const SizedBox(height: 10),
+                    _SplitCard(overview: stats.overview),
+                  ],
+                ),
+              ),
+              StatsSection(
+                title: '图书时长',
                 detail: _periodLabel(_period),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -95,26 +110,45 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                       onSelectionChanged: (selection) =>
                           setState(() => _period = selection.first),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     _PeriodSummary(stats: _periodStats),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 10),
                     _PeriodBars(stats: _periodStats, period: _period),
                     if (_periodStats.topBooks.isNotEmpty) ...<Widget>[
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 6),
                       _TopBooks(books: _periodStats.topBooks),
                     ],
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
-              _Section(
-                title: '最近 30 天',
-                detail: '来自阅微阅读时长',
-                child: _ChartBars(points: stats.chart),
+              StatsSection(
+                title: '阅读日历',
+                detail: '近 30 天',
+                child: ReadingCalendar(
+                  insights: insights,
+                  bookTitles: const <String, String>{
+                    _cloudInsightBookId: _cloudInsightBookTitle,
+                  },
+                  now: now,
+                ),
               ),
-              const SizedBox(height: 24),
-              _Section(
-                title: '书籍阅读记录',
+              StatsSection(
+                title: '每日平均',
+                detail: '按星期',
+                caption: '仅计阅微有阅读记录的日期',
+                child: WeekdayAverageChart(insights: insights),
+              ),
+              StatsSection(
+                title: '阅读排行',
+                detail: '按累计时长',
+                child: _CloudRanking(
+                  books: stats.books,
+                  linkedCloudBookIds: widget.linkedCloudBookIds,
+                  onOpenBook: widget.onOpenBook,
+                ),
+              ),
+              StatsSection(
+                title: '最近阅读',
                 detail: '${stats.books.length} 本',
                 child: _CloudBookList(
                   books: stats.books,
@@ -124,7 +158,8 @@ class _CloudStatsViewState extends State<CloudStatsView> {
               ),
               const SizedBox(height: 20),
               Text(
-                '统计、阅读时长和阅读位置均以阅微账号为准；'
+                '统计页展示阅微账号的阅读数据；'
+                '已关联书籍的阅读时长和位置按同步设置更新。'
                 '本地未导入的云端书籍只展示记录。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -134,6 +169,36 @@ class _CloudStatsViewState extends State<CloudStatsView> {
       ),
     );
   }
+}
+
+ReadingInsights _buildInsights(ReaMicroCloudStats stats) {
+  final now = DateTime.now();
+  final sessions = <ReadingSession>[];
+  void addDay(DateTime date, int seconds) {
+    if (seconds <= 0) return;
+    final duration = Duration(seconds: seconds);
+    final start = DateTime(date.year, date.month, date.day, 12);
+    sessions.add(
+      ReadingSession(
+        bookId: _cloudInsightBookId,
+        bookTitle: _cloudInsightBookTitle,
+        startedAt: start,
+        endedAt: start.add(duration),
+        duration: duration,
+      ),
+    );
+  }
+
+  for (final point in stats.chart) {
+    final date = DateTime.tryParse(point.day);
+    if (date != null) addDay(date, point.durationSeconds);
+  }
+  if (sessions.isEmpty) {
+    for (final day in stats.month.days) {
+      addDay(DateTime(now.year, now.month, day.day), day.durationSeconds);
+    }
+  }
+  return ReadingInsights(sessions, now: now);
 }
 
 class _SourceBanner extends StatelessWidget {
@@ -220,37 +285,40 @@ class _SplitCard extends StatelessWidget {
         ? overview.totalDurationSeconds
         : 1;
     final reading = overview.readingDurationSeconds.clamp(0, total).toDouble();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Text('阅读与听书', style: theme.textTheme.labelMedium),
-                const Spacer(),
-                Flexible(
-                  child: Text(
-                    '阅读 ${_formatSeconds(overview.readingDurationSeconds)}'
-                    ' · 听书 ${_formatSeconds(overview.listeningDurationSeconds)}',
-                    textAlign: TextAlign.end,
-                    style: theme.textTheme.bodySmall,
-                  ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Text('阅读与听书', style: theme.textTheme.labelMedium),
+              const Spacer(),
+              Flexible(
+                child: Text(
+                  '阅读 ${_formatSeconds(overview.readingDurationSeconds)}'
+                  ' · 听书 ${_formatSeconds(overview.listeningDurationSeconds)}',
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.bodySmall,
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: reading / total,
-                minHeight: 6,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: reading / total,
+              minHeight: 6,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -342,21 +410,6 @@ class _PeriodBars extends StatelessWidget {
       labels: <String>[for (final item in stats.days) '${item.day}日'],
       durations: <int>[for (final item in stats.days) item.durationSeconds],
       emptyText: '本周期暂无阅读时长',
-    );
-  }
-}
-
-class _ChartBars extends StatelessWidget {
-  const _ChartBars({required this.points});
-
-  final List<ReaMicroChartPoint> points;
-
-  @override
-  Widget build(BuildContext context) {
-    return _Bars(
-      labels: <String>[for (final point in points) _shortDay(point.day)],
-      durations: <int>[for (final point in points) point.durationSeconds],
-      emptyText: '暂无阅读时长数据',
     );
   }
 }
@@ -478,6 +531,121 @@ class _TopBooks extends StatelessWidget {
   }
 }
 
+class _CloudRanking extends StatelessWidget {
+  const _CloudRanking({
+    required this.books,
+    required this.linkedCloudBookIds,
+    required this.onOpenBook,
+  });
+
+  final List<ReaMicroBookRecord> books;
+  final Set<int> linkedCloudBookIds;
+  final ValueChanged<ReaMicroBookRecord> onOpenBook;
+
+  @override
+  Widget build(BuildContext context) {
+    if (books.isEmpty) {
+      return Text(
+        '阅微账号暂无书籍阅读记录',
+        style: TextStyle(
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    final ranked = List<ReaMicroBookRecord>.of(books)
+      ..sort(
+        (left, right) =>
+            right.totalReadTimeSeconds.compareTo(left.totalReadTimeSeconds),
+      );
+    return Column(
+      children: <Widget>[
+        for (var index = 0; index < ranked.take(3).length; index++) ...[
+          if (index > 0) const Divider(height: 1),
+          _CloudRankingRow(
+            record: ranked[index],
+            linked: linkedCloudBookIds.contains(ranked[index].cloudBookId),
+            onOpen: () => onOpenBook(ranked[index]),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CloudRankingRow extends StatelessWidget {
+  const _CloudRankingRow({
+    required this.record,
+    required this.linked,
+    required this.onOpen,
+  });
+
+  final ReaMicroBookRecord record;
+  final bool linked;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return InkWell(
+      key: ValueKey<String>('cloud-ranking-${record.cloudBookId}'),
+      onTap: linked ? onOpen : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _CloudCover(url: record.cover),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    record.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                  if (record.author.isNotEmpty)
+                    Text(
+                      record.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: muted),
+                    ),
+                  const SizedBox(height: 5),
+                  Text(
+                    '进度 ${(record.progress * 100).round()}%'
+                    ' · 阅读 ${record.readDays} 天'
+                    '${record.finished ? ' · 已读完' : ''}',
+                    style: TextStyle(fontSize: 11, color: muted),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              _formatSeconds(record.totalReadTimeSeconds),
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+                fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CloudBookList extends StatelessWidget {
   const _CloudBookList({
     required this.books,
@@ -535,26 +703,7 @@ class _CloudBookRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: SizedBox(
-                width: 40,
-                height: 54,
-                child: record.cover.isEmpty
-                    ? ColoredBox(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        child: Icon(Icons.menu_book_outlined, color: muted),
-                      )
-                    : Image.network(
-                        record.cover,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stack) => ColoredBox(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          child: Icon(Icons.menu_book_outlined, color: muted),
-                        ),
-                      ),
-              ),
-            ),
+            _CloudCover(url: record.cover),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -625,48 +774,41 @@ class _CloudBookRow extends StatelessWidget {
   }
 }
 
-class _Section extends StatelessWidget {
-  const _Section({
-    required this.title,
-    required this.detail,
-    required this.child,
-  });
+class _CloudCover extends StatelessWidget {
+  const _CloudCover({required this.url});
 
-  final String title;
-  final String detail;
-  final Widget child;
+  final String url;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Container(height: 1, color: theme.colorScheme.outlineVariant),
-        const SizedBox(height: 16),
-        Row(
-          children: <Widget>[
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        width: 40,
+        height: 54,
+        child: url.isEmpty
+            ? ColoredBox(
+                color: theme.colorScheme.surfaceContainerHighest,
+                child: Icon(
+                  Icons.menu_book_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                  size: 20,
+                ),
+              )
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stack) => ColoredBox(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  child: Icon(
+                    Icons.menu_book_outlined,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    size: 20,
+                  ),
+                ),
               ),
-            ),
-            const Spacer(),
-            Text(
-              detail,
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        child,
-      ],
+      ),
     );
   }
 }
@@ -688,11 +830,6 @@ String _formatDateTime(DateTime value) {
   final hour = value.hour.toString().padLeft(2, '0');
   final minute = value.minute.toString().padLeft(2, '0');
   return '$month-$day $hour:$minute';
-}
-
-String _shortDay(String day) {
-  if (day.length < 10) return day;
-  return day.substring(5).replaceAll('-', '/');
 }
 
 String _periodLabel(_CloudPeriod period) => switch (period) {

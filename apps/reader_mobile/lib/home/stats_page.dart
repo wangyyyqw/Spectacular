@@ -11,6 +11,7 @@ import 'cloud_stats_view.dart';
 import 'reading_calendar.dart';
 import 'reading_insights.dart';
 import 'book_reading_ranking.dart';
+import 'stats_section.dart';
 import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
@@ -49,7 +50,7 @@ class StatsPage extends StatefulWidget {
   /// 阅读会话落盘并关闭阅读页后通知，供阅微自动同步。
   final VoidCallback? onReadingFinished;
 
-  /// 阅微同步控制器；开启唯一数据源后改用云端完整阅读数据。
+  /// 阅微同步控制器；登录后统计页展示云端完整阅读数据。
   final ReaMicroController? reaMicro;
 
   @override
@@ -67,12 +68,14 @@ class _StatsPageState extends State<StatsPage> {
   ReadingSessionStore? get _sessionStore =>
       widget.sessionStore ?? widget.library.readingSessionStore();
 
+  bool get _useCloudStats => widget.reaMicro?.signedIn ?? false;
+
   @override
   void initState() {
     super.initState();
     widget.library.addListener(_onLibraryChanged);
     widget.reaMicro?.addListener(_onReaMicroChanged);
-    _cloudMode = widget.reaMicro?.cloudAsPrimary ?? false;
+    _cloudMode = _useCloudStats;
     _bookOpener = BookOpener(
       library: widget.library,
       progressStore: widget.progressStore,
@@ -108,13 +111,13 @@ class _StatsPageState extends State<StatsPage> {
         oldWidget.refreshToken != widget.refreshToken ||
         oldWidget.sessionStore != widget.sessionStore ||
         oldWidget.reaMicro != widget.reaMicro ||
-        (oldWidget.reaMicro?.cloudAsPrimary ?? false) !=
-            (widget.reaMicro?.cloudAsPrimary ?? false)) {
+        (oldWidget.reaMicro?.signedIn ?? false) !=
+            (widget.reaMicro?.signedIn ?? false)) {
       if (oldWidget.reaMicro != widget.reaMicro) {
         oldWidget.reaMicro?.removeListener(_onReaMicroChanged);
         widget.reaMicro?.addListener(_onReaMicroChanged);
       }
-      _cloudMode = widget.reaMicro?.cloudAsPrimary ?? false;
+      _cloudMode = _useCloudStats;
       _reload();
     }
   }
@@ -129,7 +132,7 @@ class _StatsPageState extends State<StatsPage> {
 
   void _onReaMicroChanged() {
     if (!mounted) return;
-    final cloud = widget.reaMicro?.cloudAsPrimary ?? false;
+    final cloud = _useCloudStats;
     if (cloud != _cloudMode) {
       _cloudMode = cloud;
       if (widget.active) {
@@ -146,9 +149,9 @@ class _StatsPageState extends State<StatsPage> {
   Future<void> _reload() async {
     _dirty = false;
     final controller = widget.reaMicro;
-    if (controller != null && controller.cloudAsPrimary) {
+    if (controller != null && controller.signedIn) {
       final token = ++_reloadToken;
-      if (widget.active && controller.signedIn) {
+      if (widget.active) {
         await controller.refreshCloudStats();
       }
       if (!mounted || token != _reloadToken) return;
@@ -316,7 +319,7 @@ class _StatsPageState extends State<StatsPage> {
 
   Future<void> _refresh() async {
     final controller = widget.reaMicro;
-    if (controller != null && controller.cloudAsPrimary) {
+    if (controller != null && controller.signedIn) {
       await controller.syncEverything();
       await controller.refreshCloudStats(force: true);
       if (mounted) setState(() {});
@@ -377,7 +380,7 @@ class _StatsPageState extends State<StatsPage> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.reaMicro;
-    if (controller != null && controller.cloudAsPrimary) {
+    if (controller != null && controller.signedIn) {
       return _buildCloud(context, controller);
     }
     final stats = _stats;
@@ -409,7 +412,7 @@ class _StatsPageState extends State<StatsPage> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
                     children: [
-                      _Section(
+                      StatsSection(
                         title: '图书时长',
                         showDivider: false,
                         child: BookDurationChart(
@@ -420,7 +423,7 @@ class _StatsPageState extends State<StatsPage> {
                           },
                         ),
                       ),
-                      _Section(
+                      StatsSection(
                         title: '阅读日历',
                         child: ReadingCalendar(
                           insights: stats.insights,
@@ -434,13 +437,13 @@ class _StatsPageState extends State<StatsPage> {
                           },
                         ),
                       ),
-                      _Section(
+                      StatsSection(
                         title: '每日平均',
                         detail: '按星期',
                         caption: '仅计有阅读记录的日期',
                         child: WeekdayAverageChart(insights: stats.insights),
                       ),
-                      _Section(
+                      StatsSection(
                         title: '阅读排行',
                         detail: '按累计时长',
                         child: BookReadingRanking(
@@ -581,76 +584,6 @@ class _AppBarHairline extends StatelessWidget implements PreferredSizeWidget {
       Container(height: 1, color: Theme.of(context).colorScheme.outlineVariant);
 }
 
-/// 细线分区：标题、右侧摘要、可选说明与内容。
-class _Section extends StatelessWidget {
-  const _Section({
-    required this.title,
-    this.detail,
-    this.caption,
-    this.showDivider = true,
-    required this.child,
-  });
-
-  final String title;
-  final String? detail;
-  final String? caption;
-  final bool showDivider;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (showDivider) ...[
-          const SizedBox(height: 24),
-          Container(height: 1, color: theme.colorScheme.outlineVariant),
-          const SizedBox(height: 16),
-        ],
-        SizedBox(
-          width: double.infinity,
-          child: Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 6,
-            children: [
-              Semantics(
-                container: true,
-                header: true,
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    height: 1.3,
-                  ),
-                ),
-              ),
-              if (detail != null)
-                Text(
-                  detail!,
-                  style: TextStyle(fontSize: 12, color: muted, height: 1.3),
-                ),
-            ],
-          ),
-        ),
-        if (caption != null) ...[
-          const SizedBox(height: 5),
-          Text(
-            caption!,
-            style: TextStyle(fontSize: 12, color: muted, height: 1.4),
-          ),
-        ],
-        const SizedBox(height: 12),
-        child,
-      ],
-    );
-  }
-}
-
 /// 加载骨架：几何结构与最终页面一致，避免布局跳变。
 class _StatsSkeleton extends StatelessWidget {
   const _StatsSkeleton();
@@ -740,7 +673,7 @@ class _RecentSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rows = stats.rows.where((row) => row.recentReadAt != null).toList();
-    return _Section(
+    return StatsSection(
       title: '最近阅读',
       detail: rows.isEmpty ? null : '按最后阅读排序',
       child: rows.isEmpty

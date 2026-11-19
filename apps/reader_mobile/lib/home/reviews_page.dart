@@ -4,11 +4,14 @@ import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
+import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_models.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 import 'book_notes_list.dart';
 import 'reading_insights.dart';
 import 'review_ticket.dart';
+import 'reviews_cloud.dart';
 
 enum _ReviewFilter {
   all('全部'),
@@ -38,6 +41,7 @@ class ReviewsPage extends StatefulWidget {
     required this.library,
     this.reviewStore,
     this.active = true,
+    this.reaMicro,
   });
 
   /// 书架存储。
@@ -48,6 +52,9 @@ class ReviewsPage extends StatefulWidget {
 
   /// 当前标签是否可见；重新显示时读取最新书评。
   final bool active;
+
+  /// 阅微控制器；登录后把云端笔记和书评并入当前页面。
+  final ReaMicroController? reaMicro;
 
   @override
   State<ReviewsPage> createState() => _ReviewsPageState();
@@ -70,6 +77,9 @@ class _ReviewsPageState extends State<ReviewsPage>
   int _reloadToken = 0;
   int _editToken = 0;
   String? _error;
+  String? _cloudError;
+  bool _signedIn = false;
+  Map<String, ({int cloudBookId, int bookId})> _cloudMarkBooks = const {};
 
   bool get _notes => _section == 0;
 
@@ -81,12 +91,15 @@ class _ReviewsPageState extends State<ReviewsPage>
     super.initState();
     _tabs = TabController(length: 2, vsync: this)..addListener(_changeSection);
     widget.library.addListener(_onLibraryChanged);
+    widget.reaMicro?.addListener(_onReaMicroChanged);
+    _signedIn = widget.reaMicro?.signedIn ?? false;
     if (widget.active) _reload();
   }
 
   @override
   void dispose() {
     widget.library.removeListener(_onLibraryChanged);
+    widget.reaMicro?.removeListener(_onReaMicroChanged);
     _tabs.dispose();
     _searchController.dispose();
     super.dispose();
@@ -96,13 +109,21 @@ class _ReviewsPageState extends State<ReviewsPage>
   void didUpdateWidget(ReviewsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     final libraryChanged = oldWidget.library != widget.library;
+    final controllerChanged = oldWidget.reaMicro != widget.reaMicro;
     if (libraryChanged) {
       oldWidget.library.removeListener(_onLibraryChanged);
       widget.library.addListener(_onLibraryChanged);
       _books = null;
     }
+    if (controllerChanged) {
+      oldWidget.reaMicro?.removeListener(_onReaMicroChanged);
+      widget.reaMicro?.addListener(_onReaMicroChanged);
+      _signedIn = widget.reaMicro?.signedIn ?? false;
+      _cloudMarkBooks = const {};
+    }
     if (oldWidget.active != widget.active ||
         libraryChanged ||
+        controllerChanged ||
         oldWidget.reviewStore != widget.reviewStore) {
       _editToken++;
       if (widget.active) _reload();
@@ -126,6 +147,18 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   void _onLibraryChanged() {
     if (widget.active) _reload();
+  }
+
+  void _onReaMicroChanged() {
+    if (!mounted) return;
+    final signedIn = widget.reaMicro?.signedIn ?? false;
+    if (signedIn == _signedIn) return;
+    _signedIn = signedIn;
+    if (widget.active) {
+      _reload();
+    } else {
+      setState(() {});
+    }
   }
 
   void _toggleSearch() {
@@ -170,16 +203,82 @@ class _ReviewsPageState extends State<ReviewsPage>
       final durations = notes
           ? _durations
           : await library.bookReadingDurations(minimumCountedSessionDuration);
+      var visibleBooks = books;
+      var visibleCounts = counts;
+      var visibleReviews = reviews;
+      var visibleDurations = durations;
+      var markBooks = const <String, ({int cloudBookId, int bookId})>{};
+      String? cloudError;
+      final controller = widget.reaMicro;
+      if (controller != null && controller.signedIn) {
+        try {
+          if (notes) {
+            final remoteBooks = await controller.loadMarkBooks();
+            final merge = mergeCloudMarkBooks(
+              books: books,
+              counts: counts,
+              links: controller.links,
+              markBooks: remoteBooks,
+            );
+            visibleBooks = <BookEntry>[...books, ...merge.extraBooks];
+            visibleCounts = merge.counts;
+            markBooks = merge.markBooks;
+          } else {
+            final milestones = await controller.loadMilestones();
+            final records = <CloudReviewRecord>[
+              for (final milestone in milestones)
+                CloudReviewRecord.fromMilestone(milestone),
+            ];
+            final seen = <int>{
+              for (final record in records) record.cloudBookId,
+            };
+            final pendingLinks = <ReaMicroBookLink>[];
+            for (final link in controller.links.values) {
+              if (seen.add(link.cloudBookId)) pendingLinks.add(link);
+            }
+            final limitedLinks = pendingLinks.take(24).toList(growable: false);
+            final fetched = await Future.wait<ReaMicroBookReview?>(
+              <Future<ReaMicroBookReview?>>[
+                for (final link in limitedLinks)
+                  controller.loadBookReview(link.cloudBookId),
+              ],
+            );
+            for (var index = 0; index < fetched.length; index++) {
+              final review = fetched[index];
+              if (review == null) continue;
+              records.add(
+                CloudReviewRecord.fromReview(
+                  review,
+                  cloudBookId: limitedLinks[index].cloudBookId,
+                ),
+              );
+            }
+            final merge = mergeCloudReviews(
+              books: books,
+              reviews: reviews,
+              links: controller.links,
+              records: records,
+            );
+            visibleBooks = <BookEntry>[...books, ...merge.extraBooks];
+            visibleReviews = merge.reviews;
+            visibleDurations = <String, Duration>{
+              ...durations,
+              ...merge.durations,
+            };
+          }
+        } catch (_) {
+          cloudError = notes ? '阅微笔记读取失败，已显示本地笔记' : '阅微书评读取失败，已显示本地书评';
+        }
+      }
       if (mounted && widget.active && token == _reloadToken) {
         setState(() {
-          _books = books;
+          _books = visibleBooks;
           _finishedBooks = finished;
-          _counts = counts;
-          _reviews = {
-            for (final book in books)
-              if (reviews[book.id] != null) book.id: reviews[book.id]!,
-          };
-          _durations = durations;
+          _counts = notes ? visibleCounts : _counts;
+          _reviews = notes ? _reviews : visibleReviews;
+          _durations = notes ? _durations : visibleDurations;
+          _cloudMarkBooks = markBooks;
+          _cloudError = cloudError;
           _error = null;
         });
       }
@@ -391,6 +490,26 @@ class _ReviewsPageState extends State<ReviewsPage>
           ];
   }
 
+  Future<List<ReaderAnnotation>> _loadNotes(String bookId) async {
+    final local =
+        await widget.library.annotationStore(bookId)?.list() ??
+        const <ReaderAnnotation>[];
+    final remote = _cloudMarkBooks[bookId];
+    final controller = widget.reaMicro;
+    if (remote == null || controller == null || !controller.signedIn) {
+      return local;
+    }
+    try {
+      final cloud = await controller.loadBookMarks(
+        cloudBookId: remote.cloudBookId,
+        bookId: remote.bookId,
+      );
+      return mergeCloudMarks(local, cloud);
+    } catch (_) {
+      return local;
+    }
+  }
+
   Widget _sectionBody() {
     final books = _books;
     if (books == null) {
@@ -398,32 +517,41 @@ class _ReviewsPageState extends State<ReviewsPage>
           ? const Center(child: CircularProgressIndicator())
           : _ReviewLoadError(message: _error!, onRetry: _reload);
     }
+    Widget body;
     if (_notes) {
-      return BookNotesList(
+      body = BookNotesList(
         books: books,
         counts: _counts,
-        loadNotes: (id) async =>
-            await widget.library.annotationStore(id)?.list() ??
-            const <ReaderAnnotation>[],
+        loadNotes: _loadNotes,
         onRefresh: _reload,
       );
+    } else if (books.isEmpty) {
+      body = const _EmptyReviews();
+    } else {
+      body = RefreshIndicator(
+        onRefresh: _reload,
+        child: _ReviewList(
+          books: books,
+          finishedBooks: _finishedBooks,
+          reviews: _reviews,
+          durations: _durations,
+          query: _query,
+          filter: _filter,
+          sort: _sort,
+          onFilterChanged: (filter) => setState(() => _filter = filter),
+          onResetSearchAndFilter: _resetSearchAndFilter,
+          onOpen: _openReview,
+          onEdit: _edit,
+        ),
+      );
     }
-    if (books.isEmpty) return const _EmptyReviews();
-    return RefreshIndicator(
-      onRefresh: _reload,
-      child: _ReviewList(
-        books: books,
-        finishedBooks: _finishedBooks,
-        reviews: _reviews,
-        durations: _durations,
-        query: _query,
-        filter: _filter,
-        sort: _sort,
-        onFilterChanged: (filter) => setState(() => _filter = filter),
-        onResetSearchAndFilter: _resetSearchAndFilter,
-        onOpen: _openReview,
-        onEdit: _edit,
-      ),
+    final cloudError = _cloudError;
+    if (cloudError == null) return body;
+    return Column(
+      children: [
+        _CloudNotice(message: cloudError, onRetry: _reload),
+        Expanded(child: body),
+      ],
     );
   }
 }
@@ -999,6 +1127,38 @@ class _ReviewLoadError extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _CloudNotice extends StatelessWidget {
+  const _CloudNotice({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              message,
+              key: const ValueKey<String>('reviews-cloud-error'),
+              style: TextStyle(fontSize: 12, color: scheme.onErrorContainer),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('重试')),
+        ],
+      ),
+    );
+  }
 }
 
 class _ReviewEditorSheet extends StatefulWidget {
