@@ -1937,9 +1937,12 @@ class ReaMicroTtsVoice {
     this.name = '',
     this.language = '',
     this.quality = '',
+    this.speakerCount = '',
+    this.sampleRate = '',
     this.folderName = '',
     this.modelDirectory = '',
     this.numberOfSpeakers = 0,
+    this.fallbackDownloadUrl = '',
   });
 
   /// 音色标识。
@@ -1957,6 +1960,12 @@ class ReaMicroTtsVoice {
   /// 音质。
   final String quality;
 
+  /// 说话人数量文案。
+  final String speakerCount;
+
+  /// 采样率文案。
+  final String sampleRate;
+
   /// 解压目录名。
   final String folderName;
 
@@ -1965,6 +1974,9 @@ class ReaMicroTtsVoice {
 
   /// 说话人数量。
   final int numberOfSpeakers;
+
+  /// 接口未提供下载地址时使用的官方备用地址。
+  final String fallbackDownloadUrl;
 
   /// 界面显示名称。
   String get displayName => name.trim().isEmpty ? id : name;
@@ -1978,9 +1990,12 @@ class ReaMicroTtsVoice {
       name: _stringValue(json['name']) ?? '',
       language: _stringValue(json['language']) ?? '',
       quality: _stringValue(json['quality']) ?? '',
+      speakerCount: _stringValue(json['speakerCount']) ?? '',
+      sampleRate: _stringValue(json['sampleRate']) ?? '',
       folderName: _stringValue(json['folderName']) ?? '',
       modelDirectory: _stringValue(json['modelDirectory']) ?? '',
       numberOfSpeakers: _intValue(json['numberOfSpeakers']),
+      fallbackDownloadUrl: _stringValue(json['fallbackDownloadUrl']) ?? '',
     );
   }
 }

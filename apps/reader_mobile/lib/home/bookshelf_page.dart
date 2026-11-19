@@ -10,6 +10,8 @@ import 'package:reader_core/epub/importer.dart';
 import 'package:reader_core/position/locator.dart';
 
 import '../library/library_store.dart';
+import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_models.dart';
 import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
 import 'book_detail_page.dart';
@@ -39,6 +41,7 @@ class BookshelfPage extends StatefulWidget {
     this.refreshToken = 0,
     this.allowImport = true,
     this.onReadingFinished,
+    this.reaMicro,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
   });
@@ -57,6 +60,9 @@ class BookshelfPage extends StatefulWidget {
 
   /// 阅读会话落盘并关闭阅读页后通知，供阅微自动同步。
   final VoidCallback? onReadingFinished;
+
+  /// 阅微控制器；用于读取离线音色目录。
+  final ReaMicroController? reaMicro;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;
@@ -120,11 +126,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
       library: widget.library,
       progressStore: widget.progressStore,
       onReadingFinished: widget.onReadingFinished,
+      loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
     );
     _queue = ImportQueue(widget.library, readFile: widget.readFile)
       ..addListener(_onQueueChanged);
     _reload();
     _loadPreferences();
+  }
+
+  Future<List<ReaMicroTtsVoice>> _loadTtsVoices() async {
+    final controller = widget.reaMicro;
+    if (controller == null) return const <ReaMicroTtsVoice>[];
+    try {
+      final catalog = await controller.fetchTtsCatalog();
+      return catalog.voices;
+    } catch (_) {
+      return const <ReaMicroTtsVoice>[];
+    }
   }
 
   @override

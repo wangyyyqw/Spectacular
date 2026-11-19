@@ -13,17 +13,39 @@ import 'package:reader_ui/tap_zones.dart';
 
 import '../library/library_store.dart';
 
+/// 听书使用的语音引擎。
+enum ReaderTtsMode {
+  /// 系统语音引擎。
+  system,
+
+  /// 阅微离线伴听引擎。
+  offline;
+
+  /// 从持久化值解析；旧设置默认系统语音。
+  static ReaderTtsMode fromId(String? value) =>
+      value == offline.name ? offline : system;
+}
+
 /// 听书偏好。
 class ReaderTtsSettings {
   /// 创建听书偏好。
   const ReaderTtsSettings({
+    this.mode = ReaderTtsMode.system,
     this.rate = 0.5,
     this.pitch = 1,
     this.volume = 1,
     this.autoTurnPage = true,
     this.voiceName = '',
     this.voiceLocale = '',
+    this.narratorVoiceId = '',
+    this.dialogueVoiceId = '',
+    this.narratorSpeed = 1,
+    this.dialogueSpeed = 1,
+    this.narratorSpeakerId = 0,
   });
+
+  /// 语音引擎。
+  final ReaderTtsMode mode;
 
   /// 语速（0～1，平台默认正常语速约为 0.5）。
   final double rate;
@@ -43,33 +65,66 @@ class ReaderTtsSettings {
   /// 选中音色的语言区域。
   final String voiceLocale;
 
+  /// 离线旁白音色标识。
+  final String narratorVoiceId;
+
+  /// 离线对白音色标识；为空时跟随旁白。
+  final String dialogueVoiceId;
+
+  /// 离线旁白语速（1 为模型原始语速）。
+  final double narratorSpeed;
+
+  /// 离线对白语速（1 为模型原始语速）。
+  final double dialogueSpeed;
+
+  /// 多说话人音色的旁白说话人编号。
+  final int narratorSpeakerId;
+
   /// 是否选择了明确的系统音色。
   bool get hasVoice =>
       voiceName.trim().isNotEmpty && voiceLocale.trim().isNotEmpty;
+
+  /// 是否选择了离线旁白音色。
+  bool get hasOfflineVoice => narratorVoiceId.trim().isNotEmpty;
 
   /// 默认听书偏好。
   static const ReaderTtsSettings defaults = ReaderTtsSettings();
 
   /// 复制并替换指定字段。
   ReaderTtsSettings copyWith({
+    ReaderTtsMode? mode,
     double? rate,
     double? pitch,
     double? volume,
     bool? autoTurnPage,
     String? voiceName,
     String? voiceLocale,
+    String? narratorVoiceId,
+    String? dialogueVoiceId,
+    double? narratorSpeed,
+    double? dialogueSpeed,
+    int? narratorSpeakerId,
   }) => ReaderTtsSettings(
+    mode: mode ?? this.mode,
     rate: rate ?? this.rate,
     pitch: pitch ?? this.pitch,
     volume: volume ?? this.volume,
     autoTurnPage: autoTurnPage ?? this.autoTurnPage,
     voiceName: voiceName ?? this.voiceName,
     voiceLocale: voiceLocale ?? this.voiceLocale,
+    narratorVoiceId: narratorVoiceId ?? this.narratorVoiceId,
+    dialogueVoiceId: dialogueVoiceId ?? this.dialogueVoiceId,
+    narratorSpeed: narratorSpeed ?? this.narratorSpeed,
+    dialogueSpeed: dialogueSpeed ?? this.dialogueSpeed,
+    narratorSpeakerId: narratorSpeakerId ?? this.narratorSpeakerId,
   );
 
   /// 从 JSON 还原。
   factory ReaderTtsSettings.fromJson(Map<String, Object?> json) =>
       ReaderTtsSettings(
+        mode: ReaderTtsMode.fromId(
+          json['mode'] is String ? json['mode']! as String : null,
+        ),
         rate: _double(json['rate'], defaults.rate).clamp(0.1, 1),
         pitch: _double(json['pitch'], defaults.pitch).clamp(0.5, 2),
         volume: _double(json['volume'], defaults.volume).clamp(0, 1),
@@ -82,16 +137,39 @@ class ReaderTtsSettings {
         voiceLocale: json['voiceLocale'] is String
             ? json['voiceLocale']! as String
             : defaults.voiceLocale,
+        narratorVoiceId: json['narratorVoiceId'] is String
+            ? json['narratorVoiceId']! as String
+            : defaults.narratorVoiceId,
+        dialogueVoiceId: json['dialogueVoiceId'] is String
+            ? json['dialogueVoiceId']! as String
+            : defaults.dialogueVoiceId,
+        narratorSpeed: _double(
+          json['narratorSpeed'],
+          defaults.narratorSpeed,
+        ).clamp(0.5, 2),
+        dialogueSpeed: _double(
+          json['dialogueSpeed'],
+          defaults.dialogueSpeed,
+        ).clamp(0.5, 2),
+        narratorSpeakerId: json['narratorSpeakerId'] is int
+            ? (json['narratorSpeakerId']! as int).clamp(0, 999)
+            : defaults.narratorSpeakerId,
       );
 
   /// 序列化。
   Map<String, Object?> toJson() => <String, Object?>{
+    'mode': mode.name,
     'rate': rate,
     'pitch': pitch,
     'volume': volume,
     'autoTurnPage': autoTurnPage,
     'voiceName': voiceName,
     'voiceLocale': voiceLocale,
+    'narratorVoiceId': narratorVoiceId,
+    'dialogueVoiceId': dialogueVoiceId,
+    'narratorSpeed': narratorSpeed,
+    'dialogueSpeed': dialogueSpeed,
+    'narratorSpeakerId': narratorSpeakerId,
   };
 
   static double _double(Object? value, double fallback) =>
@@ -100,16 +178,34 @@ class ReaderTtsSettings {
   @override
   bool operator ==(Object other) =>
       other is ReaderTtsSettings &&
+      other.mode == mode &&
       other.rate == rate &&
       other.pitch == pitch &&
       other.volume == volume &&
       other.autoTurnPage == autoTurnPage &&
       other.voiceName == voiceName &&
-      other.voiceLocale == voiceLocale;
+      other.voiceLocale == voiceLocale &&
+      other.narratorVoiceId == narratorVoiceId &&
+      other.dialogueVoiceId == dialogueVoiceId &&
+      other.narratorSpeed == narratorSpeed &&
+      other.dialogueSpeed == dialogueSpeed &&
+      other.narratorSpeakerId == narratorSpeakerId;
 
   @override
-  int get hashCode =>
-      Object.hash(rate, pitch, volume, autoTurnPage, voiceName, voiceLocale);
+  int get hashCode => Object.hash(
+    mode,
+    rate,
+    pitch,
+    volume,
+    autoTurnPage,
+    voiceName,
+    voiceLocale,
+    narratorVoiceId,
+    dialogueVoiceId,
+    narratorSpeed,
+    dialogueSpeed,
+    narratorSpeakerId,
+  );
 }
 
 /// 阅读排版与主题设置（P4-21）：持久化在 settings 表。

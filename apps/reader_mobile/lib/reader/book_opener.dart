@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_session.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../editing/book_edit_repository.dart';
+import '../rea_micro/rea_micro_models.dart';
 import 'book_opening_reader.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
@@ -22,6 +23,7 @@ class BookOpener {
     required this.library,
     required this.progressStore,
     this.onReadingFinished,
+    this.loadTtsVoices,
   });
 
   /// 书架存储。
@@ -32,6 +34,9 @@ class BookOpener {
 
   /// 阅读会话落盘并关闭阅读页后通知宿主，供后台同步使用。
   final VoidCallback? onReadingFinished;
+
+  /// 读取阅微远端离线音色目录。
+  final Future<List<ReaMicroTtsVoice>> Function()? loadTtsVoices;
 
   ReaderSettings? _settings;
   Future<void> _settingsSave = Future<void>.value();
@@ -225,6 +230,7 @@ class BookOpener {
       settingsFuture: opening.settings,
       fontStore: fontStore,
       onSettingsChanged: _saveSettings,
+      loadTtsVoices: loadTtsVoices,
       bookTitle: entry.title,
       contentRevisionFuture: opening.revision,
       contentRevision: entry.contentRevision,

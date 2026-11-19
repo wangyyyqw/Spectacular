@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_tts/flutter_tts.dart';
 
+import 'reader_offline_tts.dart';
 import 'reader_settings.dart';
 
 /// 系统语音引擎提供的一种朗读音色。
@@ -68,10 +69,27 @@ Future<List<ReaderTtsVoice>> loadReaderTtsVoices() async {
 /// 分页听书控制：逐段朗读当前页，读完后按需自动翻页。
 class ReaderTtsController {
   /// 创建控制器。
-  ReaderTtsController({required this.textProvider, required this.nextPage});
+  ReaderTtsController({
+    required this.textProvider,
+    required this.nextPage,
+    this.offlineSynthesizer,
+    this.player,
+    this.resolveOfflineVoice,
+  });
 
   final Future<String> Function() textProvider;
   final Future<bool> Function() nextPage;
+
+  /// 离线合成器；为空时离线模式会回退到系统语音。
+  final ReaderOfflineTtsSynthesizer? offlineSynthesizer;
+
+  /// 离线音频播放器。
+  final ReaderTtsPlayer? player;
+
+  /// 按音色标识读取本地模型。
+  final Future<ReaderOfflineVoiceInstance?> Function(String id)?
+  resolveOfflineVoice;
+
   FlutterTts? _tts;
   bool _speaking = false;
   int _generation = 0;
@@ -85,6 +103,9 @@ class ReaderTtsController {
   /// 错误回调。
   void Function(Object error)? onError;
 
+  /// 离线语音不可用并回退到系统语音时的提示。
+  void Function(String message)? onFallback;
+
   /// 开始朗读；已在朗读时会先停止再重新开始。
   Future<void> start(ReaderTtsSettings settings) async {
     await stop();
@@ -92,35 +113,16 @@ class ReaderTtsController {
     _speaking = true;
     onStateChanged?.call(true);
     try {
-      final tts = _tts ??= FlutterTts();
-      await tts.awaitSpeakCompletion(true);
-      await tts.setLanguage('zh-CN');
-      if (settings.hasVoice) {
+      if (settings.mode == ReaderTtsMode.offline) {
         try {
-          await tts.setVoice(<String, String>{
-            'name': settings.voiceName,
-            'locale': settings.voiceLocale,
-          });
-        } catch (_) {
-          // 系统移除了已选音色时退回默认中文音色。
-        }
-      }
-      await tts.setSpeechRate(settings.rate.clamp(0.1, 1));
-      await tts.setPitch(settings.pitch.clamp(0.5, 2));
-      await tts.setVolume(settings.volume.clamp(0, 1));
-      while (_speaking && generation == _generation) {
-        final text = (await textProvider()).trim();
-        final segments = _segments(text);
-        if (segments.isEmpty) break;
-        for (final segment in segments) {
+          await _startOffline(settings, generation);
+          return;
+        } catch (error) {
           if (!_speaking || generation != _generation) return;
-          await tts.speak(segment);
+          onFallback?.call('离线伴听不可用，已切换系统语音：$error');
         }
-        if (!settings.autoTurnPage || !_speaking) break;
-        final advanced = await nextPage();
-        if (!advanced) break;
-        await Future<void>.delayed(const Duration(milliseconds: 180));
       }
+      await _startSystem(settings, generation);
     } catch (error) {
       onError?.call(error);
     } finally {
@@ -128,6 +130,75 @@ class ReaderTtsController {
         _speaking = false;
         onStateChanged?.call(false);
       }
+    }
+  }
+
+  Future<void> _startSystem(ReaderTtsSettings settings, int generation) async {
+    final tts = _tts ??= FlutterTts();
+    await tts.awaitSpeakCompletion(true);
+    await tts.setLanguage('zh-CN');
+    if (settings.hasVoice) {
+      try {
+        await tts.setVoice(<String, String>{
+          'name': settings.voiceName,
+          'locale': settings.voiceLocale,
+        });
+      } catch (_) {
+        // 系统移除了已选音色时退回默认中文音色。
+      }
+    }
+    await tts.setSpeechRate(settings.rate.clamp(0.1, 1));
+    await tts.setPitch(settings.pitch.clamp(0.5, 2));
+    await tts.setVolume(settings.volume.clamp(0, 1));
+    while (_speaking && generation == _generation) {
+      final text = (await textProvider()).trim();
+      final segments = ReaderTtsSegmentation.split(text);
+      if (segments.isEmpty) break;
+      for (final segment in segments) {
+        if (!_speaking || generation != _generation) return;
+        await tts.speak(segment.text);
+      }
+      if (!settings.autoTurnPage || !_speaking) break;
+      final advanced = await nextPage();
+      if (!advanced) break;
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+    }
+  }
+
+  Future<void> _startOffline(ReaderTtsSettings settings, int generation) async {
+    final synthesizer = offlineSynthesizer;
+    final audioPlayer = player;
+    final resolver = resolveOfflineVoice;
+    if (synthesizer == null || audioPlayer == null || resolver == null) {
+      throw StateError('离线伴听未配置');
+    }
+    if (!settings.hasOfflineVoice) throw StateError('尚未选择离线旁白音色');
+    final narrator = await resolver(settings.narratorVoiceId);
+    if (narrator == null) throw StateError('所选旁白音色尚未下载');
+    ReaderOfflineVoiceInstance? dialogue;
+    if (settings.dialogueVoiceId.trim().isNotEmpty &&
+        settings.dialogueVoiceId != settings.narratorVoiceId) {
+      dialogue = await resolver(settings.dialogueVoiceId);
+    }
+    await audioPlayer.stop();
+    while (_speaking && generation == _generation) {
+      final text = (await textProvider()).trim();
+      final segments = ReaderTtsSegmentation.split(text);
+      if (segments.isEmpty) break;
+      final clips = await synthesizer.synthesize(
+        segments: segments,
+        narrator: narrator,
+        dialogue: dialogue,
+        settings: settings,
+      );
+      for (final clip in clips) {
+        if (!_speaking || generation != _generation) return;
+        await audioPlayer.play(clip);
+      }
+      if (!settings.autoTurnPage || !_speaking) break;
+      final advanced = await nextPage();
+      if (!advanced) break;
+      await Future<void>.delayed(const Duration(milliseconds: 180));
     }
   }
 
@@ -142,42 +213,20 @@ class ReaderTtsController {
     } catch (_) {
       // 平台语音引擎已释放时忽略停止错误。
     }
+    try {
+      await player?.stop();
+    } catch (_) {
+      // 播放器已释放时忽略停止错误。
+    }
   }
 
   /// 释放语音引擎。
   Future<void> dispose() async {
     await stop();
     _tts = null;
+    await player?.dispose();
     onStateChanged = null;
     onError = null;
-  }
-
-  /// 按句切分，过长的句子再按逗号与空格切短。
-  static List<String> _segments(String text) {
-    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (normalized.isEmpty) return const <String>[];
-    final sentences = RegExp(r'[^。！？!?；;]+[。！？!?；;]?')
-        .allMatches(normalized)
-        .map((match) => match.group(0)?.trim() ?? '')
-        .where((value) => value.isNotEmpty)
-        .toList(growable: false);
-    final result = <String>[];
-    for (final sentence in sentences) {
-      if (sentence.length <= 160) {
-        result.add(sentence);
-        continue;
-      }
-      final parts = sentence.split(RegExp(r'(?<=[，,、：:\s])'));
-      var buffer = '';
-      for (final part in parts) {
-        if (buffer.isNotEmpty && buffer.length + part.length > 160) {
-          result.add(buffer.trim());
-          buffer = '';
-        }
-        buffer += part;
-      }
-      if (buffer.trim().isNotEmpty) result.add(buffer.trim());
-    }
-    return result;
+    onFallback = null;
   }
 }

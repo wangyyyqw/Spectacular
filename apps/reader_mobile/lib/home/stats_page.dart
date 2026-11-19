@@ -77,8 +77,20 @@ class _StatsPageState extends State<StatsPage> {
       library: widget.library,
       progressStore: widget.progressStore,
       onReadingFinished: widget.onReadingFinished,
+      loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
     );
     if (widget.active) _reload();
+  }
+
+  Future<List<ReaMicroTtsVoice>> _loadTtsVoices() async {
+    final controller = widget.reaMicro;
+    if (controller == null) return const <ReaMicroTtsVoice>[];
+    try {
+      final catalog = await controller.fetchTtsCatalog();
+      return catalog.voices;
+    } catch (_) {
+      return const <ReaMicroTtsVoice>[];
+    }
   }
 
   @override

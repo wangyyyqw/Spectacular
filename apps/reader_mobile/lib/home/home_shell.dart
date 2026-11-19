@@ -165,6 +165,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         refreshToken: _bookshelfRefreshToken,
         allowImport: widget.storageRecovery == null,
         onReadingFinished: _onReadingFinished,
+        reaMicro: _reaMicro,
       ),
       StatsPage(
         library: widget.library,
