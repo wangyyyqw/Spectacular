@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_source_models.dart';
+import 'book_source_service.dart';
 import 'online_book_controller.dart';
 
 /// 在线书籍详情、目录与下载。
@@ -203,23 +206,12 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
           child: SizedBox(
             width: 96,
             height: 130,
-            child: info.coverUrl.isEmpty
-                ? ColoredBox(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
-                    child: const Icon(Icons.menu_book_outlined, size: 38),
-                  )
-                : Image.network(
-                    info.coverUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => ColoredBox(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
-                      child: const Icon(Icons.broken_image_outlined, size: 34),
-                    ),
-                  ),
+            child: _BookCover(
+              source: widget.source,
+              service: widget.controller.service,
+              url: info.coverUrl,
+              referer: info.bookUrl,
+            ),
           ),
         ),
         const SizedBox(width: 16),
@@ -295,6 +287,77 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       onPressed: ready ? _download : null,
       icon: const AppIcon(AppGlyph.upload),
       label: Text(ready ? '下载并加入书架' : '目录不可用'),
+    );
+  }
+}
+
+class _BookCover extends StatefulWidget {
+  const _BookCover({
+    required this.source,
+    required this.service,
+    required this.url,
+    required this.referer,
+  });
+
+  final BookSource source;
+  final BookSourceService service;
+  final String url;
+  final String referer;
+
+  @override
+  State<_BookCover> createState() => _BookCoverState();
+}
+
+class _BookCoverState extends State<_BookCover> {
+  Future<Uint8List?>? _cover;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCover();
+  }
+
+  @override
+  void didUpdateWidget(_BookCover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url ||
+        oldWidget.referer != widget.referer ||
+        oldWidget.source.id != widget.source.id) {
+      _loadCover();
+    }
+  }
+
+  void _loadCover() {
+    final url = widget.url.trim();
+    _cover = url.isEmpty
+        ? null
+        : widget.service.loadCover(widget.source, url, referer: widget.referer);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = ColoredBox(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: const Icon(Icons.menu_book_outlined, size: 38),
+    );
+    final broken = ColoredBox(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: const Icon(Icons.broken_image_outlined, size: 34),
+    );
+    final cover = _cover;
+    if (cover == null) return placeholder;
+    return FutureBuilder<Uint8List?>(
+      future: cover,
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null || bytes.isEmpty) return broken;
+        return Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) => broken,
+        );
+      },
     );
   }
 }

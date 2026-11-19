@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:html/dom.dart';
 
+import 'book_source_compat.dart';
 import 'book_source_http_client.dart';
 import 'book_source_models.dart';
 import 'book_source_rule_engine.dart';
@@ -30,12 +31,14 @@ class OnlineBookDownloadResult {
     required this.chapters,
     required this.bytes,
     required this.skippedChapters,
+    this.skippedReasons = const <String>[],
   });
 
   final OnlineBook book;
   final List<OnlineChapter> chapters;
   final Uint8List bytes;
   final int skippedChapters;
+  final List<String> skippedReasons;
 }
 
 typedef OnlineDownloadProgress = void Function(
@@ -56,6 +59,8 @@ class BookSourceService {
   final BookSourceHttpClient http;
   final BookSourceRuleEngine rules;
   final OnlineEpubBuilder epubBuilder;
+  final Map<String, Future<Uint8List?>> _coverCache =
+      <String, Future<Uint8List?>>{};
 
   void dispose() => http.close();
 
@@ -156,7 +161,8 @@ class BookSourceService {
         _commonJsonField(node, const <String>['name', 'title', 'bookName']),
       );
       if (name.isEmpty) continue;
-      var bookUrl = _field(node, source.search.bookUrl, context);
+      final bookUrlRule = _field(node, source.search.bookUrl, context);
+      var bookUrl = bookUrlRule;
       if (bookUrl.isEmpty && node is Element) {
         bookUrl =
             node.attributes['href'] ??
@@ -168,7 +174,11 @@ class BookSourceService {
         'url',
         'detailUrl',
       ]).ifBlank(bookUrl);
-      final absoluteBookUrl = rules.resolveUrl(context.pageUrl, bookUrl);
+      final bookRequest = splitBookSourceUrlOptions(bookUrl);
+      final absoluteBookUrl = rules.resolveUrl(
+        context.pageUrl,
+        bookRequest.url,
+      );
       if (absoluteBookUrl.isEmpty) continue;
       final author = _field(
         node,
@@ -183,6 +193,31 @@ class BookSourceService {
           'imageUrl',
         ]),
       );
+      final lastChapter = _field(node, source.search.lastChapter, context)
+          .ifBlank(
+            _commonJsonField(node, const <String>[
+              'lastChapter',
+              'latestChapter',
+              'last_chapter',
+            ]),
+          );
+      final kindRaw = _field(node, source.search.kind, context).ifBlank(
+        _commonJsonField(node, const <String>[
+          'kind',
+          'category',
+          'status',
+          'bookStatus',
+        ]),
+      );
+      final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
+      final rawWordCount = _field(node, source.search.wordCount, context)
+          .ifBlank(
+            _commonJsonField(node, const <String>[
+              'wordCount',
+              'words',
+              'word_count',
+            ]),
+          );
       final book = OnlineBook(
         sourceId: source.id,
         sourceName: source.name,
@@ -190,6 +225,8 @@ class BookSourceService {
         author: author,
         bookUrl: absoluteBookUrl,
         tocUrl: absoluteBookUrl,
+        bookOptions: bookRequest.options,
+        tocOptions: bookRequest.options,
         coverUrl: rules.resolveUrl(context.pageUrl, cover),
         intro: _field(node, source.search.intro, context).ifBlank(
           _commonJsonField(node, const <String>[
@@ -198,23 +235,9 @@ class BookSourceService {
             'desc',
           ]),
         ),
-        kind: _field(node, source.search.kind, context).ifBlank(
-          _commonJsonField(node, const <String>['kind', 'category', 'status']),
-        ),
-        wordCount: _field(node, source.search.wordCount, context).ifBlank(
-          _commonJsonField(node, const <String>[
-            'wordCount',
-            'words',
-            'word_count',
-          ]),
-        ),
-        lastChapter: _field(node, source.search.lastChapter, context).ifBlank(
-          _commonJsonField(node, const <String>[
-            'lastChapter',
-            'latestChapter',
-            'last_chapter',
-          ]),
-        ),
+        kind: status.ifBlank(kindRaw),
+        wordCount: normalizeOnlineWordCount(rawWordCount),
+        lastChapter: lastChapter,
       );
       final identity = '${book.name}|${book.author}|${book.bookUrl}';
       if (!seen.add(identity)) continue;
@@ -228,6 +251,7 @@ class BookSourceService {
     final response = await http.fetchText(
       source,
       book.bookUrl,
+      options: book.bookOptions,
       referer: source.baseUrl,
     );
     final root = _parseBody(response.body);
@@ -242,31 +266,38 @@ class BookSourceService {
       source.bookInfo.author,
       context,
     ).ifBlank(book.author);
-    final tocUrl = _field(root, source.bookInfo.tocUrl, context);
+    final tocRequest = _urlField(root, source.bookInfo.tocUrl, context);
+    final coverRequest = _urlField(root, source.bookInfo.coverUrl, context);
+    final lastChapter = _field(
+      root,
+      source.bookInfo.lastChapter,
+      context,
+    ).ifBlank(book.lastChapter);
+    final kindRaw = _field(
+      root,
+      source.bookInfo.kind,
+      context,
+    ).ifBlank(book.kind);
+    final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
+    final wordCount = _field(
+      root,
+      source.bookInfo.wordCount,
+      context,
+    ).ifBlank(book.wordCount);
     return book.copyWith(
       name: name,
       author: author,
       tocUrl: rules
-          .resolveUrl(response.uri.toString(), tocUrl)
-          .ifBlank(book.bookUrl),
+          .resolveUrl(response.uri.toString(), tocRequest.url)
+          .ifBlank(book.tocUrl.ifBlank(book.bookUrl)),
+      tocOptions: tocRequest.url.isEmpty ? book.tocOptions : tocRequest.options,
       coverUrl: rules
-          .resolveUrl(
-            response.uri.toString(),
-            _field(root, source.bookInfo.coverUrl, context),
-          )
+          .resolveUrl(response.uri.toString(), coverRequest.url)
           .ifBlank(book.coverUrl),
       intro: _field(root, source.bookInfo.intro, context).ifBlank(book.intro),
-      kind: _field(root, source.bookInfo.kind, context).ifBlank(book.kind),
-      wordCount: _field(
-        root,
-        source.bookInfo.wordCount,
-        context,
-      ).ifBlank(book.wordCount),
-      lastChapter: _field(
-        root,
-        source.bookInfo.lastChapter,
-        context,
-      ).ifBlank(book.lastChapter),
+      kind: status.ifBlank(kindRaw),
+      wordCount: normalizeOnlineWordCount(wordCount),
+      lastChapter: lastChapter,
     );
   }
 
@@ -276,14 +307,17 @@ class BookSourceService {
     OnlineBook book,
   ) async {
     var currentUrl = book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl;
+    var currentOptions = book.tocOptions;
+    final pendingPages = <({String url, Map<String, Object?> options})>[];
     final chapters = <OnlineChapter>[];
     final seenUrls = <String>{};
     final seenPages = <String>{};
-    while (currentUrl.isNotBlank && seenPages.add(currentUrl)) {
-      if (seenPages.length > 30) break;
+    while (currentUrl.isNotBlank) {
+      if (!seenPages.add(currentUrl) || seenPages.length > 30) break;
       final response = await http.fetchText(
         source,
         currentUrl,
+        options: currentOptions,
         referer: book.bookUrl,
       );
       final root = _parseBody(response.body);
@@ -315,7 +349,9 @@ class BookSourceService {
             _commonJsonField(node, const <String>['chapterUrl', 'url', 'link']),
           );
         }
-        final absolute = rules.resolveUrl(context.pageUrl, chapterUrl);
+        final chapterRequest = splitBookSourceUrlOptions(chapterUrl);
+        final absolute = rules.resolveUrl(context.pageUrl, chapterRequest.url);
+        name = cleanOnlineChapterTitle(name);
         if (name.isEmpty || absolute.isEmpty || !seenUrls.add(absolute)) {
           continue;
         }
@@ -325,11 +361,21 @@ class BookSourceService {
             title: name,
             url: absolute,
             updateTime: _field(node, source.toc.updateTime, context),
+            requestOptions: chapterRequest.options,
           ),
         );
       }
-      final next = _field(root, source.toc.nextTocUrl, context);
-      currentUrl = rules.resolveUrl(response.uri.toString(), next);
+      final nextPages = _urlRequests(root, source.toc.nextTocUrl, context);
+      for (final next in nextPages) {
+        final resolved = rules.resolveUrl(response.uri.toString(), next.url);
+        if (resolved.isNotEmpty) {
+          pendingPages.add((url: resolved, options: next.options));
+        }
+      }
+      if (pendingPages.isEmpty) break;
+      final page = pendingPages.removeAt(0);
+      currentUrl = page.url;
+      currentOptions = page.options;
     }
     if (chapters.isEmpty) {
       throw const BookSourceException(
@@ -358,17 +404,38 @@ class BookSourceService {
     var imageBytes = 0;
     final cover = await _downloadCover(source, info);
     final chapters = <OnlineEpubChapter>[];
+    final skippedReasons = <String>[];
     var skipped = 0;
     for (var index = 0; index < toc.length; index++) {
       _checkCancelled(isCancelled);
       final chapter = toc[index];
       onProgress?.call(index, toc.length, '正在下载：${chapter.title}');
-      try {
-        final content = await fetchChapterContent(
-          source,
-          chapter,
-          info.bookUrl,
+      String? content;
+      Object? failure;
+      for (var attempt = 1; attempt <= 2; attempt++) {
+        try {
+          content = await fetchChapterContent(source, chapter, info.bookUrl);
+          failure = null;
+          break;
+        } on Object catch (error) {
+          failure = error;
+          final transient = error is BookSourceException && error.isTransient;
+          if (!transient || attempt >= 2) break;
+          await Future<void>.delayed(Duration(milliseconds: 600 * attempt));
+          _checkCancelled(isCancelled);
+        }
+      }
+      if (content == null) {
+        skipped += 1;
+        _recordSkipped(skippedReasons, chapter.title, failure);
+        onProgress?.call(
+          index + 1,
+          toc.length,
+          '已下载 ${index + 1}/${toc.length} 章（跳过 $skipped 章）',
         );
+        continue;
+      }
+      try {
         final prepared = await _prepareContentImages(
           source,
           content,
@@ -378,24 +445,29 @@ class BookSourceService {
         );
         imageBytes = prepared.totalBytes;
         if (prepared.html.trim().isEmpty) {
-          skipped++;
-          continue;
+          skipped += 1;
+          _recordSkipped(skippedReasons, chapter.title, '正文为空');
+        } else {
+          chapters.add(
+            OnlineEpubChapter(title: chapter.title, html: prepared.html),
+          );
         }
-        chapters.add(
-          OnlineEpubChapter(title: chapter.title, html: prepared.html),
-        );
-      } on BookSourceException {
-        skipped++;
+      } on Object catch (error) {
+        skipped += 1;
+        _recordSkipped(skippedReasons, chapter.title, error);
       }
       onProgress?.call(
         index + 1,
         toc.length,
-        '已下载 ${index + 1}/${toc.length} 章',
+        skipped > 0
+            ? '已下载 ${index + 1}/${toc.length} 章（跳过 $skipped 章）'
+            : '已下载 ${index + 1}/${toc.length} 章',
       );
     }
     if (chapters.isEmpty) {
-      throw const BookSourceException(
-        '正文下载失败，没有可导入的章节',
+      final detail = skippedReasons.isEmpty ? '' : '（${skippedReasons.first}）';
+      throw BookSourceException(
+        '正文下载失败，没有可导入的章节$detail',
         code: 'ONLINE_CONTENT_EMPTY',
       );
     }
@@ -417,6 +489,7 @@ class BookSourceService {
       chapters: toc,
       bytes: bytes,
       skippedChapters: skipped,
+      skippedReasons: skippedReasons,
     );
   }
 
@@ -427,13 +500,16 @@ class BookSourceService {
     String bookUrl,
   ) async {
     var currentUrl = chapter.url;
+    var currentOptions = chapter.requestOptions;
+    final pendingPages = <({String url, Map<String, Object?> options})>[];
     final seen = <String>{};
     final htmlParts = <String>[];
-    while (currentUrl.isNotBlank && seen.add(currentUrl)) {
-      if (seen.length > 8) break;
+    while (currentUrl.isNotBlank) {
+      if (!seen.add(currentUrl) || seen.length > 8) break;
       final response = await http.fetchText(
         source,
         currentUrl,
+        options: currentOptions,
         referer: bookUrl,
       );
       final root = _parseBody(response.body);
@@ -448,10 +524,77 @@ class BookSourceService {
       );
       final html = rules.evaluateHtml(root, source.content.content, context);
       if (html.trim().isNotEmpty) htmlParts.add(html.trim());
-      final next = _field(root, source.content.nextContentUrl, context);
-      currentUrl = rules.resolveUrl(response.uri.toString(), next);
+      final nextPages = _urlRequests(
+        root,
+        source.content.nextContentUrl,
+        context,
+      );
+      for (final next in nextPages) {
+        final resolved = rules.resolveUrl(response.uri.toString(), next.url);
+        if (resolved.isNotEmpty) {
+          pendingPages.add((url: resolved, options: next.options));
+        }
+      }
+      if (pendingPages.isEmpty) break;
+      final page = pendingPages.removeAt(0);
+      currentUrl = page.url;
+      currentOptions = page.options;
     }
-    return htmlParts.join('\n');
+    final content = cleanOnlineChapterContent(htmlParts.join('\n'));
+    final reason = chapterContentFailureReason(content);
+    if (reason != null) {
+      throw BookSourceException(
+        '章节正文无效：$reason',
+        code: 'ONLINE_CONTENT_INVALID',
+      );
+    }
+    return content;
+  }
+
+  /// 加载封面或插图；同一来源地址在进程内缓存，失败结果不保留。
+  Future<Uint8List?> loadCover(
+    BookSource source,
+    String url, {
+    String referer = '',
+  }) {
+    final raw = url.trim();
+    if (raw.isEmpty) return Future<Uint8List?>.value();
+    final data = decodeDataUrlImage(raw);
+    if (data != null) return Future<Uint8List?>.value(data);
+    if (!_isHttpUrl(raw)) return Future<Uint8List?>.value();
+    final key = '${source.id}|${referer.trim()}|$raw';
+    final cached = _coverCache[key];
+    if (cached != null) return cached;
+    final future = _fetchImageBytes(source, raw, referer: referer);
+    _coverCache[key] = future;
+    while (_coverCache.length > 64) {
+      _coverCache.remove(_coverCache.keys.first);
+    }
+    return future
+        .then((bytes) {
+          if (bytes == null) _coverCache.remove(key);
+          return bytes;
+        })
+        .catchError((Object _) {
+          _coverCache.remove(key);
+          return null;
+        });
+  }
+
+  Future<Uint8List?> _fetchImageBytes(
+    BookSource source,
+    String url, {
+    String referer = '',
+  }) async {
+    try {
+      final response = await http.fetchBytes(source, url, referer: referer);
+      if (response.bytes.isEmpty || response.bytes.length > 8 * 1024 * 1024) {
+        return null;
+      }
+      return _imageType(response.bytes) == null ? null : response.bytes;
+    } on BookSourceException {
+      return null;
+    }
   }
 
   Future<OnlineEpubImage?> _downloadCover(
@@ -459,28 +602,15 @@ class BookSourceService {
     OnlineBook book,
   ) async {
     final coverUrl = book.coverUrl.trim();
-    if (coverUrl.isEmpty || !_isHttpUrl(coverUrl)) return null;
-    try {
-      final response = await http.fetchBytes(
-        source,
-        coverUrl,
-        referer: book.bookUrl,
-      );
-      if (response.bytes.isEmpty || response.bytes.length > 8 * 1024 * 1024) {
-        return null;
-      }
-      final type = _imageType(response.bytes);
-      if (type == null) return null;
-      final path = 'images/cover.${type.extension}';
-      final image = OnlineEpubImage(
-        path: path,
-        bytes: response.bytes,
-        mediaType: type.mediaType,
-      );
-      return image;
-    } on BookSourceException {
-      return null;
-    }
+    final bytes = await loadCover(source, coverUrl, referer: book.bookUrl);
+    if (bytes == null) return null;
+    final type = _imageType(bytes);
+    if (type == null) return null;
+    return OnlineEpubImage(
+      path: 'images/cover.${type.extension}',
+      bytes: bytes,
+      mediaType: type.mediaType,
+    );
   }
 
   Future<_PreparedContent> _prepareContentImages(
@@ -553,7 +683,7 @@ class BookSourceService {
         images[absolute] = asset;
         totalBytes += response.bytes.length;
         image.attributes['src'] = '../$path';
-      } on BookSourceException {
+      } on Object {
         image.remove();
       }
     }
@@ -567,12 +697,34 @@ class BookSourceService {
 
   String _searchUrl(BookSource source, String query, int page) {
     final encoded = Uri.encodeQueryComponent(query);
-    var template = source.searchUrl
-        .replaceAll('{{key}}', encoded)
-        .replaceAll('{{searchKey}}', encoded)
+    var template = source.searchUrl.replaceAllMapped(
+      RegExp(r'\{\{\s*\(\s*page\s*-\s*1\s*\)\s*\*\s*10\s*\}\}'),
+      (_) => '${(page - 1) * 10}',
+    );
+    template = template
         .replaceAll('{{page}}', '$page')
-        .replaceAll('{{searchPage}}', '$page')
-        .replaceAll('{{baseUrl}}', source.baseUrl);
+        .replaceAll('{{searchPage}}', '$page');
+    template = template.replaceAllMapped(
+      RegExp(r'''\{\{\s*baseUrl\s*\+\s*['"]([^'"]*)['"]\s*\}\}'''),
+      (match) =>
+          '${source.baseUrl.replaceFirst(RegExp(r'/+$'), '')}'
+          '${match.group(1)}',
+    );
+    template = template.replaceAll('{{baseUrl}}', source.baseUrl);
+    for (final token in const <String>[
+      '{{key}}',
+      '{{keyword}}',
+      '{{searchKey}}',
+      '{key}',
+      '{keyword}',
+      '%s',
+    ]) {
+      template = template.replaceAll(
+        RegExp(RegExp.escape(token), caseSensitive: false),
+        encoded,
+      );
+    }
+    template = template.replaceAll(RegExp(r'\{\{[^{}]+\}\}'), '');
     if (template.startsWith(r'$') ||
         template.startsWith('@js:') ||
         template.contains('<js>')) {
@@ -611,6 +763,47 @@ class BookSourceService {
   String _field(Object? node, String rule, BookSourceRuleContext context) {
     if (rule.trim().isEmpty) return '';
     return rules.evaluateString(node, rule, context).trim();
+  }
+
+  ({String url, Map<String, Object?> options}) _urlField(
+    Object? node,
+    String rule,
+    BookSourceRuleContext context,
+  ) {
+    return splitBookSourceUrlOptions(_field(node, rule, context));
+  }
+
+  List<({String url, Map<String, Object?> options})> _urlRequests(
+    Object? node,
+    String rule,
+    BookSourceRuleContext context,
+  ) {
+    final raw = _field(node, rule, context);
+    if (raw.isEmpty) {
+      return const <({String url, Map<String, Object?> options})>[];
+    }
+    return <({String url, Map<String, Object?> options})>[
+      for (final line in raw.split(RegExp(r'[\r\n]+')))
+        if (line.trim().isNotEmpty) splitBookSourceUrlOptions(line),
+    ];
+  }
+
+  void _recordSkipped(List<String> reasons, String title, Object? failure) {
+    if (reasons.length >= 20) return;
+    final name = title.trim().isEmpty ? '未命名章节' : title.trim();
+    final rawReason = switch (failure) {
+      BookSourceException(:final message) => message,
+      null => '未知错误',
+      _ => '$failure',
+    };
+    final detail = rawReason
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .ifBlank('未知错误');
+    final limitedDetail = detail.length <= 160
+        ? detail
+        : '${detail.substring(0, 160)}…';
+    reasons.add('$name：$limitedDetail');
   }
 
   String _commonJsonField(Object? node, List<String> names) {

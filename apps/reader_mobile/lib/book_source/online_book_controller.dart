@@ -25,6 +25,8 @@ class OnlineBookController extends ChangeNotifier {
   bool _initialized = false;
   bool _loading = false;
   String? _error;
+  int _lastSkippedChapters = 0;
+  List<String> _lastSkippedReasons = const <String>[];
 
   List<BookSource> get sources => List<BookSource>.unmodifiable(_sources);
   Map<String, OnlineBookLink> get links =>
@@ -32,6 +34,9 @@ class OnlineBookController extends ChangeNotifier {
   bool get initialized => _initialized;
   bool get loading => _loading;
   String? get error => _error;
+  int get lastSkippedChapters => _lastSkippedChapters;
+  List<String> get lastSkippedReasons =>
+      List<String>.unmodifiable(_lastSkippedReasons);
   int get enabledCount => _sources.where((source) => source.enabled).length;
 
   /// 初次读取本地书源与书籍关联。
@@ -112,6 +117,8 @@ class OnlineBookController extends ChangeNotifier {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
   }) async {
+    _lastSkippedChapters = 0;
+    _lastSkippedReasons = const <String>[];
     final result = await service.download(
       source,
       book,
@@ -133,6 +140,8 @@ class OnlineBookController extends ChangeNotifier {
       ),
     );
     _links = await _store.loadLinks();
+    _lastSkippedChapters = result.skippedChapters;
+    _lastSkippedReasons = List<String>.unmodifiable(result.skippedReasons);
     notifyListeners();
     return entry;
   }
@@ -143,6 +152,8 @@ class OnlineBookController extends ChangeNotifier {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
   }) async {
+    _lastSkippedChapters = 0;
+    _lastSkippedReasons = const <String>[];
     final link = _links[entry.id];
     final source = sourceForBook(entry.id);
     if (link == null || source == null) {
@@ -174,6 +185,8 @@ class OnlineBookController extends ChangeNotifier {
       ),
     );
     _links = await _store.loadLinks();
+    _lastSkippedChapters = result.skippedChapters;
+    _lastSkippedReasons = List<String>.unmodifiable(result.skippedReasons);
     notifyListeners();
     return updated;
   }

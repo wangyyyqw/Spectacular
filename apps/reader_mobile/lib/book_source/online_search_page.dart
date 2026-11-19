@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
@@ -60,8 +62,12 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
       ),
     );
     if (imported == true && mounted) {
+      final skipped = widget.controller.lastSkippedChapters;
+      final message = skipped > 0
+          ? '《$book.name》已加入书架，跳过 $skipped 章'
+          : '《$book.name》已加入书架';
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('《$book.name》已加入书架')));
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -204,7 +210,11 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
                   'online-result-${result.source.id}-${book.bookUrl.hashCode}',
                 ),
                 contentPadding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
-                leading: _BookThumb(book: book),
+                leading: _BookThumb(
+                  book: book,
+                  source: result.source,
+                  service: widget.controller.service,
+                ),
                 title: Text(
                   book.name,
                   maxLines: 1,
@@ -256,13 +266,53 @@ class _SearchHint extends StatelessWidget {
   }
 }
 
-class _BookThumb extends StatelessWidget {
-  const _BookThumb({required this.book});
+class _BookThumb extends StatefulWidget {
+  const _BookThumb({
+    required this.book,
+    required this.source,
+    required this.service,
+  });
 
   final OnlineBook book;
+  final BookSource source;
+  final BookSourceService service;
+
+  @override
+  State<_BookThumb> createState() => _BookThumbState();
+}
+
+class _BookThumbState extends State<_BookThumb> {
+  Future<Uint8List?>? _cover;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCover();
+  }
+
+  @override
+  void didUpdateWidget(_BookThumb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.book.coverUrl != widget.book.coverUrl ||
+        oldWidget.source.id != widget.source.id) {
+      _loadCover();
+    }
+  }
+
+  void _loadCover() {
+    final url = widget.book.coverUrl.trim();
+    _cover = url.isEmpty
+        ? null
+        : widget.service.loadCover(
+            widget.source,
+            url,
+            referer: widget.source.baseUrl,
+          );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final book = widget.book;
     final placeholder = ColoredBox(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Center(
@@ -277,12 +327,20 @@ class _BookThumb extends StatelessWidget {
       child: SizedBox(
         width: 46,
         height: 62,
-        child: book.coverUrl.isEmpty
+        child: _cover == null
             ? placeholder
-            : Image.network(
-                book.coverUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => placeholder,
+            : FutureBuilder<Uint8List?>(
+                future: _cover,
+                builder: (context, snapshot) {
+                  final bytes = snapshot.data;
+                  if (bytes == null || bytes.isEmpty) return placeholder;
+                  return Image.memory(
+                    bytes,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    errorBuilder: (context, error, stackTrace) => placeholder,
+                  );
+                },
               ),
       ),
     );

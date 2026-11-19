@@ -12,12 +12,14 @@ class BookSourceHttpResponse {
   const BookSourceHttpResponse({
     required this.uri,
     required this.statusCode,
+    required this.headers,
     required this.body,
     required this.bytes,
   });
 
   final Uri uri;
   final int statusCode;
+  final Map<String, String> headers;
   final String body;
   final Uint8List bytes;
 }
@@ -28,9 +30,12 @@ class BookSourceHttpResponse {
 class BookSourceHttpClient {
   BookSourceHttpClient({
     http.Client? client,
-    this.defaultTimeout = const Duration(seconds: 25),
+    this.defaultTimeout = const Duration(seconds: 45),
     this.allowPrivateHosts = false,
   }) : _client = client ?? http.Client();
+
+  static const int maxRedirects = 5;
+  static const int maxResponseBytes = 24 * 1024 * 1024;
 
   final http.Client _client;
   final Duration defaultTimeout;
@@ -39,6 +44,7 @@ class BookSourceHttpClient {
       <String, Map<String, String>>{};
   final Map<String, Future<void>> _rateLocks = <String, Future<void>>{};
   final Map<String, DateTime> _lastRequestAt = <String, DateTime>{};
+  final Map<String, DateTime> _cooldownUntil = <String, DateTime>{};
 
   /// 请求文本资源。
   Future<BookSourceHttpResponse> fetchText(
@@ -82,17 +88,79 @@ class BookSourceHttpClient {
     required Map<String, Object?> options,
     required String referer,
   }) async {
-    final uri = _validateUrl(rawUrl);
-    final method = _stringOption(
-      options,
-      'method',
-    ).ifBlank('GET').toUpperCase();
+    var uri = _validateUrl(rawUrl);
+    var method = _stringOption(options, 'method').ifBlank('GET').toUpperCase();
     if (method != 'GET' && method != 'POST') {
       throw const BookSourceException(
         '书源请求方法暂只支持 GET 和 POST',
         code: 'ONLINE_HTTP_METHOD',
       );
     }
+    var body = _stringOption(options, 'body');
+    var currentReferer = referer;
+
+    for (var redirects = 0; ; redirects++) {
+      await _waitTurn(source);
+      final response = await _sendOnce(
+        source,
+        uri,
+        method: method,
+        headers: headers,
+        options: options,
+        referer: currentReferer,
+        body: body,
+      );
+      final status = response.statusCode;
+      if (_isRedirect(status)) {
+        final location = response.headers['location']?.trim() ?? '';
+        if (location.isEmpty) {
+          throw BookSourceException(
+            '请求被重定向但缺少目标地址（HTTP $status）',
+            code: 'ONLINE_HTTP_REDIRECT',
+            statusCode: status,
+          );
+        }
+        if (redirects >= maxRedirects) {
+          throw BookSourceException(
+            '请求重定向次数过多',
+            code: 'ONLINE_HTTP_REDIRECT',
+            statusCode: status,
+          );
+        }
+        final next = _validateUrl(uri.resolve(location).toString());
+        if (status == 303 ||
+            ((status == 301 || status == 302) && method == 'POST')) {
+          method = 'GET';
+          body = '';
+        }
+        currentReferer = uri.toString();
+        uri = next;
+        continue;
+      }
+      if (status == 429 || status == 503) {
+        _recordCooldown(source, response.headers);
+      }
+      if (status < 200 || status >= 300) {
+        final detail = _httpErrorDetail(response.body);
+        throw BookSourceException(
+          detail.isEmpty ? '请求失败（HTTP $status）' : '请求失败（HTTP $status）：$detail',
+          code: 'ONLINE_HTTP_STATUS',
+          statusCode: status,
+        );
+      }
+      return response;
+    }
+  }
+
+  Future<BookSourceHttpResponse> _sendOnce(
+    BookSource source,
+    Uri uri, {
+    required String method,
+    required Map<String, String> headers,
+    required Map<String, Object?> options,
+    required String referer,
+    required String body,
+  }) async {
     final requestHeaders = <String, String>{
       'User-Agent':
           'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
@@ -111,32 +179,49 @@ class BookSourceHttpClient {
           .join('; ');
     }
 
-    await _waitTurn(source);
-    final timeout = Duration(
-      milliseconds: source.respondTime.clamp(3000, 120000),
-    );
+    final timeout = source.respondTime > 0
+        ? Duration(milliseconds: source.respondTime.clamp(3000, 180000))
+        : defaultTimeout;
     try {
       final request = http.Request(method, uri)..headers.addAll(requestHeaders);
-      final body = _stringOption(options, 'body');
-      if (method == 'POST') request.body = body;
-      final streamed = await _client
-          .send(request)
-          .timeout(source.respondTime > 0 ? timeout : defaultTimeout);
-      final bytes = await streamed.stream.toBytes();
+      if (method == 'POST' && body.isNotEmpty) request.body = body;
+      final streamed = await _client.send(request).timeout(timeout);
+      final responseHeaders = <String, String>{
+        for (final entry in streamed.headers.entries)
+          entry.key.toLowerCase(): entry.value,
+      };
       _rememberCookies(source.id, streamed.headers['set-cookie']);
-      final status = streamed.statusCode;
-      final decoded = _decodeBody(bytes, streamed.headers['content-type']);
-      if (status < 200 || status >= 300) {
-        final detail = _httpErrorDetail(decoded);
-        throw BookSourceException(
-          detail.isEmpty ? '请求失败（HTTP $status）' : '请求失败（HTTP $status）：$detail',
-          code: 'ONLINE_HTTP_STATUS',
+      final declaredLength = int.tryParse(
+        responseHeaders['content-length'] ?? '',
+      );
+      if (declaredLength != null && declaredLength > maxResponseBytes) {
+        throw const BookSourceException(
+          '书源响应过大，请检查书源规则',
+          code: 'ONLINE_HTTP_TOO_LARGE',
+        );
+      }
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in streamed.stream.timeout(timeout)) {
+        if (builder.length + chunk.length > maxResponseBytes) {
+          throw const BookSourceException(
+            '书源响应过大，请检查书源规则',
+            code: 'ONLINE_HTTP_TOO_LARGE',
+          );
+        }
+        builder.add(chunk);
+      }
+      final bytes = builder.takeBytes();
+      if (bytes.length > maxResponseBytes) {
+        throw const BookSourceException(
+          '书源响应过大，请检查书源规则',
+          code: 'ONLINE_HTTP_TOO_LARGE',
         );
       }
       return BookSourceHttpResponse(
         uri: streamed.request?.url ?? uri,
-        statusCode: status,
-        body: decoded,
+        statusCode: streamed.statusCode,
+        headers: responseHeaders,
+        body: _decodeBody(bytes, responseHeaders['content-type']),
         bytes: bytes,
       );
     } on BookSourceException {
@@ -159,6 +244,33 @@ class BookSourceHttpClient {
     }
   }
 
+  bool _isRedirect(int status) =>
+      status == 301 ||
+      status == 302 ||
+      status == 303 ||
+      status == 307 ||
+      status == 308;
+
+  void _recordCooldown(BookSource source, Map<String, String> headers) {
+    final raw = headers['retry-after']?.trim() ?? '';
+    var millis = 10000;
+    final seconds = int.tryParse(raw);
+    if (seconds != null && seconds > 0) {
+      millis = seconds * 1000;
+    } else {
+      final date = DateTime.tryParse(raw);
+      if (date != null) {
+        millis = date.difference(DateTime.now()).inMilliseconds;
+      }
+    }
+    millis = millis.clamp(3000, 120000);
+    final until = DateTime.now().add(Duration(milliseconds: millis));
+    final current = _cooldownUntil[source.id];
+    if (current == null || until.isAfter(current)) {
+      _cooldownUntil[source.id] = until;
+    }
+  }
+
   Uri _validateUrl(String rawUrl) {
     final uri = Uri.tryParse(rawUrl.trim());
     if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
@@ -171,11 +283,7 @@ class BookSourceHttpClient {
       );
     }
     final host = uri.host.toLowerCase();
-    if (!allowPrivateHosts &&
-        (host == 'localhost' ||
-            host.endsWith('.localhost') ||
-            host.endsWith('.local') ||
-            _isPrivateAddress(host))) {
+    if (!allowPrivateHosts && isBlockedHost(host)) {
       throw const BookSourceException(
         '书源地址指向本机或内网，已拒绝访问',
         code: 'ONLINE_HTTP_PRIVATE_HOST',
@@ -184,7 +292,16 @@ class BookSourceHttpClient {
     return uri;
   }
 
-  bool _isPrivateAddress(String host) {
+  /// 判断主机是否指向本机、私网或链路本地地址。
+  static bool isBlockedHost(String rawHost) {
+    final host = rawHost.trim().toLowerCase();
+    return host == 'localhost' ||
+        host.endsWith('.localhost') ||
+        host.endsWith('.local') ||
+        _isPrivateAddress(host);
+  }
+
+  static bool _isPrivateAddress(String host) {
     if (host == '::1' || host == '0:0:0:0:0:0:0:1') {
       return true;
     }
@@ -307,14 +424,22 @@ class BookSourceHttpClient {
 
   Future<void> _waitTurn(BookSource source) {
     final interval = _rateInterval(source.concurrentRate);
-    if (interval <= Duration.zero) return Future<void>.value();
     final previous = _rateLocks[source.id] ?? Future<void>.value();
     final next = previous.then((_) async {
-      final last = _lastRequestAt[source.id];
-      if (last != null) {
-        final elapsed = DateTime.now().difference(last);
-        if (elapsed < interval) {
-          await Future<void>.delayed(interval - elapsed);
+      final cooldown = _cooldownUntil.remove(source.id);
+      if (cooldown != null) {
+        final wait = cooldown.difference(DateTime.now());
+        if (wait > Duration.zero) {
+          await Future<void>.delayed(wait);
+        }
+      }
+      if (interval > Duration.zero) {
+        final last = _lastRequestAt[source.id];
+        if (last != null) {
+          final elapsed = DateTime.now().difference(last);
+          if (elapsed < interval) {
+            await Future<void>.delayed(interval - elapsed);
+          }
         }
       }
       _lastRequestAt[source.id] = DateTime.now();

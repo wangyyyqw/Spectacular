@@ -16,6 +16,8 @@ class OnlineBook {
     this.kind = '',
     this.wordCount = '',
     this.lastChapter = '',
+    this.bookOptions = const <String, Object?>{},
+    this.tocOptions = const <String, Object?>{},
   });
 
   /// 来源标识。
@@ -51,6 +53,12 @@ class OnlineBook {
   /// 最新章节。
   final String lastChapter;
 
+  /// 详情页请求参数。
+  final Map<String, Object?> bookOptions;
+
+  /// 目录页请求参数。
+  final Map<String, Object?> tocOptions;
+
   OnlineBook copyWith({
     String? sourceId,
     String? sourceName,
@@ -63,6 +71,8 @@ class OnlineBook {
     String? kind,
     String? wordCount,
     String? lastChapter,
+    Map<String, Object?>? bookOptions,
+    Map<String, Object?>? tocOptions,
   }) {
     return OnlineBook(
       sourceId: sourceId ?? this.sourceId,
@@ -76,6 +86,8 @@ class OnlineBook {
       kind: kind ?? this.kind,
       wordCount: wordCount ?? this.wordCount,
       lastChapter: lastChapter ?? this.lastChapter,
+      bookOptions: bookOptions ?? this.bookOptions,
+      tocOptions: tocOptions ?? this.tocOptions,
     );
   }
 }
@@ -88,6 +100,7 @@ class OnlineChapter {
     required this.url,
     this.volume = '',
     this.updateTime = '',
+    this.requestOptions = const <String, Object?>{},
   });
 
   /// 从 0 开始的章节序号。
@@ -104,6 +117,9 @@ class OnlineChapter {
 
   /// 更新时间描述。
   final String updateTime;
+
+  /// 正文请求参数（如逐章 headers）。
+  final Map<String, Object?> requestOptions;
 }
 
 /// 搜索结果字段规则。
@@ -262,7 +278,7 @@ class BookSource {
     this.loginUi = '',
     this.loginCheckJs = '',
     this.concurrentRate = '',
-    this.respondTime = 20000,
+    this.respondTime = 60000,
     this.exploreUrl = '',
     this.jsLib = '',
     this.raw = const <String, Object?>{},
@@ -293,6 +309,7 @@ class BookSource {
     ]);
     final type = _int(json['bookSourceType'] ?? json['type']);
     final search = BookListRule.fromJson(_ruleMap(json['ruleSearch']));
+    final searchRequest = splitBookSourceUrlOptions(rawSearchUrl);
     final bookInfo = BookInfoRule.fromJson(_ruleMap(json['ruleBookInfo']));
     final toc = TocRule.fromJson(_ruleMap(json['ruleToc']));
     final content = ContentRule.fromJson(_ruleMap(json['ruleContent']));
@@ -323,10 +340,10 @@ class BookSource {
       ]),
       respondTime: _positiveInt(
         json['respondTime'] ?? json['timeout'],
-        fallback: 20000,
+        fallback: 60000,
       ),
-      searchUrl: _stripUrlOptions(rawSearchUrl),
-      searchOptions: _urlOptions(rawSearchUrl),
+      searchUrl: searchRequest.url,
+      searchOptions: searchRequest.options,
       exploreUrl: _firstString(json, const <String>[
         'exploreUrl',
         'exploreURL',
@@ -529,10 +546,26 @@ class OnlineBookLink {
 
 /// 在线书源错误；[message] 可直接展示给用户。
 class BookSourceException implements Exception {
-  const BookSourceException(this.message, {this.code});
+  const BookSourceException(this.message, {this.code, this.statusCode});
 
   final String message;
   final String? code;
+  final int? statusCode;
+
+  /// 网络超时、连接失败、限流或服务端 5xx 可安全重试。
+  bool get isTransient {
+    if (code == 'ONLINE_HTTP_TIMEOUT' ||
+        code == 'ONLINE_HTTP_NETWORK' ||
+        code == 'ONLINE_HTTP_CLIENT') {
+      return true;
+    }
+    final status = statusCode;
+    return status == 429 ||
+        status == 500 ||
+        status == 502 ||
+        status == 503 ||
+        status == 504;
+  }
 
   @override
   String toString() => message;
@@ -614,18 +647,22 @@ int _positiveInt(Object? value, {required int fallback}) {
   return parsed > 0 ? parsed : fallback;
 }
 
-String _stripUrlOptions(String raw) {
+/// 拆分 Legado URL 后的 `,{...}` 请求参数，兼容逗号后的空格。
+({String url, Map<String, Object?> options}) splitBookSourceUrlOptions(
+  String raw,
+) {
   final text = raw.trim();
-  final index = text.indexOf(',{');
-  return index > 0 ? text.substring(0, index).trim() : text;
-}
-
-Map<String, Object?> _urlOptions(String raw) {
-  final text = raw.trim();
-  final index = text.indexOf(',{');
-  if (index <= 0) return const <String, Object?>{};
-  return _tryDecodeObject(text.substring(index + 1)) ??
-      const <String, Object?>{};
+  for (final separator in const <String>[',{', ', {']) {
+    final index = text.indexOf(separator);
+    if (index <= 0) continue;
+    final candidate = text.substring(index + 1).trim();
+    if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue;
+    return (
+      url: text.substring(0, index).trim(),
+      options: _tryDecodeObject(candidate) ?? const <String, Object?>{},
+    );
+  }
+  return (url: text, options: const <String, Object?>{});
 }
 
 extension _BlankString on String {

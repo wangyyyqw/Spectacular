@@ -96,6 +96,13 @@ void main() {
       expect(items, hasLength(1));
       expect(engine.evaluateString(items.single, r'$.name', context), '深层');
     });
+
+    test('<js> 尾部 JSONPath 可静态执行', () {
+      final rule =
+          '<js>var list = data.list || []; result = {data: {list: list}};</js>'
+          r'$.data.list[0].name';
+      expect(engine.evaluateString(json, rule, context), 'A');
+    });
   });
 
   test('XPath 规则给出明确错误', () {
@@ -110,5 +117,26 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('无法静态执行的 JS 规则给出明确错误', () {
+    final document = engine.parseHtml('<div class="book">内容</div>');
+    for (final rule in <String>[
+      '@js:result = baseUrl + "/search";',
+      '.book@js:result = result.replace("a", "b");',
+      '<js>result = data;</js>',
+    ]) {
+      expect(
+        () => engine.evaluateList(document, rule, context),
+        throwsA(
+          isA<BookSourceException>().having(
+            (error) => error.code,
+            'code',
+            'ONLINE_RULE_JS',
+          ),
+        ),
+        reason: rule,
+      );
+    }
   });
 }

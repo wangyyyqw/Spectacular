@@ -848,8 +848,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
       );
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('《${updated.title}》已更新')));
+      final skipped = controller.lastSkippedChapters;
+      final message = skipped > 0
+          ? '《${updated.title}》已更新，跳过 $skipped 章'
+          : '《${updated.title}》已更新';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       await _reload();
     } on BookSourceException catch (error) {
       if (!mounted) return;

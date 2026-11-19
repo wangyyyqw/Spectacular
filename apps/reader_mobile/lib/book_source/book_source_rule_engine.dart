@@ -32,8 +32,8 @@ class BookSourceRuleContext {
 /// Legado/阅读书源规则的纯 Dart 子集。
 ///
 /// 支持 CSS、JSONPath、regex、`@text/@html/@href/@src/@属性`、`##正则##替换`
-/// 以及 `||`、`&&` 组合。XPath、`@js:` 脚本和网页登录脚本不在本实现范围，
-/// 遇到只会执行规则中位于脚本之前的可静态求值部分。
+/// 以及 `||`、`&&` 组合。XPath、`@js:` 脚本和网页登录脚本不在本实现范围；
+/// 纯脚本规则会给出明确错误，`<js>...</js>$.xxx` 仅执行尾部 JSONPath。
 class BookSourceRuleEngine {
   const BookSourceRuleEngine();
 
@@ -226,12 +226,24 @@ class BookSourceRuleEngine {
   }
 
   String _beforeRuleScript(String rule) {
-    final jsIndex = rule.toLowerCase().indexOf('@js:');
-    final angleIndex = rule.toLowerCase().indexOf('<js>');
-    var end = rule.length;
-    if (jsIndex > 0) end = jsIndex;
-    if (angleIndex > 0) end = angleIndex;
-    return end == rule.length ? rule : rule.substring(0, end).trim();
+    final lower = rule.toLowerCase();
+    final angleStart = lower.indexOf('<js>');
+    if (angleStart >= 0) {
+      final angleEnd = lower.indexOf('</js>', angleStart + 4);
+      final tail = angleEnd < 0 ? '' : rule.substring(angleEnd + 5).trim();
+      if (tail.startsWith(r'$')) return tail;
+      throw const BookSourceException(
+        '该书源规则依赖 JavaScript，当前版本暂不支持',
+        code: 'ONLINE_RULE_JS',
+      );
+    }
+    if (lower.contains('@js:')) {
+      throw const BookSourceException(
+        '该书源规则依赖 JavaScript，当前版本暂不支持',
+        code: 'ONLINE_RULE_JS',
+      );
+    }
+    return rule;
   }
 
   _AttributeMarker? _lastAttributeMarker(String selector) {
@@ -578,10 +590,22 @@ class BookSourceRuleEngine {
 
   List<String> _splitTopLevel(String rule, String separator) {
     final values = <String>[];
+    final lower = rule.toLowerCase();
     var depth = 0;
     var quote = '';
+    var inScript = false;
     var start = 0;
     for (var index = 0; index < rule.length - separator.length + 1; index++) {
+      if (lower.startsWith('<js>', index)) {
+        inScript = true;
+        index += 3;
+        continue;
+      }
+      if (lower.startsWith('</js>', index)) {
+        inScript = false;
+        index += 4;
+        continue;
+      }
       final char = rule[index];
       if (quote.isNotEmpty) {
         if (char == quote && (index == 0 || rule[index - 1] != r'\')) {
@@ -593,6 +617,7 @@ class BookSourceRuleEngine {
         quote = char;
         continue;
       }
+      if (inScript) continue;
       if (char == '[' || char == '(' || char == '{') depth++;
       if (char == ']' || char == ')' || char == '}') depth--;
       if (depth != 0 || !rule.startsWith(separator, index)) continue;
