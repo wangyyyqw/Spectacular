@@ -128,12 +128,22 @@ class PackageEditor {
     });
   }
 
-  void addXhtml(String path, String title) {
+  void addXhtml(String path, String title, {int? index}) {
     _requireNewPath(path);
     final doc = _package;
     final id = _addManifest(doc, path, 'application/xhtml+xml');
     final spine = _section(doc, 'spine');
-    spine.children.add(
+    final references = spine.childElements
+        .where((element) => element.name.local == 'itemref')
+        .toList();
+    if (index != null && (index < 0 || index > references.length)) {
+      throw RangeError.range(index, 0, references.length, 'index');
+    }
+    final position = index == null || index == references.length
+        ? spine.children.length
+        : spine.children.indexOf(references[index]);
+    spine.children.insert(
+      position,
       _elementLike(spine, 'itemref', [
         XmlAttribute(XmlName.parts('idref'), id),
       ]),

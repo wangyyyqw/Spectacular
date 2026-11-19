@@ -23,7 +23,8 @@ class BookEditorDocument {
   final String path;
   final CodeLineEditingController code;
   CodeFindController? _find;
-  CodeFindController get find => _find ??= CodeFindController(code);
+  CodeFindController get find =>
+      _find ??= CodeFindController(code, const CodeFindValue.empty());
   String acceptedText;
   String _lastInputText;
   String? error;
@@ -81,6 +82,8 @@ class BookEditorController extends ChangeNotifier {
   Set<String> _committingDocuments = {};
   int _previewToken = 0;
   int _savedRevision;
+  int _locationRequest = 0;
+  String? _previewPath;
   String? activePath;
   String? error;
   String? draftError;
@@ -104,9 +107,11 @@ class BookEditorController extends ChangeNotifier {
 
   /// 从浏览器、标签或查找结果打开文件。正文切章，样式等资源保留对照页。
   void showSource(String path, {int? offset}) {
+    _locationRequest++;
     sourceRequested = true;
-    final spine = session.spinePaths.indexOf(path);
-    if (spine >= 0 && previewTarget?.spineIndex != spine) {
+    final spine = session.previewPaths.indexOf(path);
+    if (spine >= 0) {
+      _previewPath = path;
       previewTarget = ReaderEditTarget(
         spineIndex: spine,
         cfi: CfiBuilder().itemRef((spine + 1) * 2).body(4).build().serialize(),
@@ -114,6 +119,15 @@ class BookEditorController extends ChangeNotifier {
       previewNavigation++;
     }
     openDocument(path, offset: offset);
+  }
+
+  void rememberPreviewLocation(ReaderEditTarget target) {
+    if (target.contentRevision != null &&
+        target.contentRevision != 'editor-$previewRevision') {
+      return;
+    }
+    previewTarget = target;
+    _previewPath = session.previewPaths.elementAtOrNull(target.spineIndex);
   }
 
   bool _documentDirty(BookEditorDocument doc) {
@@ -233,6 +247,30 @@ class BookEditorController extends ChangeNotifier {
       doc.acceptedText = next;
     }
     _syncing = false;
+    final pathsForPreview = session.previewPaths;
+    if (_previewPath != null &&
+        (!pathsForPreview.contains(_previewPath) ||
+            pathsForPreview.indexOf(_previewPath!) !=
+                previewTarget?.spineIndex)) {
+      final path = pathsForPreview.contains(_previewPath)
+          ? _previewPath!
+          : pathsForPreview.contains(activePath)
+          ? activePath!
+          : pathsForPreview.first;
+      final spine = pathsForPreview.indexOf(path);
+      if (spine >= 0) {
+        _previewPath = path;
+        previewTarget = ReaderEditTarget(
+          spineIndex: spine,
+          cfi: CfiBuilder()
+              .itemRef((spine + 1) * 2)
+              .body(4)
+              .build()
+              .serialize(),
+        );
+        previewNavigation++;
+      }
+    }
     error = null;
     _queueDraft();
     unawaited(refreshPreview());
@@ -288,7 +326,9 @@ class BookEditorController extends ChangeNotifier {
     previewLoading = true;
     _notify();
     try {
-      final source = await session.createPreviewSource();
+      final source = await session.createPreviewSource(
+        includeUnlistedHtml: true,
+      );
       if (_disposed || token != _previewToken) {
         source.close();
         return;
@@ -321,10 +361,15 @@ class BookEditorController extends ChangeNotifier {
       throw StateError('源码尚未更新到预览，请等待校验完成后再选择段落');
     }
     previewTarget = target;
-    return session.resolveEditableElement(target.spineIndex, target.cfi);
+    return session.resolveEditableElement(
+      target.spineIndex,
+      target.cfi,
+      preview: true,
+    );
   }
 
-  Future<EditableElementRef?> locateSource() async {
+  Future<EditableElementRef?> locateSource({bool reportErrors = true}) async {
+    final request = ++_locationRequest;
     if (busy || !flush()) return null;
     try {
       final doc = activeDocument;
@@ -334,27 +379,33 @@ class BookEditorController extends ChangeNotifier {
           .editableDocument(doc.path)
           .elementAtOffset(offset);
       if (element == null) throw StateError('光标不在正文元素中');
-      final cfi = session.cfiForElement(element);
+      final cfi = session.cfiForSourceOffset(doc.path, offset, preview: true);
       final revision = session.revision;
       if (previewRevision != revision) await refreshPreview();
       if (_disposed ||
+          request != _locationRequest ||
+          activeDocument != doc ||
+          _sourceOffset(doc) != offset ||
           session.revision != revision ||
           hasPendingText ||
           previewRevision != revision) {
         throw StateError('源码已变化，请重新定位');
       }
       previewTarget = ReaderEditTarget(
-        spineIndex: session.spinePaths.indexOf(doc.path),
+        spineIndex: session.previewPaths.indexOf(doc.path),
         cfi: cfi,
         contentRevision: 'editor-$revision',
       );
+      _previewPath = doc.path;
       previewNavigation++;
       error = null;
       _notify();
       return element;
     } catch (failure) {
-      error = '$failure';
-      _notify();
+      if (reportErrors) {
+        error = '$failure';
+        _notify();
+      }
       return null;
     }
   }

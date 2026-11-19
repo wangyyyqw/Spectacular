@@ -8,6 +8,8 @@ import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/page_furniture/page_furniture.dart';
+import 'package:reader_ui/page_furniture/corner_info.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 
 import '../support/reader_pump.dart';
@@ -82,7 +84,11 @@ void main() {
     final firstPage = session.page;
     final tallFrame = _checkPhone(tester, narrow);
     expect(source.contentWidth, 320);
-    expect(source.contentHeight, 728);
+    expect(source.contentHeight, 728 - PageFurniture.reservedHeight);
+    final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    expect(reader.showPageFooter, isTrue);
+    expect(reader.cornerInfo, ReaderCornerInfo.defaults);
+    expect(find.byType(ReaderPageFooter), findsOneWidget);
 
     tester.view.physicalSize = short;
     await tester.pumpAndSettle();
@@ -94,7 +100,7 @@ void main() {
       closeTo(tallFrame.size.aspectRatio, 1e-6),
     );
     expect(source.contentWidth, 320);
-    expect(source.contentHeight, 728);
+    expect(source.contentHeight, 728 - PageFurniture.reservedHeight);
     expect(session.generation, generation);
     expect(session.page, same(firstPage));
   });
@@ -125,7 +131,10 @@ void main() {
     expect(source.overrides.fontSize, settings.fontSize);
     expect(source.overrides.backgroundColor, settings.theme.background);
     expect(source.contentWidth, 316);
-    expect(source.contentHeight, 780);
+    expect(
+      source.contentHeight,
+      780 - PageFurniture.headerHeight - PageFurniture.footerHeight,
+    );
 
     final line = TextHitTester.lineBoxes(session.page!)
         .singleWhere((line) => line.text == '目标段落');
@@ -135,7 +144,10 @@ void main() {
     await tester.tapAt(
       paper.localToGlobal(
         line.rect.center +
-            Offset(settings.margins!.left, settings.margins!.topInner),
+            Offset(
+              settings.margins!.left,
+              settings.margins!.topInner + PageFurniture.headerHeight,
+            ),
       ),
     );
     await tester.pump();
@@ -180,6 +192,8 @@ void main() {
     expect(saved?.cfi, location);
     expect(saved?.scrollOffset, isNull);
     expect(saved?.pageIndex, 1);
+    expect(find.byType(ReaderPageHeader), findsOneWidget);
+    expect(find.byType(ReaderPageFooter), findsOneWidget);
     await tester.tap(find.byTooltip('上一页'));
     await pumpReaderUntilComplete(tester, () => session.page?.pageIndex == 0);
     expect(session.readingCfi, before);

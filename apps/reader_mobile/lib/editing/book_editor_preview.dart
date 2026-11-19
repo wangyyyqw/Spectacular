@@ -8,6 +8,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/page_furniture/corner_info.dart';
 
 import '../reader/reader_settings.dart';
 import '../reader/reader_background_store.dart';
@@ -68,7 +69,11 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
     final progress = _session?.progress;
     if (progress?.cfi case final cfi?) {
       widget.onLocationChanged?.call(
-        ReaderEditTarget(spineIndex: progress!.spineIndex, cfi: cfi),
+        ReaderEditTarget(
+          spineIndex: progress!.spineIndex,
+          cfi: cfi,
+          contentRevision: 'editor-${widget.revision}',
+        ),
       );
     }
   }
@@ -117,14 +122,15 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
     onEditTarget: widget.onEditTarget,
     onSessionReady: _ready,
     pageTurnMode: PageTurnMode.slideHorizontal,
-    showPageFooter: false,
+    showPageFooter: true,
+    cornerInfo: widget.settings?.cornerInfo ?? ReaderCornerInfo.defaults,
   );
 
   Widget _pageControls() {
     final session = _session;
-    if (session == null) return const SizedBox(height: 40);
+    if (session == null) return const SizedBox(height: 32);
     return SizedBox(
-      height: 40,
+      height: 32,
       child: ListenableBuilder(
         listenable: session,
         builder: (_, _) => _pagingRow(session),

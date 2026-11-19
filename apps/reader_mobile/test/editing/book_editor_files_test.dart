@@ -22,7 +22,6 @@ Future<BookEditorController> _openBook(WidgetTester tester) async {
   late EpubEditSession session;
   await tester.runAsync(() async {
     temporary = await Directory.systemTemp.createTemp('book-browser-');
-    addTearDown(() => temporary.delete(recursive: true));
     final file = File('${temporary.path}/book.epub');
     await file.writeAsBytes(buildMultiChapterEpub(chapters: ['第一段', '命中正文']));
     session = await EpubEditSession.open(file);
@@ -41,7 +40,12 @@ Future<BookEditorController> _openBook(WidgetTester tester) async {
     );
   });
   final editor = BookEditorController(session: session);
-  addTearDown(editor.dispose);
+  addTearDown(() async {
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+    await tester.pumpWidget(const SizedBox.shrink());
+    editor.dispose();
+    await tester.runAsync(() => temporary.delete(recursive: true));
+  });
   await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
   return editor;
 }
@@ -254,5 +258,7 @@ class _CountingEditor extends Fake with ChangeNotifier implements BookEditorCont
   final EpubEditSession session;
   @override
   String? get activePath => null;
+  @override
+  bool get busy => false;
   void refresh() => notifyListeners();
 }

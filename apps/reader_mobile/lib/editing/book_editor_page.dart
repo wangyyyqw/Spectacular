@@ -6,6 +6,7 @@ import 'package:re_editor/re_editor.dart';
 import 'package:reader_core/editing/editable_document.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_page.dart';
+import 'package:spectacular_epub_tools/local_epub_tools.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_local_tools.dart';
@@ -40,8 +41,9 @@ class _BookEditorPageState extends State<BookEditorPage> {
   final _scaffold = GlobalKey<ScaffoldState>();
   final _sourceKey = GlobalKey();
   final _previewKey = GlobalKey();
-  double _treeWidth = 232;
+  double _treeWidth = 208;
   double _sourceRatio = .57;
+  double _inspectorHeight = 240;
   int _compactTab = 0;
   bool _canPop = false;
   bool _elementOpen = false;
@@ -199,6 +201,22 @@ class _BookEditorPageState extends State<BookEditorPage> {
     });
   }
 
+  Future<void> _followSource() async {
+    final element = await editor.locateSource(reportErrors: false);
+    if (element != null && mounted && _inspectorExpanded) {
+      setState(() => _selectedElement = element);
+    }
+  }
+
+  Future<void> _localTool(LocalEpubTool tool) async {
+    if (editor.busy) return;
+    try {
+      await BookEditorLocalTools(context, editor, widget.title).open(tool);
+    } catch (error) {
+      if (mounted) _message('$error');
+    }
+  }
+
   void _selectElement(EditableElementRef element) {
     editor.openDocument(element.path, offset: element.sourceStart);
     setState(() => _selectedElement = element);
@@ -339,7 +357,8 @@ class _BookEditorPageState extends State<BookEditorPage> {
   );
 
   AppBar _toolbar(bool wide) => AppBar(
-    toolbarHeight: 48,
+    toolbarHeight: 40,
+    leadingWidth: 40,
     titleSpacing: 8,
     leading: IconButton(
       tooltip: '退出编辑',
@@ -445,7 +464,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
   );
 
   Widget _menus(bool wide) => SizedBox(
-    height: 34,
+    height: 30,
     width: double.infinity,
     child: MenuBar(
       style: const MenuStyle(
@@ -489,7 +508,25 @@ class _BookEditorPageState extends State<BookEditorPage> {
 
   Widget _toolsMenu() => SubmenuButton(
     menuChildren: [
-      _toolItem('本地 EPUB 工具', 'local-tools'),
+      for (final category in ['转换', '结构', '图片', '字体', '注释与正文'])
+        SubmenuButton(
+          menuChildren: [
+            for (final tool in LocalEpubTool.visible.where(
+              (tool) => tool.category == category,
+            ))
+              MenuItemButton(
+                onPressed: editor.busy
+                    ? null
+                    : () => unawaited(_localTool(tool)),
+                child: Tooltip(
+                  message: tool.description,
+                  child: Text(tool.label),
+                ),
+              ),
+          ],
+          child: Text(category),
+        ),
+      const Divider(height: 1),
       _toolItem('书籍信息', 'metadata'),
       _toolItem('目录', 'toc'),
       _toolItem('章节顺序与拆分合并', 'chapters'),
@@ -533,7 +570,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
       key: _previewKey,
       children: [
         SizedBox(
-          height: 46,
+          height: 36,
           child: Row(
             children: [
               const SizedBox(width: 12),
@@ -590,7 +627,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
                   settings: editor.useReadingSettings
                       ? editor.readingSettings
                       : null,
-                  onLocationChanged: (target) => editor.previewTarget = target,
+                  onLocationChanged: editor.rememberPreviewLocation,
                   onEditTarget: (target) => unawaited(_editTarget(target)),
                 ),
         ),
@@ -612,6 +649,8 @@ class _BookEditorPageState extends State<BookEditorPage> {
     key: _sourceKey,
     controller: editor,
     onLocate: () => unawaited(_locateSource()),
+    onCursorChanged: () => unawaited(_followSource()),
+    onFindAll: () => unawaited(_tool('find')),
   );
 
   Widget _compact() => Column(
@@ -648,7 +687,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
   );
 
   Widget _desktop(double width, bool docked) {
-    final tree = _treeWidth.clamp(200.0, (width * .28).clamp(200.0, 360.0));
+    final tree = _treeWidth.clamp(176.0, (width * .28).clamp(176.0, 320.0));
     final remaining = width - (docked ? tree + 6 : 0) - 6;
     final sourceWidth = (remaining * _sourceRatio).clamp(
       332.0,
@@ -660,7 +699,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
           SizedBox(width: tree, child: _files()),
           _divider(
             (delta) =>
-                setState(() => _treeWidth = (tree + delta).clamp(200, 360)),
+                setState(() => _treeWidth = (tree + delta).clamp(176, 320)),
           ),
         ],
         SizedBox(width: sourceWidth, child: _source()),
@@ -678,8 +717,23 @@ class _BookEditorPageState extends State<BookEditorPage> {
                 const Divider(height: 1),
                 _inspectorToggle(),
                 if (_inspectorExpanded)
+                  MouseRegion(
+                    cursor: SystemMouseCursors.resizeUpDown,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onVerticalDragUpdate: (details) => setState(
+                        () => _inspectorHeight =
+                            (_inspectorHeight - details.delta.dy).clamp(
+                              0,
+                              bounds.maxHeight * .65,
+                            ),
+                      ),
+                      child: const SizedBox(height: 4, width: double.infinity),
+                    ),
+                  ),
+                if (_inspectorExpanded)
                   SizedBox(
-                    height: (bounds.maxHeight * .36).clamp(0.0, 260.0),
+                    height: _inspectorHeight.clamp(0.0, bounds.maxHeight * .65),
                     child: _selectedElement == null
                         ? const Center(child: Text('点击预览元素或从源码定位，查看样式。'))
                         : BookEditorInspector(
@@ -703,7 +757,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
     child: InkWell(
       onTap: () => setState(() => _inspectorExpanded = !_inspectorExpanded),
       child: SizedBox(
-        height: 36,
+        height: 28,
         child: Row(
           children: [
             const SizedBox(width: 12),
