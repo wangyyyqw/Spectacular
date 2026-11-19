@@ -446,7 +446,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('圆角边框包住完整日历，今天使用浅色背景', (tester) async {
+  testWidgets('日历保留圆角外框，日期格子无边框且今天使用浅色背景', (tester) async {
     await _pump(tester, []);
     final frame = tester.widget<Material>(
       find.byKey(const ValueKey('stats-reading-calendar')),
@@ -473,8 +473,9 @@ void main() {
     );
     expect(background('2026-11-14').color, isNull);
     expect(background('2026-11-16').color, isNull);
-    expect(background('2026-11-15').border, background('2026-11-14').border);
-    expect(background('2026-11-15').border, background('2026-11-16').border);
+    for (var day = 1; day <= 30; day++) {
+      expect(background('2026-11-$day').border, isNull);
+    }
     final title = tester.getRect(_key('month'));
     final previous = tester.getRect(_key('previous'));
     final next = tester.getRect(_key('next'));

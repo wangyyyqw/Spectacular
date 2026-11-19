@@ -400,7 +400,6 @@ class _CalendarWeek extends StatelessWidget {
                 : isToday
                 ? scheme.primary.withValues(alpha: 0.06)
                 : null,
-            border: Border.all(color: scheme.outlineVariant, width: 0.5),
           ),
         ),
       ),
