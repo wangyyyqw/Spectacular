@@ -166,6 +166,8 @@ extension _ReaderDecorationActions on _ReaderPageState {
               store: store,
               bookId: widget.bookId,
               errors: _ruleEngine.errors,
+              images: widget.decorationImages,
+              inkMode: _inkMode,
               onPreview: (rule) async =>
                   _ruleEngine.preview(rule, await _session.chapterPages()),
             ),

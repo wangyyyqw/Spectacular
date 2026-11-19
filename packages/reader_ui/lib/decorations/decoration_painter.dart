@@ -3,10 +3,129 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 
+import '../annotations/annotation.dart';
+import '../annotations/annotation_style_painter.dart';
+import 'decoration_geometry.dart';
 import 'decoration_style.dart';
 
 /// 装饰盒绘制，调用方传入已扩展内边距的逐行矩形。
 abstract final class ReaderDecorationPainter {
+  static void paintHighlights(
+    Canvas canvas,
+    List<ReaderDecorationBox> boxes, {
+    required bool foreground,
+    bool inkMode = false,
+  }) {
+    for (final box in boxes) {
+      final highlight = box.style.highlight;
+      if (highlight == null) continue;
+      final line = box.range.line;
+      final source = line.slice.block.layout.lines[line.lineIndex];
+      final baseline =
+          (line.textTop ?? line.rect.top) +
+          source.baseline -
+          source.top +
+          highlight.strokeWidth;
+      for (final rect in box.range.rects) {
+        paintHighlight(
+          canvas,
+          rect,
+          highlight,
+          foreground: foreground,
+          inkMode: inkMode,
+          vertical: line.isVertical,
+          baseline: line.isVertical ? null : baseline,
+        );
+      }
+    }
+    if (!foreground && !inkMode) _paintJoinedHighlights(canvas, boxes);
+  }
+
+  static void paintHighlight(
+    Canvas canvas,
+    Rect rect,
+    ReaderDecorationHighlight highlight, {
+    required bool foreground,
+    bool inkMode = false,
+    bool vertical = false,
+    double? baseline,
+  }) {
+    final style = inkMode ? highlight.style.inkStyle : highlight.style;
+    final background =
+        style == ReaderAnnotationStyle.background ||
+        style == ReaderAnnotationStyle.halfBackground;
+    if (background == foreground || style == ReaderAnnotationStyle.tint) return;
+    final opacity = inkMode
+        ? 1.0
+        : Color(highlight.color).a * highlight.effectiveOpacity;
+    AnnotationStylePainter.paint(
+      canvas,
+      rect,
+      color: inkMode ? const Color(0xFF000000) : Color(highlight.color),
+      style: style,
+      fillAlpha: opacity,
+      strokeAlpha: opacity,
+      strokeWidth: inkMode ? 2 : highlight.strokeWidth,
+      vertical: vertical,
+      baseline: baseline,
+    );
+  }
+
+  static void _paintJoinedHighlights(
+    Canvas canvas,
+    List<ReaderDecorationBox> boxes,
+  ) {
+    final previousLines =
+        <(ReaderDecorationRange, Object, int), List<ReaderDecorationBox>>{};
+    for (final box in boxes) {
+      final highlight = box.style.highlight;
+      final source = box.highlightSource;
+      final line = box.range.line;
+      if (highlight == null ||
+          source == null ||
+          !highlight.joinLines ||
+          highlight.style != ReaderAnnotationStyle.background ||
+          line.isVertical) {
+        continue;
+      }
+      final previous =
+          previousLines[(source, line.slice.block, line.lineIndex - 1)] ??
+          const [];
+      for (final before in previous) {
+        for (final upper in before.range.rects) {
+          for (final lower in box.range.rects) {
+            paintHighlightGap(canvas, upper, lower, highlight);
+          }
+        }
+      }
+      (previousLines[(source, line.slice.block, line.lineIndex)] ??= []).add(
+        box,
+      );
+    }
+  }
+
+  static void paintHighlightGap(
+    Canvas canvas,
+    Rect upper,
+    Rect lower,
+    ReaderDecorationHighlight highlight,
+  ) {
+    final gap = Rect.fromLTRB(
+      math.max(upper.left, lower.left),
+      upper.bottom,
+      math.min(upper.right, lower.right),
+      lower.top,
+    );
+    if (gap.isEmpty) return;
+    canvas.drawRect(
+      gap,
+      Paint()
+        ..color = Color(highlight.color).withValues(
+          alpha: Color(highlight.color).a * highlight.effectiveOpacity,
+        ),
+    );
+  }
+
   /// 依次绘制底色、圆角裁切图片和四边边框，不覆盖正文文字。
   static void paintBox(
     Canvas canvas,
@@ -48,7 +167,10 @@ abstract final class ReaderDecorationPainter {
           canvas: canvas,
           rect: rect,
           image: image,
-          fit: BoxFit.cover,
+          fit: style.backgroundImageFit.fit,
+          repeat: style.backgroundImageFit == ReaderDecorationImageFit.tile
+              ? ImageRepeat.repeat
+              : ImageRepeat.noRepeat,
           opacity: style.backgroundOpacity,
           filterQuality: FilterQuality.low,
         );

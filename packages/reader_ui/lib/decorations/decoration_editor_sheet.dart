@@ -7,6 +7,7 @@ import '../icons/app_icon.dart';
 import '../panels/settings_panel.dart' show ReaderFontOption;
 import 'decoration_border_editor.dart';
 import 'decoration_image_store.dart';
+import 'decoration_highlight_editor.dart';
 import 'decoration_style.dart';
 import 'decoration_style_preview.dart';
 import 'decoration_typography_editor.dart';
@@ -279,6 +280,18 @@ class _ReaderDecorationEditorSheetState
         ],
       ),
       AppExpansionTile(
+        key: const ValueKey<String>('decoration-highlight'),
+        title: const Text('高亮与划线'),
+        subtitle: Text(_style.highlight?.style.label ?? '底色、染色、线条与跨行连块'),
+        tilePadding: EdgeInsets.zero,
+        children: [
+          ReaderDecorationHighlightEditor(
+            value: _style.highlight,
+            onChanged: (value) => _set('highlight', value?.toJson()),
+          ),
+        ],
+      ),
+      AppExpansionTile(
         key: const ValueKey<String>('decoration-typography'),
         title: const Text('字体'),
         subtitle: const Text('字体、字号、字重、斜体、字距、文字色'),
@@ -347,12 +360,17 @@ class _ReaderDecorationEditorSheetState
           label: const Text('选择本地背景图'),
         ),
       if (_style.backgroundImagePath != null)
+        ReaderDecorationImageFitField(
+          value: _style.backgroundImageFit,
+          onChanged: (fit) => _set('backgroundImageFit', fit.name),
+        ),
+      if (_style.backgroundImagePath != null)
         TextButton.icon(
           onPressed: () => _set('backgroundImagePath', null),
           icon: const AppIcon(AppGlyph.close),
           label: const Text('移除背景图'),
         ),
-      const Text('背景图按 cover 裁剪。颜色和图片需保留足够对比度，避免遮挡文字。'),
+      const Text('图片按每行装饰区间铺放，可调整透明度与圆角；图片不可用时回退到底色。'),
       const SizedBox(height: 12),
     ],
   );

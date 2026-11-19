@@ -51,7 +51,10 @@ class ReaderDecorationRuleStyle {
   /// 创建规则样式。
   const ReaderDecorationRuleStyle({
     this.color,
+    this.highlight,
     this.backgroundColor,
+    this.backgroundImagePath,
+    this.backgroundImageFit = ReaderDecorationImageFit.cover,
     this.backgroundOpacity = 1,
     this.borderRadius = 0,
     this.borderStyle = ReaderDecorationBorderStyle.solid,
@@ -62,8 +65,13 @@ class ReaderDecorationRuleStyle {
   /// 文字颜色。
   final int? color;
 
+  final ReaderDecorationHighlight? highlight;
+
   /// 背景颜色。
   final int? backgroundColor;
+
+  final String? backgroundImagePath;
+  final ReaderDecorationImageFit backgroundImageFit;
 
   /// 背景透明度。
   final double backgroundOpacity;
@@ -88,7 +96,10 @@ class ReaderDecorationRuleStyle {
     );
     return ReaderDecorationStyle(
       color: color,
+      highlight: highlight,
       backgroundColor: backgroundColor,
+      backgroundImagePath: backgroundImagePath,
+      backgroundImageFit: backgroundImageFit,
       backgroundOpacity: backgroundOpacity,
       borderRadius: borderRadius,
       borderStyle: borderStyle,
@@ -103,7 +114,11 @@ class ReaderDecorationRuleStyle {
   Map<String, Object?> toJson() => {
     'v': 1,
     'color': color,
+    if (highlight != null) 'highlight': highlight!.toJson(),
     'backgroundColor': backgroundColor,
+    if (backgroundImagePath != null) 'backgroundImagePath': backgroundImagePath,
+    if (backgroundImagePath != null)
+      'backgroundImageFit': backgroundImageFit.name,
     'backgroundOpacity': backgroundOpacity,
     'borderRadius': borderRadius,
     'borderStyle': borderStyle.name,
@@ -120,7 +135,12 @@ class ReaderDecorationRuleStyle {
     final json = styleObject(raw);
     return ReaderDecorationRuleStyle(
       color: styleColor(json['color']),
+      highlight: ReaderDecorationHighlight.fromJson(json['highlight']),
       backgroundColor: styleColor(json['backgroundColor']),
+      backgroundImagePath: styleString(json['backgroundImagePath']),
+      backgroundImageFit: ReaderDecorationImageFit.fromJson(
+        json['backgroundImageFit'],
+      ),
       backgroundOpacity: styleNumber(
         json['backgroundOpacity'],
         fallback: 1,

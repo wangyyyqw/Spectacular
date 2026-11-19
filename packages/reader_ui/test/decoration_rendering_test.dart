@@ -10,6 +10,8 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_ui/decorations/decoration.dart';
 import 'package:reader_ui/decorations/decoration_geometry.dart';
 import 'package:reader_ui/decorations/decoration_painter.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 
 const _start = 'epubcfi(/6/2!/4/2/1:0)';
 const _end = 'epubcfi(/6/2!/4/2/1:20)';
@@ -82,6 +84,220 @@ ReaderDecoration _decoration(String id, DateTime createdAt) => ReaderDecoration(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('新增高亮兼容旧样式并完整保存，后应用样式按属性覆盖', () {
+    final legacy = ReaderDecorationStyle.fromJson({'v': 1, 'color': _red});
+    expect(legacy.highlight, isNull);
+    expect(legacy.textColor, _red);
+    expect(legacy.toJson(), {'v': 1, 'color': _red});
+    final highlight = legacy.withValues({
+      'highlight': const ReaderDecorationHighlight(
+        style: ReaderAnnotationStyle.wavyUnderline,
+        color: _blue,
+        opacity: 0.6,
+        strokeWidth: 2.5,
+        joinLines: true,
+      ).toJson(),
+    });
+    final restored = ReaderDecorationStyle.fromJson(highlight.toJson());
+    expect(restored.highlight!.toJson(), highlight.highlight!.toJson());
+    expect(
+      restored
+          .merge(const ReaderDecorationStyle(fontWeight: 700))
+          .highlight!
+          .toJson(),
+      highlight.highlight!.toJson(),
+    );
+    expect(restored.withValues({'highlight': null}).highlight, isNull);
+    expect(restored.changesMetrics, isFalse);
+    final rule = ReaderDecorationRuleStyle.fromJson({
+      'highlight': highlight.highlight!.toJson(),
+    });
+    expect(
+      rule.decorationStyle.highlight!.toJson(),
+      highlight.highlight!.toJson(),
+    );
+    expect(
+      ReaderDecorationRuleStyle.fromJson(rule.toJson()).toJson(),
+      rule.toJson(),
+    );
+    expect(rule.decorationStyle.changesMetrics, isFalse);
+  });
+
+  test('未知高亮样式忽略，非法颜色和数值在读取边界回退', () {
+    expect(ReaderDecorationHighlight.fromJson({'style': 'unknown'}), isNull);
+    final highlight = ReaderDecorationHighlight.fromJson({
+      'style': 'underline',
+      'color': -1,
+      'opacity': 2,
+      'strokeWidth': -10,
+    })!;
+    expect(highlight.color, defaultHighlightColor);
+    expect(highlight.effectiveOpacity, 1);
+    expect(highlight.strokeWidth, 0.5);
+  });
+
+  test('九种高亮经正式行几何和绘制入口生成不同像素，染色走文字覆盖', () async {
+    final page = _page();
+    final signatures = <String>{};
+    for (final style in ReaderAnnotationStyle.values) {
+      final decoration = ReaderDecorationStyle(
+        highlight: ReaderDecorationHighlight(style: style, color: _red),
+      );
+      final boxes = ReaderDecorationGeometry.boxesFor(page, [
+        _range(decoration),
+      ]);
+      final pixels = await _pixels((canvas) {
+        ReaderDecorationPainter.paintHighlights(
+          canvas,
+          boxes,
+          foreground: false,
+        );
+        ReaderDecorationPainter.paintHighlights(
+          canvas,
+          boxes,
+          foreground: true,
+        );
+      });
+      final bytes = pixels.buffer.asUint8List();
+      expect(signatures.add(bytes.join(',')), isTrue, reason: style.name);
+      if (style == ReaderAnnotationStyle.tint) {
+        expect(bytes.every((value) => value == 0), isTrue);
+        expect(decoration.textColor, _red);
+        expect(decoration.textColorOpacity, style.defaultOpacity);
+      } else {
+        expect(bytes.any((value) => value != 0), isTrue, reason: style.name);
+      }
+    }
+    expect(signatures, hasLength(9));
+  });
+
+  test('背景与线条分层绘制，高亮保留颜色自带透明度', () async {
+    const rect = Rect.fromLTWH(10, 10, 120, 40);
+    const highlight = ReaderDecorationHighlight(
+      color: 0x80FF0000,
+      opacity: 0.5,
+    );
+    final background = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintHighlight(
+        canvas,
+        rect,
+        highlight,
+        foreground: false,
+      ),
+    );
+    expect(_alpha(background, 50, 30), inInclusiveRange(63, 64));
+    final foreground = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintHighlight(
+        canvas,
+        rect,
+        highlight,
+        foreground: true,
+      ),
+    );
+    expect(_alpha(foreground, 50, 30), 0);
+  });
+
+  test('跨行连块只填同一装饰的同段间隙，关闭后保留原空白', () async {
+    final page = _page();
+    for (final join in [false, true]) {
+      final boxes = ReaderDecorationGeometry.boxesFor(page, [
+        _range(
+          ReaderDecorationStyle(
+            highlight: ReaderDecorationHighlight(
+              color: _red,
+              opacity: 0.5,
+              joinLines: join,
+            ),
+          ),
+        ),
+      ]);
+      final upper = boxes.first.range.rects.single;
+      final lower = boxes.last.range.rects.single;
+      final pixels = await _pixels(
+        (canvas) => ReaderDecorationPainter.paintHighlights(
+          canvas,
+          boxes,
+          foreground: false,
+        ),
+      );
+      expect(
+        _alpha(pixels, 40, ((upper.bottom + lower.top) / 2).floor()),
+        join ? inInclusiveRange(127, 128) : 0,
+      );
+      expect(
+        _alpha(pixels, 40, upper.center.dy.floor()),
+        inInclusiveRange(127, 128),
+      );
+    }
+  });
+
+  test('不同装饰不因同色而连块，重叠高亮只应用最后一个样式', () async {
+    final page = _page();
+    const style = ReaderDecorationStyle(
+      highlight: ReaderDecorationHighlight(
+        color: _red,
+        opacity: 0.5,
+        joinLines: true,
+      ),
+    );
+    final separated = ReaderDecorationGeometry.boxesFor(page, [
+      _range(style, end: 'epubcfi(/6/2!/4/2/1:10)'),
+      _range(style, start: 'epubcfi(/6/2!/4/2/1:10)'),
+    ]);
+    final upper = separated.first.range.rects.single;
+    final lower = separated.last.range.rects.single;
+    final gap = ((upper.bottom + lower.top) / 2).floor();
+    final separatePixels = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintHighlights(
+        canvas,
+        separated,
+        foreground: false,
+      ),
+    );
+    expect(_alpha(separatePixels, 40, gap), 0);
+    final overlap = ReaderDecorationGeometry.boxesFor(page, [
+      _range(style),
+      _range(
+        const ReaderDecorationStyle(
+          highlight: ReaderDecorationHighlight(
+            color: _blue,
+            opacity: 0.5,
+            joinLines: true,
+          ),
+        ),
+      ),
+    ]);
+    final pixels = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintHighlights(
+        canvas,
+        overlap,
+        foreground: false,
+      ),
+    );
+    expect(_color(pixels, 40, gap), 0x80000080);
+  });
+
+  test('墨水屏把背景和染色变成黑线，竖排线条沿列绘制', () async {
+    for (final style in [
+      ReaderAnnotationStyle.background,
+      ReaderAnnotationStyle.halfBackground,
+      ReaderAnnotationStyle.tint,
+    ]) {
+      final pixels = await _pixels(
+        (canvas) => ReaderDecorationPainter.paintHighlight(
+          canvas,
+          const Rect.fromLTWH(10, 10, 40, 120),
+          ReaderDecorationHighlight(style: style, color: _red),
+          foreground: true,
+          inkMode: true,
+          vertical: true,
+        ),
+      );
+      expect(_color(pixels, 10, 60), 0xFF000000);
+      expect(_alpha(pixels, 30, 60), 0);
+    }
+  });
 
   test('多行装饰每行独立闭合，不把行间空白连接成外框', () async {
     final page = _page();
@@ -215,6 +431,54 @@ void main() {
       ),
     );
     expect(_color(missing, 25, 25), _yellow);
+  });
+
+  test('四种图片铺放方式生成不同像素，规则样式完整往返且不改变度量', () async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    for (final (left, color) in [(0.0, _red), (10.0, _green), (20.0, _blue)]) {
+      canvas.drawRect(
+        Rect.fromLTWH(left, 0, 10, 10),
+        Paint()..color = Color(color),
+      );
+    }
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(30, 10);
+    picture.dispose();
+    addTearDown(image.dispose);
+    final signatures = <String>{};
+    for (final fit in ReaderDecorationImageFit.values) {
+      final rule = ReaderDecorationRuleStyle(
+        backgroundColor: _yellow,
+        backgroundImagePath: '/local/texture.png',
+        backgroundImageFit: fit,
+        backgroundOpacity: 0.7,
+        borderRadius: 4,
+      );
+      final style = ReaderDecorationRuleStyle.fromJson(rule.toJson())
+          .decorationStyle;
+      expect(style.backgroundImagePath, '/local/texture.png');
+      expect(style.backgroundImageFit, fit);
+      expect(style.changesMetrics, isFalse);
+      final pixels = await _pixels(
+        (canvas) => ReaderDecorationPainter.paintBox(
+          canvas,
+          const Rect.fromLTWH(10, 10, 90, 60),
+          style,
+          image: image,
+        ),
+      );
+      expect(
+        signatures.add(pixels.buffer.asUint8List().join(',')),
+        isTrue,
+        reason: fit.name,
+      );
+    }
+    expect(
+      ReaderDecorationStyle.fromJson({'backgroundImagePath': '/legacy.png'})
+          .backgroundImageFit,
+      ReaderDecorationImageFit.cover,
+    );
   });
 
   test('绘制内边距不改变布局，垂直扩展受行距余量和8dp双重限制', () {

@@ -4,7 +4,10 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/reader/reader_decoration_image_store.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration_style.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 
 import '../library/fixtures/revision_epub.dart';
 
@@ -23,9 +26,11 @@ void main() {
   late AppDatabase db;
   late LibraryStore library;
   late BookEntry book;
+  late ReaderDecorationImages images;
 
   setUp(() async {
     directory = Directory.systemTemp.createTempSync('decoration-rules-');
+    images = ReaderDecorationImages(directoryProvider: () async => directory);
     db = AppDatabase(NativeDatabase.memory());
     library = LibraryStore(
       database: db,
@@ -40,7 +45,7 @@ void main() {
   });
 
   test('默认组幂等创建，本书和全局隔离，默认组固定末尾', () async {
-    final store = library.decorationRuleStore(book.id)!;
+    final store = library.decorationRuleStore(book.id, images: images)!;
     final defaults = await store.listGroups();
     expect(defaults, hasLength(2));
     expect(defaults.every((group) => group.isDefault), isTrue);
@@ -69,7 +74,7 @@ void main() {
     final other = await library.importBytes(
       buildRevisionTestEpub(title: '规则另一书'),
     );
-    final otherStore = library.decorationRuleStore(other.id)!;
+    final otherStore = library.decorationRuleStore(other.id, images: images)!;
     final groups = await otherStore.listGroups();
     expect(groups, hasLength(2));
     expect(groups.any((group) => group.id == 'one'), isFalse);
@@ -82,7 +87,7 @@ void main() {
   });
 
   test('删除非默认组把规则移到同作用域默认组末尾，保留样式与排序', () async {
-    final store = library.decorationRuleStore(book.id)!;
+    final store = library.decorationRuleStore(book.id, images: images)!;
     final target = (await store.listGroups()).singleWhere(
       (group) => group.bookId != null,
     );
@@ -114,7 +119,7 @@ void main() {
   });
 
   test('保存拦截无效正则，编辑开关与删除，不保存匹配结果', () async {
-    final store = library.decorationRuleStore(book.id)!;
+    final store = library.decorationRuleStore(book.id, images: images)!;
     final group = (await store.listGroups()).first;
     await expectLater(
       store.saveRule(
@@ -140,7 +145,7 @@ void main() {
   });
 
   test('彻底删书级联清理本书组与规则，不触碰全局规则', () async {
-    final store = library.decorationRuleStore(book.id)!;
+    final store = library.decorationRuleStore(book.id, images: images)!;
     final groups = await store.listGroups();
     final global = groups.singleWhere((group) => group.bookId == null);
     final local = groups.singleWhere((group) => group.bookId != null);
@@ -156,5 +161,23 @@ void main() {
       (await db.select(db.decorationRuleGroups).get()).map((row) => row.id),
       [global.id],
     );
+  });
+
+  test('自动规则高亮样式完整落库重读，不产生手工装饰或标注', () async {
+    final store = library.decorationRuleStore(book.id, images: images)!;
+    final group = (await store.listGroups()).first;
+    const style = ReaderDecorationRuleStyle(
+      highlight: ReaderDecorationHighlight(
+        style: ReaderAnnotationStyle.wavyUnderline,
+        color: 0xFF12AB34,
+        opacity: 0.6,
+        strokeWidth: 2.5,
+      ),
+    );
+    await store.saveRule(_rule('highlight', group.id).copyWith(style: style));
+    final reloaded = library.decorationRuleStore(book.id, images: images)!;
+    expect((await reloaded.listRules()).single.style.toJson(), style.toJson());
+    expect(await db.select(db.decorations).get(), isEmpty);
+    expect(await db.select(db.annotations).get(), isEmpty);
   });
 }
