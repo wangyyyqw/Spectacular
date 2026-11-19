@@ -16,7 +16,7 @@ const _tagDurationStyle = TextStyle(
   height: 1.4,
   fontFeatures: [FontFeature.tabularFigures()],
 );
-final _countingHint = '单次前台阅读满 ${minimumCountedSessionDuration.inMinutes} 分钟计入';
+final _countingHint = '当天累计阅读满 ${minimumCountedDayDuration.inMinutes} 分钟计入';
 
 /// 图书时长：按自然周期查看各书投入和占比，保留已移出书架的记录。
 class BookDurationChart extends StatefulWidget {

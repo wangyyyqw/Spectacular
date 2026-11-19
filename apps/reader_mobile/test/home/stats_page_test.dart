@@ -474,7 +474,74 @@ void main() {
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
   });
 
-  testWidgets('统计页不计入低于 5 分钟的阅读记录，满 5 分钟的记录保留', (tester) async {
+  testWidgets('同天跨次跨书累计达标后刷新图书时长、日历、排行和最近阅读', (tester) async {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, 8);
+    final sessions = [
+      ReadingSession(
+        bookId: 'a',
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 2, seconds: 59)),
+        duration: const Duration(minutes: 2, seconds: 59),
+      ),
+      ReadingSession(
+        bookId: 'b',
+        startedAt: start.add(const Duration(hours: 1)),
+        endedAt: start.add(const Duration(hours: 1, minutes: 2)),
+        duration: const Duration(minutes: 2),
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([
+            _book('a', '累计样本甲'),
+            _book('b', '累计样本乙'),
+          ], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore(sessions),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('该时段没有阅读记录'), findsOneWidget);
+    expect(find.text('当天累计阅读满 5 分钟计入'), findsOneWidget);
+    sessions.add(
+      ReadingSession(
+        bookId: 'a',
+        startedAt: start.add(const Duration(hours: 2)),
+        endedAt: start.add(const Duration(hours: 2, seconds: 1)),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+    await _tapControl(tester, 'stats-refresh');
+    expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
+    expect(_valueOf(tester, 'stats-book-duration-value-a'), '3 分钟');
+    expect(_valueOf(tester, 'stats-book-duration-value-b'), '2 分钟');
+    await _tapControl(
+      tester,
+      'stats-calendar-day-${now.year}-${now.month}-${now.day}',
+    );
+    expect(find.text('2 本书 · 合计 5 分钟'), findsOneWidget);
+    Navigator.of(tester.element(find.text('2 本书 · 合计 5 分钟'))).pop();
+    await tester.pumpAndSettle();
+    await _scrollTo(tester, find.byKey(const ValueKey('stats-ranking-b')), 180);
+    expect(_valueOf(tester, 'stats-ranking-duration-a'), '3 分钟');
+    expect(_valueOf(tester, 'stats-ranking-duration-b'), '2 分钟');
+    expect(_valueOf(tester, 'stats-ranking-counts-a'), '2 次 · 0 次翻页 · 0 字');
+    await _scrollTo(tester, find.text('最近阅读'), 180);
+    expect(find.byKey(const ValueKey('stats-open-a')), findsOneWidget);
+    expect(find.byKey(const ValueKey('stats-open-b')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('stats-open-a'))).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const ValueKey('stats-open-b'))).dy,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('统计页不计入当天累计不足五分钟的记录，其他日期不凑时长', (tester) async {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day, 8);
     await tester.pumpWidget(
@@ -488,8 +555,10 @@ void main() {
           sessionStore: _FakeSessionStore([
             ReadingSession(
               bookId: 'short',
-              startedAt: start,
-              endedAt: start.add(const Duration(minutes: 4, seconds: 59)),
+              startedAt: start.subtract(const Duration(days: 1)),
+              endedAt: start
+                  .subtract(const Duration(days: 1))
+                  .add(const Duration(minutes: 4, seconds: 59)),
               duration: const Duration(minutes: 4, seconds: 59),
             ),
             ReadingSession(
@@ -512,7 +581,7 @@ void main() {
     );
   });
 
-  testWidgets('最近阅读只按满五分钟的会话排列，短记录的书不列出，无会话的历史书保留', (tester) async {
+  testWidgets('最近阅读只按累计达标日期内的会话排列，未达标日期不列出，历史书保留', (tester) async {
     final now = DateTime.now();
     final keptEnd = now.subtract(const Duration(days: 2));
     await tester.pumpWidget(

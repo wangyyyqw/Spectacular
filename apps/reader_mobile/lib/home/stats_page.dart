@@ -103,12 +103,13 @@ class _StatsPageState extends State<StatsPage> {
       final storedSessions =
           await (_sessionStore?.list() ??
               Future<List<ReadingSession>>.value(const []));
-      final recordedSessions = storedSessions.where(
-        (session) => session.duration >= minimumCountedSessionDuration,
-      );
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      final insights = ReadingInsights(recordedSessions, now: now);
+      final insights = ReadingInsights(
+        storedSessions,
+        now: now,
+        minimumDayDuration: minimumCountedDayDuration,
+      );
       final sessions = insights.sessions;
       final readingByDay = insights.byDay;
       final rows = <_BookReadingStat>[];
@@ -407,7 +408,7 @@ class _BookReadingStat {
   final ReaderProgress? progress;
   final int? percent;
 
-  /// 最近阅读时间：有会话的书取满五分钟会话的结束时间，无会话的历史书沿用最后阅读时间。
+  /// 最近阅读时间：取达标日期内的会话结束时间，无会话的历史书沿用最后阅读时间。
   final DateTime? recentReadAt;
 }
 
