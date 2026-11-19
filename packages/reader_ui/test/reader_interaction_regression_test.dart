@@ -11,6 +11,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_ui/a11y/semantics_layer.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
@@ -684,6 +685,117 @@ void main() {
     expect(find.byType(SelectionLayer), findsNothing);
   });
 
+  testWidgets('连续滚动正文仅上下滑动，点击和横滑不移动，菜单仍可用', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final session = await _showReader(
+      tester,
+      pageTurnMode: PageTurnMode.scroll,
+    );
+    final reader = find.byType(ReaderView);
+    final bounds = tester.getRect(reader);
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(of: reader, matching: find.byType(Scrollable)),
+        )
+        .position;
+    final start = position.pixels;
+    final saved = session.progress;
+    for (final point in [
+      bounds.centerLeft + const Offset(8, 0),
+      bounds.centerRight - const Offset(8, 0),
+      bounds.topCenter + const Offset(0, 8),
+      bounds.bottomCenter - const Offset(0, 8),
+    ]) {
+      await tester.tapAt(point);
+      await tester.pumpAndSettle();
+      expect(position.pixels, start);
+      expect(session.progress, saved);
+    }
+    await tester.drag(reader, const Offset(-220, 0));
+    await tester.pumpAndSettle();
+    expect(position.pixels, start);
+    expect(_menuOpen(tester), isFalse);
+    await tester.tapAt(bounds.center);
+    await tester.pumpAndSettle();
+    expect(_menuOpen(tester), isTrue);
+    await tester.tapAt(bounds.center);
+    await tester.pumpAndSettle();
+    expect(_menuOpen(tester), isFalse);
+    expect(position.pixels, start);
+    await tester.drag(reader, const Offset(0, -220));
+    await tester.pumpAndSettle();
+    final forward = position.pixels;
+    expect(forward, greaterThan(start));
+    expect(session.progress, isNot(saved));
+    await tester.drag(reader, const Offset(0, 100));
+    await tester.pumpAndSettle();
+    expect(position.pixels, lessThan(forward));
+    expect(_menuOpen(tester), isFalse);
+  });
+
+  testWidgets('连续滚动松手后保持惯性，再次按下可立即接管', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await _showReader(tester, pageTurnMode: PageTurnMode.scroll);
+    final reader = find.byType(ReaderView);
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(of: reader, matching: find.byType(Scrollable)),
+        )
+        .position;
+    await tester.fling(reader, const Offset(0, -180), 900);
+    await tester.pump();
+    final released = position.pixels;
+    await tester.pump(const Duration(milliseconds: 32));
+    expect(position.pixels, greaterThan(released));
+    final touch = await tester.startGesture(tester.getCenter(reader));
+    await tester.pump();
+    final stopped = position.pixels;
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(position.pixels, closeTo(stopped, 0.01));
+    await touch.moveBy(const Offset(0, 40));
+    await tester.pump();
+    await touch.moveBy(const Offset(0, 80));
+    await tester.pump();
+    expect(position.pixels, lessThan(stopped));
+    await touch.up();
+    await tester.pumpAndSettle();
+    expect(_menuOpen(tester), isFalse);
+  });
+
+  testWidgets('连续滚动保留长按和双击选字，点击正文仅取消选区', (tester) async {
+    final session = await _showReader(
+      tester,
+      pageTurnMode: PageTurnMode.scroll,
+    );
+    await _selectWord(tester, session.page!);
+    expect(find.byType(SelectionLayer), findsOneWidget);
+    final before = session.progress;
+    final bounds = tester.getRect(find.byType(ReaderView));
+    await tester.tapAt(bounds.centerRight - const Offset(8, 0));
+    await tester.pump(kDoubleTapTimeout);
+    await tester.pumpAndSettle();
+    expect(find.byType(SelectionLayer), findsNothing);
+    expect(_menuOpen(tester), isFalse);
+    expect(session.progress, before);
+    await _selectWord(tester, session.page!);
+    final selected = _selectionLayer(tester).selection.start.charOffset;
+    final origin = tester.getTopLeft(find.byType(ReaderView));
+    final line = TextHitTester.lineBoxes(session.page!).first;
+    final target = origin + _padding.topLeft + Offset(86, line.rect.center.dy);
+    await tester.tapAt(target);
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tapAt(target);
+    await tester.pumpAndSettle();
+    expect(
+      _selectionLayer(tester).selection.start.charOffset,
+      greaterThan(selected),
+    );
+    expect(_menuOpen(tester), isFalse);
+    expect(session.progress, before);
+  });
+
   testWidgets('墨水屏模式仍可使用连续滚动', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -1153,7 +1265,7 @@ void main() {
     expect(highlighted, isTrue);
   });
 
-  testWidgets('连续滚动翻屏请求等待补章时，旧搜索解析不得发起跳转', (tester) async {
+  testWidgets('连续滚动辅助翻屏等待补章时，旧搜索解析不得发起跳转', (tester) async {
     final source = _ScrollTurnWindowSource();
     addTearDown(() {
       if (!source.resume.isCompleted) source.resume.complete();
@@ -1179,8 +1291,11 @@ void main() {
     final expected = pending.session.progress;
     final expectedCfi = pending.session.readingCfi;
     final before = scroll.position.pixels;
-    final bounds = tester.getRect(find.byType(ReaderView));
-    await tester.tapAt(bounds.centerRight - const Offset(20, 0));
+    final pageNode = tester.widget<Semantics>(
+      find.byKey(const ValueKey('page-semantics-0')),
+    );
+    pageNode.properties.customSemanticsActions![ReaderSemanticsLayer
+        .nextPageAction]!();
     await tester.pump(const Duration(milliseconds: 100));
     expect(scroll.position.pixels, before, reason: '补章完成前翻屏仍在等待');
     pending.resolved.complete(cfiWithCharOffset(_cfi, 200));
