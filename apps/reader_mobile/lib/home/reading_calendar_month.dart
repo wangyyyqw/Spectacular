@@ -65,6 +65,8 @@ class ReadingCalendarMonth {
     finishDays = Map.unmodifiable(lastDays);
   }
 
+  static const maxVisibleBooks = 4;
+
   final DateTime start;
   late final Map<DateTime, List<BookDurationEntry>> days;
   late final List<BookDurationEntry> monthBooks;
@@ -80,7 +82,7 @@ class ReadingCalendarMonth {
   DateTime dateAt(int week, int column) =>
       DateTime(start.year, start.month, week * 7 + column - offset + 1);
 
-  /// 单日最多显示四本；超过四本保留时长前三本，连续日期尽量沿用原行。
+  /// 单日保留阅读时长最多的四本，连续日期尽量沿用原行。
   List<ReadingCalendarSpan> spansForWeek(int week) {
     final spans = <ReadingCalendarSpan>[];
     var previous = <String, ReadingCalendarSpan>{};
@@ -122,7 +124,7 @@ List<ReadingCalendarSpan> _daySpans(
   int column,
   Map<String, ReadingCalendarSpan> previous,
 ) {
-  final limit = books.length > 4 ? 3 : 4;
+  const limit = ReadingCalendarMonth.maxVisibleBooks;
   final visible = books.take(limit);
   final available = {for (var lane = 0; lane < limit; lane++) lane};
   final lanes = <String, int>{};
