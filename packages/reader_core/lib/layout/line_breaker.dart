@@ -3651,6 +3651,11 @@ abstract final class TextLayoutEngine {
     final metrics =
         measuredLines?.map((line) => line.metrics).toList() ??
         painter.computeLineMetrics();
+    // CSS §10.8：段落的字体与行高始终提供基线两侧的最小高度。
+    // 整行被小字号或小行高的 span 覆盖时，Skia 不会自动保留这个 strut。
+    final strut = layoutRuns.isEmpty
+        ? null
+        : _lineMetricsOf(baseStyle, textScaleFactor);
     // 小数行高（实验）：Skia 行盒高取整为整数，ascent 已按小数行高计算；
     // 这里把「被取整的 strut 行盒」换回 CSS 行高像素值。
     final cssLineHeight =
@@ -3665,6 +3670,11 @@ abstract final class TextLayoutEngine {
     var top = 0.0;
     for (var metricIndex = 0; metricIndex < metrics.length; metricIndex++) {
       final metric = metrics[metricIndex];
+      final ascent = math.max(metric.ascent, strut?.ascent ?? metric.ascent);
+      final descent = math.max(metric.descent, strut?.descent ?? metric.descent);
+      final measuredHeight = ascent == metric.ascent && descent == metric.descent
+          ? metric.height
+          : (ascent + descent).roundToDouble();
       final measured = measuredLines?[metricIndex];
       final boundary = measured == null
           ? lineRanges[metricIndex]
@@ -3675,20 +3685,20 @@ abstract final class TextLayoutEngine {
       final normalCssLineHeight =
           LineBreaker.preserveFractionalLineHeight &&
               style.lineHeightFactor == null
-          ? metric.ascent.roundToDouble() + metric.descent.roundToDouble()
+          ? ascent.roundToDouble() + descent.roundToDouble()
           : null;
       final lineHeight =
           syntheticCapsLineHeight ??
           normalCssLineHeight ??
-          (cssLineHeight != null && (metric.height - cssLineHeight).abs() <= 0.6
+          (cssLineHeight != null && (measuredHeight - cssLineHeight).abs() <= 0.6
               ? cssLineHeight
-              : metric.height);
+              : measuredHeight);
       final line = LineBox(
         start: boundary.start,
         end: boundary.end,
         top: top,
         height: lineHeight,
-        baseline: top + metric.ascent,
+        baseline: top + ascent,
         width: math.max(0, metric.width).toDouble(),
         spacing:
             measured?.spacing ??
@@ -5011,10 +5021,11 @@ abstract final class TextLayoutEngine {
   }
 
   /// 单字符 'x' 的段落度量（只为拿字体 ascent/descent，避免整段重排）。
-  static LineMetrics _lineMetricsOf(TextStyle style) {
+  static LineMetrics _lineMetricsOf(TextStyle style, [double scale = 1]) {
     final painter = TextPainter(
       text: TextSpan(text: 'x', style: style),
       textDirection: TextDirection.ltr,
+      textScaler: TextScaler.linear(scale),
     )..layout();
     final metrics = painter.computeLineMetrics().first;
     painter.dispose();
