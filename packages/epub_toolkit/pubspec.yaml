@@ -1,0 +1,30 @@
+name: spectacular_epub_tools
+description: "编辑器使用的本地 EPUB 转换、体检、图片、字体和注释处理。"
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  archive: ^4.5.2
+  xml: ^7.1.0
+  path: ^1.9.1
+  crypto: ^3.0.7
+  image: 4.13.1
+  pinyin: ^3.3.0
+  ffi: ^2.2.0
+  harfbuzz_ffi:
+    path: third_party/harfbuzz_ffi
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  assets:
+    - assets/opencc/
+    - assets/note.png

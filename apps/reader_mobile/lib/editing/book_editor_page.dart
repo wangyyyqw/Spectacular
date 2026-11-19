@@ -7,6 +7,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_page.dart';
 
 import 'book_editor_controller.dart';
+import 'book_editor_local_tools.dart';
 import 'book_editor_element_sheet.dart';
 import 'book_editor_inspector.dart';
 import 'book_editor_preview.dart';
@@ -212,6 +213,8 @@ class _BookEditorPageState extends State<BookEditorPage> {
   Future<void> _performTool(String action) async {
     final tools = BookEditorTools(context, editor);
     switch (action) {
+      case 'local-tools':
+        await BookEditorLocalTools(context, editor, widget.title).open();
       case 'metadata':
         await tools.metadata();
       case 'toc':
@@ -372,6 +375,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
     enabled: !editor.busy,
     onSelected: (value) => unawaited(_tool(value)),
     itemBuilder: (_) => const [
+      PopupMenuItem(value: 'local-tools', child: Text('本地 EPUB 工具')),
       PopupMenuItem(value: 'metadata', child: Text('书籍信息')),
       PopupMenuItem(value: 'chapters', child: Text('章节顺序与拆分合并')),
       PopupMenuItem(value: 'toc', child: Text('目录')),
@@ -455,6 +459,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
 
   Widget _toolsMenu() => SubmenuButton(
     menuChildren: [
+      _toolItem('本地 EPUB 工具', 'local-tools'),
       _toolItem('书籍信息', 'metadata'),
       _toolItem('目录', 'toc'),
       _toolItem('章节顺序与拆分合并', 'chapters'),
