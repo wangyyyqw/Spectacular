@@ -82,7 +82,7 @@ extension _ReaderDecorationActions on _ReaderPageState {
     try {
       final style = await _decorationEditor(
         supported.quote,
-        existing?.style ?? const ReaderDecorationStyle(),
+        existing?.style ?? ReaderDecorationPreset.highlight.style,
       );
       if (!mounted || style == null) return;
       final saved = await store.add(

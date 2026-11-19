@@ -30,6 +30,7 @@ import 'decorations/decoration.dart';
 import 'decorations/decoration_editor_sheet.dart';
 import 'decorations/decoration_geometry.dart';
 import 'decorations/decoration_image_store.dart';
+import 'decorations/decoration_image_codec.dart';
 import 'decorations/decoration_painter.dart';
 import 'decorations/decoration_relocator.dart';
 import 'decorations/decoration_rule_engine.dart';
@@ -847,6 +848,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final _ruleEngine = ReaderDecorationRuleEngine();
   final Map<int, List<ReaderDecorationRuleMatch>> _chapterRuleMatches = {};
   final Map<String, ui.Image> _decorationImages = {};
+  final Map<String, ReaderDecorationNineSlice> _decorationNineSlices = {};
   final Set<String> _missingDecorationImages = {};
   final Set<String> _unavailableDecorationFonts = {};
   int _decorationGeneration = 0;
@@ -2313,6 +2315,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       image.dispose();
     }
     _decorationImages.clear();
+    _decorationNineSlices.clear();
     _chapterDecorationPreparations.clear();
     _decorationFontLoads.clear();
     _loadedDecorationFonts.clear();

@@ -163,10 +163,13 @@ void main() {
     );
   });
 
-  test('自动规则高亮样式完整落库重读，不产生手工装饰或标注', () async {
+  test('自动规则高亮与点九配置完整落库重读，不产生手工装饰或标注', () async {
     final store = library.decorationRuleStore(book.id, images: images)!;
     final group = (await store.listGroups()).first;
     const style = ReaderDecorationRuleStyle(
+      backgroundImagePath: '/local/bubble.png',
+      backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+      backgroundImageNineSlice: ReaderDecorationNineSlice(scale: 1.2),
       highlight: ReaderDecorationHighlight(
         style: ReaderAnnotationStyle.wavyUnderline,
         color: 0xFF12AB34,

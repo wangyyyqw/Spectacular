@@ -55,6 +55,7 @@ class ReaderDecorationRuleStyle {
     this.backgroundColor,
     this.backgroundImagePath,
     this.backgroundImageFit = ReaderDecorationImageFit.cover,
+    this.backgroundImageNineSlice,
     this.backgroundOpacity = 1,
     this.borderRadius = 0,
     this.borderStyle = ReaderDecorationBorderStyle.solid,
@@ -72,6 +73,7 @@ class ReaderDecorationRuleStyle {
 
   final String? backgroundImagePath;
   final ReaderDecorationImageFit backgroundImageFit;
+  final ReaderDecorationNineSlice? backgroundImageNineSlice;
 
   /// 背景透明度。
   final double backgroundOpacity;
@@ -100,6 +102,7 @@ class ReaderDecorationRuleStyle {
       backgroundColor: backgroundColor,
       backgroundImagePath: backgroundImagePath,
       backgroundImageFit: backgroundImageFit,
+      backgroundImageNineSlice: backgroundImageNineSlice,
       backgroundOpacity: backgroundOpacity,
       borderRadius: borderRadius,
       borderStyle: borderStyle,
@@ -119,6 +122,8 @@ class ReaderDecorationRuleStyle {
     if (backgroundImagePath != null) 'backgroundImagePath': backgroundImagePath,
     if (backgroundImagePath != null)
       'backgroundImageFit': backgroundImageFit.name,
+    if (backgroundImagePath != null)
+      'backgroundImageNineSlice': backgroundImageNineSlice?.toJson(),
     'backgroundOpacity': backgroundOpacity,
     'borderRadius': borderRadius,
     'borderStyle': borderStyle.name,
@@ -140,6 +145,9 @@ class ReaderDecorationRuleStyle {
       backgroundImagePath: styleString(json['backgroundImagePath']),
       backgroundImageFit: ReaderDecorationImageFit.fromJson(
         json['backgroundImageFit'],
+      ),
+      backgroundImageNineSlice: ReaderDecorationNineSlice.fromJson(
+        json['backgroundImageNineSlice'],
       ),
       backgroundOpacity: styleNumber(
         json['backgroundOpacity'],

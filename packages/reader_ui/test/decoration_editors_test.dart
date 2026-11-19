@@ -17,24 +17,36 @@ import 'package:reader_ui/panels/settings_panel.dart' show ReaderFontOption;
 import 'package:reader_ui/decorations/decoration_highlight_editor.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
+import 'package:reader_ui/decorations/decoration_image_codec.dart';
+import 'package:reader_ui/decorations/decoration_nine_slice_editor.dart';
 
-class _DecorationImages implements ReaderDecorationImageStore {
+import 'support/decoration_test_images.dart';
+
+class _DecorationImages implements ReaderDecorationNinePatchImageStore {
   _DecorationImages(this.bytes);
   final Uint8List bytes;
+  Uint8List? savedNinePatch;
 
   @override
   Future<String?> pickImage() async => '/local/texture.png';
   @override
-  Future<Uint8List> loadImage(String path) async => bytes;
+  Future<Uint8List> loadImage(String path) async =>
+      path.endsWith('.9.png') ? savedNinePatch! : bytes;
+  @override
+  Future<String> saveNinePatch(Uint8List bytes) async {
+    savedNinePatch = bytes;
+    return '/local/texture.9.png';
+  }
+
   @override
   Future<void> removeUnused(Set<String> referencedPaths) async {}
 }
 
-Future<Uint8List> _imageBytes() async {
+Future<Uint8List> _imageBytes({int width = 12, int height = 6}) async {
   final recorder = ui.PictureRecorder();
   ui.Canvas(recorder).drawColor(const Color(0xFFB6D7A8), ui.BlendMode.src);
   final picture = recorder.endRecording();
-  final image = await picture.toImage(12, 6);
+  final image = await picture.toImage(width, height);
   final data = await image.toByteData(format: ui.ImageByteFormat.png);
   picture.dispose();
   image.dispose();
@@ -145,7 +157,395 @@ FilledButton _saveButton(WidgetTester tester) => tester.widget<FilledButton>(
   find.byKey(const ValueKey<String>('decoration-save')),
 );
 
+Future<void> _pumpImageTask(WidgetTester tester, bool Function() ready) async {
+  for (var frame = 0; frame < 80; frame++) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    if (ready()) {
+      await tester.pumpAndSettle();
+      return;
+    }
+  }
+  fail('图片任务未完成');
+}
+
 void main() {
+  testWidgets('点九实时预览给边角留出行距，多行图案不互相遮挡', (tester) async {
+    final images = _DecorationImages(
+      (await tester.runAsync(ninePatchTestBytes))!,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 320,
+                  child: ReaderDecorationStylePreview(
+                    text: '甲乙\n丙丁',
+                    style: const ReaderDecorationStyle(
+                      backgroundImagePath: '/local/texture.png',
+                      backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+                    ),
+                    images: images,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    final preview = find.byKey(const ValueKey('decoration-style-preview'));
+    await _pumpImageTask(tester, () => tester.getSize(preview).height > 120);
+    expect(tester.getSize(preview).height, greaterThan(120));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('正则匹配进行中调样式保留结果，颜色透明度立即应用且不用重新匹配', (tester) async {
+    final pending = Completer<List<ReaderDecorationRulePreview>>();
+    var calls = 0;
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      ReaderDecorationRuleEditor(
+        rule: const ReaderDecorationRule(
+          id: 'cached',
+          groupId: 'group',
+          pattern: r'\d+',
+          isRegex: true,
+          style: ReaderDecorationRuleStyle(
+            highlight: ReaderDecorationHighlight(),
+          ),
+        ),
+        onPreview: (_) {
+          calls++;
+          return pending.future;
+        },
+      ),
+      (_) {},
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('rule-preview')));
+    await tester.pump();
+    final swatch = find.byKey(
+      const ValueKey('decoration-highlight-style-wavyUnderline'),
+    );
+    await tester.ensureVisible(swatch);
+    await tester.tap(swatch);
+    pending.complete([
+      const ReaderDecorationRulePreview(
+        startCfi: 'start',
+        endCfi: 'end',
+        text: '123',
+        style: ReaderDecorationRuleStyle(),
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    final colors = find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == '蓝色',
+    );
+    expect(colors, findsOneWidget);
+    await tester.ensureVisible(colors);
+    await tester.tap(colors);
+    await tester.pumpAndSettle();
+    final opacity = find.descendant(
+      of: find.byKey(const ValueKey('decoration-highlight-opacity')),
+      matching: find.byType(Slider),
+    );
+    tester.widget<Slider>(opacity).onChanged!(0.45);
+    await tester.pumpAndSettle();
+    final previews = tester.widgetList<ReaderDecorationStylePreview>(
+      find.byType(ReaderDecorationStylePreview),
+    );
+    expect(previews, hasLength(2));
+    expect(previews.first.text, '123');
+    expect(
+      previews.every(
+        (preview) =>
+            preview.style.highlight!.style ==
+                ReaderAnnotationStyle.wavyUnderline &&
+            preview.style.highlight!.color == 0xFF90CAF9 &&
+            preview.style.highlight!.opacity == 0.45,
+      ),
+      isTrue,
+    );
+    expect(calls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('普通图片可拖拽内容区转为点九副本，确认后规则保存同一路径与配置', (tester) async {
+    final images = _DecorationImages((await tester.runAsync(_imageBytes))!);
+    ReaderDecorationRule? saved;
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      ReaderDecorationRuleEditor(
+        rule: const ReaderDecorationRule(
+          id: 'nine',
+          groupId: 'group',
+          pattern: '文字',
+          style: ReaderDecorationRuleStyle(
+            backgroundImagePath: '/local/texture.png',
+          ),
+        ),
+        images: images,
+        onPreview: (_) async => [],
+      ),
+      (result) => saved = result,
+    );
+    final convert = find.byKey(const ValueKey('decoration-nine-slice-edit'));
+    await tester.ensureVisible(convert);
+    await tester.tap(convert);
+    await _pumpImageTask(
+      tester,
+      () => find.byType(ReaderDecorationNineSliceEditor).evaluate().isNotEmpty,
+    );
+    final source = find.byKey(const ValueKey('decoration-nine-slice-source'));
+    await tester.ensureVisible(source);
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(source);
+    final imageRect = Alignment.center.inscribe(
+      applyBoxFit(BoxFit.contain, const Size(12, 6), rect.size).destination,
+      rect,
+    );
+    await tester.dragFrom(
+      imageRect.topLeft + Offset(imageRect.width * 0.2, imageRect.height * 0.2),
+      Offset(imageRect.width * 0.1, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('decoration-nine-slice-save')));
+    await _pumpImageTask(
+      tester,
+      () => find.byType(ReaderDecorationNineSliceEditor).evaluate().isEmpty,
+    );
+    final preview = tester.widget<ReaderDecorationStylePreview>(
+      find.byType(ReaderDecorationStylePreview),
+    );
+    expect(
+      preview.style.backgroundImageFit,
+      ReaderDecorationImageFit.nineSlice,
+    );
+    expect(
+      preview.style.backgroundImageNineSlice!.content.left,
+      greaterThan(0.2),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('rule-save')));
+    await tester.pumpAndSettle();
+    expect(
+      saved!.style.backgroundImageNineSlice!.toJson(),
+      preview.style.backgroundImageNineSlice!.toJson(),
+    );
+    expect(saved!.style.backgroundImagePath, '/local/texture.9.png');
+    expect(preview.style.backgroundImagePath, saved!.style.backgroundImagePath);
+    final decoded = (await tester.runAsync(
+      () => ReaderDecorationImageCodec.decode(images.savedNinePatch!),
+    ))!;
+    addTearDown(decoded.image.dispose);
+    expect(decoded.image.width, 12);
+    expect(decoded.image.height, 6);
+    expect(
+      decoded.nineSlice!.toJson(),
+      saved!.style.backgroundImageNineSlice!.toJson(),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('点九PNG导入自动选择点九拉伸，手工装饰保存内容标记', (tester) async {
+    final images = _DecorationImages(
+      (await tester.runAsync(ninePatchTestBytes))!,
+    );
+    ReaderDecorationStyle? saved;
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      ReaderDecorationEditorSheet(quote: '点九图片', images: images),
+      (result) => saved = result,
+    );
+    final background = find.byKey(
+      const ValueKey<String>('decoration-background'),
+    );
+    await tester.ensureVisible(background);
+    await tester.tap(background);
+    await tester.pumpAndSettle();
+    final pick = find.widgetWithText(OutlinedButton, '选择本地背景图');
+    await tester.ensureVisible(pick);
+    await tester.tap(pick);
+    await _pumpImageTask(tester, () => _saveButton(tester).onPressed != null);
+    await tester.tap(find.byKey(const ValueKey<String>('decoration-save')));
+    await tester.pumpAndSettle();
+    expect(saved!.backgroundImageFit, ReaderDecorationImageFit.nineSlice);
+    expect(
+      saved!.backgroundImageNineSlice!.content,
+      const Rect.fromLTRB(8 / 30, 7 / 20, 22 / 30, 13 / 20),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('单像素图片的点九内容区至少一像素，拖动和保存不会越界', (tester) async {
+    final decoded = (await tester.runAsync(
+      () async => ReaderDecorationImageCodec.decode(
+        await _imageBytes(width: 1, height: 1),
+      ),
+    ))!;
+    addTearDown(decoded.image.dispose);
+    ReaderDecorationNineSliceSelection? saved;
+    await _openSheet<ReaderDecorationNineSliceSelection>(
+      tester,
+      ReaderDecorationNineSliceEditor(image: decoded.image),
+      (result) => saved = result,
+    );
+    final source = find.byKey(const ValueKey('decoration-nine-slice-source'));
+    await tester.ensureVisible(source);
+    await tester.pumpAndSettle();
+    await tester.drag(source, const Offset(40, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('decoration-nine-slice-save')));
+    await tester.pumpAndSettle();
+    expect(saved!.nineSlice.slice, const Rect.fromLTRB(0, 0, 1, 1));
+    expect(saved!.nineSlice.content, const Rect.fromLTRB(0, 0, 1, 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('点九保存期间禁用重复提交，失败后保留内容区并可重试', (tester) async {
+    final images = _DecorationImages((await tester.runAsync(_imageBytes))!);
+    final decoded = (await tester.runAsync(
+      () => ReaderDecorationImageCodec.decode(images.bytes),
+    ))!;
+    addTearDown(decoded.image.dispose);
+    final firstSave = Completer<String>();
+    var saves = 0;
+    ReaderDecorationNineSliceSelection? saved;
+    await _openSheet<ReaderDecorationNineSliceSelection>(
+      tester,
+      ReaderDecorationNineSliceEditor(
+        image: decoded.image,
+        saveImage: (bytes) {
+          saves++;
+          return saves == 1 ? firstSave.future : images.saveNinePatch(bytes);
+        },
+      ),
+      (result) => saved = result,
+    );
+    tester
+        .widget<Slider>(
+          find.byKey(const ValueKey('decoration-nine-slice-inset-0')),
+        )
+        .onChanged!(2);
+    await tester.pumpAndSettle();
+    final save = find.byKey(const ValueKey('decoration-nine-slice-save'));
+    await tester.tap(save);
+    await _pumpImageTask(tester, () => saves == 1);
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byWidgetPredicate(
+              (widget) => widget is IconButton && widget.tooltip == '取消',
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    firstSave.completeError(StateError('测试保存失败'));
+    await _pumpImageTask(
+      tester,
+      () => find.text('点九图片保存失败，请重试').evaluate().isNotEmpty,
+    );
+    expect(saved, isNull);
+    expect(find.byType(ReaderDecorationNineSliceEditor), findsOneWidget);
+    await tester.tap(save);
+    await _pumpImageTask(
+      tester,
+      () => find.byType(ReaderDecorationNineSliceEditor).evaluate().isEmpty,
+    );
+    expect(saves, 2);
+    expect(saved!.path, '/local/texture.9.png');
+    expect(saved!.nineSlice.content.top, 2 / 6);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('320dp 大字点九预览随多行增高，保存按钮仍固定可见', (tester) async {
+    tester.view.physicalSize = const Size(320, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final decoded = (await tester.runAsync(
+      () async => ReaderDecorationImageCodec.decode(await _imageBytes()),
+    ))!;
+    addTearDown(decoded.image.dispose);
+    await _openSheet<ReaderDecorationNineSliceSelection>(
+      tester,
+      MediaQuery(
+        data: const MediaQueryData(
+          size: Size(320, 600),
+          textScaler: TextScaler.linear(1.6),
+        ),
+        child: ReaderDecorationNineSliceEditor(image: decoded.image),
+      ),
+      (_) {},
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('decoration-nine-slice-preview')))
+          .height,
+      greaterThan(180),
+    );
+    expect(
+      find.byKey(const ValueKey('decoration-nine-slice-save')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('常用正则插入选中位置，窄屏与大字模式保持预览和保存可见', (tester) async {
+    tester.view.physicalSize = const Size(320, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      MediaQuery(
+        data: const MediaQueryData(
+          size: Size(320, 600),
+          textScaler: TextScaler.linear(1.6),
+        ),
+        child: ReaderDecorationRuleEditor(
+          rule: const ReaderDecorationRule(
+            id: 'regex',
+            groupId: 'group',
+            pattern: '前后',
+            isRegex: true,
+            style: ReaderDecorationRuleStyle(),
+          ),
+          onPreview: (_) async => [],
+        ),
+      ),
+      (_) {},
+    );
+    final pattern = tester.widget<TextField>(
+      find.byKey(const ValueKey<String>('rule-pattern')),
+    );
+    pattern.controller!.selection = const TextSelection.collapsed(offset: 1);
+    final examples = find.byKey(const ValueKey<String>('rule-regex-examples'));
+    await tester.ensureVisible(examples);
+    await tester.tap(examples);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(r'数字：\d+'));
+    await tester.pumpAndSettle();
+    expect(pattern.controller!.text, r'前\d+后');
+    expect(
+      find.byType(ReaderDecorationStylePreview).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('rule-save')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('正则规则选择图片与铺放方式，命中预览和保存使用同一图片', (tester) async {
     final images = _DecorationImages((await tester.runAsync(_imageBytes))!);
     ReaderDecorationRule? saved;
@@ -171,12 +571,25 @@ void main() {
       ),
       (result) => saved = result,
     );
+    final background = find.byKey(const ValueKey<String>('rule-background'));
+    await tester.ensureVisible(background);
+    await tester.tap(background);
+    await tester.pumpAndSettle();
     final pick = find.byKey(
       const ValueKey<String>('rule-pick-background-image'),
     );
     await tester.ensureVisible(pick);
     await tester.tap(pick);
-    await tester.pumpAndSettle();
+    await _pumpImageTask(
+      tester,
+      () =>
+          tester
+              .widget<FilledButton>(
+                find.byKey(const ValueKey<String>('rule-save')),
+              )
+              .onPressed !=
+          null,
+    );
     final fit = find.byType(DropdownButtonFormField<ReaderDecorationImageFit>);
     await tester.ensureVisible(fit);
     await tester.tap(fit);
@@ -242,13 +655,11 @@ void main() {
           .joinLines,
       isTrue,
     );
-    final dropdown = find.byType(
-      DropdownButtonFormField<ReaderAnnotationStyle?>,
+    final swatch = find.byKey(
+      const ValueKey('decoration-highlight-style-wavyUnderline'),
     );
-    await tester.ensureVisible(dropdown);
-    await tester.tap(dropdown);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('波浪线').last);
+    await tester.ensureVisible(swatch);
+    await tester.tap(swatch);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('decoration-save')));
     await tester.pumpAndSettle();
@@ -524,7 +935,7 @@ void main() {
     expect(find.text('本书默认组'), findsNothing);
   });
 
-  testWidgets('规则预览最多50条，生成预览不会保存规则', (tester) async {
+  testWidgets('规则预览先展示5条，展开最多50条，不保存规则', (tester) async {
     ReaderDecorationRule? saved;
     await _openSheet<ReaderDecorationRule>(
       tester,
@@ -551,7 +962,16 @@ void main() {
     await tester.ensureVisible(preview);
     await tester.tap(preview);
     await tester.pumpAndSettle();
+    expect(find.byType(ReaderDecorationStylePreview), findsNWidgets(6));
+    final expand = find.byKey(const ValueKey<String>('rule-preview-expand'));
+    await tester.ensureVisible(expand);
+    await tester.tap(expand);
+    await tester.pumpAndSettle();
     expect(find.byType(ReaderDecorationStylePreview), findsNWidgets(51));
+    await tester.ensureVisible(expand);
+    await tester.tap(expand);
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderDecorationStylePreview), findsNWidgets(6));
     expect(saved, isNull);
   });
 

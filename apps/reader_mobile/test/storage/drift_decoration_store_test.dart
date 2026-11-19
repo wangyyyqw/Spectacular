@@ -13,15 +13,39 @@ import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/decorations/decoration.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration_image_codec.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 import '../library/fixtures/revision_epub.dart';
 
-Future<Uint8List> _pictureBytes() async {
+Future<Uint8List> _pictureBytes({int width = 2000, int height = 1000}) async {
   final recorder = ui.PictureRecorder();
   ui.Canvas(recorder).drawColor(const ui.Color(0xffaabbcc), ui.BlendMode.src);
   final picture = recorder.endRecording();
-  final image = await picture.toImage(2000, 1000);
+  final image = await picture.toImage(width, height);
+  final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!;
+  image.dispose();
+  picture.dispose();
+  return bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
+}
+
+Future<Uint8List> _ninePatchBytes() async {
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
+  canvas.drawRect(
+    const ui.Rect.fromLTWH(1, 1, 1700, 20),
+    ui.Paint()..color = const ui.Color(0xFFB6D7A8),
+  );
+  for (final rect in [
+    const ui.Rect.fromLTWH(341, 0, 1020, 1),
+    const ui.Rect.fromLTWH(0, 5, 1, 12),
+    const ui.Rect.fromLTWH(341, 21, 1020, 1),
+    const ui.Rect.fromLTWH(1701, 5, 1, 12),
+  ]) {
+    canvas.drawRect(rect, ui.Paint()..color = const ui.Color(0xFF000000));
+  }
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(1702, 22);
   final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!;
   image.dispose();
   picture.dispose();
@@ -235,6 +259,90 @@ void main() {
     );
     await ruleStore.removeRule('image-rule');
     expect(File(path).existsSync(), isFalse);
+  });
+
+  test('普通细长图片缩放后短边保留至少一像素', () async {
+    final images = ReaderDecorationImages(
+      directoryProvider: () async => directory,
+    );
+    for (final (width, height) in [(1, 4000), (4000, 1)]) {
+      final path = await images.import(
+        await _pictureBytes(width: width, height: height),
+      );
+      final decoded = await ReaderDecorationImageCodec.decode(
+        await images.loadImage(path),
+      );
+      addTearDown(decoded.image.dispose);
+      expect(decoded.image.width, width == 1 ? 1 : 1600);
+      expect(decoded.image.height, height == 1 ? 1 : 1600);
+    }
+  });
+
+  test('点九导入保留单像素标记，内容区保存重读后不改变文本锚点', () async {
+    final images = ReaderDecorationImages(
+      directoryProvider: () async => directory,
+    );
+    final path = await images.import(await _ninePatchBytes(), ninePatch: true);
+    expect(path, endsWith('.9.png'));
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await images.loadImage(path),
+    );
+    addTearDown(decoded.image.dispose);
+    expect(decoded.image.width, 1700);
+    expect(decoded.image.height, 20);
+    expect(
+      decoded.nineSlice!.content,
+      const ui.Rect.fromLTRB(0.2, 0.2, 0.8, 0.8),
+    );
+    final store = library.decorationStore(book.id, images: images)!;
+    final record = (await store.add(
+      startCfi: first,
+      endCfi: last,
+      quote: revisionQuote,
+      style: ReaderDecorationStyle(
+        backgroundImagePath: path,
+        backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+        backgroundImageNineSlice: decoded.nineSlice,
+      ),
+    ))!;
+    final reloaded = library.decorationStore(book.id, images: images)!;
+    final restored = (await reloaded.list()).single;
+    expect(restored.id, record.id);
+    expect(restored.startCfi, first);
+    expect(restored.endCfi, last);
+    expect(
+      restored.style.backgroundImageNineSlice!.toJson(),
+      decoded.nineSlice!.toJson(),
+    );
+    expect(restored.style.changesMetrics, isFalse);
+  });
+
+  test('普通图片转换保存独立点九副本，原图保留且标记可重读', () async {
+    final images = ReaderDecorationImages(
+      directoryProvider: () async => directory,
+    );
+    final originalPath = await images.import(await _pictureBytes());
+    final source = await ReaderDecorationImageCodec.decode(
+      await images.loadImage(originalPath),
+    );
+    addTearDown(source.image.dispose);
+    const config = ReaderDecorationNineSlice(
+      slice: ui.Rect.fromLTRB(0.1, 0.1, 0.9, 0.9),
+      content: ui.Rect.fromLTRB(0.2, 0.3, 0.8, 0.7),
+    );
+    final convertedPath = await images.saveNinePatch(
+      await ReaderDecorationImageCodec.encodeNinePatch(source.image, config),
+    );
+    expect(convertedPath, endsWith('.9.png'));
+    expect(convertedPath, isNot(originalPath));
+    expect(File(originalPath).existsSync(), isTrue);
+    final restored = await ReaderDecorationImageCodec.decode(
+      await images.loadImage(convertedPath),
+    );
+    addTearDown(restored.image.dispose);
+    expect(restored.image.width, source.image.width);
+    expect(restored.image.height, source.image.height);
+    expect(restored.nineSlice!.toJson(), config.toJson());
   });
 
   test('删书级联清理装饰，软删除不损失装饰', () async {

@@ -16,29 +16,48 @@ abstract final class ReaderDecorationPainter {
     required bool foreground,
     bool inkMode = false,
   }) {
-    for (final box in boxes) {
-      final highlight = box.style.highlight;
-      if (highlight == null) continue;
-      final line = box.range.line;
-      final source = line.slice.block.layout.lines[line.lineIndex];
-      final baseline =
-          (line.textTop ?? line.rect.top) +
-          source.baseline -
-          source.top +
-          highlight.strokeWidth;
-      for (final rect in box.range.rects) {
-        paintHighlight(
-          canvas,
-          rect,
-          highlight,
-          foreground: foreground,
-          inkMode: inkMode,
-          vertical: line.isVertical,
-          baseline: line.isVertical ? null : baseline,
-        );
+    final joined = <ReaderDecorationBox>[];
+    for (final box in ReaderDecorationGeometry.highlightBoxesFor(boxes)) {
+      final highlight = box.style.highlight!;
+      if (!foreground &&
+          !inkMode &&
+          highlight.style == ReaderAnnotationStyle.background &&
+          highlight.joinLines &&
+          box.highlightSource != null &&
+          !box.range.line.isVertical) {
+        joined.add(box);
+        continue;
       }
+      _paintHighlightBox(canvas, box, foreground, inkMode);
     }
-    if (!foreground && !inkMode) _paintJoinedHighlights(canvas, boxes);
+    if (joined.isNotEmpty) _paintJoinedHighlights(canvas, joined);
+  }
+
+  static void _paintHighlightBox(
+    Canvas canvas,
+    ReaderDecorationBox box,
+    bool foreground,
+    bool inkMode,
+  ) {
+    final highlight = box.style.highlight!;
+    final line = box.range.line;
+    final source = line.slice.block.layout.lines[line.lineIndex];
+    final baseline =
+        (line.textTop ?? line.rect.top) +
+        source.baseline -
+        source.top +
+        (inkMode ? 2 : highlight.strokeWidth);
+    for (final rect in box.range.rects) {
+      paintHighlight(
+        canvas,
+        rect,
+        highlight,
+        foreground: foreground,
+        inkMode: inkMode,
+        vertical: line.isVertical,
+        baseline: line.isVertical ? null : baseline,
+      );
+    }
   }
 
   static void paintHighlight(
@@ -55,6 +74,17 @@ abstract final class ReaderDecorationPainter {
         style == ReaderAnnotationStyle.background ||
         style == ReaderAnnotationStyle.halfBackground;
     if (background == foreground || style == ReaderAnnotationStyle.tint) return;
+    if (background) {
+      paintHighlightBackground(
+        canvas,
+        [
+          [rect],
+        ],
+        highlight,
+        vertical: vertical,
+      );
+      return;
+    }
     final opacity = inkMode
         ? 1.0
         : Color(highlight.color).a * highlight.effectiveOpacity;
@@ -75,55 +105,95 @@ abstract final class ReaderDecorationPainter {
     Canvas canvas,
     List<ReaderDecorationBox> boxes,
   ) {
-    final previousLines =
-        <(ReaderDecorationRange, Object, int), List<ReaderDecorationBox>>{};
+    final groups =
+        <(ReaderDecorationRange, Object), List<ReaderDecorationBox>>{};
     for (final box in boxes) {
-      final highlight = box.style.highlight;
-      final source = box.highlightSource;
-      final line = box.range.line;
-      if (highlight == null ||
-          source == null ||
-          !highlight.joinLines ||
-          highlight.style != ReaderAnnotationStyle.background ||
-          line.isVertical) {
-        continue;
-      }
-      final previous =
-          previousLines[(source, line.slice.block, line.lineIndex - 1)] ??
-          const [];
-      for (final before in previous) {
-        for (final upper in before.range.rects) {
-          for (final lower in box.range.rects) {
-            paintHighlightGap(canvas, upper, lower, highlight);
-          }
-        }
-      }
-      (previousLines[(source, line.slice.block, line.lineIndex)] ??= []).add(
+      (groups[(box.highlightSource!, box.range.line.slice.block)] ??= []).add(
         box,
       );
     }
+    for (final group in groups.values) {
+      final lines = <List<Rect>>[];
+      int? previousIndex;
+      for (final box in group) {
+        final index = box.range.line.lineIndex;
+        if (index == previousIndex) {
+          lines.last.addAll(box.range.rects);
+        } else {
+          if (previousIndex != null && index != previousIndex + 1) {
+            lines.add(const []);
+          }
+          lines.add(box.range.rects);
+        }
+        previousIndex = index;
+      }
+      paintHighlightBackground(canvas, lines, group.first.style.highlight!);
+    }
   }
 
-  static void paintHighlightGap(
+  static void paintHighlightBackground(
     Canvas canvas,
-    Rect upper,
-    Rect lower,
-    ReaderDecorationHighlight highlight,
-  ) {
-    final gap = Rect.fromLTRB(
-      math.max(upper.left, lower.left),
-      upper.bottom,
-      math.min(upper.right, lower.right),
-      lower.top,
-    );
-    if (gap.isEmpty) return;
-    canvas.drawRect(
-      gap,
+    List<List<Rect>> lines,
+    ReaderDecorationHighlight highlight, {
+    bool vertical = false,
+  }) {
+    final path = Path();
+    List<Rect> previous = const [];
+    for (final rects in lines) {
+      for (final rect in rects) {
+        final fill = highlight.style == ReaderAnnotationStyle.halfBackground
+            ? vertical
+                  ? Rect.fromLTRB(
+                      rect.left,
+                      rect.top,
+                      rect.center.dx,
+                      rect.bottom,
+                    )
+                  : Rect.fromLTRB(
+                      rect.left,
+                      rect.center.dy,
+                      rect.right,
+                      rect.bottom,
+                    )
+            : rect;
+        final radius = math.min(
+          highlight.borderRadius,
+          math.min(fill.width, fill.height) / 2,
+        );
+        path.addRRect(RRect.fromRectAndRadius(fill, Radius.circular(radius)));
+        if (highlight.style == ReaderAnnotationStyle.background &&
+            highlight.joinLines &&
+            !vertical) {
+          for (final upper in previous) {
+            _addHighlightGap(path, upper, rect, radius);
+          }
+        }
+      }
+      previous = rects;
+    }
+    canvas.drawPath(
+      path,
       Paint()
         ..color = Color(highlight.color).withValues(
           alpha: Color(highlight.color).a * highlight.effectiveOpacity,
         ),
     );
+  }
+
+  static void _addHighlightGap(
+    Path path,
+    Rect upper,
+    Rect lower,
+    double radius,
+  ) {
+    final gap = Rect.fromLTRB(
+      math.max(upper.left, lower.left),
+      upper.bottom - math.min(radius, upper.height / 2),
+      math.min(upper.right, lower.right),
+      lower.top + radius,
+    );
+    if (gap.isEmpty) return;
+    path.addRect(gap);
   }
 
   /// 依次绘制底色、圆角裁切图片和四边边框，不覆盖正文文字。
@@ -132,6 +202,10 @@ abstract final class ReaderDecorationPainter {
     Rect rect,
     ReaderDecorationStyle style, {
     ui.Image? image,
+    ReaderDecorationNineSlice? imageNineSlice,
+    Rect? imageAnchor,
+    Rect? clipRect,
+    bool vertical = false,
     bool inkMode = false,
   }) {
     if (rect.isEmpty) return;
@@ -140,8 +214,15 @@ abstract final class ReaderDecorationPainter {
       math.min(rect.width, rect.height) / 2,
     );
     final rounded = RRect.fromRectAndRadius(rect, Radius.circular(radius));
+    final nineSlice =
+        style.backgroundImageFit == ReaderDecorationImageFit.nineSlice
+        ? style.backgroundImageNineSlice ??
+              imageNineSlice ??
+              const ReaderDecorationNineSlice()
+        : null;
     canvas.save();
-    canvas.clipRRect(rounded);
+    if (clipRect != null) canvas.clipRect(clipRect);
+    if (nineSlice == null || inkMode) canvas.clipRRect(rounded);
     if (inkMode) {
       if (style.backgroundColor != null || style.backgroundImagePath != null) {
         canvas.drawLine(
@@ -163,20 +244,69 @@ abstract final class ReaderDecorationPainter {
         );
       }
       if (image != null) {
-        paintImage(
-          canvas: canvas,
-          rect: rect,
-          image: image,
-          fit: style.backgroundImageFit.fit,
-          repeat: style.backgroundImageFit == ReaderDecorationImageFit.tile
-              ? ImageRepeat.repeat
-              : ImageRepeat.noRepeat,
-          opacity: style.backgroundOpacity,
-          filterQuality: FilterQuality.low,
-        );
+        if (nineSlice == null) {
+          paintImage(
+            canvas: canvas,
+            rect: rect,
+            image: image,
+            fit: style.backgroundImageFit.fit,
+            repeat: style.backgroundImageFit == ReaderDecorationImageFit.tile
+                ? ImageRepeat.repeat
+                : ImageRepeat.noRepeat,
+            opacity: style.backgroundOpacity,
+            filterQuality: FilterQuality.low,
+          );
+        } else {
+          canvas.save();
+          final anchor = imageAnchor ?? rect;
+          final target = vertical
+              ? Rect.fromLTWH(0, 0, anchor.height, anchor.width)
+              : anchor;
+          if (vertical) {
+            canvas.translate(anchor.right, anchor.top);
+            canvas.rotate(math.pi / 2);
+          }
+          _paintNineSlice(
+            canvas,
+            image,
+            target,
+            nineSlice,
+            style.backgroundOpacity,
+          );
+          canvas.restore();
+        }
       }
     }
     _paintBorders(canvas, rect, radius, style, inkMode);
+    canvas.restore();
+  }
+
+  static void _paintNineSlice(
+    Canvas canvas,
+    ui.Image image,
+    Rect text,
+    ReaderDecorationNineSlice nineSlice,
+    double opacity,
+  ) {
+    final size = Size(image.width.toDouble(), image.height.toDouble());
+    final factor = nineSlice.scaleFor(text, size);
+    final destination = nineSlice.imageRectFor(text, size);
+    canvas.save();
+    canvas.translate(destination.left, destination.top);
+    canvas.scale(factor);
+    canvas.drawImageNine(
+      image,
+      nineSlice.centerFor(size),
+      Rect.fromLTWH(
+        0,
+        0,
+        destination.width / factor,
+        destination.height / factor,
+      ),
+      Paint()
+        ..color = const Color(0xFFFFFFFF).withValues(alpha: opacity)
+        ..filterQuality = FilterQuality.low,
+    );
     canvas.restore();
   }
 

@@ -9,7 +9,7 @@ import 'package:reader_ui/theme/reader_background.dart';
 import 'reader_background_store.dart';
 
 /// 装饰图片使用独立目录，复用阅读背景的尺寸与 PNG 压缩策略。
-class ReaderDecorationImages implements ReaderDecorationImageStore {
+class ReaderDecorationImages implements ReaderDecorationNinePatchImageStore {
   /// 可注入目录以验证隔离存储与引用清理。
   ReaderDecorationImages({Future<Directory> Function()? directoryProvider})
     : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
@@ -24,13 +24,17 @@ class ReaderDecorationImages implements ReaderDecorationImageStore {
 
   @override
   Future<String?> pickImage() async {
-    final id = await _store.pick();
+    final id = await _store.pick(preserveNinePatch: true);
     return id?.substring(6);
   }
 
   /// 导入本地字节，返回稳定的应用目录图片路径。
-  Future<String> import(Uint8List bytes) async =>
-      (await _store.import(bytes)).substring(6);
+  Future<String> import(Uint8List bytes, {bool ninePatch = false}) async =>
+      (await _store.import(bytes, preserveSize: ninePatch)).substring(6);
+
+  @override
+  Future<String> saveNinePatch(Uint8List bytes) =>
+      import(bytes, ninePatch: true);
 
   @override
   Future<Uint8List> loadImage(String path) =>

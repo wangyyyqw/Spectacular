@@ -7,6 +7,7 @@ class ReaderDecorationHighlight {
     this.color = defaultHighlightColor,
     this.opacity,
     this.strokeWidth = 1.8,
+    this.borderRadius = 2,
     this.joinLines = false,
   });
 
@@ -14,6 +15,7 @@ class ReaderDecorationHighlight {
   final int color;
   final double? opacity;
   final double strokeWidth;
+  final double borderRadius;
   final bool joinLines;
 
   double get effectiveOpacity => opacity ?? style.defaultOpacity;
@@ -23,6 +25,7 @@ class ReaderDecorationHighlight {
     'color': color,
     if (opacity != null) 'opacity': opacity,
     'strokeWidth': strokeWidth,
+    'borderRadius': borderRadius,
     'joinLines': joinLines,
   };
 
@@ -51,6 +54,12 @@ class ReaderDecorationHighlight {
         fallback: 1.8,
         min: 0.5,
         max: 6,
+      ),
+      borderRadius: styleNumber(
+        json['borderRadius'],
+        fallback: 2,
+        min: 0,
+        max: 12,
       ),
       joinLines: json['joinLines'] == true,
     );

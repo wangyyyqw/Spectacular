@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import '../annotations/annotation.dart';
 import 'decoration_image_store.dart';
+import 'decoration_image_codec.dart';
 import 'decoration_painter.dart';
 import 'decoration_style.dart';
 
@@ -16,6 +18,7 @@ class ReaderDecorationStylePreview extends StatefulWidget {
     required this.style,
     this.images,
     this.inkMode = false,
+    this.maxLines = 4,
   });
 
   /// 预览原文。
@@ -29,6 +32,7 @@ class ReaderDecorationStylePreview extends StatefulWidget {
 
   /// 黑白预览。
   final bool inkMode;
+  final int maxLines;
   @override
   State<ReaderDecorationStylePreview> createState() =>
       _ReaderDecorationStylePreviewState();
@@ -37,8 +41,10 @@ class ReaderDecorationStylePreview extends StatefulWidget {
 class _ReaderDecorationStylePreviewState
     extends State<ReaderDecorationStylePreview> {
   ui.Image? _image;
+  ReaderDecorationNineSlice? _imageNineSlice;
   int _generation = 0;
   bool _missing = false;
+  TextPainter? _text;
 
   @override
   void initState() {
@@ -60,6 +66,7 @@ class _ReaderDecorationStylePreviewState
   void dispose() {
     _generation++;
     _image?.dispose();
+    _text?.dispose();
     super.dispose();
   }
 
@@ -68,18 +75,20 @@ class _ReaderDecorationStylePreviewState
     final path = widget.style.backgroundImagePath;
     _image?.dispose();
     _image = null;
+    _imageNineSlice = null;
     _missing = false;
     if (path == null || widget.images == null) return;
     try {
       final bytes = await widget.images!.loadImage(path);
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      codec.dispose();
+      final decoded = await ReaderDecorationImageCodec.decode(bytes);
       if (!mounted || generation != _generation) {
-        frame.image.dispose();
+        decoded.image.dispose();
         return;
       }
-      setState(() => _image = frame.image);
+      setState(() {
+        _image = decoded.image;
+        _imageNineSlice = decoded.nineSlice;
+      });
     } catch (_) {
       if (mounted && generation == _generation) setState(() => _missing = true);
     }
@@ -89,6 +98,8 @@ class _ReaderDecorationStylePreviewState
   Widget build(BuildContext context) {
     final base = Theme.of(context).textTheme.bodyMedium!;
     final fontSize = base.fontSize! * widget.style.fontSizeScale;
+    final previewText = widget.text.isEmpty ? '装饰预览' : widget.text;
+    final textScaler = MediaQuery.textScalerOf(context);
     final textStyle = base.copyWith(
       fontFamily: widget.style.fontFamily,
       fontSize: fontSize,
@@ -126,22 +137,70 @@ class _ReaderDecorationStylePreviewState
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
-              final text = TextPainter(
-                text: TextSpan(
-                  text: widget.text.isEmpty ? '装饰预览' : widget.text,
-                  style: textStyle,
-                ),
-                maxLines: 4,
+              _text?.dispose();
+              final text = _text = TextPainter(
+                text: TextSpan(text: previewText, style: textStyle),
+                maxLines: widget.maxLines,
                 ellipsis: '…',
                 textDirection: Directionality.of(context),
+                textScaler: textScaler,
               )..layout(maxWidth: constraints.maxWidth);
+              var offset = Offset.zero;
+              var extraHeight = 8.0;
+              final nineSlice =
+                  widget.style.backgroundImageFit ==
+                      ReaderDecorationImageFit.nineSlice
+                  ? widget.style.backgroundImageNineSlice ??
+                        _imageNineSlice ??
+                        const ReaderDecorationNineSlice()
+                  : null;
+              if (_image != null && nineSlice != null && !widget.inkMode) {
+                final first = text
+                    .getBoxesForSelection(
+                      const TextSelection(baseOffset: 0, extentOffset: 1),
+                    )
+                    .firstOrNull
+                    ?.toRect();
+                final glyphHeight = first?.height ?? text.preferredLineHeight;
+                final bounds = nineSlice.imageRectFor(
+                  Rect.fromLTWH(0, 0, 1, glyphHeight),
+                  Size(_image!.width.toDouble(), _image!.height.toDouble()),
+                );
+                final left = (-bounds.left).clamp(
+                  0.0,
+                  constraints.maxWidth / 3,
+                );
+                final right = (bounds.right - 1).clamp(
+                  0.0,
+                  constraints.maxWidth / 3,
+                );
+                final top = (-bounds.top).clamp(0.0, 16.0);
+                final bottom = (bounds.bottom - glyphHeight).clamp(0.0, 16.0);
+                offset = Offset(left, top);
+                extraHeight += top + bottom;
+                text.text = TextSpan(
+                  text: previewText,
+                  style: textStyle.copyWith(
+                    height: math.max(
+                      textStyle.height!,
+                      (glyphHeight + 2 * math.max(top, bottom) + 4) /
+                          textScaler.scale(fontSize),
+                    ),
+                  ),
+                );
+                text.layout(
+                  maxWidth: math.max(1, constraints.maxWidth - left - right),
+                );
+              }
               return CustomPaint(
-                size: Size(constraints.maxWidth, text.height + 8),
+                size: Size(constraints.maxWidth, text.height + extraHeight),
                 painter: _DecorationPreviewPainter(
                   text,
                   widget.style,
                   _image,
+                  _imageNineSlice,
                   widget.inkMode,
+                  offset,
                 ),
               );
             },
@@ -154,70 +213,130 @@ class _ReaderDecorationStylePreviewState
 }
 
 class _DecorationPreviewPainter extends CustomPainter {
-  _DecorationPreviewPainter(this.text, this.style, this.image, this.inkMode);
+  _DecorationPreviewPainter(
+    this.text,
+    this.style,
+    this.image,
+    this.imageNineSlice,
+    this.inkMode,
+    this.offset,
+  );
   final TextPainter text;
   final ReaderDecorationStyle style;
   final ui.Image? image;
+  final ReaderDecorationNineSlice? imageNineSlice;
   final bool inkMode;
+  final Offset offset;
   @override
   void paint(Canvas canvas, Size size) {
-    for (final line in text.computeLineMetrics()) {
-      final leading =
-          (line.height - line.ascent - line.descent).clamp(0.0, 16.0) / 2;
-      final rect = Rect.fromLTRB(
-        line.left - style.paddingLeft,
-        line.baseline - line.ascent - style.paddingTop.clamp(0.0, leading),
-        line.left + line.width + style.paddingRight,
-        line.baseline + line.descent + style.paddingBottom.clamp(0.0, leading),
-      );
-      ReaderDecorationPainter.paintBox(
-        canvas,
-        rect,
-        style,
-        image: image,
-        inkMode: inkMode,
-      );
-    }
-    _paintHighlights(canvas, foreground: false);
-    text.paint(canvas, Offset.zero);
-    _paintHighlights(canvas, foreground: true);
-  }
-
-  void _paintHighlights(Canvas canvas, {required bool foreground}) {
-    final highlight = style.highlight;
-    if (highlight == null) return;
-    Rect? previous;
-    for (final line in text.computeLineMetrics()) {
-      final rect = Rect.fromLTRB(
-        line.left,
-        line.baseline - line.ascent,
-        line.left + line.width,
-        line.baseline + line.descent,
-      );
-      ReaderDecorationPainter.paintHighlight(
-        canvas,
-        rect,
-        highlight,
-        foreground: foreground,
-        inkMode: inkMode,
-        baseline: line.baseline + highlight.strokeWidth,
-      );
-      if (!foreground &&
-          !inkMode &&
-          highlight.style == ReaderAnnotationStyle.background &&
-          highlight.joinLines &&
-          previous != null) {
-        ReaderDecorationPainter.paintHighlightGap(
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    canvas.translate(offset.dx, offset.dy);
+    final lines = _lines();
+    for (final (line, rects) in lines) {
+      for (final rect in rects) {
+        final expanded = Rect.fromLTRB(
+          rect.left - style.paddingLeft,
+          rect.top -
+              style.paddingTop.clamp(
+                0.0,
+                (rect.top - line.baseline + line.ascent).clamp(0.0, 8.0),
+              ),
+          rect.right + style.paddingRight,
+          rect.bottom +
+              style.paddingBottom.clamp(
+                0.0,
+                (line.baseline + line.descent - rect.bottom).clamp(0.0, 8.0),
+              ),
+        );
+        ReaderDecorationPainter.paintBox(
           canvas,
-          previous,
-          rect,
-          highlight,
+          expanded,
+          style,
+          image: image,
+          imageNineSlice: imageNineSlice,
+          clipRect:
+              style.backgroundImageFit == ReaderDecorationImageFit.nineSlice
+              ? Rect.fromLTWH(
+                  -offset.dx,
+                  line.baseline - line.ascent,
+                  size.width,
+                  line.height,
+                )
+              : null,
+          inkMode: inkMode,
         );
       }
-      previous = rect;
+    }
+    _paintHighlights(canvas, lines, foreground: false);
+    text.paint(canvas, Offset.zero);
+    _paintHighlights(canvas, lines, foreground: true);
+    canvas.restore();
+  }
+
+  List<(ui.LineMetrics, List<Rect>)> _lines() => [
+    for (final line in text.computeLineMetrics())
+      (
+        line,
+        [
+          for (final box in text.getBoxesForSelection(_lineSelection(line)))
+            if (!box.toRect().isEmpty) box.toRect(),
+        ],
+      ),
+  ];
+
+  TextSelection _lineSelection(ui.LineMetrics line) {
+    final position = text.getPositionForOffset(
+      Offset(line.left + line.width / 2, line.baseline - line.ascent / 2),
+    );
+    final boundary = text.getLineBoundary(position);
+    return TextSelection(
+      baseOffset: boundary.start,
+      extentOffset: boundary.end,
+    );
+  }
+
+  void _paintHighlights(
+    Canvas canvas,
+    List<(ui.LineMetrics, List<Rect>)> lines, {
+    required bool foreground,
+  }) {
+    final highlight = style.highlight;
+    if (highlight == null) return;
+    if (!foreground &&
+        !inkMode &&
+        [
+          ReaderAnnotationStyle.background,
+          ReaderAnnotationStyle.halfBackground,
+        ].contains(highlight.style)) {
+      ReaderDecorationPainter.paintHighlightBackground(canvas, [
+        for (final (line, rects) in lines) ...[
+          rects,
+          if (line.hardBreak) const <Rect>[],
+        ],
+      ], highlight);
+      return;
+    }
+    for (final (line, rects) in lines) {
+      for (final rect in rects) {
+        ReaderDecorationPainter.paintHighlight(
+          canvas,
+          rect,
+          highlight,
+          foreground: foreground,
+          inkMode: inkMode,
+          baseline: line.baseline + (inkMode ? 2 : highlight.strokeWidth),
+        );
+      }
     }
   }
 
   @override
-  bool shouldRepaint(_DecorationPreviewPainter oldDelegate) => true;
+  bool shouldRepaint(_DecorationPreviewPainter oldDelegate) =>
+      oldDelegate.text != text ||
+      oldDelegate.style != style ||
+      oldDelegate.image != image ||
+      oldDelegate.imageNineSlice != imageNineSlice ||
+      oldDelegate.offset != offset ||
+      oldDelegate.inkMode != inkMode;
 }
