@@ -3,6 +3,9 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
+    self.appearance = NSAppearance(named: .aqua)
+    self.titlebarSeparatorStyle = .none
+
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController

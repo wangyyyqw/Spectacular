@@ -87,8 +87,7 @@ class Win32Window {
   // Retrieves a class instance pointer for |window|
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
-  // Update the window frame's theme to match the system theme.
-  static void UpdateTheme(HWND const window);
+  static void UpdateTitleBar(HWND const window);
 
   // 在当前用户的应用偏好中保存、恢复窗口大小和显示状态。
   void RestorePlacement();

@@ -22,14 +22,6 @@ constexpr const wchar_t kWindowPlacementRegKey[] =
     L"Software\\Spectacular\\Reader";
 constexpr const wchar_t kWindowPlacementRegValue[] = L"WindowPlacement";
 
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
-
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
 
@@ -148,7 +140,7 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
-  UpdateTheme(window);
+  UpdateTitleBar(window);
   RestorePlacement();
 
   return OnCreate();
@@ -270,8 +262,10 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
 
     case WM_DWMCOLORIZATIONCOLORCHANGED:
-      UpdateTheme(hwnd);
-      return 0;
+    case WM_SETTINGCHANGE:
+    case WM_SYSCOLORCHANGE:
+      UpdateTitleBar(hwnd);
+      break;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -328,17 +322,21 @@ void Win32Window::OnDestroy() {
   // No-op; provided for subclasses.
 }
 
-void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
+void Win32Window::UpdateTitleBar(HWND const window) {
+  const BOOL enable_dark_mode = FALSE;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        &enable_dark_mode, sizeof(enable_dark_mode));
 
-  if (result == ERROR_SUCCESS) {
-    BOOL enable_dark_mode = light_mode == 0;
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                          &enable_dark_mode, sizeof(enable_dark_mode));
-  }
+  HIGHCONTRASTW contrast{};
+  contrast.cbSize = sizeof(contrast);
+  const bool use_system_colors =
+      SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+      (contrast.dwFlags & HCF_HIGHCONTRASTON);
+  constexpr DWORD kCaptionColorAttribute = 35;
+  constexpr DWORD kTextColorAttribute = 36;
+  constexpr COLORREF kSystemColor = 0xFFFFFFFFu;
+  const COLORREF caption = use_system_colors ? kSystemColor : RGB(246, 246, 244);
+  const COLORREF text = use_system_colors ? kSystemColor : RGB(34, 36, 39);
+  DwmSetWindowAttribute(window, kCaptionColorAttribute, &caption, sizeof(caption));
+  DwmSetWindowAttribute(window, kTextColorAttribute, &text, sizeof(text));
 }
