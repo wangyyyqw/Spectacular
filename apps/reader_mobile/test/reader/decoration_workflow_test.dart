@@ -12,6 +12,7 @@ import 'package:reader_mobile/library/revision_anchor_store.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/reader/reader_decoration_image_store.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/panels/decoration_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -116,6 +117,7 @@ Future<void> _show(
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     MaterialApp(
+      theme: buildAppTheme(),
       home: Scaffold(
         body: ReaderPage(
           source: fixture.source,

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/reader/reader_decoration_image_store.dart';
@@ -176,7 +177,7 @@ void main() {
       directoryProvider: () async => directory,
     );
     final path = await images.import(await _pictureBytes());
-    expect(path, contains('/decoration_images/'));
+    expect(p.split(path), contains('decoration_images'));
     final bytes = await images.loadImage(path);
     expect(bytes.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
     final codec = await ui.instantiateImageCodec(bytes);

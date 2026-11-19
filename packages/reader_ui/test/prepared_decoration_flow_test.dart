@@ -300,8 +300,7 @@ void _expectIdlePreparations(_PreparedSource source) {
     740,
     741,
     742,
-    743,
-  }, reason: '前后两页预热后，前向四页内容预算允许下一轮补一章；不读取远章');
+  }, reason: '前后两页预热完成后只补最近邻章，不读取远章');
 }
 
 void main() {
