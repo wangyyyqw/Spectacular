@@ -68,6 +68,18 @@ class ReaderProgress {
   /// 产生此位置时的排版指纹；仅用于判断能否复用精确像素偏移。
   final String? layoutFingerprint;
 
+  ReaderProgress withFinished(bool value) => ReaderProgress(
+    spineIndex: spineIndex,
+    pageIndex: pageIndex,
+    finished: value,
+    scrollOffset: scrollOffset,
+    cfi: cfi,
+    contentRevision: contentRevision,
+    approximate: approximate,
+    readingPercent: readingPercent,
+    layoutFingerprint: layoutFingerprint,
+  );
+
   @override
   bool operator ==(Object other) =>
       other is ReaderProgress &&
@@ -274,6 +286,7 @@ class ReaderSession extends ChangeNotifier {
     this.persistInterval = defaultPersistInterval,
     this.contentRevision,
     this.layoutDependency,
+    this.autoFinish = true,
   });
 
   /// 进度写入节流间隔（P4-10，§76.6）。
@@ -293,6 +306,8 @@ class ReaderSession extends ChangeNotifier {
 
   /// 宿主额外提供的排版依赖（文字缩放、运行时字体版本等）。
   final String? layoutDependency;
+
+  final bool autoFinish;
 
   /// 进度写入节流间隔：间隔内的连续翻页合并成一次写库。
   final Duration persistInterval;
@@ -1290,13 +1305,19 @@ class ReaderSession extends ChangeNotifier {
 
   bool _finishedAt(int spineIndex, int pageIndex) {
     if (_restoredFinished) return true;
-    if (_suppressRestoredFinished) return false;
+    if (!autoFinish || _suppressRestoredFinished) return false;
     final lastSpineIndex = _lastReadableSpineIndex;
     if (lastSpineIndex == null || spineIndex != lastSpineIndex) return false;
     if (!isChapterComplete(spineIndex)) return false;
     final pages = _pager?.spinePages[lastSpineIndex]?.length ?? 0;
     return pages > 0 && pageIndex >= pages - 1;
   }
+
+  bool get atBookEnd =>
+      !_loading &&
+      _jumpLoadingTitle == null &&
+      page != null &&
+      _pager?.hasNext == false;
 
   static String? _anchorCfi(ReaderAnchor anchor) {
     final cfi = anchor.cfi;
@@ -2323,6 +2344,13 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
+  Future<void> markFinished({
+    Future<void> Function(ReaderProgress progress)? saveWithReview,
+  }) {
+    _captureLatestViewport();
+    return _flushProgress(markFinished: true, saveWithReview: saveWithReview);
+  }
+
   ReaderProgress? get _progressToPersist {
     final preview = _contentSizePreviewProgress;
     if (preview != null) return preview;
@@ -2364,7 +2392,10 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
-  Future<void> _flushProgress() async {
+  Future<void> _flushProgress({
+    bool markFinished = false,
+    Future<void> Function(ReaderProgress progress)? saveWithReview,
+  }) async {
     final active = _activeFlush;
     if (active != null) {
       Object? activeError;
@@ -2378,11 +2409,14 @@ class ReaderSession extends ChangeNotifier {
       // 本轮仍要补写最新位置；但显式 flush 的调用方需要知道上一轮失败，
       // 便于生命周期层提示或再次刷新，不能把异常静默吞掉。
       try {
-        await _flushProgress();
+        await _flushProgress(
+          markFinished: markFinished,
+          saveWithReview: saveWithReview,
+        );
       } catch (_) {
-        if (activeError == null) rethrow;
+        if (markFinished || activeError == null) rethrow;
       }
-      if (activeError != null) {
+      if (!markFinished && activeError != null) {
         Error.throwWithStackTrace(
           activeError,
           activeStack ?? StackTrace.current,
@@ -2390,7 +2424,7 @@ class ReaderSession extends ChangeNotifier {
       }
       return;
     }
-    final task = _flushProgressNow();
+    final task = _flushProgressNow(markFinished, saveWithReview);
     late final Future<void> tracked;
     tracked = task.whenComplete(() {
       if (identical(_activeFlush, tracked)) {
@@ -2401,7 +2435,10 @@ class ReaderSession extends ChangeNotifier {
     return tracked;
   }
 
-  Future<void> _flushProgressNow() async {
+  Future<void> _flushProgressNow(
+    bool markFinished,
+    Future<void> Function(ReaderProgress progress)? saveWithReview,
+  ) async {
     _flushingProgress = true;
     try {
       while (_persistTask != null) {
@@ -2411,8 +2448,13 @@ class ReaderSession extends ChangeNotifier {
           // 上一轮失败仍保留待保存位置，本次落盘继续重试。
         }
       }
-      final value = _progressToPersist;
-      if (value == null || value == _lastPersisted) {
+      final current = _progressToPersist;
+      if (markFinished && current == null) {
+        throw const FormatException('没有可保存的正文位置');
+      }
+      final value = markFinished ? current!.withFinished(true) : current;
+      if (value == null ||
+          (value == _lastPersisted && saveWithReview == null)) {
         _dirty = false;
         return;
       }
@@ -2428,7 +2470,11 @@ class ReaderSession extends ChangeNotifier {
                 _flushProgress().ignore();
               }
             });
-      await _saveProgress(value);
+      await _saveProgress(
+        value,
+        markFinished: markFinished,
+        saveWithReview: saveWithReview,
+      );
     } finally {
       _flushingProgress = false;
       if (_dirty) {
@@ -2437,19 +2483,27 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveProgress(ReaderProgress value) async {
+  Future<void> _saveProgress(
+    ReaderProgress value, {
+    required bool markFinished,
+    required Future<void> Function(ReaderProgress progress)? saveWithReview,
+  }) async {
     try {
-      final task = store.save(bookId, value);
+      final task = saveWithReview == null
+          ? store.save(bookId, value)
+          : saveWithReview(value);
       _persistTask = task;
       await task;
+      if (markFinished) _restoredFinished = true;
       _lastPersisted = value;
       _persistWrites += 1;
       if (_progressToPersist == value) _dirty = false;
-      if (_progressSaveError != null) {
+      if (_progressSaveError != null || markFinished) {
         _progressSaveError = null;
         _notify();
       }
     } catch (error) {
+      if (markFinished) rethrow;
       _dirty = true;
       _progressSaveError = error;
       _notify();

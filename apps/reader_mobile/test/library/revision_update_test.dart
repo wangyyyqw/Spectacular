@@ -143,17 +143,16 @@ Future<void> _seedData(
 }) async {
   final index = await buildRevisionAnchorBook(bytes);
   await _seedAnnotations(library, entry, index);
-  await DriftProgressStore(db).save(
-    entry.id,
-    ReaderProgress(
-      spineIndex: 0,
-      pageIndex: 2,
-      cfi: _quoteAnchor(index).start.cfi,
-      contentRevision: index.revision,
-      finished: finished,
-    ),
+  final progress = ReaderProgress(
+    spineIndex: 0,
+    pageIndex: 2,
+    cfi: _quoteAnchor(index).start.cfi,
+    contentRevision: index.revision,
+    finished: finished,
   );
+  await DriftProgressStore(db).save(entry.id, progress.withFinished(true));
   await _seedHistory(db, library, entry);
+  if (!finished) await DriftProgressStore(db).save(entry.id, progress);
 }
 
 Map<String, dynamic> _userAnnotation(AnnotationRow row) => row.toJson()
@@ -772,9 +771,21 @@ void main() {
     await _seedData(db, library, old, original, finished: true);
     final history = _jsonRows(await db.select(db.readingSessions).get());
     expect((await DriftProgressStore(db).load(old.id))!.finished, isTrue);
+    expect(await library.finishedBookIds(), {old.id});
+    final review = (await db.select(db.bookReviews).get()).single;
     final result = await library.importBytes(updated);
     final progress = (await DriftProgressStore(db).load(result.id))!;
     expect(progress.finished, isFalse);
+    expect(await library.finishedBookIds(), isEmpty);
+    expect(
+      (await DriftBookReviewStore(db).snapshot())[result.id]!.content,
+      review.content,
+    );
+    await expectLater(
+      DriftBookReviewStore(db).save(result.id, rating: 1, content: '未重新读完不能改写'),
+      throwsA(isA<FormatException>()),
+    );
+    expect((await db.select(db.bookReviews).get()).single, review);
     expect(
       result.statusWith(finished: progress.finished),
       BookReadingStatus.reading,
@@ -802,6 +813,7 @@ void main() {
     final result = await library.importBytes(changed);
     expect(result.importOutcome, BookImportOutcome.updated);
     expect((await DriftProgressStore(db).load(result.id))!.finished, isTrue);
+    expect(await library.finishedBookIds(), {result.id});
     final notes = await library.annotationStore(result.id)!.list();
     expect(
       notes

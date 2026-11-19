@@ -842,6 +842,24 @@ class LibraryStore {
     return db == null ? null : DriftBookReviewStore(db);
   }
 
+  Future<Set<String>> finishedBookIds() async {
+    final db = _db;
+    if (db == null) return const {};
+    final query =
+        db.selectOnly(db.books).join([
+            innerJoin(
+              db.readingProgress,
+              db.readingProgress.bookId.equalsExp(db.books.id),
+            ),
+          ])
+          ..addColumns([db.books.uuid])
+          ..where(
+            db.books.deletedAt.isNull() &
+                db.readingProgress.finished.equals(true),
+          );
+    return {for (final row in await query.get()) row.read(db.books.uuid)!};
+  }
+
   /// 全库阅读会话存储；内存模式下没有持久化能力时返回 null。
   ReadingSessionStore? readingSessionStore() {
     final db = _db;

@@ -50,6 +50,32 @@ void main() {
     expect(await File(restored.coverPath!).readAsBytes(), isNotEmpty);
   });
 
+  test('重新导入恢复读完状态和书评编辑权限', () async {
+    final bytes = buildTestEpub(identifier: 'restore-review-permission');
+    final book = await library.importBytes(bytes);
+    final progress = DriftProgressStore(db);
+    await progress.save(
+      book.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 0, finished: true),
+    );
+    await library.reviewStore()!.save(book.id, rating: 5, content: '原有书评');
+    await library.remove(book.id);
+    expect(await library.finishedBookIds(), isEmpty);
+    final restored = await library.importBytes(bytes);
+    expect(restored.id, book.id);
+    expect(await library.finishedBookIds(), {restored.id});
+    expect((await progress.load(restored.id))!.finished, isTrue);
+    expect(
+      (await library.reviewStore()!.snapshot())[restored.id]!.content,
+      '原有书评',
+    );
+    await library.reviewStore()!.save(restored.id, rating: 4, content: '恢复后补充');
+    expect(
+      (await library.reviewStore()!.snapshot())[restored.id]!.content,
+      '恢复后补充',
+    );
+  });
+
   test('删书保留进度、标注、书签、书评和会话，重新导入后完整恢复', () async {
     final bytes = buildTestEpub(
       identifier: 'urn:uuid:library-data-restore',
@@ -62,7 +88,7 @@ void main() {
     final progressStore = DriftProgressStore(db);
     await progressStore.save(
       book.id,
-      const ReaderProgress(spineIndex: 2, pageIndex: 7),
+      const ReaderProgress(spineIndex: 2, pageIndex: 7, finished: true),
     );
 
     final annotationStore = library.annotationStore(book.id)!;
@@ -104,6 +130,7 @@ void main() {
     expect(await db.select(db.bookReviews).get(), hasLength(1));
     expect(await db.select(db.readingSessions).get(), hasLength(1));
     expect(await progressStore.snapshot(), isEmpty);
+    expect(await library.finishedBookIds(), isEmpty);
     expect(await library.reviewStore()!.snapshot(), isEmpty);
     expect(await library.readingSessionStore()!.list(), isEmpty);
 
@@ -124,11 +151,13 @@ void main() {
       ReaderProgress(
         spineIndex: 2,
         pageIndex: 7,
+        finished: true,
         approximate: true,
         contentRevision: restored.contentRevision,
         readingPercent: 0,
       ),
     );
+    expect(await library.finishedBookIds(), {restored.id});
     final annotations = await library.annotationStore(restored.id)!.list();
     expect(annotations, hasLength(2));
     expect(

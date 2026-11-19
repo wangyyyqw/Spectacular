@@ -33,6 +33,7 @@ class PageTurnView extends StatefulWidget {
     required this.paperColor,
     this.preparePageImages,
     this.paintBackground,
+    this.onBookEnd,
     this.preload = true,
     this.rtl = false,
   });
@@ -44,6 +45,7 @@ class PageTurnView extends StatefulWidget {
   final Color paperColor;
   final ReaderPageImagesPreparer? preparePageImages;
   final ReaderPaperBackgroundPainter? paintBackground;
+  final VoidCallback? onBookEnd;
   final bool rtl;
 
   /// 重排编辑期间暂停后台准备，避免预览尚未稳定时抢跑邻章。
@@ -60,6 +62,7 @@ class PageTurnViewState extends State<PageTurnView>
     session: widget.session,
     vsync: this,
     acquireImage: _acquireTurnImage,
+    onBookEnd: widget.onBookEnd,
   )..addListener(_controllerChanged);
   final _currentBoundary = GlobalKey();
   final _captureBoundary = GlobalKey();

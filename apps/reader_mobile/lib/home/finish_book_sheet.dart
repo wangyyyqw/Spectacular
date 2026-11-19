@@ -20,12 +20,18 @@ class FinishBookSheet extends StatefulWidget {
     required this.review,
     required this.onCommit,
     this.allowReview = true,
+    this.fullScreen = false,
+    this.finished = false,
+    this.rtl = false,
   });
 
   final BookEntry book;
   final BookReview? review;
-  final Future<void> Function(FinishBookDraft draft) onCommit;
+  final Future<void> Function(FinishBookDraft? draft) onCommit;
   final bool allowReview;
+  final bool fullScreen;
+  final bool finished;
+  final bool rtl;
 
   @override
   State<FinishBookSheet> createState() => _FinishBookSheetState();
@@ -40,6 +46,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
   bool _allowPop = false;
   bool _closing = false;
   bool _confirming = false;
+  double _dragDistance = 0;
   String? _error;
 
   bool get _dirty =>
@@ -57,12 +64,12 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     super.dispose();
   }
 
-  void _dismiss([FinishBookDraft? draft]) {
+  void _dismiss([bool? savedReview]) {
     if (_closing || !mounted) return;
     _closing = true;
     setState(() => _allowPop = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) Navigator.of(context).pop(draft);
+      if (mounted) Navigator.of(context).pop(savedReview);
     });
   }
 
@@ -95,12 +102,13 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     if (!_dirty || await _confirmDiscard()) _dismiss();
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit({bool review = false}) async {
     if (_saving || _closing) return;
-    final draft = FinishBookDraft(
-      rating: _rating,
-      content: _controller.text.trim(),
-    );
+    if (!review && _dirty && !await _confirmDiscard()) return;
+    if (!mounted || _closing) return;
+    final draft = review
+        ? FinishBookDraft(rating: _rating, content: _controller.text.trim())
+        : null;
     setState(() {
       _saving = true;
       _error = null;
@@ -109,7 +117,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
       await widget.onCommit(draft);
       if (mounted) {
         _saving = false;
-        _dismiss(draft);
+        _dismiss(review);
       }
     } catch (error) {
       if (mounted) {
@@ -127,24 +135,27 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
   Widget _heading(ThemeData theme) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Row(
-        children: [
-          Expanded(child: Text('读完信息', style: theme.textTheme.titleLarge)),
-          IconButton(
-            key: const ValueKey('book-detail-finish-close'),
-            tooltip: '关闭读完信息',
-            onPressed: _saving ? null : _close,
-            icon: const AppIcon(AppGlyph.close),
-          ),
-        ],
-      ),
+      if (!widget.fullScreen)
+        Row(
+          children: [
+            Expanded(child: Text('读完信息', style: theme.textTheme.titleLarge)),
+            IconButton(
+              key: const ValueKey('book-detail-finish-close'),
+              tooltip: '关闭读完信息',
+              onPressed: _saving ? null : _close,
+              icon: const AppIcon(AppGlyph.close),
+            ),
+          ],
+        ),
       Text(
         widget.book.title,
-        maxLines: 1,
+        maxLines: widget.fullScreen ? 3 : 1,
         overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
+        style: widget.fullScreen
+            ? theme.textTheme.headlineSmall
+            : theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
       ),
     ],
   );
@@ -159,8 +170,8 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     children: [
       Text('评分（可选）', style: theme.textTheme.labelLarge),
       const SizedBox(height: 6),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      Wrap(
+        spacing: 2,
         children: [
           for (var star = 1; star <= 5; star++)
             Semantics(
@@ -208,6 +219,15 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _heading(theme),
+          if (widget.fullScreen) ...[
+            const SizedBox(height: 12),
+            Text(
+              widget.finished
+                  ? '已经读完这本书，可以在这里补充评分和书评。'
+                  : '正文已结束。标记读完后，也可以稍后到书评页评分和写书评。',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
           const SizedBox(height: 18),
           if (widget.allowReview) ...[
             _ratingPicker(theme),
@@ -242,25 +262,79 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
           spacing: 8,
           overflowSpacing: 8,
           children: [
-            TextButton(
-              key: const ValueKey<String>('book-detail-finish-cancel'),
-              onPressed: _saving ? null : _close,
-              child: const Text('取消'),
-            ),
-            FilledButton.icon(
-              key: const ValueKey<String>('book-detail-finish-save'),
-              onPressed: _saving ? null : _submit,
-              icon: _saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const AppIcon(AppGlyph.check),
-              label: Text(_saving ? '正在保存…' : '保存并标记读完'),
-            ),
+            if (!widget.fullScreen)
+              TextButton(
+                key: const ValueKey('book-detail-finish-cancel'),
+                onPressed: _saving ? null : _close,
+                child: const Text('取消'),
+              ),
+            if (!widget.finished)
+              OutlinedButton(
+                key: const ValueKey<String>('finish-book-only'),
+                onPressed: _saving ? null : _submit,
+                child: Text(widget.allowReview ? '仅标记读完' : '标记读完'),
+              ),
+            if (widget.allowReview)
+              FilledButton.icon(
+                key: const ValueKey<String>('book-detail-finish-save'),
+                onPressed: _saving || !_dirty
+                    ? null
+                    : () => _submit(review: true),
+                icon: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const AppIcon(AppGlyph.check),
+                label: Text(widget.finished ? '保存书评' : '保存书评并标记读完'),
+              ),
           ],
         ),
       ],
+    ),
+  );
+
+  Widget _form(BuildContext context) => Column(
+    mainAxisSize: widget.fullScreen ? MainAxisSize.max : MainAxisSize.min,
+    children: [
+      if (widget.fullScreen)
+        Expanded(child: _content(context))
+      else
+        Flexible(child: _content(context)),
+      const Divider(height: 1),
+      _actions(context),
+    ],
+  );
+
+  Widget _fullPage(BuildContext context) => GestureDetector(
+    onHorizontalDragStart: (_) => _dragDistance = 0,
+    onHorizontalDragUpdate: (details) => _dragDistance += details.delta.dx,
+    onHorizontalDragEnd: (details) {
+      final direction = widget.rtl ? -1 : 1;
+      if (_dragDistance * direction > 56 ||
+          (details.primaryVelocity ?? 0) * direction > 450) {
+        _close();
+      }
+    },
+    child: Scaffold(
+      key: const ValueKey('reader-finish-page'),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: '返回正文末页',
+          onPressed: _saving ? null : _close,
+          icon: const AppIcon(AppGlyph.arrowBack),
+        ),
+        title: Text(widget.finished ? '已读完' : '标记读完'),
+      ),
+      body: SafeArea(
+        top: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: _form(context),
+          ),
+        ),
+      ),
     ),
   );
 
@@ -270,27 +344,22 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop) _close();
     },
-    child: Material(
-      key: const ValueKey<String>('book-detail-finish-sheet'),
-      color: Theme.of(context).colorScheme.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
+    child: widget.fullScreen
+        ? _fullPage(context)
+        : Material(
+            key: const ValueKey<String>('book-detail-finish-sheet'),
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+            clipBehavior: Clip.antiAlias,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: _form(context),
+              ),
+            ),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(child: _content(context)),
-              const Divider(height: 1),
-              _actions(context),
-            ],
-          ),
-        ),
-      ),
-    ),
   );
 }

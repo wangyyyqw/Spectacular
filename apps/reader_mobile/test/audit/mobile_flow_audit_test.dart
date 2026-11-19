@@ -46,6 +46,7 @@ void main() {
     await db.close();
     db = await AppDatabase.open(file);
     expect((await library().list()).single.lastReadAt, isNotNull);
+    expect(await library().finishedBookIds(), {entry.id});
     expect(
       await DriftProgressStore(db).load(entry.id),
       ReaderProgress(
@@ -72,9 +73,11 @@ void main() {
 
     await library().remove(entry.id);
     expect(await library().list(), isEmpty);
+    expect(await library().finishedBookIds(), isEmpty);
     expect(File(entry.filePath).existsSync(), isFalse);
     expect(await DriftBookReviewStore(db).snapshot(), isEmpty);
     await library().importBytes(bytes);
+    expect(await library().finishedBookIds(), {entry.id});
     expect(
       await DriftProgressStore(db).load(entry.id),
       ReaderProgress(
