@@ -150,7 +150,9 @@ Future<void> _startDrag(
     await tester.pump(const Duration(milliseconds: 16));
   }
   expect(controller.phase, PageTurnPhase.dragging);
-  expect(controller.point, const ui.Offset(220, 380));
+  if (controller.mode == PageTurnMode.simulationBessel) {
+    expect(controller.point, const ui.Offset(220, 380));
+  }
 }
 
 void _drag(
@@ -508,11 +510,10 @@ void main() {
     controller.endDrag(DragEndDetails());
     expect(controller.phase, PageTurnPhase.settling);
     expect(controller.session.progress!.pageIndex, 1);
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(controller.session.progress!.pageIndex, 1);
-    await tester.pump(const Duration(milliseconds: 200));
     expect(controller.phase, PageTurnPhase.settling);
-    expect(controller.session.progress!.pageIndex, 1);
     await tester.pumpAndSettle();
 
     expect(controller.phase, PageTurnPhase.idle);
@@ -526,7 +527,7 @@ void main() {
     PageTurnMode.simulationBessel,
     PageTurnMode.slideHorizontal,
   ]) {
-    testWidgets('${mode.label}收尾统一使用 420 毫秒动画', (tester) async {
+    testWidgets('${mode.label}点击翻页在 280 毫秒内完成且中途不提交', (tester) async {
       final controller = await _controller(tester);
       controller
         ..mode = mode
@@ -535,15 +536,54 @@ void main() {
       expect(controller.phase, PageTurnPhase.settling);
 
       await tester.pump(const Duration(milliseconds: 1));
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 240));
       expect(controller.phase, PageTurnPhase.settling);
-      await tester.pump(const Duration(milliseconds: 20));
-      expect(controller.progress, 1);
-      await tester.pumpAndSettle();
+      expect(controller.session.progress!.pageIndex, 1);
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.pump(const Duration(milliseconds: 1));
       expect(controller.phase, PageTurnPhase.idle);
       expect(controller.session.progress!.pageIndex, 2);
       await controller.session.flushProgress();
     });
+
+    testWidgets('${mode.label}短拖回退在 160 毫秒内结束且不翻页', (tester) async {
+      final controller = (await _controller(tester))..mode = mode;
+      _swipeDuringTurn(controller, complete: false, release: false);
+      await tester.pump();
+      controller.endDrag(DragEndDetails());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 160));
+      expect(controller.phase, PageTurnPhase.idle);
+      expect(controller.session.progress!.pageIndex, 1);
+      expect(controller.session.pageTurns, 0);
+    });
+
+    for (final rtl in [false, true]) {
+      testWidgets('${mode.label} ${rtl ? 'RTL' : 'LTR'}同位移快甩比慢拖更早落页', (
+        tester,
+      ) async {
+        final slow = (await _controller(tester, rtl: rtl))..mode = mode;
+        final fast = (await _controller(tester, rtl: rtl))..mode = mode;
+        await _startDrag(tester, slow);
+        await _startDrag(tester, fast);
+        _move(slow, const ui.Offset(160, 380));
+        _move(fast, const ui.Offset(160, 380));
+        final displayed = fast.progress;
+        slow.endDrag(DragEndDetails());
+        _releaseCurl(fast, rtl ? 3200 : -3200);
+        expect(fast.progress, displayed, reason: '松手不能跳过已显示的纸面位置');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 180));
+        expect(fast.phase, PageTurnPhase.idle);
+        expect(fast.session.progress!.pageIndex, 2);
+        expect(slow.phase, PageTurnPhase.settling);
+        expect(slow.session.progress!.pageIndex, 1);
+        await tester.pumpAndSettle();
+        expect(slow.session.progress!.pageIndex, 2);
+        await fast.session.flushProgress();
+        await slow.session.flushProgress();
+      });
+    }
   }
 
   for (final rtl in [false, true]) {
@@ -1353,6 +1393,10 @@ void main() {
         await tester.pump();
         for (var frame = 0; frame < 5; frame++) {
           await tester.pump(const Duration(milliseconds: 40));
+          if (!forward.active) {
+            expect(backward.active, isFalse);
+            break;
+          }
           _expectSameCurl(forward, backward);
         }
         await tester.pumpAndSettle();
@@ -1405,6 +1449,7 @@ void main() {
           await tester.pump();
           for (var frame = 0; frame < 8; frame++) {
             await tester.pump(const Duration(milliseconds: 32));
+            if (!controller.active) break;
             final geometry = controller.besselGeometry!;
             expect(geometry.e.dx, greaterThanOrEqualTo(-0.001));
             expect(geometry.c.dx, greaterThanOrEqualTo(-160.001));

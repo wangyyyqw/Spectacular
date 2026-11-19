@@ -40,7 +40,7 @@ class PageTurnPainter extends CustomPainter {
     final target = controller.targetImage ?? origin;
     if (!controller.active || origin == null || target == null) return;
     final opacity = controller.targetOpacity;
-    if (opacity < 1) {
+    if (opacity < 1 && controller.mode == PageTurnMode.simulation3d) {
       _paintTurn(canvas, size, origin, origin);
       if (opacity > 0) {
         canvas.saveLayer(
@@ -60,7 +60,11 @@ class PageTurnPainter extends CustomPainter {
     final curl3d = controller.mode == PageTurnMode.simulation3d;
     // 3D 的可见程度由折角几何决定，不看进度。
     if (!curl3d && (p <= 0 || p >= 1)) {
-      _image(canvas, p >= 1 ? target : origin, size);
+      if (p >= 1) {
+        _targetImage(canvas, size, origin, target);
+      } else {
+        _image(canvas, origin, size);
+      }
       return;
     }
     canvas.save();
@@ -72,7 +76,13 @@ class PageTurnPainter extends CustomPainter {
     } else if (controller.mode == PageTurnMode.slideHorizontal) {
       final sign = (controller.next != controller.rtl) ? -1 : 1;
       _translated(canvas, origin, size, sign * p * size.width);
-      _translated(canvas, target, size, sign * (p - 1) * size.width);
+      _targetImage(
+        canvas,
+        size,
+        origin,
+        target,
+        dx: sign * (p - 1) * size.width,
+      );
     } else {
       _cover(canvas, size, origin, target);
     }
@@ -87,6 +97,7 @@ class PageTurnPainter extends CustomPainter {
     }
     final saveCount = canvas.getSaveCount();
     try {
+      _besselPainter.bottomOpacity = controller.targetOpacity;
       _besselPainter.paint(
         canvas,
         geometry,
@@ -122,7 +133,7 @@ class PageTurnPainter extends CustomPainter {
     ui.Image origin,
     ui.Image target,
   ) {
-    _image(canvas, target, size);
+    _targetImage(canvas, size, origin, target);
     final dx =
         (controller.fromRight ? -1 : 1) * controller.progress * size.width;
     _translated(canvas, origin, size, dx);
@@ -138,7 +149,7 @@ class PageTurnPainter extends CustomPainter {
       final targetDx = -exit * _coverStackShift * (1 - p) * size.width;
       canvas.save();
       canvas.translate(targetDx, 0);
-      _image(canvas, target, size);
+      _targetImage(canvas, size, origin, target);
       _coverStackMaskPaint.color = _coverStackMask.withValues(
         alpha: _coverStackMaskAlpha * (1 - p),
       );
@@ -153,11 +164,18 @@ class PageTurnPainter extends CustomPainter {
       );
       return;
     }
-    final bottom = controller.next ? target : origin;
-    _image(canvas, bottom, size);
+    if (controller.next) {
+      _targetImage(canvas, size, origin, target);
+    } else {
+      _image(canvas, origin, size);
+    }
     final dx = -(controller.next ? p : 1 - p) * size.width;
     final physicalDx = controller.rtl ? -dx : dx;
-    _translated(canvas, controller.next ? origin : target, size, physicalDx);
+    if (controller.next) {
+      _translated(canvas, origin, size, physicalDx);
+    } else {
+      _targetImage(canvas, size, origin, target, dx: physicalDx);
+    }
     _edgeShadow(canvas, size, physicalDx, fromRight: !controller.rtl);
   }
 
@@ -186,6 +204,25 @@ class PageTurnPainter extends CustomPainter {
     canvas.save();
     canvas.translate(dx, 0);
     _image(canvas, image, size);
+    canvas.restore();
+  }
+
+  void _targetImage(
+    Canvas canvas,
+    Size size,
+    ui.Image origin,
+    ui.Image target, {
+    double dx = 0,
+  }) {
+    canvas.save();
+    canvas.translate(dx, 0);
+    final opacity = controller.targetOpacity;
+    if (opacity < 1) _image(canvas, origin, size);
+    if (opacity > 0) {
+      _imagePaint.color = Color.fromRGBO(255, 255, 255, opacity);
+      _image(canvas, target, size);
+      _imagePaint.color = const Color(0xFFFFFFFF);
+    }
     canvas.restore();
   }
 
