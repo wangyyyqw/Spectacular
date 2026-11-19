@@ -35,7 +35,9 @@ Iterable<AnnotatedRegion<SystemUiOverlayStyle>> _regions(WidgetTester tester) =>
 Future<void> _openProfile(WidgetTester tester) async {
   await tester.tap(
     find.descendant(
-      of: find.byType(BottomNavigationBar),
+      of: find.byWidgetPredicate(
+        (widget) => widget is BottomNavigationBar || widget is NavigationRail,
+      ),
       matching: find.text('我的'),
     ),
   );
