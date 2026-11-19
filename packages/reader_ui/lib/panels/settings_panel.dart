@@ -13,6 +13,7 @@ import '../page_furniture/corner_info.dart';
 import '../tap_zones.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_theme.dart';
 import 'custom_theme_dialog.dart';
 import 'corner_info_editor.dart';
@@ -435,7 +436,10 @@ class _SettingsPanelState extends State<SettingsPanel> {
     final full = widget.section == SettingsSection.all;
     return Material(
       key: const ValueKey<String>('settings-panel-surface'),
-      color: ReaderDrawerStyle.surfaceOf(theme),
+      color: ReaderFrostedSurface.panelColorOf(
+        context,
+        fallback: ReaderDrawerStyle.surfaceOf(theme),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[

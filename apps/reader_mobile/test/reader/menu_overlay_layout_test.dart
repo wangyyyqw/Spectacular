@@ -64,6 +64,28 @@ void main() {
     tester.view.viewPadding = const FakeViewPadding(top: 30);
     await tester.pumpAndSettle();
     expect(bars.last, {'statusBar': true, 'navigationBar': false});
+
+    // 四个入口共用下拉抽屉；收起只回到阅读菜单，不翻页、不重排。
+    for (final entry in ['toc', 'theme', 'type', 'settings']) {
+      await tester.tap(find.byKey(ValueKey('menu-entry-$entry')));
+      await tester.pumpAndSettle();
+      final surface = find.byKey(const ValueKey('reader-drawer-surface'));
+      expect(surface, findsOneWidget);
+      expect(tester.getRect(surface).top, greaterThanOrEqualTo(140));
+      await tester.timedDrag(
+        find.byKey(const ValueKey('reader-drawer-handle')),
+        const Offset(0, 160),
+        const Duration(seconds: 1),
+      );
+      await tester.pumpAndSettle();
+      expect(surface, findsNothing);
+      expect(
+        tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+        isTrue,
+      );
+      expect(session.layoutFingerprint, fingerprint);
+      expect(session.page, same(pageBefore));
+    }
     expect(
       tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).safeTop,
       30,
@@ -78,6 +100,31 @@ void main() {
     expect(bars.last, {'statusBar': true, 'navigationBar': false});
 
     // 关闭抽屉 → 关闭菜单。
+    final drawerBounds = tester.getRect(
+      find.byKey(const ValueKey('reader-drawer-surface')),
+    );
+    final pageBounds = tester.getRect(find.byType(ReaderView));
+    expect(drawerBounds.left, pageBounds.left);
+    expect(drawerBounds.right, pageBounds.right);
+    expect(drawerBounds.bottom, pageBounds.bottom);
+    final navigation = tester.getRect(
+      find.byKey(const ValueKey('reader-drawer-navigation')),
+    );
+    for (final entry in ReaderMenuEntry.values) {
+      await tester.tap(find.byKey(ValueKey('drawer-entry-${entry.name}')));
+      await tester.pumpAndSettle();
+      final overlay = tester.widget<ReaderMenuOverlay>(
+        find.byType(ReaderMenuOverlay),
+      );
+      expect(overlay.drawerEntry, entry);
+      expect(overlay.drawerChild, isNotNull);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('reader-drawer-navigation'))),
+        navigation,
+      );
+      expect(session.layoutFingerprint, fingerprint);
+      expect(session.page, same(pageBefore));
+    }
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     await tester.binding.handlePopRoute();

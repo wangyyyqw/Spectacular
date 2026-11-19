@@ -10,6 +10,7 @@ import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/panels/settings_panel.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -71,6 +72,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(changes.last.themeId, 'sepia');
     expect(changes.last.backgroundId, 'paper');
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-theme-black')),
+      -120,
+      scrollable: find.descendant(
+        of: find.byType(SettingsPanel),
+        matching: find.byType(Scrollable),
+      ).first,
+    );
     await _tap(tester, 'settings-theme-black');
     expect(changes.last.themeId, 'black');
     expect(changes.last.backgroundId, 'paper');

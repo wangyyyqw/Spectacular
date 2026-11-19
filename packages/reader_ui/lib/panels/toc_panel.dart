@@ -4,6 +4,7 @@ import 'package:reader_core/position/cfi.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。
 ///
@@ -252,7 +253,7 @@ class _TocPanelState extends State<TocPanel> {
     final rows = _visibleRows();
     final active = _activeEntry(allRows);
     return Material(
-      color: surface,
+      color: ReaderFrostedSurface.panelColorOf(context, fallback: surface),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

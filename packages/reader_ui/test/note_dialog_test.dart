@@ -14,6 +14,7 @@ import 'package:reader_ui/annotations/note_composer_sheet.dart';
 import 'package:reader_ui/annotations/thought_marker.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/annotation_panel.dart';
+import 'package:reader_ui/panels/toc_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -373,27 +374,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('reader-drawer-title')),
-          )
-          .data,
-      '目录',
-    );
+    expect(find.byType(TocPanel), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('drawer-tab-annotations')),
     );
     await tester.pumpAndSettle();
 
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(const ValueKey<String>('reader-drawer-title')),
-          )
-          .data,
-      '标注',
-    );
+    expect(find.byType(TocPanel), findsNothing);
     expect(
       find.descendant(
         of: find.byType(AnnotationPanel),

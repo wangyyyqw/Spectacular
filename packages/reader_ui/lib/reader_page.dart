@@ -2821,6 +2821,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onEntry: _openDrawer,
               onShowShortcuts: _desktop ? _showDesktopHelp : null,
               drawerTitle: _drawerTitleOf(_drawer, _drawerTab),
+              drawerEntry: _drawer,
               drawerChild: _drawer == null
                   ? null
                   : _ReaderDrawerContent(

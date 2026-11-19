@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
@@ -74,5 +75,30 @@ void main() {
 
     expect(find.text('排版'), findsNothing);
     expect(find.text('选择翻页方式'), findsOneWidget);
+  });
+
+  testWidgets('抽屉内容共用凝光底板，设置面板不叠加实色背景', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderFrostedSurface(
+          child: SettingsPanel(
+            section: SettingsSection.theme,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: ReaderTheme.white.id,
+            onOverridesChanged: (_) {},
+            onThemeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    expect(
+      tester
+          .widget<Material>(
+            find.byKey(const ValueKey('settings-panel-surface')),
+          )
+          .color,
+      Colors.transparent,
+    );
+    expect(tester.takeException(), isNull);
   });
 }

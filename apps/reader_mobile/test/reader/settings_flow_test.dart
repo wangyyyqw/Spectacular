@@ -517,12 +517,20 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
     await tester.pumpAndSettle();
-    await tester.drag(
-      find.descendant(
-        of: find.byType(SettingsPanel),
-        matching: find.byType(ListView),
-      ),
-      const Offset(0, -420),
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-reset')),
+      120,
+      scrollable: find
+          .descendant(
+            of: find
+                .descendant(
+                  of: find.byType(SettingsPanel),
+                  matching: find.byType(ListView),
+                )
+                .first,
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
     await tester.pumpAndSettle();
     final heightBeforeReset = session.contentHeight;

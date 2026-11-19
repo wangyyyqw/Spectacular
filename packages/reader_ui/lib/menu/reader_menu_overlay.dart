@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
-import '../theme/reader_drawer_style.dart';
+import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
 
@@ -50,6 +50,7 @@ class ReaderMenuOverlay extends StatelessWidget {
     required this.drawerTitle,
     required this.drawerChild,
     required this.onCloseDrawer,
+    this.drawerEntry,
     this.inkMode = false,
     this.safeTop = 0,
     this.safeBottom = 0,
@@ -100,6 +101,9 @@ class ReaderMenuOverlay extends StatelessWidget {
 
   /// 关闭抽屉。
   final VoidCallback onCloseDrawer;
+
+  /// 抽屉底部固定导航的当前项。
+  final ReaderMenuEntry? drawerEntry;
 
   /// 墨水屏模式：主题固定为纯黑白，禁用日夜切换。
   final bool inkMode;
@@ -242,51 +246,53 @@ class ReaderMenuOverlay extends StatelessWidget {
               ),
             ),
             // 底部栏
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: AnimatedSlide(
-                offset: open ? Offset.zero : const Offset(0, 1.01),
-                duration: duration,
-                curve: _ease,
-                child: AnimatedOpacity(
-                  opacity: open ? 1 : 0,
+            if (drawerChild == null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: AnimatedSlide(
+                  offset: open ? Offset.zero : const Offset(0, 1.01),
                   duration: duration,
-                  child: IgnorePointer(
-                    ignoring: !open,
-                    child: ExcludeFocus(
-                      excluding: drawerChild != null,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: bg,
-                          border: Border(top: BorderSide(color: line)),
-                        ),
-                        padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            _ProgressRow(
-                              fg: fg,
-                              fill: fill,
-                              progress: progress,
-                              label: chapterLabel,
-                              onPrevious: onPreviousChapter,
-                              onNext: onNextChapter,
-                              onSeek: onSeek,
-                            ),
-                            _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
-                            SizedBox(height: 22 + bottomInset),
-                          ],
+                  curve: _ease,
+                  child: AnimatedOpacity(
+                    opacity: open ? 1 : 0,
+                    duration: duration,
+                    child: IgnorePointer(
+                      ignoring: !open,
+                      child: ExcludeFocus(
+                        excluding: drawerChild != null,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: bg,
+                            border: Border(top: BorderSide(color: line)),
+                          ),
+                          padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              _ProgressRow(
+                                fg: fg,
+                                fill: fill,
+                                progress: progress,
+                                label: chapterLabel,
+                                onPrevious: onPreviousChapter,
+                                onNext: onNextChapter,
+                                onSeek: onSeek,
+                              ),
+                              _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
+                              SizedBox(height: 22 + bottomInset),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
             // 抽屉
             Positioned.fill(
+              key: const ValueKey('reader-drawer-host'),
               child: AnimatedSwitcher(
                 duration: reduceMotion ? Duration.zero : _enter,
                 reverseDuration: reduceMotion ? Duration.zero : _exit,
@@ -302,6 +308,9 @@ class ReaderMenuOverlay extends StatelessWidget {
                     title: drawer.title,
                     theme: drawer.theme,
                     onClose: drawer.onClose,
+                    inkMode: drawer.inkMode,
+                    entry: drawer.entry,
+                    onEntry: drawer.onEntry,
                     animation: animation,
                     child: drawer.child,
                   );
@@ -313,6 +322,9 @@ class ReaderMenuOverlay extends StatelessWidget {
                         title: drawerTitle,
                         theme: theme,
                         onClose: onCloseDrawer,
+                        inkMode: inkMode,
+                        entry: drawerEntry,
+                        onEntry: onEntry,
                         child: drawerChild!,
                       ),
               ),
@@ -566,11 +578,17 @@ class _EntriesRow extends StatelessWidget {
     required this.fg,
     required this.fill,
     required this.onEntry,
+    this.selected,
+    this.horizontal = false,
+    this.keyPrefix = 'menu-entry',
   });
 
   final Color fg;
   final Color fill;
   final ValueChanged<ReaderMenuEntry> onEntry;
+  final ReaderMenuEntry? selected;
+  final bool horizontal;
+  final String keyPrefix;
 
   static const Map<ReaderMenuEntry, ({AppGlyph icon, String label})> items =
       <ReaderMenuEntry, ({AppGlyph icon, String label})>{
@@ -588,31 +606,36 @@ class _EntriesRow extends StatelessWidget {
         children: <Widget>[
           for (final entry in items.entries)
             Expanded(
-              child: InkWell(
-                key: ValueKey<String>('menu-entry-${entry.key.name}'),
-                borderRadius: BorderRadius.circular(4),
-                onTap: () => onEntry(entry.key),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      AppIcon(
-                        entry.value.icon,
-                        size: 19,
-                        color: fg.withValues(alpha: 0.85),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        entry.value.label,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          letterSpacing: 0.35,
-                          color: fg.withValues(alpha: 0.85),
+              child: Semantics(
+                selected: selected == entry.key,
+                child: InkWell(
+                  key: ValueKey<String>('$keyPrefix-${entry.key.name}'),
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () => onEntry(entry.key),
+                  child: horizontal
+                      ? _horizontalItem(entry.key, entry.value)
+                      : Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              AppIcon(
+                                entry.value.icon,
+                                size: 19,
+                                color: fg.withValues(alpha: 0.85),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                entry.value.label,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  letterSpacing: 0.35,
+                                  color: fg.withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ),
@@ -620,16 +643,53 @@ class _EntriesRow extends StatelessWidget {
       ),
     );
   }
+
+  Widget _horizontalItem(
+    ReaderMenuEntry entry,
+    ({AppGlyph icon, String label}) item,
+  ) {
+    final active = selected == entry;
+    return SizedBox(
+      height: 48,
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppIcon(
+                item.icon,
+                size: 20,
+                color: fg.withValues(alpha: active ? 1 : 0.65),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                item.label,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: fg.withValues(alpha: active ? 1 : 0.65),
+                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-/// 抽屉（设计稿 `.drawer`：圆角 20 顶、grip、标题 + 内容）。
-class _DrawerLayer extends StatelessWidget {
+/// 四个阅读面板共用的凝光抽屉；顶部把手与滚到顶部的内容均可下拉收起。
+class _DrawerLayer extends StatefulWidget {
   const _DrawerLayer({
     super.key,
     required this.title,
     required this.theme,
     required this.child,
     required this.onClose,
+    required this.inkMode,
+    required this.entry,
+    required this.onEntry,
     this.animation = const AlwaysStoppedAnimation(1),
   });
 
@@ -637,137 +697,264 @@ class _DrawerLayer extends StatelessWidget {
   final ReaderTheme? theme;
   final Widget child;
   final VoidCallback onClose;
+  final bool inkMode;
+  final ReaderMenuEntry? entry;
+  final ValueChanged<ReaderMenuEntry> onEntry;
   final Animation<double> animation;
 
   @override
-  Widget build(BuildContext context) {
-    final panelTheme = theme ?? _fallbackTheme;
-    final dark = panelTheme.background.computeLuminance() < 0.35;
-    final bg = dark ? panelTheme.background : ReaderDrawerStyle.surface;
-    final fg = dark ? panelTheme.text : ReaderDrawerStyle.text;
-    final handle = dark
-        ? panelTheme.text.withValues(alpha: 0.22)
-        : ReaderDrawerStyle.handle;
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, child) => IgnorePointer(
-        ignoring: animation.status == AnimationStatus.reverse,
-        child: ExcludeFocus(
-          excluding: animation.status == AnimationStatus.reverse,
-          child: ExcludeSemantics(
-            excluding: animation.status == AnimationStatus.reverse,
-            child: child,
+  State<_DrawerLayer> createState() => _DrawerLayerState();
+}
+
+class _DrawerLayerState extends State<_DrawerLayer>
+    with SingleTickerProviderStateMixin {
+  late final _drag = AnimationController.unbounded(vsync: this);
+  double _height = 0;
+  bool _closing = false;
+
+  bool get _reduceMotion =>
+      widget.inkMode || MediaQuery.disableAnimationsOf(context);
+
+  void _switchEntry(ReaderMenuEntry entry) {
+    if (entry == widget.entry) return;
+    FocusScope.of(context).unfocus();
+    _drag.stop();
+    _drag.value = 0;
+    widget.onEntry(entry);
+  }
+
+  @override
+  void dispose() {
+    _drag.dispose();
+    super.dispose();
+  }
+
+  double _move(double delta) {
+    if (_closing) return 0;
+    _drag.stop();
+    final before = _drag.value;
+    _drag.value = (before + delta).clamp(0.0, _height);
+    return _drag.value - before;
+  }
+
+  void _close() {
+    if (_closing) return;
+    _closing = true;
+    widget.onClose();
+  }
+
+  void _release(double velocity) {
+    if (_closing || _drag.value == 0) return;
+    final threshold = (_height * 0.22).clamp(56.0, 120.0);
+    if (_drag.value >= threshold || (velocity > 700 && _drag.value > 12)) {
+      _close();
+    } else {
+      _drag.animateTo(
+        0,
+        duration: _reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final media = MediaQuery.of(context);
+      final bottom = media.viewInsets.bottom;
+      _height = (constraints.maxHeight - media.padding.top - bottom) * 0.75;
+      return AnimatedBuilder(
+        animation: Listenable.merge([widget.animation, _drag]),
+        builder: (context, panel) {
+          final exiting = widget.animation.status == AnimationStatus.reverse;
+          return IgnorePointer(
+            ignoring: exiting || _closing,
+            child: ExcludeFocus(
+              excluding: exiting || _closing,
+              child: ExcludeSemantics(
+                excluding: exiting || _closing,
+                child: _buildLayers(panel!, bottom),
+              ),
+            ),
+          );
+        },
+        child: _buildPanel(),
+      );
+    },
+  );
+
+  Widget _buildLayers(Widget panel, double bottom) {
+    final progress = widget.animation.value;
+    final offset = (1 - progress) * (_height + bottom) + progress * _drag.value;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            key: const ValueKey<String>('menu-drawer-mask'),
+            behavior: HitTestBehavior.opaque,
+            onTap: _close,
+            child: ColoredBox(
+              color: Colors.black.withValues(
+                alpha: 0.2 * progress * (1 - _drag.value / _height),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: bottom,
+          height: _height,
+          child: Transform.translate(offset: Offset(0, offset), child: panel),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPanel() => FocusScope(
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) => _drag.stop(),
+      onVerticalDragUpdate: (details) => _move(details.primaryDelta ?? 0),
+      onVerticalDragEnd: (details) => _release(details.primaryVelocity ?? 0),
+      onVerticalDragCancel: () => _release(0),
+      child: ReaderPanelTheme(
+        theme: widget.theme ?? _fallbackTheme,
+        child: ReaderFrostedSurface(
+          key: const ValueKey<String>('reader-drawer-surface'),
+          radius: 24,
+          bottomRadius: 0,
+          inkMode: widget.inkMode,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Column(
+              children: [
+                _buildHandle(),
+                Expanded(child: _buildScrollableContent()),
+                _buildNavigation(),
+              ],
+            ),
           ),
         ),
       ),
-      child: FocusScope(
-        child: Stack(
-          children: <Widget>[
-            // 遮罩：点一下关闭抽屉
-            Positioned.fill(
-              child: FadeTransition(
-                opacity: animation,
-                child: GestureDetector(
-                  key: const ValueKey<String>('menu-drawer-mask'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onClose,
-                  child: ColoredBox(color: Colors.black.withValues(alpha: 0.4)),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 1),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: Container(
-                  key: const ValueKey<String>('reader-drawer-surface'),
-                  height: MediaQuery.of(context).size.height * 0.75,
-                  decoration: BoxDecoration(
-                    color: bg,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(16),
-                    ),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 20,
-                        offset: const Offset(0, -4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      GestureDetector(
-                        key: const ValueKey('reader-drawer-handle'),
-                        behavior: HitTestBehavior.opaque,
-                        onVerticalDragEnd: (details) {
-                          if ((details.primaryVelocity ?? 0) > 150) onClose();
-                        },
-                        child: SizedBox(
-                          height: 24,
-                          width: double.infinity,
-                          child: Center(
-                            child: Container(
-                              width: 36,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: handle,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20, right: 8),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                key: const ValueKey<String>(
-                                  'reader-drawer-title',
-                                ),
-                                title,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: fg,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              key: const ValueKey('reader-drawer-close'),
-                              tooltip: '关闭$title',
-                              onPressed: onClose,
-                              icon: AppIcon(
-                                AppGlyph.close,
-                                color: fg,
-                                size: 22,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Flexible(
-                        child: ReaderPanelTheme(
-                          theme: panelTheme,
-                          child: child,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+    ),
+  );
+
+  Widget _buildScrollableContent() => Builder(
+    builder: (context) => ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(
+        overscroll: false,
+        physics: _DrawerScrollPhysics(
+          move: _move,
+          release: _release,
+          isDragging: () => _drag.value > 0,
+          parent: const ClampingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
         ),
       ),
-    );
+      child: KeyedSubtree(key: ValueKey(widget.entry), child: widget.child),
+    ),
+  );
+
+  Widget _buildNavigation() => Builder(
+    builder: (context) {
+      final scheme = Theme.of(context).colorScheme;
+      return DecoratedBox(
+        key: const ValueKey('reader-drawer-navigation'),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: scheme.outlineVariant, width: 0.5),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _EntriesRow(
+              fg: scheme.onSurface,
+              fill: scheme.surfaceContainerLow,
+              selected: widget.entry,
+              horizontal: true,
+              keyPrefix: 'drawer-entry',
+              onEntry: _switchEntry,
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
+  Widget _buildHandle() => Builder(
+    builder: (context) {
+      final scheme = Theme.of(context).colorScheme;
+      return Semantics(
+        label: '收起${widget.title}抽屉',
+        button: true,
+        onTap: _close,
+        child: SizedBox(
+          key: const ValueKey('reader-drawer-handle'),
+          height: 28,
+          width: double.infinity,
+          child: Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurface.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// 内容优先滚动，到顶部后才把向下位移交给抽屉；回拉时先归位再滚动。
+class _DrawerScrollPhysics extends ScrollPhysics {
+  const _DrawerScrollPhysics({
+    required this.move,
+    required this.release,
+    required this.isDragging,
+    super.parent,
+  });
+
+  final double Function(double) move;
+  final ValueChanged<double> release;
+  final bool Function() isDragging;
+
+  @override
+  _DrawerScrollPhysics applyTo(ScrollPhysics? ancestor) => _DrawerScrollPhysics(
+    move: move,
+    release: release,
+    isDragging: isDragging,
+    parent: buildParent(ancestor),
+  );
+
+  @override
+  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
+    if (position.axis != Axis.vertical) {
+      return super.applyPhysicsToUserOffset(position, offset);
+    }
+    if (isDragging()) return offset - move(offset);
+    final remaining = offset - (position.pixels - position.minScrollExtent);
+    if (remaining > 0) return offset - move(remaining);
+    return super.applyPhysicsToUserOffset(position, offset);
+  }
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) {
+    if (position.axis == Axis.vertical && isDragging()) {
+      release(-velocity);
+      return null;
+    }
+    return super.createBallisticSimulation(position, velocity);
   }
 }
