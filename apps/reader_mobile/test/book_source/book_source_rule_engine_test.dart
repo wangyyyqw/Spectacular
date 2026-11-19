@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_rule_engine.dart';
+import 'package:reader_mobile/book_source/book_source_script.dart';
 
 import 'book_source_test_helpers.dart';
 
@@ -211,6 +212,51 @@ void main() {
         'https://example.com/search?q=a b',
       );
     });
+
+    test('简介求值可保留模板和 JSON 字段换行', () {
+      final json = <String, Object?>{
+        'abstract': '第一段\n第二段\n\n第三段',
+        'book_id': 42,
+      };
+      expect(
+        engine.evaluateString(
+          json,
+          '编号：{{\$.book_id}}\n简介：{{\$.abstract}}',
+          context,
+          preserveNewlines: true,
+        ),
+        '编号：42\n简介：第一段\n第二段\n\n第三段',
+      );
+      expect(
+        engine.evaluateString(
+          json,
+          r'$.abstract',
+          context,
+          preserveNewlines: true,
+        ),
+        '第一段\n第二段\n\n第三段',
+      );
+      expect(
+        engine.evaluateString(json, r'$.abstract', context),
+        '第一段 第二段 第三段',
+      );
+    });
+
+    test('脚本结果可保留换行', () {
+      final script = FakeBookSourceScriptSession(
+        (code, result, variables, session) => '第一行\n第二行',
+      );
+      expect(
+        engine.evaluateString(
+          <String, Object?>{},
+          '@js:result',
+          context,
+          script: script,
+          preserveNewlines: true,
+        ),
+        '第一行\n第二行',
+      );
+    });
   });
 
   test('XPath 规则给出明确错误', () {
@@ -236,6 +282,19 @@ void main() {
       ),
       'https://example.com/book/1',
     );
+  });
+
+  test('静态 java.getCookie 调用会按域名和名称取值', () {
+    final values = resolveScriptCookies(
+      '''java.getCookie("fanqienovel.com", "sessionid");
+      java.getCookie('example.com', "token");''',
+      (domain, name) => '$domain:$name',
+    );
+
+    expect(values, <String, String>{
+      'fanqienovel.com\nsessionid': 'fanqienovel.com:sessionid',
+      'example.com\ntoken': 'example.com:token',
+    });
   });
 
   test('无法静态执行的 JS 规则给出明确错误', () {

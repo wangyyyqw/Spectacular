@@ -61,10 +61,17 @@ abstract class BookSourceScriptSession {
 
 /// 基于 QuickJS 的生产实现。
 class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
-  // ignore: prefer_initializing_formals
-  QuickJsBookSourceScriptSession({required String jsLib}) : _jsLib = jsLib;
+  factory QuickJsBookSourceScriptSession({
+    required String jsLib,
+    String Function(String domain, String name)? cookieProvider,
+  }) {
+    return QuickJsBookSourceScriptSession._(jsLib, cookieProvider);
+  }
+
+  QuickJsBookSourceScriptSession._(this._jsLib, this.cookieProvider);
 
   final String _jsLib;
+  final String Function(String domain, String name)? cookieProvider;
   final Map<String, String> _responses = <String, String>{};
   final List<BookSourcePendingRequest> _pending = <BookSourcePendingRequest>[];
   JavascriptRuntime? _runtime;
@@ -102,9 +109,11 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
     for (final path in _listPaths(code)) {
       lists[path] = resolveList(path);
     }
+    final cookies = resolveScriptCookies(code, cookieProvider);
     final state = runtime.evaluate(
       '__legadoStrings = ${jsonEncode(strings)};'
       '__legadoLists = ${jsonEncode(lists)};'
+      '__legadoCookies = ${jsonEncode(cookies)};'
       '__legadoResponses = ${jsonEncode(_responses)};'
       '__legadoRequests = [];',
     );
@@ -185,10 +194,37 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
 
 /// 生产环境默认会话工厂。
 class QuickJsBookSourceScriptFactory {
-  const QuickJsBookSourceScriptFactory();
+  const QuickJsBookSourceScriptFactory({this.cookieProvider});
+
+  final String Function(String domain, String name)? cookieProvider;
 
   BookSourceScriptSession create(String jsLib) =>
-      QuickJsBookSourceScriptSession(jsLib: jsLib);
+      QuickJsBookSourceScriptSession(
+        jsLib: jsLib,
+        cookieProvider: cookieProvider,
+      );
+}
+
+/// 解析脚本里静态写出的 `java.getCookie(domain, name)`。
+///
+/// 返回值以 `domain\nname` 为键，供 JS 运行时按调用参数读取。
+Map<String, String> resolveScriptCookies(
+  String code,
+  String Function(String domain, String name)? provider,
+) {
+  if (provider == null || !code.contains('java.getCookie')) {
+    return const <String, String>{};
+  }
+  final cookies = <String, String>{};
+  for (final match in RegExp(
+    r'''java\.getCookie\(\s*["']([^"']+)["']\s*,\s*["']([^"']*)["']\s*\)''',
+  ).allMatches(code)) {
+    final domain = match.group(1)?.trim() ?? '';
+    final name = match.group(2)?.trim() ?? '';
+    if (domain.isEmpty || name.isEmpty) continue;
+    cookies['$domain\n$name'] = provider(domain, name);
+  }
+  return cookies;
 }
 
 Set<String> _stringPaths(String code) {
@@ -224,6 +260,7 @@ Set<String> _listPaths(String code) {
 const String _runtimePreamble = r'''
 var __legadoStrings = {};
 var __legadoLists = {};
+var __legadoCookies = {};
 var __legadoResponses = {};
 var __legadoRequests = [];
 var __legadoB64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -379,8 +416,8 @@ var java = {
   getStringList: function(path) {
     return __legadoLists[path] || [];
   },
-  getCookie: function() {
-    return '';
+  getCookie: function(domain, name) {
+    return __legadoCookies[String(domain) + '\n' + String(name || '')] || '';
   },
   base64Encode: function(value) {
     return __legadoBase64Encode(value);

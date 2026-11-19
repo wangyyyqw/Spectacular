@@ -2,7 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../library/library_store.dart';
-import 'book_source_http_client.dart';
+import 'book_source_auth.dart';
+import 'book_source_cookie_store.dart';
 import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'book_source_store.dart';
@@ -13,15 +14,22 @@ class OnlineBookController extends ChangeNotifier {
     required this.library,
     BookSourceStore? store,
     BookSourceService? service,
+    BookSourceCookieStore? cookieStore,
+    BookSourceAuthService? authService,
   }) : _store = store ?? BookSourceStore(),
-       service =
-           service ?? BookSourceService(httpClient: BookSourceHttpClient());
+       cookieStore = cookieStore ?? BookSourceCookieStore(),
+       auth = authService ?? BookSourceAuthService() {
+    this.service = service ?? BookSourceService(cookieStore: this.cookieStore);
+  }
 
   final LibraryStore library;
   final BookSourceStore _store;
-  final BookSourceService service;
+  final BookSourceCookieStore cookieStore;
+  final BookSourceAuthService auth;
+  late final BookSourceService service;
   List<BookSource> _sources = const <BookSource>[];
   Map<String, OnlineBookLink> _links = const <String, OnlineBookLink>{};
+  Set<String> _loggedInSourceIds = <String>{};
   bool _initialized = false;
   bool _loading = false;
   String? _error;
@@ -38,6 +46,7 @@ class OnlineBookController extends ChangeNotifier {
   List<String> get lastSkippedReasons =>
       List<String>.unmodifiable(_lastSkippedReasons);
   int get enabledCount => _sources.where((source) => source.enabled).length;
+  bool isLoggedIn(BookSource source) => _loggedInSourceIds.contains(source.id);
 
   /// 初次读取本地书源与书籍关联。
   Future<void> initialize({bool refresh = false}) async {
@@ -46,8 +55,14 @@ class OnlineBookController extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
+      await cookieStore.load();
       _sources = await _store.load(refresh: refresh);
       _links = await _store.loadLinks();
+      final loggedIn = <String>{};
+      for (final source in _sources) {
+        if (await cookieStore.hasLoginFor(source)) loggedIn.add(source.id);
+      }
+      _loggedInSourceIds = loggedIn;
       _initialized = true;
     } on Object catch (error) {
       _error = '$error';
@@ -90,8 +105,31 @@ class OnlineBookController extends ChangeNotifier {
 
   /// 删除来源。
   Future<void> removeSource(String id) async {
+    for (final source in _sources) {
+      if (source.id == id) {
+        await auth.logout(source, cookieStore);
+        break;
+      }
+    }
     await _store.remove(id);
     await initialize(refresh: true);
+  }
+
+  /// 打开书源网页登录并保存 Cookie。
+  Future<BookSourceLoginResult> login(BookSource source) async {
+    final result = await auth.login(source, cookieStore);
+    if (result.success) {
+      _loggedInSourceIds = <String>{..._loggedInSourceIds, source.id};
+      notifyListeners();
+    }
+    return result;
+  }
+
+  /// 清除书源登录 Cookie。
+  Future<void> logout(BookSource source) async {
+    await auth.logout(source, cookieStore);
+    _loggedInSourceIds = <String>{..._loggedInSourceIds}..remove(source.id);
+    notifyListeners();
   }
 
   /// 多来源并发搜索。

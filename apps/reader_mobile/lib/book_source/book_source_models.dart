@@ -301,6 +301,7 @@ class BookSource {
     this.group = '',
     this.enabled = true,
     this.enabledExplore = false,
+    this.enabledCookieJar = true,
     this.type = 0,
     this.comment = '',
     this.header = '',
@@ -352,6 +353,9 @@ class BookSource {
       group: _firstString(json, const <String>['bookSourceGroup', 'group']),
       enabled: _bool(json['enabled'], fallback: true),
       enabledExplore: _bool(json['enabledExplore']),
+      enabledCookieJar: json.containsKey('enabledCookieJar')
+          ? _bool(json['enabledCookieJar'], fallback: true)
+          : true,
       type: type,
       comment: _firstString(json, const <String>[
         'bookSourceComment',
@@ -406,6 +410,9 @@ class BookSource {
   /// 是否启用发现页；当前保留字段，后续再接入。
   final bool enabledExplore;
 
+  /// 是否在请求中自动携带登录 Cookie。
+  final bool enabledCookieJar;
+
   /// Legado 书源类型；0 为文本。
   final int type;
 
@@ -415,10 +422,15 @@ class BookSource {
   /// 请求头 JSON。
   final String header;
 
-  /// 登录地址与配置；当前只保存，不执行网页登录脚本。
+  /// 登录地址与配置；网页登录由原生登录页完成。
   final String loginUrl;
   final String loginUi;
   final String loginCheckJs;
+
+  bool get hasLoginConfig =>
+      loginUrl.trim().isNotEmpty ||
+      loginUi.trim().isNotEmpty ||
+      loginCheckJs.trim().isNotEmpty;
 
   /// 请求频率，格式为 `次数/毫秒` 或 `毫秒`。
   final String concurrentRate;
@@ -483,6 +495,7 @@ class BookSource {
     String? group,
     bool? enabled,
     bool? enabledExplore,
+    bool? enabledCookieJar,
     int? type,
     String? comment,
     String? header,
@@ -508,6 +521,7 @@ class BookSource {
       group: group ?? this.group,
       enabled: enabled ?? this.enabled,
       enabledExplore: enabledExplore ?? this.enabledExplore,
+      enabledCookieJar: enabledCookieJar ?? this.enabledCookieJar,
       type: type ?? this.type,
       comment: comment ?? this.comment,
       header: header ?? this.header,
@@ -538,6 +552,7 @@ class BookSource {
       'bookSourceType': type,
       'enabled': enabled,
       'enabledExplore': enabledExplore,
+      'enabledCookieJar': enabledCookieJar,
       'searchUrl': searchUrl,
       'exploreUrl': exploreUrl,
       'bookSourceId': id,

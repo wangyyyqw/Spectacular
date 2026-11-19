@@ -369,6 +369,54 @@ void main() {
     expect(info.author, '详情作者');
   });
 
+  test('详情简介保留换行并按原段落归一化', () async {
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'data': <String, Object?>{
+                'book_name': '换行书',
+                'abstract': '第一段\n第二段\n\n第三段\r\n第四段',
+              },
+            }),
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      ),
+      scriptFactory: fakeScriptFactory(
+        FakeBookSourceScriptSession((code, result, variables, session) => ''),
+      ),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'intro-source',
+      name: '简介源',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search',
+      search: BookListRule(),
+      bookInfo: BookInfoRule(init: 'data', intro: r'$.abstract'),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+
+    final info = await service.loadBookInfo(
+      source,
+      const OnlineBook(
+        sourceId: 'intro-source',
+        sourceName: '简介源',
+        name: '换行书',
+        author: '',
+        bookUrl: 'https://example.com/book/1',
+      ),
+    );
+
+    expect(info.intro, '第一段\n第二段\n\n第三段\n第四段');
+  });
+
   test('data URL 章节地址交给正文脚本并只请求一次接口', () async {
     late FakeBookSourceScriptSession session;
     var requests = 0;

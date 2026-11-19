@@ -19,6 +19,7 @@ class MainActivity : FlutterActivity() {
     private var epubExport: EpubExportHandler? = null
     private var battery: ReaderBatteryHandler? = null
     private var batteryChannel: EventChannel? = null
+    private var onlineSourceLogin: OnlineSourceLoginHandler? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var showStatusBar = true
     private var showNavigationBar = true
@@ -31,6 +32,10 @@ class MainActivity : FlutterActivity() {
         battery = ReaderBatteryHandler(this)
         batteryChannel = EventChannel(flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/battery").also { it.setStreamHandler(battery) }
+        onlineSourceLogin = OnlineSourceLoginHandler(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
         readerChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/reader",
@@ -74,12 +79,14 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (onlineSourceLogin?.onActivityResult(requestCode, resultCode, data) == true) return
         if (epubExport?.onActivityResult(requestCode, resultCode, data) == true) return
         super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onDestroy() {
         releaseMulticastLock()
+        onlineSourceLogin?.dispose()
         epubExport?.dispose()
         batteryChannel?.setStreamHandler(null)
         battery?.dispose()

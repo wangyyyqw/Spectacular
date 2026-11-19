@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'book_source_cookie_store.dart';
 import 'book_source_models.dart';
 
 /// 在线书源 HTTP 响应。
@@ -26,12 +27,13 @@ class BookSourceHttpResponse {
 
 /// 单书源请求器。
 ///
-/// Cookie 只保存在当前进程内，不写日志；重启后需要重新建立会话。
+/// Cookie 由 [BookSourceCookieStore] 持久化，不写日志。
 class BookSourceHttpClient {
   BookSourceHttpClient({
     http.Client? client,
     this.defaultTimeout = const Duration(seconds: 45),
     this.allowPrivateHosts = false,
+    this.cookieStore,
   }) : _client = client ?? http.Client();
 
   static const int maxRedirects = 5;
@@ -40,6 +42,7 @@ class BookSourceHttpClient {
   final http.Client _client;
   final Duration defaultTimeout;
   final bool allowPrivateHosts;
+  final BookSourceCookieStore? cookieStore;
   final Map<String, Map<String, String>> _cookies =
       <String, Map<String, String>>{};
   final Map<String, Future<void>> _rateLocks = <String, Future<void>>{};
@@ -89,6 +92,7 @@ class BookSourceHttpClient {
     required String referer,
   }) async {
     var uri = _validateUrl(rawUrl);
+    await cookieStore?.load();
     var method = _stringOption(options, 'method').ifBlank('GET').toUpperCase();
     if (method != 'GET' && method != 'POST') {
       throw const BookSourceException(
@@ -161,6 +165,9 @@ class BookSourceHttpClient {
     required String referer,
     required String body,
   }) async {
+    final persistentCookies = cookieStore == null || !source.enabledCookieJar
+        ? const <String, String>{}
+        : await cookieStore!.cookiesFor(source, uri);
     final requestHeaders = <String, String>{
       'User-Agent':
           'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
@@ -172,11 +179,16 @@ class BookSourceHttpClient {
       ...headers,
     };
     if (referer.isNotBlank) requestHeaders['Referer'] = referer;
-    final cookies = _cookies[source.id];
-    if (cookies != null && cookies.isNotEmpty) {
-      requestHeaders['Cookie'] = cookies.entries
-          .map((entry) => '${entry.key}=${entry.value}')
-          .join('; ');
+    if (source.enabledCookieJar && !_hasHeader(requestHeaders, 'Cookie')) {
+      final cookies = <String, String>{
+        ...persistentCookies,
+        ...?_cookies[source.id],
+      };
+      if (cookies.isNotEmpty) {
+        requestHeaders['Cookie'] = cookies.entries
+            .map((entry) => '${entry.key}=${entry.value}')
+            .join('; ');
+      }
     }
 
     final timeout = source.respondTime > 0
@@ -190,7 +202,7 @@ class BookSourceHttpClient {
         for (final entry in streamed.headers.entries)
           entry.key.toLowerCase(): entry.value,
       };
-      _rememberCookies(source.id, streamed.headers['set-cookie']);
+      await _rememberCookies(source, uri, streamed.headers['set-cookie']);
       final declaredLength = int.tryParse(
         responseHeaders['content-length'] ?? '',
       );
@@ -364,9 +376,9 @@ class BookSourceHttpClient {
     return value == null ? '' : '$value'.trim();
   }
 
-  void _rememberCookies(String sourceId, String? raw) {
+  Future<void> _rememberCookies(BookSource source, Uri uri, String? raw) async {
     if (raw == null || raw.trim().isEmpty) return;
-    final jar = _cookies.putIfAbsent(sourceId, () => <String, String>{});
+    final jar = _cookies.putIfAbsent(source.id, () => <String, String>{});
     for (final part in raw.split(RegExp(r',(?=\s*[^;,=]+=)'))) {
       final pair = part.split(';').first.trim();
       final index = pair.indexOf('=');
@@ -380,6 +392,12 @@ class BookSourceHttpClient {
         jar[name] = value;
       }
     }
+    await cookieStore?.absorbSetCookie(source, uri, raw);
+  }
+
+  bool _hasHeader(Map<String, String> headers, String name) {
+    final target = name.toLowerCase();
+    return headers.keys.any((key) => key.toLowerCase() == target);
   }
 
   String _decodeBody(Uint8List bytes, String? contentType) {

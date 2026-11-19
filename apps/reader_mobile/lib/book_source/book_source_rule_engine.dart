@@ -71,14 +71,14 @@ class BookSourceRuleEngine {
     String rawRule,
     BookSourceRuleContext context, {
     BookSourceScriptSession? script,
+    bool preserveNewlines = false,
   }) {
     final values = evaluateList(root, rawRule, context, script: script);
     if (values.isEmpty) return '';
-    if (values.length == 1) return _valueAsString(values.single);
-    return values
-        .map(_valueAsString)
-        .where((value) => value.isNotEmpty)
-        .join('\n');
+    String asString(Object value) =>
+        _valueAsString(value, normalize: !preserveNewlines);
+    if (values.length == 1) return asString(values.single);
+    return values.map(asString).where((value) => value.isNotEmpty).join('\n');
   }
 
   /// 求值为 HTML 片段或正文文本。

@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:html/dom.dart';
 
 import 'book_source_compat.dart';
+import 'book_source_cookie_store.dart';
 import 'book_source_http_client.dart';
 import 'book_source_models.dart';
 import 'book_source_rule_engine.dart';
@@ -95,25 +96,43 @@ typedef BookSourceScriptFactory = BookSourceScriptSession Function(
 
 /// 执行书源搜索、详情、目录、正文与 EPUB 下载。
 class BookSourceService {
-  BookSourceService({
+  factory BookSourceService({
     BookSourceHttpClient? httpClient,
     BookSourceRuleEngine ruleEngine = const BookSourceRuleEngine(),
-    this.epubBuilder = const OnlineEpubBuilder(),
+    OnlineEpubBuilder epubBuilder = const OnlineEpubBuilder(),
     BookSourceScriptFactory? scriptFactory,
-  }) : http = httpClient ?? BookSourceHttpClient(),
-       rules = ruleEngine,
-       scriptFactory = scriptFactory ?? _defaultScriptFactory;
+    BookSourceCookieStore? cookieStore,
+  }) {
+    final store = cookieStore ?? BookSourceCookieStore();
+    return BookSourceService._(
+      cookieStore: store,
+      http: httpClient ?? BookSourceHttpClient(cookieStore: store),
+      rules: ruleEngine,
+      epubBuilder: epubBuilder,
+      scriptFactory:
+          scriptFactory ??
+          (source) => QuickJsBookSourceScriptSession(
+            jsLib: source.jsLib,
+            cookieProvider: (domain, name) => store.cookieValue(domain, name),
+          ),
+    );
+  }
 
+  BookSourceService._({
+    required this.cookieStore,
+    required this.http,
+    required this.rules,
+    required this.epubBuilder,
+    required this.scriptFactory,
+  });
+
+  final BookSourceCookieStore cookieStore;
   final BookSourceHttpClient http;
   final BookSourceRuleEngine rules;
   final OnlineEpubBuilder epubBuilder;
   final BookSourceScriptFactory scriptFactory;
   final Map<String, Future<Uint8List?>> _coverCache =
       <String, Future<Uint8List?>>{};
-
-  static BookSourceScriptSession _defaultScriptFactory(BookSource source) {
-    return const QuickJsBookSourceScriptFactory().create(source.jsLib);
-  }
 
   void dispose() => http.close();
 
@@ -123,6 +142,7 @@ class BookSourceService {
     String query, {
     int concurrency = 3,
   }) async {
+    await cookieStore.load();
     final enabled = <BookSource>[
       for (final source in sources)
         if (source.enabled &&
@@ -174,6 +194,7 @@ class BookSourceService {
     String rawQuery, {
     int page = 1,
   }) async {
+    await cookieStore.load();
     final query = rawQuery.trim();
     if (query.isEmpty) {
       throw const BookSourceException('请输入要搜索的书名或作者');
@@ -326,7 +347,7 @@ class BookSourceService {
           tocOptions: bookRequest.options,
           coverUrl: rules.resolveUrl(context.pageUrl, cover),
           intro: normalizeOnlineIntro(
-            _field(node, source.search.intro, context, script).ifBlank(
+            _field(node, source.search.intro, context, script, true).ifBlank(
               _commonJsonField(node, const <String>[
                 'intro',
                 'description',
@@ -361,6 +382,7 @@ class BookSourceService {
     int concurrency = 3,
     Duration timeout = const Duration(seconds: 6),
   }) async {
+    await cookieStore.load();
     if (books.isEmpty || limit <= 0) return books;
     final enriched = List<OnlineBook>.of(books);
     final selected = math.min(limit, books.length);
@@ -417,6 +439,7 @@ class BookSourceService {
 
   /// 读取详情页字段并定位目录地址。
   Future<OnlineBook> loadBookInfo(BookSource source, OnlineBook book) async {
+    await cookieStore.load();
     final script = scriptFactory(source);
     try {
       final response = await http.fetchText(
@@ -515,6 +538,7 @@ class BookSourceService {
             source.bookInfo.intro,
             context,
             script,
+            true,
           ).ifBlank(book.intro),
         ),
         kind: status.ifBlank(kindRaw),
@@ -538,6 +562,7 @@ class BookSourceService {
     BookSource source,
     OnlineBook book,
   ) async {
+    await cookieStore.load();
     final script = scriptFactory(source);
     try {
       var currentUrl = book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl;
@@ -647,6 +672,7 @@ class BookSourceService {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
   }) async {
+    await cookieStore.load();
     onProgress?.call(0, 0, '正在读取详情');
     final info = await loadBookInfo(source, searchBook);
     _checkCancelled(isCancelled);
@@ -753,6 +779,7 @@ class BookSourceService {
     OnlineChapter chapter,
     String bookUrl,
   ) async {
+    await cookieStore.load();
     final script = scriptFactory(source);
     try {
       var currentUrl = chapter.url;
@@ -1143,9 +1170,18 @@ class BookSourceService {
     String rule,
     BookSourceRuleContext context, [
     BookSourceScriptSession? script,
+    bool preserveNewlines = false,
   ]) {
     if (rule.trim().isEmpty) return '';
-    return rules.evaluateString(node, rule, context, script: script).trim();
+    return rules
+        .evaluateString(
+          node,
+          rule,
+          context,
+          script: script,
+          preserveNewlines: preserveNewlines,
+        )
+        .trim();
   }
 
   ({String url, Map<String, Object?> options}) _urlField(

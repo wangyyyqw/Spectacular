@@ -18,6 +18,7 @@ class OnlineSourcePage extends StatefulWidget {
 
 class _OnlineSourcePageState extends State<OnlineSourcePage> {
   bool _importing = false;
+  String? _loggingInSourceId;
 
   @override
   void initState() {
@@ -176,6 +177,59 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
     }
   }
 
+  Future<void> _handleLogin(BookSource source) async {
+    if (!source.hasLoginConfig || _loggingInSourceId != null) return;
+    if (widget.controller.isLoggedIn(source)) {
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const AppIcon(AppGlyph.profile),
+                title: Text('${source.name} 已登录'),
+                subtitle: const Text('Cookie 已保存在本机，可用于书架和接口请求。'),
+              ),
+              ListTile(
+                leading: const AppIcon(AppGlyph.lock),
+                title: const Text('重新登录'),
+                onTap: () => Navigator.of(context).pop('login'),
+              ),
+              ListTile(
+                leading: const AppIcon(AppGlyph.delete),
+                title: const Text('清除登录'),
+                onTap: () => Navigator.of(context).pop('logout'),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || action == null) return;
+      if (action == 'logout') {
+        await widget.controller.logout(source);
+        _showError('已清除 ${source.name} 的登录 Cookie');
+        return;
+      }
+      if (action != 'login') return;
+    }
+    await _openLogin(source);
+  }
+
+  Future<void> _openLogin(BookSource source) async {
+    setState(() => _loggingInSourceId = source.id);
+    try {
+      final result = await widget.controller.login(source);
+      _showError(result.message);
+    } on Object catch (error) {
+      _showError('登录失败：$error');
+    } finally {
+      if (mounted) setState(() => _loggingInSourceId = null);
+    }
+  }
+
   Future<void> _openSearch() async {
     await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
@@ -258,16 +312,35 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
               subtitle: Text(
                 <String>[
                   if (source.group.isNotEmpty) source.group,
-                  Uri.tryParse(source.sourceUrl)?.host ?? source.sourceUrl,
                   '${source.search.bookList.isEmpty ? '无搜索' : '可搜索'}'
-                      '${source.loginUrl.isEmpty ? '' : ' · 需登录'}',
-                ].join(' · '),
+                      '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? '·已登录' : '·需登录') : ''}',
+                ].join('\n'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
+                  if (source.hasLoginConfig)
+                    IconButton(
+                      key: ValueKey<String>('online-source-login-${source.id}'),
+                      tooltip: controller.isLoggedIn(source) ? '登录状态' : '登录书源',
+                      onPressed: _loggingInSourceId == source.id
+                          ? null
+                          : () => _handleLogin(source),
+                      icon: _loggingInSourceId == source.id
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : AppIcon(
+                              controller.isLoggedIn(source)
+                                  ? AppGlyph.checkCircle
+                                  : AppGlyph.profile,
+                            ),
+                    ),
                   Switch(
                     key: ValueKey<String>('online-source-enabled-${source.id}'),
                     value: source.enabled,

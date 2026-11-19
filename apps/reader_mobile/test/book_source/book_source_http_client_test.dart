@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_mobile/book_source/book_source_http_client.dart';
+import 'package:reader_mobile/book_source/book_source_cookie_store.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 
 const _source = BookSource(
@@ -95,5 +97,79 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('登录 Cookie 会持久化并自动附加到后续请求', () async {
+    final directory = await Directory.systemTemp.createTemp('http-cookie-');
+    addTearDown(() => directory.delete(recursive: true));
+    final store = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    var requests = 0;
+    final client = BookSourceHttpClient(
+      cookieStore: store,
+      client: MockClient((request) async {
+        requests += 1;
+        if (requests == 1) {
+          return http.Response(
+            'ok',
+            200,
+            headers: <String, String>{
+              'set-cookie': 'sessionid=abc; Path=/; HttpOnly',
+            },
+          );
+        }
+        expect(request.headers['Cookie'], contains('sessionid=abc'));
+        return http.Response('ok', 200);
+      }),
+    );
+    addTearDown(client.close);
+
+    await client.fetchText(_source, 'https://example.com/login');
+    await client.fetchText(_source, 'https://example.com/bookshelf');
+
+    expect(store.cookieValue('example.com', 'sessionid'), 'abc');
+    expect(requests, 2);
+  });
+
+  test('显式 Cookie 优先，关闭 CookieJar 时不自动携带', () async {
+    final directory = await Directory.systemTemp.createTemp('http-cookie-');
+    addTearDown(() => directory.delete(recursive: true));
+    final store = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    await store.saveLoginCookies('example.com', <String, String>{
+      'sessionid': 'saved',
+    });
+    final headers = <String?>[];
+    final client = BookSourceHttpClient(
+      cookieStore: store,
+      client: MockClient((request) async {
+        headers.add(request.headers['Cookie']);
+        return http.Response('ok', 200);
+      }),
+    );
+    addTearDown(client.close);
+
+    await client.fetchText(
+      _source,
+      'https://example.com/one',
+      headers: const <String, String>{'Cookie': 'manual=1'},
+    );
+    const noJarSource = BookSource(
+      id: 'source-2',
+      name: '关闭 Cookie',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search',
+      enabledCookieJar: false,
+      search: BookListRule(),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+    await client.fetchText(noJarSource, 'https://example.com/two');
+
+    expect(headers.first, 'manual=1');
+    expect(headers.last, isNull);
   });
 }
