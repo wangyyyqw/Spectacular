@@ -103,7 +103,7 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 墨水屏模式：主题固定为纯黑白，禁用日夜切换。
   final bool inkMode;
 
-  /// 顶部安全区（由阅读页缓存后注入，保证菜单与正文用同一份值）。
+  /// 顶部安全区，随状态栏显隐更新，不改变正文的缓存边距。
   final double safeTop;
 
   /// 底部安全区。
@@ -255,19 +255,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                           onSeek: onSeek,
                         ),
                         _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
-                        SizedBox(
-                          height: 22 + bottomInset,
-                          child: Center(
-                            child: Container(
-                              width: 118,
-                              height: 4.5,
-                              decoration: BoxDecoration(
-                                color: fg.withValues(alpha: 0.22),
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          ),
-                        ),
+                        SizedBox(height: 22 + bottomInset),
                       ],
                     ),
                   ),
