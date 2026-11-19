@@ -3,6 +3,9 @@ package com.spectacular.reader_mobile
 import android.content.Intent
 import android.view.KeyEvent
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -14,6 +17,8 @@ class MainActivity : FlutterActivity() {
     private var epubExport: EpubExportHandler? = null
     private var battery: ReaderBatteryHandler? = null
     private var batteryChannel: EventChannel? = null
+    private var showStatusBar = true
+    private var showNavigationBar = true
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -38,6 +43,19 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "getBatteryStatus" -> result.success(battery?.snapshot())
+                    "setSystemBars" -> {
+                        val bars = call.arguments as? Map<*, *>
+                        val statusBar = bars?.get("statusBar") as? Boolean
+                        val navigationBar = bars?.get("navigationBar") as? Boolean
+                        if (statusBar == null || navigationBar == null) {
+                            result.error("invalid_system_bars", "系统栏参数必须是布尔值", null)
+                        } else {
+                            showStatusBar = statusBar
+                            showNavigationBar = navigationBar
+                            applySystemBars()
+                            result.success(null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -54,6 +72,28 @@ class MainActivity : FlutterActivity() {
         batteryChannel?.setStreamHandler(null)
         battery?.dispose()
         super.onDestroy()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applySystemBars()
+    }
+
+    private fun applySystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (showStatusBar) {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+        } else {
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        }
+        if (showNavigationBar) {
+            controller.show(WindowInsetsCompat.Type.navigationBars())
+        } else {
+            controller.hide(WindowInsetsCompat.Type.navigationBars())
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

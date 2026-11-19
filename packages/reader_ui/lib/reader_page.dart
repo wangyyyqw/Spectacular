@@ -74,6 +74,7 @@ import 'paging/page_turn_mode.dart';
 import 'paging/page_turn_view.dart';
 import 'theme/reader_theme.dart';
 import 'loading_skeleton.dart';
+import 'system_ui.dart';
 
 part 'reader_annotation_controller.dart';
 part 'reader_decoration_controller.dart';
@@ -431,6 +432,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 菜单是否展开（设计稿沉浸式菜单）。
   bool _menuOpen = false;
+  ({bool statusBar, bool navigationBar})? _systemBars;
+  Timer? _systemBarRestoreTimer;
+  bool _keyboardVisible = false;
 
   /// 当前打开的抽屉。
   ReaderMenuEntry? _drawer;
@@ -886,11 +890,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _readerPlatformChannel.setMethodCallHandler(_handlePlatformCall);
     _syncPlatformSettings();
     unawaited(_loadBackground(_backgroundId));
-    // 沉浸模式（P8-10 收尾）：阅读页隐藏状态栏与导航栏，退出时恢复。
-    // sticky：边缘下滑可临时唤出系统栏，几秒后自动隐藏。
-    unawaited(
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
-    );
     _session = ReaderSession(
       source: widget.source,
       store: widget.store,
@@ -1011,7 +1010,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _pageTurnKey.currentState?.controller.cancel();
     final open = !_menuOpen;
     _log('user_menu', <String, Object?>{'open': open});
-    // 不切系统栏模式：菜单是浮层，切 edgeToEdge 会改 viewPadding → 正文重排。
     setState(() {
       _menuOpen = open;
       if (!_menuOpen) {
@@ -2250,10 +2248,49 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
+  void _scheduleSystemBars(bool normalPage) {
+    final bars = (
+      statusBar: normalPage || _menuOpen || _drawer != null,
+      navigationBar: normalPage,
+    );
+    if (_systemBars == bars) return;
+    _systemBars = bars;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _systemBars == bars) _restoreSystemBars();
+    });
+  }
+
+  void _restoreSystemBars() {
+    if (!mounted) return;
+    final bars = _systemBars;
+    if (bars == null) return;
+    unawaited(
+      setReaderSystemBars(
+        statusBar: bars.statusBar,
+        navigationBar: bars.navigationBar,
+      ),
+    );
+  }
+
+  @override
+  void didChangeMetrics() {
+    final visible = View.of(context).viewInsets.bottom > 0;
+    if (visible == _keyboardVisible) return;
+    _systemBarRestoreTimer?.cancel();
+    if (_keyboardVisible && !visible) {
+      _systemBarRestoreTimer = Timer(
+        const Duration(seconds: 1),
+        _restoreSystemBars,
+      );
+    }
+    _keyboardVisible = visible;
+  }
+
   /// 切后台/失去焦点时立即落盘（P4-10）：系统回收不丢最后一次翻页。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _restoreSystemBars();
       _pageTurnKey.currentState?.resumeWarmup();
       return;
     }
@@ -2281,12 +2318,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     _marginPreviewTimer?.cancel();
+    _systemBarRestoreTimer?.cancel();
     _readerPlatformChannel.setMethodCallHandler(null);
     unawaited(_invokePlatformFlag('setKeepScreenOn', false));
     unawaited(_invokePlatformFlag('setVolumeKeyPaging', false));
     WidgetsBinding.instance.removeObserver(this);
-    // 退出阅读页：恢复系统栏（edge-to-edge），并复位到浅色图标语义。
-    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    if (!widget.editMode) {
+      unawaited(setReaderSystemBars(statusBar: true, navigationBar: true));
+    }
     _scrollKey.currentState?.captureLatestPosition();
     _session.removeListener(_reportProgressSaveError);
     // 先同步取得最新视口并启动最后一次保存，再取消在途排版；这样即使
@@ -2322,7 +2361,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
+    final normalPage =
+        widget.editMode ||
+        ModalRoute.isCurrentOf(context) == false ||
+        _editingMargins ||
+        _editingTapZones;
+    _scheduleSystemBars(normalPage);
+    final content = PopScope(
       canPop: !_hasOverlayOpen,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _handleBackPressed();
@@ -2370,6 +2415,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           );
         },
       ),
+    );
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: readerSystemBarStyle(
+        normalPage
+            ? Theme.of(context).scaffoldBackgroundColor
+            : _effectiveTheme?.background ?? widget.background,
+      ),
+      child: content,
     );
   }
 
@@ -2710,8 +2763,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onOpenTapZoneEditor: _openTapZoneEditor,
                     ),
               onCloseDrawer: _closeDrawer,
-              safeTop: _safeTop,
-              safeBottom: _safeBottom,
+              safeTop: MediaQuery.viewPaddingOf(context).top,
             ),
             // 九宫格点击区域编辑页：每个格子循环切换点击动作。
             if (_editingTapZones)

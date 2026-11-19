@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -9,6 +11,20 @@ import '../support/test_epub.dart';
 
 void main() {
   testWidgets('菜单与抽屉开关是浮层：排版指纹不变（不重排）', (tester) async {
+    final bars = <Object?>[];
+    const channel = MethodChannel('com.spectacular.reader_mobile/reader');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'setSystemBars') bars.add(call.arguments);
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 800);
+    addTearDown(tester.view.reset);
     final bytes = buildTestEpub(
       title: '浮层菜单',
       paragraphs: const <String>['第一段内容足够长以便分页显示多行。', '第二段内容。'],
@@ -41,10 +57,17 @@ void main() {
     );
     final fingerprint = session.layoutFingerprint;
     final pageBefore = session.page;
+    expect(bars.last, {'statusBar': false, 'navigationBar': false});
 
     // 打开菜单。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    tester.view.viewPadding = const FakeViewPadding(top: 30);
     await tester.pumpAndSettle();
+    expect(bars.last, {'statusBar': true, 'navigationBar': false});
+    expect(
+      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).safeTop,
+      30,
+    );
     expect(session.layoutFingerprint, fingerprint, reason: '开菜单不重排');
     expect(session.page, same(pageBefore), reason: '页码与内容不变');
 
@@ -52,19 +75,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-theme')));
     await tester.pumpAndSettle();
     expect(session.layoutFingerprint, fingerprint, reason: '开抽屉不重排');
+    expect(bars.last, {'statusBar': true, 'navigationBar': false});
 
     // 关闭抽屉 → 关闭菜单。
-    await tester.tapAt(
-      tester.getTopLeft(
-            find.byKey(const ValueKey<String>('menu-drawer-mask')),
-          ) +
-          const Offset(12, 12),
-    );
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.binding.handlePopRoute();
+    tester.view.viewPadding = FakeViewPadding.zero;
     await tester.pumpAndSettle();
+    expect(bars.last, {'statusBar': false, 'navigationBar': false});
     expect(session.layoutFingerprint, fingerprint, reason: '收菜单不重排');
     await tester.pumpWidget(const SizedBox.shrink());
+    expect(bars.last, {'statusBar': true, 'navigationBar': true});
     source.close();
     await tester.pump();
   });
