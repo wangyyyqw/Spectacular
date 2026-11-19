@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_core/reader_core.dart';
 import 'package:reader_ui/reader_ui.dart';
 import 'package:reader_ui/system_ui.dart';
@@ -59,7 +60,12 @@ Future<void> main() async {
       ),
     );
   }
-  runApp(ReaderApp.withStorage(storage: storage));
+  runApp(
+    LiquidGlassWidgets.wrap(
+      brightnessResolver: Theme.maybeBrightnessOf,
+      child: ReaderApp.withStorage(storage: storage),
+    ),
+  );
 }
 
 /// 应用壳：四底栏（书架/统计/书评/我的）+ EPUB 导入 + 阅读页。

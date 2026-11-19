@@ -11,6 +11,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  liquid_glass_widgets: 1.17.0
   reader_core:
     path: ../reader_core
 
