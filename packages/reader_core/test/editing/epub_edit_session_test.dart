@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/parser/document_parser.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/source/format_opener.dart';
 
 import 'edit_fixture.dart';
@@ -89,6 +91,106 @@ void main() {
       () => session.cfiForElement(inline),
       throwsA(isA<EpubEditException>()),
     );
+  });
+
+  test('源码光标按实体解码后的 UTF-16 位置定位，标签回退到元素', () {
+    const path = 'OPS/chapter.xhtml';
+    final source = session.readText(path);
+    final parsed = DocumentParser.parse(xhtml: source, spineIndex: 0);
+    final offset = source.indexOf('乙😀') + '乙😀'.length;
+    final cfi = EpubCfi.parse(session.cfiForSourceOffset(path, offset))!;
+    expect((parsed.nodeAtCfi(cfi) as ParsedText).text, '乙😀');
+    expect(cfi.charOffset, 3);
+    final ampersand = source.indexOf('&amp;');
+    for (var index = 1; index < 5; index++) {
+      final partial = EpubCfi.parse(
+        session.cfiForSourceOffset(path, ampersand + index),
+      )!;
+      expect(partial.charOffset, 1);
+    }
+    expect(
+      EpubCfi.parse(session.cfiForSourceOffset(path, ampersand + 5))!
+          .charOffset,
+      2,
+    );
+    expect(
+      session.cfiForSourceOffset(path, source.indexOf('id="e"') + 3),
+      session.cfiForElement(
+        session
+            .editableDocument(path)
+            .elements
+            .singleWhere((element) => element.attributes['id'] == 'e'),
+      ),
+    );
+    expect(
+      () => session.cfiForSourceOffset(path, source.indexOf('<title>') + 2),
+      throwsA(isA<EpubEditException>()),
+    );
+  });
+
+  test('源码字符定位合并注释和 CDATA，数字实体按真实字符计数', () {
+    const path = 'OPS/chapter.xhtml';
+    final source = editingXhtml.replaceFirst(
+      '甲&amp;<em id="e">乙😀</em>丙',
+      '甲&#x1F600;<!--忽略--><![CDATA[乙&amp;]]><?位置 忽略?>丙',
+    );
+    session.transaction('设置字符样本', (tx) => tx.writeText(path, source));
+    final parsed = DocumentParser.parse(xhtml: source, spineIndex: 0);
+    for (final target in <(int, int)>[
+      (source.indexOf('<!--'), 3),
+      (source.indexOf('乙&amp;') + 3, 6),
+      (source.indexOf(']]>'), 9),
+      (source.indexOf('丙</p>') + 1, 10),
+    ]) {
+      final cfi = EpubCfi.parse(session.cfiForSourceOffset(path, target.$1))!;
+      expect((parsed.nodeAtCfi(cfi) as ParsedText).text, '甲😀乙&amp;丙');
+      expect(cfi.charOffset, target.$2);
+    }
+  });
+
+  test('非 spine HTML 独立加入预览，源码定位与预览顺序一致且不改书籍', () async {
+    final package = PackageEditor(session);
+    for (final name in ['z', 'a']) {
+      package.addResource(
+        'OPS/$name.xhtml',
+        utf8.encode(editingXhtml.replaceFirst('另一段', '$name 附录')),
+        'application/xhtml+xml',
+      );
+    }
+    final original = session.readText(session.opfPath);
+    final revision = session.revision;
+    final paths = session.previewPaths;
+    expect(paths, ['OPS/chapter.xhtml', 'OPS/z.xhtml', 'OPS/a.xhtml']);
+    final preview = await session.createPreviewSource(
+      includeUnlistedHtml: true,
+    );
+    try {
+      for (var index = 1; index < paths.length; index++) {
+        final path = paths[index];
+        final source = session.readText(path);
+        final cfi = session.cfiForSourceOffset(
+          path,
+          source.indexOf('附录') + 1,
+          preview: true,
+        );
+        expect(preview.document.spine[index].href, path.split('/').last);
+        expect((await preview.loadAnchorChapter(index)).text, contains('附录'));
+        expect(
+          session.resolveEditableElement(index, cfi, preview: true).text,
+          contains('附录'),
+        );
+      }
+      expect(session.spinePaths, ['OPS/chapter.xhtml']);
+      expect(session.readText(session.opfPath), original);
+      expect(session.revision, revision);
+      expect(
+        () => session.cfiForSourceOffset('OPS/z.xhtml', 1),
+        throwsA(isA<EpubEditException>()),
+      );
+    } finally {
+      preview.close();
+      await preview.preparationsStopped;
+    }
   });
 
   test('拆分跨行内元素保留标签且不复制 ID，插入删除共享同一历史', () {

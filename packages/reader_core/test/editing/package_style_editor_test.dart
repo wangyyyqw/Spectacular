@@ -23,6 +23,91 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  test('选中元素读取原始 CSS 规则，修改写回原样式表且支持撤销', () async {
+    final editor = ClassStyleEditor(session);
+    final paragraph = session
+        .editableDocument('OPS/a.xhtml')
+        .elements
+        .firstWhere((node) => node.tag == 'p');
+    final original = session.readText('OPS/style.css');
+    final rule = editor
+        .rulesForElement(paragraph)
+        .singleWhere((rule) => rule.selector == 'p.note');
+    expect(rule.text, 'p.note { margin-top: 3px; }');
+    const replacement =
+        'p.note { font-family: "kh"; font-size: 0.6em; text-indent: 0px; text-align: center; line-height: 1.25em; margin: 1em auto; }';
+    editor.replaceStyleRule(rule, replacement);
+    expect(
+      session.readText('OPS/style.css'),
+      original.replaceFirst(rule.text, replacement),
+    );
+    expect(session.metadata['classStylesheet'], isNull);
+    final preview = await session.createPreviewSource();
+    expect(preview.chapterCount, 2);
+    preview.close();
+    session.undo();
+    expect(session.readText('OPS/style.css'), original);
+  });
+
+  test('内嵌媒体规则精确修改，不覆盖外链同名规则与媒体条件', () {
+    final editor = ClassStyleEditor(session);
+    final paragraph = session
+        .editableDocument('OPS/b.xhtml')
+        .elements
+        .firstWhere((node) => node.tag == 'p');
+    final original = session.readText('OPS/b.xhtml');
+    final external = session.readText('OPS/style.css');
+    final rule = editor
+        .rulesForElement(paragraph)
+        .singleWhere((rule) => rule.path == 'OPS/b.xhtml');
+    expect(rule.media, contains('900px'));
+    editor.replaceStyleRule(rule, 'p.note { margin-top: 42px !important; }');
+    expect(
+      session.readText('OPS/b.xhtml'),
+      original.replaceFirst(
+        rule.text,
+        'p.note { margin-top: 42px !important; }',
+      ),
+    );
+    expect(session.readText('OPS/style.css'), external);
+  });
+
+  test('CSS 语法错误和过期来源拒绝覆盖样式表', () {
+    final editor = ClassStyleEditor(session);
+    final paragraph = session
+        .editableDocument('OPS/a.xhtml')
+        .elements
+        .firstWhere((node) => node.tag == 'p');
+    final rule = editor.rulesForElement(paragraph).first;
+    final original = session.readText(rule.path);
+    expect(
+      () => editor.replaceStyleRule(rule, '.note { color: red;'),
+      throwsFormatException,
+    );
+    expect(session.readText(rule.path), original);
+    editor.writeSource(rule.path, '$original\n.note { color: green; }');
+    expect(
+      () => editor.replaceStyleRule(rule, '.note { color: blue; }'),
+      throwsA(isA<Exception>()),
+    );
+    expect(session.readText(rule.path), contains('color: green'));
+  });
+
+  test('在指定 HTML 前后插入章节是单步事务，顺序可撤销', () {
+    final editor = PackageEditor(session);
+    final original = session.spinePaths;
+    editor.addXhtml('OPS/new.xhtml', '新章节', index: 1);
+    expect(session.spinePaths, ['OPS/a.xhtml', 'OPS/new.xhtml', 'OPS/b.xhtml']);
+    session.undo();
+    expect(session.spinePaths, original);
+    expect(session.readBytes('OPS/new.xhtml'), isNull);
+    expect(
+      () => editor.addXhtml('OPS/invalid.xhtml', '无效位置', index: 99),
+      throwsRangeError,
+    );
+    expect(session.readBytes('OPS/invalid.xhtml'), isNull);
+  });
+
   test('完整 class token 跨章应用，强规则提示并按确认覆盖', () async {
     final editor = ClassStyleEditor(session);
     final report = editor.inspect('note', proposed: {'margin-top': '12px'});

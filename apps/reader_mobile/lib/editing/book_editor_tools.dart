@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_core/editing/class_style_editor.dart';
 import 'package:reader_core/editing/class_style_worker.dart';
@@ -11,6 +12,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'book_editor_controller.dart';
 
 part 'book_editor_files.dart';
+part 'book_editor_file_menu.dart';
 
 /// 等反向动画卸载输入控件后才释放调用方持有的控制器。
 Future<T?> _showEditorDialog<T>({
@@ -490,11 +492,21 @@ class BookEditorTools {
       };
 
   Future<void> fileAction(String path, String action) async {
+    if (editor.busy) return;
     switch (action) {
+      case 'open':
+        editor.showSource(path);
+      case 'copy-path':
+        await Clipboard.setData(ClipboardData(text: path));
+      case 'insert-before':
+      case 'insert-after':
+        await _insertXhtml(path, after: action == 'insert-after');
       case 'rename':
         final next = await editorPrompt(context, '重命名资源并更新引用', initial: path);
-        if (next != null) {
-          editor.runCommand(() => package.renameResource(path, next));
+        if (next != null &&
+            next != path &&
+            editor.runCommand(() => package.renameResource(path, next))) {
+          editor.showSource(next);
         }
       case 'delete':
         if (await editorConfirm(context, '删除资源？', path)) {
@@ -504,6 +516,35 @@ class BookEditorTools {
         editor.runCommand(() => package.setCover(path));
       case 'replace-image':
         await replaceImageResource(path);
+    }
+  }
+
+  Future<void> _insertXhtml(String anchor, {required bool after}) async {
+    final directory = p.posix.dirname(anchor);
+    final paths = editor.session.resources.map((file) => file.path).toSet();
+    var number = 1;
+    String candidate;
+    do {
+      candidate = p.posix.join(
+        directory,
+        'Section${(number++).toString().padLeft(4, '0')}.xhtml',
+      );
+    } while (paths.contains(candidate));
+    final path = await editorPrompt(
+      context,
+      after ? '在此处之后插入 HTML' : '在此处之前插入 HTML',
+      initial: candidate,
+    );
+    if (path == null || path.trim().isEmpty) return;
+    final index = editor.session.spinePaths.indexOf(anchor);
+    if (editor.runCommand(
+      () => package.addXhtml(
+        path,
+        p.posix.basenameWithoutExtension(path),
+        index: index < 0 ? null : index + (after ? 1 : 0),
+      ),
+    )) {
+      editor.showSource(path);
     }
   }
 

@@ -15,6 +15,7 @@ import 'package_editor.dart';
 
 part 'class_style_sources.dart';
 part 'class_style_ownership.dart';
+part 'class_style_rules.dart';
 
 class ClassStyleConflict {
   const ClassStyleConflict(
