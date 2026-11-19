@@ -24,6 +24,12 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>$(PRODUCT_COPYRIGHT)</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>用于从桌面导入您选择的电子书、字体和图片，以及保存导出的电子书与报告。</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>用于从文稿文件夹导入您选择的电子书、字体和图片，以及保存导出的电子书与报告。</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>用于导入下载文件夹中的电子书、字体和图片，以及保存导出的电子书与报告。</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
