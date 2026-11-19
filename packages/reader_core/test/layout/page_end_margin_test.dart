@@ -71,6 +71,11 @@ void main() {
       final blocks = [_paragraph(before: 30)];
       final paginator = Paginator(pageHeight: 75, trimTextEdges: trim);
       final measured = paginator.measureChapter(blocks: blocks);
+      if (trim) {
+        expect(measured.pages.single.slices.single.leadingExtent, 0);
+        expect(measured.pages.single.slices.single.trailingExtent, 0);
+        expect(measured.pages.single.usedHeight, 30);
+      }
       final streamed = await paginator.paginate(blocks: blocks).toList();
       final index = PageIndex.from(measured, blocks);
       final replayed = PageIndex.apply(

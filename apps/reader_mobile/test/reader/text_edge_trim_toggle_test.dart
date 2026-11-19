@@ -23,14 +23,14 @@ Future<EpubChapterSource> _open({required bool trimTextEdges}) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('阅读模式默认回收页首行高留白', () async {
+  test('阅读模式默认回收页首段距与行高留白', () async {
     final source = await _open(trimTextEdges: true);
     final slice = (await source.loadChapter(0)).single.slices.single;
 
     expect(slice.textTopTrim, greaterThan(0));
     expect(
       slice.leadingExtent,
-      closeTo(slice.block.leadingExtent - slice.textTopTrim, 0.01),
+      closeTo(slice.block.topInset - slice.textTopTrim, 0.01),
     );
   });
 

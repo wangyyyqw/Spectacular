@@ -7,7 +7,7 @@ import '../paint/line_spans.dart';
 
 import 'package:reader_core/layout/line_breaker.dart';
 
-/// 行高在真实字体盒之外增加的上下留白；不包含字形自身的空白。
+/// 行高在文字与行内图片真实盒之外增加的上下留白；不包含字形自身的空白。
 class PageTextEdges {
   const PageTextEdges({this.top = 0, this.bottom = 0, this.bottomOverflow = 0});
 
@@ -84,9 +84,18 @@ PageTextEdges _edges(LineBox line, double ascent, double descent) {
   final baseline = line.baseline - line.top;
   final top = baseline - ascent;
   final bottom = line.height - baseline - descent;
+  var topCredit = math.max(0.0, top);
+  var bottomCredit = math.max(0.0, bottom);
+  for (final box in line.inlineBoxes) {
+    topCredit = math.min(topCredit, math.max(0.0, box.topIn(baseline)));
+    bottomCredit = math.min(
+      bottomCredit,
+      math.max(0.0, line.height - baseline - box.descent),
+    );
+  }
   return PageTextEdges(
-    top: math.max(0, top),
-    bottom: math.max(0, bottom),
+    top: topCredit,
+    bottom: bottomCredit,
     bottomOverflow: math.max(0, -bottom),
   );
 }
