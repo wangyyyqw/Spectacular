@@ -139,6 +139,7 @@ class ReaderPage extends StatefulWidget {
     this.onOpenEditor,
     this.imageCache,
     this.theme,
+    this.pageBrightness,
     this.overrides,
     this.paragraphCache,
     this.showPageFooter = true,
@@ -299,6 +300,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 阅读主题（可选）：背景色与正文色成对定义（P2-23）。
   final ReaderTheme? theme;
+
+  /// 宿主页面的深浅色；未传入时完全使用阅读主题。
+  final Brightness? pageBrightness;
 
   /// 阅读器设置覆盖（可选）：字号/行高/对齐/页边距（P2-22/P2-24）。
   final ReaderOverrides? overrides;
@@ -606,9 +610,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 生效主题（墨水屏强制纯黑白，P4-23）。
   ReaderTheme? get _effectiveTheme {
-    final theme = _theme;
+    var theme = _theme;
     if (theme == null) {
       return null;
+    }
+    if (widget.pageBrightness == Brightness.dark) {
+      theme = ReaderTheme.black;
+    } else if (widget.pageBrightness == Brightness.light &&
+        theme.background.computeLuminance() < 0.35) {
+      theme = ReaderTheme.white;
     }
     return _environment.resolveTheme(theme);
   }
@@ -640,7 +650,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 设置与主题合并后的有效覆盖（主题补正文/背景色，设置优先）。
   ReaderOverrides _effectiveOverrides() {
     final base = _overrides;
-    final theme = _theme;
+    final theme = _effectiveTheme;
     if (theme == null) {
       return base;
     }
@@ -1098,6 +1108,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _overrides = widget.overrides!;
     }
     if (oldWidget.theme != widget.theme ||
+        oldWidget.pageBrightness != widget.pageBrightness ||
         oldWidget.background != widget.background ||
         oldWidget.imageCache != widget.imageCache) {
       if (oldWidget.imageCache != widget.imageCache) {
@@ -1112,6 +1123,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _paragraphCache.clear();
     }
     if (oldWidget.overrides != widget.overrides ||
+        oldWidget.pageBrightness != widget.pageBrightness ||
         oldWidget.theme != widget.theme) {
       unawaited(_session.applyOverrides(_effectiveOverrides()));
     }
@@ -1253,7 +1265,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 日/夜快速切换（设计稿顶部栏的日间夜间按钮）。
   void _toggleDayNight() {
     final dark =
-        (_theme ?? ReaderTheme.white).background.computeLuminance() < 0.35;
+        (_effectiveTheme ?? ReaderTheme.white).background.computeLuminance() <
+        0.35;
     _applyTheme(dark ? 'white' : 'black');
   }
 
@@ -2786,7 +2799,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onEdit: widget.onOpenEditor,
               onToggleDayNight: _toggleDayNight,
               nightMode:
-                  (_theme ?? ReaderTheme.white).background.computeLuminance() <
+                  (_effectiveTheme ?? ReaderTheme.white).background
+                      .computeLuminance() <
                   0.35,
               inkMode: _inkMode,
               onPreviousChapter:
