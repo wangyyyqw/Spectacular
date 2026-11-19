@@ -665,6 +665,7 @@ class VirtualPager {
       spine >= 0 && spine < spineCount;
       spine += direction
     ) {
+      if (_chapterPageCounts[spine] == 0) continue;
       final pages = _spinePages[spine];
       if (pages == null || pages.isNotEmpty || !isChapterComplete(spine)) {
         return true;

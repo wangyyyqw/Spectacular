@@ -11,6 +11,7 @@ import 'book_cover_image.dart';
 import 'finish_book_sheet.dart';
 import 'reading_insights.dart';
 import '../storage/book_review_store.dart';
+import '../storage/drift_progress_store.dart';
 import '../storage/reading_session_store.dart';
 
 /// 用户选择的封面图片。
@@ -299,7 +300,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _showMessage('当前无法保存读完标记');
       return;
     }
-    final draft = await showModalBottomSheet<FinishBookDraft>(
+    final savedReview = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -310,53 +311,56 @@ class _BookDetailPageState extends State<BookDetailPage> {
         book: _entry,
         review: _review,
         allowReview: _reviewStore != null,
+        finished: _progress?.finished ?? false,
         onCommit: _saveFinished,
       ),
     );
-    if (draft != null && mounted) {
-      _showMessage(_reviewStore == null ? '已标记读完' : '已标记读完并保存书评');
+    if (savedReview != null && mounted) {
+      _showMessage(savedReview ? '书评已保存' : '已标记读完');
     }
   }
 
   ReaderProgress _finishedProgress() {
     final existing = _progress;
+    if (existing != null) return existing.withFinished(true);
     final lastSpine = ((_entry.spineCount ?? 1) - 1).clamp(0, 1000000);
-    return ReaderProgress(
-      spineIndex: existing?.spineIndex ?? lastSpine,
-      pageIndex: existing?.pageIndex ?? 0,
-      finished: true,
-      scrollOffset: existing?.scrollOffset,
-      cfi: existing?.cfi,
-      contentRevision: existing?.contentRevision,
-      approximate: existing?.approximate ?? false,
-      readingPercent: existing?.readingPercent,
-      layoutFingerprint: existing?.layoutFingerprint,
-    );
+    return ReaderProgress(spineIndex: lastSpine, pageIndex: 0, finished: true);
   }
 
-  Future<void> _saveFinished(FinishBookDraft draft) async {
+  Future<void> _saveFinished(FinishBookDraft? draft) async {
     final progressStore = widget.progressStore;
     if (progressStore == null) throw const FormatException('当前无法保存读完标记');
     final reviewStore = _reviewStore;
     final progress = _finishedProgress();
-    await reviewStore?.save(
-      _entry.id,
-      rating: draft.rating,
-      content: draft.content,
-    );
-    try {
-      await progressStore.save(_entry.id, progress);
-    } catch (_) {
-      throw FormatException(
-        reviewStore == null ? '读完标记保存失败，请重试' : '书评已保存，读完标记保存失败，请重试',
+    if (draft != null &&
+        reviewStore != null &&
+        progressStore is DriftProgressStore) {
+      await progressStore.saveFinishedWithReview(
+        _entry.id,
+        progress,
+        () => reviewStore.save(
+          _entry.id,
+          rating: draft.rating,
+          content: draft.content,
+        ),
       );
+    } else {
+      await progressStore.save(_entry.id, progress);
+      if (draft != null && reviewStore != null) {
+        await reviewStore.save(
+          _entry.id,
+          rating: draft.rating,
+          content: draft.content,
+        );
+      }
     }
-    final reviews =
-        await reviewStore?.snapshot() ?? const <String, BookReview>{};
+    final review = draft == null
+        ? _review
+        : (await reviewStore?.snapshot())?[_entry.id];
     if (mounted) {
       setState(() {
         _progress = progress;
-        _review = reviews[_entry.id];
+        _review = review;
       });
     }
   }
@@ -1092,7 +1096,7 @@ class _ReadingStatusSection extends StatelessWidget {
               key: const ValueKey<String>('book-detail-mark-finished'),
               onPressed: canEdit ? onEdit : null,
               icon: const AppIcon(AppGlyph.checkCircle),
-              label: const Text('标记读完并写书评'),
+              label: const Text('标记读完'),
             ),
           if (!canEdit) ...<Widget>[
             const SizedBox(height: 6),

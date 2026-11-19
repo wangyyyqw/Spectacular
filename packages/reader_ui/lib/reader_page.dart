@@ -130,6 +130,7 @@ class ReaderPage extends StatefulWidget {
     this.onInkModeChanged,
     this.onSearch,
     this.onSessionReady,
+    this.onBookEnd,
     this.editMode = false,
     this.onEditTarget,
     this.onOpenEditor,
@@ -287,6 +288,8 @@ class ReaderPage extends StatefulWidget {
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
+
+  final void Function(ReaderSession session, bool rtl)? onBookEnd;
 
   /// 图片解码缓存（可选）；传入后背景图按需解码并触发重绘。
   final DecodedImageCache? imageCache;
@@ -889,6 +892,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       store: widget.store,
       bookId: widget.bookId,
       contentRevision: widget.contentRevision,
+      autoFinish: widget.onBookEnd == null,
     );
     _session.addListener(_reportProgressSaveError);
     widget.onSessionReady?.call(_session);
@@ -2797,6 +2801,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   );
 
   void _requestPageTurn(bool next) {
+    if (ModalRoute.of(context)?.isCurrent == false) return;
     _searchRequest += 1;
     _clearSelection();
     _log('user_page', {
@@ -2808,6 +2813,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     _pageTurnKey.currentState?.controller.request(next);
+  }
+
+  void _openBookEnd() {
+    if (!_hasOverlayOpen && ModalRoute.of(context)?.isCurrent != false) {
+      widget.onBookEnd?.call(_session, _readingRtl);
+    }
   }
 
   Future<void> _handlePlatformCall(MethodCall call) async {
@@ -2877,6 +2888,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           paperBuilder: _buildScrollPaper,
           onTapAtPage: _handleTapInPage,
           onUserScroll: _clearSelection,
+          onBookEnd: widget.onBookEnd == null ? null : _openBookEnd,
           onPageVisible: (page) =>
               _schedulePrefetch(page, size.width - padding.horizontal),
         ),
@@ -2926,6 +2938,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ? null
               : _paintTurnBackground,
           preparePageImages: _prepareTurnPageImages,
+          onBookEnd: widget.onBookEnd == null ? null : _openBookEnd,
           preload: !_editingMargins && !_finishingMarginEdit,
           rtl: _readingRtl,
         ),

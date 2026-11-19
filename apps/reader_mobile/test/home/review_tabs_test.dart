@@ -12,6 +12,11 @@ class _Library extends LibraryStore {
 
   @override
   Future<List<BookEntry>> list() async => books;
+
+  @override
+  Future<Set<String>> finishedBookIds() async => {
+    for (final book in books) book.id,
+  };
 }
 
 class _Reviews implements BookReviewStore {

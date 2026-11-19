@@ -8,12 +8,18 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
 
 class _FakeLibrary extends LibraryStore {
-  _FakeLibrary(this.books) : super.memory();
+  _FakeLibrary(this.books, {Set<String>? finishedIds})
+    : finishedIds = finishedIds ?? {for (final book in books) book.id},
+      super.memory();
 
   final List<BookEntry> books;
+  final Set<String> finishedIds;
 
   @override
   Future<List<BookEntry>> list() async => books;
+
+  @override
+  Future<Set<String>> finishedBookIds() async => Set.of(finishedIds);
 }
 
 class _MemoryReviewStore implements BookReviewStore {
@@ -86,6 +92,7 @@ Future<void> _pumpReviews(
   WidgetTester tester, {
   required List<BookEntry> books,
   required _MemoryReviewStore store,
+  Set<String>? finishedIds,
   Size size = const Size(1080, 2400),
   double textScale = 1,
 }) async {
@@ -99,7 +106,10 @@ Future<void> _pumpReviews(
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: ReviewsPage(library: _FakeLibrary(books), reviewStore: store),
+      home: ReviewsPage(
+        library: _FakeLibrary(books, finishedIds: finishedIds),
+        reviewStore: store,
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -112,6 +122,115 @@ Future<void> _openReviewsTab(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('未读完的书不进入待写列表或汇总', (tester) async {
+    final unfinished = _book('unfinished', '尚未读完', '作者');
+    final finished = _book('finished', '已经读完', '作者');
+    final store = _MemoryReviewStore();
+    await _pumpReviews(
+      tester,
+      books: [unfinished, finished],
+      store: store,
+      finishedIds: {finished.id},
+    );
+
+    expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
+    expect(find.text('全部 1'), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('review-pending-${unfinished.id}')),
+      findsNothing,
+    );
+    await tester.tap(find.byKey(const ValueKey('reviews-filter-pending')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(ValueKey('review-pending-${finished.id}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('review-pending-${unfinished.id}')),
+      findsNothing,
+    );
+    expect(store.saveCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('未读完书籍的旧书评保留展示与复制且禁止编辑', (tester) async {
+    final book = _book('unfinished-review', '取消读完的书', '作者');
+    final review = _review(book.id, '保留下来的旧书评', rating: 5);
+    final store = _MemoryReviewStore()..items[book.id] = review;
+    await _pumpReviews(tester, books: [book], store: store, finishedIds: {});
+
+    expect(find.text('已写 1 篇 · 待写 0 本 · 平均 5.0 星'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('review-card-${book.id}')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-detail')), findsOneWidget);
+    expect(find.text(review.content), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('review-detail-copy')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('review-detail-edit')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    expect(store.items[book.id], same(review));
+    expect(store.saveCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('待写列表加载后取消读完，点击旧入口不能新建书评', (tester) async {
+    final book = _book('cancel-pending', '待写时取消读完', '作者');
+    final finishedIds = {book.id};
+    final store = _MemoryReviewStore();
+    await _pumpReviews(
+      tester,
+      books: [book],
+      store: store,
+      finishedIds: finishedIds,
+    );
+
+    finishedIds.clear();
+    await tester.tap(find.byKey(ValueKey('review-pending-${book.id}')));
+    await tester.pumpAndSettle();
+    expect(find.text('标记读完后才能评分或写书评'), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    expect(store.items, isEmpty);
+    expect(store.saveCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('书评详情打开后取消读完，已有编辑入口也不能修改书评', (tester) async {
+    final book = _book('cancel-detail', '详情打开后取消读完', '作者');
+    final review = _review(book.id, '不可覆盖的旧正文');
+    final finishedIds = {book.id};
+    final store = _MemoryReviewStore()..items[book.id] = review;
+    await _pumpReviews(
+      tester,
+      books: [book],
+      store: store,
+      finishedIds: finishedIds,
+    );
+    await tester.tap(find.byKey(ValueKey('review-card-${book.id}')));
+    await tester.pumpAndSettle();
+
+    finishedIds.clear();
+    await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
+    await tester.pumpAndSettle();
+    expect(find.text('标记读完后才能评分或写书评'), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    expect(store.items[book.id], same(review));
+    expect(store.saveCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('小屏大字号下书评汇总、详情和编辑操作均可见', (tester) async {
     final book = _book('large-text', '一本书名较长的作品', '测试作者');
     final store = _MemoryReviewStore()

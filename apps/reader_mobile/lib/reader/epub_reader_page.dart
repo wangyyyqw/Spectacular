@@ -22,7 +22,11 @@ import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_panel_theme.dart';
 
+import '../home/finish_book_sheet.dart';
+import '../library/library_store.dart';
+import '../storage/book_review_store.dart';
 import '../diagnostics/reader_log.dart';
 import '../editing/book_edit_repository.dart';
 import '../editing/book_editor_route.dart';
@@ -78,9 +82,13 @@ class EpubReaderPage extends StatefulWidget {
     this.onReady,
     this.onClosed,
     this.bookEditorRepository,
+    this.book,
+    this.reviewStore,
   });
 
   final BookEditRepository? bookEditorRepository;
+  final BookEntry? book;
+  final BookReviewStore? reviewStore;
 
   /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
   final Uint8List? bytes;
@@ -608,6 +616,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onVolumeKeyPagingChanged: (enabled) =>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
+      onBookEnd: _openFinishPage,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
       onEditTarget: _canEditBook ? _openEditor : null,
       onLog: (event, fields) =>
@@ -618,6 +627,100 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   bool _editorOpen = false;
+  bool _finishPageOpen = false;
+
+  Future<void> _openFinishPage(ReaderSession session, bool rtl) async {
+    if (_finishPageOpen || _editorOpen || _closing) return;
+    _finishPageOpen = true;
+    _syncReadingActivity();
+    try {
+      await session.flushProgress();
+      final review = (await widget.reviewStore?.snapshot())?[widget.bookId];
+      if (!mounted || _closing) return;
+      final saved = await Navigator.of(context)
+          .push<bool>(_finishPageRoute(session, review, rtl));
+      if (saved != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(saved ? '已标记读完并保存书评' : '已标记读完，可稍后在书评页评分和写书评')),
+        );
+      }
+    } catch (_) {
+      if (mounted && !_closing) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('读完信息读取失败，请再向后翻页重试')));
+      }
+    } finally {
+      _finishPageOpen = false;
+      if (mounted) _syncReadingActivity();
+    }
+  }
+
+  PageRoute<bool> _finishPageRoute(
+    ReaderSession session,
+    BookReview? review,
+    bool rtl,
+  ) => PageRouteBuilder<bool>(
+    transitionDuration:
+        MediaQuery.disableAnimationsOf(context) || _settings.inkMode
+        ? Duration.zero
+        : const Duration(milliseconds: 220),
+    reverseTransitionDuration:
+        MediaQuery.disableAnimationsOf(context) || _settings.inkMode
+        ? Duration.zero
+        : const Duration(milliseconds: 180),
+    pageBuilder: (_, _, _) => _finishForm(session, review, rtl),
+    transitionsBuilder: (context, animation, _, child) => SlideTransition(
+      position: Tween(
+        begin: Offset(rtl ? -1 : 1, 0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+      child: child,
+    ),
+  );
+
+  Widget _finishForm(ReaderSession session, BookReview? review, bool rtl) =>
+      ReaderPanelTheme(
+        theme: _settings.theme,
+        child: FinishBookSheet(
+          book:
+              widget.book ??
+              BookEntry(
+                id: widget.bookId,
+                title: widget.bookTitle,
+                author: '',
+                filePath: widget.sourcePath ?? '',
+                addedAt: DateTime.now(),
+              ),
+          review: review,
+          allowReview: widget.reviewStore != null,
+          finished: session.progress?.finished ?? false,
+          fullScreen: true,
+          rtl: rtl,
+          onCommit: (draft) => _finishBook(session, draft),
+        ),
+      );
+
+  Future<void> _finishBook(
+    ReaderSession session,
+    FinishBookDraft? draft,
+  ) async {
+    final reviews = widget.reviewStore;
+    final progress = widget.store;
+    Future<void> saveReview() => reviews!.save(
+      widget.bookId,
+      rating: draft!.rating,
+      content: draft.content,
+    );
+    if (draft != null && reviews != null && progress is DriftProgressStore) {
+      await session.markFinished(
+        saveWithReview: (value) =>
+            progress.saveFinishedWithReview(widget.bookId, value, saveReview),
+      );
+    } else {
+      await session.markFinished();
+      if (draft != null && reviews != null) await saveReview();
+    }
+  }
 
   bool get _canEditBook =>
       widget.bookEditorRepository != null &&
@@ -740,7 +843,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         widget.readingActive &&
         foreground &&
         !_closing &&
-        !_editorOpen) {
+        !_editorOpen &&
+        !_finishPageOpen) {
       _readingTracker?.start();
     } else {
       unawaited(_readingTracker?.pause() ?? Future<void>.value());

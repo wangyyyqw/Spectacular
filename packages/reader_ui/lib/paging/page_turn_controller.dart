@@ -22,6 +22,7 @@ class PageTurnController extends ChangeNotifier {
     required this.session,
     required TickerProvider vsync,
     required this.acquireImage,
+    this.onBookEnd,
   }) {
     _settling = AnimationController(vsync: vsync)..addListener(_animateFrame);
     _targetFade = AnimationController(
@@ -34,6 +35,7 @@ class PageTurnController extends ChangeNotifier {
 
   final ReaderSession session;
   final Future<ui.Image?> Function(PageContent page) acquireImage;
+  final VoidCallback? onBookEnd;
   late final AnimationController _settling;
   late final AnimationController _targetFade;
   late final Ticker _positionCatchUp;
@@ -69,6 +71,7 @@ class PageTurnController extends ChangeNotifier {
   _PendingDrag? _pendingDrag;
   _DragMotion? _dragMotion;
   bool _released = false, _complete = true, _dragging = false;
+  bool _dragAtBookEnd = false;
   bool _disposed = false, _committing = false;
   final List<bool> _queued = <bool>[];
   int _token = 0;
@@ -194,6 +197,10 @@ class PageTurnController extends ChangeNotifier {
     _released = true;
     _dragging = false;
     _releaseVelocity = details.primaryVelocity ?? 0;
+    if (_dragAtBookEnd) {
+      _finishBoundary(_shouldComplete());
+      return;
+    }
     if (phase == PageTurnPhase.dragging) _settle(_shouldComplete());
     if (phase == PageTurnPhase.preparing && !_shouldComplete()) {
       if (originImage == null || mode == PageTurnMode.none) {
@@ -239,11 +246,12 @@ class PageTurnController extends ChangeNotifier {
   Future<void> _prepare(bool direction, {required bool dragging}) async {
     if (size.isEmpty || _disposed || session.page == null) return;
     final token = _beginPreparation(direction, dragging);
+    if (_handleBookEnd(direction, dragging)) return;
     try {
       // 原页与目标资源同时准备；视口只将实际截图串行，避免解码相互阻塞。
       final ready = await Future.wait([
         _prepareOrigin(token, dragging),
-        _prepareDestination(token, direction),
+        _prepareDestination(token, direction, dragging),
       ], eagerError: true);
       if (!_valid(token) || ready.any((value) => !value)) return;
       _activatePreparedTurn(dragging);
@@ -252,18 +260,37 @@ class PageTurnController extends ChangeNotifier {
     }
   }
 
-  Future<bool> _prepareDestination(int token, bool direction) async {
+  Future<bool> _prepareDestination(
+    int token,
+    bool direction,
+    bool dragging,
+  ) async {
     final prepared = await session.preparePageTurn(direction);
     if (!_valid(token)) {
       if (prepared != null) session.releasePageTurn(prepared);
       return false;
     }
     if (prepared == null) {
-      cancel();
+      if (!_handleBookEnd(direction, dragging)) cancel();
       return false;
     }
     turn = prepared;
     return _prepareTarget(token, prepared);
+  }
+
+  bool _handleBookEnd(bool direction, bool dragging) {
+    if (!direction || onBookEnd == null || !session.atBookEnd) return false;
+    if (dragging && _dragging) {
+      _dragAtBookEnd = true;
+    } else {
+      _finishBoundary(!dragging || _shouldComplete());
+    }
+    return true;
+  }
+
+  void _finishBoundary(bool complete) {
+    cancel();
+    if (complete) onBookEnd?.call();
   }
 
   int _beginPreparation(bool direction, bool dragging) {
@@ -729,6 +756,7 @@ class PageTurnController extends ChangeNotifier {
 
   void _resetTurn() {
     _token++;
+    _dragAtBookEnd = false;
     _tapRelease?.cancel();
     _tapRelease = null;
     _lifting = false;

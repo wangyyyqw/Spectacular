@@ -61,6 +61,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   Map<String, BookNoteCounts> _counts = const {};
   Map<String, Duration> _durations = const {};
   Map<String, BookReview> _reviews = const <String, BookReview>{};
+  Set<String> _finishedBooks = const {};
   final TextEditingController _searchController = TextEditingController();
   _ReviewFilter _filter = _ReviewFilter.all;
   _ReviewSort _sort = _ReviewSort.updated;
@@ -161,6 +162,7 @@ class _ReviewsPageState extends State<ReviewsPage>
     final notes = _notes;
     try {
       final books = await library.list();
+      final finished = notes ? _finishedBooks : await library.finishedBookIds();
       final counts = notes ? await library.bookNoteCounts() : _counts;
       final reviews = notes
           ? _reviews
@@ -171,6 +173,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       if (mounted && widget.active && token == _reloadToken) {
         setState(() {
           _books = books;
+          _finishedBooks = finished;
           _counts = counts;
           _reviews = {
             for (final book in books)
@@ -206,6 +209,13 @@ class _ReviewsPageState extends State<ReviewsPage>
     final token = ++_editToken;
     final BookReview? review;
     try {
+      final finished = await widget.library.finishedBookIds();
+      if (!mounted || !widget.active || token != _editToken) return;
+      if (!finished.contains(book.id)) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('标记读完后才能评分或写书评')));
+        return;
+      }
       review = (await store.snapshot())[book.id];
     } catch (_) {
       if (mounted && widget.active && token == _editToken) {
@@ -256,7 +266,11 @@ class _ReviewsPageState extends State<ReviewsPage>
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ReviewDetailSheet(book: book, review: review),
+      builder: (_) => _ReviewDetailSheet(
+        book: book,
+        review: review,
+        canEdit: _finishedBooks.contains(book.id),
+      ),
     );
     if (edit == true && mounted && widget.active && token == _editToken) {
       await _edit(book);
@@ -399,6 +413,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       onRefresh: _reload,
       child: _ReviewList(
         books: books,
+        finishedBooks: _finishedBooks,
         reviews: _reviews,
         durations: _durations,
         query: _query,
@@ -416,6 +431,7 @@ class _ReviewsPageState extends State<ReviewsPage>
 class _ReviewList extends StatelessWidget {
   const _ReviewList({
     required this.books,
+    required this.finishedBooks,
     required this.reviews,
     required this.durations,
     required this.query,
@@ -428,6 +444,7 @@ class _ReviewList extends StatelessWidget {
   });
 
   final List<BookEntry> books;
+  final Set<String> finishedBooks;
   final Map<String, BookReview> reviews;
   final Map<String, Duration> durations;
   final String query;
@@ -484,8 +501,16 @@ class _ReviewList extends StatelessWidget {
     reviewed.sort(compareBooks);
     final pending = <BookEntry>[
       for (final book in books)
-        if (reviews[book.id] == null && matches(book)) book,
+        if (finishedBooks.contains(book.id) &&
+            reviews[book.id] == null &&
+            matches(book))
+          book,
     ];
+    final pendingCount = books
+        .where(
+          (book) => finishedBooks.contains(book.id) && reviews[book.id] == null,
+        )
+        .length;
     if (sort == _ReviewSort.title) {
       pending.sort(
         (left, right) =>
@@ -502,7 +527,7 @@ class _ReviewList extends StatelessWidget {
       children: [
         _ReviewSummary(
           reviewed: allReviewed.length,
-          total: books.length,
+          total: allReviewed.length + pendingCount,
           reviews: reviews,
         ),
         _ReviewFilterBar(
@@ -704,10 +729,15 @@ class _ReviewSummary extends StatelessWidget {
 }
 
 class _ReviewDetailSheet extends StatelessWidget {
-  const _ReviewDetailSheet({required this.book, required this.review});
+  const _ReviewDetailSheet({
+    required this.book,
+    required this.review,
+    required this.canEdit,
+  });
 
   final BookEntry book;
   final BookReview review;
+  final bool canEdit;
 
   Future<void> _copy(BuildContext context) async {
     final text = <String>[
@@ -864,7 +894,7 @@ class _ReviewDetailSheet extends StatelessWidget {
         );
         final edit = FilledButton.icon(
           key: const ValueKey<String>('review-detail-edit'),
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: canEdit ? () => Navigator.of(context).pop(true) : null,
           icon: const AppIcon(AppGlyph.edit),
           label: const Text('编辑书评'),
         );
@@ -931,7 +961,7 @@ class _EmptyReviews extends StatelessWidget {
         children: [
           AppIcon(AppGlyph.rateReview, size: 64),
           SizedBox(height: 12),
-          Text('导入书籍后可以在这里写书评'),
+          Text('标记读完后，可以在这里评分和写书评'),
         ],
       ),
     );

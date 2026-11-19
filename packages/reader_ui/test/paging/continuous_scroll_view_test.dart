@@ -80,13 +80,17 @@ class _Source implements ReaderChapterSource {
 }
 
 class _SingleChapterSource implements ReaderChapterSource {
-  @override
-  int get chapterCount => 1;
+  _SingleChapterSource({this.trailingEmptyChapters = 0});
+
+  final int trailingEmptyChapters;
 
   @override
-  Future<List<PageContent>> loadChapter(int spineIndex) async => [
-    for (var page = 0; page < 3; page++) _page(spineIndex, page),
-  ];
+  int get chapterCount => 1 + trailingEmptyChapters;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async => spineIndex == 0
+      ? [for (var page = 0; page < 3; page++) _page(spineIndex, page)]
+      : [];
 }
 
 class _CfiPageSource implements ReaderChapterSource {
@@ -218,6 +222,83 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
 }
 
 void main() {
+  for (final emptyChapters in [0, 2]) {
+    for (final swipe in [false, true]) {
+      testWidgets('${emptyChapters == 0 ? '正常书尾' : '多个尾部空章'}'
+          '${swipe ? '继续上滑' : '下一屏'}打开确认页，到达和回滚均不自动完成', (tester) async {
+        final store = MemoryReaderProgressStore();
+        final session = ReaderSession(
+          source: _SingleChapterSource(trailingEmptyChapters: emptyChapters),
+          store: store,
+          bookId: '滚动书尾确认',
+          autoFinish: false,
+        );
+        addTearDown(session.dispose);
+        await session.open();
+        final key = GlobalKey<ContinuousScrollViewState>();
+        var confirmations = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 320,
+                height: 480,
+                child: ContinuousScrollView(
+                  key: key,
+                  session: session,
+                  revision: 1,
+                  padding: const EdgeInsets.all(20),
+                  onBookEnd: () => confirmations += 1,
+                  paperBuilder: (page, size) =>
+                      const ColoredBox(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(confirmations, 0);
+        final scrollable = tester.state<ScrollableState>(
+          find.byType(Scrollable),
+        );
+        scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        await key.currentState!.flushVisiblePosition();
+        expect(session.progress?.pageIndex, 2);
+        expect(session.progress?.finished, isFalse);
+        expect(confirmations, 0, reason: '到达书尾不能代替主动确认');
+
+        final center = tester.getCenter(find.byType(ContinuousScrollView));
+        final cancelled = await tester.startGesture(center);
+        await cancelled.moveBy(const Offset(0, 40));
+        await cancelled.cancel();
+        await tester.pumpAndSettle();
+        expect(confirmations, 0, reason: '反向拖动与取消不打开书尾确认页');
+        scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        final lastPage = session.page;
+
+        if (swipe) {
+          await tester.drag(
+            find.byType(ContinuousScrollView),
+            const Offset(0, -160),
+          );
+        } else {
+          unawaited(key.currentState!.scrollPage(true));
+        }
+        await tester.pumpAndSettle();
+        expect(confirmations, greaterThan(0));
+        expect(session.page, same(lastPage));
+        expect(session.progress?.spineIndex, 0);
+        expect(session.progress?.pageIndex, 2);
+        expect(session.progress?.finished, isFalse);
+        await session.flushProgress();
+        expect((await store.load(session.bookId))?.finished, isFalse);
+      });
+    }
+  }
+
   testWidgets('连续滚动恢复位置、懒构建并跨章扩展', (tester) async {
     final source = _Source();
     final store = MemoryReaderProgressStore();
@@ -725,9 +806,11 @@ void main() {
       source: source,
       store: store,
       bookId: 'scroll-gated',
+      autoFinish: false,
     );
     await session.open();
     final key = GlobalKey<ContinuousScrollViewState>();
+    var confirmations = 0;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -741,6 +824,7 @@ void main() {
               session: session,
               revision: 1,
               padding: const EdgeInsets.all(20),
+              onBookEnd: () => confirmations += 1,
               paperBuilder: (page, size) =>
                   const ColoredBox(color: Colors.white),
             ),
@@ -763,6 +847,7 @@ void main() {
     unawaited(key.currentState!.scrollPage(true));
     await tester.pump(const Duration(milliseconds: 200));
     expect(scrollable.position.pixels, closeTo(room, 0.01), reason: '补章未完成前不动');
+    expect(confirmations, 0, reason: '窗口末尾仍有未完成章节，不能当成书尾');
 
     source.gate.complete();
     await tester.pumpAndSettle();
@@ -770,6 +855,7 @@ void main() {
 
     expect(scrollable.position.pixels, greaterThan(room + 300));
     expect(session.progress?.spineIndex, 1);
+    expect(confirmations, 0);
     session.dispose();
   });
 

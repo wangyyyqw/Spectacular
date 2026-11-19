@@ -22,6 +22,15 @@ class DriftProgressStore implements ReaderProgressStore {
   final AppDatabase _db;
   final _rejectedSaves = <ReaderProgressSaveResult, int>{};
 
+  Future<void> saveFinishedWithReview(
+    String bookId,
+    ReaderProgress progress,
+    Future<void> Function() saveReview,
+  ) => _db.transaction(() async {
+    await save(bookId, progress);
+    await saveReview();
+  });
+
   /// 阅读期间借用现有章节源，避免保存进度和笔记时重新打开整本 EPUB。
   Future<void Function()> bindSource(
     String bookId,

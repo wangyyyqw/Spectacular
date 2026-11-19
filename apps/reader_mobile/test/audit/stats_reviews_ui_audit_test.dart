@@ -9,6 +9,15 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 
+class _FinishedLibrary extends LibraryStore {
+  _FinishedLibrary() : super.memory();
+
+  @override
+  Future<Set<String>> finishedBookIds() async => {
+    for (final book in await list()) book.id,
+  };
+}
+
 class _ReviewStore implements BookReviewStore {
   final Map<String, BookReview> reviews = {};
 
@@ -178,7 +187,7 @@ void main() {
   testWidgets('书评文字分组保留新建、搜索、评分编辑和删除', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final library = LibraryStore.memory();
+    final library = _FinishedLibrary();
     final book = await _importBook(tester, library);
     final store = _ReviewStore();
     await tester.pumpWidget(
