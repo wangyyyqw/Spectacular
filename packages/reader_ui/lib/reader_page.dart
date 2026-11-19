@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -848,6 +849,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final _ruleEngine = ReaderDecorationRuleEngine();
   final Map<int, List<ReaderDecorationRuleMatch>> _chapterRuleMatches = {};
   final Map<String, ui.Image> _decorationImages = {};
+  final Map<(int, String), Future<void>> _decorationImageLoads = {};
   final Map<String, ReaderDecorationNineSlice> _decorationNineSlices = {};
   final Set<String> _missingDecorationImages = {};
   final Set<String> _unavailableDecorationFonts = {};

@@ -174,8 +174,8 @@ class _ReaderDecorationStylePreviewState
                   0.0,
                   constraints.maxWidth / 3,
                 );
-                final top = (-bounds.top).clamp(0.0, 16.0);
-                final bottom = (bounds.bottom - glyphHeight).clamp(0.0, 16.0);
+                final top = math.max(0.0, -bounds.top);
+                final bottom = math.max(0.0, bounds.bottom - glyphHeight);
                 offset = Offset(left, top);
                 extraHeight += top + bottom;
                 text.text = TextSpan(

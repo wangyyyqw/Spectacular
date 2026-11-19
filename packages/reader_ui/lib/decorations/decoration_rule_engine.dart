@@ -31,7 +31,7 @@ class ReaderDecorationRuleMatch {
   /// 命中片段。
   final String text;
 
-  /// 仅重绘的样式。
+  /// 图片与高亮样式；横排点九背景会预留布局空间。
   final ReaderDecorationRuleStyle style;
 }
 

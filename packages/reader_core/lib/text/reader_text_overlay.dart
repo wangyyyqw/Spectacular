@@ -1,12 +1,13 @@
 import 'dart:convert';
-import 'dart:ui';
+
+import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import '../layout/line_breaker.dart';
 import '../position/cfi.dart';
 import '../position/text_cfi_map.dart';
 
-/// 基于原文 CFI 的文字覆盖；字体属性参与测量，颜色仅参与绘制。
+/// 基于原文 CFI 的文字覆盖；字体与点九占位参与测量，颜色仅参与绘制。
 class ReaderTextOverlay {
   /// 创建半开原文区间，字号与字距相对命中处的作者字体解算。
   const ReaderTextOverlay({
@@ -19,6 +20,7 @@ class ReaderTextOverlay {
     this.letterSpacingEm = 0,
     this.color,
     this.colorOpacity = 1,
+    this.paddingByTextHeight,
   });
 
   /// 原文起点与终点，不包含终点字符。
@@ -42,13 +44,16 @@ class ReaderTextOverlay {
   final int? color;
   final double colorOpacity;
 
-  /// 是否包含实际字体度量覆盖，不包含颜色变化。
+  final EdgeInsets? paddingByTextHeight;
+
+  /// 是否包含字体或行内占位度量，不包含颜色变化。
   bool get affectsTypography =>
       normalizedFontFamily != null ||
       normalizedFontSizeScale != 1 ||
       fontWeight != null ||
       italic != null ||
-      normalizedLetterSpacingEm != 0;
+      normalizedLetterSpacingEm != 0 ||
+      paddingByTextHeight != null && paddingByTextHeight != EdgeInsets.zero;
 
   /// 去除空白后的字体族；空字符串视为继承。
   String? get normalizedFontFamily =>
@@ -71,6 +76,12 @@ class ReaderTextOverlay {
     fontWeight?.clamp(100, 900),
     italic,
     normalizedLetterSpacingEm,
+    if (paddingByTextHeight case final padding?) ...[
+      padding.left,
+      padding.top,
+      padding.right,
+      padding.bottom,
+    ],
   ]);
 
   /// 经透明度校验的绘制色；保持颜色自带的 alpha。
@@ -83,7 +94,7 @@ class ReaderTextOverlay {
   }
 }
 
-/// 支持原文文字覆盖的章节源；返回值只表示字体度量是否改变。
+/// 支持原文文字覆盖的章节源；返回值表示字体或行内占位是否改变。
 abstract interface class ReaderTextOverlaySource {
   /// 替换当前覆盖列表；颜色变化不得失效分页与段落测量缓存。
   Future<bool> applyTextOverlays(List<ReaderTextOverlay> overlays);
@@ -98,7 +109,9 @@ class ReaderTextOverlayResolver {
     this.colors = true,
   }) : _ranges = [
          for (final overlay in overlays)
-           if (typography && overlay.affectsTypography ||
+           if (typography &&
+                   (overlay.affectsTypography ||
+                       overlay.paddingByTextHeight != null) ||
                colors && overlay.color != null)
              ?_TextOverlayRange.parse(overlay),
        ];
@@ -114,7 +127,16 @@ class ReaderTextOverlayResolver {
   /// 有效覆盖的字体度量指纹；颜色及无效区间不会改变它。
   late final String typographyFingerprint = jsonEncode([
     for (final range in _ranges)
-      if (range.overlay.affectsTypography) range.overlay.typographyFingerprint,
+      if (range.overlay.affectsTypography ||
+          range.overlay.paddingByTextHeight == EdgeInsets.zero &&
+              _ranges.any(
+                (other) =>
+                    other.overlay.paddingByTextHeight != null &&
+                    other.overlay.paddingByTextHeight != EdgeInsets.zero &&
+                    other.start.compareTo(range.end) < 0 &&
+                    other.end.compareTo(range.start) > 0,
+              ))
+        range.overlay.typographyFingerprint,
   ]);
 
   /// 按作者 run 与选区边界切分；后出现的覆盖按属性覆盖前者。
@@ -166,17 +188,76 @@ class ReaderTextOverlayResolver {
         if (range.start <= start && range.end >= end) range.overlay,
     ];
     if (author == null && overlays.isEmpty) return null;
+    final merged = _mergeStyle(author?.style ?? style, overlays);
+    final padding = _paddingAt(merged, ranges, interval);
     return StyledRun(
       start: start,
       end: end,
-      style: _mergeStyle(author?.style ?? style, overlays),
+      style: merged,
       baselineShift: author?.baselineShift ?? 0,
       syntheticFontFallback: author?.syntheticFontFallback ?? true,
-      inlineLeadingInset: start == author?.start
-          ? author?.inlineLeadingInset
-          : 0,
-      inlineTrailingInset: end == author?.end ? author?.inlineTrailingInset : 0,
+      inlineLeadingInset:
+          (start == author?.start ? _authorInset(author, true) : 0) +
+          padding.leading,
+      inlineTrailingInset:
+          (end == author?.end ? _authorInset(author, false) : 0) +
+          padding.trailing,
+      inlinePadding: padding.insets,
     );
+  }
+
+  double _authorInset(StyledRun? run, bool leading) {
+    if (run == null) return 0;
+    if (run.syntheticFontFallback) {
+      return leading
+          ? run.inlineLeadingInset ?? 0
+          : run.inlineTrailingInset ?? 0;
+    }
+    return leading ? run.leadingInset : run.trailingInset;
+  }
+
+  ({EdgeInsets insets, double leading, double trailing}) _paddingAt(
+    ComputedStyle style,
+    List<_LocalOverlayRange> ranges,
+    (int, int) interval,
+  ) {
+    final (start, end) = interval;
+    final padded = ranges
+        .where(
+          (range) =>
+              range.start <= start &&
+              range.end >= end &&
+              range.overlay.paddingByTextHeight != null,
+        )
+        .lastOrNull;
+    final padding = _paddingFor(style, padded?.overlay.paddingByTextHeight);
+    return (
+      insets: padding,
+      leading: start == padded?.start ? padding.left : 0,
+      trailing: end == padded?.end ? padding.right : 0,
+    );
+  }
+
+  EdgeInsets _paddingFor(ComputedStyle style, EdgeInsets? relative) {
+    if (!typography ||
+        style.isRtl ||
+        style.writingMode != CssWritingMode.horizontalTb) {
+      return EdgeInsets.zero;
+    }
+    if (relative == null || relative == EdgeInsets.zero) return EdgeInsets.zero;
+    final painter = TextPainter(
+      text: TextSpan(text: '国', style: TextLayoutEngine.textStyleFor(style)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final height = painter
+        .getBoxesForSelection(
+          const TextSelection(baseOffset: 0, extentOffset: 1),
+        )
+        .single
+        .toRect()
+        .height;
+    painter.dispose();
+    return relative * height;
   }
 
   ComputedStyle _mergeStyle(

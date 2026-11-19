@@ -41,7 +41,9 @@ class _ChapterOverlayRange {
   final int lastSpine;
 
   static _ChapterOverlayRange? parse(ReaderTextOverlay overlay) {
-    if (!overlay.affectsTypography) return null;
+    if (!overlay.affectsTypography && overlay.paddingByTextHeight == null) {
+      return null;
+    }
     final start = EpubCfi.parse(overlay.startCfi);
     final end = EpubCfi.parse(overlay.endCfi);
     if (start == null || end == null || start.compareTo(end) >= 0) return null;

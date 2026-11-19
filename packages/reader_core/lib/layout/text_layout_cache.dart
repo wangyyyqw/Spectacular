@@ -1,6 +1,6 @@
 import 'dart:collection';
 
-import 'package:flutter/painting.dart' show TextLeadingDistribution;
+import 'package:flutter/painting.dart' show EdgeInsets, TextLeadingDistribution;
 
 import '../css/computed_style.dart';
 import 'line_breaker.dart';
@@ -371,9 +371,19 @@ class TextLayoutCache {
         ..write(',')
         ..write(run.baselineShift)
         ..write(',')
-        ..write(run.syntheticFontFallback ? 0 : run.leadingInset)
+        ..write(
+          run.syntheticFontFallback && run.inlinePadding == EdgeInsets.zero
+              ? 0
+              : run.leadingInset,
+        )
         ..write(',')
-        ..write(run.syntheticFontFallback ? 0 : run.trailingInset)
+        ..write(
+          run.syntheticFontFallback && run.inlinePadding == EdgeInsets.zero
+              ? 0
+              : run.trailingInset,
+        )
+        ..write(',')
+        ..write(run.inlinePadding)
         ..write(',')
         ..write(run.style.layoutFingerprint)
         ..write(';');

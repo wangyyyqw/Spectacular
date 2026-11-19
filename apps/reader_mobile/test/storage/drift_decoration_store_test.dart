@@ -314,7 +314,7 @@ void main() {
       restored.style.backgroundImageNineSlice!.toJson(),
       decoded.nineSlice!.toJson(),
     );
-    expect(restored.style.changesMetrics, isFalse);
+    expect(restored.style.changesMetrics, isTrue);
   });
 
   test('普通图片转换保存独立点九副本，原图保留且标记可重读', () async {
