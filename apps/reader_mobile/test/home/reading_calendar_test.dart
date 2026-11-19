@@ -76,7 +76,100 @@ List<ReadingSession> _fourThenFiveBooks() => [
   _session('3', DateTime(2026, 11, 3, 9), 10),
 ];
 
+List<ReadingSession> _longAndShortSpans() => [
+  for (final day in [17, 18, 19])
+    _session('long', DateTime(2026, 11, day, 9), 5, title: '长条'),
+  for (final day in [17, 18])
+    _session('medium', DateTime(2026, 11, day, 10), 30, title: '两天记录'),
+  _session('short', DateTime(2026, 11, 17, 11), 20, title: '书名很长但只阅读了一天的短条记录'),
+  _session('later', DateTime(2026, 11, 19, 12), 30, title: '后一天短条'),
+];
+
 void main() {
+  test('周内条带按跨日长度从上到下排列，不按书名长度或单日时长排列', () {
+    final month = _month(_longAndShortSpans(), _now);
+    final spans = month.spansForWeek(2);
+    final longest = spans.singleWhere((span) => span.bookId == 'long');
+    final medium = spans.singleWhere((span) => span.bookId == 'medium');
+    final shortest = spans.singleWhere((span) => span.bookId == 'short');
+    final later = spans.singleWhere((span) => span.bookId == 'later');
+    expect((longest.firstColumn, longest.lastColumn, longest.lane), (2, 4, 0));
+    expect(medium.lane, 1);
+    expect(shortest.lane, 2);
+    expect(later.lane, 1);
+    expect(spans.length, 4);
+    expect(month.spansForWeek(0), isEmpty);
+  });
+
+  test('交错条带优先放长条，四行内完整显示且不重叠、不拆断', () {
+    const intervals = [
+      (3, 5),
+      (0, 1),
+      (0, 1),
+      (1, 2),
+      (2, 3),
+      (2, 3),
+      (2, 3),
+      (4, 5),
+      (5, 6),
+      (5, 6),
+      (1, 1),
+      (4, 4),
+      (6, 6),
+      (6, 6),
+    ];
+    final month = _month([
+      for (var index = 0; index < intervals.length; index++)
+        for (
+          var column = intervals[index].$1;
+          column <= intervals[index].$2;
+          column++
+        )
+          _session('$index', DateTime(2026, 11, column + 1, 9), 10),
+    ], _now);
+    final spans = month.spansForWeek(0);
+    expect(spans.length, intervals.length);
+    expect(spans.singleWhere((span) => span.bookId == '0').lane, 0);
+    for (final span in spans) {
+      expect((
+        span.firstColumn,
+        span.lastColumn,
+      ), intervals[int.parse(span.bookId)]);
+      expect(span.lane, inInclusiveRange(0, 3));
+    }
+    for (var column = 0; column < 7; column++) {
+      final active = spans.where(
+        (span) => span.firstColumn <= column && span.lastColumn >= column,
+      );
+      expect(active.map((span) => span.lane).toSet().length, active.length);
+      expect(active.length, month.days[DateTime(2026, 11, column + 1)]!.length);
+    }
+  });
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('窄屏字号 $scale 倍长条在上短条在下，连续范围保持完整', (tester) async {
+      await _pump(
+        tester,
+        _longAndShortSpans(),
+        width: 320,
+        scale: scale,
+        now: DateTime(2026, 11, 19),
+      );
+      final longest = tester.getRect(_key('bar-2-long-2'));
+      final medium = tester.getRect(_key('bar-2-medium-2'));
+      final shortest = tester.getRect(_key('bar-2-short-2'));
+      final firstDay = tester.getRect(_key('day-2026-11-17'));
+      final lastDay = tester.getRect(_key('day-2026-11-19'));
+      expect(longest.bottom, lessThan(medium.top));
+      expect(medium.bottom, lessThan(shortest.top));
+      expect(longest.width, greaterThan(medium.width));
+      expect(medium.width, greaterThan(shortest.width));
+      expect(longest.left, greaterThan(firstDay.left));
+      expect(longest.right, lessThan(lastDay.right));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   test('日历按自然日跨月分摊，同名书分开且书架名称优先', () {
     final sessions = [
       _session('a', DateTime(2026, 10, 31, 23, 50), 20, title: '旧名称'),
