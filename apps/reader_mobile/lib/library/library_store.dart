@@ -932,6 +932,12 @@ class LibraryStore {
     return store == null ? const <ReaderAnnotation>[] : store.list();
   }
 
+  /// 为本地缺少可用锚点的标注按原书正文补建位置，不改变云端更新时间。
+  Future<int> repairBookAnnotationAnchors(String bookId) async {
+    final store = annotationStore(bookId);
+    return store == null ? 0 : store.repairUnresolvedAnchors();
+  }
+
   /// 本地阅读位置最后落盘时间；用于云端冲突比较，不能用当前时间代替。
   Future<int?> bookProgressUpdatedAt(String bookId) async {
     final db = _db;

@@ -1586,6 +1586,11 @@ class ReaMicroController extends ChangeNotifier {
         final link = linkEntry.value;
         final localBook = await _library.bookById(localBookId);
         if (localBook == null) continue;
+        try {
+          await _library.repairBookAnnotationAnchors(localBookId);
+        } catch (error) {
+          failure ??= _messageOf(error);
+        }
         final prefix = '$localBookId|';
         final remoteForBook = <ReaMicroMark>[
           for (final mark in remoteMarks)

@@ -2,9 +2,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
@@ -45,9 +47,10 @@ class _TestLibrary extends LibraryStore {
 }
 
 class _DbTestLibrary extends LibraryStore {
-  _DbTestLibrary(AppDatabase db, Directory dir)
+  _DbTestLibrary(this.db, Directory dir)
     : super(database: db, directoryProvider: () async => dir);
 
+  final AppDatabase db;
   late final _TestSessionStore sessionStore = _TestSessionStore(
     <ReadingSession>[],
   );
@@ -2190,7 +2193,7 @@ void main() {
           kind: 1,
           startCfi: 'epubcfi(/6/4!/4/2/1)',
           endCfi: 'epubcfi(/6/4!/4/2/5)',
-          quote: '原文',
+          quote: '这是用于应用壳测试的段落，内容足够长以便分页。',
           note: '云端想法',
           style: 1,
           color: '#FFFF0000',
@@ -2223,6 +2226,83 @@ void main() {
           .loadMarkIds())['${book.id}|${annotation.id}'],
       77,
     );
+  });
+
+  test('已导入的云端标注在再次同步时补建阅读页锚点', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '旧标注书', identifier: 'urn:uuid:old-mark-book'),
+    );
+    const quote = '这是用于应用壳测试的段落，内容足够长以便分页。';
+    final source = await EpubChapterSource.openFile(
+      File(book.filePath),
+      verifyCrc: false,
+    );
+    addTearDown(source.close);
+    final chapter = await source.loadAnchorChapter(0);
+    final startOffset = chapter.text.indexOf(quote);
+    expect(startOffset, greaterThanOrEqualTo(0));
+    final startCfi = chapter.cfiAt(startOffset)!;
+    final endCfi = chapter.cfiAt(startOffset + quote.length, end: true)!;
+    final brokenStartCfi = startCfi.replaceFirst('!', '');
+    final brokenEndCfi = endCfi.replaceFirst('!', '');
+    final api = _FakeApi()
+      ..marks = <ReaMicroMark>[
+        ReaMicroMark(
+          id: 78,
+          bookId: '11',
+          chapter: '第一章',
+          kind: 0,
+          startCfi: brokenStartCfi,
+          endCfi: brokenEndCfi,
+          quote: quote,
+          note: '',
+          style: 0,
+          color: '#FFFF0000',
+          synced: 1,
+          createdAt: 1000,
+          updatedAt: 2000,
+        ),
+      ];
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      book.id,
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+    await controller.syncMarks();
+    expect(
+      AnchorRecord.decode(
+        (await library.listBookAnnotations(book.id)).single.anchorData,
+      )?.isResolved,
+      isTrue,
+    );
+
+    final bookRow = await (library.db.select(
+      library.db.books,
+    )..where((table) => table.uuid.equals(book.id))).getSingle();
+    await (library.db.update(
+      library.db.annotations,
+    )..where((table) => table.bookId.equals(bookRow.id))).write(
+      AnnotationsCompanion(
+        startCfi: Value<String>(brokenStartCfi),
+        endCfi: Value<String>(brokenEndCfi),
+        anchorJson: const Value<String?>(null),
+      ),
+    );
+    expect(
+      (await library.listBookAnnotations(book.id)).single.anchorData,
+      isNull,
+    );
+
+    await controller.syncMarks();
+
+    final repaired = (await library.listBookAnnotations(book.id)).single;
+    final anchor = AnchorRecord.decode(repaired.anchorData);
+    expect(anchor?.isResolved, isTrue);
+    expect(repaired.startCfi, startCfi);
+    expect(repaired.endCfi, endCfi);
+    expect(repaired.updatedAt.millisecondsSinceEpoch, 2000);
   });
 
   test('本地较新标注上传并记录云端标识，重复同步不重复上传', () async {

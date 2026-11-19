@@ -334,6 +334,65 @@ class DriftAnnotationStore
     });
   }
 
+  /// 为历史云端标注补建本地锚点；阅读页依赖锚点定位，笔记列表不需要。
+  Future<int> repairUnresolvedAnchors() async {
+    final book = await _binding.writable();
+    if (book == null) return 0;
+    final rows =
+        await (_db.select(_db.annotations)..where(
+              (table) =>
+                  table.bookId.equals(book.id) &
+                  table.type.isSmallerThanValue(2),
+            ))
+            .get();
+    var repaired = 0;
+    for (final row in rows) {
+      final saved = AnchorRecord.decode(row.anchorJson);
+      if (saved?.isResolved == true) continue;
+      final startCfi = row.startCfi.trim();
+      if (startCfi.isEmpty) continue;
+      final endCfi = row.endCfi.trim().isEmpty ? startCfi : row.endCfi.trim();
+      final evidence = (
+        quote: row.quote,
+        before: row.contextBefore ?? '',
+        after: row.contextAfter ?? '',
+      );
+      final startCandidates = epubCfiCandidates(startCfi)
+          .toList(growable: false);
+      final endCandidates = endCfi == startCfi
+          ? startCandidates
+          : epubCfiCandidates(endCfi).toList(growable: false);
+      var rowRepaired = false;
+      for (final candidateStart in startCandidates) {
+        for (final candidateEnd in endCandidates) {
+          final anchor = await _captureSelection(
+            book,
+            candidateStart,
+            candidateEnd,
+            evidence,
+          );
+          if (anchor?.isResolved != true) continue;
+          await (_db.update(_db.annotations)..where(
+                (table) =>
+                    table.id.equals(row.id) & table.bookId.equals(book.id),
+              ))
+              .write(
+                AnnotationsCompanion(
+                  startCfi: Value<String>(candidateStart),
+                  endCfi: Value<String>(candidateEnd),
+                  anchorJson: Value<String?>(anchor!.encode()),
+                ),
+              );
+          repaired += 1;
+          rowRepaired = true;
+          break;
+        }
+        if (rowRepaired) break;
+      }
+    }
+    return repaired;
+  }
+
   @override
   Future<void> relocate(
     String id, {
