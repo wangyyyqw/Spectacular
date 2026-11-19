@@ -1,5 +1,5 @@
-/// 所有翻页动画统一的收尾时长。
-const Duration pageTurnAnimationDuration = Duration(milliseconds: 420);
+/// 非 3D 点击翻页和一屏滚动的过渡时长；拖动收尾按剩余距离和速度缩短。
+const Duration pageTurnAnimationDuration = Duration(milliseconds: 280);
 
 /// 阅读模式；稳定字符串用于持久化，顺序与设置面板一致。
 enum PageTurnMode {

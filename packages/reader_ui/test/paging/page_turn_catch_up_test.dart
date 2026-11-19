@@ -191,7 +191,7 @@ Future<void> _showPaper(WidgetTester tester, PageTurnView view) =>
 void _expectStep(Offset before, Offset after) {
   expect(
     (after - before).distance,
-    lessThanOrEqualTo(_size.width * 0.05 + 0.01),
+    lessThanOrEqualTo(_size.width * 0.1 + 0.01),
   );
 }
 
@@ -207,7 +207,7 @@ void main() {
         expect(controller.point!.dx, inExclusiveRange(100, before.dx));
         expect(
           (controller.besselGeometry!.j - crease).distance,
-          lessThan(_size.height * 0.05),
+          lessThan(_size.height * 0.1),
           reason: '输入点与实际绘制的折痕都必须连续接续',
         );
         await tester.pumpAndSettle(_frame);
@@ -249,7 +249,7 @@ void main() {
     }
   });
 
-  testWidgets('淡入结束后的密集手势与反向拖动从显示点继续追赶', (tester) async {
+  testWidgets('淡入结束后的密集手势与反向拖动立即跟随显示点', (tester) async {
     final controller = await _coldTurn(tester);
     try {
       await tester.pump(const Duration(milliseconds: 120));
@@ -258,18 +258,18 @@ void main() {
       for (final x in [20.0, 0.0, 40.0, 60.0]) {
         _move(controller, x);
       }
-      await tester.pump();
-      expect(controller.point, before, reason: '同一帧内的手势不能多次推进补偿');
+      expect(controller.point!.dx, lessThan(before.dx));
+      final moved = controller.point!;
       await tester.pump(_frame);
-      _expectStep(before, controller.point!);
+      _expectStep(moved, controller.point!);
       final reversing = controller.point!;
-      _move(controller, 300);
-      expect(controller.point, reversing);
+      _move(controller, 80);
+      expect(controller.point!.dx, closeTo(reversing.dx + 20, 0.001));
+      final reversed = controller.point!;
       await tester.pump(_frame);
-      _expectStep(reversing, controller.point!);
-      expect(controller.point!.dx, greaterThan(reversing.dx));
+      _expectStep(reversed, controller.point!);
       await tester.pumpAndSettle(_frame);
-      expect(controller.point, const Offset(300, 360));
+      expect(controller.point, const Offset(80, 360));
       _move(controller, 280);
       expect(controller.point, const Offset(280, 360), reason: '追赶结束后立即跟手');
     } finally {
@@ -327,9 +327,46 @@ void main() {
       try {
         final before = controller.progress;
         await tester.pump(const Duration(milliseconds: 120));
-        expect(controller.progress, inExclusiveRange(before, before + 0.051));
+        expect(controller.progress, inExclusiveRange(before, before + 0.101));
         await tester.pumpAndSettle(_frame);
         expect(controller.progress, closeTo(210 / 320, 0.00001));
+      } finally {
+        controller.cancel();
+      }
+    });
+  }
+
+  for (final mode in [
+    PageTurnMode.cover,
+    PageTurnMode.coverStack,
+    PageTurnMode.simulationBessel,
+    PageTurnMode.slideHorizontal,
+  ]) {
+    testWidgets('${mode.label}冷页面追赶期间输入与回拖立即响应，200 毫秒内贴合', (tester) async {
+      final controller = await _coldTurn(tester, mode: mode);
+      try {
+        final before = controller.progress;
+        final point = controller.point;
+        _move(controller, 80);
+        final scale = mode == PageTurnMode.simulationBessel ? 640 : 320;
+        expect(controller.progress, closeTo(before + 20 / scale, 0.00001));
+        if (mode == PageTurnMode.simulationBessel) {
+          expect(controller.point!.dx, closeTo(point!.dx - 20, 0.00001));
+        }
+        _move(controller, 95);
+        expect(controller.progress, closeTo(before + 5 / scale, 0.00001));
+        for (var frame = 0; frame < 12; frame++) {
+          await tester.pump(_frame);
+        }
+        expect(
+          controller.progress,
+          closeTo(
+            mode == PageTurnMode.simulationBessel
+                ? (320 - 95) / 640
+                : 215 / 320,
+            0.00001,
+          ),
+        );
       } finally {
         controller.cancel();
       }

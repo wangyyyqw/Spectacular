@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reader_core/reader_core.dart';
 import 'package:reader_ui/reader_ui.dart';
+import 'package:reader_ui/system_ui.dart';
 
 import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
@@ -14,6 +16,8 @@ import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  await setReaderSystemBars(statusBar: true, navigationBar: true);
   final log = ReaderLog.instance;
   FlutterError.onError = (details) {
     unawaited(
@@ -103,6 +107,10 @@ class ReaderApp extends StatelessWidget {
       title: '阅微Extend',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: readerSystemBarStyle(Theme.of(context).scaffoldBackgroundColor),
+        child: child!,
+      ),
       home: HomeShell(
         key: ObjectKey(library),
         library: library,

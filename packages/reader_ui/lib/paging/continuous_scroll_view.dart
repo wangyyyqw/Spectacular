@@ -822,11 +822,22 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
     final target = (_controller.offset + (next ? height : -height) * 0.88)
         .clamp(0.0, _controller.position.maxScrollExtent);
-    await _controller.animateTo(
-      target,
-      duration: pageTurnAnimationDuration,
-      curve: Curves.easeOutCubic,
-    );
+    final distance = (target - _controller.offset).abs();
+    if (MediaQuery.disableAnimationsOf(context) || distance <= 0.5) {
+      _controller.jumpTo(target);
+    } else {
+      final maximum = pageTurnAnimationDuration.inMilliseconds;
+      await _controller.animateTo(
+        target,
+        duration: Duration(
+          milliseconds: (maximum * distance / (height * 0.88)).round().clamp(
+            120,
+            maximum,
+          ),
+        ),
+        curve: Curves.easeOutCubic,
+      );
+    }
     _captureVisiblePage();
   }
 

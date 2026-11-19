@@ -99,7 +99,8 @@ class PageTurnViewState extends State<PageTurnView>
   late final _chapterPreload = ChapterPreloadController(
     widget.session,
     onFirstPage: () {
-      if (!mounted) return;
+      // 已有计时器会消费就绪的邻章，不因内容完成推迟当前纸面预热。
+      if (!mounted || _warmTimer != null) return;
       _lastWarm = null;
       _scheduleWarm();
     },
@@ -204,6 +205,16 @@ class PageTurnViewState extends State<PageTurnView>
 
   void _controllerChanged() {
     if (!mounted) return;
+    final show = controller.active && controller.originImage != null;
+    final target = controller.turn?.target.content;
+    if (controller.mode != PageTurnMode.simulation3d &&
+        _turnActive &&
+        show &&
+        _showAnimation &&
+        (controller.targetImage == null || identical(target, _staticPage))) {
+      // 纯动画帧由 painter 消费，不重复维护窗口、缓存和后台预热。
+      return;
+    }
     if (controller.active != _turnActive) {
       _turnActive = controller.active;
       _pauseWarmup();
@@ -213,7 +224,6 @@ class PageTurnViewState extends State<PageTurnView>
         }
       }
     }
-    final show = controller.active && controller.originImage != null;
     _cache.protected = {
       if (_usesWindow && _windowPage != null) _windowPage!,
       if (widget.session.page != null) widget.session.page!,
@@ -223,7 +233,6 @@ class PageTurnViewState extends State<PageTurnView>
       _syncWindow();
       _cache.retainPages(_windowPages);
     }
-    final target = controller.turn?.target.content;
     if (show &&
         controller.targetImage != null &&
         !identical(target, _staticPage)) {
@@ -282,6 +291,7 @@ class PageTurnViewState extends State<PageTurnView>
     _warmSuspended = true;
     controller.cancel();
     _invalidate();
+    widget.session.cancelTurnPrefetch();
     _captureQueue = Future<void>.value();
   }
 

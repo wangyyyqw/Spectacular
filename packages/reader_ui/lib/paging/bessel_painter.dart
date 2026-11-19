@@ -14,6 +14,10 @@ class BesselPainter {
         ..color = paperColor.withValues(alpha: 1 - _backInkContrast);
 
   final Color paperColor;
+
+  /// 冷目标只渐入底页，折痕、纸背和阴影仍只绘制一次。
+  double bottomOpacity = 1;
+
   final Paint _backPaperPaint;
   final Paint _backContentPaint = Paint()..filterQuality = FilterQuality.low;
   final Paint _backFadePaint;
@@ -61,7 +65,7 @@ class BesselPainter {
       canvas.translate(geometry.size.width, 0);
       canvas.scale(-1, 1);
     }
-    _drawImage(canvas, bottom, geometry.size, rtl);
+    _drawBottom(canvas, geometry, bottom, paper, rtl);
     final front = geometry.frontPath();
     final back = geometry.backPath(front);
     _bottomShadow(canvas, geometry);
@@ -74,6 +78,21 @@ class BesselPainter {
     _frontShadows(canvas, geometry, front);
     _back(canvas, geometry, back, paper, rtl);
     canvas.restore();
+  }
+
+  void _drawBottom(
+    Canvas canvas,
+    BesselGeometry geometry,
+    ui.Image bottom,
+    ui.Image paper,
+    bool rtl,
+  ) {
+    if (bottomOpacity < 1) _drawImage(canvas, paper, geometry.size, rtl);
+    if (bottomOpacity > 0) {
+      _imagePaint.color = Color.fromRGBO(255, 255, 255, bottomOpacity);
+      _drawImage(canvas, bottom, geometry.size, rtl);
+      _imagePaint.color = const Color(0xFFFFFFFF);
+    }
   }
 
   void _drawImage(Canvas canvas, ui.Image image, Size size, bool mirrored) {

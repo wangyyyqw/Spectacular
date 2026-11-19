@@ -90,7 +90,12 @@ class Win32Window {
   // Update the window frame's theme to match the system theme.
   static void UpdateTheme(HWND const window);
 
+  // 在当前用户的应用偏好中保存、恢复窗口大小和显示状态。
+  void RestorePlacement();
+  void SavePlacement();
+
   bool quit_on_close_ = false;
+  UINT show_command_ = SW_SHOWNORMAL;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;
