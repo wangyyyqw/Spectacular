@@ -169,7 +169,13 @@ void main() {
       ),
     );
     await pumpReaderUntil(tester, find.byType(ReaderView));
+    expect(find.text('背景图片无法读取，请重新选择'), findsOneWidget);
+    // 提示结束后再点底栏，确保测试确实进入主题抽屉。
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
     await _themeMenu(tester);
+    expect(find.byType(SettingsPanel), findsOneWidget);
     expect(find.text('图片背景已启用'), findsNothing);
     expect(changes, isEmpty, reason: '恢复失败不会保存无效图片');
     expect(tester.takeException(), isNull);
