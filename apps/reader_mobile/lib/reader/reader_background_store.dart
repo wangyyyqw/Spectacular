@@ -28,34 +28,38 @@ class ReaderBackgroundStore {
       Directory(p.join((await _directoryProvider()).path, directoryName));
 
   /// 使用已有文件选择器，无需访问整个相册。
-  Future<String?> pick() async {
+  Future<String?> pick({bool preserveNinePatch = false}) async {
     final file = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
     );
     if (file == null) return null;
-    return import(await file.readAsBytes());
+    return import(
+      await file.readAsBytes(),
+      preserveSize:
+          preserveNinePatch && file.name.toLowerCase().endsWith('.9.png'),
+    );
   }
 
-  /// 只保存首帧，最长边限制为 1600px。
-  Future<String> import(Uint8List bytes) async {
+  /// 普通图片只保存首帧，最长边限制为 1600px；点九保留原始尺寸。
+  Future<String> import(Uint8List bytes, {bool preserveSize = false}) async {
     if (bytes.isEmpty || bytes.length > 20 * 1024 * 1024) {
       throw const FormatException('请选择小于 20MB 的图片');
     }
-    final data = await _resize(bytes);
+    final data = await _resize(bytes, preserveSize);
     final directory = await _directory();
     await directory.create(recursive: true);
     final file = File(
       p.join(
         directory.path,
-        '$filePrefix-${DateTime.now().microsecondsSinceEpoch}.png',
+        '$filePrefix-${DateTime.now().microsecondsSinceEpoch}${preserveSize ? '.9' : ''}.png',
       ),
     );
     await file.writeAsBytes(data, flush: true);
     return ReaderBackground.image(file.path).id;
   }
 
-  Future<Uint8List> _resize(Uint8List bytes) async {
+  Future<Uint8List> _resize(Uint8List bytes, bool preserveSize) async {
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     try {
       final descriptor = await ui.ImageDescriptor.encoded(buffer);
@@ -63,10 +67,16 @@ class ReaderBackgroundStore {
         final longest = descriptor.width > descriptor.height
             ? descriptor.width
             : descriptor.height;
-        final scale = longest > 1600 ? 1600 / longest : 1.0;
+        final scale = !preserveSize && longest > 1600 ? 1600 / longest : 1.0;
         final codec = await descriptor.instantiateCodec(
-          targetWidth: (descriptor.width * scale).round().clamp(1, 1600),
-          targetHeight: (descriptor.height * scale).round().clamp(1, 1600),
+          targetWidth: (descriptor.width * scale).round().clamp(
+            1,
+            descriptor.width,
+          ),
+          targetHeight: (descriptor.height * scale).round().clamp(
+            1,
+            descriptor.height,
+          ),
         );
         try {
           return await _encodeFrame(codec);

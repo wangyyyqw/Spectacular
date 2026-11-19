@@ -7,7 +7,9 @@ import '../icons/app_icon.dart';
 import '../panels/settings_panel.dart' show ReaderFontOption;
 import 'decoration_border_editor.dart';
 import 'decoration_image_store.dart';
+import 'decoration_image_codec.dart';
 import 'decoration_highlight_editor.dart';
+import 'decoration_nine_slice_editor.dart';
 import 'decoration_style.dart';
 import 'decoration_style_preview.dart';
 import 'decoration_typography_editor.dart';
@@ -157,7 +159,26 @@ class _ReaderDecorationEditorSheetState
     setState(() => _picking = true);
     try {
       final path = await widget.images!.pickImage();
-      if (path != null && mounted) _set('backgroundImagePath', path);
+      if (path != null) {
+        final decoded = await ReaderDecorationImageCodec.decode(
+          await widget.images!.loadImage(path),
+        );
+        final nineSlice = decoded.nineSlice;
+        decoded.image.dispose();
+        if (mounted) {
+          _changeStyle(
+            _style.withValues({
+              'backgroundImagePath': path,
+              'backgroundImageFit':
+                  (nineSlice == null
+                          ? ReaderDecorationImageFit.cover
+                          : ReaderDecorationImageFit.nineSlice)
+                      .name,
+              'backgroundImageNineSlice': nineSlice?.toJson(),
+            }),
+          );
+        }
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -188,9 +209,37 @@ class _ReaderDecorationEditorSheetState
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Row(
+                  children: [
+                    const AppIcon(AppGlyph.formatPaint),
+                    const SizedBox(width: 8),
+                    Text('装饰', style: Theme.of(context).textTheme.titleLarge),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: _close,
+                      tooltip: '关闭',
+                      icon: const AppIcon(AppGlyph.close),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: ReaderDecorationStylePreview(
+                  text: widget.quote,
+                  style: _loadingFont || _fontError != null
+                      ? _style.withValues({'fontFamily': null})
+                      : _style,
+                  images: widget.images,
+                  inkMode: widget.inkMode,
+                  maxLines: 2,
+                ),
+              ),
               Flexible(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                   child: _content(context),
                 ),
               ),
@@ -216,29 +265,6 @@ class _ReaderDecorationEditorSheetState
   Widget _content(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Row(
-        children: [
-          const AppIcon(AppGlyph.formatPaint),
-          const SizedBox(width: 8),
-          Text('装饰', style: Theme.of(context).textTheme.titleLarge),
-          const Spacer(),
-          IconButton(
-            onPressed: _close,
-            tooltip: '关闭',
-            icon: const AppIcon(AppGlyph.close),
-          ),
-        ],
-      ),
-      const Text('只改变选中文字的外观，不加入标注列表。'),
-      const SizedBox(height: 12),
-      ReaderDecorationStylePreview(
-        text: widget.quote,
-        style: _loadingFont || _fontError != null
-            ? _style.withValues({'fontFamily': null})
-            : _style,
-        images: widget.images,
-        inkMode: widget.inkMode,
-      ),
       if (_loadingFont)
         const Padding(
           padding: EdgeInsets.only(top: 8),
@@ -283,11 +309,13 @@ class _ReaderDecorationEditorSheetState
         key: const ValueKey<String>('decoration-highlight'),
         title: const Text('高亮与划线'),
         subtitle: Text(_style.highlight?.style.label ?? '底色、染色、线条与跨行连块'),
+        initiallyExpanded: widget.initialStyle.highlight != null,
         tilePadding: EdgeInsets.zero,
         children: [
           ReaderDecorationHighlightEditor(
             value: _style.highlight,
             onChanged: (value) => _set('highlight', value?.toJson()),
+            inkMode: widget.inkMode,
           ),
         ],
       ),
@@ -305,6 +333,7 @@ class _ReaderDecorationEditorSheetState
         ],
       ),
       AppExpansionTile(
+        key: const ValueKey<String>('decoration-background'),
         title: const Text('背景'),
         subtitle: const Text('颜色、透明度、圆角、本地背景图'),
         tilePadding: EdgeInsets.zero,
@@ -357,12 +386,25 @@ class _ReaderDecorationEditorSheetState
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const AppIcon(AppGlyph.image),
-          label: const Text('选择本地背景图'),
+          label: Text(_style.backgroundImagePath == null ? '选择本地背景图' : '更换背景图'),
         ),
       if (_style.backgroundImagePath != null)
         ReaderDecorationImageFitField(
           value: _style.backgroundImageFit,
           onChanged: (fit) => _set('backgroundImageFit', fit.name),
+        ),
+      if (_style.backgroundImagePath != null && widget.images != null)
+        ReaderDecorationNineSliceButton(
+          path: _style.backgroundImagePath!,
+          images: widget.images!,
+          value: _style.backgroundImageNineSlice,
+          onChanged: (selection) => _changeStyle(
+            _style.withValues({
+              if (selection.path != null) 'backgroundImagePath': selection.path,
+              'backgroundImageFit': ReaderDecorationImageFit.nineSlice.name,
+              'backgroundImageNineSlice': selection.nineSlice.toJson(),
+            }),
+          ),
         ),
       if (_style.backgroundImagePath != null)
         TextButton.icon(
@@ -370,7 +412,11 @@ class _ReaderDecorationEditorSheetState
           icon: const AppIcon(AppGlyph.close),
           label: const Text('移除背景图'),
         ),
-      const Text('图片按每行装饰区间铺放，可调整透明度与圆角；图片不可用时回退到底色。'),
+      Text(
+        _style.backgroundImageFit == ReaderDecorationImageFit.nineSlice
+            ? '点九图按每行文字拉伸，保留素材边角；可调整透明度，图片不可用时回退到底色。'
+            : '图片按每行装饰区间铺放，可调整透明度与圆角；图片不可用时回退到底色。',
+      ),
       const SizedBox(height: 12),
     ],
   );

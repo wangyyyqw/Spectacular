@@ -31,6 +31,7 @@ class ReaderDecorationBox {
     required this.range,
     required this.style,
     this.highlightSource,
+    this.backgroundImageRange,
   });
 
   /// 原文行片段。
@@ -40,6 +41,33 @@ class ReaderDecorationBox {
   final ReaderDecorationStyle style;
 
   final ReaderDecorationRange? highlightSource;
+  final ReaderRangeLine? backgroundImageRange;
+
+  Rect imageAnchorFor(Rect rect) =>
+      backgroundImageRange?.rects
+          .where((anchor) => anchor.overlaps(rect))
+          .firstOrNull ??
+      rect;
+
+  Rect imageClipFor(Rect rect, Size pageSize) {
+    final source = backgroundImageRange;
+    final line = range.line;
+    final clipStart = source != null && range.start > source.start;
+    final clipEnd = source != null && range.end < source.end;
+    return line.isVertical
+        ? Rect.fromLTRB(
+            line.rect.left,
+            clipStart ? rect.top : 0,
+            line.rect.right,
+            clipEnd ? rect.bottom : pageSize.height,
+          )
+        : Rect.fromLTRB(
+            clipStart ? rect.left : 0,
+            line.rect.top,
+            clipEnd ? rect.right : pageSize.width,
+            line.rect.bottom,
+          );
+  }
 
   /// 绘制内边距不参与断行，垂直扩展不得越过行距余量或 8dp。
   List<Rect> get rects => [
@@ -113,10 +141,14 @@ abstract final class ReaderDecorationGeometry {
       final end = ordered[index + 1];
       ReaderDecorationStyle? style;
       ReaderDecorationRange? highlightSource;
+      ReaderRangeLine? backgroundImageRange;
       for (final match in matches) {
         if (match.$1.start <= start && match.$1.end >= end) {
           style = style == null ? match.$2.style : style.merge(match.$2.style);
           if (match.$2.style.highlight != null) highlightSource = match.$2;
+          if (match.$2.style.backgroundImagePath != null) {
+            backgroundImageRange = match.$1;
+          }
         }
       }
       if (style == null) continue;
@@ -125,8 +157,37 @@ abstract final class ReaderDecorationGeometry {
           range: ReaderRangeLine(line: line, start: start, end: end),
           style: style,
           highlightSource: highlightSource,
+          backgroundImageRange: backgroundImageRange,
         ),
       );
+    }
+    return result;
+  }
+
+  static List<ReaderDecorationBox> highlightBoxesFor(
+    List<ReaderDecorationBox> boxes,
+  ) {
+    final result = <ReaderDecorationBox>[];
+    for (final box in boxes) {
+      if (box.style.highlight == null) continue;
+      final previous = result.lastOrNull;
+      if (previous != null &&
+          box.highlightSource != null &&
+          identical(previous.highlightSource, box.highlightSource) &&
+          identical(previous.range.line, box.range.line) &&
+          previous.range.end == box.range.start) {
+        result[result.length - 1] = ReaderDecorationBox(
+          range: ReaderRangeLine(
+            line: box.range.line,
+            start: previous.range.start,
+            end: box.range.end,
+          ),
+          style: previous.style,
+          highlightSource: box.highlightSource,
+        );
+      } else {
+        result.add(box);
+      }
     }
     return result;
   }

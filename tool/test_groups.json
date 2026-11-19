@@ -276,7 +276,7 @@
     {"groups": ["resources", "integration"], "paths": ["packages/reader_core/test/support/*", "packages/reader_core/test/audit/audit_epub_fixture.dart", "tests/corpus/*"]},
     {"groups": ["css", "layout", "paint", "resources"], "paths": ["apps/reader_mobile/test/reader/support/*"]},
     {"groups": ["ui"], "paths": ["apps/reader_mobile/test/support/reader_pump.dart"]},
-    {"groups": ["ui"], "paths": ["packages/reader_ui/test/support/progressive_source.dart"]},
+    {"groups": ["ui"], "paths": ["packages/reader_ui/test/support/progressive_source.dart", "packages/reader_ui/test/support/decoration_test_images.dart"]},
     {"groups": ["storage"], "paths": ["apps/reader_mobile/test/library/fixtures/*"]},
     {"groups": ["ui", "css", "layout", "paint", "resources", "position", "integration", "perf"], "paths": ["apps/reader_mobile/test/support/test_epub.dart"]},
     {"groups": ["layout"], "paths": ["apps/reader_mobile/integration_test/m0_snapshot.dart", "apps/reader_mobile/integration_test/m0_page_sequence.json"]}

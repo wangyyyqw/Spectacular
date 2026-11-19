@@ -90,6 +90,16 @@ extension _ReaderDecorationController on _ReaderPageState {
           rect,
           box.style,
           image: _decorationImages[box.style.backgroundImagePath],
+          imageNineSlice: _decorationNineSlices[box.style.backgroundImagePath],
+          imageAnchor: box.imageAnchorFor(rect),
+          vertical: box.range.line.isVertical,
+          clipRect:
+              box.style.backgroundImageFit != ReaderDecorationImageFit.nineSlice
+              ? null
+              : box.imageClipFor(
+                  rect,
+                  Size(_paperContentWidth, page.pageHeight),
+                ),
           inkMode: _inkMode,
         );
       }
@@ -498,7 +508,10 @@ extension _ReaderDecorationController on _ReaderPageState {
         ?rule.style.backgroundImagePath,
     };
     for (final path in _decorationImages.keys.toList()) {
-      if (!paths.contains(path)) _decorationImages.remove(path)?.dispose();
+      if (!paths.contains(path)) {
+        _decorationImages.remove(path)?.dispose();
+        _decorationNineSlices.remove(path);
+      }
     }
     _missingDecorationImages.retainAll(paths);
     for (final path in paths) {
@@ -517,21 +530,22 @@ extension _ReaderDecorationController on _ReaderPageState {
   Future<void> _decodeDecorationImage(String path, int generation) async {
     final store = widget.decorationImages;
     if (store == null) return;
-    ui.Codec? codec;
     try {
-      codec = await ui.instantiateImageCodec(await store.loadImage(path));
-      final frame = await codec.getNextFrame();
+      final decoded = await ReaderDecorationImageCodec.decode(
+        await store.loadImage(path),
+      );
       if (!_currentDecorationRequest(generation)) {
-        frame.image.dispose();
+        decoded.image.dispose();
         return;
       }
-      _decorationImages[path] = frame.image;
+      _decorationImages[path] = decoded.image;
+      if (decoded.nineSlice case final nineSlice?) {
+        _decorationNineSlices[path] = nineSlice;
+      }
     } catch (_) {
       if (_currentDecorationRequest(generation)) {
         _missingDecorationImages.add(path);
       }
-    } finally {
-      codec?.dispose();
     }
   }
 }

@@ -2,15 +2,18 @@ import 'package:flutter/painting.dart';
 
 import '../annotations/annotation.dart';
 import 'decoration_highlight.dart';
+import 'decoration_nine_slice.dart';
 import 'style_values.dart';
 
 export 'decoration_highlight.dart';
+export 'decoration_nine_slice.dart';
 
 enum ReaderDecorationImageFit {
   cover('裁剪铺满', BoxFit.cover),
   contain('完整显示', BoxFit.contain),
   fill('拉伸铺满', BoxFit.fill),
-  tile('平铺', BoxFit.none);
+  tile('平铺', BoxFit.none),
+  nineSlice('点九拉伸', BoxFit.fill);
 
   const ReaderDecorationImageFit(this.label, this.fit);
   final String label;
@@ -87,6 +90,7 @@ class ReaderDecorationStyle {
     this.borderRadius = 0,
     this.backgroundImagePath,
     this.backgroundImageFit = ReaderDecorationImageFit.cover,
+    this.backgroundImageNineSlice,
     this.borderStyle = ReaderDecorationBorderStyle.solid,
     this.borderTop = const ReaderDecorationBorderSide(),
     this.borderRight = const ReaderDecorationBorderSide(),
@@ -138,6 +142,7 @@ class ReaderDecorationStyle {
   final String? backgroundImagePath;
 
   final ReaderDecorationImageFit backgroundImageFit;
+  final ReaderDecorationNineSlice? backgroundImageNineSlice;
 
   /// 四边共用线型。
   final ReaderDecorationBorderStyle borderStyle;
@@ -214,6 +219,8 @@ class ReaderDecorationStyle {
     if (backgroundImagePath != null) 'backgroundImagePath': backgroundImagePath,
     if (backgroundImagePath != null)
       'backgroundImageFit': backgroundImageFit.name,
+    if (backgroundImagePath != null)
+      'backgroundImageNineSlice': backgroundImageNineSlice?.toJson(),
     if (borderTop.width > 0) 'borderTop': borderTop.toJson(),
     if (borderRight.width > 0) 'borderRight': borderRight.toJson(),
     if (borderBottom.width > 0) 'borderBottom': borderBottom.toJson(),
@@ -281,6 +288,9 @@ class ReaderDecorationStyle {
       backgroundImagePath: styleString(json['backgroundImagePath']),
       backgroundImageFit: ReaderDecorationImageFit.fromJson(
         json['backgroundImageFit'],
+      ),
+      backgroundImageNineSlice: ReaderDecorationNineSlice.fromJson(
+        json['backgroundImageNineSlice'],
       ),
       borderStyle: ReaderDecorationBorderStyle.fromJson(json['borderStyle']),
       borderTop: ReaderDecorationBorderSide.fromJson(json['borderTop']),

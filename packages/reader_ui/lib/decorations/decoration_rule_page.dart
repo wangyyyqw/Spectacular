@@ -7,6 +7,7 @@ import 'decoration_rule_editor.dart';
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
 import 'decoration_image_store.dart';
+import 'decoration_highlight.dart';
 
 /// 本书与全局作用域的自动装饰规则管理页。
 class ReaderDecorationRulePage extends StatefulWidget {
@@ -169,7 +170,9 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
           id: 'rule-${DateTime.now().microsecondsSinceEpoch}',
           groupId: group.id,
           pattern: '',
-          style: const ReaderDecorationRuleStyle(),
+          style: const ReaderDecorationRuleStyle(
+            highlight: ReaderDecorationHighlight(),
+          ),
           sortOrder: (rules.lastOrNull?.sortOrder ?? -1) + 1,
         );
     final next = await showModalBottomSheet<ReaderDecorationRule>(
