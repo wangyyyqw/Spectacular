@@ -5,7 +5,10 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/annotations/annotation_editor_sheet.dart';
 import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/annotations/decorations.dart';
 import 'package:reader_ui/annotations/thought_marker.dart';
@@ -108,7 +111,149 @@ class _Annotations implements ReaderAnnotationStore {
   Future<void> remove(String id) async => throw UnsupportedError('只读回归存储');
 }
 
+class _InlineSource implements AnchorChapterSource {
+  static const first = 'epubcfi(/6/2!/4/2/2/1:0)';
+  static const second = 'epubcfi(/6/2!/4/2/3:0)';
+
+  @override
+  int get chapterCount => 1;
+
+  @override
+  Future<AnchorChapter> loadAnchorChapter(int spineIndex) async =>
+      AnchorChapter(
+        spineIndex: 0,
+        href: 'chapter.xhtml',
+        blocks: const [
+          AnchorBlock(cfi: first, text: 'first '),
+          AnchorBlock(cfi: second, text: 'second'),
+        ],
+      );
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    final style = ComputedStyle(const {
+      'font-family': 'Ahem',
+      'font-size': '16px',
+      'line-height': '1.5',
+    });
+    return Paginator(pageHeight: 160)
+        .measureChapter(
+          blocks: [
+            PageBlock(
+              layout: TextLayoutEngine.layout(
+                text: 'first second',
+                style: style,
+                maxWidth: 280,
+              ),
+              style: style,
+              startCfi: first,
+              textCfis: TextCfiMap(
+                textLength: 12,
+                runs: [
+                  TextCfiRun(
+                    start: 0,
+                    end: 6,
+                    cfi: EpubCfi.parse(first)!,
+                    sourceStart: 0,
+                    sourceEnd: 6,
+                  ),
+                  TextCfiRun(
+                    start: 6,
+                    end: 12,
+                    cfi: EpubCfi.parse(second)!,
+                    sourceStart: 0,
+                    sourceEnd: 6,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        )
+        .pages;
+  }
+}
+
+class _InlineAnnotations extends _Annotations {
+  _InlineAnnotations(this.anchorData);
+  final String anchorData;
+
+  @override
+  Future<List<ReaderAnnotation>> list() async => [
+    ReaderAnnotation(
+      id: 'inline-mark',
+      type: ReaderAnnotationType.mark,
+      startCfi: _InlineSource.second,
+      endCfi: 'epubcfi(/6/2!/4/2/3:6)',
+      quote: 'second',
+      anchorData: anchorData,
+      style: ReaderAnnotationStyle.underline,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+    ),
+  ];
+}
+
 void main() {
+  for (final mode in [PageTurnMode.scroll, PageTurnMode.none]) {
+    testWidgets('行内节点合并排版后，划线保留原文 CFI 并可点击编辑：${mode.label}', (tester) async {
+      final source = _InlineSource();
+      final book = AnchorBook(
+        revision: 'reader-layout',
+        chapters: [await source.loadAnchorChapter(0)],
+      );
+      final record = AnchorRecord(
+        original: book.capture(
+          _InlineSource.second,
+          endCfi: 'epubcfi(/6/2!/4/2/3:6)',
+        )!,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReaderPage(
+              source: source,
+              store: MemoryReaderProgressStore(),
+              annotations: _InlineAnnotations(record.encode()),
+              bookId: 'inline-mark',
+              pageTurnMode: mode,
+              showPageFooter: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final layer = tester.widget<AnnotationLayer>(
+        find.byType(AnnotationLayer).first,
+      );
+      final lines = AnnotationDecorations.linesFor(
+        layer.page,
+        layer.annotations,
+      );
+      expect(lines, hasLength(1));
+      expect(lines.single.annotation.startCfi, _InlineSource.second);
+      expect(lines.single.startOffset, 6);
+      expect(lines.single.endOffset, 12);
+      final rect = AnnotationDecorations.rectsFor(lines.single).single;
+      await tester.tapAt(
+        tester.getTopLeft(find.byType(AnnotationLayer).first) + rect.center,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('annotation-editor-sheet')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<ReaderAnnotationEditorSheet>(
+              find.byType(ReaderAnnotationEditorSheet),
+            )
+            .annotation
+            .quote,
+        'second',
+      );
+    });
+  }
+
   testWidgets('连续滚动邻章可见时即绘制想法，不必等当前章进度切换', (tester) async {
     final source = _Source();
     late ReaderSession session;
