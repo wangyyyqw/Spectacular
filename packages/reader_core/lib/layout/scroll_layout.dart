@@ -4,8 +4,8 @@ import 'paginator.dart';
 
 /// 连续滚动中的一页切片。
 ///
-/// 保留原分页的换行结果，只压缩分页器为页首/页尾留下的空白，因此滚动时
-/// 行不会重新断行，也不会因模式切换改变正文排版指纹。
+/// 保留原分页的换行结果，压缩页间空白并补回接缝处被裁掉的行高留白，
+/// 因此滚动时不会重新断行，段内行距也不受分页边界影响。
 class ScrollPageSegment {
   const ScrollPageSegment({
     required this.pageIndex,
@@ -55,19 +55,21 @@ class ScrollChapterLayout {
     return segments.last.pageIndex;
   }
 
-  /// 只压缩页间留白，不合并或重排块切片。
+  /// 适配页间留白与文字裁边，不合并或重新断行。
   factory ScrollChapterLayout.fromPages(
     int spineIndex,
     List<PageContent> pages,
   ) {
     final segments = <ScrollPageSegment>[];
-    var firstSegment = true;
-    for (final page in pages) {
-      if (page.isEmpty) continue;
+    final visible = pages.where((page) => !page.isEmpty).toList();
+    for (var index = 0; index < visible.length; index++) {
       segments.add(
-        _compact(page, topPadding: firstSegment ? page.topPadding : 0),
+        _compact(
+          visible[index],
+          first: index == 0,
+          last: index == visible.length - 1,
+        ),
       );
-      firstSegment = false;
     }
     return ScrollChapterLayout(
       spineIndex: spineIndex,
@@ -77,11 +79,18 @@ class ScrollChapterLayout {
 
   static ScrollPageSegment _compact(
     PageContent page, {
-    required double topPadding,
+    required bool first,
+    required bool last,
   }) {
+    final topPadding = first ? page.topPadding : 0.0;
     var flowY = topPadding;
     var bottom = flowY;
-    for (final slice in page.slices) {
+    var restored = 0.0;
+    final slices = <PageBlockSlice>[];
+    for (final original in page.slices) {
+      final slice = _restoreTextEdges(original, top: !first, bottom: !last);
+      slices.add(slice);
+      restored += slice.height - original.height;
       if (slice.overlay) {
         bottom = math.max(
           bottom,
@@ -92,7 +101,7 @@ class ScrollChapterLayout {
         bottom = math.max(bottom, flowY);
       }
     }
-    bottom = math.max(bottom, topPadding + page.usedHeight);
+    bottom = math.max(bottom, topPadding + page.usedHeight + restored);
     final extent = math.max(0.0, bottom);
     return ScrollPageSegment(
       pageIndex: page.pageIndex,
@@ -100,12 +109,35 @@ class ScrollChapterLayout {
       content: PageContent(
         spineIndex: page.spineIndex,
         pageIndex: page.pageIndex,
-        slices: page.slices,
+        slices: restored == 0 ? page.slices : List.unmodifiable(slices),
         usedHeight: math.max(0, extent - topPadding),
         pageHeight: extent,
         topPadding: topPadding,
         background: page.background,
       ),
+    );
+  }
+
+  static PageBlockSlice _restoreTextEdges(
+    PageBlockSlice slice, {
+    required bool top,
+    required bool bottom,
+  }) {
+    final before = top && !slice.overlay ? slice.textTopTrim : 0.0;
+    final after = bottom && !slice.overlay ? slice.textBottomTrim : 0.0;
+    if (before == 0 && after == 0) return slice;
+    return PageBlockSlice(
+      block: slice.block,
+      startLine: slice.startLine,
+      endLine: slice.endLine,
+      height: slice.height + before + after,
+      leadingExtent: slice.leadingExtent + before,
+      trailingExtent: slice.trailingExtent + after,
+      leftInset: slice.leftInset,
+      overlay: slice.overlay,
+      absoluteTop: slice.absoluteTop,
+      textTopTrim: slice.textTopTrim - before,
+      textBottomTrim: slice.textBottomTrim - after,
     );
   }
 }
