@@ -137,7 +137,7 @@ tool/build_apk.sh --allow-downloads
 
 脚本依次使用 `flutter build apk --release --no-pub --config-only --target-platform=android-arm64` 生成配置、当前本地 SDK 的正式入口刷新 Release 插件注册，以及 `./gradlew --offline :app:assembleRelease` 打包；默认已有 Dart 包配置时不运行 Pub。缓存缺失后使用 `--allow-downloads` 会先补齐 Dart 包，再允许 Gradle 下载所需依赖。历史命令和插件注册前置见 [统一实现与 APK 验收](../../docs/统一实现与APK验收-2026-11-11.md)，最新产物与安装结果见 [功能细节优化与 APK 验收](../../docs/功能细节优化与APK验收-2026-11-12.md)。
 
-产物保存在被忽略的 `dist/`。当前包名为 `com.spectacular.reader_mobile`，应用版本为 `1.0.0+1`；开发验收包未完成商店签名和发布材料准备。覆盖安装必须使用相同签名，原开发数据的保存与本次初始数据库验收准备见专项记录。
+产物保存在被忽略的 `dist/`。本分支包名为 `com.spectacular.reamicro`，可与 main 分支的 `com.spectacular.reader_mobile` 区分共存；应用版本为 `1.0.0+1`，开发验收包未完成商店签名和发布材料准备。覆盖安装必须使用相同签名，原开发数据的保存与本次初始数据库验收准备见专项记录。
 
 ## 验证
 

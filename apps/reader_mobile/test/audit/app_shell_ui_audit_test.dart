@@ -56,7 +56,7 @@ void main() {
     await icons.load();
     PackageInfo.setMockInitialValues(
       appName: 'Spectacular Reader',
-      packageName: 'com.spectacular.reader_mobile',
+      packageName: 'com.spectacular.reamicro',
       version: '1.0.0',
       buildNumber: '1',
       buildSignature: '',
