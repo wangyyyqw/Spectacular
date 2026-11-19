@@ -4,6 +4,33 @@ import '../annotations/annotation_appearance_editor.dart';
 import '../icons/app_icon.dart';
 import 'decoration_style.dart';
 
+class ReaderDecorationImageFitField extends StatelessWidget {
+  const ReaderDecorationImageFitField({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+  final ReaderDecorationImageFit value;
+  final ValueChanged<ReaderDecorationImageFit> onChanged;
+
+  @override
+  Widget build(BuildContext context) =>
+      DropdownButtonFormField<ReaderDecorationImageFit>(
+        key: ValueKey('decoration-image-fit-${value.name}'),
+        initialValue: value,
+        isExpanded: true,
+        icon: const AppIcon(AppGlyph.chevronDown),
+        decoration: const InputDecoration(labelText: '图片铺放方式'),
+        items: [
+          for (final fit in ReaderDecorationImageFit.values)
+            DropdownMenuItem(value: fit, child: Text(fit.label)),
+        ],
+        onChanged: (fit) {
+          if (fit != null) onChanged(fit);
+        },
+      );
+}
+
 /// 装饰面板共用的数值滑杆。
 class ReaderStyleSlider extends StatelessWidget {
   /// 创建滑杆。

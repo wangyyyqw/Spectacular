@@ -10,6 +10,8 @@ import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/reader/reader_decoration_image_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/decorations/decoration.dart';
+import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 import '../library/fixtures/revision_epub.dart';
@@ -103,6 +105,42 @@ void main() {
     expect(await store.list(), isEmpty);
   });
 
+  test('手工高亮连块样式落库重读，更新样式保留内容位置与身份', () async {
+    final store = library.decorationStore(
+      book.id,
+      images: ReaderDecorationImages(directoryProvider: () async => directory),
+    )!;
+    const style = ReaderDecorationStyle(
+      highlight: ReaderDecorationHighlight(
+        color: 0xFF123456,
+        opacity: 0.4,
+        joinLines: true,
+      ),
+    );
+    final saved = (await store.add(
+      startCfi: first,
+      endCfi: last,
+      quote: revisionQuote,
+      style: style,
+    ))!;
+    var reloaded = (await store.list()).single;
+    expect(reloaded.style.toJson(), style.toJson());
+    final next = style.withValues({
+      'highlight': const ReaderDecorationHighlight(
+        style: ReaderAnnotationStyle.dottedUnderline,
+      ).toJson(),
+    });
+    await store.update(saved.id, style: next);
+    reloaded = (await store.list()).single;
+    expect(reloaded.style.toJson(), next.toJson());
+    expect(reloaded.id, saved.id);
+    expect(reloaded.createdAt, saved.createdAt);
+    expect(reloaded.quote, saved.quote);
+    expect(reloaded.startCfi, saved.startCfi);
+    expect(reloaded.endCfi, saved.endCfi);
+    expect(await db.select(db.annotations).get(), isEmpty);
+  });
+
   test('未知JSON字段忽略，非法值与损坏JSON回默认', () async {
     final store = library.decorationStore(
       book.id,
@@ -170,9 +208,31 @@ void main() {
       quote: revisionQuote,
       style: style,
     ))!;
+    final ruleStore = library.decorationRuleStore(book.id, images: images)!;
+    final group = (await ruleStore.listGroups()).first;
+    await ruleStore.saveRule(
+      ReaderDecorationRule(
+        id: 'image-rule',
+        groupId: group.id,
+        pattern: r'原文|摘录',
+        isRegex: true,
+        style: ReaderDecorationRuleStyle(
+          backgroundImagePath: path,
+          backgroundImageFit: ReaderDecorationImageFit.tile,
+        ),
+      ),
+    );
     await firstStore.remove(firstRecord.id);
     expect(File(path).existsSync(), isTrue);
     await otherStore.remove(otherRecord.id);
+    expect(File(path).existsSync(), isTrue, reason: '正则规则仍引用图片时，删除手工装饰不能清理图片');
+    final restoredRule = (await ruleStore.listRules()).single;
+    expect(restoredRule.isRegex, isTrue);
+    expect(
+      restoredRule.style.backgroundImageFit,
+      ReaderDecorationImageFit.tile,
+    );
+    await ruleStore.removeRule('image-rule');
     expect(File(path).existsSync(), isFalse);
   });
 

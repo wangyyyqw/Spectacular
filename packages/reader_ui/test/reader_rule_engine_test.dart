@@ -9,6 +9,7 @@ import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/decorations/decoration_rule_engine.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration_style.dart';
 import 'package:reader_ui/decorations/rule_match_worker.dart';
 
 const _baseCfi = 'epubcfi(/6/2!/4/2/1:7)';
@@ -154,6 +155,51 @@ void main() {
       blocks: const [DecorationRuleTextBlock(cfi: _baseCfi, text: '😀')],
     );
     expect(matches.map((match) => (match.start, match.end)), [(0, 2)]);
+  });
+
+  test('正则命中保留图片背景和铺放样式，预览与正文区间一致', () async {
+    final engine = ReaderDecorationRuleEngine();
+    addTearDown(engine.dispose);
+    final pages = [
+      _page([_block('前甲中乙23后', _baseCfi)]),
+    ];
+    final rule = _rule('image', r'甲|乙\d+', isRegex: true).copyWith(
+      style: const ReaderDecorationRuleStyle(
+        backgroundImagePath: '/local/texture.png',
+        backgroundImageFit: ReaderDecorationImageFit.tile,
+        backgroundOpacity: 0.4,
+        borderRadius: 3,
+      ),
+    );
+    final matches = await _match(engine, pages, [rule]);
+    expect(matches.map((match) => match.text), ['甲', '乙23']);
+    expect(
+      matches.every(
+        (match) =>
+            match.style.decorationStyle.backgroundImagePath ==
+            '/local/texture.png',
+      ),
+      isTrue,
+    );
+    expect(
+      matches.first.style.decorationStyle.backgroundImageFit,
+      ReaderDecorationImageFit.tile,
+    );
+    expect(matches.first.style.decorationStyle.backgroundOpacity, 0.4);
+    final previews = await engine.preview(rule, pages);
+    expect(
+      previews.map((preview) => preview.startCfi),
+      matches.map((match) => match.startCfi),
+    );
+    expect(
+      previews.map((preview) => preview.endCfi),
+      matches.map((match) => match.endCfi),
+    );
+    expect(previews.first.style.toJson(), matches.first.style.toJson());
+    expect(
+      await _match(engine, pages, [rule.copyWith(isRegex: false)]),
+      isEmpty,
+    );
   });
 
   test('无效正则不会阻止同一匹配器继续执行有效规则', () async {

@@ -1025,9 +1025,18 @@ class LibraryStore {
   }
 
   /// 当前书与全局的自动装饰规则。
-  DriftDecorationRuleStore? decorationRuleStore(String bookId) {
+  DriftDecorationRuleStore? decorationRuleStore(
+    String bookId, {
+    ReaderDecorationImageStore? images,
+  }) {
     final db = _db;
-    return db == null ? null : DriftDecorationRuleStore(db, bookId);
+    return db == null
+        ? null
+        : DriftDecorationRuleStore(
+            db,
+            bookId,
+            images: images ?? ReaderDecorationImages(),
+          );
   }
 
   /// 全库书评存储；内存模式下没有持久化能力时返回 null。

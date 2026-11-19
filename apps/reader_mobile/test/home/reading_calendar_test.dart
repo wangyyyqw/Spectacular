@@ -76,7 +76,100 @@ List<ReadingSession> _fourThenFiveBooks() => [
   _session('3', DateTime(2026, 11, 3, 9), 10),
 ];
 
+List<ReadingSession> _longAndShortSpans() => [
+  for (final day in [17, 18, 19])
+    _session('long', DateTime(2026, 11, day, 9), 5, title: '长条'),
+  for (final day in [17, 18])
+    _session('medium', DateTime(2026, 11, day, 10), 30, title: '两天记录'),
+  _session('short', DateTime(2026, 11, 17, 11), 20, title: '书名很长但只阅读了一天的短条记录'),
+  _session('later', DateTime(2026, 11, 19, 12), 30, title: '后一天短条'),
+];
+
 void main() {
+  test('周内条带按跨日长度从上到下排列，不按书名长度或单日时长排列', () {
+    final month = _month(_longAndShortSpans(), _now);
+    final spans = month.spansForWeek(2);
+    final longest = spans.singleWhere((span) => span.bookId == 'long');
+    final medium = spans.singleWhere((span) => span.bookId == 'medium');
+    final shortest = spans.singleWhere((span) => span.bookId == 'short');
+    final later = spans.singleWhere((span) => span.bookId == 'later');
+    expect((longest.firstColumn, longest.lastColumn, longest.lane), (2, 4, 0));
+    expect(medium.lane, 1);
+    expect(shortest.lane, 2);
+    expect(later.lane, 1);
+    expect(spans.length, 4);
+    expect(month.spansForWeek(0), isEmpty);
+  });
+
+  test('交错条带优先放长条，四行内完整显示且不重叠、不拆断', () {
+    const intervals = [
+      (3, 5),
+      (0, 1),
+      (0, 1),
+      (1, 2),
+      (2, 3),
+      (2, 3),
+      (2, 3),
+      (4, 5),
+      (5, 6),
+      (5, 6),
+      (1, 1),
+      (4, 4),
+      (6, 6),
+      (6, 6),
+    ];
+    final month = _month([
+      for (var index = 0; index < intervals.length; index++)
+        for (
+          var column = intervals[index].$1;
+          column <= intervals[index].$2;
+          column++
+        )
+          _session('$index', DateTime(2026, 11, column + 1, 9), 10),
+    ], _now);
+    final spans = month.spansForWeek(0);
+    expect(spans.length, intervals.length);
+    expect(spans.singleWhere((span) => span.bookId == '0').lane, 0);
+    for (final span in spans) {
+      expect((
+        span.firstColumn,
+        span.lastColumn,
+      ), intervals[int.parse(span.bookId)]);
+      expect(span.lane, inInclusiveRange(0, 3));
+    }
+    for (var column = 0; column < 7; column++) {
+      final active = spans.where(
+        (span) => span.firstColumn <= column && span.lastColumn >= column,
+      );
+      expect(active.map((span) => span.lane).toSet().length, active.length);
+      expect(active.length, month.days[DateTime(2026, 11, column + 1)]!.length);
+    }
+  });
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('窄屏字号 $scale 倍长条在上短条在下，连续范围保持完整', (tester) async {
+      await _pump(
+        tester,
+        _longAndShortSpans(),
+        width: 320,
+        scale: scale,
+        now: DateTime(2026, 11, 19),
+      );
+      final longest = tester.getRect(_key('bar-2-long-2'));
+      final medium = tester.getRect(_key('bar-2-medium-2'));
+      final shortest = tester.getRect(_key('bar-2-short-2'));
+      final firstDay = tester.getRect(_key('day-2026-11-17'));
+      final lastDay = tester.getRect(_key('day-2026-11-19'));
+      expect(longest.bottom, lessThan(medium.top));
+      expect(medium.bottom, lessThan(shortest.top));
+      expect(longest.width, greaterThan(medium.width));
+      expect(medium.width, greaterThan(shortest.width));
+      expect(longest.left, greaterThan(firstDay.left));
+      expect(longest.right, lessThan(lastDay.right));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   test('日历按自然日跨月分摊，同名书分开且书架名称优先', () {
     final sessions = [
       _session('a', DateTime(2026, 10, 31, 23, 50), 20, title: '旧名称'),
@@ -202,7 +295,7 @@ void main() {
     final preview = tester.widget<Text>(find.text(visibleTitle));
     expect(preview.maxLines, 1);
     expect(preview.overflow, TextOverflow.ellipsis);
-    expect(find.text('+2'), findsOneWidget);
+    expect(find.text('+2'), findsNothing);
     expect(find.text(title), findsNothing);
     await _tap(tester, 'day-2026-11-15');
     expect(find.text('6 本书 · 合计 1 小时'), findsOneWidget);
@@ -224,29 +317,27 @@ void main() {
   });
 
   for (final scale in [1.0, 2.0]) {
-    testWidgets('五本显示四条，字号 $scale 倍时右下角的 +1 不重叠', (tester) async {
+    testWidgets('五本仅显示四条且不显示 +n，字号 $scale 倍时日期居中', (tester) async {
       await _pump(tester, _fourThenFiveBooks(), width: 320, scale: scale);
-      expect(_key('more-2026-11-1'), findsNothing);
       for (var id = 0; id < 4; id++) {
         expect(_key('bar-0-$id-0'), findsOneWidget);
       }
-      expect(find.text('+1'), findsOneWidget);
+      expect(find.textContaining(RegExp(r'^\+\d+$')), findsNothing);
       final fourth = tester.getRect(_key('bar-0-3-0'));
       final firstNumber = tester.getRect(_key('number-2026-11-1'));
       expect(fourth.bottom, lessThan(firstNumber.top));
-      final overflow = tester.getRect(_key('more-2026-11-2'));
       final secondDay = tester.getRect(_key('day-2026-11-2'));
-      final secondNumber = tester.getRect(_key('number-2026-11-2'));
       expect(fourth.right, greaterThan(secondDay.center.dx));
-      expect(overflow.top, greaterThan(fourth.bottom));
-      expect(overflow.overlaps(secondNumber), isFalse);
-      expect(
-        overflow.right,
-        inInclusiveRange(secondDay.center.dx, secondDay.right),
-      );
-      expect(overflow.bottom, lessThan(secondDay.bottom));
-      await _tap(tester, 'day-2026-11-1');
-      expect(find.text('4 本书 · 合计 1 小时 40 分'), findsOneWidget);
+      for (var day = 1; day <= 30; day++) {
+        final number = _key('number-2026-11-$day');
+        expect(tester.widget<Text>(number).textAlign, TextAlign.center);
+        expect(
+          tester.getCenter(number).dx,
+          tester.getCenter(_key('day-2026-11-$day')).dx,
+        );
+      }
+      await _tap(tester, 'day-2026-11-2');
+      expect(find.text('5 本书 · 合计 2 小时 30 分'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -353,7 +444,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('圆角边框包住完整日历，今天使用浅色背景', (tester) async {
+  testWidgets('日历保留圆角外框，日期格子无边框或底色，今天深色加粗', (tester) async {
     await _pump(tester, []);
     final frame = tester.widget<Material>(
       find.byKey(const ValueKey('stats-reading-calendar')),
@@ -364,24 +455,24 @@ void main() {
     expect(frame.clipBehavior, Clip.antiAlias);
     final context = tester.element(_key('day-2026-11-15'));
     final scheme = Theme.of(context).colorScheme;
-    BoxDecoration background(String day) =>
-        tester
-                .widget<DecoratedBox>(
-                  find.descendant(
-                    of: _key('day-$day'),
-                    matching: find.byType(DecoratedBox),
-                  ),
-                )
-                .decoration
-            as BoxDecoration;
-    expect(
-      background('2026-11-15').color,
-      scheme.primary.withValues(alpha: .06),
-    );
-    expect(background('2026-11-14').color, isNull);
-    expect(background('2026-11-16').color, isNull);
-    expect(background('2026-11-15').border, background('2026-11-14').border);
-    expect(background('2026-11-15').border, background('2026-11-16').border);
+    final todayNumber = tester.widget<Text>(_key('number-2026-11-15'));
+    expect(todayNumber.style!.fontWeight, FontWeight.w700);
+    expect(todayNumber.style!.color, scheme.onSurface);
+    final pastNumber = tester.widget<Text>(_key('number-2026-11-14'));
+    expect(pastNumber.style!.fontWeight, FontWeight.w400);
+    expect(pastNumber.style!.color, scheme.onSurfaceVariant);
+    final futureNumber = tester.widget<Text>(_key('number-2026-11-16'));
+    expect(futureNumber.style!.fontWeight, FontWeight.w400);
+    expect(futureNumber.style!.color, scheme.outline);
+    for (var day = 1; day <= 30; day++) {
+      expect(
+        find.descendant(
+          of: _key('day-2026-11-$day'),
+          matching: find.byType(DecoratedBox),
+        ),
+        findsNothing,
+      );
+    }
     final title = tester.getRect(_key('month'));
     final previous = tester.getRect(_key('previous'));
     final next = tester.getRect(_key('next'));
@@ -391,6 +482,34 @@ void main() {
     expect(next.center.dy, today.center.dy);
     expect(next.right, lessThan(today.left));
     expect(today.width, greaterThanOrEqualTo(44));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('查看过去日期和今天的明细后，关闭面板不留下底色或选中状态', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _pump(tester, [
+      _session('a', DateTime(2026, 11, 14, 9), 20),
+      _session('b', DateTime(2026, 11, 15, 9), 30),
+    ]);
+    for (final day in [14, 15]) {
+      await _tap(tester, 'day-2026-11-$day');
+      expect(find.text('2026-11-$day'), findsOneWidget);
+      expect(find.byType(BottomSheet), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      final cell = _key('day-2026-11-$day');
+      expect(
+        find.descendant(of: cell, matching: find.byType(DecoratedBox)),
+        findsNothing,
+      );
+      expect(
+        tester.getSemantics(cell).flagsCollection.isSelected.toBoolOrNull(),
+        isNull,
+      );
+      expect(find.text('2 天阅读 · 2 本 · 50 分钟'), findsOneWidget);
+    }
+    semantics.dispose();
     expect(tester.takeException(), isNull);
   });
 

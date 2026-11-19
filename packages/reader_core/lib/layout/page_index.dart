@@ -10,6 +10,7 @@
 library;
 
 import 'dart:collection';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'paginator.dart';
@@ -424,8 +425,13 @@ class _IndexReplayPage {
             entry.topPadding -
             used -
             (height - block.trailingExtent + edges.bottomTrim);
-        final adjustment =
-            block.trailingExtentForPage(remaining) - block.trailingExtent;
+        final trailing =
+            trimTextEdges &&
+                bi == end.block &&
+                block.canTrimTextEdgesAt(stop - 1)
+            ? block.bottomInset + math.min(0.0, block.spaceAfter)
+            : block.trailingExtentForPage(remaining);
+        final adjustment = trailing - block.trailingExtent;
         height += adjustment;
         edges = (
           leading: edges.leading,
@@ -448,11 +454,20 @@ class _IndexReplayPage {
     final bottomTrim = trimTextEdges && range.block == end.block
         ? block.textEdgesAt(range.stop - 1).bottom
         : 0.0;
+    final paragraphSpacing =
+        trimTextEdges &&
+            slices.isEmpty &&
+            entry.topPadding >= 0 &&
+            range.start == 0 &&
+            block.canTrimTextEdgesAt(range.start)
+        ? math.max(0.0, block.spaceBefore)
+        : 0.0;
     return (
       leading:
           (range.start == 0 ? block.leadingExtent : 0.0) +
           (slices.isEmpty ? block.containerTopInset(range.start) : 0.0) -
-          topTrim,
+          topTrim -
+          paragraphSpacing,
       trailing:
           (range.stop == block.layout.lineCount ? block.trailingExtent : 0.0) +
           (range.block == end.block

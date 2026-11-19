@@ -27,13 +27,19 @@ class ReaderDecorationRange {
 /// 一行内合并后的装饰盒。
 class ReaderDecorationBox {
   /// 创建盒。
-  const ReaderDecorationBox({required this.range, required this.style});
+  const ReaderDecorationBox({
+    required this.range,
+    required this.style,
+    this.highlightSource,
+  });
 
   /// 原文行片段。
   final ReaderRangeLine range;
 
   /// 已按后者覆盖前者合并的属性。
   final ReaderDecorationStyle style;
+
+  final ReaderDecorationRange? highlightSource;
 
   /// 绘制内边距不参与断行，垂直扩展不得越过行距余量或 8dp。
   List<Rect> get rects => [
@@ -63,7 +69,8 @@ abstract final class ReaderDecorationGeometry {
     List<ReaderDecorationRange> decorations, {
     PageBlockSlice? slice,
   }) {
-    final ranges = <(ReaderRangeLine, ReaderDecorationStyle)>[];
+    if (decorations.isEmpty) return const [];
+    final ranges = <(ReaderRangeLine, ReaderDecorationRange)>[];
     for (final decoration in decorations) {
       for (final range in ReaderTextRangeGeometry.linesFor(
         page,
@@ -71,7 +78,7 @@ abstract final class ReaderDecorationGeometry {
         endCfi: decoration.endCfi,
         slice: slice,
       )) {
-        ranges.add((range, decoration.style));
+        ranges.add((range, decoration));
       }
     }
     final result = <ReaderDecorationBox>[];
@@ -91,7 +98,7 @@ abstract final class ReaderDecorationGeometry {
 
   static List<ReaderDecorationBox> _splitLine(
     PageLineBox line,
-    List<(ReaderRangeLine, ReaderDecorationStyle)> matches,
+    List<(ReaderRangeLine, ReaderDecorationRange)> matches,
   ) {
     final boundaries = <int>{};
     for (final item in matches) {
@@ -105,9 +112,11 @@ abstract final class ReaderDecorationGeometry {
       final start = ordered[index];
       final end = ordered[index + 1];
       ReaderDecorationStyle? style;
+      ReaderDecorationRange? highlightSource;
       for (final match in matches) {
         if (match.$1.start <= start && match.$1.end >= end) {
-          style = style == null ? match.$2 : style.merge(match.$2);
+          style = style == null ? match.$2.style : style.merge(match.$2.style);
+          if (match.$2.style.highlight != null) highlightSource = match.$2;
         }
       }
       if (style == null) continue;
@@ -115,6 +124,7 @@ abstract final class ReaderDecorationGeometry {
         ReaderDecorationBox(
           range: ReaderRangeLine(line: line, start: start, end: end),
           style: style,
+          highlightSource: highlightSource,
         ),
       );
     }

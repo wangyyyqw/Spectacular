@@ -589,16 +589,42 @@ class PageBlock {
 
   /// 只回收普通文字的行高留白，保留装饰盒、图片和特殊基线的完整几何。
   PageTextEdges textEdgesAt(int lineIndex) {
+    if (!canTrimTextEdgesAt(lineIndex)) return const PageTextEdges();
+    return textLineEdges(layout, layout.lines[lineIndex], style!);
+  }
+
+  /// 按当前行判断裁边，段内其他行的脚注图片或上下标不影响本行。
+  bool canTrimTextEdgesAt(int lineIndex) {
     final computed = style;
     if (computed == null || !_canTrimTextEdges(computed)) {
-      return const PageTextEdges();
+      return false;
     }
     final line = layout.lines[lineIndex];
-    if (line.inlineBoxes.isNotEmpty ||
-        layout.text.substring(line.start, line.end).trim().isEmpty) {
-      return const PageTextEdges();
-    }
-    return textLineEdges(layout, line, computed);
+    return !(line.inlineBoxes.any((box) => !box.spec.replacesPlaceholder) ||
+        layout.text
+            .substring(line.start, line.end)
+            .replaceAll('\uFFFC', '')
+            .trim()
+            .isEmpty ||
+        inlineImages.any(
+          (image) =>
+              image.offset >= line.start &&
+              image.offset < line.end &&
+              !line.inlineBoxes.any(
+                (box) =>
+                    box.offset == image.offset && box.spec.replacesPlaceholder,
+              ),
+        ) ||
+        (rubies?.any(
+              (ruby) => ruby.end > line.start && ruby.start < line.end,
+            ) ??
+            false) ||
+        layout.runs.any(
+          (run) =>
+              run.end > line.start &&
+              run.start < line.end &&
+              (run.baselineShift != 0 || _hasTextEdgeDecoration(run.style)),
+        ));
   }
 
   bool _canTrimTextEdges(ComputedStyle computed) =>
@@ -618,11 +644,7 @@ class PageBlock {
           bleedLeft ||
           bleedRight ||
           listMarker != null ||
-          inlineImages.isNotEmpty ||
-          (rubies?.isNotEmpty ?? false) ||
-          layout.runs.any((run) => run.baselineShift != 0) ||
           _hasTextEdgeDecoration(computed) ||
-          layout.runs.any((run) => _hasTextEdgeDecoration(run.style)) ||
           containers.any(
             (fragment) => fragment.container.isPageRoot
                 ? fragment.container.topDecoration > 0 ||
@@ -1003,14 +1025,17 @@ class PageBlockSlice {
     textBottomTrim: textBottomTrim,
   );
 
-  /// 收页时回收末行下方留白，不改变其它行的绘制原点。
-  PageBlockSlice withTextBottomTrim(double extent) => PageBlockSlice(
+  /// 收页时回收末行下方的行高与段距，不改变其它行的绘制原点。
+  PageBlockSlice withTextBottomTrim(
+    double extent, {
+    double paragraphSpacing = 0,
+  }) => PageBlockSlice(
     block: block,
     startLine: startLine,
     endLine: endLine,
-    height: height - extent,
+    height: height - extent - paragraphSpacing,
     leadingExtent: leadingExtent,
-    trailingExtent: trailingExtent - extent,
+    trailingExtent: trailingExtent - extent - paragraphSpacing,
     leftInset: leftInset,
     overlay: overlay,
     absoluteTop: absoluteTop,
@@ -1185,7 +1210,7 @@ class Paginator {
     this.trimTextEdges = false,
   });
 
-  /// 阅读模式：页首、页尾不计行高留白；默认保留 CSS 完整行盒。
+  /// 阅读模式：普通正文页首、页尾不计段距和行高留白。
   final bool trimTextEdges;
 
   /// 页高。
@@ -2474,10 +2499,20 @@ class Paginator {
         ? block.textEdgesAt(startLine).top
         : 0;
 
-    double leadingOf(PageBlock block, int startLine) =>
-        (startLine == 0 ? block.leadingExtent : 0) +
-        (slices.isEmpty ? block.containerTopInset(startLine) : 0) -
-        topCredit(block, startLine);
+    double leadingOf(PageBlock block, int startLine) {
+      final paragraphSpacing =
+          trimTextEdges &&
+              slices.isEmpty &&
+              startLine == 0 &&
+              !(firstPage && topPadding < 0) &&
+              block.canTrimTextEdgesAt(startLine)
+          ? math.max(0.0, block.spaceBefore)
+          : 0.0;
+      return (startLine == 0 ? block.leadingExtent : 0) +
+          (slices.isEmpty ? block.containerTopInset(startLine) : 0) -
+          topCredit(block, startLine) -
+          paragraphSpacing;
+    }
 
     double bottomCredit(PageBlock block, int endLine) =>
         trimTextEdges && endLine > 0
@@ -2517,14 +2552,24 @@ class Paginator {
       if (lastFlow >= 0) {
         final last = slices[lastFlow];
         final decoration = last.block.containerBottomInset(last.endLine);
+        final paragraphSpacing =
+            trimTextEdges &&
+                last.endLine > 0 &&
+                !last.continuesAfter &&
+                last.block.canTrimTextEdgesAt(last.endLine - 1)
+            ? math.max(0.0, last.trailingExtent - last.block.bottomInset)
+            : 0.0;
         if (decoration > 0) {
           slices[lastFlow] = last.withBottomDecoration(decoration);
           used += decoration;
         }
         final credit = bottomCredit(last.block, last.endLine);
-        if (credit > 0) {
-          slices[lastFlow] = slices[lastFlow].withTextBottomTrim(credit);
-          used -= credit;
+        if (credit > 0 || paragraphSpacing > 0) {
+          slices[lastFlow] = slices[lastFlow].withTextBottomTrim(
+            credit,
+            paragraphSpacing: paragraphSpacing,
+          );
+          used -= credit + paragraphSpacing;
         }
       }
       final page = PageContent(

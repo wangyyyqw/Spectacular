@@ -82,7 +82,7 @@ class ReadingCalendarMonth {
   DateTime dateAt(int week, int column) =>
       DateTime(start.year, start.month, week * 7 + column - offset + 1);
 
-  /// 单日保留阅读时长最多的四本，连续日期尽量沿用原行。
+  /// 单日保留阅读时长最多的四本，连续条带按跨度优先排在上方。
   List<ReadingCalendarSpan> spansForWeek(int week) {
     final spans = <ReadingCalendarSpan>[];
     var previous = <String, ReadingCalendarSpan>{};
@@ -98,8 +98,62 @@ class ReadingCalendarMonth {
       }
       previous = {for (final span in current) span.bookId: span};
     }
-    return spans;
+    return _orderSpans(spans);
   }
+}
+
+List<ReadingCalendarSpan> _orderSpans(List<ReadingCalendarSpan> spans) {
+  final ordered = spans.toList()
+    ..sort((a, b) {
+      final length = (b.lastColumn - b.firstColumn).compareTo(
+        a.lastColumn - a.firstColumn,
+      );
+      if (length != 0) return length;
+      final start = a.firstColumn.compareTo(b.firstColumn);
+      return start != 0 ? start : a.lane.compareTo(b.lane);
+    });
+  final laneCount = spans.fold(
+    0,
+    (count, span) => span.lane >= count ? span.lane + 1 : count,
+  );
+  final lanes = _spanLanes(ordered, laneCount);
+  final laneBySpan = {
+    for (var index = 0; index < ordered.length; index++)
+      ordered[index]: lanes[index],
+  };
+  return [
+    for (final span in spans)
+      ReadingCalendarSpan(
+        bookId: span.bookId,
+        title: span.title,
+        firstColumn: span.firstColumn,
+        lastColumn: span.lastColumn,
+        lane: laneBySpan[span]!,
+      ),
+  ];
+}
+
+List<int> _spanLanes(List<ReadingCalendarSpan> spans, int laneCount) {
+  final occupied = List.filled(laneCount, 0);
+  final lanes = List.filled(spans.length, 0);
+  bool assign(int index) {
+    if (index == spans.length) return true;
+    final span = spans[index];
+    final mask =
+        ((1 << (span.lastColumn - span.firstColumn + 1)) - 1) <<
+        span.firstColumn;
+    for (var lane = 0; lane < laneCount; lane++) {
+      if (occupied[lane] & mask != 0) continue;
+      occupied[lane] |= mask;
+      lanes[index] = lane;
+      if (assign(index + 1)) return true;
+      occupied[lane] ^= mask;
+    }
+    return false;
+  }
+
+  assign(0);
+  return lanes;
 }
 
 List<BookDurationEntry> _entries(

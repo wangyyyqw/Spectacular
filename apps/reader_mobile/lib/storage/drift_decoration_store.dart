@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart';
@@ -9,6 +8,7 @@ import 'package:reader_ui/decorations/decoration_image_store.dart';
 
 import '../library/revision_anchor_store.dart';
 import 'db.dart';
+import 'decoration_image_cleanup.dart';
 
 /// 使用书籍版本绑定保存装饰；同一原文区间更新原记录。
 class DriftDecorationStore implements ReaderDecorationStore {
@@ -98,7 +98,7 @@ class DriftDecorationStore implements ReaderDecorationStore {
       )..where((table) => table.id.equals(id))).getSingle();
     });
     if (result == null) return null;
-    await _cleanImages();
+    await cleanDecorationImages(_db, images);
     return _toDecoration(result);
   }
 
@@ -117,7 +117,7 @@ class DriftDecorationStore implements ReaderDecorationStore {
             ),
           );
     });
-    await _cleanImages();
+    await cleanDecorationImages(_db, images);
   }
 
   @override
@@ -130,7 +130,7 @@ class DriftDecorationStore implements ReaderDecorationStore {
           ))
           .go();
     });
-    await _cleanImages();
+    await cleanDecorationImages(_db, images);
   }
 
   @override
@@ -204,24 +204,6 @@ class DriftDecorationStore implements ReaderDecorationStore {
             status: 'pending',
             reason: '原引用与当前位置文字不一致',
           );
-  }
-
-  Future<void> _cleanImages() async {
-    final imageStore = images;
-    if (imageStore == null) return;
-    await _db.transaction(() async {
-      final rows = await _db.select(_db.decorations).get();
-      final paths = {
-        for (final row in rows)
-          if (_style(row.styleJson).backgroundImagePath case final String path)
-            path,
-      };
-      try {
-        await imageStore.removeUnused(paths);
-      } on FileSystemException {
-        return;
-      }
-    });
   }
 
   ReaderDecorationStyle _style(String raw) {

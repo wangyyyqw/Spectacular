@@ -22,7 +22,8 @@ extension _ReaderDecorationController on _ReaderPageState {
         ReaderTextOverlay(
           startCfi: match.startCfi,
           endCfi: match.endCfi,
-          color: match.style.color,
+          color: match.style.decorationStyle.textColor,
+          colorOpacity: match.style.decorationStyle.textColorOpacity,
         ),
     for (final decoration in _orderedManualDecorations)
       _manualTextOverlay(decoration),
@@ -53,7 +54,8 @@ extension _ReaderDecorationController on _ReaderPageState {
       fontWeight: style.fontWeight,
       italic: style.italic,
       letterSpacingEm: style.letterSpacingEm,
-      color: style.color,
+      color: style.textColor,
+      colorOpacity: style.textColorOpacity,
     );
   }
 
@@ -80,11 +82,8 @@ extension _ReaderDecorationController on _ReaderPageState {
     PageBlockSlice slice,
   ) {
     final ranges = _decorationRangesFor(page);
-    for (final box in ReaderDecorationGeometry.boxesFor(
-      page,
-      ranges,
-      slice: slice,
-    )) {
+    final boxes = ReaderDecorationGeometry.boxesFor(page, ranges, slice: slice);
+    for (final box in boxes) {
       for (final rect in box.rects) {
         ReaderDecorationPainter.paintBox(
           canvas,
@@ -95,6 +94,12 @@ extension _ReaderDecorationController on _ReaderPageState {
         );
       }
     }
+    ReaderDecorationPainter.paintHighlights(
+      canvas,
+      boxes,
+      foreground: false,
+      inkMode: _inkMode,
+    );
     if (!_inkMode) {
       ReaderAnnotationPainting.paintBackgrounds(
         canvas,
@@ -104,6 +109,17 @@ extension _ReaderDecorationController on _ReaderPageState {
         slice: slice,
       );
     }
+  }
+
+  void _paintDecorationHighlights(Canvas canvas, PageContent page) {
+    final ranges = _decorationRangesFor(page);
+    if (!ranges.any((range) => range.style.highlight != null)) return;
+    ReaderDecorationPainter.paintHighlights(
+      canvas,
+      ReaderDecorationGeometry.boxesFor(page, ranges),
+      foreground: true,
+      inkMode: _inkMode,
+    );
   }
 
   bool _currentDecorationRequest(int generation) =>
@@ -474,6 +490,12 @@ extension _ReaderDecorationController on _ReaderPageState {
       for (final decoration in _orderedManualDecorations)
         if (decoration.style.backgroundImagePath != null)
           decoration.style.backgroundImagePath!,
+      for (final rule in ReaderDecorationRuleEngine.orderedRules(
+        groups: _decorationGroups,
+        rules: _decorationRules,
+        bookId: widget.bookId,
+      ))
+        ?rule.style.backgroundImagePath,
     };
     for (final path in _decorationImages.keys.toList()) {
       if (!paths.contains(path)) _decorationImages.remove(path)?.dispose();

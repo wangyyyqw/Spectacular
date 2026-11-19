@@ -30,7 +30,6 @@ class ReadingCalendar extends StatefulWidget {
 class _ReadingCalendarState extends State<ReadingCalendar>
     with AutomaticKeepAliveClientMixin<ReadingCalendar> {
   DateTime? _month;
-  DateTime? _selectedDate;
 
   DateTime get _today {
     final now = widget.now ?? DateTime.now();
@@ -45,7 +44,6 @@ class _ReadingCalendarState extends State<ReadingCalendar>
 
   void _showMonth(DateTime month) => setState(() {
     _month = month == _currentMonth ? null : month;
-    _selectedDate = null;
   });
 
   void _shiftMonth(int offset) =>
@@ -63,7 +61,6 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   }
 
   void _openDay(ReadingCalendarMonth month, DateTime date) {
-    setState(() => _selectedDate = date);
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
@@ -217,7 +214,6 @@ class _ReadingCalendarState extends State<ReadingCalendar>
           month: month,
           week: week,
           today: _today,
-          selected: _selectedDate,
           onOpen: _openDay,
         ),
     ],
@@ -253,14 +249,12 @@ class _CalendarWeek extends StatelessWidget {
     required this.month,
     required this.week,
     required this.today,
-    required this.selected,
     required this.onOpen,
   });
 
   final ReadingCalendarMonth month;
   final int week;
   final DateTime today;
-  final DateTime? selected;
   final void Function(ReadingCalendarMonth month, DateTime date) onOpen;
 
   @override
@@ -278,7 +272,7 @@ class _CalendarWeek extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (var column = 0; column < 7; column++)
-                Expanded(child: _cell(context, column)),
+                Expanded(child: _cell(column)),
             ],
           ),
         ),
@@ -378,31 +372,19 @@ class _CalendarWeek extends StatelessWidget {
     );
   }
 
-  Widget _cell(BuildContext context, int column) {
+  Widget _cell(int column) {
     final date = month.dateAt(week, column);
     if (date.month != month.start.month) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
     final books = month.days[date] ?? const <BookDurationEntry>[];
     final enabled = !date.isAfter(today);
-    final isToday = date == today;
     return Semantics(
       label:
           '${date.month}月${date.day}日，'
           '${books.isEmpty ? '暂无阅读记录' : '${books.length} 本书'}',
-      selected: date == selected,
       child: InkWell(
         key: ValueKey('stats-calendar-day-${_dateKey(date)}'),
         onTap: enabled ? () => onOpen(month, date) : null,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: date == selected
-                ? scheme.surfaceContainerHighest
-                : isToday
-                ? scheme.primary.withValues(alpha: 0.06)
-                : null,
-            border: Border.all(color: scheme.outlineVariant, width: 0.5),
-          ),
-        ),
+        child: const SizedBox.expand(),
       ),
     );
   }
@@ -410,68 +392,28 @@ class _CalendarWeek extends StatelessWidget {
   Widget _dayLabel(BuildContext context, int column) {
     final date = month.dateAt(week, column);
     if (date.month != month.start.month) return const SizedBox.shrink();
-    final extra =
-        (month.days[date]?.length ?? 0) - ReadingCalendarMonth.maxVisibleBooks;
-    final number = _dayNumber(context, date);
-    final more = _extraBooks(context, date, extra);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(5, 2, 5, 4),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final scale = MediaQuery.textScalerOf(context).scale(11) / 11;
-          if (more != null && constraints.maxWidth < 34 * scale) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Align(alignment: Alignment.centerLeft, child: number),
-                Align(alignment: Alignment.centerRight, child: more),
-              ],
-            );
-          }
-          return Stack(
-            children: [
-              Align(alignment: Alignment.centerLeft, child: number),
-              if (more != null)
-                Align(alignment: Alignment.centerRight, child: more),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _dayNumber(BuildContext context, DateTime date) {
     final scheme = Theme.of(context).colorScheme;
     final isToday = date == today;
-    return Text(
-      '${date.day}',
-      key: ValueKey('stats-calendar-number-${_dateKey(date)}'),
-      style: TextStyle(
-        fontSize: 11,
-        height: 1.2,
-        fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-        fontFeatures: const [FontFeature.tabularFigures()],
-        color: isToday
-            ? scheme.primary
-            : date.isAfter(today)
-            ? scheme.outline
-            : scheme.onSurfaceVariant,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(5, 2, 5, 4),
+      child: Text(
+        '${date.day}',
+        key: ValueKey('stats-calendar-number-${_dateKey(date)}'),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 11,
+          height: 1.2,
+          fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
+          fontFeatures: const [FontFeature.tabularFigures()],
+          color: isToday
+              ? scheme.onSurface
+              : date.isAfter(today)
+              ? scheme.outline
+              : scheme.onSurfaceVariant,
+        ),
       ),
     );
   }
-
-  Widget? _extraBooks(BuildContext context, DateTime date, int extra) =>
-      extra > 0
-      ? Text(
-          '+$extra',
-          key: ValueKey('stats-calendar-more-${_dateKey(date)}'),
-          style: TextStyle(
-            fontSize: 10,
-            height: 1.2,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        )
-      : null;
 }
 
 class _CalendarDaySheet extends StatelessWidget {
