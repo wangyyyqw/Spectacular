@@ -6,7 +6,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_mobile/book_source/book_source_http_client.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
+import 'package:reader_mobile/book_source/book_source_script.dart';
 import 'package:reader_mobile/book_source/book_source_service.dart';
+
+import 'book_source_test_helpers.dart';
 
 const _source = BookSource(
   id: 'source-1',
@@ -108,5 +111,169 @@ void main() {
       await service.loadCover(_source, 'data:text/plain;base64,AAAA'),
       isNull,
     );
+  });
+
+  test('详情 init 规则先收窄根节点', () async {
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          return http.Response(
+            '{"data":{"book_name":"详情名","author":"详情作者"}}',
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      ),
+      scriptFactory: fakeScriptFactory(
+        FakeBookSourceScriptSession((code, result, variables, session) => ''),
+      ),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'init-source',
+      name: '详情源',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search',
+      search: BookListRule(),
+      bookInfo: BookInfoRule(init: 'data', name: 'book_name', author: 'author'),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+
+    final info = await service.loadBookInfo(
+      source,
+      const OnlineBook(
+        sourceId: 'init-source',
+        sourceName: '详情源',
+        name: '搜索名',
+        author: '',
+        bookUrl: 'https://example.com/book/1',
+      ),
+    );
+
+    expect(info.name, '详情名');
+    expect(info.author, '详情作者');
+  });
+
+  test('data URL 章节地址交给正文脚本并只请求一次接口', () async {
+    late FakeBookSourceScriptSession session;
+    var requests = 0;
+    session = FakeBookSourceScriptSession((code, result, variables, current) {
+      expect(result, '12345');
+      if (!current.responses.containsKey('content:12345')) {
+        current.addPending(
+          const BookSourcePendingRequest(
+            key: 'content:12345',
+            method: 'GET',
+            url: 'https://example.com/content?item_id=12345',
+          ),
+        );
+        return '';
+      }
+      return '<article><p>正文内容</p></article>';
+    });
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          requests += 1;
+          expect(request.url.queryParameters['item_id'], '12345');
+          return http.Response('{"data":{"content":"ok"}}', 200);
+        }),
+      ),
+      scriptFactory: fakeScriptFactory(session),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'data-url-source',
+      name: 'data URL 源',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search',
+      search: BookListRule(),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(content: '<js>result = getContent(result);</js>'),
+    );
+    final chapter = OnlineChapter(
+      index: 0,
+      title: '第一章',
+      url: 'data:;base64,${base64Encode(utf8.encode('12345'))}',
+    );
+
+    final content = await service.fetchChapterContent(
+      source,
+      chapter,
+      'https://example.com/book/1',
+    );
+
+    expect(content, contains('正文内容'));
+    expect(requests, 1);
+  });
+
+  test('搜索地址 @js 规则使用脚本返回的地址', () async {
+    late Uri requested;
+    final session = FakeBookSourceScriptSession((
+      code,
+      result,
+      variables,
+      current,
+    ) {
+      expect(code, contains('getUrl'));
+      return 'https://example.com/search?q='
+          '${Uri.encodeQueryComponent(variables['key'] ?? '')}';
+    });
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          requested = request.url;
+          return http.Response(
+            '{"ret_data":[{"title":"书","author":"人",'
+            '"book_url":"https://example.com/detail/9"}]}',
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      ),
+      scriptFactory: fakeScriptFactory(session),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'js-search-source',
+      name: 'JS 搜索源',
+      sourceUrl: 'https://example.com',
+      searchUrl: '@js:\nfunction getUrl(key) { return key; }\ngetUrl(key)',
+      search: BookListRule(
+        bookList: '.ret_data[*]',
+        name: 'title',
+        author: 'author',
+        bookUrl: r'$.book_url',
+      ),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+
+    final books = await service.search(source, '测试');
+
+    expect(requested.queryParameters['q'], '测试');
+    expect(books.single.name, '书');
+    expect(books.single.bookUrl, 'https://example.com/detail/9');
+  });
+
+  test('多行 sourceUrl 使用首个 HTTP 地址作为 baseUrl', () {
+    const source = BookSource(
+      id: 'multi-url',
+      name: '多地址源',
+      sourceUrl: 'https://api.example.com##\n说明文字\nhttp://backup.example.com',
+      searchUrl: 'https://api.example.com/search',
+      search: BookListRule(),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+    expect(source.baseUrl, 'https://api.example.com');
   });
 }

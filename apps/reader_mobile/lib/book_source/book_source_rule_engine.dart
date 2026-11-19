@@ -4,6 +4,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import 'book_source_models.dart';
+import 'book_source_script.dart';
 
 /// 规则求值上下文。
 class BookSourceRuleContext {
@@ -32,8 +33,8 @@ class BookSourceRuleContext {
 /// Legado/阅读书源规则的纯 Dart 子集。
 ///
 /// 支持 CSS、JSONPath、regex、`@text/@html/@href/@src/@属性`、`##正则##替换`
-/// 以及 `||`、`&&` 组合。XPath、`@js:` 脚本和网页登录脚本不在本实现范围；
-/// 纯脚本规则会给出明确错误，`<js>...</js>$.xxx` 仅执行尾部 JSONPath。
+/// 以及 `||`、`&&` 组合。`@js:`、`<js>` 与前导规则结果由 QuickJS 会话执行，
+/// 脚本输出可继续接 JSONPath 或模板；XPath 和网页登录流程不在本实现范围。
 class BookSourceRuleEngine {
   const BookSourceRuleEngine();
 
@@ -41,14 +42,15 @@ class BookSourceRuleEngine {
   List<Object> evaluateList(
     Object? root,
     String rawRule,
-    BookSourceRuleContext context,
-  ) {
+    BookSourceRuleContext context, {
+    BookSourceScriptSession? script,
+  }) {
     final rule = rawRule.trim();
     if (rule.isEmpty) return const <Object>[];
     final alternatives = _splitTopLevel(rule, '||');
     if (alternatives.length > 1) {
       for (final alternative in alternatives) {
-        final values = evaluateList(root, alternative, context);
+        final values = evaluateList(root, alternative, context, script: script);
         if (values.isNotEmpty) return values;
       }
       return const <Object>[];
@@ -56,19 +58,21 @@ class BookSourceRuleEngine {
     final combined = _splitTopLevel(rule, '&&');
     if (combined.length > 1) {
       return <Object>[
-        for (final part in combined) ...evaluateList(root, part, context),
+        for (final part in combined)
+          ...evaluateList(root, part, context, script: script),
       ];
     }
-    return _evaluateSingle(root, rule, context);
+    return _evaluateSingle(root, rule, context, script);
   }
 
   /// 求值为首个字符串；列表结果用换行拼接。
   String evaluateString(
     Object? root,
     String rawRule,
-    BookSourceRuleContext context,
-  ) {
-    final values = evaluateList(root, rawRule, context);
+    BookSourceRuleContext context, {
+    BookSourceScriptSession? script,
+  }) {
+    final values = evaluateList(root, rawRule, context, script: script);
     if (values.isEmpty) return '';
     if (values.length == 1) return _valueAsString(values.single);
     return values
@@ -81,10 +85,19 @@ class BookSourceRuleEngine {
   String evaluateHtml(
     Object? root,
     String rawRule,
-    BookSourceRuleContext context,
-  ) {
-    final parsed = _parseRule(rawRule);
-    final values = evaluateList(root, rawRule, context);
+    BookSourceRuleContext context, {
+    BookSourceScriptSession? script,
+  }) {
+    final parsed =
+        _splitScriptRule(rawRule.trim()) == null && !_containsTemplate(rawRule)
+        ? _parseRule(rawRule)
+        : const _ParsedRule(
+            rule: '',
+            mode: null,
+            extractor: '',
+            replacements: <_Replacement>[],
+          );
+    final values = evaluateList(root, rawRule, context, script: script);
     if (values.isEmpty) return '';
     if (parsed.extractor == 'html' || parsed.extractor == 'outerHtml') {
       return values.map(_valueAsString).join();
@@ -134,6 +147,62 @@ class BookSourceRuleEngine {
     Object? root,
     String rule,
     BookSourceRuleContext context,
+    BookSourceScriptSession? script,
+  ) {
+    final text = rule.trim();
+    if (text.isEmpty) return const <Object>[];
+    final parts = _splitScriptRule(text);
+    if (parts != null) {
+      if (script == null) {
+        throw const BookSourceException(
+          '该书源规则依赖 JavaScript，当前版本暂不支持',
+          code: 'ONLINE_RULE_JS',
+        );
+      }
+      final leading = parts.leading.trim();
+      final inputs = leading.isEmpty
+          ? <Object?>[root]
+          : _evaluateSingle(root, leading, context, script);
+      final output = <Object>[];
+      for (final input in inputs) {
+        final evaluated = script
+            .evaluate(
+              parts.script,
+              result: _valueAsString(input, normalize: false),
+              variables: context.variables,
+              resolveString: (path) =>
+                  _evaluatePlainString(root, path, context),
+              resolveList: (path) => _evaluatePlainList(root, path, context),
+            )
+            .trim();
+        if (evaluated.isEmpty) continue;
+        if (parts.trailing.isNotEmpty) {
+          output.addAll(
+            _evaluatePlain(
+              _parseScriptOutput(evaluated),
+              parts.trailing,
+              context,
+            ),
+          );
+        } else {
+          output.add(evaluated);
+        }
+      }
+      return output;
+    }
+    if (_containsTemplate(text)) {
+      final rendered = _renderTemplate(text, root, context, script);
+      return rendered == null || rendered.isEmpty
+          ? const <Object>[]
+          : <Object>[rendered];
+    }
+    return _evaluatePlain(root, text, context);
+  }
+
+  List<Object> _evaluatePlain(
+    Object? root,
+    String rule,
+    BookSourceRuleContext context,
   ) {
     final parsed = _parseRule(rule);
     if (parsed.rule.isEmpty) {
@@ -144,7 +213,7 @@ class BookSourceRuleEngine {
 
     final mode =
         parsed.mode ??
-        (_looksLikeJsonPath(parsed.rule) && _isJsonRoot(root)
+        (_isJsonRoot(root) && _looksLikeJsonPath(parsed.rule)
             ? _RuleMode.json
             : _RuleMode.css);
     final List<Object> selected;
@@ -173,6 +242,226 @@ class BookSourceRuleEngine {
     return _applyReplacements(extracted, parsed.replacements);
   }
 
+  String _evaluatePlainString(
+    Object? root,
+    String rule,
+    BookSourceRuleContext context,
+  ) {
+    final values = _evaluatePlain(root, rule, context);
+    if (values.isEmpty) return '';
+    return values
+        .map((value) => _valueAsString(value, normalize: false))
+        .join('\n');
+  }
+
+  List<String> _evaluatePlainList(
+    Object? root,
+    String rule,
+    BookSourceRuleContext context,
+  ) {
+    return <String>[
+      for (final value in _evaluatePlain(root, rule, context))
+        _valueAsString(value, normalize: false),
+    ];
+  }
+
+  bool _containsTemplate(String rule) =>
+      rule.contains('{{') && rule.contains('}}');
+
+  String? _renderTemplate(
+    String template,
+    Object? root,
+    BookSourceRuleContext context,
+    BookSourceScriptSession? script,
+  ) {
+    final matches = RegExp(r'\{\{([\s\S]*?)\}\}').allMatches(template).toList();
+    if (matches.isEmpty) return null;
+    if (script == null) {
+      return _renderTemplatePlain(template, root, context);
+    }
+    final pieces = <String>[];
+    var cursor = 0;
+    for (final match in matches) {
+      if (match.start > cursor) {
+        pieces.add(jsonEncode(template.substring(cursor, match.start)));
+      }
+      final expression = match.group(1)?.trim() ?? '';
+      pieces.add('(${_compileTemplateExpression(expression)})');
+      cursor = match.end;
+    }
+    if (cursor < template.length) {
+      pieces.add(jsonEncode(template.substring(cursor)));
+    }
+    final code = "'' + ${pieces.join(' + ')}";
+    return script.evaluate(
+      code,
+      result: '',
+      variables: context.variables,
+      resolveString: (path) => _evaluatePlainString(root, path, context),
+      resolveList: (path) => _evaluatePlainList(root, path, context),
+    );
+  }
+
+  String _compileTemplateExpression(String expression) {
+    final text = expression.trim();
+    if (text.isEmpty) return "''";
+    if (text.startsWith(r'$') ||
+        text.startsWith('data.') ||
+        text.startsWith('data[') ||
+        text.startsWith('result.') ||
+        text.startsWith('result[')) {
+      return 'java.getString(${jsonEncode(text)})';
+    }
+    if (RegExp(r'^[A-Za-z_$][A-Za-z0-9_$]*$').hasMatch(text)) {
+      if (const <String>{
+        'key',
+        'keyword',
+        'searchKey',
+        'page',
+        'searchPage',
+        'baseUrl',
+        'bookUrl',
+        'tocUrl',
+        'chapterUrl',
+        'title',
+      }.contains(text)) {
+        return text;
+      }
+      return 'java.getString(${jsonEncode(text)})';
+    }
+    return text;
+  }
+
+  String _renderTemplatePlain(
+    String template,
+    Object? root,
+    BookSourceRuleContext context,
+  ) {
+    final buffer = StringBuffer();
+    var cursor = 0;
+    for (final match in RegExp(r'\{\{([\s\S]*?)\}\}').allMatches(template)) {
+      buffer.write(template.substring(cursor, match.start));
+      buffer.write(
+        _evaluatePlainTemplateExpression(
+          match.group(1)?.trim() ?? '',
+          root,
+          context,
+        ),
+      );
+      cursor = match.end;
+    }
+    buffer.write(template.substring(cursor));
+    return buffer.toString();
+  }
+
+  String _evaluatePlainTemplateExpression(
+    String expression,
+    Object? root,
+    BookSourceRuleContext context,
+  ) {
+    if (expression.isEmpty) return '';
+    final variable = context.variables[expression];
+    if (variable != null) return variable;
+    if (expression == 'baseUrl') return context.baseUrl;
+    if (expression.startsWith(r'$') ||
+        expression.startsWith('data.') ||
+        expression.startsWith('data[') ||
+        expression.startsWith('result.') ||
+        expression.startsWith('result[')) {
+      return _evaluatePlainString(root, expression, context);
+    }
+    final getString = RegExp(r'''^java\.getString\(\s*["']([^"']*)["']\s*\)$''')
+        .firstMatch(expression);
+    if (getString != null) {
+      return _evaluatePlainString(root, getString.group(1)!, context);
+    }
+    if ((expression.startsWith("'") && expression.endsWith("'")) ||
+        (expression.startsWith('"') && expression.endsWith('"'))) {
+      return expression.substring(1, expression.length - 1);
+    }
+    final numeric = num.tryParse(expression);
+    if (numeric != null) return '$numeric';
+    throw const BookSourceException(
+      '该书源模板依赖 JavaScript，当前版本暂不支持',
+      code: 'ONLINE_RULE_JS',
+    );
+  }
+
+  ({String leading, String script, String trailing})? _splitScriptRule(
+    String rule,
+  ) {
+    final lower = rule.toLowerCase();
+    final angleStart = lower.indexOf('<js>');
+    if (angleStart >= 0) {
+      final angleEnd = lower.indexOf('</js>', angleStart + 4);
+      if (angleEnd < 0) {
+        return (
+          leading: rule.substring(0, angleStart),
+          script: rule.substring(angleStart + 4),
+          trailing: '',
+        );
+      }
+      return (
+        leading: rule.substring(0, angleStart),
+        script: rule.substring(angleStart + 4, angleEnd),
+        trailing: rule.substring(angleEnd + 5).trim(),
+      );
+    }
+    final index = _topLevelJsIndex(rule);
+    if (index < 0) return null;
+    return (
+      leading: rule.substring(0, index),
+      script: rule.substring(index + 4),
+      trailing: '',
+    );
+  }
+
+  int _topLevelJsIndex(String rule) {
+    final lower = rule.toLowerCase();
+    var quote = '';
+    for (var index = 0; index < rule.length - 3; index++) {
+      final char = rule[index];
+      if (quote.isNotEmpty) {
+        if (char == quote && !_isEscaped(rule, index)) {
+          quote = '';
+        }
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        if (_isEscaped(rule, index)) continue;
+        quote = char;
+        continue;
+      }
+      if (lower.startsWith('@js:', index)) return index;
+    }
+    return -1;
+  }
+
+  bool _isEscaped(String text, int index) {
+    var backslashes = 0;
+    for (
+      var cursor = index - 1;
+      cursor >= 0 && text[cursor] == r'\';
+      cursor--
+    ) {
+      backslashes++;
+    }
+    return backslashes.isOdd;
+  }
+
+  Object? _parseScriptOutput(String value) {
+    final text = value.trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        return jsonDecode(text);
+      } on FormatException {
+        // 非 JSON 字符串继续按文本处理。
+      }
+    }
+    if (text.startsWith('<')) return parseHtml(text);
+    return text;
+  }
+
   _ParsedRule _parseRule(String rawRule) {
     var text = rawRule.trim();
     var mode = _RuleMode.css;
@@ -195,7 +484,6 @@ class BookSourceRuleEngine {
       text = text.substring(7).trim();
     }
 
-    text = _beforeRuleScript(text);
     final replacementParts = text.split('##');
     var selector = replacementParts.isEmpty
         ? ''
@@ -223,27 +511,6 @@ class BookSourceRuleEngine {
       extractor: extractor,
       replacements: replacements,
     );
-  }
-
-  String _beforeRuleScript(String rule) {
-    final lower = rule.toLowerCase();
-    final angleStart = lower.indexOf('<js>');
-    if (angleStart >= 0) {
-      final angleEnd = lower.indexOf('</js>', angleStart + 4);
-      final tail = angleEnd < 0 ? '' : rule.substring(angleEnd + 5).trim();
-      if (tail.startsWith(r'$')) return tail;
-      throw const BookSourceException(
-        '该书源规则依赖 JavaScript，当前版本暂不支持',
-        code: 'ONLINE_RULE_JS',
-      );
-    }
-    if (lower.contains('@js:')) {
-      throw const BookSourceException(
-        '该书源规则依赖 JavaScript，当前版本暂不支持',
-        code: 'ONLINE_RULE_JS',
-      );
-    }
-    return rule;
   }
 
   _AttributeMarker? _lastAttributeMarker(String selector) {
@@ -306,6 +573,8 @@ class BookSourceRuleEngine {
               token.index! >= 0 &&
               token.index! < value.length) {
             next.add(value[token.index!]);
+          } else if (value is Map && token.index == 0) {
+            next.add(value);
           }
         } else if (token.key != null) {
           if (value is Map) next.add(value[token.key!]);
@@ -354,7 +623,12 @@ class BookSourceRuleEngine {
     void flush() {
       final property = buffer.toString().trim();
       buffer = StringBuffer();
-      if (property.isNotEmpty) tokens.add(_JsonToken.property(property));
+      if (property.isEmpty) return;
+      if (property == '*') {
+        tokens.add(const _JsonToken.wildcard());
+      } else {
+        tokens.add(_JsonToken.property(property));
+      }
     }
 
     for (var index = 0; index < path.length; index++) {
@@ -560,13 +834,16 @@ class BookSourceRuleEngine {
     return text.trim();
   }
 
-  String _valueAsString(Object? value) {
+  String _valueAsString(Object? value, {bool normalize = true}) {
     if (value == null) return '';
-    if (value is String) return _normalize(value);
+    if (value is String) return normalize ? _normalize(value) : value.trim();
     if (value is Element) return _normalize(value.text);
     if (value is Document) return _normalize(value.documentElement?.text ?? '');
     if (value is num || value is bool) return '$value';
-    if (value is Map || value is List) return _normalize(jsonEncode(value));
+    if (value is Map || value is List) {
+      final encoded = jsonEncode(value);
+      return normalize ? _normalize(encoded) : encoded;
+    }
     return _normalize('$value');
   }
 
@@ -579,11 +856,18 @@ class BookSourceRuleEngine {
 
   bool _looksLikeJsonPath(String rule) {
     final text = rule.trim();
-    return text.startsWith(r'$') ||
+    if (text.startsWith(r'$') ||
+        text.startsWith('.') ||
+        text.startsWith('[') ||
         text.startsWith('data.') ||
         text.startsWith('data[') ||
         text.startsWith('result.') ||
-        text.startsWith('result[');
+        text.startsWith('result[')) {
+      return true;
+    }
+    return RegExp(
+      r'^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]*\])*$',
+    ).hasMatch(text);
   }
 
   bool _isJsonRoot(Object? root) => root is Map || root is List;
@@ -618,6 +902,7 @@ class BookSourceRuleEngine {
         continue;
       }
       if (inScript) continue;
+      if (lower.startsWith('@js:', index)) break;
       if (char == '[' || char == '(' || char == '{') depth++;
       if (char == ']' || char == ')' || char == '}') depth--;
       if (depth != 0 || !rule.startsWith(separator, index)) continue;

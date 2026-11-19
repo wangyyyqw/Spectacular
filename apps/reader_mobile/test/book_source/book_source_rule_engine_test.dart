@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_rule_engine.dart';
 
+import 'book_source_test_helpers.dart';
+
 void main() {
   const engine = BookSourceRuleEngine();
   const context = BookSourceRuleContext(
@@ -91,17 +93,140 @@ void main() {
       expect(engine.evaluateString(items[1], r'$.url', context), '/b');
     });
 
+    test('裸星号段按通配处理', () {
+      final grouped = <String, Object?>{
+        'data': <String, Object?>{
+          'chapterListWithVolume': <Object?>[
+            <Object?>[
+              <String, Object?>{'title': 'A'},
+            ],
+            <Object?>[
+              <String, Object?>{'title': 'B'},
+            ],
+          ],
+        },
+      };
+      final chapters = engine.evaluateList(
+        grouped,
+        r'$.data.chapterListWithVolume.*[*]',
+        context,
+      );
+      expect(chapters, hasLength(2));
+      expect(engine.evaluateString(chapters[0], 'title', context), 'A');
+      expect(engine.evaluateString(chapters[1], 'title', context), 'B');
+    });
+
     test('递归下降匹配', () {
       final items = engine.evaluateList(json, r'$..book', context);
       expect(items, hasLength(1));
       expect(engine.evaluateString(items.single, r'$.name', context), '深层');
     });
 
-    test('<js> 尾部 JSONPath 可静态执行', () {
+    test('JSON 根节点支持前导点与裸字段', () {
+      final searchJson = <String, Object?>{
+        'ret_data': <Object?>[
+          <String, Object?>{'book_name': 'A', 'author': '甲'},
+        ],
+        'data': <Object?>[
+          <String, Object?>{'book_name': 'B', 'author': '乙'},
+        ],
+      };
+      final items = engine.evaluateList(
+        searchJson,
+        '.ret_data[*]||.data[0]',
+        context,
+      );
+      expect(items, hasLength(1));
+      expect(engine.evaluateString(items.single, 'book_name', context), 'A');
+      expect(engine.evaluateString(items.single, 'author', context), '甲');
+    });
+
+    test('对象根节点可用 [0] 兼容详情接口', () {
+      final detail = <String, Object?>{
+        'data': <String, Object?>{'book_id': '1001', 'book_name': '单本详情'},
+      };
+      final items = engine.evaluateList(
+        detail,
+        '.ret_data[*]||.data[0]',
+        context,
+      );
+      expect(items, hasLength(1));
+      expect(engine.evaluateString(items.single, 'book_name', context), '单本详情');
+      expect(
+        engine.evaluateString(items.single, r'$.book_id', context),
+        '1001',
+      );
+    });
+
+    test('<js> 尾部 JSONPath 在脚本结果上执行', () {
       final rule =
           '<js>var list = data.list || []; result = {data: {list: list}};</js>'
           r'$.data.list[0].name';
-      expect(engine.evaluateString(json, rule, context), 'A');
+      final script = FakeBookSourceScriptSession(
+        (code, result, variables, session) =>
+            '{"data":{"list":[{"name":"A"}]}}',
+      );
+      expect(engine.evaluateString(json, rule, context, script: script), 'A');
+    });
+
+    test('前导规则结果作为脚本的 result', () {
+      final script = FakeBookSourceScriptSession(
+        (code, result, variables, session) => 'url:$result',
+      );
+      expect(
+        engine.evaluateString(
+          <String, Object?>{'itemId': '123'},
+          r'$.itemId'
+          '\n'
+          r'<js>url = result;</js>',
+          context,
+          script: script,
+        ),
+        'url:123',
+      );
+    });
+
+    test('模板中的转义引号不阻断 @js 后缀', () {
+      final calls = <String>[];
+      final script = FakeBookSourceScriptSession((
+        code,
+        result,
+        variables,
+        session,
+      ) {
+        calls.add(code);
+        return code.contains('result.replace') ? '已清理' : '前缀';
+      });
+      final value = engine.evaluateString(
+        <String, Object?>{'roles': 'A|B'},
+        r'''{{$.roles##[\"|]##}}@js:result.replace('前缀','已清理')''',
+        context,
+        script: script,
+      );
+      expect(value, '已清理');
+      expect(calls.last, contains('result.replace'));
+    });
+
+    test('模板支持 JSONPath 与上下文字段', () {
+      expect(
+        engine.evaluateString(
+          <String, Object?>{'book_id': 42},
+          r'https://example.com/detail?book_id={{$.book_id}}',
+          context,
+        ),
+        'https://example.com/detail?book_id=42',
+      );
+      expect(
+        engine.evaluateString(
+          <String, Object?>{},
+          'https://example.com/search?q={{key}}',
+          const BookSourceRuleContext(
+            baseUrl: 'https://example.com',
+            variables: <String, String>{'key': 'a b'},
+          ),
+        ),
+        'https://example.com/search?q=a b',
+      );
     });
   });
 

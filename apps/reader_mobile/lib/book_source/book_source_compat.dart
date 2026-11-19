@@ -74,6 +74,26 @@ String cleanOnlineChapterContent(String raw) {
   return raw.replaceAll(RegExp(r'[（(]\s*本[章韋韦]完\s*[）)]'), ' ').trim();
 }
 
+/// 解码简介中的常见 HTML 实体，并收拢模板产生的多余空行。
+String normalizeOnlineIntro(String raw) {
+  final text = raw
+      .replaceAll('\r\n', '\n')
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&lrm;', '')
+      .replaceAll('&rlm;', '')
+      .replaceAll('&#8206;', '')
+      .replaceAll('&#8207;', '')
+      .replaceAll('\u00A0', ' ')
+      .replaceAll(RegExp(r'[ \t]+\n'), '\n')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n');
+  return text.trim();
+}
+
 /// 判断下载到的章节内容是否是可导入的正文；无法使用时返回可读原因。
 String? chapterContentFailureReason(String content) {
   final text = content.trim().replaceFirst('\uFEFF', '').trim();

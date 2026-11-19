@@ -426,9 +426,23 @@ class BookSource {
 
   /// 站点源地址，用于解析相对链接。
   String get baseUrl {
-    final uri = Uri.tryParse(sourceUrl.trim());
-    if (uri == null || !uri.hasScheme) return sourceUrl.trim();
-    return uri.replace(fragment: '', query: '').toString();
+    final text = sourceUrl.trim();
+    final match = RegExp(
+      r'https?://[^\s#]+',
+      caseSensitive: false,
+    ).firstMatch(text);
+    final candidate = match?.group(0) ?? text;
+    final uri = Uri.tryParse(candidate);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return sourceUrl.trim();
+    }
+    return Uri(
+      scheme: uri.scheme,
+      userInfo: uri.userInfo,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+      path: uri.path,
+    ).toString();
   }
 
   /// 创建启用状态或元信息变更后的副本。

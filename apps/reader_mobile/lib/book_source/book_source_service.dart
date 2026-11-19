@@ -9,6 +9,7 @@ import 'book_source_compat.dart';
 import 'book_source_http_client.dart';
 import 'book_source_models.dart';
 import 'book_source_rule_engine.dart';
+import 'book_source_script.dart';
 import 'online_epub_builder.dart';
 
 /// 单个来源的搜索结果或错误。
@@ -47,20 +48,32 @@ typedef OnlineDownloadProgress = void Function(
   String message,
 );
 
+/// 为一次书源操作创建独立 JS 会话。
+typedef BookSourceScriptFactory = BookSourceScriptSession Function(
+  BookSource source,
+);
+
 /// 执行书源搜索、详情、目录、正文与 EPUB 下载。
 class BookSourceService {
   BookSourceService({
     BookSourceHttpClient? httpClient,
     BookSourceRuleEngine ruleEngine = const BookSourceRuleEngine(),
     this.epubBuilder = const OnlineEpubBuilder(),
+    BookSourceScriptFactory? scriptFactory,
   }) : http = httpClient ?? BookSourceHttpClient(),
-       rules = ruleEngine;
+       rules = ruleEngine,
+       scriptFactory = scriptFactory ?? _defaultScriptFactory;
 
   final BookSourceHttpClient http;
   final BookSourceRuleEngine rules;
   final OnlineEpubBuilder epubBuilder;
+  final BookSourceScriptFactory scriptFactory;
   final Map<String, Future<Uint8List?>> _coverCache =
       <String, Future<Uint8List?>>{};
+
+  static BookSourceScriptSession _defaultScriptFactory(BookSource source) {
+    return const QuickJsBookSourceScriptFactory().create(source.jsLib);
+  }
 
   void dispose() => http.close();
 
@@ -128,177 +141,244 @@ class BookSourceService {
     if (!source.canSearch) {
       throw const BookSourceException('该书源未启用或不支持搜索');
     }
-    final url = _searchUrl(source, query, page);
-    final response = await http.fetchText(
-      source,
-      url,
-      options: source.searchOptions,
-      referer: source.baseUrl,
-    );
-    final root = _parseBody(response.body);
-    final context = BookSourceRuleContext(
-      baseUrl: source.baseUrl,
-      pageUrl: response.uri.toString(),
-      variables: <String, String>{
-        'key': query,
-        'searchKey': query,
-        'page': '$page',
-        'searchPage': '$page',
-      },
-    );
-    var nodes = rules.evaluateList(root, source.search.bookList, context);
-    if (nodes.isEmpty && root is List) {
-      nodes = root.whereType<Object>().toList();
-    }
-    if (nodes.isEmpty && root is Document) {
-      return _fallbackHtmlSearch(source, root, query, response.uri.toString());
-    }
-
-    final books = <OnlineBook>[];
-    final seen = <String>{};
-    for (final node in nodes) {
-      final name = _field(node, source.search.name, context).ifBlank(
-        _commonJsonField(node, const <String>['name', 'title', 'bookName']),
+    final script = scriptFactory(source);
+    try {
+      final url = _searchUrl(source, query, page, script);
+      final response = await http.fetchText(
+        source,
+        url,
+        options: source.searchOptions,
+        referer: source.baseUrl,
       );
-      if (name.isEmpty) continue;
-      final bookUrlRule = _field(node, source.search.bookUrl, context);
-      var bookUrl = bookUrlRule;
-      if (bookUrl.isEmpty && node is Element) {
-        bookUrl =
-            node.attributes['href'] ??
-            node.querySelector('a')?.attributes['href'] ??
-            '';
-      }
-      bookUrl = _commonJsonField(node, const <String>[
-        'bookUrl',
-        'url',
-        'detailUrl',
-      ]).ifBlank(bookUrl);
-      final bookRequest = splitBookSourceUrlOptions(bookUrl);
-      final absoluteBookUrl = rules.resolveUrl(
-        context.pageUrl,
-        bookRequest.url,
+      final root = _parseBody(response.body);
+      final context = BookSourceRuleContext(
+        baseUrl: source.baseUrl,
+        pageUrl: response.uri.toString(),
+        variables: <String, String>{
+          'key': query,
+          'searchKey': query,
+          'page': '$page',
+          'searchPage': '$page',
+        },
       );
-      if (absoluteBookUrl.isEmpty) continue;
-      final author = _field(
-        node,
-        source.search.author,
+      var nodes = rules.evaluateList(
+        root,
+        source.search.bookList,
         context,
-      ).ifBlank(_commonJsonField(node, const <String>['author', 'writer']));
-      final cover = _field(node, source.search.coverUrl, context).ifBlank(
-        _commonJsonField(node, const <String>[
-          'coverUrl',
-          'cover',
-          'picUrl',
-          'imageUrl',
-        ]),
+        script: script,
       );
-      final lastChapter = _field(node, source.search.lastChapter, context)
-          .ifBlank(
-            _commonJsonField(node, const <String>[
-              'lastChapter',
-              'latestChapter',
-              'last_chapter',
-            ]),
-          );
-      final kindRaw = _field(node, source.search.kind, context).ifBlank(
-        _commonJsonField(node, const <String>[
-          'kind',
-          'category',
-          'status',
-          'bookStatus',
-        ]),
-      );
-      final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
-      final rawWordCount = _field(node, source.search.wordCount, context)
-          .ifBlank(
-            _commonJsonField(node, const <String>[
-              'wordCount',
-              'words',
-              'word_count',
-            ]),
-          );
-      final book = OnlineBook(
-        sourceId: source.id,
-        sourceName: source.name,
-        name: name,
-        author: author,
-        bookUrl: absoluteBookUrl,
-        tocUrl: absoluteBookUrl,
-        bookOptions: bookRequest.options,
-        tocOptions: bookRequest.options,
-        coverUrl: rules.resolveUrl(context.pageUrl, cover),
-        intro: _field(node, source.search.intro, context).ifBlank(
-          _commonJsonField(node, const <String>[
-            'intro',
-            'description',
-            'desc',
-          ]),
-        ),
-        kind: status.ifBlank(kindRaw),
-        wordCount: normalizeOnlineWordCount(rawWordCount),
-        lastChapter: lastChapter,
-      );
-      final identity = '${book.name}|${book.author}|${book.bookUrl}';
-      if (!seen.add(identity)) continue;
-      books.add(book);
+      if (nodes.isEmpty && root is List) {
+        nodes = root.whereType<Object>().toList();
+      }
+      if (nodes.isEmpty && root is Document) {
+        return _fallbackHtmlSearch(
+          source,
+          root,
+          query,
+          response.uri.toString(),
+        );
+      }
+
+      final books = <OnlineBook>[];
+      final seen = <String>{};
+      for (final node in nodes) {
+        final name = _field(node, source.search.name, context, script).ifBlank(
+          _commonJsonField(node, const <String>['name', 'title', 'bookName']),
+        );
+        if (name.isEmpty) continue;
+        final bookUrlRule = _field(
+          node,
+          source.search.bookUrl,
+          context,
+          script,
+        );
+        var bookUrl = bookUrlRule;
+        if (bookUrl.isEmpty && node is Element) {
+          bookUrl =
+              node.attributes['href'] ??
+              node.querySelector('a')?.attributes['href'] ??
+              '';
+        }
+        bookUrl = _commonJsonField(node, const <String>[
+          'bookUrl',
+          'url',
+          'detailUrl',
+        ]).ifBlank(bookUrl);
+        final bookRequest = splitBookSourceUrlOptions(bookUrl);
+        final absoluteBookUrl = rules.resolveUrl(
+          context.pageUrl,
+          bookRequest.url,
+        );
+        if (absoluteBookUrl.isEmpty) continue;
+        final author = _field(
+          node,
+          source.search.author,
+          context,
+          script,
+        ).ifBlank(_commonJsonField(node, const <String>['author', 'writer']));
+        final cover = _field(node, source.search.coverUrl, context, script)
+            .ifBlank(
+              _commonJsonField(node, const <String>[
+                'coverUrl',
+                'cover',
+                'picUrl',
+                'imageUrl',
+              ]),
+            );
+        final lastChapter =
+            _field(node, source.search.lastChapter, context, script).ifBlank(
+              _commonJsonField(node, const <String>[
+                'lastChapter',
+                'latestChapter',
+                'last_chapter',
+              ]),
+            );
+        final kindRaw = _field(node, source.search.kind, context, script)
+            .ifBlank(
+              _commonJsonField(node, const <String>[
+                'kind',
+                'category',
+                'status',
+                'bookStatus',
+              ]),
+            );
+        final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
+        final rawWordCount =
+            _field(node, source.search.wordCount, context, script).ifBlank(
+              _commonJsonField(node, const <String>[
+                'wordCount',
+                'words',
+                'word_count',
+              ]),
+            );
+        final book = OnlineBook(
+          sourceId: source.id,
+          sourceName: source.name,
+          name: name,
+          author: author,
+          bookUrl: absoluteBookUrl,
+          tocUrl: absoluteBookUrl,
+          bookOptions: bookRequest.options,
+          tocOptions: bookRequest.options,
+          coverUrl: rules.resolveUrl(context.pageUrl, cover),
+          intro: normalizeOnlineIntro(
+            _field(node, source.search.intro, context, script).ifBlank(
+              _commonJsonField(node, const <String>[
+                'intro',
+                'description',
+                'desc',
+              ]),
+            ),
+          ),
+          kind: status.ifBlank(kindRaw),
+          wordCount: normalizeOnlineWordCount(rawWordCount),
+          lastChapter: lastChapter,
+        );
+        final identity = '${book.name}|${book.author}|${book.bookUrl}';
+        if (!seen.add(identity)) continue;
+        books.add(book);
+      }
+      return books;
+    } finally {
+      script.dispose();
     }
-    return books;
   }
 
   /// 读取详情页字段并定位目录地址。
   Future<OnlineBook> loadBookInfo(BookSource source, OnlineBook book) async {
-    final response = await http.fetchText(
-      source,
-      book.bookUrl,
-      options: book.bookOptions,
-      referer: source.baseUrl,
-    );
-    final root = _parseBody(response.body);
-    final context = BookSourceRuleContext(
-      baseUrl: source.baseUrl,
-      pageUrl: response.uri.toString(),
-      variables: <String, String>{'bookUrl': book.bookUrl},
-    );
-    final name = _field(root, source.bookInfo.name, context).ifBlank(book.name);
-    final author = _field(
-      root,
-      source.bookInfo.author,
-      context,
-    ).ifBlank(book.author);
-    final tocRequest = _urlField(root, source.bookInfo.tocUrl, context);
-    final coverRequest = _urlField(root, source.bookInfo.coverUrl, context);
-    final lastChapter = _field(
-      root,
-      source.bookInfo.lastChapter,
-      context,
-    ).ifBlank(book.lastChapter);
-    final kindRaw = _field(
-      root,
-      source.bookInfo.kind,
-      context,
-    ).ifBlank(book.kind);
-    final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
-    final wordCount = _field(
-      root,
-      source.bookInfo.wordCount,
-      context,
-    ).ifBlank(book.wordCount);
-    return book.copyWith(
-      name: name,
-      author: author,
-      tocUrl: rules
-          .resolveUrl(response.uri.toString(), tocRequest.url)
-          .ifBlank(book.tocUrl.ifBlank(book.bookUrl)),
-      tocOptions: tocRequest.url.isEmpty ? book.tocOptions : tocRequest.options,
-      coverUrl: rules
-          .resolveUrl(response.uri.toString(), coverRequest.url)
-          .ifBlank(book.coverUrl),
-      intro: _field(root, source.bookInfo.intro, context).ifBlank(book.intro),
-      kind: status.ifBlank(kindRaw),
-      wordCount: normalizeOnlineWordCount(wordCount),
-      lastChapter: lastChapter,
-    );
+    final script = scriptFactory(source);
+    try {
+      final response = await http.fetchText(
+        source,
+        book.bookUrl,
+        options: book.bookOptions,
+        referer: source.baseUrl,
+      );
+      var root = _parseBody(response.body);
+      final context = BookSourceRuleContext(
+        baseUrl: source.baseUrl,
+        pageUrl: response.uri.toString(),
+        variables: <String, String>{'bookUrl': book.bookUrl},
+      );
+      if (source.bookInfo.init.trim().isNotEmpty) {
+        final initialized = rules.evaluateList(
+          root,
+          source.bookInfo.init,
+          context,
+          script: script,
+        );
+        if (initialized.isNotEmpty) root = initialized.first;
+      }
+      final name = _field(
+        root,
+        source.bookInfo.name,
+        context,
+        script,
+      ).ifBlank(book.name);
+      final author = _field(
+        root,
+        source.bookInfo.author,
+        context,
+        script,
+      ).ifBlank(book.author);
+      final tocRequest = _urlField(
+        root,
+        source.bookInfo.tocUrl,
+        context,
+        script,
+      );
+      final coverRequest = _urlField(
+        root,
+        source.bookInfo.coverUrl,
+        context,
+        script,
+      );
+      final lastChapter = _field(
+        root,
+        source.bookInfo.lastChapter,
+        context,
+        script,
+      ).ifBlank(book.lastChapter);
+      final kindRaw = _field(
+        root,
+        source.bookInfo.kind,
+        context,
+        script,
+      ).ifBlank(book.kind);
+      final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
+      final wordCount = _field(
+        root,
+        source.bookInfo.wordCount,
+        context,
+        script,
+      ).ifBlank(book.wordCount);
+      return book.copyWith(
+        name: name,
+        author: author,
+        tocUrl: rules
+            .resolveUrl(response.uri.toString(), tocRequest.url)
+            .ifBlank(book.tocUrl.ifBlank(book.bookUrl)),
+        tocOptions: tocRequest.url.isEmpty
+            ? book.tocOptions
+            : tocRequest.options,
+        coverUrl: rules
+            .resolveUrl(response.uri.toString(), coverRequest.url)
+            .ifBlank(book.coverUrl),
+        intro: normalizeOnlineIntro(
+          _field(
+            root,
+            source.bookInfo.intro,
+            context,
+            script,
+          ).ifBlank(book.intro),
+        ),
+        kind: status.ifBlank(kindRaw),
+        wordCount: normalizeOnlineWordCount(wordCount),
+        lastChapter: lastChapter,
+      );
+    } finally {
+      script.dispose();
+    }
   }
 
   /// 读取目录，并跟随 `nextTocUrl` 合并后续页。
@@ -306,84 +386,106 @@ class BookSourceService {
     BookSource source,
     OnlineBook book,
   ) async {
-    var currentUrl = book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl;
-    var currentOptions = book.tocOptions;
-    final pendingPages = <({String url, Map<String, Object?> options})>[];
-    final chapters = <OnlineChapter>[];
-    final seenUrls = <String>{};
-    final seenPages = <String>{};
-    while (currentUrl.isNotBlank) {
-      if (!seenPages.add(currentUrl) || seenPages.length > 30) break;
-      final response = await http.fetchText(
-        source,
-        currentUrl,
-        options: currentOptions,
-        referer: book.bookUrl,
-      );
-      final root = _parseBody(response.body);
-      final context = BookSourceRuleContext(
-        baseUrl: source.baseUrl,
-        pageUrl: response.uri.toString(),
-        variables: <String, String>{
-          'bookUrl': book.bookUrl,
-          'tocUrl': currentUrl,
-        },
-      );
-      final nodes = rules.evaluateList(root, source.toc.chapterList, context);
-      for (final node in nodes) {
-        var name = _field(node, source.toc.chapterName, context);
-        var chapterUrl = _field(node, source.toc.chapterUrl, context);
-        if (node is Element) {
-          final link = node.localName == 'a' ? node : node.querySelector('a');
-          name = name.ifBlank(link?.text ?? node.text);
-          chapterUrl = chapterUrl.ifBlank(link?.attributes['href'] ?? '');
-        } else if (node is Map) {
-          name = name.ifBlank(
-            _commonJsonField(node, const <String>[
-              'chapterName',
-              'title',
-              'name',
-            ]),
+    final script = scriptFactory(source);
+    try {
+      var currentUrl = book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl;
+      var currentOptions = book.tocOptions;
+      final pendingPages = <({String url, Map<String, Object?> options})>[];
+      final chapters = <OnlineChapter>[];
+      final seenUrls = <String>{};
+      final seenPages = <String>{};
+      while (currentUrl.isNotBlank) {
+        if (!seenPages.add(currentUrl) || seenPages.length > 30) break;
+        final response = await http.fetchText(
+          source,
+          currentUrl,
+          options: currentOptions,
+          referer: book.bookUrl,
+        );
+        final root = _parseBody(response.body);
+        final context = BookSourceRuleContext(
+          baseUrl: source.baseUrl,
+          pageUrl: response.uri.toString(),
+          variables: <String, String>{
+            'bookUrl': book.bookUrl,
+            'tocUrl': currentUrl,
+          },
+        );
+        final nodes = rules.evaluateList(
+          root,
+          source.toc.chapterList,
+          context,
+          script: script,
+        );
+        for (final node in nodes) {
+          var name = _field(node, source.toc.chapterName, context, script);
+          var chapterUrl = _field(node, source.toc.chapterUrl, context, script);
+          if (node is Element) {
+            final link = node.localName == 'a' ? node : node.querySelector('a');
+            name = name.ifBlank(link?.text ?? node.text);
+            chapterUrl = chapterUrl.ifBlank(link?.attributes['href'] ?? '');
+          } else if (node is Map) {
+            name = name.ifBlank(
+              _commonJsonField(node, const <String>[
+                'chapterName',
+                'title',
+                'name',
+              ]),
+            );
+            chapterUrl = chapterUrl.ifBlank(
+              _commonJsonField(node, const <String>[
+                'chapterUrl',
+                'url',
+                'link',
+              ]),
+            );
+          }
+          final chapterRequest = splitBookSourceUrlOptions(chapterUrl);
+          final absolute = rules.resolveUrl(
+            context.pageUrl,
+            chapterRequest.url,
           );
-          chapterUrl = chapterUrl.ifBlank(
-            _commonJsonField(node, const <String>['chapterUrl', 'url', 'link']),
+          name = cleanOnlineChapterTitle(name);
+          if (name.isEmpty || absolute.isEmpty || !seenUrls.add(absolute)) {
+            continue;
+          }
+          chapters.add(
+            OnlineChapter(
+              index: chapters.length,
+              title: name,
+              url: absolute,
+              updateTime: _field(node, source.toc.updateTime, context, script),
+              requestOptions: chapterRequest.options,
+            ),
           );
         }
-        final chapterRequest = splitBookSourceUrlOptions(chapterUrl);
-        final absolute = rules.resolveUrl(context.pageUrl, chapterRequest.url);
-        name = cleanOnlineChapterTitle(name);
-        if (name.isEmpty || absolute.isEmpty || !seenUrls.add(absolute)) {
-          continue;
+        final nextPages = _urlRequests(
+          root,
+          source.toc.nextTocUrl,
+          context,
+          script,
+        );
+        for (final next in nextPages) {
+          final resolved = rules.resolveUrl(response.uri.toString(), next.url);
+          if (resolved.isNotEmpty) {
+            pendingPages.add((url: resolved, options: next.options));
+          }
         }
-        chapters.add(
-          OnlineChapter(
-            index: chapters.length,
-            title: name,
-            url: absolute,
-            updateTime: _field(node, source.toc.updateTime, context),
-            requestOptions: chapterRequest.options,
-          ),
+        if (pendingPages.isEmpty) break;
+        final page = pendingPages.removeAt(0);
+        currentUrl = page.url;
+        currentOptions = page.options;
+      }
+      if (chapters.isEmpty) {
+        throw const BookSourceException(
+          '目录为空，可能是书源规则失效或站点限制',
+          code: 'ONLINE_TOC_EMPTY',
         );
       }
-      final nextPages = _urlRequests(root, source.toc.nextTocUrl, context);
-      for (final next in nextPages) {
-        final resolved = rules.resolveUrl(response.uri.toString(), next.url);
-        if (resolved.isNotEmpty) {
-          pendingPages.add((url: resolved, options: next.options));
-        }
-      }
-      if (pendingPages.isEmpty) break;
-      final page = pendingPages.removeAt(0);
-      currentUrl = page.url;
-      currentOptions = page.options;
+      return chapters;
+    } finally {
+      script.dispose();
     }
-    if (chapters.isEmpty) {
-      throw const BookSourceException(
-        '目录为空，可能是书源规则失效或站点限制',
-        code: 'ONLINE_TOC_EMPTY',
-      );
-    }
-    return chapters;
   }
 
   /// 下载完整书籍并生成 EPUB。
@@ -499,56 +601,137 @@ class BookSourceService {
     OnlineChapter chapter,
     String bookUrl,
   ) async {
-    var currentUrl = chapter.url;
-    var currentOptions = chapter.requestOptions;
-    final pendingPages = <({String url, Map<String, Object?> options})>[];
-    final seen = <String>{};
-    final htmlParts = <String>[];
-    while (currentUrl.isNotBlank) {
-      if (!seen.add(currentUrl) || seen.length > 8) break;
-      final response = await http.fetchText(
-        source,
-        currentUrl,
-        options: currentOptions,
-        referer: bookUrl,
-      );
-      final root = _parseBody(response.body);
-      final context = BookSourceRuleContext(
-        baseUrl: source.baseUrl,
-        pageUrl: response.uri.toString(),
-        variables: <String, String>{
-          'bookUrl': bookUrl,
-          'chapterUrl': chapter.url,
-          'title': chapter.title,
-        },
-      );
-      final html = rules.evaluateHtml(root, source.content.content, context);
-      if (html.trim().isNotEmpty) htmlParts.add(html.trim());
-      final nextPages = _urlRequests(
-        root,
-        source.content.nextContentUrl,
-        context,
-      );
-      for (final next in nextPages) {
-        final resolved = rules.resolveUrl(response.uri.toString(), next.url);
-        if (resolved.isNotEmpty) {
-          pendingPages.add((url: resolved, options: next.options));
+    final script = scriptFactory(source);
+    try {
+      var currentUrl = chapter.url;
+      var currentOptions = chapter.requestOptions;
+      final pendingPages = <({String url, Map<String, Object?> options})>[];
+      final seen = <String>{};
+      final htmlParts = <String>[];
+      while (currentUrl.isNotBlank) {
+        if (!seen.add(currentUrl) || seen.length > 8) break;
+        final data = _decodeDataUrl(currentUrl);
+        final Object? root;
+        final String pageUrl;
+        if (data != null) {
+          root = data;
+          pageUrl = bookUrl;
+        } else {
+          final response = await http.fetchText(
+            source,
+            currentUrl,
+            options: currentOptions,
+            referer: bookUrl,
+          );
+          root = _parseBody(response.body);
+          pageUrl = response.uri.toString();
         }
+        final context = BookSourceRuleContext(
+          baseUrl: source.baseUrl,
+          pageUrl: pageUrl,
+          variables: <String, String>{
+            'bookUrl': bookUrl,
+            'chapterUrl': chapter.url,
+            'title': chapter.title,
+          },
+        );
+        final html = await _evaluateContentRule(
+          source: source,
+          root: root,
+          rule: source.content.content,
+          context: context,
+          script: script,
+          referer: pageUrl,
+        );
+        if (html.trim().isNotEmpty) htmlParts.add(html.trim());
+        if (data != null) break;
+        final nextPages = _urlRequests(
+          root,
+          source.content.nextContentUrl,
+          context,
+          script,
+        );
+        for (final next in nextPages) {
+          final resolved = rules.resolveUrl(pageUrl, next.url);
+          if (resolved.isNotEmpty) {
+            pendingPages.add((url: resolved, options: next.options));
+          }
+        }
+        if (pendingPages.isEmpty) break;
+        final page = pendingPages.removeAt(0);
+        currentUrl = page.url;
+        currentOptions = page.options;
       }
-      if (pendingPages.isEmpty) break;
-      final page = pendingPages.removeAt(0);
-      currentUrl = page.url;
-      currentOptions = page.options;
+      final content = cleanOnlineChapterContent(htmlParts.join('\n'));
+      final reason = chapterContentFailureReason(content);
+      if (reason != null) {
+        throw BookSourceException(
+          '章节正文无效：$reason',
+          code: 'ONLINE_CONTENT_INVALID',
+        );
+      }
+      return content;
+    } finally {
+      script.dispose();
     }
-    final content = cleanOnlineChapterContent(htmlParts.join('\n'));
-    final reason = chapterContentFailureReason(content);
-    if (reason != null) {
-      throw BookSourceException(
-        '章节正文无效：$reason',
-        code: 'ONLINE_CONTENT_INVALID',
+  }
+
+  Future<String> _evaluateContentRule({
+    required BookSource source,
+    required Object? root,
+    required String rule,
+    required BookSourceRuleContext context,
+    required BookSourceScriptSession script,
+    required String referer,
+  }) async {
+    if (rule.trim().isEmpty) return '';
+    for (var pass = 0; pass < 5; pass++) {
+      final html = rules.evaluateHtml(root, rule, context, script: script);
+      final pending = script.takePendingRequests();
+      if (pending.isEmpty) return html;
+      for (final request in pending) {
+        final data = _decodeDataUrl(request.url);
+        if (data != null) {
+          script.rememberResponse(request.key, data);
+          continue;
+        }
+        final isPost = request.method.toUpperCase() == 'POST';
+        final response = await http.fetchText(
+          source,
+          request.url,
+          headers: request.headers,
+          options: isPost
+              ? <String, Object?>{'method': 'POST', 'body': request.body}
+              : const <String, Object?>{},
+          referer: referer,
+        );
+        script.rememberResponse(request.key, response.body);
+      }
+    }
+    throw const BookSourceException(
+      '正文脚本请求次数过多，已停止',
+      code: 'ONLINE_CONTENT_SCRIPT_LOOP',
+    );
+  }
+
+  String? _decodeDataUrl(String raw) {
+    final text = raw.trim();
+    if (!text.startsWith('data:')) return null;
+    final comma = text.indexOf(',');
+    if (comma < 0) return null;
+    final meta = text.substring(5, comma).toLowerCase();
+    final payload = text.substring(comma + 1);
+    try {
+      if (meta.endsWith(';base64')) {
+        return utf8.decode(base64.decode(payload), allowMalformed: true);
+      }
+      return Uri.decodeComponent(payload);
+    } on FormatException {
+      throw const BookSourceException(
+        '章节地址中的 data URL 无法解码',
+        code: 'ONLINE_CHAPTER_DATA_URL',
       );
     }
-    return content;
   }
 
   /// 加载封面或插图；同一来源地址在进程内缓存，失败结果不保留。
@@ -695,8 +878,51 @@ class BookSourceService {
     );
   }
 
-  String _searchUrl(BookSource source, String query, int page) {
+  String _searchUrl(
+    BookSource source,
+    String query,
+    int page, [
+    BookSourceScriptSession? script,
+  ]) {
     final encoded = Uri.encodeQueryComponent(query);
+    final searchUrl = source.searchUrl.trim();
+    if (searchUrl.toLowerCase().startsWith('@js:')) {
+      if (script == null) {
+        throw const BookSourceException('该书源的搜索地址依赖 JS，当前版本暂不支持');
+      }
+      final body = searchUrl
+          .substring(4)
+          .replaceAllMapped(
+            RegExp(r'\{\{\s*\(\s*page\s*-\s*1\s*\)\s*\*\s*10\s*\}\}'),
+            (_) => '${(page - 1) * 10}',
+          );
+      final prepared = body
+          .replaceAll('{{page}}', '$page')
+          .replaceAll('{{searchPage}}', '$page')
+          .replaceAll('{{key}}', encoded)
+          .replaceAll('{{keyword}}', encoded)
+          .replaceAll('{{searchKey}}', encoded);
+      final result = script
+          .evaluate(
+            prepared,
+            result: '',
+            variables: <String, String>{
+              'key': query,
+              'keyword': query,
+              'searchKey': query,
+              'page': '$page',
+              'searchPage': '$page',
+              'baseUrl': source.baseUrl,
+            },
+            resolveString: (_) => '',
+            resolveList: (_) => const <String>[],
+          )
+          .trim();
+      if (!_isHttpUrl(result)) {
+        throw const BookSourceException('书源搜索地址无效');
+      }
+      return result;
+    }
     var template = source.searchUrl.replaceAllMapped(
       RegExp(r'\{\{\s*\(\s*page\s*-\s*1\s*\)\s*\*\s*10\s*\}\}'),
       (_) => '${(page - 1) * 10}',
@@ -760,25 +986,32 @@ class BookSourceService {
     return rules.parseHtml(body);
   }
 
-  String _field(Object? node, String rule, BookSourceRuleContext context) {
+  String _field(
+    Object? node,
+    String rule,
+    BookSourceRuleContext context, [
+    BookSourceScriptSession? script,
+  ]) {
     if (rule.trim().isEmpty) return '';
-    return rules.evaluateString(node, rule, context).trim();
+    return rules.evaluateString(node, rule, context, script: script).trim();
   }
 
   ({String url, Map<String, Object?> options}) _urlField(
     Object? node,
     String rule,
-    BookSourceRuleContext context,
-  ) {
-    return splitBookSourceUrlOptions(_field(node, rule, context));
+    BookSourceRuleContext context, [
+    BookSourceScriptSession? script,
+  ]) {
+    return splitBookSourceUrlOptions(_field(node, rule, context, script));
   }
 
   List<({String url, Map<String, Object?> options})> _urlRequests(
     Object? node,
     String rule,
-    BookSourceRuleContext context,
-  ) {
-    final raw = _field(node, rule, context);
+    BookSourceRuleContext context, [
+    BookSourceScriptSession? script,
+  ]) {
+    final raw = _field(node, rule, context, script);
     if (raw.isEmpty) {
       return const <({String url, Map<String, Object?> options})>[];
     }

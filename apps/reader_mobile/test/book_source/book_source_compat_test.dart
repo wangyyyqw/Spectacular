@@ -28,6 +28,10 @@ void main() {
     test('章节标题与正文清理', () {
       expect(cleanOnlineChapterTitle('第 12 章（三更）'), '第 12 章');
       expect(cleanOnlineChapterContent('<p>正文（本章完）</p>'), '<p>正文 </p>');
+      expect(
+        normalizeOnlineIntro('&nbsp;&nbsp;书名 &amp; 作者\n\n\n简介&lrm;'),
+        '书名 & 作者\n\n简介',
+      );
     });
 
     test('正文失败原因识别', () {
