@@ -18,6 +18,153 @@ ReadingSession _session(
 );
 
 void main() {
+  test('同一天跨次跨书累计满五分钟后计入当天全部记录', () {
+    final day = DateTime(2026, 11, 19);
+    final stats = ReadingInsights(
+      [
+        _session(
+          'a',
+          day.add(const Duration(hours: 8)),
+          const Duration(minutes: 2),
+        ),
+        _session(
+          'a',
+          day.add(const Duration(hours: 9)),
+          const Duration(minutes: 1),
+        ),
+        _session(
+          'b',
+          day.add(const Duration(hours: 10)),
+          const Duration(minutes: 2),
+        ),
+        _session(
+          'a',
+          DateTime(2026, 11, 18, 8),
+          const Duration(minutes: 4, seconds: 59),
+        ),
+      ],
+      now: day,
+      minimumDayDuration: minimumCountedDayDuration,
+    );
+    expect(stats.byDay, {day: const Duration(minutes: 5)});
+    expect(stats.todayReading, const Duration(minutes: 5));
+    expect(stats.totalReading, const Duration(minutes: 5));
+    expect(stats.sessions, hasLength(3));
+    expect(stats.byBook['a']!.duration, const Duration(minutes: 3));
+    expect(stats.byBook['a']!.sessions, 2);
+    expect(stats.byBook['b']!.duration, const Duration(minutes: 2));
+    expect(stats.currentStreak, 1);
+  });
+
+  test('不足五分钟的日期不跨日凑时长，恰满五分钟即计入', () {
+    final day = DateTime(2026, 11, 19);
+    final sessions = [
+      _session('a', DateTime(2026, 11, 18, 8), const Duration(minutes: 3)),
+      _session(
+        'a',
+        day.add(const Duration(hours: 8)),
+        const Duration(minutes: 4, seconds: 59),
+      ),
+    ];
+    final before = ReadingInsights(
+      sessions,
+      now: day,
+      minimumDayDuration: minimumCountedDayDuration,
+    );
+    expect(before.byDay, isEmpty);
+    expect(before.sessions, isEmpty);
+    expect(before.totalReading, Duration.zero);
+    final after = ReadingInsights(
+      [
+        ...sessions,
+        _session(
+          'a',
+          day.add(const Duration(hours: 9)),
+          const Duration(seconds: 1),
+        ),
+      ],
+      now: day,
+      minimumDayDuration: minimumCountedDayDuration,
+    );
+    expect(after.byDay, {day: const Duration(minutes: 5)});
+    expect(after.sessions, hasLength(2));
+    expect(after.totalReading, const Duration(minutes: 5));
+  });
+
+  test('跨午夜会话按天判断，只统计达标日期内的时长和计数', () {
+    final day = DateTime(2026, 11, 19);
+    final overnight = _session(
+      'a',
+      DateTime(2026, 11, 18, 23, 58),
+      const Duration(minutes: 6),
+      pages: 6,
+      characters: 600,
+    );
+    final before = ReadingInsights(
+      [overnight],
+      now: day,
+      minimumDayDuration: minimumCountedDayDuration,
+    );
+    expect(before.sessions, isEmpty);
+    expect(before.portions, isEmpty);
+    final after = ReadingInsights(
+      [
+        overnight,
+        _session(
+          'b',
+          day.add(const Duration(hours: 8)),
+          const Duration(minutes: 1),
+          pages: 1,
+          characters: 100,
+        ),
+      ],
+      now: day,
+      minimumDayDuration: minimumCountedDayDuration,
+    );
+    expect(after.byDay, {day: const Duration(minutes: 5)});
+    expect(after.totalReading, const Duration(minutes: 5));
+    expect(after.byBook['a']!.duration, const Duration(minutes: 4));
+    expect(after.byBook['a']!.lastEndedAt, day.add(const Duration(minutes: 4)));
+    expect(after.byBook['a']!.sessions, 1);
+    expect(after.sessions.first.startedAt, day);
+    expect(after.sessions.first.duration, const Duration(minutes: 4));
+    expect(after.pageTurns, 5);
+    expect(after.charactersRead, 500);
+    expect(after.readingPeriods, [
+      const Duration(minutes: 4),
+      const Duration(minutes: 1),
+      Duration.zero,
+      Duration.zero,
+    ]);
+    expect(after.portions.every((portion) => portion.date == day), isTrue);
+  });
+
+  test('跨午夜后未达标的尾段不增加累计时长或最近阅读时间', () {
+    final today = DateTime(2026, 11, 19);
+    final stats = ReadingInsights(
+      [
+        _session(
+          'a',
+          DateTime(2026, 11, 18, 23, 54),
+          const Duration(minutes: 8),
+          pages: 8,
+          characters: 800,
+        ),
+      ],
+      now: today,
+      minimumDayDuration: minimumCountedDayDuration,
+    );
+    expect(stats.byDay, {DateTime(2026, 11, 18): const Duration(minutes: 6)});
+    expect(stats.todayReading, Duration.zero);
+    expect(stats.totalReading, const Duration(minutes: 6));
+    expect(stats.byBook['a']!.lastEndedAt, today);
+    expect(stats.byBook['a']!.sessions, 1);
+    expect(stats.sessions.single.endedAt, today);
+    expect(stats.pageTurns, 6);
+    expect(stats.charactersRead, 600);
+    expect(stats.currentStreak, 1);
+  });
+
   test('摘要界面移除后仍可读取今日、累计、逐日时长和翻页字数接口', () {
     final stats = ReadingInsights([
       _session(

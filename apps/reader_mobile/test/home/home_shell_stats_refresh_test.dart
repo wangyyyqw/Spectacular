@@ -46,7 +46,7 @@ class _FakeSessionStore implements ReadingSessionStore {
 }
 
 void main() {
-  testWidgets('点击底部统计标签时重新读取阅读会话', (tester) async {
+  testWidgets('点击底部统计标签时重新读取会话，同天跨次累计满五分钟后计入', (tester) async {
     final library = _FakeLibrary();
     await tester.pumpWidget(
       MaterialApp(
@@ -68,12 +68,13 @@ void main() {
     }
 
     final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day, 8);
     library.sessions.add(
       ReadingSession(
         bookId: 'book-a',
-        startedAt: now.subtract(const Duration(minutes: 5)),
-        endedAt: now,
-        duration: const Duration(minutes: 5),
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 2)),
+        duration: const Duration(minutes: 2),
       ),
     );
 
@@ -82,6 +83,22 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(library.sessionStore.listCalls, 1);
+    expect(find.text('该时段没有阅读记录'), findsOneWidget);
+    await tester.tap(find.text('书架').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    library.sessions.add(
+      ReadingSession(
+        bookId: 'book-a',
+        startedAt: start.add(const Duration(hours: 1)),
+        endedAt: start.add(const Duration(hours: 1, minutes: 3)),
+        duration: const Duration(minutes: 3),
+      ),
+    );
+    await tester.tap(find.text('统计'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(library.sessionStore.listCalls, 2);
     expect(
       tester
           .widget<Text>(
