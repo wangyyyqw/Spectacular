@@ -184,7 +184,7 @@ Future<Uint8List> _pixels(String family) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  final font = File('assets/test_fonts/SourceHanSerifSC-Regular.otf')
+  final font = File('../../test_fonts/SourceHanSerifSC-Regular.otf')
       .readAsBytesSync();
 
   test('缺失字体跳过后仍按章节目录顺序找到同名资源的正确字体', () async {
@@ -235,7 +235,7 @@ void main() {
     );
     final a = await open(font);
     final b = await open(
-      File('assets/test_fonts/SourceHanSerifSC-Bold.otf').readAsBytesSync(),
+      File('../../test_fonts/SourceHanSerifSC-Bold.otf').readAsBytesSync(),
     );
     final reopened = await open(font);
     for (final source in [a, b, reopened]) {
@@ -262,7 +262,7 @@ void main() {
     final source = await EpubChapterSource.open(
       _incrementalFontBook(
         font,
-        File('assets/test_fonts/SourceHanSerifSC-Bold.otf').readAsBytesSync(),
+        File('../../test_fonts/SourceHanSerifSC-Bold.otf').readAsBytesSync(),
       ),
     );
     addTearDown(source.close);
@@ -289,7 +289,7 @@ void main() {
     final source = await EpubChapterSource.open(
       _independentFontBook(
         font,
-        File('assets/test_fonts/SourceHanSerifSC-Bold.otf').readAsBytesSync(),
+        File('../../test_fonts/SourceHanSerifSC-Bold.otf').readAsBytesSync(),
       ),
     );
     addTearDown(source.close);

@@ -1,4 +1,3 @@
-import 'package:flutter/services.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
@@ -17,8 +16,7 @@ class DemoChapterSource implements ReaderChapterSource {
   /// 正文区高（逻辑像素）。
   final double contentHeight;
 
-  static bool _fontLoaded = false;
-  static const _fontFamily = 'M0Serif';
+  static const _fontFamily = 'builtin_song';
 
   @override
   int get chapterCount => 30;
@@ -29,22 +27,8 @@ class DemoChapterSource implements ReaderChapterSource {
     'font-family': _fontFamily,
   });
 
-  Future<void> _ensureFont() async {
-    if (_fontLoaded) {
-      return;
-    }
-    final data = await rootBundle.load(
-      'assets/test_fonts/SourceHanSerifSC-Regular.otf',
-    );
-    await (FontLoader(
-      _fontFamily,
-    )..addFont(Future<ByteData>.value(data))).load();
-    _fontLoaded = true;
-  }
-
   @override
   Future<List<PageContent>> loadChapter(int spineIndex) async {
-    await _ensureFont();
     final lines = <String>[
       '第${spineIndex + 1}章',
       for (var i = 1; i <= 32; i++)

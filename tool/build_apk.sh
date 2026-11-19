@@ -9,6 +9,7 @@ name=spectacular-reader-release
 # dist 已在 .gitignore（APK 不入库）；下载文件夹仅在存在时才复制。
 dist="$app/dist"
 build_apk="$app/build/app/outputs/flutter-apk/app-release.apk"
+symbols_dir="$(cd "$app" && pwd)/build/symbols"
 downloads="${HOME}/Downloads"
 
 cache_option=--offline
@@ -40,6 +41,8 @@ fi
   cd android
   ./gradlew ${cache_option:+"$cache_option"} --console=plain :app:assembleRelease \
     -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
+    -Pdisable-abi-filtering=true \
+    -Psplit-debug-info="$symbols_dir" \
     -Pbase-application-name=android.app.Application \
     -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true \
     ${kotlin_incremental:+"$kotlin_incremental"}

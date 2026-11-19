@@ -14,9 +14,9 @@ void main() {
   late Uint8List regular;
   late Uint8List bold;
   setUpAll(() async {
-    regular = await File('assets/test_fonts/SourceHanSerifSC-Regular.otf')
+    regular = await File('../../test_fonts/SourceHanSerifSC-Regular.otf')
         .readAsBytes();
-    bold = await File('assets/test_fonts/SourceHanSerifSC-Bold.otf')
+    bold = await File('../../test_fonts/SourceHanSerifSC-Bold.otf')
         .readAsBytes();
   });
 

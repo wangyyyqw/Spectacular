@@ -39,6 +39,11 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 构建脚本只产出 arm64 的 Dart AOT；过滤掉第三方 AAR 携带的
+        // armeabi-v7a/x86_64 原生库，避免安装包无谓翻倍。
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -60,6 +65,13 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+        }
+    }
+
+    packaging {
+        // 压缩 APK 内的原生库以缩小分发体积；安装时由系统解压。
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }

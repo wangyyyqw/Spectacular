@@ -64,7 +64,7 @@ List<CssFontFace> _local(String family, String local) => [
 ];
 
 void _registerUserCoverage(String family) {
-  final bytes = File('assets/test_fonts/SourceHanSerifSC-Regular.otf')
+  final bytes = File('../../test_fonts/SourceHanSerifSC-Regular.otf')
       .readAsBytesSync();
   FontCoverageRegistry.register(family, FontCoverage.parse(bytes)!);
 }
@@ -170,7 +170,7 @@ void main() {
   });
 
   test('并发字体请求等待同次注册，内嵌覆盖和自定义字体策略使用冻结结果', () async {
-    final font = File('assets/test_fonts/SourceHanSerifSC-Regular.otf')
+    final font = File('../../test_fonts/SourceHanSerifSC-Regular.otf')
         .readAsBytesSync();
     final resources = _GatedResources(await _document(font: font));
     addTearDown(resources.close);
