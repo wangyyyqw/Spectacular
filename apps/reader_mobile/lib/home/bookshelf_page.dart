@@ -13,6 +13,7 @@ import 'package:reader_core/position/locator.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_models.dart';
+import '../rea_micro/rea_micro_public_reading_page.dart';
 import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
 import 'book_detail_page.dart';
@@ -675,7 +676,29 @@ class _BookshelfPageState extends State<BookshelfPage> {
       await _createGroup(initialBookIds: <String>{entry.id});
     } else if (action == 'multi-select') {
       _startSelection(entry);
+    } else if (action == 'reamicro-link') {
+      await _openReaMicroPublicReading(entry);
     }
+  }
+
+  Future<void> _openReaMicroPublicReading(BookEntry entry) async {
+    final controller = widget.reaMicro;
+    if (controller == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('阅微功能暂不可用')));
+      return;
+    }
+    if (!controller.signedIn) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先登录阅微账号')));
+      return;
+    }
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) =>
+            ReaMicroPublicReadingPage(controller: controller, book: entry),
+      ),
+    );
   }
 
   Future<void> _pickBookUpdate(BookEntry entry) async {

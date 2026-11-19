@@ -343,11 +343,11 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
         ListTile(
           key: const ValueKey<String>('reamicro-book-links'),
           leading: const Icon(Icons.menu_book_outlined),
-          title: const Text('匹配阅微书籍'),
+          title: const Text('关联阅微公开阅读'),
           subtitle: Text(
             controller.links.isEmpty
-                ? '尚未关联书籍，关联后才会上报阅读时长'
-                : '已关联 ${controller.links.length} 本本地书籍',
+                ? '按出版方关联公开阅读版本；阅读数据会独立同步'
+                : '已公开关联 ${controller.links.length} 本本地书籍',
           ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push<void>(

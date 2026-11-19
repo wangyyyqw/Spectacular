@@ -181,6 +181,43 @@ void main() {
     expect(popped, 'create-group');
   });
 
+  testWidgets('点关联阅微公开阅读返回 reamicro-link', (tester) async {
+    final entry = BookEntry(
+      id: 'clean-book',
+      title: '干净书',
+      author: '作者',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    String? popped;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () async {
+                popped = await Navigator.of(context).push<String>(
+                  MaterialPageRoute<String>(
+                    builder: (_) =>
+                        BookDetailSheet(entry: entry, library: store),
+                  ),
+                );
+              },
+              child: const Text('打开详情'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开详情'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('book-detail-public-reading')),
+    );
+    await tester.pumpAndSettle();
+    expect(popped, 'reamicro-link');
+  });
+
   testWidgets('点多选返回 multi-select', (tester) async {
     final entry = BookEntry(
       id: 'clean-book',

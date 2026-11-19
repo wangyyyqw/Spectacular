@@ -104,8 +104,8 @@ abstract interface class ReaMicroApi {
   /// 从阅微阅读记录中隐藏一本书。
   Future<void> hideBookRecord(String token, {required int bookId});
 
-  /// 按书名和作者搜索阅微云端书籍。
-  Future<ReaMicroCloudBook?> searchCloudBook(
+  /// 按书名和作者搜索阅微云端书籍，返回全部候选。
+  Future<List<ReaMicroCloudBook>> searchCloudBooks(
     String token, {
     required String name,
     String author = '',
@@ -534,7 +534,7 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
   }
 
   @override
-  Future<ReaMicroCloudBook?> searchCloudBook(
+  Future<List<ReaMicroCloudBook>> searchCloudBooks(
     String token, {
     required String name,
     String author = '',
@@ -553,12 +553,13 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
             : <Object?>[map],
       _ => const <Object?>[],
     };
+    final books = <ReaMicroCloudBook>[];
     for (final item in rawItems) {
       if (item is! Map<String, Object?>) continue;
       final book = ReaMicroCloudBook.fromJson(item);
-      if (book.cloudBookId > 0 && book.name.isNotEmpty) return book;
+      if (book.cloudBookId > 0 && book.name.isNotEmpty) books.add(book);
     }
-    return null;
+    return books;
   }
 
   @override

@@ -7,7 +7,8 @@ import 'book_cover_image.dart';
 /// 书籍详情（P4-06）：元信息 + 导入报告（修复项与告警）。
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
-/// `'create-group'` 新建分组，`'multi-select'` 进入多选。
+/// `'create-group'` 新建分组，`'multi-select'` 进入多选，
+/// `'reamicro-link'` 进入阅微关联与公开阅读。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
   const BookDetailSheet({
@@ -152,6 +153,12 @@ class BookDetailSheet extends StatelessWidget {
               icon: AppGlyph.menuBook,
               label: '图书详情',
               onTap: () => Navigator.of(context).pop('detail'),
+            ),
+            _DetailAction(
+              key: const ValueKey<String>('book-detail-public-reading'),
+              icon: AppGlyph.share,
+              label: '关联阅微公开阅读',
+              onTap: () => Navigator.of(context).pop('reamicro-link'),
             ),
             _DetailAction(
               key: const ValueKey<String>('book-detail-update'),

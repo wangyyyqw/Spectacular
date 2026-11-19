@@ -209,6 +209,7 @@ class _FakeApi implements ReaMicroApi {
   final List<Map<String, Object?>> cloudBookRequests = <Map<String, Object?>>[];
   final List<Map<String, Object?>> relateRequests = <Map<String, Object?>>[];
   ReaMicroCloudBook? cloudBookInfo;
+  List<ReaMicroCloudBook> cloudBooks = <ReaMicroCloudBook>[];
   int cloudBookInfoCalls = 0;
   int nextUserBookId = 7001;
   int nextCloudBookId = 8001;
@@ -341,7 +342,7 @@ class _FakeApi implements ReaMicroApi {
   }) async => 'fake-token';
 
   @override
-  Future<ReaMicroCloudBook?> searchCloudBook(
+  Future<List<ReaMicroCloudBook>> searchCloudBooks(
     String token, {
     required String name,
     String author = '',
@@ -349,7 +350,10 @@ class _FakeApi implements ReaMicroApi {
     if (unauthorized) {
       throw const ReaMicroException('登录已失效', unauthorized: true);
     }
-    return ReaMicroCloudBook(cloudBookId: 99, name: name, author: author);
+    if (cloudBooks.isNotEmpty) return cloudBooks;
+    return <ReaMicroCloudBook>[
+      ReaMicroCloudBook(cloudBookId: 99, name: name, author: author),
+    ];
   }
 
   @override
@@ -960,6 +964,151 @@ void main() {
     expect(api.uploads.last.single.durationSeconds, 420);
   });
 
+  test('未公开关联的书籍也上报阅读时长且不附带书籍标识', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    library.sessions.add(
+      _session(DateTime.utc(2026, 11, 17, 1), DateTime.utc(2026, 11, 17, 1, 6)),
+    );
+
+    final result = await controller.syncReadingSessions();
+
+    expect(result.success, isTrue);
+    expect(api.uploads, hasLength(1));
+    expect(api.uploads.single.single.cloudBookId, 0);
+    expect(api.uploads.single.single.toJson().containsKey('bookId'), isFalse);
+    expect(api.sessionLogUploads.single, isEmpty);
+    expect(controller.links, isEmpty);
+  });
+
+  test('未公开关联的书籍登记身份后同步阅读进度', () async {
+    final dir = Directory.systemTemp.createTempSync('rea-sync-progress');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final bytes = buildTestEpub(
+      title: '独立同步书',
+      identifier: 'urn:uuid:rea-sync-progress',
+    );
+    final file = File('${dir.path}/book.epub')..writeAsBytesSync(bytes);
+    final library = _TestLibrary()
+      ..book = BookEntry(
+        id: 'book-a',
+        title: '独立同步书',
+        author: '作者',
+        filePath: file.path,
+        addedAt: DateTime(2026, 11, 19),
+        spineCount: 2,
+        contentRevision: 'rev-sync',
+      );
+    final progressStore = _MemoryProgressStore();
+    final api = _FakeApi();
+    final controller = await _createController(
+      library,
+      api,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+    await controller.trackedProgressStore!.save(
+      'book-a',
+      const ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        contentRevision: 'rev-sync',
+        readingPercent: 0.25,
+        chapterTitle: '第二章',
+      ),
+    );
+
+    final result = await controller.syncProgress(pullCloud: false);
+
+    expect(result.success, isTrue);
+    expect(controller.links, isEmpty);
+    expect(controller.syncBooks['book-a']?.cloudBookId, 8001);
+    expect(api.userBookRequests, hasLength(1));
+    expect(api.cloudBookRequests, hasLength(1));
+    expect(api.progressUploads, hasLength(1));
+    expect(api.progressUploads.single.cloudBookId, 8001);
+  });
+
+  test('未公开关联的书籍登记身份后同步标注', () async {
+    final dir = Directory.systemTemp.createTempSync('rea-sync-marks');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final bytes = buildTestEpub(
+      title: '独立标注书',
+      identifier: 'urn:uuid:rea-sync-marks',
+    );
+    final db = AppDatabase(NativeDatabase.memory());
+    final library = _DbTestLibrary(db, dir);
+    addTearDown(db.close);
+    final imported = await library.importBytes(bytes);
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await library.importBookAnnotation(
+      imported.id,
+      ReaderAnnotation(
+        id: 'mark-a',
+        type: ReaderAnnotationType.mark,
+        startCfi: 'epubcfi(/6/4!/4/2/2)',
+        endCfi: 'epubcfi(/6/4!/4/2/6)',
+        quote: '原文',
+        color: 0xFFFFC542,
+        style: ReaderAnnotationStyle.underline,
+        createdAt: DateTime.utc(2026, 11, 19, 1),
+        updatedAt: DateTime.utc(2026, 11, 19, 1, 5),
+      ),
+    );
+
+    final result = await controller.syncMarks();
+
+    expect(result.success, isTrue);
+    expect(controller.links, isEmpty);
+    expect(controller.syncBooks[imported.id]?.cloudBookId, 8001);
+    expect(api.markUpserts, hasLength(1));
+    expect(api.markUpserts.single.bookId, '8001');
+  });
+
+  test('公开阅读候选按出版方分组并按书名匹配度排序', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    const publisher = ReaMicroCloudPublisher(publisherId: 1, publisher: '甲出版社');
+    final resultGroups = controller.groupPublicReadingCandidates(
+      const <ReaMicroCloudBook>[
+        ReaMicroCloudBook(
+          cloudBookId: 2,
+          name: '目标书 第二版',
+          author: '作者',
+          publishers: <ReaMicroCloudPublisher>[publisher],
+        ),
+        ReaMicroCloudBook(
+          cloudBookId: 1,
+          name: '目标书',
+          author: '作者',
+          publishers: <ReaMicroCloudPublisher>[publisher],
+        ),
+        ReaMicroCloudBook(cloudBookId: 3, name: '目标书', author: '作者'),
+      ],
+      title: '目标书',
+      author: '作者',
+    );
+
+    expect(resultGroups.map((group) => group.publisherName), contains('甲出版社'));
+    expect(resultGroups.map((group) => group.publisherName), contains('阅微书库'));
+    final publisherGroup = resultGroups.singleWhere(
+      (group) => group.publisherName == '甲出版社',
+    );
+    expect(publisherGroup.candidates, hasLength(2));
+    expect(publisherGroup.candidates.first.book.cloudBookId, 1);
+  });
+
   test('401 清除登录令牌', () async {
     final library = _TestLibrary();
     final api = _FakeApi(unauthorized: true);
@@ -1000,7 +1149,7 @@ void main() {
     api.unauthorized = true;
 
     await expectLater(
-      controller.searchCloudBook(name: '云端书'),
+      controller.searchCloudBooks(name: '云端书'),
       throwsA(isA<ReaMicroException>()),
     );
 

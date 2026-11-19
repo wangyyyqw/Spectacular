@@ -17,6 +17,7 @@ class ReaMicroStore {
   static const String _tokenKey = 'reamicro.auth.token';
   static const String _userKey = 'reamicro.auth.user';
   static const String _linksKey = 'reamicro.book.links';
+  static const String _syncBooksKey = 'reamicro.book.syncIdentities';
   static const String _uploadedKey = 'reamicro.sync.uploaded';
   static const String _watermarksKey = 'reamicro.sync.watermarks';
   static const String _lastSyncKey = 'reamicro.sync.lastAt';
@@ -98,6 +99,46 @@ class ReaMicroStore {
           for (final entry in links.entries) entry.key: entry.value.toJson(),
         }),
       );
+
+  /// 读取本地书籍的阅微阅读数据身份。
+  ///
+  /// 该映射独立于公开关联：即使没有选择出版社版本，已登记的书籍也能
+  /// 继续同步阅读时长、进度和标注。
+  Future<Map<String, ReaMicroBookSyncIdentity>> loadSyncBooks() async {
+    final raw = await _library.getSetting(_syncBooksKey);
+    if (raw == null || raw.isEmpty) {
+      return <String, ReaMicroBookSyncIdentity>{};
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) {
+        return <String, ReaMicroBookSyncIdentity>{};
+      }
+      final identities = <String, ReaMicroBookSyncIdentity>{};
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is! Map<String, Object?>) continue;
+        final identity = ReaMicroBookSyncIdentity.fromJson(value);
+        if (identity.cloudBookId > 0) identities[entry.key] = identity;
+      }
+      return identities;
+    } on FormatException {
+      return <String, ReaMicroBookSyncIdentity>{};
+    }
+  }
+
+  /// 保存本地书籍的阅微阅读数据身份。
+  Future<void> saveSyncBooks(
+    Map<String, ReaMicroBookSyncIdentity> identities,
+  ) => _library.setSetting(
+    _syncBooksKey,
+    jsonEncode(<String, Object?>{
+      for (final entry in identities.entries) entry.key: entry.value.toJson(),
+    }),
+  );
+
+  /// 清除本地书籍的阅微阅读数据身份。
+  Future<void> clearSyncBooks() => _library.setSetting(_syncBooksKey, '');
 
   /// 读取已上报的阅读时段台账，用于跨启动去重。
   Future<Set<String>> loadUploadedSessionKeys() async {

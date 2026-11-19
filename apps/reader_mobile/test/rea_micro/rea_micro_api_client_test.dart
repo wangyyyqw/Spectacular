@@ -141,7 +141,7 @@ void main() {
   });
 
   test('云端书籍搜索兼容对象、数组与列表信封', () async {
-    Future<ReaMicroCloudBook?> search(Object data) async {
+    Future<List<ReaMicroCloudBook>> search(Object data) async {
       final api = ReaMicroApiClient(
         baseUrl: 'https://example.test/',
         client: MockClient(
@@ -153,7 +153,7 @@ void main() {
         ),
       );
       addTearDown(api.close);
-      return api.searchCloudBook('token', name: '书名', author: '作者');
+      return api.searchCloudBooks('token', name: '书名', author: '作者');
     }
 
     final book = <String, Object?>{
@@ -175,10 +175,11 @@ void main() {
         'books': <Object?>[book],
       },
     ]) {
-      final result = await search(data);
-      expect(result?.cloudBookId, 42);
-      expect(result?.name, '云端书名');
-      expect(result?.publisherNames, <String>['出版社', '出版方']);
+      final results = await search(data);
+      expect(results, hasLength(1));
+      expect(results.single.cloudBookId, 42);
+      expect(results.single.name, '云端书名');
+      expect(results.single.publisherNames, <String>['出版社', '出版方']);
     }
   });
 

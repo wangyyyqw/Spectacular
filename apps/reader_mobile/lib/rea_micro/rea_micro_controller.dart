@@ -85,6 +85,10 @@ class ReaMicroController extends ChangeNotifier {
   ReaMicroUser? _user;
   List<ReaMicroChartPoint> _chart = const <ReaMicroChartPoint>[];
   Map<String, ReaMicroBookLink> _links = <String, ReaMicroBookLink>{};
+  Map<String, ReaMicroBookSyncIdentity> _syncBooks =
+      <String, ReaMicroBookSyncIdentity>{};
+  final Map<String, Future<ReaMicroBookSyncIdentity?>> _identityRequests =
+      <String, Future<ReaMicroBookSyncIdentity?>>{};
   DateTime? _lastSyncAt;
   DateTime? _lastRefreshAt;
   bool _busy = false;
@@ -146,6 +150,10 @@ class ReaMicroController extends ChangeNotifier {
   /// 本地书籍与云端书籍的关联。
   Map<String, ReaMicroBookLink> get links =>
       Map<String, ReaMicroBookLink>.unmodifiable(_links);
+
+  /// 本地书籍的阅微阅读数据身份；不要求已经公开关联。
+  Map<String, ReaMicroBookSyncIdentity> get syncBooks =>
+      Map<String, ReaMicroBookSyncIdentity>.unmodifiable(_syncBooks);
 
   /// 上次成功同步时间。
   DateTime? get lastSyncAt => _lastSyncAt;
@@ -250,6 +258,7 @@ class ReaMicroController extends ChangeNotifier {
     _token = await _store.loadToken();
     _user = await _store.loadCachedUser();
     _links = await _store.loadLinks();
+    _syncBooks = await _store.loadSyncBooks();
     _lastSyncAt = await _store.loadLastSyncAt();
     _progressStates = await _store.loadProgressStates();
     _markIds = await _store.loadMarkIds();
@@ -273,7 +282,8 @@ class ReaMicroController extends ChangeNotifier {
         if (_cloudAsPrimary) {
           _startCloudAutoSync();
           await _syncCloudNow();
-        } else if (_links.isNotEmpty) {
+        } else {
+          await _seedProgressStatesFromLocal(markDirty: false);
           scheduleReadingSync(delay: const Duration(seconds: 5));
           scheduleProgressSync(delay: const Duration(seconds: 7));
         }
@@ -652,6 +662,10 @@ class ReaMicroController extends ChangeNotifier {
       _markIds = <String, int>{};
       await _store.saveMarkIds(_markIds);
     }
+    if (_syncBooks.isNotEmpty) {
+      _syncBooks = <String, ReaMicroBookSyncIdentity>{};
+      await _store.clearSyncBooks();
+    }
     await _clearS3BookState();
     _milestones = const <ReaMicroMilestone>[];
     _loadingMilestones = false;
@@ -785,9 +799,90 @@ class ReaMicroController extends ChangeNotifier {
   /// 读取本地书架，供书籍匹配页展示。
   Future<List<BookEntry>> listLocalBooks() => _library.list();
 
+  /// 获取本地书籍的阅微阅读数据身份。
+  ///
+  /// 公开关联优先；没有关联时使用已保存的登记结果，必要时把本地书登记为
+  /// 阅微用户书。登记只建立阅读数据所需的身份，不会关联出版社版本。
+  Future<ReaMicroBookSyncIdentity?> _ensureSyncIdentity(
+    String bookId, {
+    bool createCloudBook = true,
+  }) async {
+    final link = _links[bookId];
+    if (link != null && link.cloudBookId > 0) {
+      final identity = ReaMicroBookSyncIdentity(
+        cloudBookId: link.cloudBookId,
+        userBookId: link.userBookId,
+      );
+      final existing = _syncBooks[bookId];
+      if (existing?.cloudBookId != identity.cloudBookId ||
+          existing?.userBookId != identity.userBookId) {
+        _syncBooks = <String, ReaMicroBookSyncIdentity>{
+          ..._syncBooks,
+          bookId: identity,
+        };
+        await _store.saveSyncBooks(_syncBooks);
+      }
+      return identity;
+    }
+    final existing = _syncBooks[bookId];
+    if (existing != null && existing.cloudBookId > 0) return existing;
+    final pending = _identityRequests[bookId];
+    if (pending != null) return pending;
+    final future = _registerSyncIdentity(
+      bookId,
+      createCloudBook: createCloudBook,
+    );
+    _identityRequests[bookId] = future;
+    try {
+      return await future;
+    } finally {
+      _identityRequests.remove(bookId)?.ignore();
+    }
+  }
+
+  Future<ReaMicroBookSyncIdentity?> _registerSyncIdentity(
+    String bookId, {
+    required bool createCloudBook,
+  }) async {
+    final token = _token;
+    if (token == null) return null;
+    final book = await _library.bookById(bookId);
+    if (book == null) return null;
+    final file = File(book.filePath);
+    if (!await file.exists()) return null;
+    final digest = md5.convert(await file.readAsBytes()).toString();
+    final registration = await _api.registerUserBook(
+      token,
+      name: book.title,
+      author: book.author,
+      md5: digest,
+    );
+    var cloudBookId = registration.cloudBookId;
+    if (cloudBookId <= 0 && createCloudBook) {
+      final created = await _api.createCloudBook(
+        token,
+        name: book.title,
+        author: book.author,
+        intro: book.description,
+      );
+      cloudBookId = created.cloudBookId;
+    }
+    if (cloudBookId <= 0) return null;
+    final identity = ReaMicroBookSyncIdentity(
+      cloudBookId: cloudBookId,
+      userBookId: registration.userBookId,
+    );
+    _syncBooks = <String, ReaMicroBookSyncIdentity>{
+      ..._syncBooks,
+      bookId: identity,
+    };
+    await _store.saveSyncBooks(_syncBooks);
+    return identity;
+  }
+
   /// 阅读页关闭后延迟合并同步，避免连续开关书产生重复网络请求。
   void scheduleReadingSync({Duration delay = const Duration(seconds: 3)}) {
-    if (_disposed || !signedIn || _links.isEmpty) return;
+    if (_disposed || !signedIn) return;
     _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer(delay, () async {
       if (_disposed) return;
@@ -801,7 +896,7 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 阅读位置变化后延迟上报，避免每次翻页都触发网络请求。
   void scheduleProgressSync({Duration delay = const Duration(seconds: 4)}) {
-    if (_disposed || !signedIn || _links.isEmpty) return;
+    if (_disposed || !signedIn) return;
     _progressSyncTimer?.cancel();
     _progressSyncTimer = Timer(delay, () async {
       if (_disposed) return;
@@ -811,6 +906,12 @@ class ReaMicroController extends ChangeNotifier {
       }
       await syncProgress();
     });
+  }
+
+  void _schedulePendingReadingRetry() {
+    if (_disposed || !signedIn) return;
+    scheduleReadingSync(delay: const Duration(minutes: 1));
+    scheduleProgressSync(delay: const Duration(minutes: 1));
   }
 
   /// 刷新账号与阅读图表；[silent] 为静默刷新时不覆盖已有数据。
@@ -880,14 +981,14 @@ class ReaMicroController extends ChangeNotifier {
     _notice = '已开启阅微唯一数据源，正在同步';
     _notify();
     try {
-      final linked = await autoLinkMatchingBooks();
+      await _seedProgressStatesFromLocal();
       await _restoreCloudS3Config(silent: true);
       if (s3Configured) {
         await syncS3(silent: true, scheduleFollowUp: false);
       }
       await syncAll();
       await refreshCloudStats(force: true, silent: true);
-      _notice = linked == 0 ? '已开启阅微唯一数据源' : '已开启阅微唯一数据源并自动关联 $linked 本书';
+      _notice = '已开启阅微唯一数据源';
       _notify();
     } catch (error) {
       await _handleError(error);
@@ -895,7 +996,10 @@ class ReaMicroController extends ChangeNotifier {
     }
   }
 
-  /// 按书名与作者自动关联本地书籍和阅微云端阅读记录。
+  /// 手动按书名与作者匹配本地书籍和阅微云端阅读记录。
+  ///
+  /// 仅用于「关联阅微书籍」页的批量匹配按钮，登录或开启唯一数据源时
+  /// 不会自动调用。
   Future<int> autoLinkMatchingBooks() async {
     final token = _token;
     if (token == null) return 0;
@@ -1252,8 +1356,8 @@ class ReaMicroController extends ChangeNotifier {
     _notify();
   }
 
-  /// 搜索云端书籍。
-  Future<ReaMicroCloudBook?> searchCloudBook({
+  /// 搜索全部云端书籍候选。
+  Future<List<ReaMicroCloudBook>> searchCloudBooks({
     required String name,
     String author = '',
   }) async {
@@ -1266,7 +1370,7 @@ class ReaMicroController extends ChangeNotifier {
       throw const ReaMicroException('请填写书名');
     }
     try {
-      return await _api.searchCloudBook(
+      return await _api.searchCloudBooks(
         token,
         name: query,
         author: author.trim(),
@@ -1275,6 +1379,92 @@ class ReaMicroController extends ChangeNotifier {
       await _handleError(error);
       rethrow;
     }
+  }
+
+  /// 搜索并整理公开阅读候选；同一出版方的版本归入一组。
+  Future<List<ReaMicroPublicReadingGroup>> searchPublicReadingCandidates({
+    required String name,
+    String author = '',
+  }) async {
+    final books = await searchCloudBooks(name: name, author: author);
+    return groupPublicReadingCandidates(books, title: name, author: author);
+  }
+
+  /// 将云端搜索结果整理为按出版方分组的公开阅读候选。
+  ///
+  /// 无出版方的云端书仍保留在“阅微书库”组中，界面可引导用户新建
+  /// 出版书后再完成公开关联。
+  List<ReaMicroPublicReadingGroup> groupPublicReadingCandidates(
+    List<ReaMicroCloudBook> books, {
+    String title = '',
+    String author = '',
+  }) {
+    final queryTitle = _normalizeBookText(title);
+    final queryAuthor = _normalizeBookText(author);
+    final groups = <String, List<ReaMicroPublicReadingCandidate>>{};
+    final groupOrder = <String>[];
+    final seen = <String>{};
+    for (final book in books) {
+      final publishers = book.publishers.isEmpty
+          ? const <ReaMicroCloudPublisher?>[null]
+          : book.publishers
+                .map<ReaMicroCloudPublisher?>((publisher) => publisher)
+                .toList(growable: false);
+      for (final publisher in publishers) {
+        final publisherName = (publisher?.displayName ?? '').trim();
+        final groupName = publisherName.isEmpty ? '阅微书库' : publisherName;
+        final candidate = ReaMicroPublicReadingCandidate(
+          book: book,
+          publisher: publisher,
+          publisherName: groupName,
+        );
+        if (!seen.add(candidate.key)) continue;
+        groups
+            .putIfAbsent(groupName, () {
+              groupOrder.add(groupName);
+              return <ReaMicroPublicReadingCandidate>[];
+            })
+            .add(candidate);
+      }
+    }
+    final ordered = <ReaMicroPublicReadingGroup>[];
+    for (final name in groupOrder) {
+      final candidates = groups[name]!;
+      candidates.sort((left, right) {
+        final rank = _publicReadingRank(
+          left.book,
+          queryTitle,
+          queryAuthor,
+        ).compareTo(_publicReadingRank(right.book, queryTitle, queryAuthor));
+        if (rank != 0) return rank;
+        return left.book.cloudBookId.compareTo(right.book.cloudBookId);
+      });
+      ordered.add(
+        ReaMicroPublicReadingGroup(
+          publisherName: name,
+          candidates: List<ReaMicroPublicReadingCandidate>.unmodifiable(
+            candidates,
+          ),
+        ),
+      );
+    }
+    ordered.sort((left, right) {
+      final leftRank = _publicReadingRank(
+        left.candidates.first.book,
+        queryTitle,
+        queryAuthor,
+      );
+      final rightRank = _publicReadingRank(
+        right.candidates.first.book,
+        queryTitle,
+        queryAuthor,
+      );
+      if (leftRank != rightRank) return leftRank.compareTo(rightRank);
+      return groupOrder
+          .indexOf(left.publisherName)
+          .compareTo(groupOrder.indexOf(right.publisherName));
+    });
+    return List<ReaMicroPublicReadingGroup>.unmodifiable(ordered);
   }
 
   /// 关联本地书籍与云端书籍。
@@ -1383,9 +1573,39 @@ class ReaMicroController extends ChangeNotifier {
     );
     _links = <String, ReaMicroBookLink>{..._links, bookId: link};
     await _store.saveLinks(_links);
+    _syncBooks = <String, ReaMicroBookSyncIdentity>{
+      ..._syncBooks,
+      bookId: ReaMicroBookSyncIdentity(
+        cloudBookId: cloudBookId,
+        userBookId: registration.userBookId,
+      ),
+    };
+    await _store.saveSyncBooks(_syncBooks);
     await _seedProgressStatesForBook(bookId);
     _notice = '已登记并关联《${link.name}》';
     _notify();
+    return link;
+  }
+
+  /// 将本地书公开关联到阅微，并立即补传已有阅读数据。
+  ///
+  /// 关联成功后，即使阅读数据因断网暂时上传失败，也保留本地关联和
+  /// 待上报记录，由自动重试在联网后继续补传。
+  Future<ReaMicroBookLink> publishBookForPublicReading(
+    String bookId, {
+    ReaMicroCloudBook? cloudBook,
+    ReaMicroCloudPublisher? publisher,
+  }) async {
+    final link = await registerAndLinkBook(
+      bookId,
+      cloudBook: cloudBook,
+      publisher: publisher,
+    );
+    final result = await syncAll();
+    if (!result.success) {
+      _notice = '已公开关联《${link.name}》；阅读数据将在联网后自动补传';
+      _notify();
+    }
     return link;
   }
 
@@ -1404,6 +1624,9 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   /// 将尚未上报的阅读时段按书、按北京时间自然日聚合后提交。
+  ///
+  /// 未公开关联的书籍也会上报总阅读时长；只有已取得阅微书籍身份的书
+  /// 才附带书籍标识和会话明细，与阅微自身的上报行为一致。
   Future<ReaMicroSyncResult> syncReadingSessions() async {
     final token = _token;
     if (token == null) {
@@ -1411,9 +1634,6 @@ class ReaMicroController extends ChangeNotifier {
     }
     if (_syncing) {
       return const ReaMicroSyncResult(success: false, message: '正在同步，请稍后');
-    }
-    if (_links.isEmpty) {
-      return const ReaMicroSyncResult(success: false, message: '尚未关联任何阅微书籍');
     }
     final sessionStore = _library.readingSessionStore();
     if (sessionStore == null) {
@@ -1443,28 +1663,32 @@ class ReaMicroController extends ChangeNotifier {
     for (final session in sessions) {
       final endedAt = session.endedAt.millisecondsSinceEpoch;
       if (endedAt <= (watermarks[session.bookId] ?? 0)) continue;
-      final link = _links[session.bookId];
-      if (link == null) continue;
+      final cloudBookId =
+          _links[session.bookId]?.cloudBookId ??
+          _syncBooks[session.bookId]?.cloudBookId ??
+          0;
       for (final portion in _splitSession(session)) {
         if (uploaded.contains(portion.key)) continue;
-        final key = '${link.cloudBookId}|${portion.date}';
+        final key = '$cloudBookId|${portion.date}';
         final group = groups.putIfAbsent(
           key,
-          () => _SyncGroup(cloudBookId: link.cloudBookId, date: portion.date),
+          () => _SyncGroup(cloudBookId: cloudBookId, date: portion.date),
         );
         group.durationSeconds += portion.durationSeconds;
         group.keys.add(portion.key);
         group.bookIds.add(session.bookId);
-        group.logs.add(
-          ReaMicroReadSessionLog(
-            id: 'spectacular-${portion.key}',
-            cloudBookId: link.cloudBookId,
-            startedAt: portion.startedAt,
-            endedAt: portion.endedAt,
-            durationSeconds: portion.durationSeconds,
-            recordDay: portion.date,
-          ),
-        );
+        if (cloudBookId > 0) {
+          group.logs.add(
+            ReaMicroReadSessionLog(
+              id: 'spectacular-${portion.key}',
+              cloudBookId: cloudBookId,
+              startedAt: portion.startedAt,
+              endedAt: portion.endedAt,
+              durationSeconds: portion.durationSeconds,
+              recordDay: portion.date,
+            ),
+          );
+        }
       }
       final currentEnd = bookEnds[session.bookId] ?? 0;
       if (endedAt > currentEnd) bookEnds[session.bookId] = endedAt;
@@ -1555,6 +1779,7 @@ class ReaMicroController extends ChangeNotifier {
     _error = failure;
     _syncing = false;
     _notify();
+    _schedulePendingReadingRetry();
     return ReaMicroSyncResult(
       success: requests > 0,
       message: requests == 0 ? failure : '已同步 $requests 天，其余记录失败：$failure',
@@ -1572,9 +1797,6 @@ class ReaMicroController extends ChangeNotifier {
     if (_syncingMarks) {
       return const ReaMicroSyncResult(success: false, message: '正在同步标注，请稍后');
     }
-    if (_links.isEmpty) {
-      return const ReaMicroSyncResult(success: false, message: '尚未关联任何阅微书籍');
-    }
     _syncingMarks = true;
     _error = null;
     _notify();
@@ -1589,14 +1811,37 @@ class ReaMicroController extends ChangeNotifier {
         for (final mark in remoteMarks)
           if (mark.id > 0) mark.id: mark,
       };
-      for (final linkEntry in List<MapEntry<String, ReaMicroBookLink>>.of(
-        _links.entries,
-      )) {
+      final candidateBookIds = <String>{..._links.keys, ..._syncBooks.keys};
+      for (final book in await _library.list()) {
+        if (candidateBookIds.contains(book.id)) continue;
+        final prefix = '${book.id}|';
+        if (nextMarkIds.keys.any((key) => key.startsWith(prefix))) {
+          candidateBookIds.add(book.id);
+          continue;
+        }
+        try {
+          final annotations = await _library.listBookAnnotations(book.id);
+          if (annotations.isNotEmpty) candidateBookIds.add(book.id);
+        } catch (error) {
+          failure ??= _messageOf(error);
+        }
+      }
+      for (final localBookId in candidateBookIds) {
         if (_token != token) break;
-        final localBookId = linkEntry.key;
-        final link = linkEntry.value;
         final localBook = await _library.bookById(localBookId);
         if (localBook == null) continue;
+        final ReaMicroBookSyncIdentity? identity;
+        try {
+          identity = await _ensureSyncIdentity(localBookId);
+        } catch (error) {
+          failure ??= _messageOf(error);
+          if (error is ReaMicroException && error.unauthorized) {
+            await _handleError(error);
+            break;
+          }
+          continue;
+        }
+        if (identity == null) continue;
         try {
           await _library.repairBookAnnotationAnchors(localBookId);
         } catch (error) {
@@ -1605,7 +1850,8 @@ class ReaMicroController extends ChangeNotifier {
         final prefix = '$localBookId|';
         final remoteForBook = <ReaMicroMark>[
           for (final mark in remoteMarks)
-            if (_remoteMarkBelongsTo(mark, localBook, link)) mark,
+            if (_remoteMarkBelongsTo(mark, localBook, identity.cloudBookId))
+              mark,
         ];
         var localAnnotations = await _library.listBookAnnotations(localBookId);
         final localById = <String, ReaderAnnotation>{
@@ -1619,7 +1865,8 @@ class ReaMicroController extends ChangeNotifier {
           final localId = key.substring(prefix.length);
           final remote = remoteById[nextMarkIds[key]];
           if (localById.containsKey(localId)) continue;
-          if (remote != null && _remoteMarkBelongsTo(remote, localBook, link)) {
+          if (remote != null &&
+              _remoteMarkBelongsTo(remote, localBook, identity.cloudBookId)) {
             try {
               await _api.deleteMark(token, id: remote.id);
               deleted += 1;
@@ -1684,11 +1931,15 @@ class ReaMicroController extends ChangeNotifier {
           try {
             var nextId = await _api.upsertMark(
               token,
-              _markDraftFromLocal(annotation, link, remote: remote),
+              _markDraftFromLocal(
+                annotation,
+                identity.cloudBookId,
+                remote: remote,
+              ),
             );
             nextId ??= await _resolveUploadedMarkId(
               token,
-              link: link,
+              cloudBookId: identity.cloudBookId,
               annotation: annotation,
             );
             if (nextId != null && nextId > 0) {
@@ -1724,6 +1975,7 @@ class ReaMicroController extends ChangeNotifier {
         ? failure
         : '已上传 $uploaded 条、同步 $downloaded 条，其余失败：$failure';
     _notice = message;
+    if (failure != null) _schedulePendingReadingRetry();
     return ReaMicroSyncResult(
       success: failure == null || requests > 0,
       message: message,
@@ -1734,11 +1986,10 @@ class ReaMicroController extends ChangeNotifier {
   bool _remoteMarkBelongsTo(
     ReaMicroMark mark,
     BookEntry local,
-    ReaMicroBookLink link,
+    int cloudBookId,
   ) {
     final remoteBookId = mark.bookId.trim();
-    if (remoteBookId == link.cloudBookId.toString() ||
-        remoteBookId == local.id) {
+    if (remoteBookId == cloudBookId.toString() || remoteBookId == local.id) {
       return true;
     }
     if (mark.bookName.trim().isEmpty) return false;
@@ -1790,11 +2041,11 @@ class ReaMicroController extends ChangeNotifier {
 
   ReaMicroMarkDraft _markDraftFromLocal(
     ReaderAnnotation annotation,
-    ReaMicroBookLink link, {
+    int cloudBookId, {
     ReaMicroMark? remote,
   }) => ReaMicroMarkDraft(
     cloudId: remote?.id ?? 0,
-    bookId: link.cloudBookId.toString(),
+    bookId: cloudBookId.toString(),
     chapter: remote?.chapter ?? '',
     kind: annotation.type.storageValue,
     startCfi: annotation.startCfi,
@@ -1809,13 +2060,10 @@ class ReaMicroController extends ChangeNotifier {
 
   Future<int?> _resolveUploadedMarkId(
     String token, {
-    required ReaMicroBookLink link,
+    required int cloudBookId,
     required ReaderAnnotation annotation,
   }) async {
-    final marks = await _api.fetchMarks(
-      token,
-      bookId: link.cloudBookId.toString(),
-    );
+    final marks = await _api.fetchMarks(token, bookId: cloudBookId.toString());
     for (final mark in marks) {
       if (mark.startCfi == annotation.startCfi &&
           mark.endCfi == annotation.endCfi &&
@@ -1856,10 +2104,13 @@ class ReaMicroController extends ChangeNotifier {
     return '#${value.toRadixString(16).padLeft(8, '0')}';
   }
 
-  /// 同时同步阅读时长与阅读位置。
+  /// 同时同步阅读位置、阅读时长与标注。
+  ///
+  /// 先同步位置以建立书籍身份，让尚未公开关联的书籍也能把阅读时长
+  /// 归到正确的阅微书籍记录。
   Future<ReaMicroSyncResult> syncAll() async {
-    final durations = await syncReadingSessions();
     final progress = await syncProgress();
+    final durations = await syncReadingSessions();
     final marks = await syncMarks();
     final messages = <String>{
       durations.message,
@@ -1915,9 +2166,6 @@ class ReaMicroController extends ChangeNotifier {
     if (_syncingProgress) {
       return const ReaMicroSyncResult(success: false, message: '正在同步阅读进度，请稍后');
     }
-    if (_links.isEmpty) {
-      return const ReaMicroSyncResult(success: false, message: '尚未关联任何阅微书籍');
-    }
     _syncingProgress = true;
     _error = null;
     _notify();
@@ -1932,8 +2180,18 @@ class ReaMicroController extends ChangeNotifier {
         if (_token != token) break;
         final state = entry.value;
         if (!state.dirty) continue;
-        final link = _links[entry.key];
-        if (link == null) continue;
+        final ReaMicroBookSyncIdentity? identity;
+        try {
+          identity = await _ensureSyncIdentity(entry.key);
+        } catch (error) {
+          failure ??= _messageOf(error);
+          if (error is ReaMicroException && error.unauthorized) {
+            await _handleError(error);
+            break;
+          }
+          continue;
+        }
+        if (identity == null) continue;
         if (state.cfi.trim().isEmpty) {
           _progressStates[entry.key] = state.copyWith(dirty: false);
           continue;
@@ -1942,7 +2200,7 @@ class ReaMicroController extends ChangeNotifier {
           if (pullCloud) {
             final remote = await _api.fetchReadProgress(
               token,
-              cloudBookId: link.cloudBookId.toString(),
+              cloudBookId: identity.cloudBookId.toString(),
             );
             if (remote != null && remote.usable) {
               if (remote.cfi == state.cfi) {
@@ -1972,7 +2230,7 @@ class ReaMicroController extends ChangeNotifier {
               }
             }
           }
-          await _uploadProgressState(token, entry.key, state, link);
+          await _uploadProgressState(token, entry.key, state, identity);
           handledBooks.add(entry.key);
           uploaded += 1;
         } catch (error) {
@@ -1986,21 +2244,35 @@ class ReaMicroController extends ChangeNotifier {
       await _persistProgressStatesNow();
 
       if (pullCloud && failure == null && _token == token) {
-        for (final entry in Map<String, ReaMicroBookLink>.of(_links).entries) {
-          final bookId = entry.key;
-          final link = entry.value;
+        final knownBookIds = <String>{..._links.keys, ..._syncBooks.keys};
+        for (final bookId in knownBookIds) {
           final state = _progressStates[bookId];
           if (state?.dirty == true) continue;
           if (handledBooks.contains(bookId)) continue;
+          final ReaMicroBookSyncIdentity? identity;
+          try {
+            identity = await _ensureSyncIdentity(
+              bookId,
+              createCloudBook: false,
+            );
+          } catch (error) {
+            failure ??= _messageOf(error);
+            if (error is ReaMicroException && error.unauthorized) {
+              await _handleError(error);
+              break;
+            }
+            continue;
+          }
+          if (identity == null) continue;
           try {
             final remote = await _api.fetchReadProgress(
               token,
-              cloudBookId: link.cloudBookId.toString(),
+              cloudBookId: identity.cloudBookId.toString(),
             );
             if (remote == null || !remote.usable) {
               if (state != null && state.cfi.trim().isNotEmpty) {
                 try {
-                  await _uploadProgressState(token, bookId, state, link);
+                  await _uploadProgressState(token, bookId, state, identity);
                   uploaded += 1;
                 } catch (error) {
                   failure ??= _messageOf(error);
@@ -2032,7 +2304,7 @@ class ReaMicroController extends ChangeNotifier {
                   state.cfi.trim().isNotEmpty &&
                   state.cfi != remote.cfi) {
                 try {
-                  await _uploadProgressState(token, bookId, state, link);
+                  await _uploadProgressState(token, bookId, state, identity);
                   uploaded += 1;
                 } catch (error) {
                   failure ??= _messageOf(error);
@@ -2068,6 +2340,7 @@ class ReaMicroController extends ChangeNotifier {
     }
 
     if (failure != null) _error = failure;
+    if (failure != null) _schedulePendingReadingRetry();
     final requests = uploaded + pulled;
     final message = failure == null
         ? requests == 0
@@ -2090,11 +2363,11 @@ class ReaMicroController extends ChangeNotifier {
     String token,
     String bookId,
     ReaMicroProgressState state,
-    ReaMicroBookLink link,
+    ReaMicroBookSyncIdentity identity,
   ) async {
     await _api.updateReadProgress(
       token,
-      cloudBookId: link.cloudBookId,
+      cloudBookId: identity.cloudBookId,
       cfi: state.cfi,
       chapterName: _chapterNameOf(state),
       progress: state.progress,
@@ -2807,7 +3080,6 @@ class ReaMicroController extends ChangeNotifier {
     final existing = _progressStates[bookId];
     final cfi = progress.cfi?.trim() ?? '';
     if (cfi.isEmpty) return;
-    final linked = _links.containsKey(bookId);
     _progressStates[bookId] = ReaMicroProgressState(
       cfi: cfi,
       chapterName: progress.chapterTitle?.trim().isNotEmpty == true
@@ -2817,17 +3089,18 @@ class ReaMicroController extends ChangeNotifier {
       localUpdatedAt: DateTime.now().millisecondsSinceEpoch,
       remoteUpdatedAt: existing?.remoteUpdatedAt ?? 0,
       uploadedAt: existing?.uploadedAt ?? 0,
-      dirty: linked,
+      dirty: true,
     );
     _persistProgressStates();
-    if (linked && _token != null) {
+    if (_token != null) {
       scheduleProgressSync();
     }
   }
 
   Future<void> _seedProgressStatesFromLocal({bool markDirty = true}) async {
-    for (final bookId in _links.keys.toList(growable: false)) {
-      await _seedProgressStatesForBook(bookId, markDirty: markDirty);
+    final books = await _library.list();
+    for (final book in books) {
+      await _seedProgressStatesForBook(book.id, markDirty: markDirty);
     }
     await _persistProgressStatesNow();
   }
@@ -3153,3 +3426,23 @@ String _formatDuration(int seconds) {
 
 String _normalizeBookText(String value) =>
     value.toLowerCase().replaceAll(RegExp(r'[\s\u3000《》〈〉]'), '').trim();
+
+int _publicReadingRank(
+  ReaMicroCloudBook book,
+  String normalizedTitle,
+  String normalizedAuthor,
+) {
+  final titleMatches =
+      normalizedTitle.isNotEmpty &&
+      _normalizeBookText(book.name) == normalizedTitle;
+  final authorMatches =
+      normalizedAuthor.isNotEmpty &&
+      _normalizeBookText(book.author) == normalizedAuthor;
+  return switch ((titleMatches, authorMatches)) {
+    (true, true) => 0,
+    (true, false) when normalizedAuthor.isEmpty => 0,
+    (true, _) => 1,
+    (_, true) => 2,
+    _ => 3,
+  };
+}

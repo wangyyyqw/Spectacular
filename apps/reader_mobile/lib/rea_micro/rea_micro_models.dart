@@ -706,6 +706,52 @@ class ReaMicroCloudBook {
   }
 }
 
+/// 公开阅读中可关联的一个云端版本。
+///
+/// 同一本云端书可能有多个出版方条目；每个条目都对应一次独立的
+/// `relate-cloud-book` 关联，因此界面以候选而不是以云端书本身选择。
+class ReaMicroPublicReadingCandidate {
+  /// 创建公开阅读候选。
+  const ReaMicroPublicReadingCandidate({
+    required this.book,
+    this.publisher,
+    this.publisherName = '',
+  });
+
+  /// 云端书籍。
+  final ReaMicroCloudBook book;
+
+  /// 可关联的出版方；没有出版方时为空。
+  final ReaMicroCloudPublisher? publisher;
+
+  /// 分组展示名称。
+  final String publisherName;
+
+  /// 出版方标识。
+  int get publisherId => publisher?.publisherId ?? 0;
+
+  /// 是否为可直接公开关联的出版方条目。
+  bool get linkable => publisherId > 0;
+
+  /// 稳定标识，用于选择和去重。
+  String get key => '${book.cloudBookId}|$publisherId|${publisherName.trim()}';
+}
+
+/// 公开阅读搜索中的出版方分组。
+class ReaMicroPublicReadingGroup {
+  /// 创建分组。
+  const ReaMicroPublicReadingGroup({
+    required this.publisherName,
+    required this.candidates,
+  });
+
+  /// 出版方或来源名称。
+  final String publisherName;
+
+  /// 该出版方下的候选版本。
+  final List<ReaMicroPublicReadingCandidate> candidates;
+}
+
 /// 阅微用户书登记结果。
 class ReaMicroUserBookRegistration {
   /// 创建登记结果。
@@ -822,6 +868,37 @@ class ReaMicroBookLink {
   };
 }
 
+/// 本地书籍在阅微的阅读数据身份。
+///
+/// 与 [ReaMicroBookLink] 不同，这里只用于阅读时长、进度和标注同步，
+/// 不表示书籍已经公开关联到某个出版社版本。
+class ReaMicroBookSyncIdentity {
+  /// 创建阅读数据身份。
+  const ReaMicroBookSyncIdentity({
+    required this.cloudBookId,
+    this.userBookId = 0,
+  });
+
+  /// 阅微云端书籍标识。
+  final int cloudBookId;
+
+  /// 阅微用户书标识；为 0 表示接口未返回。
+  final int userBookId;
+
+  /// 从本地 JSON 解析。
+  factory ReaMicroBookSyncIdentity.fromJson(Map<String, Object?> json) =>
+      ReaMicroBookSyncIdentity(
+        cloudBookId: _intValue(json['cloudBookId']),
+        userBookId: _intValue(json['userBookId']),
+      );
+
+  /// 序列化到本地 JSON。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'cloudBookId': cloudBookId,
+    'userBookId': userBookId,
+  };
+}
+
 /// 按日聚合后的一条阅读时长上报。
 class ReaMicroReadTimeEntry {
   /// 创建上报条目。
@@ -831,7 +908,7 @@ class ReaMicroReadTimeEntry {
     required this.durationSeconds,
   });
 
-  /// 云端书籍标识。
+  /// 云端书籍标识；为 0 表示本书尚未建立阅微书籍身份。
   final int cloudBookId;
 
   /// 日期，格式为 `yyyy-MM-dd`。
@@ -842,7 +919,7 @@ class ReaMicroReadTimeEntry {
 
   /// 转换为阅微接口请求体。
   Map<String, Object?> toJson() => <String, Object?>{
-    'bookId': cloudBookId,
+    if (cloudBookId > 0) 'bookId': cloudBookId,
     'date': date,
     'duration': durationSeconds,
     'verify': '',
