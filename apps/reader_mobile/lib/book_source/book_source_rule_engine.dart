@@ -204,6 +204,12 @@ class BookSourceRuleEngine {
     String rule,
     BookSourceRuleContext context,
   ) {
+    final text = rule.trim();
+    if (text.startsWith('http://') ||
+        text.startsWith('https://') ||
+        text.startsWith('data:')) {
+      return <Object>[text];
+    }
     final parsed = _parseRule(rule);
     if (parsed.rule.isEmpty) {
       if (parsed.extractor.isEmpty) return const <Object>[];
@@ -573,8 +579,6 @@ class BookSourceRuleEngine {
               token.index! >= 0 &&
               token.index! < value.length) {
             next.add(value[token.index!]);
-          } else if (value is Map && token.index == 0) {
-            next.add(value);
           }
         } else if (token.key != null) {
           if (value is Map) next.add(value[token.key!]);

@@ -167,6 +167,20 @@ class BookSourceService {
         context,
         script: script,
       );
+      if (nodes.isEmpty && root is Map) {
+        final data = root['data'];
+        if (data is Map) {
+          nodes = rules.evaluateList(
+            data,
+            source.search.bookList,
+            context,
+            script: script,
+          );
+          if (nodes.isEmpty) nodes = <Object>[data];
+        } else if (data is List) {
+          nodes = data.whereType<Object>().toList();
+        }
+      }
       if (nodes.isEmpty && root is List) {
         nodes = root.whereType<Object>().toList();
       }

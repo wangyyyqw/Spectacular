@@ -141,23 +141,6 @@ void main() {
       expect(engine.evaluateString(items.single, 'author', context), '甲');
     });
 
-    test('对象根节点可用 [0] 兼容详情接口', () {
-      final detail = <String, Object?>{
-        'data': <String, Object?>{'book_id': '1001', 'book_name': '单本详情'},
-      };
-      final items = engine.evaluateList(
-        detail,
-        '.ret_data[*]||.data[0]',
-        context,
-      );
-      expect(items, hasLength(1));
-      expect(engine.evaluateString(items.single, 'book_name', context), '单本详情');
-      expect(
-        engine.evaluateString(items.single, r'$.book_id', context),
-        '1001',
-      );
-    });
-
     test('<js> 尾部 JSONPath 在脚本结果上执行', () {
       final rule =
           '<js>var list = data.list || []; result = {data: {list: list}};</js>'
@@ -241,6 +224,17 @@ void main() {
           'ONLINE_RULE_XPATH',
         ),
       ),
+    );
+  });
+
+  test('绝对地址规则直接作为地址返回', () {
+    expect(
+      engine.evaluateString(
+        <String, Object?>{},
+        'https://example.com/book/1',
+        context,
+      ),
+      'https://example.com/book/1',
     );
   });
 

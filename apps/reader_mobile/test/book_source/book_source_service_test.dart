@@ -66,6 +66,102 @@ void main() {
     expect(requested.queryParameters['page'], '2');
   });
 
+  test('搜索规则兼容 data.ret_data 包裹', () async {
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'code': 0,
+              'data': <String, Object?>{
+                'ret_data': <Object?>[
+                  <String, Object?>{
+                    'book_id': '1001',
+                    'book_name': '序列为零',
+                    'author': '测试作者',
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'nested-search-source',
+      name: '包裹源',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search?q={{key}}',
+      search: BookListRule(
+        bookList: '.ret_data[*]||.data[0]',
+        name: 'book_name||title',
+        author: 'author',
+        bookUrl: 'https://example.com/detail?book_id=1001',
+      ),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+
+    final books = await service.search(source, '序列为零');
+
+    expect(books, hasLength(1));
+    expect(books.single.name, '序列为零');
+    expect(books.single.author, '测试作者');
+    expect(books.single.bookUrl, 'https://example.com/detail?book_id=1001');
+  });
+
+  test('数字 ID 搜索兼容 data 为单本详情', () async {
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'code': 0,
+              'data': <String, Object?>{
+                'book_id': '2002',
+                'book_name': '单本详情',
+                'author': '乙',
+              },
+            }),
+            200,
+            headers: <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    const source = BookSource(
+      id: 'detail-search-source',
+      name: '详情源',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/detail?book_id={{key}}',
+      search: BookListRule(
+        bookList: '.ret_data[*]||.data[0]',
+        name: 'book_name||title',
+        author: 'author',
+        bookUrl: 'https://example.com/detail?book_id=2002',
+      ),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+
+    final books = await service.search(source, '2002');
+
+    expect(books, hasLength(1));
+    expect(books.single.name, '单本详情');
+    expect(books.single.author, '乙');
+    expect(books.single.bookUrl, 'https://example.com/detail?book_id=2002');
+  });
+
   test('封面通过书源请求器加载并使用引用页缓存', () async {
     var requests = 0;
     String? referer;
