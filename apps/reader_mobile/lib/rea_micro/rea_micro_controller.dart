@@ -809,11 +809,15 @@ class ReaMicroController extends ChangeNotifier {
   }) async {
     final link = _links[bookId];
     if (link != null && link.cloudBookId > 0) {
+      final existing = _syncBooks[bookId];
       final identity = ReaMicroBookSyncIdentity(
         cloudBookId: link.cloudBookId,
-        userBookId: link.userBookId,
+        userBookId: link.userBookId > 0
+            ? link.userBookId
+            : existing?.cloudBookId == link.cloudBookId
+            ? existing!.userBookId
+            : 0,
       );
-      final existing = _syncBooks[bookId];
       if (existing?.cloudBookId != identity.cloudBookId ||
           existing?.userBookId != identity.userBookId) {
         _syncBooks = <String, ReaMicroBookSyncIdentity>{
@@ -866,6 +870,11 @@ class ReaMicroController extends ChangeNotifier {
         intro: book.description,
       );
       cloudBookId = created.cloudBookId;
+      await _api.relateCloudBook(
+        token,
+        userBookId: registration.userBookId,
+        publisherId: created.publisherId,
+      );
     }
     if (cloudBookId <= 0) return null;
     final identity = ReaMicroBookSyncIdentity(
@@ -1646,10 +1655,31 @@ class ReaMicroController extends ChangeNotifier {
     List<ReadingSession> sessions;
     Set<String> uploaded;
     Map<String, int> watermarks;
+    final readingBookIds = <String, int>{};
     try {
       sessions = await sessionStore.list();
       uploaded = await _store.loadUploadedSessionKeys();
       watermarks = await _store.loadSessionWatermarks();
+      final records = await _api.fetchBookRecords(token);
+      for (final session in sessions) {
+        if (readingBookIds.containsKey(session.bookId)) continue;
+        final link = _links[session.bookId];
+        final identity = link == null
+            ? _syncBooks[session.bookId]
+            : ReaMicroBookSyncIdentity(
+                cloudBookId: link.cloudBookId,
+                userBookId: link.userBookId > 0
+                    ? link.userBookId
+                    : _syncBooks[session.bookId]?.userBookId ?? 0,
+              );
+        if (identity == null) continue;
+        readingBookIds[session.bookId] = await _resolveReadingBookId(
+          token,
+          session.bookId,
+          identity,
+          records: records,
+        );
+      }
     } catch (error) {
       _syncing = false;
       await _handleError(error);
@@ -1663,10 +1693,7 @@ class ReaMicroController extends ChangeNotifier {
     for (final session in sessions) {
       final endedAt = session.endedAt.millisecondsSinceEpoch;
       if (endedAt <= (watermarks[session.bookId] ?? 0)) continue;
-      final cloudBookId =
-          _links[session.bookId]?.cloudBookId ??
-          _syncBooks[session.bookId]?.cloudBookId ??
-          0;
+      final cloudBookId = readingBookIds[session.bookId] ?? 0;
       for (final portion in _splitSession(session)) {
         if (uploaded.contains(portion.key)) continue;
         final key = '$cloudBookId|${portion.date}';
@@ -1807,6 +1834,7 @@ class ReaMicroController extends ChangeNotifier {
     String? failure;
     try {
       final remoteMarks = await _api.fetchMarks(token);
+      final readingBooks = await _api.fetchBookRecords(token);
       final remoteById = <int, ReaMicroMark>{
         for (final mark in remoteMarks)
           if (mark.id > 0) mark.id: mark,
@@ -1842,6 +1870,18 @@ class ReaMicroController extends ChangeNotifier {
           continue;
         }
         if (identity == null) continue;
+        final int markBookId;
+        try {
+          markBookId = await _resolveMarkBookId(
+            token,
+            localBook,
+            identity,
+            readingBooks,
+          );
+        } catch (error) {
+          failure ??= _messageOf(error);
+          continue;
+        }
         try {
           await _library.repairBookAnnotationAnchors(localBookId);
         } catch (error) {
@@ -1850,23 +1890,84 @@ class ReaMicroController extends ChangeNotifier {
         final prefix = '$localBookId|';
         final remoteForBook = <ReaMicroMark>[
           for (final mark in remoteMarks)
-            if (_remoteMarkBelongsTo(mark, localBook, identity.cloudBookId))
+            if (_remoteMarkBelongsTo(mark, localBook, markBookId) ||
+                nextMarkIds.entries.any(
+                  (entry) =>
+                      entry.key.startsWith(prefix) && entry.value == mark.id,
+                ))
               mark,
         ];
         var localAnnotations = await _library.listBookAnnotations(localBookId);
         final localById = <String, ReaderAnnotation>{
           for (final annotation in localAnnotations) annotation.id: annotation,
         };
+        final deletedRemoteIds = <int>{};
+        final deletedLocalIds = <String>{};
 
         for (final key
             in nextMarkIds.keys
                 .where((key) => key.startsWith(prefix))
                 .toList(growable: false)) {
           final localId = key.substring(prefix.length);
-          final remote = remoteById[nextMarkIds[key]];
-          if (localById.containsKey(localId)) continue;
+          var remote = remoteById[nextMarkIds[key]];
+          final importedId = localId.startsWith('mark-cloud-')
+              ? int.tryParse(localId.substring('mark-cloud-'.length))
+              : null;
           if (remote != null &&
-              _remoteMarkBelongsTo(remote, localBook, identity.cloudBookId)) {
+              importedId != null &&
+              importedId != remote.id &&
+              !remoteById.containsKey(importedId) &&
+              remote.bookId == identity.cloudBookId.toString() &&
+              remote.bookId != markBookId.toString()) {
+            // 导入标识仍保留原云端 ID；旧版覆盖映射后也可识别删除重传副本。
+            deletedRemoteIds.add(remote.id);
+            deletedLocalIds.add(localId);
+            try {
+              await _api.deleteMark(token, id: remote.id);
+              remoteById.remove(remote.id);
+              remote = null;
+              deleted += 1;
+            } catch (error) {
+              failure ??= _messageOf(error);
+              continue;
+            }
+          }
+          if (localById.containsKey(localId)) {
+            if (remote != null) continue;
+            // 已有云端身份的记录从完整清单消失，表示远端删除。
+            // 删除失败时仍阻止本轮上传，保留映射供下次重试。
+            deletedLocalIds.add(localId);
+            try {
+              // 旧版可能已把删除记录重传到公开书库 ID 下；
+              // 仅清理与原记录内容和创建时间完全相同的错误副本。
+              final local = localById[localId]!;
+              for (final legacy in remoteMarks) {
+                if (legacy.bookId != identity.cloudBookId.toString() ||
+                    deletedRemoteIds.contains(legacy.id) ||
+                    legacy.bookId == markBookId.toString() ||
+                    legacy.kind != local.type.storageValue ||
+                    legacy.createdAt !=
+                        local.createdAt.millisecondsSinceEpoch ||
+                    legacy.quote != local.quote ||
+                    legacy.note != (local.note ?? '')) {
+                  continue;
+                }
+                deletedRemoteIds.add(legacy.id);
+                await _api.deleteMark(token, id: legacy.id);
+                deleted += 1;
+              }
+              await _library.removeBookAnnotation(localBookId, localId);
+              localById.remove(localId);
+              nextMarkIds.remove(key);
+              deleted += 1;
+            } catch (error) {
+              failure ??= _messageOf(error);
+            }
+            continue;
+          }
+          // 远端清单是本轮开始时的快照，本地已删除的记录不可再导入。
+          if (remote != null) deletedRemoteIds.add(remote.id);
+          if (remote != null && remoteForBook.contains(remote)) {
             try {
               await _api.deleteMark(token, id: remote.id);
               deleted += 1;
@@ -1879,7 +1980,12 @@ class ReaMicroController extends ChangeNotifier {
           }
         }
 
+        localAnnotations = [
+          for (final annotation in localAnnotations)
+            if (!deletedLocalIds.contains(annotation.id)) annotation,
+        ];
         for (final remote in remoteForBook) {
+          if (deletedRemoteIds.contains(remote.id)) continue;
           String? mappedKey;
           for (final entry in nextMarkIds.entries) {
             if (entry.key.startsWith(prefix) && entry.value == remote.id) {
@@ -1913,6 +2019,7 @@ class ReaMicroController extends ChangeNotifier {
               entry.key.substring(prefix.length): entry.value,
         };
         for (final annotation in localAnnotations) {
+          if (deletedLocalIds.contains(annotation.id)) continue;
           if (annotation.startCfi.trim().isEmpty ||
               annotation.endCfi.trim().isEmpty) {
             continue;
@@ -1931,15 +2038,11 @@ class ReaMicroController extends ChangeNotifier {
           try {
             var nextId = await _api.upsertMark(
               token,
-              _markDraftFromLocal(
-                annotation,
-                identity.cloudBookId,
-                remote: remote,
-              ),
+              _markDraftFromLocal(annotation, markBookId, remote: remote),
             );
             nextId ??= await _resolveUploadedMarkId(
               token,
-              cloudBookId: identity.cloudBookId,
+              markBookId: markBookId,
               annotation: annotation,
             );
             if (nextId != null && nextId > 0) {
@@ -1983,13 +2086,79 @@ class ReaMicroController extends ChangeNotifier {
     );
   }
 
+  Future<int> _resolveMarkBookId(
+    String token,
+    BookEntry book,
+    ReaMicroBookSyncIdentity identity,
+    List<ReaMicroBookRecord> records,
+  ) async {
+    // 阅读接口 bookId 对应阅微内部书籍，不是公开书库 cloudBookId。
+    final matches = records
+        .where(
+          (record) =>
+              record.bookId > 0 &&
+              record.cloudBookId == identity.cloudBookId &&
+              _normalizeBookText(record.name) ==
+                  _normalizeBookText(book.title) &&
+              _normalizeBookText(record.author) ==
+                  _normalizeBookText(book.author),
+        )
+        .toList();
+    if (matches.length == 1) return matches.single.bookId;
+    if (matches.length > 1) {
+      throw const ReaMicroException('阅微存在多个同版阅读记录，暂不上传阅读数据');
+    }
+    if (identity.userBookId > 0) return identity.userBookId;
+    final file = File(book.filePath);
+    final registration = await _api.registerUserBook(
+      token,
+      name: book.title,
+      author: book.author,
+      md5: md5.convert(await file.readAsBytes()).toString(),
+    );
+    if (registration.userBookId <= 0) {
+      throw const ReaMicroException('阅微未返回标注所需的内部书籍标识');
+    }
+    _syncBooks = {
+      ..._syncBooks,
+      book.id: ReaMicroBookSyncIdentity(
+        cloudBookId: identity.cloudBookId,
+        userBookId: registration.userBookId,
+      ),
+    };
+    await _store.saveSyncBooks(_syncBooks);
+    return registration.userBookId;
+  }
+
+  Future<int> _resolveReadingBookId(
+    String token,
+    String bookId,
+    ReaMicroBookSyncIdentity identity, {
+    List<ReaMicroBookRecord>? records,
+  }) async {
+    final book = await _library.bookById(bookId);
+    final readingRecords = records ?? await _api.fetchBookRecords(token);
+    if (book != null) {
+      return _resolveMarkBookId(token, book, identity, readingRecords);
+    }
+    final matches = readingRecords
+        .where(
+          (record) =>
+              record.bookId > 0 && record.cloudBookId == identity.cloudBookId,
+        )
+        .toList();
+    if (matches.length == 1) return matches.single.bookId;
+    if (identity.userBookId > 0) return identity.userBookId;
+    throw const ReaMicroException('无法取得阅微内部书籍身份，阅读记录保留待重试');
+  }
+
   bool _remoteMarkBelongsTo(
     ReaMicroMark mark,
     BookEntry local,
-    int cloudBookId,
+    int markBookId,
   ) {
     final remoteBookId = mark.bookId.trim();
-    if (remoteBookId == cloudBookId.toString() || remoteBookId == local.id) {
+    if (remoteBookId == markBookId.toString() || remoteBookId == local.id) {
       return true;
     }
     if (mark.bookName.trim().isEmpty) return false;
@@ -2041,11 +2210,11 @@ class ReaMicroController extends ChangeNotifier {
 
   ReaMicroMarkDraft _markDraftFromLocal(
     ReaderAnnotation annotation,
-    int cloudBookId, {
+    int markBookId, {
     ReaMicroMark? remote,
   }) => ReaMicroMarkDraft(
     cloudId: remote?.id ?? 0,
-    bookId: cloudBookId.toString(),
+    bookId: markBookId.toString(),
     chapter: remote?.chapter ?? '',
     kind: annotation.type.storageValue,
     startCfi: annotation.startCfi,
@@ -2060,10 +2229,10 @@ class ReaMicroController extends ChangeNotifier {
 
   Future<int?> _resolveUploadedMarkId(
     String token, {
-    required int cloudBookId,
+    required int markBookId,
     required ReaderAnnotation annotation,
   }) async {
-    final marks = await _api.fetchMarks(token, bookId: cloudBookId.toString());
+    final marks = await _api.fetchMarks(token, bookId: markBookId.toString());
     for (final mark in marks) {
       if (mark.startCfi == annotation.startCfi &&
           mark.endCfi == annotation.endCfi &&
@@ -2200,7 +2369,11 @@ class ReaMicroController extends ChangeNotifier {
           if (pullCloud) {
             final remote = await _api.fetchReadProgress(
               token,
-              cloudBookId: identity.cloudBookId.toString(),
+              cloudBookId: (await _resolveReadingBookId(
+                token,
+                entry.key,
+                identity,
+              )).toString(),
             );
             if (remote != null && remote.usable) {
               if (remote.cfi == state.cfi) {
@@ -2267,7 +2440,11 @@ class ReaMicroController extends ChangeNotifier {
           try {
             final remote = await _api.fetchReadProgress(
               token,
-              cloudBookId: identity.cloudBookId.toString(),
+              cloudBookId: (await _resolveReadingBookId(
+                token,
+                bookId,
+                identity,
+              )).toString(),
             );
             if (remote == null || !remote.usable) {
               if (state != null && state.cfi.trim().isNotEmpty) {
@@ -2367,7 +2544,7 @@ class ReaMicroController extends ChangeNotifier {
   ) async {
     await _api.updateReadProgress(
       token,
-      cloudBookId: identity.cloudBookId,
+      cloudBookId: await _resolveReadingBookId(token, bookId, identity),
       cfi: state.cfi,
       chapterName: _chapterNameOf(state),
       progress: state.progress,

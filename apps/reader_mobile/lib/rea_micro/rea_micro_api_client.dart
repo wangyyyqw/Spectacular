@@ -726,15 +726,22 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
         'pageSize': pageSize,
         if (bookId != null && bookId.trim().isNotEmpty) 'bookId': bookId,
       }, token: token);
+      if (data is! List<Object?> &&
+          !(data is Map<String, Object?> &&
+              (data['list'] is List<Object?> ||
+                  data['records'] is List<Object?>))) {
+        throw const ReaMicroException('阅微标注清单格式不正确');
+      }
       final rawItems = _responseList(data);
       for (final item in rawItems) {
         if (item is! Map<String, Object?>) continue;
         final mark = ReaMicroMark.fromJson(item);
         if (mark.id > 0 && mark.startCfi.isNotEmpty) marks.add(mark);
       }
-      if (rawItems.length < pageSize) break;
+      if (rawItems.length < pageSize) return marks;
     }
-    return marks;
+    // 缺少后续分页时不能把未读取的标注误判为已删除。
+    throw const ReaMicroException('阅微标注清单未完整读取，请稍后重试');
   }
 
   @override

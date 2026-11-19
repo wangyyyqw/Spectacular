@@ -1074,7 +1074,7 @@ class ReaMicroMarkDraft {
   /// 云端标注标识；新标注为 0。
   final int cloudId;
 
-  /// 云端书籍标识。
+  /// 阅微内部书籍标识（用户书 ID），不是公开书库 cloudBookId。
   final String bookId;
 
   /// 章节名。

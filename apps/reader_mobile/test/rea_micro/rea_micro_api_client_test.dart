@@ -13,6 +13,32 @@ http.Response _json(Object? body, {int status = 200}) => http.Response(
 );
 
 void main() {
+  test('标注分页达到上限仍未读完时拒绝返回不完整清单', () async {
+    var pages = 0;
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        pages += 1;
+        final body = jsonDecode(request.body) as Map<String, Object?>;
+        expect(body['pageNum'], pages);
+        return _json({
+          'code': 0,
+          'data': {
+            'list': [
+              {'id': pages, 'startCfi': 'epubcfi(/6/4!/4/2/1)'},
+            ],
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+    await expectLater(
+      api.fetchMarks('token', pageSize: 1),
+      throwsA(isA<ReaMicroException>()),
+    );
+    expect(pages, 50);
+  });
+
   test('登录提交邮箱验证码并解析令牌', () async {
     late http.Request request;
     final api = ReaMicroApiClient(

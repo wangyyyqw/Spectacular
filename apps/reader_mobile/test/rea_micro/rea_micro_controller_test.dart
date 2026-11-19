@@ -220,6 +220,7 @@ class _FakeApi implements ReaMicroApi {
   final List<ReaMicroMarkDraft> markUpserts = <ReaMicroMarkDraft>[];
   final List<int> markDeletes = <int>[];
   int nextMarkId = 500;
+  final List<String> progressFetchBookIds = [];
   ReaMicroBookReview? bookReview;
   List<ReaMicroMilestone> milestones = <ReaMicroMilestone>[];
   final List<_ReviewUpload> reviewUploads = <_ReviewUpload>[];
@@ -460,7 +461,10 @@ class _FakeApi implements ReaMicroApi {
   Future<ReaMicroReadProgress?> fetchReadProgress(
     String token, {
     required String cloudBookId,
-  }) async => remoteProgress;
+  }) async {
+    progressFetchBookIds.add(cloudBookId);
+    return remoteProgress;
+  }
 
   @override
   Future<List<ReaMicroMark>> fetchMarks(
@@ -822,6 +826,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
 
     // UTC 15:30 / 16:30 对应北京时间 23:30 / 次日 00:30。
@@ -853,6 +858,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     library.sessions
       ..add(
@@ -887,6 +893,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     final start = DateTime.utc(2026, 11, 17, 2);
     library.sessions.add(
@@ -900,7 +907,7 @@ void main() {
     expect(api.uploads.single.single.durationSeconds, 420);
     final logs = api.sessionLogUploads.single;
     expect(logs, hasLength(1));
-    expect(logs.single.cloudBookId, 11);
+    expect(logs.single.cloudBookId, 7001);
     expect(logs.single.startedAt, start.millisecondsSinceEpoch);
     expect(
       logs.single.endedAt,
@@ -918,6 +925,7 @@ void main() {
     await first.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     library.sessions.add(
       _session(
@@ -945,6 +953,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     library.sessions.add(
       _session(
@@ -1031,7 +1040,7 @@ void main() {
     expect(api.userBookRequests, hasLength(1));
     expect(api.cloudBookRequests, hasLength(1));
     expect(api.progressUploads, hasLength(1));
-    expect(api.progressUploads.single.cloudBookId, 8001);
+    expect(api.progressUploads.single.cloudBookId, 7001);
   });
 
   test('未公开关联的书籍登记身份后同步标注', () async {
@@ -1071,7 +1080,7 @@ void main() {
     expect(controller.links, isEmpty);
     expect(controller.syncBooks[imported.id]?.cloudBookId, 8001);
     expect(api.markUpserts, hasLength(1));
-    expect(api.markUpserts.single.bookId, '8001');
+    expect(api.markUpserts.single.bookId, '7001');
   });
 
   test('公开阅读候选按出版方分组并按书名匹配度排序', () async {
@@ -1403,9 +1412,9 @@ void main() {
 
     expect(result.success, isTrue);
     expect(api.uploads.last.single.durationSeconds, 720);
-    expect(api.progressUploads.single.cloudBookId, link.cloudBookId);
+    expect(api.progressUploads.single.cloudBookId, link.userBookId);
     expect(api.progressUploads.single.cfi, 'epubcfi(/6/4!/4/2/1)');
-    expect(api.markUpserts.single.bookId, '42');
+    expect(api.markUpserts.single.bookId, '7001');
     expect(api.markUpserts.single.quote, '原文');
   });
 
@@ -1431,6 +1440,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
 
     await controller.trackedProgressStore!.save(
@@ -1449,7 +1459,7 @@ void main() {
     expect(result.success, isTrue);
     expect(result.requests, 1);
     final upload = api.progressUploads.single;
-    expect(upload.cloudBookId, 11);
+    expect(upload.cloudBookId, 7001);
     expect(upload.cfi, 'epubcfi(/6/4!/4/2/1)');
     expect(upload.chapterName, '第二章');
     expect(upload.progress, 0.25);
@@ -1482,11 +1492,7 @@ void main() {
           readingDurationSeconds: 600,
         ),
       ];
-    final controller = await _createController(
-      library,
-      api,
-      signedIn: false,
-    );
+    final controller = await _createController(library, api, signedIn: false);
     addTearDown(controller.dispose);
 
     expect(
@@ -1533,6 +1539,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     final result = await controller.syncProgress(pullCloud: false);
 
@@ -1569,6 +1576,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
 
     final result = await controller.syncProgress();
@@ -1619,6 +1627,7 @@ void main() {
     await controller.linkBook(
       imported.id,
       const ReaMicroCloudBook(cloudBookId: 11, name: '多章书'),
+      userBookId: 7001,
     );
 
     final result = await controller.syncProgress();
@@ -1666,6 +1675,7 @@ void main() {
     await ReaMicroStore(library).saveLinks(<String, ReaMicroBookLink>{
       'book-a': ReaMicroBookLink(
         cloudBookId: 11,
+        userBookId: 7001,
         name: '云端书',
         linkedAt: DateTime(2026, 11, 17),
       ),
@@ -1718,6 +1728,7 @@ void main() {
     await ReaMicroStore(library).saveLinks(<String, ReaMicroBookLink>{
       'book-a': ReaMicroBookLink(
         cloudBookId: 11,
+        userBookId: 7001,
         name: '云端书',
         linkedAt: DateTime(2026, 11, 17),
       ),
@@ -1771,6 +1782,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
 
     await controller.trackedProgressStore!.save(
@@ -1820,6 +1832,7 @@ void main() {
     await controller.linkBook(
       'book-a',
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
 
     await controller.trackedProgressStore!.save(
@@ -2381,7 +2394,7 @@ void main() {
       ..marks = <ReaMicroMark>[
         const ReaMicroMark(
           id: 77,
-          bookId: '11',
+          bookId: '7001',
           chapter: '第一章',
           kind: 1,
           startCfi: 'epubcfi(/6/4!/4/2/1)',
@@ -2400,6 +2413,7 @@ void main() {
     await controller.linkBook(
       book.id,
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
 
     final result = await controller.syncMarks();
@@ -2443,7 +2457,7 @@ void main() {
       ..marks = <ReaMicroMark>[
         ReaMicroMark(
           id: 78,
-          bookId: '11',
+          bookId: '7001',
           chapter: '第一章',
           kind: 0,
           startCfi: brokenStartCfi,
@@ -2462,6 +2476,7 @@ void main() {
     await controller.linkBook(
       book.id,
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     await controller.syncMarks();
     expect(
@@ -2509,6 +2524,7 @@ void main() {
     await controller.linkBook(
       book.id,
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     await library.importBookAnnotation(
       book.id,
@@ -2531,6 +2547,7 @@ void main() {
     expect(api.markUpserts, hasLength(1));
     final upload = api.markUpserts.single;
     expect(upload.cloudId, 0);
+    expect(upload.bookId, '7001', reason: '使用内部用户书 ID，避免空书名分组');
     expect(upload.createdAt, 1000);
     expect(upload.updatedAt, 5000);
     expect(upload.color, '#ffff0000');
@@ -2545,6 +2562,104 @@ void main() {
     expect(api.markUpserts, hasLength(1));
   });
 
+  test('标注使用阅读记录内部书籍 ID，旧错误身份更新时纠正且不重复新建', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '标注书', identifier: 'urn:uuid:mark-identity'),
+    );
+    final api = _FakeApi()
+      ..bookRecords = [
+        const ReaMicroBookRecord(
+          bookId: 46664,
+          cloudBookId: 658,
+          name: '标注书',
+          author: '测试作者',
+          cover: 'https://example.test/cover.jpg',
+          progress: 0.2,
+          totalReadTimeSeconds: 10,
+          readDays: 1,
+          finishReadTime: 0,
+          listeningDurationSeconds: 0,
+          readingDurationSeconds: 10,
+        ),
+      ];
+    final controller = await _createController(library, api);
+    await controller.linkBook(
+      book.id,
+      const ReaMicroCloudBook(cloudBookId: 658, name: '标注书'),
+      userBookId: 4023,
+    );
+    final created = DateTime.fromMillisecondsSinceEpoch(1000);
+    final annotation = ReaderAnnotation(
+      id: 'legacy',
+      type: ReaderAnnotationType.thought,
+      startCfi: 'epubcfi(/6/4!/4/2/1)',
+      endCfi: 'epubcfi(/6/4!/4/2/3)',
+      quote: '原文',
+      note: '想法',
+      createdAt: created,
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(5000),
+    );
+    await library.importBookAnnotation(book.id, annotation);
+    await ReaMicroStore(library).saveMarkIds({'${book.id}|legacy': 77});
+    controller.dispose();
+    final reloaded = await _createController(
+      library,
+      api,
+      progressStore: MemoryReaderProgressStore(),
+    );
+    addTearDown(reloaded.dispose);
+    api.marks.add(
+      ReaMicroMark(
+        id: 77,
+        bookId: '658',
+        chapter: '',
+        kind: 1,
+        startCfi: annotation.startCfi,
+        endCfi: annotation.endCfi,
+        quote: annotation.quote,
+        note: '旧想法',
+        style: 0,
+        color: '',
+        synced: 1,
+        createdAt: 1000,
+        updatedAt: 2000,
+      ),
+    );
+    final result = await reloaded.syncMarks();
+    expect(result.success, isTrue);
+    expect(api.markUpserts.single.bookId, '46664');
+    expect(api.markUpserts.single.cloudId, 77);
+    expect(api.markUpserts.single.note, '想法');
+    expect((await library.listBookAnnotations(book.id)).single.id, 'legacy');
+    await reloaded.trackedProgressStore!.save(
+      book.id,
+      const ReaderProgress(
+        spineIndex: 0,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        chapterTitle: '第一章',
+        readingPercent: 0.1,
+      ),
+    );
+    await reloaded.syncProgress();
+    expect(api.progressFetchBookIds.last, '46664');
+    expect(api.progressUploads.last.cloudBookId, 46664);
+    library.sessionStore.items.add(
+      ReadingSession(
+        bookId: book.id,
+        startedAt: DateTime.utc(2026, 11, 20),
+        endedAt: DateTime.utc(2026, 11, 20, 0, 1),
+        duration: const Duration(minutes: 1),
+        pageTurns: 1,
+        charactersRead: 20,
+      ),
+    );
+    await reloaded.syncReadingSessions();
+    expect(api.uploads.last.single.cloudBookId, 46664);
+    expect(api.sessionLogUploads.last.single.cloudBookId, 46664);
+  });
+
   test('本地删除标注后删除云端标注', () async {
     final library = await _openDbLibrary();
     final book = await library.importBytes(
@@ -2556,6 +2671,7 @@ void main() {
     await controller.linkBook(
       book.id,
       const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
     );
     await library.importBookAnnotation(
       book.id,
@@ -2576,6 +2692,9 @@ void main() {
 
     expect(result.success, isTrue);
     expect(api.markDeletes, <int>[500]);
+    expect(await library.listBookAnnotations(book.id), isEmpty);
+    expect(api.marks, isEmpty);
+    expect(api.markUpserts, hasLength(1), reason: '删除后的旧快照不可重新上传');
     expect(
       (await ReaMicroStore(
         library,
@@ -2583,6 +2702,154 @@ void main() {
       isFalse,
     );
   });
+
+  test('旧版把导入标注映射改成重传副本后仍按原云端删除清理', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '历史重传书', identifier: 'urn:uuid:legacy-reupload'),
+    );
+    await library.importBookAnnotation(
+      book.id,
+      ReaderAnnotation(
+        id: 'mark-cloud-5811',
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/4!/4/2/1)',
+        endCfi: 'epubcfi(/6/4!/4/2/3)',
+        quote: '原文',
+        note: '测试',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(5000),
+      ),
+    );
+    final api = _FakeApi()
+      ..marks = [
+        const ReaMicroMark(
+          id: 5824,
+          bookId: '658',
+          chapter: '',
+          kind: 1,
+          startCfi: 'epubcfi(/6/4!/4/2/1)',
+          endCfi: 'epubcfi(/6/4!/4/2/3)',
+          quote: '原文',
+          note: '测试',
+          style: 0,
+          color: '',
+          synced: 1,
+          createdAt: 1000,
+          updatedAt: 5000,
+        ),
+      ];
+    await ReaMicroStore(library).saveLinks({
+      book.id: ReaMicroBookLink(
+        cloudBookId: 658,
+        userBookId: 46664,
+        name: '历史重传书',
+        linkedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+      ),
+    });
+    await ReaMicroStore(library)
+        .saveMarkIds({'${book.id}|mark-cloud-5811': 5824});
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    expect((await controller.syncMarks()).success, isTrue);
+    expect(api.markDeletes, [5824]);
+    expect(api.markUpserts, isEmpty);
+    expect(await library.listBookAnnotations(book.id), isEmpty);
+    expect(await ReaMicroStore(library).loadMarkIds(), isEmpty);
+    expect((await controller.syncMarks()).requests, 0);
+    expect(api.marks, isEmpty);
+  });
+
+  for (final type in ReaderAnnotationType.values) {
+    test('阅微删除${type.name}后本地删除，重启同步不再上传', () async {
+      final library = await _openDbLibrary();
+      final book = await library.importBytes(
+        buildTestEpub(title: '远端删除书', identifier: 'urn:uuid:remote-delete'),
+      );
+      final api = _FakeApi();
+      var controller = await _createController(library, api);
+      await controller.linkBook(
+        book.id,
+        const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+        userBookId: 7001,
+      );
+      final store = ReaMicroStore(library);
+      ReaderAnnotation annotation(String id, int timestamp) => ReaderAnnotation(
+        id: id,
+        type: type,
+        startCfi: id == 'deleted'
+            ? 'epubcfi(/6/4!/4/2/1)'
+            : 'epubcfi(/6/4!/4/4/1)',
+        endCfi: id == 'deleted'
+            ? 'epubcfi(/6/4!/4/2/3)'
+            : 'epubcfi(/6/4!/4/4/3)',
+        quote: '本地原文',
+        note: type == ReaderAnnotationType.thought ? '想法$timestamp' : null,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(timestamp),
+      );
+      await library.importBookAnnotation(book.id, annotation('deleted', 5000));
+      await controller.syncMarks();
+      expect(api.markUpserts, hasLength(1));
+      api.marks.clear();
+      if (type == ReaderAnnotationType.thought) {
+        api.marks.add(
+          const ReaMicroMark(
+            id: 5812,
+            bookId: '11',
+            chapter: '',
+            kind: 1,
+            startCfi: 'epubcfi(/6/4!/4/2/1)',
+            endCfi: 'epubcfi(/6/4!/4/2/3)',
+            quote: '本地原文',
+            note: '想法5000',
+            style: 0,
+            color: '',
+            synced: 1,
+            createdAt: 1000,
+            updatedAt: 5000,
+          ),
+        );
+      }
+      // 远端删除优先于尚未上报的本地编辑。
+      if (type == ReaderAnnotationType.mark) {
+        await library.importBookAnnotation(
+          book.id,
+          annotation('deleted', 6000),
+        );
+      }
+      await library.importBookAnnotation(
+        book.id,
+        annotation('new-local', 7000),
+      );
+
+      final result = await controller.syncMarks();
+      expect(result.success, isTrue);
+      expect(
+        (await library.listBookAnnotations(book.id)).single.id,
+        'new-local',
+      );
+      expect(api.markUpserts, hasLength(2), reason: '仅上传尚无云端身份的新记录');
+      expect(
+        api.markDeletes,
+        type == ReaderAnnotationType.thought ? [5812] : isEmpty,
+      );
+      expect(
+        (await store.loadMarkIds()).containsKey('${book.id}|deleted'),
+        isFalse,
+      );
+      controller.dispose();
+      controller = await _createController(library, api);
+      addTearDown(controller.dispose);
+
+      expect((await controller.syncMarks()).requests, 0);
+      expect(api.markUpserts, hasLength(2));
+      expect(
+        (await library.listBookAnnotations(book.id)).single.id,
+        'new-local',
+      );
+    });
+  }
 
   test('局域网清单中的标注合并到本地', () async {
     final library = await _openDbLibrary();
