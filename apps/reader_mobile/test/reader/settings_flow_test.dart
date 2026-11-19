@@ -17,6 +17,7 @@ import 'package:reader_ui/tap_zones.dart';
 
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -57,6 +58,7 @@ void main() {
     late ReaderSession session;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildAppTheme(),
         home: Scaffold(
           body: Center(
             child: SizedBox(
@@ -262,6 +264,7 @@ void main() {
     ReaderTapZones? applied;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildAppTheme(),
         home: Scaffold(
           body: Center(
             child: SizedBox(
@@ -327,6 +330,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildAppTheme(),
         home: Scaffold(
           body: Center(
             child: SizedBox(
@@ -478,6 +482,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildAppTheme(),
         home: Scaffold(
           body: Center(
             child: SizedBox(

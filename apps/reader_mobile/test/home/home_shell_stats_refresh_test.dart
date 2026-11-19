@@ -4,6 +4,7 @@ import 'package:reader_core/position/locator.dart';
 import 'package:reader_mobile/home/home_shell.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
 
 class _FakeLibrary extends LibraryStore {
@@ -50,6 +51,7 @@ void main() {
     final library = _FakeLibrary();
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildAppTheme(),
         home: HomeShell(
           library: library,
           progressStore: MemoryReaderProgressStore(),
