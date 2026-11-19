@@ -193,10 +193,14 @@ void main() {
         .value;
     expect(style().statusBarIconBrightness, Brightness.dark);
     expect(style().systemNavigationBarIconBrightness, Brightness.dark);
+    expect(style().systemStatusBarContrastEnforced, false);
+    expect(style().systemNavigationBarContrastEnforced, false);
     await tester.tap(find.byKey(const ValueKey('menu-daynight')));
     await tester.pumpAndSettle();
     expect(style().statusBarIconBrightness, Brightness.light);
     expect(style().statusBarBrightness, Brightness.dark);
+    expect(style().systemStatusBarContrastEnforced, false);
+    expect(style().systemNavigationBarContrastEnforced, false);
     expect(requests.last, {'statusBar': true, 'navigationBar': false});
   });
 
@@ -266,4 +270,55 @@ void main() {
       'SystemUiMode.edgeToEdge',
     ]);
   });
+
+  testWidgets(
+    '各端编辑预览保留系统栏，日夜图标亮度和 iOS 状态栏亮度保持一致',
+    (tester) async {
+      for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(
+              brightness: theme == ReaderTheme.black
+                  ? Brightness.dark
+                  : Brightness.light,
+              scaffoldBackgroundColor: theme.background,
+            ),
+            home: ReaderPage(
+              source: _Source(),
+              store: MemoryReaderProgressStore(),
+              bookId: 'preview-bars',
+              theme: theme,
+              editMode: true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final region = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+          find.descendant(
+            of: find.byType(ReaderPage),
+            matching: find.byType(AnnotatedRegion<SystemUiOverlayStyle>),
+          ),
+        );
+        final dark = theme == ReaderTheme.black;
+        expect(
+          region.value.statusBarBrightness,
+          dark ? Brightness.dark : Brightness.light,
+        );
+        expect(
+          region.value.statusBarIconBrightness,
+          dark ? Brightness.light : Brightness.dark,
+        );
+        expect(region.value.systemStatusBarContrastEnforced, false);
+        expect(region.value.systemNavigationBarContrastEnforced, false);
+      }
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    }),
+  );
 }

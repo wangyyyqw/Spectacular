@@ -43,8 +43,10 @@ SystemUiOverlayStyle readerSystemBarStyle(Color background) {
     statusBarColor: Colors.transparent,
     statusBarBrightness: brightness,
     statusBarIconBrightness: icons,
+    systemStatusBarContrastEnforced: false,
     systemNavigationBarColor: Colors.transparent,
     systemNavigationBarDividerColor: Colors.transparent,
     systemNavigationBarIconBrightness: icons,
+    systemNavigationBarContrastEnforced: false,
   );
 }

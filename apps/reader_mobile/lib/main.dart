@@ -133,7 +133,8 @@ class _ThemedReaderApp extends StatefulWidget {
   State<_ThemedReaderApp> createState() => _ThemedReaderAppState();
 }
 
-class _ThemedReaderAppState extends State<_ThemedReaderApp> {
+class _ThemedReaderAppState extends State<_ThemedReaderApp>
+    with WidgetsBindingObserver {
   static const _themeModeKey = 'app.themeMode';
   static const _window = OptionalMethodChannel(
     'com.spectacular.reader_mobile/window',
@@ -143,12 +144,33 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp> {
 
   late final Future<ThemeMode> _savedMode = _loadMode();
   ThemeMode? _selectedMode;
+  ThemeMode? _loadedMode;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    final mode = _selectedMode ?? _loadedMode;
+    if (mode == ThemeMode.system) unawaited(_syncWindow(ThemeMode.system));
+  }
 
   Future<ThemeMode> _loadMode() async {
-    var mode = ThemeMode.light;
+    var mode = ThemeMode.system;
     try {
       final value = await widget.library.getSetting(_themeModeKey);
+      if (value == ThemeMode.light.name) mode = ThemeMode.light;
       if (value == ThemeMode.dark.name) mode = ThemeMode.dark;
+      if (value == ThemeMode.system.name) mode = ThemeMode.system;
     } catch (error) {
       unawaited(
         ReaderLog.instance.log(
@@ -157,7 +179,10 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp> {
         ),
       );
     }
-    if (mounted) await _syncWindow(mode);
+    if (mounted) {
+      _loadedMode = mode;
+      await _syncWindow(mode);
+    }
     return mode;
   }
 
@@ -172,7 +197,18 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp> {
     if (!kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.macOS ||
             defaultTargetPlatform == TargetPlatform.windows)) {
-      await _window.invokeMethod<void>('setDarkMode', mode == ThemeMode.dark);
+      final dark =
+          mode == ThemeMode.dark ||
+          (mode == ThemeMode.system &&
+              WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+                  Brightness.dark);
+      await _window.invokeMethod<void>(
+        'setDarkMode',
+        defaultTargetPlatform == TargetPlatform.macOS &&
+                mode == ThemeMode.system
+            ? null
+            : dark,
+      );
     }
   }
 
@@ -181,7 +217,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp> {
     future: _savedMode,
     builder: (context, snapshot) =>
         snapshot.connectionState == ConnectionState.done
-        ? _buildApp(_selectedMode ?? snapshot.data ?? ThemeMode.light)
+        ? _buildApp(_selectedMode ?? snapshot.data ?? ThemeMode.system)
         : const SizedBox.shrink(),
   );
 
@@ -200,6 +236,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp> {
       library: widget.library,
       progressStore: widget.progressStore,
       storageRecovery: widget.recovery,
+      themeMode: mode,
       onThemeModeChanged: _setMode,
     ),
   );
