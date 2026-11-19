@@ -2958,6 +2958,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           painter: _ReaderPageCustomPainter(
             page: page,
             painter: _painter,
+            paintHighlights: _paintDecorationHighlights,
             imageRevision: _imageRevision,
             pageInsets: _bodyPadding(),
             repaint: _galleryRepaint,
@@ -2996,6 +2997,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             painter: _ReaderPageCustomPainter(
               page: page,
               painter: _painter,
+              paintHighlights: _paintDecorationHighlights,
               imageRevision: _imageRevision,
               repaint: _galleryRepaint,
             ),
@@ -3066,6 +3068,7 @@ class _ReaderPageCustomPainter extends CustomPainter {
   const _ReaderPageCustomPainter({
     required this.page,
     required this.painter,
+    required this.paintHighlights,
     required this.imageRevision,
     this.pageInsets = EdgeInsets.zero,
     super.repaint,
@@ -3073,6 +3076,7 @@ class _ReaderPageCustomPainter extends CustomPainter {
 
   final PageContent page;
   final PagePainter painter;
+  final void Function(Canvas, PageContent) paintHighlights;
   final int imageRevision;
 
   /// 正文区相对整页的内缩（页边距 + 页眉页脚槽）。
@@ -3082,6 +3086,10 @@ class _ReaderPageCustomPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // 画布是整页；正文由 pageInsets 内缩，出血块由绘制层扩到页边。
     painter.paint(canvas, page, pageSize: size, pageInsets: pageInsets);
+    canvas.save();
+    canvas.translate(pageInsets.left, pageInsets.top);
+    paintHighlights(canvas, page);
+    canvas.restore();
   }
 
   @override

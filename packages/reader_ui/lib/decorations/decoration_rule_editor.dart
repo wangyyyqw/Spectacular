@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import 'decoration_highlight_editor.dart';
+import 'decoration_image_store.dart';
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
 import 'decoration_style_preview.dart';
@@ -16,10 +18,15 @@ class ReaderDecorationRuleEditor extends StatefulWidget {
     super.key,
     required this.rule,
     required this.onPreview,
+    this.images,
+    this.inkMode = false,
   });
 
   /// 新规则初值或已有规则。
   final ReaderDecorationRule rule;
+
+  final ReaderDecorationImageStore? images;
+  final bool inkMode;
 
   /// 在当前章计算临时前五十条命中。
   final Future<List<ReaderDecorationRulePreview>> Function(ReaderDecorationRule)
@@ -40,6 +47,7 @@ class _ReaderDecorationRuleEditorState
   int _previewGeneration = 0;
   bool _previewDone = false;
   bool _previewing = false;
+  bool _pickingImage = false;
   String? _error;
   String? _previewError;
   bool _allowPop = false;
@@ -127,6 +135,23 @@ class _ReaderDecorationRuleEditorState
     }
   }
 
+  Future<void> _pickImage() async {
+    if (_pickingImage || widget.images == null) return;
+    setState(() => _pickingImage = true);
+    try {
+      final path = await widget.images!.pickImage();
+      if (path != null && mounted) _set('backgroundImagePath', path);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('图片无法导入，请选择 20MB 以内的本地图片')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pickingImage = false);
+    }
+  }
+
   void _pop([ReaderDecorationRule? rule]) {
     if (_closing) return;
     _closing = true;
@@ -194,7 +219,7 @@ class _ReaderDecorationRuleEditorState
                   width: double.infinity,
                   child: FilledButton(
                     key: const ValueKey<String>('rule-save'),
-                    onPressed: _previewing
+                    onPressed: _previewing || _pickingImage
                         ? null
                         : () {
                             if (_validate()) _pop(_draft);
@@ -242,6 +267,10 @@ class _ReaderDecorationRuleEditorState
         }),
         decoration: InputDecoration(
           labelText: '匹配内容',
+          helperText: _regex
+              ? r'例如：词语甲|词语乙 匹配多个词，\d+ 匹配数字。按正文文本块匹配，不跨段。'
+              : '输入要自动装饰的文字，可开启正则匹配多个词或文字模式。',
+          helperMaxLines: 3,
           errorText: _error,
           border: const OutlineInputBorder(),
         ),
@@ -273,11 +302,25 @@ class _ReaderDecorationRuleEditorState
       ReaderDecorationStylePreview(
         text: _pattern.text.isEmpty ? '规则样式预览' : _pattern.text,
         style: _style.decorationStyle,
+        images: widget.images,
+        inkMode: widget.inkMode,
       ),
       ReaderStyleColorField(
         label: '文字色',
         color: _style.color,
         onChanged: (value) => _set('color', value),
+      ),
+      AppExpansionTile(
+        key: const ValueKey<String>('rule-highlight'),
+        title: const Text('高亮与划线'),
+        subtitle: Text(_style.highlight?.style.label ?? '底色、染色、线条与跨行连块'),
+        tilePadding: EdgeInsets.zero,
+        children: [
+          ReaderDecorationHighlightEditor(
+            value: _style.highlight,
+            onChanged: (value) => _set('highlight', value?.toJson()),
+          ),
+        ],
       ),
       ReaderStyleColorField(
         label: '背景色',
@@ -285,6 +328,32 @@ class _ReaderDecorationRuleEditorState
         clearLabel: '无背景',
         onChanged: (value) => _set('backgroundColor', value),
       ),
+      if (widget.images != null)
+        OutlinedButton.icon(
+          key: const ValueKey<String>('rule-pick-background-image'),
+          onPressed: _pickingImage ? null : _pickImage,
+          icon: _pickingImage
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const AppIcon(AppGlyph.image),
+          label: const Text('选择本地背景图'),
+        ),
+      if (_style.backgroundImagePath != null) ...[
+        ReaderDecorationImageFitField(
+          value: _style.backgroundImageFit,
+          onChanged: (fit) => _set('backgroundImageFit', fit.name),
+        ),
+        TextButton.icon(
+          key: const ValueKey<String>('rule-remove-background-image'),
+          onPressed: () => _set('backgroundImagePath', null),
+          icon: const AppIcon(AppGlyph.close),
+          label: const Text('移除背景图'),
+        ),
+      ],
+      if (widget.images != null)
+        const Text('匹配到的文字使用同一张图片，按每行区间铺放；透明度和圆角同时作用于图片。'),
       ReaderStyleSlider(
         label: '背景透明度',
         value: _style.backgroundOpacity,
@@ -352,6 +421,8 @@ class _ReaderDecorationRuleEditorState
           child: ReaderDecorationStylePreview(
             text: preview.text,
             style: preview.style.decorationStyle,
+            images: widget.images,
+            inkMode: widget.inkMode,
           ),
         ),
     ],

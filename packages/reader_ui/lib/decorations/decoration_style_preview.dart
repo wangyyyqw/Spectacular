@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../annotations/annotation.dart';
 import 'decoration_image_store.dart';
 import 'decoration_painter.dart';
 import 'decoration_style.dart';
@@ -104,9 +105,13 @@ class _ReaderDecorationStylePreviewState
           base.fontSize! * widget.style.letterSpacingEm,
       color: widget.inkMode
           ? Colors.black
-          : widget.style.color == null
+          : widget.style.textColor == null
           ? null
-          : Color(widget.style.color!),
+          : Color(widget.style.textColor!).withValues(
+              alpha:
+                  Color(widget.style.textColor!).a *
+                  widget.style.textColorOpacity,
+            ),
       height: 1.65,
     );
     return Container(
@@ -173,7 +178,44 @@ class _DecorationPreviewPainter extends CustomPainter {
         inkMode: inkMode,
       );
     }
+    _paintHighlights(canvas, foreground: false);
     text.paint(canvas, Offset.zero);
+    _paintHighlights(canvas, foreground: true);
+  }
+
+  void _paintHighlights(Canvas canvas, {required bool foreground}) {
+    final highlight = style.highlight;
+    if (highlight == null) return;
+    Rect? previous;
+    for (final line in text.computeLineMetrics()) {
+      final rect = Rect.fromLTRB(
+        line.left,
+        line.baseline - line.ascent,
+        line.left + line.width,
+        line.baseline + line.descent,
+      );
+      ReaderDecorationPainter.paintHighlight(
+        canvas,
+        rect,
+        highlight,
+        foreground: foreground,
+        inkMode: inkMode,
+        baseline: line.baseline + highlight.strokeWidth,
+      );
+      if (!foreground &&
+          !inkMode &&
+          highlight.style == ReaderAnnotationStyle.background &&
+          highlight.joinLines &&
+          previous != null) {
+        ReaderDecorationPainter.paintHighlightGap(
+          canvas,
+          previous,
+          rect,
+          highlight,
+        );
+      }
+      previous = rect;
+    }
   }
 
   @override

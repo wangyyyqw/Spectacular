@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +14,32 @@ import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_style_preview.dart';
 import 'package:reader_ui/panels/decoration_panel.dart';
 import 'package:reader_ui/panels/settings_panel.dart' show ReaderFontOption;
+import 'package:reader_ui/decorations/decoration_highlight_editor.dart';
+import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/decorations/decoration_image_store.dart';
+
+class _DecorationImages implements ReaderDecorationImageStore {
+  _DecorationImages(this.bytes);
+  final Uint8List bytes;
+
+  @override
+  Future<String?> pickImage() async => '/local/texture.png';
+  @override
+  Future<Uint8List> loadImage(String path) async => bytes;
+  @override
+  Future<void> removeUnused(Set<String> referencedPaths) async {}
+}
+
+Future<Uint8List> _imageBytes() async {
+  final recorder = ui.PictureRecorder();
+  ui.Canvas(recorder).drawColor(const Color(0xFFB6D7A8), ui.BlendMode.src);
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(12, 6);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  picture.dispose();
+  image.dispose();
+  return data!.buffer.asUint8List();
+}
 
 const _testFonts = [
   ReaderFontOption(family: 'reader-test-font', label: '本地测试字体'),
@@ -118,6 +146,156 @@ FilledButton _saveButton(WidgetTester tester) => tester.widget<FilledButton>(
 );
 
 void main() {
+  testWidgets('正则规则选择图片与铺放方式，命中预览和保存使用同一图片', (tester) async {
+    final images = _DecorationImages((await tester.runAsync(_imageBytes))!);
+    ReaderDecorationRule? saved;
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      ReaderDecorationRuleEditor(
+        rule: const ReaderDecorationRule(
+          id: 'image',
+          groupId: 'group',
+          pattern: r'甲|乙\d+',
+          isRegex: true,
+          style: ReaderDecorationRuleStyle(),
+        ),
+        images: images,
+        onPreview: (rule) async => [
+          ReaderDecorationRulePreview(
+            startCfi: 'start',
+            endCfi: 'end',
+            text: '乙23',
+            style: rule.style,
+          ),
+        ],
+      ),
+      (result) => saved = result,
+    );
+    final pick = find.byKey(
+      const ValueKey<String>('rule-pick-background-image'),
+    );
+    await tester.ensureVisible(pick);
+    await tester.tap(pick);
+    await tester.pumpAndSettle();
+    final fit = find.byType(DropdownButtonFormField<ReaderDecorationImageFit>);
+    await tester.ensureVisible(fit);
+    await tester.tap(fit);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('平铺').last);
+    await tester.pumpAndSettle();
+    final preview = find.byKey(const ValueKey<String>('rule-preview'));
+    await tester.ensureVisible(preview);
+    await tester.tap(preview);
+    await tester.pumpAndSettle();
+    final previews = tester.widgetList<ReaderDecorationStylePreview>(
+      find.byType(ReaderDecorationStylePreview),
+    );
+    expect(previews, hasLength(2));
+    expect(
+      previews.every(
+        (item) =>
+            item.images == images &&
+            item.style.backgroundImagePath == '/local/texture.png' &&
+            item.style.backgroundImageFit == ReaderDecorationImageFit.tile,
+      ),
+      isTrue,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('rule-save')));
+    await tester.pumpAndSettle();
+    expect(saved!.isRegex, isTrue);
+    expect(saved!.pattern, r'甲|乙\d+');
+    expect(saved!.style.backgroundImagePath, '/local/texture.png');
+    expect(saved!.style.backgroundImageFit, ReaderDecorationImageFit.tile);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('320dp 高亮预设可编辑样式和连块，保存不改变字体度量', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    ReaderDecorationStyle? saved;
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      const ReaderDecorationEditorSheet(quote: '高亮与划线沿用已有装饰的存储和原文定位。'),
+      (result) => saved = result,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('decoration-preset-highlight')),
+    );
+    await tester.pumpAndSettle();
+    final panel = find.byKey(const ValueKey<String>('decoration-highlight'));
+    await tester.ensureVisible(panel);
+    await tester.tap(panel);
+    await tester.pumpAndSettle();
+    final join = find.byKey(const ValueKey('decoration-highlight-join-lines'));
+    await tester.ensureVisible(join);
+    await tester.tap(join);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderDecorationStylePreview>(
+            find.byType(ReaderDecorationStylePreview),
+          )
+          .style
+          .highlight!
+          .joinLines,
+      isTrue,
+    );
+    final dropdown = find.byType(
+      DropdownButtonFormField<ReaderAnnotationStyle?>,
+    );
+    await tester.ensureVisible(dropdown);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('波浪线').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('decoration-save')));
+    await tester.pumpAndSettle();
+    expect(saved!.highlight!.style, ReaderAnnotationStyle.wavyUnderline);
+    expect(saved!.changesMetrics, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('自动规则使用同一高亮编辑器，保存完整样式且不写预览结果', (tester) async {
+    ReaderDecorationRule? saved;
+    await _openSheet<ReaderDecorationRule>(
+      tester,
+      ReaderDecorationRuleEditor(
+        rule: const ReaderDecorationRule(
+          id: 'rule',
+          groupId: 'group',
+          pattern: '重点',
+          style: ReaderDecorationRuleStyle(),
+        ),
+        onPreview: (_) async => [],
+      ),
+      (result) => saved = result,
+    );
+    final panel = find.byKey(const ValueKey<String>('rule-highlight'));
+    await tester.ensureVisible(panel);
+    await tester.tap(panel);
+    await tester.pumpAndSettle();
+    final editor = find.byType(ReaderDecorationHighlightEditor);
+    tester
+        .widget<ReaderDecorationHighlightEditor>(editor)
+        .onChanged(
+          const ReaderDecorationHighlight(
+            style: ReaderAnnotationStyle.halfBackground,
+            color: 0xFF00FF00,
+            opacity: 0.4,
+          ),
+        );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('rule-save')));
+    await tester.pumpAndSettle();
+    expect(saved!.style.highlight!.style, ReaderAnnotationStyle.halfBackground);
+    expect(saved!.style.highlight!.color, 0xFF00FF00);
+    expect(saved!.style.highlight!.opacity, 0.4);
+    expect(saved!.style.decorationStyle.changesMetrics, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('320dp 装饰预设可保存，字体、背景、边框高级入口无溢出', (tester) async {
     tester.view.physicalSize = const Size(320, 800);
     tester.view.devicePixelRatio = 1;

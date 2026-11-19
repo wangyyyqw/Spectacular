@@ -514,6 +514,48 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('高亮染色更新复用章节几何，颜色透明度和阅读位置保持正确', (tester) async {
+    final source = _PreparedSource();
+    final progressStore = await _saved();
+    late ReaderSession session;
+    ReaderDecoration decoration(int color) => _copy(
+      _decoration('tint', 740, typography: false),
+      style: ReaderDecorationStyle(
+        highlight: ReaderDecorationHighlight(
+          style: ReaderAnnotationStyle.tint,
+          color: color,
+          opacity: 0.5,
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      _reader(
+        source,
+        progressStore,
+        _Store([decoration(0xFFFF0000)]),
+        ready: (value) => session = value,
+      ),
+    );
+    await _expectFirstPaint(tester, source);
+    await tester.pumpAndSettle();
+    final page = session.page;
+    final cfi = session.currentCfi;
+    final loads = source.loads.where((item) => item.spine == 740).length;
+    expect(source.overlays.single.color, 0xFFFF0000);
+    expect(source.overlays.single.paintColor!.a, closeTo(0.5, 0.01));
+    await tester.pumpWidget(
+      _reader(source, progressStore, _Store([decoration(0xFF0000FF)])),
+    );
+    await tester.pumpAndSettle();
+    expect(source.overlays.single.color, 0xFF0000FF);
+    expect(source.overlays.single.colorOpacity, 0.5);
+    expect(source.loads.where((item) => item.spine == 740), hasLength(loads));
+    expect(session.page, same(page));
+    expect(session.currentCfi, cfi);
+    expect(session.pageTurns, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('原文核验允许唯一引文修正 CFI，歧义记录不参与字体装饰', () {
     final book = AnchorBook(
       revision: 'r1',

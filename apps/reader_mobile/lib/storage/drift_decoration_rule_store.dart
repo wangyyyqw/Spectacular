@@ -2,18 +2,21 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration_image_store.dart';
 
 import '../library/revision_anchor_store.dart';
 import 'db.dart';
+import 'decoration_image_cleanup.dart';
 
 /// 本书与全局的自动装饰规格存储；不写入任何匹配结果。
 class DriftDecorationRuleStore implements ReaderDecorationRuleStore {
   /// 为当前书提供两个作用域，书籍外键不随身份摘要更新而改变。
-  DriftDecorationRuleStore(this._db, String bookId)
+  DriftDecorationRuleStore(this._db, String bookId, {this.images})
     : _binding = RevisionBookBinding(_db, bookId);
 
   final AppDatabase _db;
   final RevisionBookBinding _binding;
+  final ReaderDecorationImageStore? images;
 
   @override
   Future<List<ReaderDecorationRuleGroup>> listGroups() async {
@@ -190,21 +193,25 @@ class DriftDecorationRuleStore implements ReaderDecorationRuleStore {
             ),
           );
     });
+    await cleanDecorationImages(_db, images);
   }
 
   @override
-  Future<void> removeRule(String id) => _db.transaction(() async {
-    final rule = await (_db.select(
-      _db.decorationRules,
-    )..where((table) => table.id.equals(id))).getSingleOrNull();
-    if (rule == null) return;
-    if (await _visibleGroup(rule.groupId, writing: true) == null) {
-      throw const FormatException('不能删除其他书籍的规则');
-    }
-    await (_db.delete(
-      _db.decorationRules,
-    )..where((table) => table.id.equals(id))).go();
-  });
+  Future<void> removeRule(String id) async {
+    await _db.transaction(() async {
+      final rule = await (_db.select(
+        _db.decorationRules,
+      )..where((table) => table.id.equals(id))).getSingleOrNull();
+      if (rule == null) return;
+      if (await _visibleGroup(rule.groupId, writing: true) == null) {
+        throw const FormatException('不能删除其他书籍的规则');
+      }
+      await (_db.delete(
+        _db.decorationRules,
+      )..where((table) => table.id.equals(id))).go();
+    });
+    await cleanDecorationImages(_db, images);
+  }
 
   @override
   Future<void> reorderGroups(List<String> ids) => _db.transaction(() async {

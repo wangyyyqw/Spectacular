@@ -17,11 +17,32 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
+import 'package:reader_ui/decorations/decoration_image_store.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration_style.dart';
 
 import '../support/reader_pump.dart';
 import 'support/css_chapter_book.dart';
 
 const _padding = EdgeInsets.fromLTRB(24, 40, 24, 40);
+
+class _CountingImages implements ReaderDecorationImageStore {
+  _CountingImages(this.source);
+  final ReaderDecorationImageStore source;
+  final loaded = <String>[];
+  @override
+  Future<String?> pickImage() => source.pickImage();
+  @override
+  Future<Uint8List> loadImage(String path) async {
+    final bytes = await source.loadImage(path);
+    loaded.add(path);
+    return bytes;
+  }
+
+  @override
+  Future<void> removeUnused(Set<String> referencedPaths) =>
+      source.removeUnused(referencedPaths);
+}
 
 class _Fixture {
   _Fixture(
@@ -84,7 +105,11 @@ Future<_Fixture> _fixture(WidgetTester tester) async {
   }))!;
 }
 
-Future<void> _show(WidgetTester tester, _Fixture fixture) async {
+Future<void> _show(
+  WidgetTester tester,
+  _Fixture fixture, {
+  ReaderDecorationImageStore? images,
+}) async {
   tester.view.physicalSize = const Size(320, 600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
@@ -102,8 +127,11 @@ Future<void> _show(WidgetTester tester, _Fixture fixture) async {
             fixture.book.id,
             images: fixture.images,
           ),
-          decorationImages: fixture.images,
-          decorationRules: fixture.library.decorationRuleStore(fixture.book.id),
+          decorationImages: images ?? fixture.images,
+          decorationRules: fixture.library.decorationRuleStore(
+            fixture.book.id,
+            images: fixture.images,
+          ),
           padding: _padding,
           overrides: const ReaderOverrides(),
           showPageFooter: false,
@@ -166,6 +194,56 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);
+  });
+
+  testWidgets('正则图片规则从真实存储加载背景，不生成手工记录', (tester) async {
+    final fixture = await _fixture(tester);
+    addTearDown(() => tester.runAsync(fixture.close));
+    final path = (await tester.runAsync(
+      () async => fixture.images.import(
+        await File('assets/textures/paper.png').readAsBytes(),
+      ),
+    ))!;
+    final store = fixture.library.decorationRuleStore(
+      fixture.book.id,
+      images: fixture.images,
+    )!;
+    await tester.runAsync(() async {
+      final group = (await store.listGroups()).first;
+      await store.saveRule(
+        ReaderDecorationRule(
+          id: 'regex-image',
+          groupId: group.id,
+          pattern: '甲乙|丙丁',
+          isRegex: true,
+          style: ReaderDecorationRuleStyle(
+            backgroundImagePath: path,
+            backgroundImageFit: ReaderDecorationImageFit.tile,
+            backgroundOpacity: 0.5,
+          ),
+        ),
+      );
+    });
+    final images = _CountingImages(fixture.images);
+    await _show(tester, fixture, images: images);
+    await pumpReaderUntilComplete(
+      tester,
+      () => images.loaded.contains(path),
+      description: '正则规则图片解码',
+    );
+    expect(images.loaded, [path], reason: '多个命中复用同一份图片');
+    expect(fixture.session.page, isNotNull);
+    expect(fixture.session.pageTurns, 0);
+    expect(
+      await fixture.database.select(fixture.database.decorations).get(),
+      isEmpty,
+    );
+    expect(
+      await fixture.database.select(fixture.database.annotations).get(),
+      isEmpty,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('320dp 六按钮菜单可换行，更多可收起，词典提示后可取消选区', (tester) async {

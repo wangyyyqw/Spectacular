@@ -1,4 +1,24 @@
+import 'package:flutter/painting.dart';
+
+import '../annotations/annotation.dart';
+import 'decoration_highlight.dart';
 import 'style_values.dart';
+
+export 'decoration_highlight.dart';
+
+enum ReaderDecorationImageFit {
+  cover('裁剪铺满', BoxFit.cover),
+  contain('完整显示', BoxFit.contain),
+  fill('拉伸铺满', BoxFit.fill),
+  tile('平铺', BoxFit.none);
+
+  const ReaderDecorationImageFit(this.label, this.fit);
+  final String label;
+  final BoxFit fit;
+
+  static ReaderDecorationImageFit fromJson(Object? value) =>
+      values.where((item) => item.name == value).firstOrNull ?? cover;
+}
 
 /// 装饰边框线型。
 enum ReaderDecorationBorderStyle {
@@ -61,10 +81,12 @@ class ReaderDecorationStyle {
     this.italic,
     this.letterSpacingEm = 0,
     this.color,
+    this.highlight,
     this.backgroundColor,
     this.backgroundOpacity = 1,
     this.borderRadius = 0,
     this.backgroundImagePath,
+    this.backgroundImageFit = ReaderDecorationImageFit.cover,
     this.borderStyle = ReaderDecorationBorderStyle.solid,
     this.borderTop = const ReaderDecorationBorderSide(),
     this.borderRight = const ReaderDecorationBorderSide(),
@@ -94,6 +116,15 @@ class ReaderDecorationStyle {
   /// 文字颜色。
   final int? color;
 
+  final ReaderDecorationHighlight? highlight;
+
+  int? get textColor =>
+      highlight?.style == ReaderAnnotationStyle.tint ? highlight!.color : color;
+
+  double get textColorOpacity => highlight?.style == ReaderAnnotationStyle.tint
+      ? highlight!.effectiveOpacity
+      : 1;
+
   /// 背景颜色。
   final int? backgroundColor;
 
@@ -105,6 +136,8 @@ class ReaderDecorationStyle {
 
   /// 宿主保存的图片路径。
   final String? backgroundImagePath;
+
+  final ReaderDecorationImageFit backgroundImageFit;
 
   /// 四边共用线型。
   final ReaderDecorationBorderStyle borderStyle;
@@ -150,6 +183,7 @@ class ReaderDecorationStyle {
       if (italic == true) '斜体',
       if (letterSpacingEm != 0) '字距',
       if (color != null) '文字色',
+      if (highlight != null) '高亮：${highlight!.style.label}',
       if (backgroundColor != null) '底色',
       if (backgroundImagePath != null) '背景图',
       if ([
@@ -172,11 +206,14 @@ class ReaderDecorationStyle {
     if (italic != null) 'italic': italic,
     if (letterSpacingEm != 0) 'letterSpacingEm': letterSpacingEm,
     if (color != null) 'color': color,
+    if (highlight != null) 'highlight': highlight!.toJson(),
     if (backgroundColor != null) 'backgroundColor': backgroundColor,
     if (backgroundColor != null || backgroundImagePath != null)
       'backgroundOpacity': backgroundOpacity,
     if (borderRadius != 0) 'borderRadius': borderRadius,
     if (backgroundImagePath != null) 'backgroundImagePath': backgroundImagePath,
+    if (backgroundImagePath != null)
+      'backgroundImageFit': backgroundImageFit.name,
     if (borderTop.width > 0) 'borderTop': borderTop.toJson(),
     if (borderRight.width > 0) 'borderRight': borderRight.toJson(),
     if (borderBottom.width > 0) 'borderBottom': borderBottom.toJson(),
@@ -227,6 +264,7 @@ class ReaderDecorationStyle {
         max: 0.2,
       ),
       color: styleColor(json['color']),
+      highlight: ReaderDecorationHighlight.fromJson(json['highlight']),
       backgroundColor: styleColor(json['backgroundColor']),
       backgroundOpacity: styleNumber(
         json['backgroundOpacity'],
@@ -241,6 +279,9 @@ class ReaderDecorationStyle {
         max: 20,
       ),
       backgroundImagePath: styleString(json['backgroundImagePath']),
+      backgroundImageFit: ReaderDecorationImageFit.fromJson(
+        json['backgroundImageFit'],
+      ),
       borderStyle: ReaderDecorationBorderStyle.fromJson(json['borderStyle']),
       borderTop: ReaderDecorationBorderSide.fromJson(json['borderTop']),
       borderRight: ReaderDecorationBorderSide.fromJson(json['borderRight']),
@@ -256,6 +297,11 @@ class ReaderDecorationStyle {
 
 /// 可继续编辑的装饰初始样式。
 enum ReaderDecorationPreset {
+  highlight(
+    '高亮',
+    ReaderDecorationStyle(highlight: ReaderDecorationHighlight()),
+  ),
+
   /// 粗体强调。
   emphasis('强调', ReaderDecorationStyle(fontWeight: 700)),
 

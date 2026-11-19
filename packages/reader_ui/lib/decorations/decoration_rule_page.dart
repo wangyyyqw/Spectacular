@@ -6,6 +6,7 @@ import '../icons/app_icon.dart';
 import 'decoration_rule_editor.dart';
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
+import 'decoration_image_store.dart';
 
 /// 本书与全局作用域的自动装饰规则管理页。
 class ReaderDecorationRulePage extends StatefulWidget {
@@ -16,6 +17,8 @@ class ReaderDecorationRulePage extends StatefulWidget {
     required this.bookId,
     required this.onPreview,
     this.errors = const {},
+    this.images,
+    this.inkMode = false,
   });
 
   /// 规则持久化接口。
@@ -30,6 +33,8 @@ class ReaderDecorationRulePage extends StatefulWidget {
 
   /// 本次会话被跳过的规则及原因。
   final Map<String, String> errors;
+  final ReaderDecorationImageStore? images;
+  final bool inkMode;
   @override
   State<ReaderDecorationRulePage> createState() =>
       _ReaderDecorationRulePageState();
@@ -174,6 +179,8 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
       builder: (_) => ReaderDecorationRuleEditor(
         rule: initial,
         onPreview: widget.onPreview,
+        images: widget.images,
+        inkMode: widget.inkMode,
       ),
     );
     if (next != null && mounted) {
