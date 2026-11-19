@@ -229,56 +229,71 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
           for (final book in result.books)
             Card(
               margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
                 key: ValueKey<String>(
                   'online-result-${result.source.id}-${book.bookUrl.hashCode}',
                 ),
-                contentPadding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
-                leading: _BookThumb(
-                  book: book,
-                  source: result.source,
-                  service: widget.controller.service,
-                ),
-                title: Text(
-                  book.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                isThreeLine: true,
-                subtitle: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      book.author.isEmpty ? '佚名' : book.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      onlineSearchTagLine(
-                        sourceName: result.source.name,
-                        status: book.status.isNotEmpty
-                            ? book.status
-                            : normalizeOnlineStatus(
-                                book.kind,
-                                lastChapter: book.lastChapter,
-                              ),
-                        wordCount: book.wordCount,
-                        chapterCount: book.chapterCount,
-                        updateTime: book.updateTime,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-                trailing: const AppIcon(AppGlyph.chevronRight),
                 onTap: () => _openBook(result.source, book),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
+                  child: Row(
+                    children: <Widget>[
+                      _BookThumb(
+                        book: book,
+                        source: result.source,
+                        service: widget.controller.service,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              book.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              book.author.isEmpty ? '佚名' : book.author,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              onlineSearchTagLine(
+                                sourceName: result.source.name,
+                                status: book.status.isNotEmpty
+                                    ? book.status
+                                    : normalizeOnlineStatus(
+                                        book.kind,
+                                        lastChapter: book.lastChapter,
+                                      ),
+                                wordCount: book.wordCount,
+                                chapterCount: book.chapterCount,
+                                updateTime: book.updateTime,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const AppIcon(AppGlyph.chevronRight),
+                    ],
+                  ),
+                ),
               ),
             ),
         ],
@@ -372,8 +387,8 @@ class _BookThumbState extends State<_BookThumb> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(5),
       child: SizedBox(
-        width: 46,
-        height: 62,
+        width: 56,
+        height: 75,
         child: _cover == null
             ? placeholder
             : FutureBuilder<Uint8List?>(
