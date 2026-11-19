@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
 import '../reader_session.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 书签面板（P4-13）：列表 + 点击跳转 + 删除。
 class BookmarkPanel extends StatelessWidget {
@@ -38,7 +39,7 @@ class BookmarkPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

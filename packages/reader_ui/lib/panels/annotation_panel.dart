@@ -5,6 +5,7 @@ import '../annotations/annotation.dart';
 import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
 import '../icons/app_icon.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 阅读器内的想法与划线列表，装饰不进入此面板。
 ///
@@ -303,7 +304,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
         items.isNotEmpty &&
         items.every((annotation) => _selectedIds.contains(annotation.id));
     return Material(
-      color: theme.colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
