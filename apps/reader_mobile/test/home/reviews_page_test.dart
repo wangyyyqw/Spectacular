@@ -122,6 +122,74 @@ Future<void> _openReviewsTab(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+    '桌面书评并排展示、常驻搜索，窄窗编辑弹窗可取消并保存',
+    (tester) async {
+      final books = [_book('one', '第一本书', '作者甲'), _book('two', '第二本书', '作者乙')];
+      final store = _MemoryReviewStore()
+        ..items['one'] = _review('one', '第一篇书评')
+        ..items['two'] = _review('two', '第二篇书评');
+      await _pumpReviews(
+        tester,
+        books: books,
+        store: store,
+        size: const Size(2560, 1800),
+      );
+      final first = find.byKey(const ValueKey('review-card-one'));
+      final second = find.byKey(const ValueKey('review-card-two'));
+      expect(
+        find.byKey(const ValueKey('reviews-desktop-grid')),
+        findsOneWidget,
+      );
+      expect(tester.getTopLeft(first).dy, tester.getTopLeft(second).dy);
+      expect(
+        tester.getTopLeft(second).dx,
+        greaterThan(tester.getTopLeft(first).dx),
+      );
+      final search = find.byKey(const ValueKey('reviews-search-field'));
+      expect(search, findsOneWidget);
+      final modifier =
+          Theme.of(tester.element(search)).platform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pump();
+      expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+      await tester.enterText(search, '第二');
+      await tester.pumpAndSettle();
+      expect(first, findsNothing);
+      expect(second, findsOneWidget);
+      tester.view.physicalSize = const Size(1120, 1600);
+      await tester.pumpAndSettle();
+      await tester.tap(second);
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('review-content')),
+        '修订后的桌面书评',
+      );
+      await tester.tap(find.byKey(const ValueKey('review-editor-close')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('review-discard-cancel')));
+      await tester.pumpAndSettle();
+      expect(find.text('修订后的桌面书评'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('review-save')));
+      await tester.pumpAndSettle();
+      expect(store.items['two']!.content, '修订后的桌面书评');
+      expect(find.byType(Dialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
   testWidgets('未读完的书不进入待写列表或汇总', (tester) async {
     final unfinished = _book('unfinished', '尚未读完', '作者');
     final finished = _book('finished', '已经读完', '作者');

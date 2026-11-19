@@ -8,6 +8,7 @@ import '../rea_micro/rea_micro_models.dart';
 import 'book_cover_image.dart';
 import 'book_duration_chart.dart';
 import 'cloud_stats_view.dart';
+import 'desktop_layout.dart';
 import 'reading_calendar.dart';
 import 'reading_insights.dart';
 import 'book_reading_ranking.dart';
@@ -403,63 +404,90 @@ class _StatsPageState extends State<StatsPage> {
           ? _error == null
                 ? const _StatsSkeleton()
                 : _StatsError(onRetry: _reload)
-          : RefreshIndicator(
-              onRefresh: _refresh,
-              child: Center(
-                child: SizedBox(
-                  width: 680,
-                  child: ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-                    children: [
-                      StatsSection(
-                        title: '图书时长',
-                        showDivider: false,
-                        child: BookDurationChart(
-                          insights: stats.insights,
-                          bookTitles: {
-                            for (final row in stats.rows)
-                              row.book.id: row.book.title,
-                          },
-                        ),
-                      ),
-                      StatsSection(
-                        title: '阅读日历',
-                        child: ReadingCalendar(
-                          insights: stats.insights,
-                          bookTitles: {
-                            for (final row in stats.rows)
-                              row.book.id: row.book.title,
-                          },
-                          finishedBookIds: {
-                            for (final row in stats.rows)
-                              if (row.progress?.finished ?? false) row.book.id,
-                          },
-                        ),
-                      ),
-                      StatsSection(
-                        title: '每日平均',
-                        detail: '按星期',
-                        caption: '仅计有阅读记录的日期',
-                        child: WeekdayAverageChart(insights: stats.insights),
-                      ),
-                      StatsSection(
-                        title: '阅读排行',
-                        detail: '按累计时长',
-                        child: BookReadingRanking(
-                          books: [for (final row in stats.rows) row.book],
-                          totals: stats.insights.byBook,
-                          bookTitles: stats.insights.bookTitles,
-                          onOpen: _openBook,
-                        ),
-                      ),
-                      _RecentSection(stats: stats, onOpenBook: _openBook),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          : RefreshIndicator(onRefresh: _refresh, child: _content(stats)),
     );
+  }
+
+  Widget _content(_LibraryStats stats) {
+    final desktop = usesDesktopLayout(context);
+    final sections = _sections(stats, desktop);
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: desktop ? 1280 : 680),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+            desktop ? 28 : 20,
+            20,
+            desktop ? 28 : 20,
+            36,
+          ),
+          children: [
+            if (desktop)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 800 ? 2 : 1;
+                  final width =
+                      (constraints.maxWidth - (columns - 1) * 32) / columns;
+                  return Wrap(
+                    key: const ValueKey('stats-desktop-sections'),
+                    spacing: 32,
+                    runSpacing: 32,
+                    children: [
+                      for (final section in sections)
+                        SizedBox(width: width, child: section),
+                    ],
+                  );
+                },
+              )
+            else
+              ...sections,
+            _RecentSection(stats: stats, onOpenBook: _openBook),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _sections(_LibraryStats stats, bool desktop) {
+    final titles = {for (final row in stats.rows) row.book.id: row.book.title};
+    return [
+      StatsSection(
+        title: '图书时长',
+        showDivider: false,
+        child: BookDurationChart(insights: stats.insights, bookTitles: titles),
+      ),
+      StatsSection(
+        title: '阅读日历',
+        showDivider: !desktop,
+        child: ReadingCalendar(
+          insights: stats.insights,
+          bookTitles: titles,
+          finishedBookIds: {
+            for (final row in stats.rows)
+              if (row.progress?.finished ?? false) row.book.id,
+          },
+        ),
+      ),
+      StatsSection(
+        title: '每日平均',
+        detail: '按星期',
+        caption: '仅计有阅读记录的日期',
+        showDivider: !desktop,
+        child: WeekdayAverageChart(insights: stats.insights),
+      ),
+      StatsSection(
+        title: '阅读排行',
+        detail: '按累计时长',
+        showDivider: !desktop,
+        child: BookReadingRanking(
+          books: [for (final row in stats.rows) row.book],
+          totals: stats.insights.byBook,
+          bookTitles: stats.insights.bookTitles,
+          onOpen: _openBook,
+        ),
+      ),
+    ];
   }
 
   Widget _buildCloud(BuildContext context, ReaMicroController controller) {

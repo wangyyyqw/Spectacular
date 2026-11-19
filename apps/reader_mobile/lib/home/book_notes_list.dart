@@ -4,6 +4,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
+import 'desktop_layout.dart';
 
 const _listInsets = EdgeInsets.fromLTRB(16, 12, 16, 24);
 const _song = 'builtin_song';
@@ -61,18 +62,36 @@ class BookNotesList extends StatelessWidget {
           else
             SliverPadding(
               padding: _listInsets,
-              sliver: SliverList.separated(
-                itemCount: noted.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final entry = noted[index];
-                  return _BookNotesCard(
-                    book: entry.book,
-                    counts: entry.counts,
-                    onTap: () => _openBook(context, entry.book),
-                  );
-                },
-              ),
+              sliver: usesDesktopLayout(context)
+                  ? SliverGrid.builder(
+                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 560,
+                        mainAxisExtent:
+                            172 *
+                            MediaQuery.textScalerOf(context).scale(14) /
+                            14,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                      ),
+                      itemCount: noted.length,
+                      itemBuilder: (context, index) => _BookNotesCard(
+                        book: noted[index].book,
+                        counts: noted[index].counts,
+                        onTap: () => _openBook(context, noted[index].book),
+                      ),
+                    )
+                  : SliverList.separated(
+                      itemCount: noted.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final entry = noted[index];
+                        return _BookNotesCard(
+                          book: entry.book,
+                          counts: entry.counts,
+                          onTap: () => _openBook(context, entry.book),
+                        );
+                      },
+                    ),
             ),
         ],
       ),

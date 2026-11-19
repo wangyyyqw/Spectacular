@@ -5,10 +5,12 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../book_source/online_book_controller.dart';
+import '../editing/epub_file_editor_page.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../storage/startup_storage.dart';
 import 'bookshelf_page.dart';
+import 'desktop_layout.dart';
 import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
@@ -112,7 +114,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     });
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(bool desktop) {
     final content = IndexedStack(
       index: _index,
       children: [
@@ -139,6 +141,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           active: _index == 2,
           reaMicro: _reaMicro,
         ),
+        if (desktop) EpubFileEditorPage(active: _index == 3),
         ProfilePage(
           library: widget.library,
           reaMicro: _reaMicro,
@@ -203,10 +206,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final navigationBackground =
         navigationTheme.backgroundColor ?? theme.canvasColor;
     return [
-      for (final (label, glyph) in const [
+      for (final (label, glyph) in [
         ('书架', AppGlyph.bookshelf),
         ('统计', AppGlyph.stats),
         ('书评', AppGlyph.review),
+        if (usesDesktopLayout(context)) ('编辑器', AppGlyph.code),
         ('我的', AppGlyph.profile),
       ])
         BottomNavigationBarItem(
@@ -256,13 +260,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final items = _navigationItems(theme);
-    final pages = Expanded(child: _buildBody());
-    final useRail = switch (theme.platform) {
-      TargetPlatform.macOS ||
-      TargetPlatform.windows ||
-      TargetPlatform.linux => true,
-      _ => false,
-    };
+    final useRail = usesDesktopLayout(context);
+    final pages = Expanded(child: _buildBody(useRail));
     return Scaffold(
       body: Row(
         children: [
