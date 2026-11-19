@@ -5,11 +5,16 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_mobile/home/bookshelf_page.dart';
+import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/search/scan_search_service.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
+import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -31,20 +36,33 @@ Future<ReaderSession> _openReader(
   String contentRevision,
 ) async {
   ReaderSession? session;
+  final search = ScanSearchService(source: source);
+  addTearDown(search.dispose);
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(),
+      builder: (_, child) => RepaintBoundary(
+        key: const ValueKey('desktop-reader-capture'),
+        child: child!,
+      ),
       home: Scaffold(
-        body: RepaintBoundary(
-          key: const ValueKey('desktop-reader-capture'),
-          child: ReaderPage(
-            source: source,
-            store: MemoryReaderProgressStore(),
-            bookId: 'desktop-wheel-acceptance',
-            contentRevision: contentRevision,
-            bookTitle: '桌面滚轮验收',
-            onSessionReady: (value) => session = value,
-          ),
+        body: ReaderPage(
+          source: source,
+          store: MemoryReaderProgressStore(),
+          bookId: 'desktop-wheel-acceptance',
+          contentRevision: contentRevision,
+          bookTitle: '桌面滚轮验收',
+          onSearch: (query) async => [
+            for (final result in await search.search(query))
+              SearchPanelResult(
+                spineIndex: result.spineIndex,
+                charOffset: result.charOffset,
+                chapterTitle: result.chapterTitle,
+                context: result.context,
+                matchLength: result.matchLength,
+              ),
+          ],
+          onSessionReady: (value) => session = value,
         ),
       ),
     ),
@@ -95,10 +113,59 @@ Future<void> _checkMenu(WidgetTester tester, ReaderSession session) async {
   expect(session.page, same(page));
 }
 
+Future<void> _shortcut(WidgetTester tester, LogicalKeyboardKey key) async {
+  final modifier = Platform.isMacOS
+      ? LogicalKeyboardKey.metaLeft
+      : LogicalKeyboardKey.controlLeft;
+  await tester.sendKeyDownEvent(modifier);
+  await tester.sendKeyEvent(key);
+  await tester.sendKeyUpEvent(modifier);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _checkKeyboard(WidgetTester tester, ReaderSession session) async {
+  await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+  await tester.pumpAndSettle();
+  await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+  await _until(tester, () => session.page?.pageIndex == 1);
+  await tester.pumpAndSettle();
+  await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);
+  await _until(tester, () => session.page?.pageIndex == 0);
+  await tester.pumpAndSettle();
+  await _shortcut(tester, LogicalKeyboardKey.keyF);
+  final search = find.byKey(const ValueKey('search-input'));
+  final editable = tester.widget<EditableText>(
+    find.descendant(of: search, matching: find.byType(EditableText)),
+  );
+  expect(editable.focusNode.hasFocus, isTrue);
+  await tester.enterText(search, '桌面');
+  await _until(tester, () => find.byType(ListTile).evaluate().isNotEmpty);
+  final page = session.page;
+  await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+  await tester.pumpAndSettle();
+  expect(session.page, same(page));
+  await _capture(tester, 'reader-search');
+  await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+  await tester.pumpAndSettle();
+  await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+  await tester.pumpAndSettle();
+  await tester.tapAt(
+    tester.getRect(find.byType(ReaderView)).centerRight - const Offset(20, 0),
+    kind: PointerDeviceKind.mouse,
+    buttons: kSecondaryButton,
+  );
+  await tester.pumpAndSettle();
+  expect(
+    tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+    isTrue,
+  );
+  expect(session.page, same(page));
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('桌面正式 EPUB 引擎：滚轮前翻、回翻、保存位置与菜单遮罩', (tester) async {
+  testWidgets('桌面正式 EPUB 引擎：滚轮与键盘翻页、搜索焦点、右键与位置保存', (tester) async {
     final bytes = buildTestEpub(
       title: '桌面滚轮验收',
       paragraphs: List.generate(
@@ -128,6 +195,64 @@ void main() {
     expect((await session.store.load(session.bookId))?.cfi, firstCfi);
     await _capture(tester, 'reader-returned');
     await _checkMenu(tester, session);
+    await _checkKeyboard(tester, session);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f1);
+    await tester.pumpAndSettle();
+    await _capture(tester, 'reader-shortcuts');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await session.flushProgress();
+    expect((await session.store.load(session.bookId))?.cfi, firstCfi);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('桌面书架实窗：右键菜单、搜索和导入快捷键', (tester) async {
+    final library = LibraryStore.memory();
+    final book = await library.importBytes(buildTestEpub(title: '桌面书架验收'));
+    var imports = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        builder: (_, child) => RepaintBoundary(
+          key: const ValueKey('desktop-reader-capture'),
+          child: child!,
+        ),
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+          pickEpubFiles: () async {
+            imports++;
+            return [];
+          },
+        ),
+      ),
+    );
+    await _until(tester, () => find.text(book.title).evaluate().isNotEmpty);
+    await tester.tap(
+      find.byKey(ValueKey('book-card-${book.id}')),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('书籍详情'), findsOneWidget);
+    await _capture(tester, 'bookshelf-context-menu');
+    await tester.tap(find.text('选择多本书'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 1 本'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await _shortcut(tester, LogicalKeyboardKey.keyF);
+    await tester.enterText(
+      find.byKey(const ValueKey('bookshelf-search-field')),
+      '桌面',
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('book-card-title-${book.id}')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await _shortcut(tester, LogicalKeyboardKey.keyO);
+    expect(imports, 1);
+    expect((await library.list()).single.id, book.id);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

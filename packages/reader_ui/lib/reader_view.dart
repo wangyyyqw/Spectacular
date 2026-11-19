@@ -175,6 +175,7 @@ class ReaderView extends StatefulWidget {
     this.onPrevious,
     this.onNext,
     this.onToggleToolbar,
+    this.onSecondaryTap,
     this.onLongPressAt,
     this.onDoubleTapAt,
     this.onTripleTapAt,
@@ -204,6 +205,8 @@ class ReaderView extends StatefulWidget {
 
   /// 中间区域点击：工具栏。
   final VoidCallback? onToggleToolbar;
+
+  final VoidCallback? onSecondaryTap;
 
   /// 长按位置（相对阅读视图左上角，P4-14 命中测试用）。
   final ValueChanged<Offset>? onLongPressAt;
@@ -598,6 +601,7 @@ class _ReaderViewState extends State<ReaderView> {
   }
 
   void _pointerDown(PointerDownEvent event) {
+    if (event.buttons != kPrimaryButton) return;
     if (_rawPointers.isEmpty) _rawMultiplePointers = false;
     _rawPointers.add(event.pointer);
     if (widget.config.minimumFlingVelocity != null && _rawPointers.length > 1) {
@@ -680,6 +684,7 @@ class _ReaderViewState extends State<ReaderView> {
             width,
             GestureDetector(
               behavior: HitTestBehavior.opaque,
+              onSecondaryTap: widget.onSecondaryTap,
               onTapDown: (details) {
                 _lastTapPosition = details.localPosition;
               },

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,11 +38,12 @@ const _delayedSearchResult = SearchPanelResult(
 );
 
 class _Source implements ReaderChapterSource {
-  _Source({int baseOffset = 0, double fontSize = 16}) {
+  _Source({int baseOffset = 0, double fontSize = 16, bool rtl = false}) {
     final style = ComputedStyle({
       'font-size': '${fontSize}px',
       'line-height': '1.5',
       'font-family': 'Ahem',
+      'direction': rtl ? 'rtl' : 'ltr',
     });
     final layout = TextLayoutEngine.layout(
       text: 'word ' * 120,
@@ -291,6 +293,7 @@ Future<ReaderSession> _showReader(
   bool editMode = false,
   PageTurnMode pageTurnMode = PageTurnMode.cover,
   ValueChanged<ReaderEditTarget>? onEditTarget,
+  Future<List<SearchPanelResult>> Function(String)? onSearch,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
@@ -301,6 +304,7 @@ Future<ReaderSession> _showReader(
           editMode: editMode,
           pageTurnMode: pageTurnMode,
           onEditTarget: onEditTarget,
+          onSearch: onSearch,
           store: MemoryReaderProgressStore(),
           bookId: 'interaction-regression',
           padding: _padding,
@@ -526,6 +530,209 @@ Future<void> _scrollWheel(
 }
 
 void main() {
+  testWidgets('键盘翻页使用正式入口，支持方向键、分页键与空格组合', (tester) async {
+    final session = await _showReader(tester);
+    for (final key in [
+      LogicalKeyboardKey.arrowRight,
+      LogicalKeyboardKey.arrowDown,
+      LogicalKeyboardKey.pageDown,
+      LogicalKeyboardKey.space,
+    ]) {
+      await tester.sendKeyEvent(key);
+      await tester.pumpAndSettle();
+    }
+    expect(session.page?.pageIndex, 4);
+    for (final key in [
+      LogicalKeyboardKey.arrowLeft,
+      LogicalKeyboardKey.arrowUp,
+      LogicalKeyboardKey.pageUp,
+    ]) {
+      await tester.sendKeyEvent(key);
+      await tester.pumpAndSettle();
+    }
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 0);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 0);
+  });
+
+  testWidgets('键盘翻页准备期间不叠加请求，完成后可跨章回翻', (tester) async {
+    final source = _DelayedChapterSource();
+    addTearDown(() {
+      if (!source.ready.isCompleted) source.ready.complete();
+    });
+    final session = await _showReader(tester, source: source);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.pageDown);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.pageDown);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.pageDown);
+    source.ready.complete();
+    await tester.pumpAndSettle();
+    expect(session.page?.spineIndex, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);
+    await tester.pumpAndSettle();
+    expect(session.page?.spineIndex, 0);
+  });
+
+  testWidgets('RTL 正文左右方向键随阅读方向反转', (tester) async {
+    final session = await _showReader(tester, source: _Source(rtl: true));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 0);
+  });
+
+  testWidgets('连续滚动模式空格沿用滚动入口改变阅读位置', (tester) async {
+    final session = await _showReader(
+      tester,
+      pageTurnMode: PageTurnMode.scroll,
+    );
+    final initial = session.readingCfi;
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(session.readingCfi, isNot(initial));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+    expect(session.readingCfi, initial);
+  });
+
+  testWidgets(
+    '已选正文可用复制快捷键，选区期间分页键不翻页',
+    (tester) async {
+      final copied = _captureClipboard(tester);
+      final session = await _showReader(tester);
+      await _selectWord(tester, session.page!);
+      await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+      await tester.pumpAndSettle();
+      expect(session.page?.pageIndex, 0);
+      final modifier = defaultTargetPlatform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pumpAndSettle();
+      expect(copied(), 'word');
+      expect(find.byType(SelectionLayer), findsNothing);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets(
+    '搜索快捷键聚焦输入，Esc 逐层退出后恢复正文键盘翻页',
+    (tester) async {
+      final session = await _showReader(tester, onSearch: (_) async => []);
+      final modifier = defaultTargetPlatform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pumpAndSettle();
+      final input = find.byKey(const ValueKey('search-input'));
+      expect(input, findsOneWidget);
+      expect(tester.testTextInput.isVisible, isTrue);
+      final editable = tester.widget<EditableText>(
+        find.descendant(of: input, matching: find.byType(EditableText)),
+      );
+      editable.focusNode.unfocus();
+      await tester.pump();
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pumpAndSettle();
+      expect(editable.focusNode.hasFocus, isTrue);
+      await tester.enterText(input, 'word');
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      expect(session.page?.pageIndex, 0);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(input, findsNothing);
+      expect(_menuOpen(tester), isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+      await tester.pumpAndSettle();
+      expect(session.page?.pageIndex, 0);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(_menuOpen(tester), isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+      await tester.pumpAndSettle();
+      expect(session.page?.pageIndex, 1);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets('右键正文打开菜单而不翻页，再次右键关闭菜单', (tester) async {
+    final session = await _showReader(tester);
+    final point =
+        tester.getRect(find.byType(ReaderView)).centerRight -
+        const Offset(20, 0);
+    for (final open in [true, false]) {
+      await tester.tapAt(
+        point,
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+      expect(session.page?.pageIndex, 0);
+      expect(_menuOpen(tester), open);
+    }
+  });
+
+  testWidgets('编辑预览忽略阅读快捷键，不夺取源码焦点', (tester) async {
+    final session = await _showReader(
+      tester,
+      editMode: true,
+      onSearch: (_) async => [],
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f1);
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 0);
+    expect(_menuOpen(tester), isFalse);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      FocusManager.instance.primaryFocus?.debugLabel,
+      isNot('reader-first-block'),
+    );
+  });
+
+  testWidgets('快捷键帮助可关闭，弹窗期间按键不翻动底层正文', (tester) async {
+    final session = await _showReader(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f1);
+    await tester.pumpAndSettle();
+    expect(find.text('桌面阅读操作'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 0);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+    await tester.pumpAndSettle();
+    expect(session.page?.pageIndex, 1);
+  });
+
   for (final mode in [
     PageTurnMode.cover,
     PageTurnMode.slideHorizontal,
