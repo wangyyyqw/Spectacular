@@ -9,9 +9,7 @@ import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
 
-const _railBreakpoint = 840.0;
-
-/// 首页应用壳：宽窗使用侧栏，窄窗保留底栏。
+/// 首页应用壳：桌面平台使用侧栏，移动平台使用底栏。
 class HomeShell extends StatefulWidget {
   /// 创建壳。
   const HomeShell({
@@ -217,33 +215,34 @@ class _HomeShellState extends State<HomeShell> {
     final theme = Theme.of(context);
     final items = _navigationItems(theme);
     final pages = Expanded(child: _buildBody());
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final useRail = constraints.maxWidth >= _railBreakpoint;
-        return Scaffold(
-          body: Row(
-            children: [
-              if (useRail) ...[
-                _buildRail(theme, items),
-                VerticalDivider(width: 1, color: theme.dividerColor),
-              ],
-              pages,
-            ],
-          ),
-          bottomNavigationBar: useRail
-              ? null
-              : DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: theme.dividerColor)),
-                  ),
-                  child: BottomNavigationBar(
-                    currentIndex: _index,
-                    onTap: _selectDestination,
-                    items: items,
-                  ),
-                ),
-        );
-      },
+    final useRail = switch (theme.platform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+    return Scaffold(
+      body: Row(
+        children: [
+          if (useRail) ...[
+            _buildRail(theme, items),
+            VerticalDivider(width: 1, color: theme.dividerColor),
+          ],
+          pages,
+        ],
+      ),
+      bottomNavigationBar: useRail
+          ? null
+          : DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: theme.dividerColor)),
+              ),
+              child: BottomNavigationBar(
+                currentIndex: _index,
+                onTap: _selectDestination,
+                items: items,
+              ),
+            ),
     );
   }
 }
