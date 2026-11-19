@@ -525,6 +525,19 @@ class _InlineBoxText {
       offsets[measured.clamp(0, offsets.length - 1)];
 }
 
+typedef _PaddedSegment = ({
+  String text,
+  double width,
+  ComputedStyle style,
+  double scale,
+  TextLeadingDistribution leading,
+  List<StyledRun> runs,
+  List<_InlineBoxMark> marks,
+  Set<int> barriers,
+  bool firstLine,
+  bool firstLineOnly,
+});
+
 class StyledRun {
   /// 创建区间。
   const StyledRun({
@@ -535,6 +548,7 @@ class StyledRun {
     this.syntheticFontFallback = false,
     this.inlineLeadingInset,
     this.inlineTrailingInset,
+    this.inlinePadding = EdgeInsets.zero,
   });
 
   /// 起始偏移（UTF-16，含）。
@@ -558,6 +572,7 @@ class StyledRun {
   /// 嵌套元素可在同一边界累加，拆分片段未触及原边界时为零。
   final double? inlineLeadingInset;
   final double? inlineTrailingInset;
+  final EdgeInsets inlinePadding;
 
   double get leadingInset =>
       inlineLeadingInset ??
@@ -661,6 +676,7 @@ List<StyledRun> remapStyledRuns(List<StyledRun> runs, TextOffsetMap? offsets) {
         syntheticFontFallback: run.syntheticFontFallback,
         inlineLeadingInset: run.inlineLeadingInset,
         inlineTrailingInset: run.inlineTrailingInset,
+        inlinePadding: run.inlinePadding,
       ),
   ];
 }
@@ -941,6 +957,7 @@ class TextLayoutResult implements TextLayout {
             current.syntheticFontFallback != cached.syntheticFontFallback ||
             current.inlineLeadingInset != cached.inlineLeadingInset ||
             current.inlineTrailingInset != cached.inlineTrailingInset ||
+            current.inlinePadding != cached.inlinePadding ||
             !identical(current.style, cached.style)) {
           same = false;
           break;
@@ -2586,6 +2603,7 @@ abstract final class TextLayoutEngine {
           syntheticFontFallback: run.syntheticFontFallback,
           inlineLeadingInset: run.inlineLeadingInset,
           inlineTrailingInset: run.inlineTrailingInset,
+          inlinePadding: run.inlinePadding,
         ),
     ];
   }
@@ -2624,6 +2642,7 @@ abstract final class TextLayoutEngine {
             syntheticFontFallback: run.syntheticFontFallback,
             inlineLeadingInset: start == run.start ? run.inlineLeadingInset : 0,
             inlineTrailingInset: end == run.end ? run.inlineTrailingInset : 0,
+            inlinePadding: run.inlinePadding,
           ),
         );
       }
@@ -2657,6 +2676,7 @@ abstract final class TextLayoutEngine {
         syntheticFontFallback: run.syntheticFontFallback,
         inlineLeadingInset: run.inlineLeadingInset,
         inlineTrailingInset: run.inlineTrailingInset,
+        inlinePadding: run.inlinePadding,
       ),
   ];
 
@@ -2668,6 +2688,7 @@ abstract final class TextLayoutEngine {
     syntheticFontFallback: run.syntheticFontFallback,
     inlineLeadingInset: start == run.start ? run.inlineLeadingInset : 0,
     inlineTrailingInset: end == run.end ? run.inlineTrailingInset : 0,
+    inlinePadding: run.inlinePadding,
   );
 
   /// 只把真正第一物理行替换为首行样式，余文保留正文声明和盒边界。
@@ -2792,6 +2813,7 @@ abstract final class TextLayoutEngine {
     var openSynthetic = false;
     var openLeadingInset = 0.0;
     var openTrailingInset = 0.0;
+    var openPadding = EdgeInsets.zero;
     void flush() {
       final start = openStart;
       final end = openEnd;
@@ -2806,6 +2828,7 @@ abstract final class TextLayoutEngine {
             syntheticFontFallback: openSynthetic,
             inlineLeadingInset: openLeadingInset,
             inlineTrailingInset: openTrailingInset,
+            inlinePadding: openPadding,
           ),
         );
       }
@@ -2836,6 +2859,7 @@ abstract final class TextLayoutEngine {
           identical(openStyle, style) &&
           openShift == shift &&
           openSynthetic == synthetic &&
+          openPadding == (owner?.inlinePadding ?? EdgeInsets.zero) &&
           openTrailingInset == 0 &&
           (owner?.start != start || owner!.leadingInset == 0) &&
           openEnd == start) {
@@ -2848,6 +2872,7 @@ abstract final class TextLayoutEngine {
         openStyle = style;
         openShift = shift;
         openSynthetic = synthetic;
+        openPadding = owner?.inlinePadding ?? EdgeInsets.zero;
         openLeadingInset = owner?.start == start ? owner!.leadingInset : 0;
         openTrailingInset = owner?.end == end ? owner!.trailingInset : 0;
       }
@@ -2956,6 +2981,7 @@ abstract final class TextLayoutEngine {
             inlineTrailingInset: runEnd == run.end
                 ? run.inlineTrailingInset
                 : 0,
+            inlinePadding: run.inlinePadding,
           ),
         );
       }
@@ -3510,7 +3536,26 @@ abstract final class TextLayoutEngine {
     Set<int> spacingBarriers = const {},
     bool firstLine = true,
     bool firstLineOnly = false,
+    bool clonePadding = true,
   }) sync* {
+    if (clonePadding &&
+        width.isFinite &&
+        !style.isRtl &&
+        runs.any((run) => run.inlinePadding.horizontal > 0)) {
+      yield* _measurePaddedSegmentSteps(work, (
+        text: text,
+        width: width,
+        style: style,
+        scale: textScaleFactor,
+        leading: leadingDistribution,
+        runs: runs,
+        marks: inlineBoxMarks,
+        barriers: spacingBarriers,
+        firstLine: firstLine,
+        firstLineOnly: firstLineOnly,
+      ));
+      return;
+    }
     final baseStyle = textStyleFor(
       style,
       leadingDistribution: leadingDistribution,
@@ -3721,10 +3766,196 @@ abstract final class TextLayoutEngine {
       runs,
       style,
       leadingDistribution,
+      (scale: textScaleFactor, painter: painter),
     );
     work.painters.release(painter);
     work.result = result;
   }
+
+  static Iterable<bool> _measurePaddedSegmentSteps(
+    _TextLayoutWork<List<LineBox>> work,
+    _PaddedSegment input,
+  ) sync* {
+    final lines = <LineBox>[];
+    var cursor = 0;
+    var top = 0.0;
+    while (cursor < input.text.length) {
+      final measured = _TextLayoutWork<LineBox>(work.painters);
+      yield* _fitPaddedLineSteps(measured, input, cursor);
+      final line = measured.result!;
+      final end = cursor + line.end;
+      lines.add(
+        _shiftMeasuredLine(
+          line,
+          cursor,
+          top,
+        ).copyWith(isLastLine: end == input.text.length),
+      );
+      top += line.height;
+      if (input.firstLineOnly) break;
+      cursor = end;
+      if (cursor < input.text.length && input.text.codeUnitAt(cursor) == 10) {
+        cursor++;
+      }
+    }
+    work.result = lines;
+  }
+
+  static Iterable<bool> _fitPaddedLineSteps(
+    _TextLayoutWork<LineBox> work,
+    _PaddedSegment input,
+    int cursor,
+  ) sync* {
+    final left = _continuationPadding(input.runs, cursor, true) * input.scale;
+    var right = 0.0;
+    final measured = _TextLayoutWork<LineBox>(work.painters);
+    while (true) {
+      yield* _measurePaddedLineSteps(
+        measured,
+        input,
+        cursor,
+        math.max(1, input.width - left - right),
+      );
+      final needed =
+          _continuationPadding(
+            input.runs,
+            cursor + measured.result!.end,
+            false,
+          ) *
+          input.scale;
+      if (needed <= right) break;
+      right = needed;
+    }
+    work.result = _withContinuationPadding(measured.result!, left, right);
+  }
+
+  static LineBox _shiftMeasuredLine(LineBox line, int offset, double top) =>
+      line.copyWith(
+        start: line.start + offset,
+        end: line.end + offset,
+        top: top,
+        inlineBoxes: [
+          for (final box in line.inlineBoxes)
+            InlineBoxPlacement(
+              offset: box.offset + offset,
+              left: box.left,
+              width: box.width,
+              height: box.height,
+              ascent: box.ascent,
+              descent: box.descent,
+              spec: box.spec,
+              vertical: box.vertical,
+            ),
+        ],
+      );
+
+  static Iterable<bool> _measurePaddedLineSteps(
+    _TextLayoutWork<LineBox> work,
+    _PaddedSegment input,
+    int cursor,
+    double width,
+  ) sync* {
+    var limit = math.min(input.text.length, cursor + _indentProbeChars);
+    while (true) {
+      final segment = _TextLayoutWork<List<LineBox>>(work.painters);
+      yield* _measureSegmentSteps(
+        segment,
+        text: input.text.substring(cursor, limit),
+        width: width,
+        contentWidth: width,
+        style: input.style,
+        textScaleFactor: input.scale,
+        leadingDistribution: input.leading,
+        runs: _sliceRuns(input.runs, cursor, limit),
+        inlineBoxMarks: [
+          for (final mark in _shiftInlineBoxMarks(input.marks, cursor))
+            if (mark.index < limit - cursor) mark,
+        ],
+        spacingBarriers: {
+          for (final offset in input.barriers)
+            if (offset >= cursor && offset < limit) offset - cursor,
+        },
+        firstLine: cursor == 0
+            ? input.firstLine
+            : input.text.codeUnitAt(cursor - 1) == 10,
+        firstLineOnly: true,
+        clonePadding: false,
+      );
+      final line = segment.result!.first;
+      if (line.end < limit - cursor || limit == input.text.length) {
+        work.result = line;
+        return;
+      }
+      limit = math.min(input.text.length, cursor + (limit - cursor) * 2);
+    }
+  }
+
+  static double _continuationPadding(
+    List<StyledRun> runs,
+    int offset,
+    bool leading,
+  ) {
+    var width = 0.0;
+    for (final run in runs) {
+      final inside = leading
+          ? run.start <= offset && offset < run.end
+          : run.start < offset && offset <= run.end;
+      final boundary = leading
+          ? run.start == offset && run.inlineLeadingInset != 0
+          : run.end == offset && run.inlineTrailingInset != 0;
+      if (!inside || boundary) continue;
+      width = math.max(
+        width,
+        leading ? run.inlinePadding.left : run.inlinePadding.right,
+      );
+    }
+    return width;
+  }
+
+  static LineBox _withContinuationPadding(
+    LineBox line,
+    double left,
+    double right,
+  ) => line.copyWith(
+    width: line.width + left + right,
+    inlineBoxes: [
+      if (left > 0)
+        _paddingPlacement(line.start, 0, left, InlineSpacingEdge.leading),
+      for (final box in line.inlineBoxes)
+        InlineBoxPlacement(
+          offset: box.offset,
+          left: box.left + left,
+          width: box.width,
+          height: box.height,
+          ascent: box.ascent,
+          descent: box.descent,
+          spec: box.spec,
+          vertical: box.vertical,
+        ),
+      if (right > 0)
+        _paddingPlacement(
+          line.end,
+          line.width + left,
+          right,
+          InlineSpacingEdge.trailing,
+        ),
+    ],
+  );
+
+  static InlineBoxPlacement _paddingPlacement(
+    int offset,
+    double left,
+    double width,
+    InlineSpacingEdge edge,
+  ) => InlineBoxPlacement(
+    offset: offset,
+    left: left,
+    width: width,
+    height: 0,
+    ascent: 0,
+    descent: 0,
+    spec: InlineBoxSpec(offset: offset, width: width, height: 0, payload: edge),
+  );
 
   /// 收回被行尾字距挤到单独一行的末字。
   ///
@@ -3823,6 +4054,7 @@ abstract final class TextLayoutEngine {
           syntheticFontFallback: run.syntheticFontFallback,
           inlineLeadingInset: run.start >= start ? run.inlineLeadingInset : 0,
           inlineTrailingInset: run.end <= end ? run.inlineTrailingInset : 0,
+          inlinePadding: run.inlinePadding,
         ),
   ];
 
@@ -4007,7 +4239,10 @@ abstract final class TextLayoutEngine {
     double scale,
   ) sync* {
     for (final run in runs) {
-      if (run.syntheticFontFallback || run.end <= run.start) continue;
+      if (run.end <= run.start ||
+          run.syntheticFontFallback && run.inlinePadding == EdgeInsets.zero) {
+        continue;
+      }
       final left = run.leadingInset;
       final right = run.trailingInset;
       if (left > 0) {
@@ -4595,20 +4830,24 @@ abstract final class TextLayoutEngine {
     List<StyledRun> runs,
     ComputedStyle style,
     TextLeadingDistribution leadingDistribution,
+    ({double scale, TextPainter painter}) measurement,
   ) {
-    if (!runs.any((run) => run.baselineShift != 0)) {
+    if (!runs.any(
+      (run) => run.baselineShift != 0 || run.inlinePadding.vertical > 0,
+    )) {
       return lines;
     }
     final growUps = List<double>.filled(lines.length, 0, growable: false);
     final growDowns = List<double>.filled(lines.length, 0, growable: false);
     final metrics = <ComputedStyle, _InlineBoxMetrics>{};
+    final lineMetrics = measurement.painter.computeLineMetrics();
     var grew = false;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
       final ascent = line.baseline - line.top;
       final descent = line.height - ascent;
       for (final run in runs) {
-        if (run.baselineShift == 0) {
+        if (run.baselineShift == 0 && run.inlinePadding.vertical == 0) {
           continue;
         }
         if (math.min(run.end, line.end) <= math.max(run.start, line.start)) {
@@ -4618,8 +4857,23 @@ abstract final class TextLayoutEngine {
           run.style,
           leadingDistribution,
         );
-        final top = run.baselineShift - box.ascent;
-        final bottom = run.baselineShift + box.descent;
+        final padding = run.inlinePadding * measurement.scale;
+        var above = box.ascent;
+        var below = box.descent;
+        if (padding.vertical > 0) {
+          final baseline = lineMetrics[i].baseline;
+          for (final glyph in measurement.painter.getBoxesForSelection(
+            TextSelection(
+              baseOffset: math.max(run.start, line.start),
+              extentOffset: math.min(run.end, line.end),
+            ),
+          )) {
+            above = math.max(above, baseline - glyph.top + padding.top);
+            below = math.max(below, glyph.bottom - baseline + padding.bottom);
+          }
+        }
+        final top = run.baselineShift - above;
+        final bottom = run.baselineShift + below;
         if (top < -ascent - 0.01) {
           growUps[i] = math.max(growUps[i], -ascent - top);
         }
@@ -4732,6 +4986,7 @@ abstract final class TextLayoutEngine {
           syntheticFontFallback: run.syntheticFontFallback,
           inlineLeadingInset: run.inlineLeadingInset,
           inlineTrailingInset: run.inlineTrailingInset,
+          inlinePadding: run.inlinePadding,
         ),
       );
     }
@@ -5227,6 +5482,7 @@ abstract final class TextLayoutEngine {
   static bool _runsAffectTextLayout(List<StyledRun> runs, ComputedStyle style) {
     for (final run in runs) {
       if (run.baselineShift != 0 ||
+          run.inlinePadding != EdgeInsets.zero ||
           run.style.layoutFingerprint != style.layoutFingerprint) {
         return true;
       }

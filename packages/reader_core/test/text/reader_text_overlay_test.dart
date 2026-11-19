@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'package:flutter/painting.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart'
@@ -22,6 +22,71 @@ ReaderTextOverlay _overlay(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('后置普通图片清除重叠点九占位，普通图片本身不失效几何', () {
+    final source = ComputedStyle(const {
+      'font-family': 'Ahem',
+      'font-size': '16px',
+    });
+    final plain = ReaderTextOverlay(
+      startCfi: cfiWithCharOffset(_blockCfi, 0),
+      endCfi: cfiWithCharOffset(_blockCfi, 4),
+      paddingByTextHeight: EdgeInsets.zero,
+    );
+    expect(
+      ReaderTextOverlayResolver([plain], colors: false).typographyFingerprint,
+      '[]',
+    );
+    final resolver = ReaderTextOverlayResolver([
+      ReaderTextOverlay(
+        startCfi: plain.startCfi,
+        endCfi: plain.endCfi,
+        paddingByTextHeight: const EdgeInsets.all(0.5),
+      ),
+      plain,
+    ], colors: false);
+    final runs = resolver.resolve(
+      blockCfi: _blockCfi,
+      text: '甲乙丙丁',
+      style: source,
+      runs: const [],
+    );
+    expect(runs.single.inlinePadding, EdgeInsets.zero);
+    expect(runs.single.leadingInset, 0);
+    expect(runs.single.trailingInset, 0);
+  });
+
+  test('点九叠加字体回退片段时不重复计入作者块内边距', () {
+    final style = ComputedStyle(const {
+      'font-family': 'Ahem',
+      'font-size': '16px',
+      'padding': '8px',
+    });
+    final runs =
+        ReaderTextOverlayResolver([
+          ReaderTextOverlay(
+            startCfi: cfiWithCharOffset(_blockCfi, 0),
+            endCfi: cfiWithCharOffset(_blockCfi, 4),
+            paddingByTextHeight: const EdgeInsets.all(0.5),
+          ),
+        ]).resolve(
+          blockCfi: _blockCfi,
+          text: '甲乙丙丁',
+          style: style,
+          runs: [
+            StyledRun(
+              start: 0,
+              end: 4,
+              style: style,
+              syntheticFontFallback: true,
+            ),
+          ],
+        );
+    expect(runs.single.leadingInset, runs.single.inlinePadding.left);
+    expect(runs.single.trailingInset, runs.single.inlinePadding.right);
+  });
+
   test('行内字体覆盖完整保留作者非继承样式', () {
     final author = ComputedStyle(const {
       'font-size': '16px',

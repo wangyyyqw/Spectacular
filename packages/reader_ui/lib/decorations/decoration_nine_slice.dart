@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/painting.dart' show EdgeInsets;
+
 import 'style_values.dart';
 
 class ReaderDecorationNineSlice {
@@ -13,6 +15,16 @@ class ReaderDecorationNineSlice {
   final Rect slice;
   final Rect content;
   final double scale;
+
+  EdgeInsets paddingFor(Size image) {
+    final height = content.height * image.height;
+    return EdgeInsets.fromLTRB(
+      content.left * image.width / height * scale,
+      content.top * image.height / height * scale,
+      (1 - content.right) * image.width / height * scale,
+      (1 - content.bottom) * image.height / height * scale,
+    );
+  }
 
   double scaleFor(Rect text, Size image) {
     var factor = text.height / (content.height * image.height) * scale;

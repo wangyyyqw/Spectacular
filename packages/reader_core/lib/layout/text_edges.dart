@@ -62,10 +62,57 @@ PageTextEdges _measureSingle(
     final ascent = painter.computeDistanceToActualBaseline(
       TextBaseline.alphabetic,
     );
-    return _edges(line, ascent, painter.height - ascent);
+    return _paddedEdges(
+      layout,
+      line,
+      painter,
+      line.baseline - line.top - ascent,
+      _edges(line, ascent, painter.height - ascent),
+    );
   } finally {
     painter.dispose();
   }
+}
+
+PageTextEdges _paddedEdges(
+  TextLayoutResult layout,
+  LineBox line,
+  TextPainter painter,
+  double baselineOffset,
+  PageTextEdges edges,
+) {
+  var top = edges.top;
+  var bottom = edges.bottom;
+  for (final run in layout.runs) {
+    final padding = run.inlinePadding;
+    if (padding.vertical == 0) continue;
+    for (final part in lineTextFragments(
+      line,
+      start: math.max(0, run.start - line.start),
+      end: math.min(line.end, run.end) - line.start,
+    )) {
+      for (final box in painter.getBoxesForSelection(
+        TextSelection(baseOffset: part.start, extentOffset: part.end),
+      )) {
+        top = math.min(
+          top,
+          math.max(0, baselineOffset + box.top - padding.top),
+        );
+        bottom = math.min(
+          bottom,
+          math.max(
+            0,
+            line.height - baselineOffset - box.bottom - padding.bottom,
+          ),
+        );
+      }
+    }
+  }
+  return PageTextEdges(
+    top: top,
+    bottom: bottom,
+    bottomOverflow: edges.bottomOverflow,
+  );
 }
 
 InlineSpan _lineSpan(

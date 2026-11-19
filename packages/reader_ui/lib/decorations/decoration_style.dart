@@ -171,13 +171,15 @@ class ReaderDecorationStyle {
   /// 左绘制内边距。
   final double paddingLeft;
 
-  /// 是否改变字体度量。
+  /// 是否请求字体度量或点九背景占位。
   bool get changesMetrics =>
       fontFamily != null ||
       fontSizeScale != 1 ||
       fontWeight != null ||
       italic != null ||
-      letterSpacingEm != 0;
+      letterSpacingEm != 0 ||
+      backgroundImagePath != null &&
+          backgroundImageFit == ReaderDecorationImageFit.nineSlice;
 
   /// 可读的样式摘要。
   String get summary {
