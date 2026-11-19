@@ -13,9 +13,7 @@ import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
 
-const _railBreakpoint = 840.0;
-
-/// 首页应用壳：宽窗使用侧栏，窄窗保留底栏。
+/// 首页应用壳：桌面平台使用侧栏，移动平台使用底栏。
 class HomeShell extends StatefulWidget {
   /// 创建壳。
   const HomeShell({
@@ -23,6 +21,7 @@ class HomeShell extends StatefulWidget {
     required this.library,
     required this.progressStore,
     this.storageRecovery,
+    this.onThemeModeChanged,
   });
 
   /// 书架存储。
@@ -33,6 +32,9 @@ class HomeShell extends StatefulWidget {
 
   /// 数据库不可用时的恢复入口；正常页面与测试可省略。
   final StartupStorage? storageRecovery;
+
+  /// 切换并保存应用界面主题。
+  final Future<void> Function(ThemeMode)? onThemeModeChanged;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -118,6 +120,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           library: widget.library,
           progressStore: _progressStore,
           refreshToken: _bookshelfRefreshToken,
+          active: _index == 0,
           allowImport: widget.storageRecovery == null,
           onReadingFinished: _onReadingFinished,
           reaMicro: _reaMicro,
@@ -140,6 +143,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           library: widget.library,
           reaMicro: _reaMicro,
           onlineBooks: _onlineBooks,
+          onThemeModeChanged: widget.onThemeModeChanged,
         ),
       ],
     );
@@ -253,33 +257,34 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final theme = Theme.of(context);
     final items = _navigationItems(theme);
     final pages = Expanded(child: _buildBody());
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final useRail = constraints.maxWidth >= _railBreakpoint;
-        return Scaffold(
-          body: Row(
-            children: [
-              if (useRail) ...[
-                _buildRail(theme, items),
-                VerticalDivider(width: 1, color: theme.dividerColor),
-              ],
-              pages,
-            ],
-          ),
-          bottomNavigationBar: useRail
-              ? null
-              : DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: theme.dividerColor)),
-                  ),
-                  child: BottomNavigationBar(
-                    currentIndex: _index,
-                    onTap: _selectDestination,
-                    items: items,
-                  ),
-                ),
-        );
-      },
+    final useRail = switch (theme.platform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+    return Scaffold(
+      body: Row(
+        children: [
+          if (useRail) ...[
+            _buildRail(theme, items),
+            VerticalDivider(width: 1, color: theme.dividerColor),
+          ],
+          pages,
+        ],
+      ),
+      bottomNavigationBar: useRail
+          ? null
+          : DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: theme.dividerColor)),
+              ),
+              child: BottomNavigationBar(
+                currentIndex: _index,
+                onTap: _selectDestination,
+                items: items,
+              ),
+            ),
     );
   }
 }

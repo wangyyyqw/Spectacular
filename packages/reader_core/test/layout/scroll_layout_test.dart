@@ -1,8 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/epub/epub_format_opener.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_core/source/format_opener.dart';
+
+import '../audit/audit_epub_fixture.dart';
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
   'font-size': '16px',
@@ -15,6 +21,87 @@ PageBlock _block(String text) => PageBlock(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('真实阅读参数下，滚动跨页接缝恢复完整行高且不改分页裁边', () async {
+    final source = await const EpubFormatOpener().openBytes(
+      auditZip({
+        'mimetype': 'application/epub+zip',
+        'META-INF/container.xml':
+            '<container><rootfiles><rootfile full-path="book.opf"/>'
+            '</rootfiles></container>',
+        'book.opf':
+            '<package version="3.0" unique-identifier="id" '
+            'xmlns="http://www.idpf.org/2007/opf"><metadata '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            '<dc:identifier id="id">scroll-line-height</dc:identifier>'
+            '<dc:title>滚动行高回归</dc:title></metadata><manifest>'
+            '<item id="c" href="c.xhtml" media-type="application/xhtml+xml"/>'
+            '</manifest><spine><itemref idref="c"/></spine></package>',
+        'c.xhtml':
+            '<html xmlns="http://www.w3.org/1999/xhtml"><head><style>'
+            'body { margin:0; } p { font-family:Ahem; text-indent:2em; '
+            'margin:1em 0; line-height:1.8em; }'
+            '</style></head><body><p>'
+            '${List.filled(70, '甲乙丙丁').join('<br/>')}'
+            '</p></body></html>',
+      }),
+      options: const ReaderOpenOptions(
+        contentWidth: 366.6666666666667,
+        contentHeight: 773.1694444444445,
+      ),
+    );
+    addTearDown(source.close);
+    await source.applyOverrides(
+      const ReaderOverrides(
+        fontSize: 18,
+        lineHeight: 1.6,
+        paragraphSpacing: 10,
+      ),
+    );
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(2));
+    final before = [
+      for (final page in pages)
+        for (final slice in page.slices)
+          (slice.height, slice.leadingExtent, slice.trailingExtent),
+    ];
+    final scroll = ScrollChapterLayout.fromPages(0, pages);
+    var top = 0.0;
+    double? previous;
+    var lineCount = 0;
+    for (final segment in scroll.segments) {
+      for (final box in TextHitTester.lineBoxes(segment.content)) {
+        final line = box.slice.block.layout.lines[box.lineIndex];
+        final baseline = top + box.textTop! + line.baseline - line.top;
+        if (previous != null) {
+          expect(baseline - previous, closeTo(28.8, .001));
+        }
+        previous = baseline;
+        lineCount++;
+      }
+      top += segment.extent;
+    }
+    expect(lineCount, 70);
+    expect(
+      scroll.segments.first.content.slices.first.textTopTrim,
+      pages.first.slices.first.textTopTrim,
+    );
+    expect(
+      scroll.segments.last.content.slices.last.textBottomTrim,
+      pages.last.slices.last.textBottomTrim,
+    );
+    expect(
+      [
+        for (final page in pages)
+          for (final slice in page.slices)
+            (slice.height, slice.leadingExtent, slice.trailingExtent),
+      ],
+      before,
+      reason: '滚动适配不得修改分页模式的切片',
+    );
+  });
+
   test('连续滚动压缩页间空白并保留原切片', () {
     final pages = Paginator(
       pageHeight: 72,

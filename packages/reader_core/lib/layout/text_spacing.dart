@@ -2,7 +2,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart' show CharacterRange;
 
 /// 几何规则版本；颜色不参与布局缓存失效。
-const int textSpacingRevision = 1;
+const int textSpacingRevision = 2;
 
 /// 改变占宽但不改变原文的单个字簇调整；偏移相对于所在行。
 class GlyphSpacing {

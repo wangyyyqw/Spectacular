@@ -167,6 +167,121 @@ Future<void> _twoPointerDrag(
 }
 
 void main() {
+  for (final zones in [
+    null,
+    ReaderTapZones.defaults,
+    ReaderTapZones.fullScreenNext,
+  ]) {
+    testWidgets('连续滚动忽略点击翻页，保留正文命中与菜单：${zones?.isFullScreenNext}', (
+      tester,
+    ) async {
+      var turns = 0;
+      var menus = 0;
+      final taps = <Offset>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          continuousScroll: true,
+          config: ReaderGestureConfig(tapZones: zones),
+          onPrevious: () => turns++,
+          onNext: () => turns++,
+          onToggleToolbar: () => menus++,
+          onTapAt: (point) {
+            taps.add(point);
+            return false;
+          },
+        ),
+      );
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      for (final point in [
+        const Offset(30, 100),
+        const Offset(270, 100),
+        const Offset(150, 100),
+      ]) {
+        await tester.tapAt(origin + point);
+        await tester.pumpAndSettle();
+      }
+      expect(turns, 0);
+      expect(menus, 1);
+      expect(taps, hasLength(3), reason: '正文链接和批注每次点击只命中一次');
+    });
+  }
+
+  for (final minimumVelocity in <double?>[null, 20]) {
+    testWidgets('连续滚动不响应横滑，斜向起手仍可上下滚动：$minimumVelocity', (tester) async {
+      final scroll = ScrollController(initialScrollOffset: 300);
+      addTearDown(scroll.dispose);
+      final events = <Object>[];
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          continuousScroll: true,
+          config: ReaderGestureConfig(minimumFlingVelocity: minimumVelocity),
+          onPrevious: () => events.add('上一页'),
+          onNext: () => events.add('下一页'),
+          onGesture: events.add,
+          onDragStart: events.add,
+          onDragUpdate: events.add,
+          onDragEnd: events.add,
+          child: SingleChildScrollView(
+            controller: scroll,
+            child: const SizedBox(height: 1800),
+          ),
+        ),
+      );
+      await tester.drag(find.byType(ReaderView), const Offset(-180, 0));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, 300);
+      expect(events, isEmpty);
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      final drag = await tester.startGesture(origin + const Offset(260, 170));
+      await _moveSamples(tester, drag, [
+        for (var step = 1; step <= 5; step++)
+          origin + Offset(260 - step * 25, 170 - step * 6),
+        origin + const Offset(135, 80),
+        origin + const Offset(135, 30),
+      ]);
+      expect(scroll.offset, greaterThan(300), reason: '拖动中正文跟随手指');
+      await drag.up();
+      await tester.pumpAndSettle();
+      final forward = scroll.offset;
+      await tester.drag(find.byType(ReaderView), const Offset(0, 100));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, lessThan(forward));
+      expect(events, isEmpty, reason: '滚动手势不能进入翻页动画生命周期');
+    });
+  }
+
+  testWidgets('鼠标右键和中键不进入主键点击翻页路径', (tester) async {
+    var turns = 0;
+    var menus = 0;
+    await _pumpGestureView(
+      tester,
+      ReaderView(
+        onPrevious: () => turns++,
+        onNext: () => turns++,
+        onSecondaryTap: () => menus++,
+      ),
+    );
+    final bounds = tester.getRect(find.byType(ReaderView));
+    for (final buttons in [kSecondaryButton, kMiddleMouseButton]) {
+      await tester.tapAt(
+        bounds.centerRight - const Offset(10, 0),
+        kind: PointerDeviceKind.mouse,
+        buttons: buttons,
+      );
+      await tester.pump();
+    }
+    expect(turns, 0);
+    expect(menus, 1);
+    await tester.tapAt(
+      bounds.centerRight - const Offset(10, 0),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pump();
+    expect(turns, 1);
+  });
+
   testWidgets('滚轮向下下一页、向上上一页，不受点击方向设置影响', (tester) async {
     final turns = <String>[];
     await _pumpGestureView(

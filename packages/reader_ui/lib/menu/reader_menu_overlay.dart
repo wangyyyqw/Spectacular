@@ -55,6 +55,7 @@ class ReaderMenuOverlay extends StatelessWidget {
     this.safeBottom = 0,
     this.onTts,
     this.onEdit,
+    this.onShowShortcuts,
   });
 
   /// 菜单是否展开（设计稿 `.menu-open`）。
@@ -115,6 +116,8 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 宿主原文编辑器入口。
   final VoidCallback? onEdit;
 
+  final VoidCallback? onShowShortcuts;
+
   static const Duration _enter = Duration(milliseconds: 280);
   static const Duration _exit = Duration(milliseconds: 200);
   static const Curve _ease = Curves.easeOutCubic;
@@ -132,170 +135,190 @@ class ReaderMenuOverlay extends StatelessWidget {
     final duration = reduceMotion ? Duration.zero : (open ? _enter : _exit);
 
     // 透明 Material：InkWell/InkResponse 需要 Material 祖先（阅读页本身没有）。
-    return Material(
-      type: MaterialType.transparency,
-      child: Stack(
-        children: <Widget>[
-          // 顶部栏
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: AnimatedSlide(
-              offset: open ? Offset.zero : const Offset(0, -1.01),
-              duration: duration,
-              curve: _ease,
-              child: AnimatedOpacity(
-                opacity: open ? 1 : 0,
+    return ExcludeFocus(
+      excluding: !open,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Stack(
+          children: <Widget>[
+            // 顶部栏
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: AnimatedSlide(
+                offset: open ? Offset.zero : const Offset(0, -1.01),
                 duration: duration,
-                child: IgnorePointer(
-                  ignoring: !open,
-                  child: Container(
-                    padding: EdgeInsets.only(top: topInset),
-                    decoration: BoxDecoration(
-                      color: bg,
-                      border: Border(bottom: BorderSide(color: line)),
-                    ),
-                    child: SizedBox(
-                      height: 56,
-                      child: Row(
-                        children: <Widget>[
-                          _IconButton(
-                            icon: AppGlyph.arrowBack,
-                            iconSize: 22,
-                            color: fg,
-                            onTap: onBack,
-                            tooltip: '返回书架',
-                            buttonKey: const ValueKey<String>('menu-back'),
-                          ),
-                          const SizedBox(width: 2),
-                          Flexible(
-                            child: Text(
-                              bookTitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
+                curve: _ease,
+                child: AnimatedOpacity(
+                  opacity: open ? 1 : 0,
+                  duration: duration,
+                  child: IgnorePointer(
+                    ignoring: !open,
+                    child: ExcludeFocus(
+                      excluding: drawerChild != null,
+                      child: Container(
+                        padding: EdgeInsets.only(top: topInset),
+                        decoration: BoxDecoration(
+                          color: bg,
+                          border: Border(bottom: BorderSide(color: line)),
+                        ),
+                        child: SizedBox(
+                          height: 56,
+                          child: Row(
+                            children: <Widget>[
+                              _IconButton(
+                                icon: AppGlyph.arrowBack,
+                                iconSize: 22,
                                 color: fg,
+                                onTap: onBack,
+                                tooltip: '返回书架',
+                                buttonKey: const ValueKey<String>('menu-back'),
                               ),
-                            ),
+                              const SizedBox(width: 2),
+                              Flexible(
+                                child: Text(
+                                  bookTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: fg,
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              if (onShowShortcuts != null)
+                                _IconButton(
+                                  icon: AppGlyph.info,
+                                  color: fg,
+                                  onTap: onShowShortcuts,
+                                  tooltip: '桌面操作与快捷键（F1）',
+                                ),
+                              _IconButton(
+                                icon: nightMode
+                                    ? AppGlyph.lightMode
+                                    : AppGlyph.darkMode,
+                                iconSize: 19,
+                                color: fg,
+                                onTap: inkMode ? null : onToggleDayNight,
+                                tooltip: inkMode
+                                    ? '墨水屏模式固定纯黑白'
+                                    : nightMode
+                                    ? '日间'
+                                    : '夜间',
+                                buttonKey: const ValueKey<String>(
+                                  'menu-daynight',
+                                ),
+                              ),
+                              if (onEdit != null)
+                                _IconButton(
+                                  icon: AppGlyph.editNote,
+                                  iconSize: 22,
+                                  color: fg,
+                                  onTap: onEdit,
+                                  tooltip: '编辑书籍',
+                                  buttonKey: const ValueKey<String>(
+                                    'menu-edit',
+                                  ),
+                                ),
+                              if (onTts != null)
+                                _IconButton(
+                                  icon: AppGlyph.headphones,
+                                  iconSize: 19,
+                                  color: fg,
+                                  onTap: onTts!,
+                                  tooltip: '听书',
+                                  buttonKey: const ValueKey<String>('menu-tts'),
+                                ),
+                            ],
                           ),
-                          const Spacer(),
-                          _IconButton(
-                            icon: nightMode
-                                ? AppGlyph.lightMode
-                                : AppGlyph.darkMode,
-                            iconSize: 19,
-                            color: fg,
-                            onTap: inkMode ? null : onToggleDayNight,
-                            tooltip: inkMode
-                                ? '墨水屏模式固定纯黑白'
-                                : nightMode
-                                ? '日间'
-                                : '夜间',
-                            buttonKey: const ValueKey<String>('menu-daynight'),
-                          ),
-                          if (onEdit != null)
-                            _IconButton(
-                              icon: AppGlyph.editNote,
-                              iconSize: 22,
-                              color: fg,
-                              onTap: onEdit,
-                              tooltip: '编辑书籍',
-                              buttonKey: const ValueKey<String>('menu-edit'),
-                            ),
-                          if (onTts != null)
-                            _IconButton(
-                              icon: AppGlyph.headphones,
-                              iconSize: 19,
-                              color: fg,
-                              onTap: onTts!,
-                              tooltip: '听书',
-                              buttonKey: const ValueKey<String>('menu-tts'),
-                            ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          // 底部栏
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: AnimatedSlide(
-              offset: open ? Offset.zero : const Offset(0, 1.01),
-              duration: duration,
-              curve: _ease,
-              child: AnimatedOpacity(
-                opacity: open ? 1 : 0,
+            // 底部栏
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedSlide(
+                offset: open ? Offset.zero : const Offset(0, 1.01),
                 duration: duration,
-                child: IgnorePointer(
-                  ignoring: !open,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: bg,
-                      border: Border(top: BorderSide(color: line)),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        _ProgressRow(
-                          fg: fg,
-                          fill: fill,
-                          progress: progress,
-                          label: chapterLabel,
-                          onPrevious: onPreviousChapter,
-                          onNext: onNextChapter,
-                          onSeek: onSeek,
+                curve: _ease,
+                child: AnimatedOpacity(
+                  opacity: open ? 1 : 0,
+                  duration: duration,
+                  child: IgnorePointer(
+                    ignoring: !open,
+                    child: ExcludeFocus(
+                      excluding: drawerChild != null,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: bg,
+                          border: Border(top: BorderSide(color: line)),
                         ),
-                        _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
-                        SizedBox(height: 22 + bottomInset),
-                      ],
+                        padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            _ProgressRow(
+                              fg: fg,
+                              fill: fill,
+                              progress: progress,
+                              label: chapterLabel,
+                              onPrevious: onPreviousChapter,
+                              onNext: onNextChapter,
+                              onSeek: onSeek,
+                            ),
+                            _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
+                            SizedBox(height: 22 + bottomInset),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          // 抽屉
-          Positioned.fill(
-            child: AnimatedSwitcher(
-              duration: reduceMotion ? Duration.zero : _enter,
-              reverseDuration: reduceMotion ? Duration.zero : _exit,
-              switchInCurve: _ease,
-              switchOutCurve: _ease,
-              layoutBuilder: (current, previous) => Stack(
-                fit: StackFit.expand,
-                children: [...previous, ?current],
+            // 抽屉
+            Positioned.fill(
+              child: AnimatedSwitcher(
+                duration: reduceMotion ? Duration.zero : _enter,
+                reverseDuration: reduceMotion ? Duration.zero : _exit,
+                switchInCurve: _ease,
+                switchOutCurve: _ease,
+                layoutBuilder: (current, previous) => Stack(
+                  fit: StackFit.expand,
+                  children: [...previous, ?current],
+                ),
+                transitionBuilder: (child, animation) {
+                  final drawer = child as _DrawerLayer;
+                  return _DrawerLayer(
+                    title: drawer.title,
+                    theme: drawer.theme,
+                    onClose: drawer.onClose,
+                    animation: animation,
+                    child: drawer.child,
+                  );
+                },
+                child: drawerChild == null
+                    ? null
+                    : _DrawerLayer(
+                        key: const ValueKey('reader-drawer'),
+                        title: drawerTitle,
+                        theme: theme,
+                        onClose: onCloseDrawer,
+                        child: drawerChild!,
+                      ),
               ),
-              transitionBuilder: (child, animation) {
-                final drawer = child as _DrawerLayer;
-                return _DrawerLayer(
-                  title: drawer.title,
-                  theme: drawer.theme,
-                  onClose: drawer.onClose,
-                  animation: animation,
-                  child: drawer.child,
-                );
-              },
-              child: drawerChild == null
-                  ? null
-                  : _DrawerLayer(
-                      key: const ValueKey('reader-drawer'),
-                      title: drawerTitle,
-                      theme: theme,
-                      onClose: onCloseDrawer,
-                      child: drawerChild!,
-                    ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -629,109 +652,121 @@ class _DrawerLayer extends StatelessWidget {
       animation: animation,
       builder: (context, child) => IgnorePointer(
         ignoring: animation.status == AnimationStatus.reverse,
-        child: ExcludeSemantics(
+        child: ExcludeFocus(
           excluding: animation.status == AnimationStatus.reverse,
-          child: child,
+          child: ExcludeSemantics(
+            excluding: animation.status == AnimationStatus.reverse,
+            child: child,
+          ),
         ),
       ),
-      child: Stack(
-        children: <Widget>[
-          // 遮罩：点一下关闭抽屉
-          Positioned.fill(
-            child: FadeTransition(
-              opacity: animation,
-              child: GestureDetector(
-                key: const ValueKey<String>('menu-drawer-mask'),
-                behavior: HitTestBehavior.opaque,
-                onTap: onClose,
-                child: ColoredBox(color: Colors.black.withValues(alpha: 0.4)),
+      child: FocusScope(
+        child: Stack(
+          children: <Widget>[
+            // 遮罩：点一下关闭抽屉
+            Positioned.fill(
+              child: FadeTransition(
+                opacity: animation,
+                child: GestureDetector(
+                  key: const ValueKey<String>('menu-drawer-mask'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onClose,
+                  child: ColoredBox(color: Colors.black.withValues(alpha: 0.4)),
+                ),
               ),
             ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 1),
-                end: Offset.zero,
-              ).animate(animation),
-              child: Container(
-                key: const ValueKey<String>('reader-drawer-surface'),
-                height: MediaQuery.of(context).size.height * 0.75,
-                decoration: BoxDecoration(
-                  color: bg,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(16),
-                  ),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 20,
-                      offset: const Offset(0, -4),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 1),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: Container(
+                  key: const ValueKey<String>('reader-drawer-surface'),
+                  height: MediaQuery.of(context).size.height * 0.75,
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(16),
                     ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    GestureDetector(
-                      key: const ValueKey('reader-drawer-handle'),
-                      behavior: HitTestBehavior.opaque,
-                      onVerticalDragEnd: (details) {
-                        if ((details.primaryVelocity ?? 0) > 150) onClose();
-                      },
-                      child: SizedBox(
-                        height: 24,
-                        width: double.infinity,
-                        child: Center(
-                          child: Container(
-                            width: 36,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: handle,
-                              borderRadius: BorderRadius.circular(2),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 20,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      GestureDetector(
+                        key: const ValueKey('reader-drawer-handle'),
+                        behavior: HitTestBehavior.opaque,
+                        onVerticalDragEnd: (details) {
+                          if ((details.primaryVelocity ?? 0) > 150) onClose();
+                        },
+                        child: SizedBox(
+                          height: 24,
+                          width: double.infinity,
+                          child: Center(
+                            child: Container(
+                              width: 36,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: handle,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 20, right: 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              key: const ValueKey<String>(
-                                'reader-drawer-title',
-                              ),
-                              title,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: fg,
+                      Padding(
+                        padding: const EdgeInsets.only(left: 20, right: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                key: const ValueKey<String>(
+                                  'reader-drawer-title',
+                                ),
+                                title,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: fg,
+                                ),
                               ),
                             ),
-                          ),
-                          IconButton(
-                            key: const ValueKey('reader-drawer-close'),
-                            tooltip: '关闭$title',
-                            onPressed: onClose,
-                            icon: AppIcon(AppGlyph.close, color: fg, size: 22),
-                          ),
-                        ],
+                            IconButton(
+                              key: const ValueKey('reader-drawer-close'),
+                              tooltip: '关闭$title',
+                              onPressed: onClose,
+                              icon: AppIcon(
+                                AppGlyph.close,
+                                color: fg,
+                                size: 22,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    Flexible(
-                      child: ReaderPanelTheme(theme: panelTheme, child: child),
-                    ),
-                  ],
+                      Flexible(
+                        child: ReaderPanelTheme(
+                          theme: panelTheme,
+                          child: child,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

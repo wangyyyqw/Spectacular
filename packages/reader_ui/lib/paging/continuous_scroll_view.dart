@@ -497,8 +497,10 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   ///
   /// ListView 只对已构建子项有精确几何；用估算的 `entry.top` 记录页内
   /// 偏移，会在前方插入章节或跳转后被放大成整页误差。
-  ({_ScrollEntry entry, double offset})? _entryAtActualOffset() {
-    final top = _controller.offset;
+  ({_ScrollEntry entry, double offset})? _entryAtActualOffset([
+    double viewportOffset = 0,
+  ]) {
+    final top = _controller.offset + viewportOffset;
     for (final entry in _entries) {
       final box = _boxOf(entry);
       if (box == null) continue;
@@ -862,26 +864,20 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     if (size == null ||
         position.dx < 0 ||
         position.dx > size.width ||
+        position.dy < 0 ||
+        position.dy > size.height ||
         (!includeMargins &&
             (position.dx < widget.padding.left ||
                 position.dx > size.width - widget.padding.right))) {
       return null;
     }
-    final relative = _controller.offset + position.dy - widget.padding.top;
-    if (relative < 0) {
-      return null;
-    }
-    final page = _pageAtOffset(relative);
-    if (page == null) {
-      return null;
-    }
+    // 懒列表前插和跳转后的布局原点可能偏离累计高度，命中必须跟随实际纸面。
+    final hit = _entryAtActualOffset(position.dy);
+    if (hit == null) return null;
     return (
-      page: page.segment.content,
-      localPosition: Offset(
-        position.dx - widget.padding.left,
-        relative - page.top,
-      ),
-      pageTop: widget.padding.top + page.top - _controller.offset,
+      page: hit.entry.segment.content,
+      localPosition: Offset(position.dx - widget.padding.left, hit.offset),
+      pageTop: position.dy - hit.offset,
     );
   }
 
@@ -892,7 +888,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
     for (final entry in _entries) {
       if (identical(entry.segment.content, page)) {
-        return widget.padding.top + entry.top - _controller.offset;
+        final box = _boxOf(entry);
+        final top = box == null ? null : _revealOffset(box);
+        return top == null ? null : top - _controller.offset;
       }
     }
     return null;

@@ -461,6 +461,144 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final FocusNode _semanticsFirstFocus = FocusNode(
     debugLabel: 'reader-first-block',
   );
+  final FocusNode _keyboardFocus = FocusNode(debugLabel: 'reader-keyboard');
+  final FocusNode _searchFocus = FocusNode(debugLabel: 'reader-search');
+
+  bool get _desktop => switch (Theme.of(context).platform) {
+    TargetPlatform.macOS ||
+    TargetPlatform.windows ||
+    TargetPlatform.linux => true,
+    _ => false,
+  };
+
+  Map<ShortcutActivator, VoidCallback> get _readerShortcuts {
+    final command = Theme.of(context).platform == TargetPlatform.macOS;
+    final selection = _selection;
+    final page = _selectionPage ?? _session.page;
+    return {
+      const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
+          _escapeReader,
+      if (!_editingMargins && !_editingTapZones) ...{
+        if (widget.onSearch != null)
+          SingleActivator(
+            LogicalKeyboardKey.keyF,
+            meta: command,
+            control: !command,
+            includeRepeats: false,
+          ): _searchFromKeyboard,
+        const SingleActivator(LogicalKeyboardKey.f1, includeRepeats: false):
+            _showDesktopHelp,
+        if (selection != null && page != null && _selectionMatchesLayout)
+          SingleActivator(
+            LogicalKeyboardKey.keyC,
+            meta: command,
+            control: !command,
+            includeRepeats: false,
+          ): () =>
+              unawaited(_copySelection(page, selection)),
+      },
+    };
+  }
+
+  KeyEventResult _handleReaderKey(FocusNode node, KeyEvent event) {
+    if (widget.editMode || ModalRoute.isCurrentOf(context) == false) {
+      return KeyEventResult.ignored;
+    }
+    for (final binding in _readerShortcuts.entries) {
+      if (binding.key.accepts(event, HardwareKeyboard.instance)) {
+        binding.value();
+        return KeyEventResult.handled;
+      }
+    }
+    if (_hasOverlayOpen) return KeyEventResult.ignored;
+    return _handlePageKey(event);
+  }
+
+  KeyEventResult _handlePageKey(KeyEvent event) {
+    final turns = <ShortcutActivator, bool>{
+      const SingleActivator(LogicalKeyboardKey.arrowRight): !_readingRtl,
+      const SingleActivator(LogicalKeyboardKey.arrowLeft): _readingRtl,
+      const SingleActivator(LogicalKeyboardKey.arrowDown): true,
+      const SingleActivator(LogicalKeyboardKey.arrowUp): false,
+      const SingleActivator(LogicalKeyboardKey.pageDown): true,
+      const SingleActivator(LogicalKeyboardKey.pageUp): false,
+      const SingleActivator(LogicalKeyboardKey.space): true,
+      const SingleActivator(LogicalKeyboardKey.space, shift: true): false,
+    };
+    for (final turn in turns.entries) {
+      if (!turn.key.accepts(event, HardwareKeyboard.instance)) continue;
+      if (!_session.loading &&
+          _pageTurnKey.currentState?.controller.active != true) {
+        _requestPageTurn(turn.value);
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _escapeReader() {
+    if (_drawer != null && !_editingMargins && !_editingTapZones) {
+      _closeDrawer();
+    } else if (_hasOverlayOpen) {
+      _handleBackPressed();
+    } else {
+      _toggleReaderMenu();
+    }
+    _keyboardFocus.requestFocus();
+  }
+
+  void _searchFromKeyboard() {
+    _pageTurnKey.currentState?.controller.cancel();
+    _clearSelection();
+    setState(() {
+      _menuOpen = true;
+      _drawer = ReaderMenuEntry.toc;
+      _drawerTab = _DrawerTab.search;
+    });
+    _searchFocus.requestFocus();
+  }
+
+  void _showDesktopHelp() {
+    final command = Theme.of(context).platform == TargetPlatform.macOS
+        ? '⌘'
+        : 'Ctrl';
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('桌面阅读操作'),
+          content: SingleChildScrollView(
+            child: Text(
+              [
+                '↓ / Page Down / 空格：下一页',
+                '↑ / Page Up / Shift + 空格：上一页',
+                '← / →：按阅读方向翻页',
+                '滚轮：翻页；连续滚动模式滚动正文',
+                if (widget.onSearch != null) '$command + F：搜索正文',
+                '$command + C：复制已选文字',
+                'Esc：逐层关闭面板；正文中打开菜单',
+                '右键正文：打开或关闭阅读菜单',
+                'F1：查看快捷键',
+              ].join('\n\n'),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _secondaryReaderTap() {
+    if (widget.editMode || _editingMargins || _editingTapZones) return;
+    _clearSelection();
+    _toggleReaderMenu();
+    _keyboardFocus.requestFocus();
+  }
 
   /// 搜索命中的临时高亮（P4-26，§29.4：3 秒后消失）。
   ReaderAnnotation? _tempHighlight;
@@ -1038,6 +1176,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
     });
+    _keyboardFocus.requestFocus();
   }
 
   /// 关闭整个阅读菜单；目录/搜索跳转后应直接回到正文。
@@ -1050,6 +1189,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
     });
+    _keyboardFocus.requestFocus();
   }
 
   /// 系统返回键：逐层关闭正文之上的浮层，全部关闭后下一次返回退出阅读页。
@@ -2346,6 +2486,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _selectionEdgeTimer?.cancel();
     _tempHighlightTimer?.cancel();
     _semanticsFirstFocus.dispose();
+    _keyboardFocus.dispose();
+    _searchFocus.dispose();
     _backgroundRequest++;
     _backgroundImage?.dispose();
     widget.imageCache?.protectedUrls = const {};
@@ -2426,7 +2568,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             ? Theme.of(context).scaffoldBackgroundColor
             : _effectiveTheme?.background ?? widget.background,
       ),
-      child: content,
+      child: Focus(
+        focusNode: _keyboardFocus,
+        autofocus: !widget.editMode,
+        onKeyEvent: _handleReaderKey,
+        child: content,
+      ),
     );
   }
 
@@ -2442,7 +2589,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _lastFocusedPageKey = pageKey;
       final focusedPage = page;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || focusedPage == null) {
+        if (!mounted ||
+            focusedPage == null ||
+            _hasOverlayOpen ||
+            widget.editMode) {
           return;
         }
         final route = ModalRoute.of(context);
@@ -2532,13 +2682,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             Positioned.fill(
               child: Padding(
                 padding: bodyPadding,
-                child: ReaderSemanticsLayer(
-                  page: page,
-                  pageWidth: size.width - bodyPadding.horizontal,
-                  firstNodeFocus: _semanticsFirstFocus,
-                  onNextPage: () => _requestPageTurn(true),
-                  onPreviousPage: () => _requestPageTurn(false),
-                  onCopyBlock: _copyBlock,
+                child: ExcludeFocus(
+                  excluding: _hasOverlayOpen || widget.editMode,
+                  child: ReaderSemanticsLayer(
+                    page: page,
+                    pageWidth: size.width - bodyPadding.horizontal,
+                    firstNodeFocus: _semanticsFirstFocus,
+                    onNextPage: () => _requestPageTurn(true),
+                    onPreviousPage: () => _requestPageTurn(false),
+                    onCopyBlock: _copyBlock,
+                  ),
                 ),
               ),
             ),
@@ -2661,6 +2814,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 unawaited(_seekToProgress(value));
               },
               onEntry: _openDrawer,
+              onShowShortcuts: _desktop ? _showDesktopHelp : null,
               drawerTitle: _drawerTitleOf(_drawer, _drawerTab),
               drawerChild: _drawer == null
                   ? null
@@ -2716,6 +2870,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onInkModeChanged: _applyInkMode,
                       onResetSettings: _resetSettings,
                       onSearch: widget.onSearch,
+                      searchFocus: _searchFocus,
                       onSearchStream: widget.onSearchStream,
                       onSearchSelect: (result) {
                         _dismissReaderMenu();
@@ -2931,6 +3086,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           verticalWriting: _readingRtl,
         ),
         continuousScroll: true,
+        onSecondaryTap: widget.editMode ? null : _secondaryReaderTap,
         onPrevious: () => _requestPageTurn(false),
         onNext: () => _requestPageTurn(true),
         onToggleToolbar: () {
@@ -2957,6 +3113,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       );
     }
     return ReaderView(
+      onSecondaryTap: widget.editMode ? null : _secondaryReaderTap,
       mouseWheelPaging: !widget.editMode && !_hasOverlayOpen,
       canMouseWheelPage: () =>
           _pageTurnKey.currentState?.controller.active == false,
@@ -3219,6 +3376,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.entry,
     required this.tab,
     required this.onTabChanged,
+    required this.searchFocus,
     required this.entries,
     required this.currentSpineIndex,
     required this.currentCfi,
@@ -3281,6 +3439,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ReaderMenuEntry entry;
   final _DrawerTab tab;
   final ValueChanged<_DrawerTab> onTabChanged;
+  final FocusNode searchFocus;
   final List<TocEntry> entries;
   final int currentSpineIndex;
   final String? currentCfi;
@@ -3531,6 +3690,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               widget.onSearch == null
                   ? const SizedBox.shrink()
                   : SearchPanel(
+                      focusNode: widget.searchFocus,
                       onSearch: widget.onSearch!,
                       onSearchStream: widget.onSearchStream,
                       onSelect: widget.onSearchSelect,

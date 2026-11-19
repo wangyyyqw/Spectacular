@@ -56,6 +56,8 @@ class Win32Window {
   RECT GetClientArea();
 
  protected:
+  void SetTitleBarDarkMode(bool dark);
+
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
   // inheriting classes can handle.
@@ -87,14 +89,14 @@ class Win32Window {
   // Retrieves a class instance pointer for |window|
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
-  // Update the window frame's theme to match the system theme.
-  static void UpdateTheme(HWND const window);
+  void UpdateTitleBar(HWND const window);
 
   // 在当前用户的应用偏好中保存、恢复窗口大小和显示状态。
   void RestorePlacement();
   void SavePlacement();
 
   bool quit_on_close_ = false;
+  bool dark_title_bar_ = false;
   UINT show_command_ = SW_SHOWNORMAL;
 
   // window handle for top level window.

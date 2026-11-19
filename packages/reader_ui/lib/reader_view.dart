@@ -175,6 +175,7 @@ class ReaderView extends StatefulWidget {
     this.onPrevious,
     this.onNext,
     this.onToggleToolbar,
+    this.onSecondaryTap,
     this.onLongPressAt,
     this.onDoubleTapAt,
     this.onTripleTapAt,
@@ -205,6 +206,8 @@ class ReaderView extends StatefulWidget {
   /// 中间区域点击：工具栏。
   final VoidCallback? onToggleToolbar;
 
+  final VoidCallback? onSecondaryTap;
+
   /// 长按位置（相对阅读视图左上角，P4-14 命中测试用）。
   final ValueChanged<Offset>? onLongPressAt;
 
@@ -229,7 +232,7 @@ class ReaderView extends StatefulWidget {
   final GestureDragEndCallback? onDragEnd;
   final GestureDragCancelCallback? onDragCancel;
 
-  /// 连续滚动时纵向手势交给子滚动容器。
+  /// 连续滚动时只由子滚动容器处理上下滑动，不响应点击或横滑翻页。
   final bool continuousScroll;
 
   /// 鼠标滚轮纵向翻页；连续滚动模式交给子滚动容器。
@@ -484,8 +487,18 @@ class _ReaderViewState extends State<ReaderView> {
     super.dispose();
   }
 
-  bool _handleRawTap(Offset position, Size size) {
+  ReaderTapAction _tapActionAt(Offset position, Size size) {
     final action = _interpreter.tapActionAt(position, size: size);
+    if (widget.continuousScroll &&
+        (action == ReaderTapAction.previousPage ||
+            action == ReaderTapAction.nextPage)) {
+      return ReaderTapAction.none;
+    }
+    return action;
+  }
+
+  bool _handleRawTap(Offset position, Size size) {
+    final action = _tapActionAt(position, size);
     if (action != ReaderTapAction.previousPage &&
         action != ReaderTapAction.nextPage) {
       return false;
@@ -536,7 +549,7 @@ class _ReaderViewState extends State<ReaderView> {
     Widget child,
   ) {
     final minimumVelocity = widget.config.minimumFlingVelocity;
-    if (minimumVelocity == null) return child;
+    if (widget.continuousScroll || minimumVelocity == null) return child;
     void onEnd(DragEndDetails details) => _horizontalDragEnd(details, width);
     return RawGestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -588,6 +601,7 @@ class _ReaderViewState extends State<ReaderView> {
   }
 
   void _pointerDown(PointerDownEvent event) {
+    if (event.buttons != kPrimaryButton) return;
     if (_rawPointers.isEmpty) _rawMultiplePointers = false;
     _rawPointers.add(event.pointer);
     if (widget.config.minimumFlingVelocity != null && _rawPointers.length > 1) {
@@ -622,6 +636,7 @@ class _ReaderViewState extends State<ReaderView> {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
         final customHorizontal = widget.config.minimumFlingVelocity != null;
+        final horizontalPaging = !widget.continuousScroll && !customHorizontal;
         return Listener(
           onPointerSignal: _pointerSignal,
           onPointerDown: _pointerDown,
@@ -669,6 +684,7 @@ class _ReaderViewState extends State<ReaderView> {
             width,
             GestureDetector(
               behavior: HitTestBehavior.opaque,
+              onSecondaryTap: widget.onSecondaryTap,
               onTapDown: (details) {
                 _lastTapPosition = details.localPosition;
               },
@@ -683,9 +699,9 @@ class _ReaderViewState extends State<ReaderView> {
                       _doubleTapTime = DateTime.now();
                       final position = _lastTapPosition;
                       if (position == null) return;
-                      final action = _interpreter.tapActionAt(
+                      final action = _tapActionAt(
                         position,
-                        size: Size(width, height),
+                        Size(width, height),
                       );
                       if (action == ReaderTapAction.previousPage ||
                           action == ReaderTapAction.nextPage) {
@@ -694,9 +710,9 @@ class _ReaderViewState extends State<ReaderView> {
                       widget.onDoubleTapAt!(position);
                     },
               onTapUp: (details) {
-                final action = _interpreter.tapActionAt(
+                final action = _tapActionAt(
                   details.localPosition,
-                  size: Size(width, height),
+                  Size(width, height),
                 );
                 if (action == ReaderTapAction.previousPage ||
                     action == ReaderTapAction.nextPage) {
@@ -736,18 +752,18 @@ class _ReaderViewState extends State<ReaderView> {
                 _longPressTap = true;
                 widget.onLongPressAt?.call(details.localPosition);
               },
-              onHorizontalDragStart: customHorizontal
-                  ? null
-                  : _horizontalDragStart,
-              onHorizontalDragUpdate: customHorizontal
-                  ? null
-                  : _horizontalDragUpdate,
-              onHorizontalDragEnd: customHorizontal
-                  ? null
-                  : (details) => _horizontalDragEnd(details, width),
-              onHorizontalDragCancel: customHorizontal
-                  ? null
-                  : widget.onDragCancel,
+              onHorizontalDragStart: horizontalPaging
+                  ? _horizontalDragStart
+                  : null,
+              onHorizontalDragUpdate: horizontalPaging
+                  ? _horizontalDragUpdate
+                  : null,
+              onHorizontalDragEnd: horizontalPaging
+                  ? (details) => _horizontalDragEnd(details, width)
+                  : null,
+              onHorizontalDragCancel: horizontalPaging
+                  ? widget.onDragCancel
+                  : null,
               // 阅读页不消费纵向滑动。无观察回调时不注册纵向识别器，
               // 避免起手略偏纵向时抢走后续水平翻页手势。
               onVerticalDragEnd:

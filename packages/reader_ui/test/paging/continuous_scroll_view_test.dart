@@ -145,6 +145,21 @@ class _VariablePageSource implements ReaderChapterSource {
   }
 }
 
+class _UnevenLongSource implements ReaderChapterSource {
+  @override
+  int get chapterCount => 3;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async => [
+    for (var page = 0; page < (spineIndex == 0 ? 37 : 54); page++)
+      _pageWithHeight(
+        spineIndex,
+        page,
+        spineIndex == 0 ? 600.4 + (page * 29 % 157) : 740.2 + (page * 19 % 33),
+      ),
+  ];
+}
+
 /// 章尾只有一页的短章，用于复现窗口边缘无法继续向下翻页。
 class _ShortTailSource implements ReaderChapterSource {
   final loads = <int>[];
@@ -797,6 +812,72 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(key.currentState?.handleTapAt(const Offset(100, 10)), isFalse);
     session.dispose();
+  });
+
+  testWidgets('变高页恢复到章中后，选字命中与选区顶部使用实际绘制位置', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(384, 853));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final source = _UnevenLongSource();
+    final store = MemoryReaderProgressStore();
+    await store.save(
+      'scroll-hit-after-insert',
+      const ReaderProgress(spineIndex: 1, pageIndex: 34, scrollOffset: 420),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'scroll-hit-after-insert',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+    final key = GlobalKey<ContinuousScrollViewState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 384,
+            height: 853,
+            child: ContinuousScrollView(
+              key: key,
+              session: session,
+              revision: 1,
+              padding: const EdgeInsets.fromLTRB(8.8, 56.075, 8.53, 24.08),
+              paperBuilder: (page, _) => ColoredBox(
+                key: ValueKey('hit-${page.spineIndex}-${page.pageIndex}'),
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final origin = tester.getTopLeft(find.byType(ContinuousScrollView));
+    final target = const Offset(100, 30);
+    final candidates = find.byWidgetPredicate(
+      (widget) =>
+          widget is ColoredBox &&
+          widget.key is ValueKey<String> &&
+          (widget.key as ValueKey<String>).value.startsWith('hit-'),
+    );
+    final actual = candidates.evaluate().singleWhere(
+      (element) => tester
+          .getRect(find.byWidget(element.widget))
+          .contains(origin + target),
+    );
+    final actualFinder = find.byWidget(actual.widget);
+    final actualTop = tester.getTopLeft(actualFinder).dy - origin.dy;
+    final parts = (actual.widget.key as ValueKey<String>).value.split('-');
+    final hit = key.currentState!.pageAt(target)!;
+    expect(hit.page.spineIndex, int.parse(parts[1]));
+    expect(hit.page.pageIndex, int.parse(parts[2]));
+    expect(hit.localPosition.dy, closeTo(30 - actualTop, 0.01));
+    expect(
+      key.currentState!.pageTopOnScreen(hit.page),
+      closeTo(actualTop, 0.01),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('窗口末尾点击下一页会补齐下一章并继续推进', (tester) async {

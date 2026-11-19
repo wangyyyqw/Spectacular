@@ -6,12 +6,15 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/relocator.dart';
 import 'package:reader_ui/decorations/decoration.dart';
+import 'package:reader_ui/decorations/decoration_editor_sheet.dart';
+import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -304,6 +307,50 @@ void _expectIdlePreparations(_PreparedSource source) {
 }
 
 void main() {
+  testWidgets('连续滚动选字保存装饰后立即可点击编辑，位置不跳动', (tester) async {
+    final source = _PreparedSource();
+    final decorations = _Store([]);
+    late ReaderSession session;
+    await tester.pumpWidget(
+      _reader(
+        source,
+        await _saved(),
+        decorations,
+        mode: PageTurnMode.scroll,
+        ready: (value) => session = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final paper = find.byKey(const ValueKey('scroll-page-740-0'));
+    final line = TextHitTester.lineBoxes(session.page!).first;
+    final point =
+        tester.getTopLeft(paper) +
+        Offset(line.rect.left + 10, line.rect.center.dy);
+    final progress = session.progress;
+    await tester.longPressAt(point);
+    await tester.pumpAndSettle();
+    expect(find.byType(SelectionLayer), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('selection-action-decoration')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderDecorationEditorSheet), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('decoration-save')));
+    await tester.pumpAndSettle();
+    expect(decorations.items, hasLength(1));
+    expect(decorations.items.single.quote, line.text);
+    expect(session.progress, progress);
+    await tester.tapAt(point);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderDecorationEditorSheet>(
+            find.byType(ReaderDecorationEditorSheet),
+          )
+          .quote,
+      line.text,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('登记全书手工字体依赖，首屏只加载目标章字体', (tester) async {
     final source = _BookFontSource();
     final gate = Completer<void>();
