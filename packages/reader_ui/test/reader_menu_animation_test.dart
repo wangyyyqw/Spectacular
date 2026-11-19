@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
@@ -9,6 +10,8 @@ Widget _menu({
   bool reduce = false,
   bool ink = false,
   VoidCallback? onClose,
+  ValueChanged<ReaderMenuEntry>? onEntry,
+  ReaderMenuEntry entry = ReaderMenuEntry.settings,
   Widget? content,
   EdgeInsets padding = EdgeInsets.zero,
   double keyboard = 0,
@@ -32,9 +35,9 @@ Widget _menu({
       onPreviousChapter: null,
       onNextChapter: null,
       onSeek: (_) {},
-      onEntry: (_) {},
+      onEntry: onEntry ?? (_) {},
       drawerTitle: '设置',
-      drawerEntry: ReaderMenuEntry.settings,
+      drawerEntry: entry,
       drawerChild: drawer ? content ?? const Text('面板内容') : null,
       onCloseDrawer: onClose ?? () {},
       inkMode: ink,
@@ -43,6 +46,77 @@ Widget _menu({
 );
 
 void main() {
+  testWidgets('四入口位置以未展开时为准，再点当前项原位收起，进度条结束后恢复', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    ReaderMenuEntry? selected;
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) => _menu(
+          open: true,
+          drawer: selected != null,
+          entry: selected ?? ReaderMenuEntry.settings,
+          padding: const EdgeInsets.only(bottom: 24),
+          onEntry: (entry) => setState(() => selected = entry),
+          onClose: () => setState(() => selected = null),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final surface = find.byKey(const ValueKey('reader-drawer-surface'));
+    final slider = find.byKey(const ValueKey('menu-progress-slider'));
+    for (final entry in ReaderMenuEntry.values) {
+      final menuButton = find.byKey(ValueKey('menu-entry-${entry.name}'));
+      final origin = tester.getRect(menuButton);
+      final iconOrigin = tester.getRect(
+        find.descendant(of: menuButton, matching: find.byType(AppIcon)),
+      );
+      final labelOrigin = tester.getRect(
+        find.descendant(of: menuButton, matching: find.byType(Text)),
+      );
+      expect(slider.hitTestable(), findsOneWidget);
+      await tester.tap(menuButton);
+      await tester.pump();
+      final drawerButton = find.byKey(ValueKey('drawer-entry-${entry.name}'));
+      expect(tester.getRect(surface).top, origin.top - 6);
+      expect(tester.getRect(drawerButton), origin);
+      expect(slider, findsNothing);
+      final startTop = tester.getRect(surface).top;
+      await tester.pump(const Duration(milliseconds: 70));
+      expect(tester.getRect(surface).left, 0);
+      expect(tester.getRect(surface).right, 400);
+      expect(tester.getRect(surface).bottom, 800);
+      expect(tester.getRect(surface).top, lessThan(startTop));
+      expect(tester.getRect(surface).top, greaterThan(200));
+      expect(tester.getRect(drawerButton), origin);
+      expect(slider, findsNothing);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(drawerButton), origin);
+      expect(
+        tester.getRect(
+          find.descendant(of: drawerButton, matching: find.byType(AppIcon)),
+        ),
+        iconOrigin,
+      );
+      expect(
+        tester.getRect(
+          find.descendant(of: drawerButton, matching: find.byType(Text)),
+        ),
+        labelOrigin,
+      );
+      expect(tester.getRect(surface).top, 200);
+      await tester.tap(drawerButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(slider, findsNothing, reason: '退出动画未结束时不显示进度条');
+      expect(tester.getRect(surface).top, greaterThan(200));
+      expect(tester.getRect(drawerButton), origin);
+      await tester.pumpAndSettle();
+      expect(slider.hitTestable(), findsOneWidget);
+      expect(surface, findsNothing);
+    }
+  });
+
   testWidgets('抽屉进入与退出保留过渡，退出期间不接受点击', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -63,6 +137,58 @@ void main() {
     expect(closes, 0, reason: '正在退出的遮罩不得接受输入');
     await tester.pump(const Duration(milliseconds: 201));
     expect(surface, findsNothing);
+  });
+
+  testWidgets('从把手或内容下拉收起只折叠上方内容，导航在拖动、退出和回到菜单后保持原位', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var drawer = false;
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) => _menu(
+          open: true,
+          drawer: drawer,
+          content: ListView(children: const [Text('设置内容')]),
+          onEntry: (_) => setState(() => drawer = true),
+          onClose: () => setState(() => drawer = false),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final menuButton = find.byKey(const ValueKey('menu-entry-settings'));
+    final drawerButton = find.byKey(const ValueKey('drawer-entry-settings'));
+    final surface = find.byKey(const ValueKey('reader-drawer-surface'));
+    final slider = find.byKey(const ValueKey('menu-progress-slider'));
+    final origin = tester.getRect(menuButton);
+    for (final target in [
+      find.byKey(const ValueKey('reader-drawer-handle')),
+      find.byType(ListView),
+    ]) {
+      await tester.tap(menuButton);
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(tester.getCenter(target));
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 180));
+      await tester.pump();
+      expect(tester.getRect(drawerButton), origin);
+      expect(tester.getRect(surface).bottom, 800);
+      final draggedTop = tester.getRect(surface).top;
+      expect(draggedTop, greaterThan(200));
+      await tester.pump(const Duration(milliseconds: 500));
+      await gesture.up();
+      await tester.pump();
+      expect(tester.getRect(surface).top, draggedTop, reason: '松手时不跳回完整高度');
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.getRect(surface).top, greaterThan(draggedTop));
+      expect(tester.getRect(surface).bottom, 800);
+      expect(tester.getRect(drawerButton), origin);
+      expect(slider, findsNothing);
+      await tester.pumpAndSettle();
+      expect(surface, findsNothing);
+      expect(tester.getRect(menuButton), origin);
+      expect(slider.hitTestable(), findsOneWidget);
+    }
   });
 
   testWidgets('抽屉三边贴屏，底部导航避让手势区和键盘并固定在内容之外', (tester) async {

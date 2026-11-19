@@ -93,7 +93,7 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 点击四入口。
   final ValueChanged<ReaderMenuEntry> onEntry;
 
-  /// 抽屉标题（为空表示抽屉关闭）。
+  /// 抽屉名称，用于下拉把手的无障碍标签。
   final String drawerTitle;
 
   /// 抽屉内容。
@@ -134,9 +134,57 @@ class ReaderMenuOverlay extends StatelessWidget {
     final line = theme?.line ?? fg.withValues(alpha: 0.12);
     final fill = theme?.fill ?? fg.withValues(alpha: 0.08);
     final topInset = safeTop;
-    final bottomInset = safeBottom;
     final reduceMotion = inkMode || MediaQuery.disableAnimationsOf(context);
     final duration = reduceMotion ? Duration.zero : (open ? _enter : _exit);
+
+    final bottomBar = Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: AnimatedSlide(
+        offset: open ? Offset.zero : const Offset(0, 1.01),
+        duration: duration,
+        curve: _ease,
+        child: AnimatedOpacity(
+          opacity: open ? 1 : 0,
+          duration: duration,
+          child: IgnorePointer(
+            ignoring: !open,
+            child: ExcludeFocus(
+              excluding: drawerChild != null,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: bg,
+                  border: Border(top: BorderSide(color: line)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                      child: _ProgressRow(
+                        fg: fg,
+                        fill: fill,
+                        progress: progress,
+                        label: chapterLabel,
+                        onPrevious: onPreviousChapter,
+                        onNext: onNextChapter,
+                        onSeek: onSeek,
+                      ),
+                    ),
+                    _EntriesRow(
+                      fg: fg,
+                      onEntry: onEntry,
+                      safeBottom: safeBottom,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
 
     // 透明 Material：InkWell/InkResponse 需要 Material 祖先（阅读页本身没有）。
     return ExcludeFocus(
@@ -245,51 +293,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                 ),
               ),
             ),
-            // 底部栏
-            if (drawerChild == null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: AnimatedSlide(
-                  offset: open ? Offset.zero : const Offset(0, 1.01),
-                  duration: duration,
-                  curve: _ease,
-                  child: AnimatedOpacity(
-                    opacity: open ? 1 : 0,
-                    duration: duration,
-                    child: IgnorePointer(
-                      ignoring: !open,
-                      child: ExcludeFocus(
-                        excluding: drawerChild != null,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: bg,
-                            border: Border(top: BorderSide(color: line)),
-                          ),
-                          padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              _ProgressRow(
-                                fg: fg,
-                                fill: fill,
-                                progress: progress,
-                                label: chapterLabel,
-                                onPrevious: onPreviousChapter,
-                                onNext: onNextChapter,
-                                onSeek: onSeek,
-                              ),
-                              _EntriesRow(fg: fg, fill: fill, onEntry: onEntry),
-                              SizedBox(height: 22 + bottomInset),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             // 抽屉
             Positioned.fill(
               key: const ValueKey('reader-drawer-host'),
@@ -300,7 +303,11 @@ class ReaderMenuOverlay extends StatelessWidget {
                 switchOutCurve: _ease,
                 layoutBuilder: (current, previous) => Stack(
                   fit: StackFit.expand,
-                  children: [...previous, ?current],
+                  children: [
+                    if (current == null && previous.isEmpty) bottomBar,
+                    ...previous,
+                    ?current,
+                  ],
                 ),
                 transitionBuilder: (child, animation) {
                   final drawer = child as _DrawerLayer;
@@ -309,6 +316,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                     theme: drawer.theme,
                     onClose: drawer.onClose,
                     inkMode: drawer.inkMode,
+                    safeBottom: drawer.safeBottom,
                     entry: drawer.entry,
                     onEntry: drawer.onEntry,
                     animation: animation,
@@ -323,6 +331,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                         theme: theme,
                         onClose: onCloseDrawer,
                         inkMode: inkMode,
+                        safeBottom: safeBottom,
                         entry: drawerEntry,
                         onEntry: onEntry,
                         child: drawerChild!,
@@ -576,19 +585,20 @@ class _NavButton extends StatelessWidget {
 class _EntriesRow extends StatelessWidget {
   const _EntriesRow({
     required this.fg,
-    required this.fill,
     required this.onEntry,
     this.selected,
-    this.horizontal = false,
+    this.safeBottom = 0,
     this.keyPrefix = 'menu-entry',
   });
 
   final Color fg;
-  final Color fill;
   final ValueChanged<ReaderMenuEntry> onEntry;
   final ReaderMenuEntry? selected;
-  final bool horizontal;
+  final double safeBottom;
   final String keyPrefix;
+
+  static const double itemHeight = 48;
+  static const padding = EdgeInsets.fromLTRB(0, 6, 0, 22);
 
   static const Map<ReaderMenuEntry, ({AppGlyph icon, String label})> items =
       <ReaderMenuEntry, ({AppGlyph icon, String label})>{
@@ -599,11 +609,13 @@ class _EntriesRow extends StatelessWidget {
       };
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    minimum: EdgeInsets.only(bottom: safeBottom),
+    child: Padding(
+      padding: padding,
       child: Row(
-        children: <Widget>[
+        children: [
           for (final entry in items.entries)
             Expanded(
               child: Semantics(
@@ -612,45 +624,22 @@ class _EntriesRow extends StatelessWidget {
                   key: ValueKey<String>('$keyPrefix-${entry.key.name}'),
                   borderRadius: BorderRadius.circular(4),
                   onTap: () => onEntry(entry.key),
-                  child: horizontal
-                      ? _horizontalItem(entry.key, entry.value)
-                      : Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              AppIcon(
-                                entry.value.icon,
-                                size: 19,
-                                color: fg.withValues(alpha: 0.85),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                entry.value.label,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  letterSpacing: 0.35,
-                                  color: fg.withValues(alpha: 0.85),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                  child: _buildItem(entry.key, entry.value),
                 ),
               ),
             ),
         ],
       ),
-    );
-  }
+    ),
+  );
 
-  Widget _horizontalItem(
+  Widget _buildItem(
     ReaderMenuEntry entry,
     ({AppGlyph icon, String label}) item,
   ) {
-    final active = selected == entry;
+    final active = selected == null || selected == entry;
     return SizedBox(
-      height: 48,
+      height: itemHeight,
       child: Center(
         child: FittedBox(
           fit: BoxFit.scaleDown,
@@ -668,7 +657,7 @@ class _EntriesRow extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   color: fg.withValues(alpha: active ? 1 : 0.65),
-                  fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                  fontWeight: FontWeight.normal,
                 ),
               ),
             ],
@@ -690,6 +679,7 @@ class _DrawerLayer extends StatefulWidget {
     required this.inkMode,
     required this.entry,
     required this.onEntry,
+    required this.safeBottom,
     this.animation = const AlwaysStoppedAnimation(1),
   });
 
@@ -700,6 +690,7 @@ class _DrawerLayer extends StatefulWidget {
   final bool inkMode;
   final ReaderMenuEntry? entry;
   final ValueChanged<ReaderMenuEntry> onEntry;
+  final double safeBottom;
   final Animation<double> animation;
 
   @override
@@ -716,8 +707,11 @@ class _DrawerLayerState extends State<_DrawerLayer>
       widget.inkMode || MediaQuery.disableAnimationsOf(context);
 
   void _switchEntry(ReaderMenuEntry entry) {
-    if (entry == widget.entry) return;
     FocusScope.of(context).unfocus();
+    if (entry == widget.entry) {
+      _close();
+      return;
+    }
     _drag.stop();
     _drag.value = 0;
     widget.onEntry(entry);
@@ -780,14 +774,25 @@ class _DrawerLayerState extends State<_DrawerLayer>
             ),
           );
         },
-        child: _buildPanel(),
+        child: Column(
+          children: [
+            _buildHandle(),
+            Expanded(child: _buildScrollableContent()),
+          ],
+        ),
       );
     },
   );
 
-  Widget _buildLayers(Widget panel, double bottom) {
+  Widget _buildLayers(Widget content, double bottom) {
     final progress = widget.animation.value;
-    final offset = (1 - progress) * (_height + bottom) + progress * _drag.value;
+    final bottomInset = MediaQuery.paddingOf(context).bottom
+        .clamp(widget.safeBottom, double.infinity);
+    final navigationHeight =
+        _EntriesRow.itemHeight + _EntriesRow.padding.vertical + bottomInset;
+    final contentHeight = _height - navigationHeight;
+    final revealedHeight =
+        (contentHeight - _drag.value).clamp(0.0, contentHeight) * progress;
     return Stack(
       children: [
         Positioned.fill(
@@ -806,14 +811,14 @@ class _DrawerLayerState extends State<_DrawerLayer>
           left: 0,
           right: 0,
           bottom: bottom,
-          height: _height,
-          child: Transform.translate(offset: Offset(0, offset), child: panel),
+          height: navigationHeight + revealedHeight,
+          child: _buildPanel(content, contentHeight),
         ),
       ],
     );
   }
 
-  Widget _buildPanel() => FocusScope(
+  Widget _buildPanel(Widget content, double contentHeight) => FocusScope(
     child: GestureDetector(
       behavior: HitTestBehavior.opaque,
       onVerticalDragStart: (_) => _drag.stop(),
@@ -829,17 +834,28 @@ class _DrawerLayerState extends State<_DrawerLayer>
           inkMode: widget.inkMode,
           child: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: Column(
-              children: [
-                _buildHandle(),
-                Expanded(child: _buildScrollableContent()),
-                _buildNavigation(),
-              ],
-            ),
+            child: _buildRevealContent(content, contentHeight),
           ),
         ),
       ),
     ),
+  );
+
+  Widget _buildRevealContent(Widget content, double contentHeight) => Column(
+    children: [
+      Expanded(
+        child: ClipRect(
+          // 内容保持最终高度，只露出导航上方的区域，动画期间不挤压控件。
+          child: OverflowBox(
+            alignment: Alignment.topCenter,
+            minHeight: contentHeight,
+            maxHeight: contentHeight,
+            child: content,
+          ),
+        ),
+      ),
+      _buildNavigation(),
+    ],
   );
 
   Widget _buildScrollableContent() => Builder(
@@ -869,19 +885,12 @@ class _DrawerLayerState extends State<_DrawerLayer>
             top: BorderSide(color: scheme.outlineVariant, width: 0.5),
           ),
         ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: _EntriesRow(
-              fg: scheme.onSurface,
-              fill: scheme.surfaceContainerLow,
-              selected: widget.entry,
-              horizontal: true,
-              keyPrefix: 'drawer-entry',
-              onEntry: _switchEntry,
-            ),
-          ),
+        child: _EntriesRow(
+          fg: scheme.onSurface,
+          selected: widget.entry,
+          safeBottom: widget.safeBottom,
+          keyPrefix: 'drawer-entry',
+          onEntry: _switchEntry,
         ),
       );
     },
