@@ -5,6 +5,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_duration_summary.dart';
 import 'reading_calendar_month.dart';
+import 'reading_calendar_month_picker.dart';
 import 'reading_insights.dart';
 
 /// 按月查看实际阅读日期：同一本书连续阅读的日期合并为书名色条，完读当天标记对勾。
@@ -50,6 +51,17 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   void _shiftMonth(int offset) =>
       _showMonth(DateTime(_visibleMonth.year, _visibleMonth.month + offset));
 
+  Future<void> _pickMonth() async {
+    final selected = await showModalBottomSheet<DateTime>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => ReadingCalendarMonthPicker(selected: _visibleMonth),
+    );
+    if (mounted && selected != null) _showMonth(selected);
+  }
+
   void _openDay(ReadingCalendarMonth month, DateTime date) {
     setState(() => _selectedDate = date);
     showModalBottomSheet<void>(
@@ -70,19 +82,31 @@ class _ReadingCalendarState extends State<ReadingCalendar>
       bookTitles: widget.bookTitles,
       finishedBookIds: widget.finishedBookIds,
     );
-    return Column(
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
       key: const ValueKey('stats-reading-calendar'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _monthHeader(month),
-        const SizedBox(height: 12),
-        _grid(month),
-        if (month.days.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: Text('本月暂无阅读记录', style: TextStyle(fontSize: 12)),
-          ),
-      ],
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _monthHeader(month),
+            const SizedBox(height: 12),
+            _weeks(month),
+            if (month.days.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text('本月暂无阅读记录', style: TextStyle(fontSize: 12)),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -97,62 +121,92 @@ class _ReadingCalendarState extends State<ReadingCalendar>
     ),
   );
 
-  Widget _monthHeader(ReadingCalendarMonth month) => Row(
-    children: [
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${month.start.year}年${month.start.month}月',
-              key: const ValueKey('stats-calendar-month'),
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
+  Widget _monthHeader(ReadingCalendarMonth month) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+      final compact = constraints.maxWidth < 110 * scale + 152;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (compact) ...[
+            _monthButton(month),
+            Align(alignment: Alignment.centerRight, child: _monthNavigation()),
+          ] else
+            Row(
+              children: [
+                Expanded(child: _monthButton(month)),
+                _monthNavigation(),
+              ],
             ),
-            const SizedBox(height: 4),
-            _summary(month),
-          ],
+          const SizedBox(height: 4),
+          _summary(month),
+        ],
+      );
+    },
+  );
+
+  Widget _monthButton(ReadingCalendarMonth month) => TextButton(
+    key: const ValueKey('stats-calendar-pick-month'),
+    onPressed: _pickMonth,
+    style: TextButton.styleFrom(
+      alignment: Alignment.centerLeft,
+      padding: EdgeInsets.zero,
+      minimumSize: const Size(48, 48),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            '${month.start.year}年${month.start.month}月',
+            key: const ValueKey('stats-calendar-month'),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
         ),
-      ),
-      const SizedBox(width: 8),
+        const SizedBox(width: 4),
+        const AppIcon(AppGlyph.chevronDown, size: 18),
+      ],
+    ),
+  );
+
+  Widget _monthNavigation() => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
       IconButton(
         key: const ValueKey('stats-calendar-previous'),
         tooltip: '上个月',
         onPressed: () => _shiftMonth(-1),
+        constraints: const BoxConstraints.tightFor(width: 48, height: 48),
+        padding: EdgeInsets.zero,
         icon: const AppIcon(AppGlyph.chevronLeft),
       ),
       IconButton(
         key: const ValueKey('stats-calendar-next'),
         tooltip: '下个月',
         onPressed: () => _shiftMonth(1),
+        constraints: const BoxConstraints.tightFor(width: 48, height: 48),
+        padding: EdgeInsets.zero,
         icon: const AppIcon(AppGlyph.chevronRight),
       ),
+      const SizedBox(width: 8),
+      TextButton(
+        key: const ValueKey('stats-calendar-today'),
+        onPressed: () => _showMonth(_currentMonth),
+        style: TextButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          backgroundColor: Theme.of(context)
+              .colorScheme
+              .surfaceContainerHighest,
+          shape: const StadiumBorder(),
+        ),
+        child: const Text('今天', style: TextStyle(fontSize: 13)),
+      ),
     ],
-  );
-
-  Widget _grid(ReadingCalendarMonth month) => LayoutBuilder(
-    builder: (context, constraints) {
-      final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-      final width = math.max(constraints.maxWidth, 336.0 * scale);
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SingleChildScrollView(
-            key: const ValueKey('stats-calendar-scroll'),
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(width: width, child: _weeks(month)),
-          ),
-          if (width > constraints.maxWidth)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text('左右滑动查看完整一周', style: TextStyle(fontSize: 11)),
-            ),
-        ],
-      );
-    },
   );
 
   Widget _weeks(ReadingCalendarMonth month) => Column(
@@ -274,7 +328,7 @@ class _CalendarWeek extends StatelessWidget {
         Expanded(
           flex: span.lastColumn - span.firstColumn + 1,
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: scale),
+            padding: const EdgeInsets.symmetric(horizontal: 1),
             child: _bar(span, scale),
           ),
         ),
@@ -299,12 +353,7 @@ class _CalendarWeek extends StatelessWidget {
           'stats-calendar-bar-$week-${span.bookId}-${span.firstColumn}',
         ),
         constraints: BoxConstraints(minHeight: _barHeight * scale),
-        padding: EdgeInsets.fromLTRB(
-          4 * scale,
-          2 * scale,
-          3 * scale,
-          2 * scale,
-        ),
+        padding: EdgeInsets.fromLTRB(4, 2 * scale, 3, 2 * scale),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
           border: Border(left: BorderSide(color: color, width: 3)),
@@ -346,11 +395,12 @@ class _CalendarWeek extends StatelessWidget {
         onTap: enabled ? () => onOpen(month, date) : null,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: date == selected ? scheme.surfaceContainerHighest : null,
-            border: Border.all(
-              color: isToday ? scheme.primary : scheme.outlineVariant,
-              width: isToday ? 1.5 : 0.5,
-            ),
+            color: date == selected
+                ? scheme.surfaceContainerHighest
+                : isToday
+                ? scheme.primary.withValues(alpha: 0.06)
+                : null,
+            border: Border.all(color: scheme.outlineVariant, width: 0.5),
           ),
         ),
       ),
@@ -360,50 +410,68 @@ class _CalendarWeek extends StatelessWidget {
   Widget _dayLabel(BuildContext context, int column) {
     final date = month.dateAt(week, column);
     if (date.month != month.start.month) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
     final extra =
         (month.days[date]?.length ?? 0) - ReadingCalendarMonth.maxVisibleBooks;
-    final enabled = !date.isAfter(today);
-    final isToday = date == today;
+    final number = _dayNumber(context, date);
+    final more = _extraBooks(context, date, extra);
     return Padding(
       padding: const EdgeInsets.fromLTRB(5, 2, 5, 4),
-      child: Stack(
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '${date.day}',
-              key: ValueKey('stats-calendar-number-${_dateKey(date)}'),
-              style: TextStyle(
-                fontSize: 11,
-                height: 1.2,
-                fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
-                fontFeatures: const [FontFeature.tabularFigures()],
-                color: isToday
-                    ? scheme.primary
-                    : enabled
-                    ? scheme.onSurfaceVariant
-                    : scheme.outline,
-              ),
-            ),
-          ),
-          if (extra > 0)
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                '+$extra',
-                key: ValueKey('stats-calendar-more-${_dateKey(date)}'),
-                style: TextStyle(
-                  fontSize: 10,
-                  height: 1.2,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final scale = MediaQuery.textScalerOf(context).scale(11) / 11;
+          if (more != null && constraints.maxWidth < 34 * scale) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(alignment: Alignment.centerLeft, child: number),
+                Align(alignment: Alignment.centerRight, child: more),
+              ],
+            );
+          }
+          return Stack(
+            children: [
+              Align(alignment: Alignment.centerLeft, child: number),
+              if (more != null)
+                Align(alignment: Alignment.centerRight, child: more),
+            ],
+          );
+        },
       ),
     );
   }
+
+  Widget _dayNumber(BuildContext context, DateTime date) {
+    final scheme = Theme.of(context).colorScheme;
+    final isToday = date == today;
+    return Text(
+      '${date.day}',
+      key: ValueKey('stats-calendar-number-${_dateKey(date)}'),
+      style: TextStyle(
+        fontSize: 11,
+        height: 1.2,
+        fontWeight: isToday ? FontWeight.w700 : FontWeight.w400,
+        fontFeatures: const [FontFeature.tabularFigures()],
+        color: isToday
+            ? scheme.primary
+            : date.isAfter(today)
+            ? scheme.outline
+            : scheme.onSurfaceVariant,
+      ),
+    );
+  }
+
+  Widget? _extraBooks(BuildContext context, DateTime date, int extra) =>
+      extra > 0
+      ? Text(
+          '+$extra',
+          key: ValueKey('stats-calendar-more-${_dateKey(date)}'),
+          style: TextStyle(
+            fontSize: 10,
+            height: 1.2,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        )
+      : null;
 }
 
 class _CalendarDaySheet extends StatelessWidget {
