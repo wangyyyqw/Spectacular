@@ -99,7 +99,8 @@ class PageTurnViewState extends State<PageTurnView>
   late final _chapterPreload = ChapterPreloadController(
     widget.session,
     onFirstPage: () {
-      if (!mounted) return;
+      // 已有计时器会消费就绪的邻章，不因内容完成推迟当前纸面预热。
+      if (!mounted || _warmTimer != null) return;
       _lastWarm = null;
       _scheduleWarm();
     },
@@ -290,6 +291,7 @@ class PageTurnViewState extends State<PageTurnView>
     _warmSuspended = true;
     controller.cancel();
     _invalidate();
+    widget.session.cancelTurnPrefetch();
     _captureQueue = Future<void>.value();
   }
 
