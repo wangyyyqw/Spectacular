@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -241,6 +242,19 @@ class _ChapterBoundarySource implements ReaderChapterSource {
   }
 }
 
+class _DelayedChapterSource extends _ChapterBoundarySource {
+  final ready = Completer<void>();
+
+  @override
+  int get chapterCount => 3;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (spineIndex == 1) await ready.future;
+    return super.loadChapter(spineIndex);
+  }
+}
+
 class _BlankLineSource implements RestylableChapterSource {
   final _style = ComputedStyle(const {
     'font-size': '16px',
@@ -274,6 +288,7 @@ Future<ReaderSession> _showReader(
   WidgetTester tester, {
   ReaderChapterSource? source,
   bool editMode = false,
+  PageTurnMode pageTurnMode = PageTurnMode.cover,
   ValueChanged<ReaderEditTarget>? onEditTarget,
 }) async {
   late ReaderSession session;
@@ -283,6 +298,7 @@ Future<ReaderSession> _showReader(
         body: ReaderPage(
           source: source ?? _Source(),
           editMode: editMode,
+          pageTurnMode: pageTurnMode,
           onEditTarget: onEditTarget,
           store: MemoryReaderProgressStore(),
           bookId: 'interaction-regression',
@@ -489,7 +505,83 @@ Future<ReaderSession> _pushReader(
 bool _menuOpen(WidgetTester tester) =>
     tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open;
 
+Future<void> _scrollWheel(
+  WidgetTester tester,
+  double delta, {
+  bool settle = true,
+}) async {
+  await tester.sendEventToBinding(
+    PointerScrollEvent(
+      kind: PointerDeviceKind.mouse,
+      position: tester.getCenter(find.byType(ReaderView)),
+      scrollDelta: Offset(0, delta),
+    ),
+  );
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
+}
+
 void main() {
+  for (final mode in [
+    PageTurnMode.cover,
+    PageTurnMode.slideHorizontal,
+    PageTurnMode.simulationBessel,
+    PageTurnMode.simulation3d,
+    PageTurnMode.none,
+  ]) {
+    testWidgets('滚轮通过正式阅读入口执行${mode.label}翻页', (tester) async {
+      final session = await _showReader(tester, pageTurnMode: mode);
+      expect(session.page?.pageIndex, 0);
+      await _scrollWheel(tester, 120);
+      expect(session.page?.pageIndex, 1);
+      await tester.pump(const Duration(milliseconds: 300));
+      await _scrollWheel(tester, -120);
+      expect(session.page?.pageIndex, 0);
+    });
+  }
+
+  testWidgets('滚轮跨章节翻页后可返回上一章', (tester) async {
+    final session = await _showReader(tester, source: _ChapterBoundarySource());
+    await _scrollWheel(tester, 120);
+    expect(session.page?.spineIndex, 1);
+    await tester.pump(const Duration(milliseconds: 300));
+    await _scrollWheel(tester, -120);
+    expect(session.page?.spineIndex, 0);
+  });
+
+  testWidgets('滚轮在翻页准备期间不排队，完成后仍可继续翻页', (tester) async {
+    final source = _DelayedChapterSource();
+    addTearDown(() {
+      if (!source.ready.isCompleted) source.ready.complete();
+    });
+    final session = await _showReader(tester, source: source);
+    await _scrollWheel(tester, 120, settle: false);
+    await tester.pump(const Duration(milliseconds: 300));
+    await _scrollWheel(tester, 120, settle: false);
+    source.ready.complete();
+    await tester.pumpAndSettle();
+    expect(session.page?.spineIndex, 1);
+    await tester.pump(const Duration(milliseconds: 300));
+    await _scrollWheel(tester, 120);
+    expect(session.page?.spineIndex, 2);
+  });
+
+  testWidgets('阅读菜单打开和编辑预览时滚轮不翻正文', (tester) async {
+    final session = await _showReader(tester);
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    expect(_menuOpen(tester), isTrue);
+    await _scrollWheel(tester, 120);
+    expect(session.page?.pageIndex, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    final preview = await _showReader(tester, editMode: true);
+    await _scrollWheel(tester, 120);
+    expect(preview.page?.pageIndex, 0);
+  });
+
   testWidgets('编辑模式命中同段两行间空白，不命中段间空白或页边距', (tester) async {
     final targets = <ReaderEditTarget>[];
     final session = await _showReader(

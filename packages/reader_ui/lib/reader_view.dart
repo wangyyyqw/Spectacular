@@ -186,6 +186,8 @@ class ReaderView extends StatefulWidget {
     this.onDragEnd,
     this.onDragCancel,
     this.continuousScroll = false,
+    this.mouseWheelPaging = true,
+    this.canMouseWheelPage,
     this.pageIndex,
     this.pageCount,
     this.config = const ReaderGestureConfig(),
@@ -229,6 +231,12 @@ class ReaderView extends StatefulWidget {
 
   /// 连续滚动时纵向手势交给子滚动容器。
   final bool continuousScroll;
+
+  /// 鼠标滚轮纵向翻页；连续滚动模式交给子滚动容器。
+  final bool mouseWheelPaging;
+
+  /// 读取宿主当前是否允许滚轮翻页，避开尚未完成的翻页。
+  final ValueGetter<bool>? canMouseWheelPage;
 
   /// 当前页序号；提供 pageCount 时用于边界钳制。
   final int? pageIndex;
@@ -418,6 +426,7 @@ class _ReaderViewState extends State<ReaderView> {
   Offset? _rawDown;
   double _rawDistance = 0;
   bool _longPressTap = false;
+  Timer? _wheelCooldown;
 
   bool get _atFirst => widget.pageIndex != null && widget.pageIndex! <= 0;
 
@@ -444,6 +453,35 @@ class _ReaderViewState extends State<ReaderView> {
       }
       widget.onPrevious?.call();
     }
+  }
+
+  void _pointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent ||
+        !widget.mouseWheelPaging ||
+        widget.continuousScroll ||
+        event.scrollDelta.dy == 0) {
+      return;
+    }
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      event.respond(allowPlatformDefault: false);
+      if (_wheelCooldown != null || widget.canMouseWheelPage?.call() == false) {
+        return;
+      }
+      _wheelCooldown = Timer(const Duration(milliseconds: 250), () {
+        _wheelCooldown = null;
+      });
+      _turn(
+        event.scrollDelta.dy > 0
+            ? PageTurnIntent.next
+            : PageTurnIntent.previous,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _wheelCooldown?.cancel();
+    super.dispose();
   }
 
   bool _handleRawTap(Offset position, Size size) {
@@ -585,6 +623,7 @@ class _ReaderViewState extends State<ReaderView> {
         final height = constraints.maxHeight;
         final customHorizontal = widget.config.minimumFlingVelocity != null;
         return Listener(
+          onPointerSignal: _pointerSignal,
           onPointerDown: _pointerDown,
           onPointerMove: (event) {
             if (customHorizontal &&

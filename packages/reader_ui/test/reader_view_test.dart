@@ -6,6 +6,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/tap_zones.dart';
 
+Future<void> _scrollWheel(WidgetTester tester, Offset delta) async {
+  await tester.sendEventToBinding(
+    PointerScrollEvent(
+      kind: PointerDeviceKind.mouse,
+      position: tester.getCenter(find.byType(ReaderView)),
+      scrollDelta: delta,
+    ),
+  );
+  await tester.pump();
+}
+
 Future<void> _pumpGestureView(
   WidgetTester tester,
   ReaderView view, {
@@ -156,6 +167,113 @@ Future<void> _twoPointerDrag(
 }
 
 void main() {
+  testWidgets('滚轮向下下一页、向上上一页，不受点击方向设置影响', (tester) async {
+    final turns = <String>[];
+    await _pumpGestureView(
+      tester,
+      ReaderView(
+        config: const ReaderGestureConfig(
+          verticalWriting: true,
+          clickLeftNextPage: true,
+        ),
+        onPrevious: () => turns.add('上一页'),
+        onNext: () => turns.add('下一页'),
+      ),
+    );
+    await _scrollWheel(tester, const Offset(0, 120));
+    await tester.pump(const Duration(milliseconds: 300));
+    await _scrollWheel(tester, const Offset(0, -120));
+    expect(turns, ['下一页', '上一页']);
+  });
+
+  testWidgets('滚轮密集事件节流，间隔后仍可继续翻页，横向滚动不翻页', (tester) async {
+    var turns = 0;
+    await _pumpGestureView(tester, ReaderView(onNext: () => turns++));
+    await _scrollWheel(tester, const Offset(120, 0));
+    expect(turns, 0);
+    for (var index = 0; index < 5; index++) {
+      await _scrollWheel(tester, const Offset(0, 120));
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(turns, 1);
+    await tester.pump(const Duration(milliseconds: 300));
+    await _scrollWheel(tester, const Offset(0, 120));
+    expect(turns, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('滚轮沿用首尾页边界', (tester) async {
+    var turns = 0;
+    for (final page in [0, 1]) {
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          pageIndex: page,
+          pageCount: 2,
+          onPrevious: () => turns++,
+          onNext: () => turns++,
+        ),
+      );
+      await _scrollWheel(tester, Offset(0, page == 0 ? -120 : 120));
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    expect(turns, 0);
+  });
+
+  testWidgets('禁用滚轮翻页时不触发阅读回调', (tester) async {
+    var turns = 0;
+    await _pumpGestureView(
+      tester,
+      ReaderView(
+        mouseWheelPaging: false,
+        onPrevious: () => turns++,
+        onNext: () => turns++,
+      ),
+    );
+    await _scrollWheel(tester, const Offset(0, 120));
+    await _scrollWheel(tester, const Offset(0, -120));
+    expect(turns, 0);
+  });
+
+  testWidgets('滚轮实时读取忙碌状态，恢复后无需重建即可翻页', (tester) async {
+    var busy = true;
+    var turns = 0;
+    await _pumpGestureView(
+      tester,
+      ReaderView(canMouseWheelPage: () => !busy, onNext: () => turns++),
+    );
+    await _scrollWheel(tester, const Offset(0, 120));
+    expect(turns, 0);
+    busy = false;
+    await _scrollWheel(tester, const Offset(0, 120));
+    expect(turns, 1);
+    await tester.pump(const Duration(milliseconds: 300));
+  });
+
+  for (final continuous in [false, true]) {
+    testWidgets('滚轮优先交给子滚动容器，连续滚动=$continuous', (tester) async {
+      var turns = 0;
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      await _pumpGestureView(
+        tester,
+        ReaderView(
+          continuousScroll: continuous,
+          onNext: () => turns++,
+          child: SingleChildScrollView(
+            controller: controller,
+            child: const SizedBox(height: 900),
+          ),
+        ),
+      );
+      await _scrollWheel(tester, const Offset(0, 120));
+      expect(controller.offset, 120);
+      expect(turns, 0);
+    });
+  }
+
   group('ReaderGestureInterpreter', () {
     const config = ReaderGestureConfig();
     const interpreter = ReaderGestureInterpreter(config);

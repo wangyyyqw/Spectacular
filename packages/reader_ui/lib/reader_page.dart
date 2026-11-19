@@ -2952,6 +2952,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       );
     }
     return ReaderView(
+      mouseWheelPaging: !widget.editMode && !_hasOverlayOpen,
+      canMouseWheelPage: () =>
+          _pageTurnKey.currentState?.controller.active == false,
       config: ReaderGestureConfig(
         tapZones: _tapZones,
         verticalWriting: _readingRtl,

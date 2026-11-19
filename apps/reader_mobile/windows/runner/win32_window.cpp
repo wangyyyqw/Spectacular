@@ -18,6 +18,10 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
+constexpr const wchar_t kWindowPlacementRegKey[] =
+    L"Software\\Spectacular\\Reader";
+constexpr const wchar_t kWindowPlacementRegValue[] = L"WindowPlacement";
+
 /// Registry key for app theme preference.
 ///
 /// A value of 0 indicates apps should use dark mode. A non-zero or missing
@@ -145,12 +149,52 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+  RestorePlacement();
 
   return OnCreate();
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return ShowWindow(window_handle_, show_command_);
+}
+
+void Win32Window::RestorePlacement() {
+  WINDOWPLACEMENT placement{};
+  DWORD bytes = sizeof(placement);
+  if (RegGetValueW(HKEY_CURRENT_USER, kWindowPlacementRegKey,
+                   kWindowPlacementRegValue, RRF_RT_REG_BINARY, nullptr,
+                   &placement, &bytes) != ERROR_SUCCESS ||
+      bytes != sizeof(placement) || placement.length != sizeof(placement) ||
+      placement.rcNormalPosition.right <= placement.rcNormalPosition.left ||
+      placement.rcNormalPosition.bottom <= placement.rcNormalPosition.top) {
+    return;
+  }
+  const UINT command = placement.showCmd == SW_SHOWMAXIMIZED
+                           ? SW_SHOWMAXIMIZED
+                           : SW_SHOWNORMAL;
+  placement.flags = 0;
+  placement.showCmd = SW_HIDE;
+  if (SetWindowPlacement(window_handle_, &placement)) {
+    show_command_ = command;
+  }
+}
+
+void Win32Window::SavePlacement() {
+  WINDOWPLACEMENT placement{};
+  placement.length = sizeof(placement);
+  if (!GetWindowPlacement(window_handle_, &placement)) return;
+  placement.flags = 0;
+  // 最小化时仍保存最近的普通或最大化状态，使用普通窗口矩形恢复大小。
+  placement.showCmd = show_command_;
+  HKEY key;
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, kWindowPlacementRegKey, 0, nullptr,
+                      REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key,
+                      nullptr) != ERROR_SUCCESS) {
+    return;
+  }
+  RegSetValueExW(key, kWindowPlacementRegValue, 0, REG_BINARY,
+                 reinterpret_cast<const BYTE*>(&placement), sizeof(placement));
+  RegCloseKey(key);
 }
 
 // static
@@ -179,6 +223,14 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_CLOSE:
+      SavePlacement();
+      break;
+
+    case WM_EXITSIZEMOVE:
+      SavePlacement();
+      return 0;
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -198,6 +250,10 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
     }
     case WM_SIZE: {
+      if (wparam != SIZE_MINIMIZED) {
+        show_command_ =
+            wparam == SIZE_MAXIMIZED ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+      }
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
         // Size and position the child window.
