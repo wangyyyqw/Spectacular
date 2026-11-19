@@ -52,6 +52,30 @@ EPUB 编辑仅在桌面端提供，Android 和 iOS 阅读菜单与选区菜单�
 
 相关实现位于 `lib/editing/`、`reader_core/lib/editing/`。Windows 验收入口是 `.github/workflows/epub-editor-windows.yml`，只有实际运行通过才计为平台验收，工程目录本身不代表兼容性保证。
 
+### 本地 EPUB 工具
+
+从“工具 → 本地 EPUB 工具”进入，处理逻辑迁自 [wangyyyqw/epub-toolkit](https://github.com/wangyyyqw/epub-toolkit)，保留当前编辑框架，不引入其书库或联网功能。只提供 EPUB 编辑工具，不包含 TXT 导入、转换或导出。
+
+- 转换：EPUB 2／3、OpenCC 简繁转换。
+- 结构：体检与选择性修复、目录／地标／页码导航、结构重排、合并与分册、资源名称混淆与还原。
+- 图片与字体：图片压缩、WebP 双向转换、隐形水印、字体扫描与 HarfBuzz 子集化、定向字体加密。
+- 注释与正文：正则命中预览和清理、批注提取、脚注与弹窗互转、阅微／得到／掌阅注释转换、拼音标注。
+
+操作先提交当前有效源码到工作副本，再在后台处理临时 EPUB；结果通过资源和引用校验后一次应用，可一步撤销。非法源码或处理失败不覆盖工作副本；分册单独导出，不覆盖同名文件。体检属于本地结构检查，不是 EPUBCheck 完整规范认证。跨文件脚注暂不转换，拼音多音字需人工校对；字体加密改变正文码点，界面明确警告其对复制、搜索和朗读的影响。
+
+macOS 的 HarfBuzz 随原生资产自动构建。WebP 组件使用本机已准备的 `cwebp`，在应用构建后复制进包内；不在构建时自动安装 Homebrew 或下载组件：
+
+```bash
+# 在应用目录执行
+flutter build macos --release --no-pub
+bash ../../packages/epub_toolkit/tool/bundle_cwebp_macos.sh \
+  "$PWD/build/macos/Build/Products/Release/reader_mobile.app"
+```
+
+工具回归位于 `packages/epub_toolkit/test/`，编辑桥接回归位于 `test/editing/book_editor_toolkit_test.dart`。macOS 实窗验收入口为 `integration_test/epub_editor_local_tools_desktop_test.dart`，使用临时 EPUB 和内存数据库，不修改已有书库；同时验证手机分页、包内 WebP、真实字体子集以及保存／导出重开。Windows 原生工具构建仍需对应平台验收。
+
+本次 macOS 实测为 Apple Silicon。当前包内 `cwebp` 及其动态库仅为 `arm64`，Intel Mac 需准备匹配组件并另行验收；应用主程序为通用二进制不代表所有工具组件也具备双架构支持。
+
 大书编辑基准复用上述本地生成的 144 MiB、48 图、单 HTML 200 页样本，在核心包执行：
 
 ```bash

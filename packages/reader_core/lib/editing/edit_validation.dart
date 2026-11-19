@@ -7,6 +7,21 @@ import '../css/parser.dart';
 import 'editable_document.dart';
 import 'edit_text_encoding.dart';
 
+String validateEditContainer(Uint8List bytes) {
+  final container = XmlDocument.parse(
+    EditTextEncoding.detect(bytes).decode(bytes),
+  );
+  final rootfile = container.descendants
+      .whereType<XmlElement>()
+      .where((element) => element.name.local == 'rootfile')
+      .firstOrNull;
+  final path = rootfile?.getAttribute('full-path')?.trim() ?? '';
+  if (container.rootElement.name.local != 'container' || path.isEmpty) {
+    throw const EpubEditException('container.xml 必须声明有效的 OPF 路径');
+  }
+  return path;
+}
+
 /// 只检查本次触及的源码，未知资源保持原字节；未支持的 CSS 属性不改写。
 void validateEditResource(String path, Uint8List bytes) {
   final extension = p.posix.extension(path).toLowerCase();

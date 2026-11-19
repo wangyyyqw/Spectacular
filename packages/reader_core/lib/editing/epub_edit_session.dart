@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:path/path.dart' as p;
 
 import '../epub/epub_document.dart';
@@ -108,12 +109,27 @@ class EpubEditSession {
   bool _inTransaction = false;
   int historyDiscarded = 0;
   late OpfPackage _lastPackage = _document.package;
+  late String _lastOpfPath = _document.opfPath;
   int _summaryRevision = -1;
   EpubEditSummary? _summary;
   List<String> _validationWarnings = const [];
   List<String> get validationWarnings => List.unmodifiable(_validationWarnings);
 
-  String get opfPath => _document.opfPath;
+  String get opfPath {
+    if (!_overrides.containsKey('META-INF/container.xml')) {
+      return _lastOpfPath = _document.opfPath;
+    }
+    final bytes = readBytes('META-INF/container.xml');
+    if (bytes == null) return _lastOpfPath;
+    try {
+      final path = normalizePath(validateEditContainer(bytes));
+      if (readBytes(path) != null) _lastOpfPath = path;
+    } on Exception {
+      return _lastOpfPath;
+    }
+    return _lastOpfPath;
+  }
+
   Stream<EpubEditChange> get changes => _events.stream;
   bool get canUndo => _undo.isNotEmpty;
   bool get canRedo => _redo.isNotEmpty;
@@ -281,6 +297,44 @@ class EpubEditSession {
     } finally {
       _inTransaction = false;
     }
+  }
+
+  void replaceWith(EpubEditSession candidate, {required String label}) {
+    _checkOpen();
+    candidate.validate();
+    final beforePaths = resources.map((resource) => resource.path).toSet();
+    final afterPaths = candidate.resources
+        .map((resource) => resource.path)
+        .toSet();
+    final writes = <String, Uint8List?>{};
+    for (final path in {...beforePaths, ...afterPaths}) {
+      final before = readBytes(path);
+      final after = candidate.readBytes(path);
+      if (!listEquals(before, after)) writes[path] = after;
+    }
+    validateEditPackage(
+      candidate.readText(candidate.opfPath),
+      candidate.opfPath,
+      original: readText(opfPath),
+    );
+    EditReferenceValidator(
+      readBytes,
+      candidate.readBytes,
+      afterPaths,
+      beforePaths,
+    ).validate(writes.keys.toSet());
+    transaction(label, (tx) {
+      for (final entry in writes.entries) {
+        if (entry.value case final bytes?) {
+          tx.writeBytes(entry.key, bytes);
+        } else {
+          tx.remove(entry.key);
+        }
+      }
+      tx.metadata
+        ..clear()
+        ..addAll(candidate.metadata);
+    });
   }
 
   void _commit(String label, EpubEditTransaction tx) {
@@ -497,6 +551,12 @@ class EpubEditTransaction {
       final bytes = entry.value;
       if (bytes == null) continue;
       validateEditResource(entry.key, bytes);
+      if (entry.key == 'META-INF/container.xml') {
+        final path = normalizePath(validateEditContainer(bytes));
+        if (readBytes(path) == null) {
+          throw const EpubEditException('container.xml 指向不存在的 OPF 文件');
+        }
+      }
     }
     _copyMetadata(metadata);
   }
