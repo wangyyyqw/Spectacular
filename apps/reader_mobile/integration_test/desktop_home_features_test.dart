@@ -6,9 +6,12 @@ import 'package:drift/native.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:re_editor/re_editor.dart';
 import 'package:reader_core/editing/epub_editing.dart';
+import 'package:reader_mobile/editing/book_editor_controller.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/editing/epub_file_editor_page.dart';
 import 'package:reader_mobile/home/home_shell.dart';
@@ -101,6 +104,53 @@ Future<void> _select(WidgetTester tester, String label) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
+Future<void> _shortcut(
+  WidgetTester tester,
+  LogicalKeyboardKey key, {
+  bool shift = false,
+}) async {
+  final modifier = Platform.isMacOS && key != LogicalKeyboardKey.tab
+      ? LogicalKeyboardKey.metaLeft
+      : LogicalKeyboardKey.controlLeft;
+  await tester.sendKeyDownEvent(modifier);
+  if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+  await tester.sendKeyEvent(key);
+  if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+  await tester.sendKeyUpEvent(modifier);
+  await tester.pump(const Duration(milliseconds: 100));
+}
+
+Future<void> _checkEditorShortcuts(
+  WidgetTester tester,
+  BookEditorController editor,
+  File output,
+) async {
+  editor.showSource('OEBPS/content.opf');
+  editor.showSource('OEBPS/c1.xhtml');
+  await tester.pump();
+  await tester.tapAt(
+    tester.getTopLeft(find.byType(CodeEditor)) + const Offset(100, 30),
+  );
+  await tester.pump(const Duration(milliseconds: 50));
+  await _shortcut(tester, LogicalKeyboardKey.tab);
+  expect(editor.activePath, 'OEBPS/content.opf');
+  await _shortcut(tester, LogicalKeyboardKey.tab, shift: true);
+  expect(editor.activePath, 'OEBPS/c1.xhtml');
+  await _shortcut(tester, LogicalKeyboardKey.keyW);
+  expect(editor.activePath, 'OEBPS/content.opf');
+  editor.showSource('OEBPS/c1.xhtml');
+  await tester.pump();
+  await tester.tapAt(
+    tester.getTopLeft(find.byType(CodeEditor)) + const Offset(100, 30),
+  );
+  await tester.pump(const Duration(milliseconds: 50));
+  await _shortcut(tester, LogicalKeyboardKey.keyS, shift: true);
+  await _until(tester, () => output.existsSync() && !editor.busy);
+  expect(editor.dirty, isTrue);
+  expect(find.byType(BookEditorPage), findsOneWidget);
+  await _shortcut(tester, LogicalKeyboardKey.keyS);
+}
+
 Future<void> _checkLocalFile(
   WidgetTester tester,
   Directory root,
@@ -131,7 +181,7 @@ Future<void> _checkLocalFile(
   document.code.text = document.code.text.replaceFirst('原文件正文', '无需导入的修订正文');
   await _until(tester, () => !editor.hasPendingText && !editor.previewLoading);
   await _capture(tester, 'local-epub-editor');
-  await tester.tap(find.byTooltip('保存书籍'));
+  await _checkEditorShortcuts(tester, editor, output);
   await _until(
     tester,
     () => find.byKey(const ValueKey('editor-open-file')).evaluate().isNotEmpty,
@@ -158,7 +208,7 @@ Widget _app(Widget home, {bool dark = false}) => MaterialApp(
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  testWidgets('桌面首页实窗：右键编辑、本地文件保存、统计与书评日夜布局', (tester) async {
+  testWidgets('桌面首页实窗：右键编辑、键盘切页与文件编辑、统计与书评日夜布局', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1360, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final root = await Directory.systemTemp.createTemp('desktop-home-test-');
@@ -184,6 +234,9 @@ void main() {
       tester,
       () => find.byKey(ValueKey('book-card-${book.id}')).evaluate().isNotEmpty,
     );
+    await _shortcut(tester, LogicalKeyboardKey.digit4);
+    expect(find.byKey(const ValueKey('editor-open-file')), findsOneWidget);
+    await _shortcut(tester, LogicalKeyboardKey.digit1);
     await tester.tap(
       find.byKey(ValueKey('book-card-${book.id}')),
       kind: PointerDeviceKind.mouse,

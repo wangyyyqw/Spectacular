@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -115,39 +116,46 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Widget _buildBody(bool desktop) {
+    final pages = <Widget>[
+      BookshelfPage(
+        library: widget.library,
+        progressStore: _progressStore,
+        refreshToken: _bookshelfRefreshToken,
+        active: _index == 0,
+        allowImport: widget.storageRecovery == null,
+        onReadingFinished: _onReadingFinished,
+        reaMicro: _reaMicro,
+        onlineBooks: _onlineBooks,
+      ),
+      StatsPage(
+        library: widget.library,
+        progressStore: _progressStore,
+        refreshToken: _statsRefreshToken,
+        active: _index == 1,
+        onReadingFinished: _onReadingFinished,
+        reaMicro: _reaMicro,
+      ),
+      ReviewsPage(
+        library: widget.library,
+        active: _index == 2,
+        reaMicro: _reaMicro,
+      ),
+      if (desktop) EpubFileEditorPage(active: _index == 3),
+      ProfilePage(
+        library: widget.library,
+        reaMicro: _reaMicro,
+        onlineBooks: _onlineBooks,
+        onThemeModeChanged: widget.onThemeModeChanged,
+      ),
+    ];
     final content = IndexedStack(
       index: _index,
       children: [
-        BookshelfPage(
-          library: widget.library,
-          progressStore: _progressStore,
-          refreshToken: _bookshelfRefreshToken,
-          active: _index == 0,
-          allowImport: widget.storageRecovery == null,
-          onReadingFinished: _onReadingFinished,
-          reaMicro: _reaMicro,
-          onlineBooks: _onlineBooks,
-        ),
-        StatsPage(
-          library: widget.library,
-          progressStore: _progressStore,
-          refreshToken: _statsRefreshToken,
-          active: _index == 1,
-          onReadingFinished: _onReadingFinished,
-          reaMicro: _reaMicro,
-        ),
-        ReviewsPage(
-          library: widget.library,
-          active: _index == 2,
-          reaMicro: _reaMicro,
-        ),
-        if (desktop) EpubFileEditorPage(active: _index == 3),
-        ProfilePage(
-          library: widget.library,
-          reaMicro: _reaMicro,
-          onlineBooks: _onlineBooks,
-          onThemeModeChanged: widget.onThemeModeChanged,
-        ),
+        for (final (index, page) in pages.indexed)
+          TickerMode(
+            enabled: index == _index,
+            child: ExcludeFocus(excluding: index != _index, child: page),
+          ),
       ],
     );
     final recovery = widget.storageRecovery;
@@ -262,7 +270,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final items = _navigationItems(theme);
     final useRail = usesDesktopLayout(context);
     final pages = Expanded(child: _buildBody(useRail));
-    return Scaffold(
+    final scaffold = Scaffold(
       body: Row(
         children: [
           if (useRail) ...[
@@ -284,6 +292,30 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                 items: items,
               ),
             ),
+    );
+    if (!useRail) return scaffold;
+    final macOS = theme.platform == TargetPlatform.macOS;
+    return CallbackShortcuts(
+      bindings: {
+        for (final (index, key) in const [
+          LogicalKeyboardKey.digit1,
+          LogicalKeyboardKey.digit2,
+          LogicalKeyboardKey.digit3,
+          LogicalKeyboardKey.digit4,
+          LogicalKeyboardKey.digit5,
+        ].indexed)
+          SingleActivator(
+            key,
+            meta: macOS,
+            control: !macOS,
+            includeRepeats: false,
+          ): () {
+            if (ModalRoute.isCurrentOf(context) != false) {
+              _selectDestination(index);
+            }
+          },
+      },
+      child: Focus(autofocus: true, child: scaffold),
     );
   }
 }

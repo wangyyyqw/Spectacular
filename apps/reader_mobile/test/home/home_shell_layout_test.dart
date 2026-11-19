@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/editing/epub_file_editor_page.dart';
+import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/home_shell.dart';
+import 'package:reader_mobile/home/profile_page.dart';
+import 'package:reader_mobile/home/reviews_page.dart';
+import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -41,7 +46,160 @@ Future<void> _select(
   await tester.pump(const Duration(milliseconds: 250));
 }
 
+Future<void> _shortcut(WidgetTester tester, LogicalKeyboardKey key) async {
+  final platform = Theme.of(
+    tester.element(find.byType(HomeShell, skipOffstage: false)),
+  ).platform;
+  final modifier = platform == TargetPlatform.macOS
+      ? LogicalKeyboardKey.metaLeft
+      : LogicalKeyboardKey.controlLeft;
+  await tester.sendKeyDownEvent(modifier);
+  await tester.sendKeyEvent(key);
+  await tester.sendKeyUpEvent(modifier);
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  testWidgets('桌面数字快捷键切换五个页面并保留书架搜索', (tester) async {
+    await _showHome(tester, LibraryStore.memory());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('搜索书架'));
+    await tester.pumpAndSettle();
+    final search = find.byKey(const ValueKey('bookshelf-search-field'));
+    await tester.enterText(search, '保留搜索');
+    for (final (key, index) in [
+      (LogicalKeyboardKey.digit2, 1),
+      (LogicalKeyboardKey.digit3, 2),
+      (LogicalKeyboardKey.digit4, 3),
+      (LogicalKeyboardKey.digit5, 4),
+      (LogicalKeyboardKey.digit1, 0),
+    ]) {
+      await _shortcut(tester, key);
+      expect(
+        tester
+            .widget<NavigationRail>(find.byType(NavigationRail))
+            .selectedIndex,
+        index,
+      );
+    }
+    expect(tester.widget<TextField>(search).controller!.text, '保留搜索');
+    expect(tester.takeException(), isNull);
+  }, variant: _desktopPlatforms);
+
+  testWidgets('弹窗和上层路由不透传首页切页快捷键', (tester) async {
+    await _showHome(tester, LibraryStore.memory());
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(HomeShell));
+    final navigator = Navigator.of(context);
+    final dialog = showDialog<void>(
+      context: context,
+      builder: (_) => const AlertDialog(content: TextField(autofocus: true)),
+    );
+    await tester.pumpAndSettle();
+    await _shortcut(tester, LogicalKeyboardKey.digit4);
+    expect(
+      tester
+          .widget<NavigationRail>(
+            find.byType(NavigationRail, skipOffstage: false),
+          )
+          .selectedIndex,
+      0,
+    );
+    expect(find.byType(AlertDialog), findsOneWidget);
+    navigator.pop();
+    await dialog;
+    await tester.pumpAndSettle();
+    final route = navigator.push<void>(
+      MaterialPageRoute(
+        builder: (_) => const Scaffold(body: TextField(autofocus: true)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _shortcut(tester, LogicalKeyboardKey.digit5);
+    expect(
+      tester
+          .widget<NavigationRail>(
+            find.byType(NavigationRail, skipOffstage: false),
+          )
+          .selectedIndex,
+      0,
+    );
+    navigator.pop();
+    await route;
+    await tester.pumpAndSettle();
+    await _shortcut(tester, LogicalKeyboardKey.digit5);
+    expect(
+      tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex,
+      4,
+    );
+    expect(tester.takeException(), isNull);
+  }, variant: _desktopPlatforms);
+
+  testWidgets(
+    '移动端不响应桌面切页快捷键',
+    (tester) async {
+      await _showHome(tester, LibraryStore.memory());
+      await tester.pumpAndSettle();
+      await _shortcut(tester, LogicalKeyboardKey.digit5);
+      expect(
+        tester
+            .widget<BottomNavigationBar>(find.byType(BottomNavigationBar))
+            .currentIndex,
+        0,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
+  testWidgets('首页隐藏页暂停动画且不能接收焦点，切页保持页面状态', (tester) async {
+    await _showHome(tester, LibraryStore.memory());
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 2),
+    );
+    final desktop = find.byType(NavigationRail).evaluate().isNotEmpty;
+    final navigation = desktop
+        ? find.byType(NavigationRail)
+        : find.byType(BottomNavigationBar);
+    final pages = <(String, Type)>[
+      ('书架', BookshelfPage),
+      ('统计', StatsPage),
+      ('书评', ReviewsPage),
+      if (desktop) ('编辑器', EpubFileEditorPage),
+      ('我的', ProfilePage),
+    ];
+    final initialState = tester.state(find.byType(HomeShell));
+    for (final (label, _) in pages) {
+      await _select(tester, navigation, label);
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 2),
+      );
+      for (final (pageLabel, type) in pages) {
+        final page = tester.element(find.byType(type, skipOffstage: false));
+        expect(
+          TickerMode.valuesOf(page).enabled,
+          pageLabel == label,
+          reason: pageLabel,
+        );
+        expect(
+          Focus.of(page, scopeOk: true).descendantsAreFocusable,
+          pageLabel == label,
+          reason: pageLabel,
+        );
+      }
+      expect(tester.state(find.byType(HomeShell)), same(initialState));
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    }
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant(TargetPlatform.values.toSet()));
+
   testWidgets('桌面往返书评页后搜索快捷键仍可聚焦', (tester) async {
     await _showHome(tester, LibraryStore.memory());
     final rail = find.byType(NavigationRail);

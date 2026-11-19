@@ -2,10 +2,12 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 ReaderMargins _defaults() =>
     ReaderMargins.defaults(safeTop: 41, safeBottom: 16, side: 20, inner: 12);
@@ -57,7 +59,7 @@ void main() {
   });
 
   group('边距调节器（设计稿「边距调节器」）', () {
-    testWidgets('小数边距未修改确认保留原始值，显示与输入不会舍入为整数', (tester) async {
+    testWidgets('旧小数边距以整数草稿显示，保留时才回传整数', (tester) async {
       final margins = _defaults().copyWith(left: 8.799999999999997);
       final previews = <ReaderMargins>[];
       final applied = <ReaderMargins>[];
@@ -67,19 +69,19 @@ void main() {
         onPreview: previews.add,
         onApply: applied.add,
       );
-      expect(find.text('左 8.8'), findsOneWidget);
+      expect(find.text('左 9'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('margin-value-左')));
       await tester.pumpAndSettle();
       final input = tester.widget<TextField>(
         find.byKey(const ValueKey('margin-value-input')),
       );
-      expect(input.controller!.text, '8.8');
+      expect(input.controller!.text, '9');
       await tester.tap(find.byKey(const ValueKey('margin-value-confirm')));
       await tester.pumpAndSettle();
-      expect(previews, isEmpty, reason: '未编辑数值不得产生重排或改变实际精度');
+      expect(previews, isEmpty, reason: '进入编辑器与未修改确认不直接保存设置');
       await tester.tap(find.byKey(const ValueKey('margin-apply')));
       await tester.pumpAndSettle();
-      expect(applied.single, margins);
+      expect(applied.single, margins.copyWith(left: 9));
     });
 
     testWidgets('数值精调校验范围并实时预览，取消编辑器不保存', (tester) async {
@@ -100,11 +102,61 @@ void main() {
       );
       await tester.enterText(input, '12.5');
       await tester.pump();
+      expect(find.text('请输入范围内的整数'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('margin-value-confirm')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(previews, isEmpty);
+      await tester.enterText(input, '12');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('margin-value-confirm')));
       await tester.pumpAndSettle();
-      expect(previews.single.left, 12.5);
+      expect(previews.single.left, 12);
       expect(previews.single.right, 20);
-      expect(find.text('左 12.5'), findsOneWidget);
+      expect(find.text('左 12'), findsOneWidget);
+    });
+
+    testWidgets('左右箭头按边界方向步进 1，回退后恢复原整数', (tester) async {
+      final previews = <ReaderMargins>[];
+      await _showEditor(tester, onPreview: previews.add);
+      for (final side in ['左', '右']) {
+        await tester.tap(find.bySemanticsLabel('增加$side边距'));
+        await tester.pump();
+        expect(find.text('$side 21'), findsOneWidget);
+        await tester.tap(find.bySemanticsLabel('减少$side边距'));
+        await tester.pump();
+        expect(find.text('$side 20'), findsOneWidget);
+      }
+      expect(previews.last, _defaults());
+    });
+
+    testWidgets('墨水屏使用实色底板，深色主题仍能操作', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            body: MarginEditor(
+              margins: _defaults(),
+              defaults: _defaults(),
+              inkMode: true,
+              onCancel: () {},
+              onApply: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ReaderFrostedSurface), findsNWidgets(5));
+      expect(find.byType(AdaptiveGlass), findsNothing);
+      await tester.tap(find.bySemanticsLabel('增加左边距'));
+      await tester.pump();
+      expect(find.text('左 21'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('点箭头步进并移动按钮、保存回传草稿', (tester) async {
@@ -351,6 +403,37 @@ void main() {
       ('right', const Offset(-1, 0), 48, (value) => value.right),
     ];
     for (final (key, direction, max, read) in controls) {
+      testWidgets('$key 累计小数位移满 1 才预览，反向仍按整数移动', (tester) async {
+        final previews = <ReaderMargins>[];
+        await _showEditor(tester, onPreview: previews.add);
+        final pill = find.byKey(ValueKey<String>('margin-$key'));
+        final origin = tester.getCenter(pill);
+        final initial = read(_defaults());
+        final gesture = await tester.startGesture(origin);
+        await gesture.moveBy(direction * 3);
+        await tester.pump();
+        expect(read(previews.last), initial + 3);
+        final calls = previews.length;
+        for (var i = 0; i < 3; i++) {
+          await gesture.moveBy(direction * 0.25);
+          await tester.pump();
+          expect(previews.length, calls);
+        }
+        await gesture.moveBy(direction * 0.25);
+        await tester.pump();
+        expect(read(previews.last), initial + 4);
+        await gesture.moveBy(direction * -1.25);
+        await tester.pump();
+        expect(read(previews.last), initial + 3);
+        expect(tester.getCenter(pill) - origin, direction * 3);
+        expect(
+          previews.every((value) => read(value) == read(value).round()),
+          isTrue,
+        );
+        await gesture.up();
+        await tester.pumpAndSettle();
+      });
+
       testWidgets('$key 从零小幅拖动即可起步，随后每移动 1 数值与按钮都增加 1', (tester) async {
         final previews = <ReaderMargins>[];
         final zero = _defaults().copyWith(
@@ -529,7 +612,7 @@ void main() {
       expect(withoutGap, isEmpty, reason: '间隙为 0 时不画内段阴影');
     });
 
-    testWidgets('取消、恢复默认、保存并排位于底部，不遮挡下边距调节', (tester) async {
+    testWidgets('凝光胶囊分布于四边，两层操作面板位于下方且不遮挡调节', (tester) async {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.binding.setSurfaceSize(const Size(400, 800));
       await tester.pumpWidget(
@@ -555,28 +638,43 @@ void main() {
         find.byKey(const ValueKey<String>('margin-reset')),
       );
       expect(cancel.top, rect.top);
-      expect(reset.top, rect.top);
-      expect(cancel.right, lessThan(reset.left));
-      expect(reset.right, lessThan(rect.left));
-      expect(rect.bottom, closeTo(792, 0.5), reason: '操作栏距底部 8px');
-      expect(rect.height, lessThanOrEqualTo(36));
-      expect(rect.width, lessThanOrEqualTo(80));
-      expect(find.text('保存'), findsOneWidget);
+      expect(reset.bottom, lessThan(rect.top));
+      expect(reset.left, cancel.left);
+      expect(reset.right, rect.right);
+      expect(cancel.right, lessThan(rect.left));
+      expect(rect.bottom, closeTo(608, 0.5));
+      expect(rect.height, greaterThanOrEqualTo(44));
+      expect(find.text('保留'), findsOneWidget);
+      expect(find.text('恢复初始默认值'), findsOneWidget);
       for (final key in ['margin-bottom-inner', 'margin-bottom-outer']) {
         expect(
-          tester.getRect(find.byKey(ValueKey<String>(key))).bottom,
-          lessThan(rect.top),
+          tester.getRect(find.byKey(ValueKey<String>(key))).top,
+          greaterThan(rect.bottom),
         );
       }
-
-      final material = tester.widget<Material>(
-        find.descendant(of: apply, matching: find.byType(Material)),
+      final upper = tester.getRect(
+        find.byKey(const ValueKey('margin-top-outer')),
       );
-      final shape = material.shape;
-      expect(shape, isA<RoundedRectangleBorder>());
+      final inner = tester.getRect(
+        find.byKey(const ValueKey('margin-top-inner')),
+      );
+      expect(upper.top, inner.top);
+      expect(inner.left - upper.right, 1);
+      expect(find.byType(GlassContainer), findsNWidgets(5));
+      final surfaces = tester.widgetList<GlassContainer>(
+        find.byType(GlassContainer),
+      );
       expect(
-        (shape! as RoundedRectangleBorder).borderRadius,
-        BorderRadius.circular(4),
+        surfaces.every((surface) => surface.quality == GlassQuality.minimal),
+        isTrue,
+      );
+      expect(tester.getSize(find.byType(GlassContainer).first).height, 36);
+      expect(tester.getSize(find.byType(GlassContainer).first).width, 272);
+      expect(find.bySemanticsLabel('减少左边距'), findsOneWidget);
+      expect(find.bySemanticsLabel('增加右边距'), findsOneWidget);
+      expect(
+        tester.getSize(find.bySemanticsLabel('增加右边距')),
+        const Size(44, 44),
       );
     });
 
@@ -622,8 +720,8 @@ void main() {
             'margin-bottom-outer',
           ]) {
             expect(
-              tester.getRect(find.byKey(ValueKey<String>(control))).bottom,
-              lessThan(rect.top),
+              tester.getRect(find.byKey(ValueKey<String>(control))).top,
+              greaterThan(rect.bottom),
             );
           }
         }
