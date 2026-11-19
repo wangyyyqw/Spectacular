@@ -100,7 +100,7 @@ class ReaderApp extends StatelessWidget {
     StartupStorage? recovery,
   }) {
     return MaterialApp(
-      title: 'Spectacular Reader',
+      title: '阅微Extend',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       home: HomeShell(
