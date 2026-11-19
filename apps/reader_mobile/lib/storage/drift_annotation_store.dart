@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
 import '../library/revision_anchor_store.dart';
@@ -250,6 +251,9 @@ class DriftAnnotationStore
   Future<void> importSynced(ReaderAnnotation annotation) async {
     final book = await _binding.writable();
     if (book == null) return;
+    final startCfi = annotation.startCfi.trim();
+    final endCfi = annotation.endCfi.trim();
+    if (startCfi.isEmpty) return;
     await _db.transaction(() async {
       final existing =
           await (_db.select(_db.annotations)..where(
@@ -261,13 +265,55 @@ class DriftAnnotationStore
               .getSingleOrNull();
       final updatedAt = annotation.updatedAt.millisecondsSinceEpoch;
       if (existing != null && existing.updatedAt > updatedAt) return;
+      final evidence = (
+        quote: annotation.quote,
+        before: annotation.contextBefore ?? '',
+        after: annotation.contextAfter ?? '',
+      );
+      var resolvedStart = startCfi;
+      var resolvedEnd = endCfi.isEmpty ? startCfi : endCfi;
+      AnchorRecord? anchor;
+      final startCandidates = epubCfiCandidates(startCfi)
+          .toList(growable: false);
+      final endCandidates = resolvedEnd == startCfi
+          ? startCandidates
+          : epubCfiCandidates(resolvedEnd).toList(growable: false);
+      for (final candidateStart in startCandidates) {
+        for (final candidateEnd in endCandidates) {
+          final attempt = await _captureSelection(
+            book,
+            candidateStart,
+            candidateEnd,
+            evidence,
+          );
+          if (attempt != null && attempt.isResolved) {
+            anchor = attempt;
+            resolvedStart = candidateStart;
+            resolvedEnd = candidateEnd;
+            break;
+          }
+          anchor ??= attempt;
+        }
+        if (anchor?.isResolved == true) break;
+      }
+      // 同一设备再次同步只更新想法正文时，保留上一轮已验证的本地锚点。
+      final savedAnchor = AnchorRecord.decode(existing?.anchorJson);
+      if (anchor?.isResolved != true &&
+          savedAnchor != null &&
+          savedAnchor.isResolved &&
+          existing?.startCfi == startCfi &&
+          existing?.endCfi == resolvedEnd) {
+        anchor = savedAnchor;
+        resolvedStart = existing!.startCfi;
+        resolvedEnd = existing.endCfi;
+      }
       final companion = AnnotationsCompanion(
         id: Value<String>(annotation.id),
         bookId: Value<int>(book.id),
         type: Value<int>(annotation.type.storageValue),
-        startCfi: Value<String>(annotation.startCfi),
-        endCfi: Value<String>(annotation.endCfi),
-        anchorJson: Value<String?>(annotation.anchorData),
+        startCfi: Value<String>(resolvedStart),
+        endCfi: Value<String>(resolvedEnd),
+        anchorJson: Value<String?>(anchor?.encode() ?? annotation.anchorData),
         quote: Value<String>(annotation.quote),
         contextBefore: Value<String?>(annotation.contextBefore),
         contextAfter: Value<String?>(annotation.contextAfter),

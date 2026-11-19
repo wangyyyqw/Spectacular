@@ -43,6 +43,13 @@ void main() {
     }
   });
 
+  test('缺省间接引用补全后保留字符偏移', () {
+    final candidates = epubCfiCandidates('epubcfi(/6/4/4/2/1:12)').toList();
+    expect(candidates.first, 'epubcfi(/6/4!/4/2/1:12)');
+    expect(EpubCfi.parse(candidates.first)!.charOffset, 12);
+    expect(candidates, contains('epubcfi(/6/4/4/2/1:12)'));
+  });
+
   test('序列化 100 次结果稳定', () {
     final parsed = EpubCfi.parse(_samples.first)!;
     final first = parsed.serialize();

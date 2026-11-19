@@ -932,6 +932,18 @@ class LibraryStore {
     return store == null ? const <ReaderAnnotation>[] : store.list();
   }
 
+  /// 本地阅读位置最后落盘时间；用于云端冲突比较，不能用当前时间代替。
+  Future<int?> bookProgressUpdatedAt(String bookId) async {
+    final db = _db;
+    if (db == null) return null;
+    final internalId = await _bookIdOfUuid(bookId);
+    if (internalId == null) return null;
+    final row = await (db.select(
+      db.readingProgress,
+    )..where((table) => table.bookId.equals(internalId))).getSingleOrNull();
+    return row?.updatedAt;
+  }
+
   /// 导入一条云端标注。
   Future<void> importBookAnnotation(
     String bookId,

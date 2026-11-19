@@ -93,6 +93,37 @@ String cfiBase(String cfi) {
   ]).serialize();
 }
 
+/// 外部客户端可能省略 spine 与正文之间的 `!`。
+///
+/// 返回原始位置和按标准 EPUB CFI 补齐间接引用后的候选；无法安全拆分时
+/// 只返回原值，避免把合法 CFI 改成错误路径。
+Iterable<String> epubCfiCandidates(String cfi) sync* {
+  final trimmed = cfi.trim();
+  if (trimmed.isEmpty) return;
+  final parsed = EpubCfi.parse(trimmed);
+  if (parsed == null || parsed.isRange || trimmed.contains('!')) {
+    yield trimmed;
+    return;
+  }
+  final first = parsed.segments.first;
+  if (first.steps.length < 3) {
+    yield trimmed;
+    return;
+  }
+  final normalized = EpubCfi(<CfiSegment>[
+    CfiSegment(first.steps.take(2).toList()),
+    CfiSegment(
+      first.steps.skip(2).toList(),
+      offset: first.offset,
+      offsetEnd: first.offsetEnd,
+      side: first.side,
+    ),
+    ...parsed.segments.skip(1),
+  ]).serialize();
+  yield normalized;
+  if (normalized != trimmed) yield trimmed;
+}
+
 /// 取 CFI 末尾的字符偏移；没有偏移时返回 null。
 int? cfiCharOffset(String cfi) {
   final parsed = EpubCfi.parse(cfi.trim());

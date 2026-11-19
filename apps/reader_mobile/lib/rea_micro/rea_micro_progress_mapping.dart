@@ -40,7 +40,7 @@ Future<ReaMicroMappedProgress?> mapReaMicroProgressToBook({
   try {
     final normalizedProgress = _unitProgress(progress);
     ReaMicroMappedProgress? exact;
-    for (final candidate in _cfiCandidates(cfi)) {
+    for (final candidate in epubCfiCandidates(cfi)) {
       final mapped = await _verifyCandidate(
         source,
         candidate,
@@ -98,28 +98,6 @@ Future<ReaMicroMappedProgress?> _verifyCandidate(
     spineIndex: spineIndex,
     progress: _unitProgress(percent),
   );
-}
-
-/// 保留原始位置，并补充标准 EPUB CFI 的间接引用分隔符。
-Iterable<String> _cfiCandidates(String cfi) sync* {
-  final trimmed = cfi.trim();
-  if (trimmed.isEmpty) return;
-  final parsed = EpubCfi.parse(trimmed);
-  if (parsed == null || parsed.isRange || trimmed.contains('!')) {
-    yield trimmed;
-    return;
-  }
-  final first = parsed.segments.first;
-  if (first.steps.length < 3) {
-    yield trimmed;
-    return;
-  }
-  final normalized = EpubCfi(<CfiSegment>[
-    CfiSegment(first.steps.take(2).toList()),
-    CfiSegment(first.steps.skip(2).toList()),
-    ...parsed.segments.skip(1),
-  ]).serialize();
-  yield normalized;
 }
 
 double _unitProgress(double value) =>

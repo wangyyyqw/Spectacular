@@ -13,6 +13,7 @@ import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_s3.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_store.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -1385,6 +1386,56 @@ void main() {
     expect(saved?.contentRevision, 'rev-1');
   });
 
+  test('云端章节编号与本地不一致时按全书比例映射后再落盘', () async {
+    final dir = Directory.systemTemp.createTempSync('rea-progress-map');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final db = AppDatabase(NativeDatabase.memory());
+    final library = _DbTestLibrary(db, dir);
+    addTearDown(() async {
+      await db.close();
+    });
+    final imported = await library.importBytes(
+      buildMultiChapterEpub(
+        chapters: <String>[
+          '第一章内容用于校验进度映射。',
+          '第二章内容用于校验进度映射。',
+          '第三章内容用于校验进度映射。',
+        ],
+      ),
+    );
+    final api = _FakeApi()
+      ..remoteProgress = ReaMicroReadProgress(
+        cloudBookId: '11',
+        cfi: 'epubcfi(/6/999!/4/2/1)',
+        chapterName: '第三章',
+        progress: 0.62,
+        readFinishTime: DateTime.now().millisecondsSinceEpoch + 60000,
+      );
+    final progressStore = DriftProgressStore(db);
+    final controller = await _createController(
+      library,
+      api,
+      progressStore: progressStore,
+    );
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      imported.id,
+      const ReaMicroCloudBook(cloudBookId: 11, name: '多章书'),
+    );
+
+    final result = await controller.syncProgress();
+
+    expect(result.success, isTrue);
+    final saved = await progressStore.load(imported.id);
+    expect(saved, isNotNull);
+    expect(saved!.cfi, isNot('epubcfi(/6/999!/4/2/1)'));
+    expect(saved.spineIndex, lessThan(imported.spineCount ?? 3));
+    expect(saved.readingPercent, closeTo(0.62, 0.07));
+    expect(saved.contentRevision, imported.contentRevision);
+  });
+
   test('新登录先拉取云端较新位置，不用旧本地进度覆盖', () async {
     final library = _TestLibrary()
       ..book = BookEntry(
@@ -1619,6 +1670,31 @@ void main() {
     expect(await ReaMicroStore(library).loadCloudPrimary(), isTrue);
     expect(controller.cloudStats?.overview.totalDurationSeconds, 7200);
     expect(controller.cloudStats?.overview.years, <int>[2025, 2026]);
+  });
+
+  test('登录后未开启唯一数据源也可读取统计页云端数据', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi()
+      ..overview = const ReaMicroOverview(
+        years: <int>[2026],
+        readDays: 12,
+        totalDurationSeconds: 3600,
+        bookCount: 3,
+        finishedBookCount: 1,
+        registerTimestamp: 0,
+        topBooks: <ReaMicroTopBook>[],
+        listeningDurationSeconds: 600,
+        readingDurationSeconds: 3000,
+      );
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+
+    expect(controller.cloudAsPrimary, isFalse);
+    await controller.refreshCloudStats(force: true);
+
+    expect(controller.cloudStats?.overview.totalDurationSeconds, 3600);
+    expect(controller.cloudStats?.overview.years, <int>[2026]);
+    expect(controller.cloudStatsError, isNull);
   });
 
   test('S3 配置加密保存到阅微账号并可重新载入', () async {

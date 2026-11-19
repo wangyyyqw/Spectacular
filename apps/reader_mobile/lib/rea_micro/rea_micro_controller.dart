@@ -481,6 +481,27 @@ class ReaMicroController extends ChangeNotifier {
     }
   }
 
+  /// 读取一本书在阅微的划线或想法，供书评页直接展示云端笔记。
+  Future<List<ReaMicroMark>> loadBookMarks({
+    required int cloudBookId,
+    int bookId = 0,
+  }) async {
+    final token = _token;
+    if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    final remoteId = cloudBookId > 0
+        ? cloudBookId
+        : bookId > 0
+        ? bookId
+        : 0;
+    if (remoteId <= 0) return const <ReaMicroMark>[];
+    try {
+      return await _api.fetchMarks(token, bookId: remoteId.toString());
+    } on ReaMicroException catch (error) {
+      await _handleError(error);
+      rethrow;
+    }
+  }
+
   /// 从阅微阅读记录中隐藏一本书；[bookId] 为阅微内部书籍标识。
   Future<ReaMicroActionResult> hideBookRecord(int bookId) async {
     final token = _token;
@@ -919,7 +940,7 @@ class ReaMicroController extends ChangeNotifier {
     bool silent = false,
   }) async {
     final token = _token;
-    if (token == null || !_cloudAsPrimary || _loadingCloudStats) return;
+    if (token == null || _loadingCloudStats) return;
     final last = _cloudStatsAt;
     if (!force &&
         _cloudStats != null &&
@@ -989,6 +1010,18 @@ class ReaMicroController extends ChangeNotifier {
     } finally {
       _loadingMilestones = false;
       _notify();
+    }
+  }
+
+  /// 读取当前账号的读完里程碑与书评，不写入控制器缓存。
+  Future<List<ReaMicroMilestone>> loadMilestones() async {
+    final token = _token;
+    if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    try {
+      return await _api.fetchMilestones(token);
+    } on ReaMicroException catch (error) {
+      await _handleError(error);
+      rethrow;
     }
   }
 
@@ -2667,8 +2700,8 @@ class ReaMicroController extends ChangeNotifier {
   /// 构造同账号设备可读取的本地书籍快照。
   Future<List<ReaMicroLanServedBook>> _buildLanSyncBooks() async {
     final entries = await _library.list();
-    final progress = await _rawProgressStore?.snapshot() ??
-        const <String, ReaderProgress>{};
+    final progress =
+        await _rawProgressStore?.snapshot() ?? const <String, ReaderProgress>{};
     final books = <ReaMicroLanServedBook>[];
     for (final entry in entries) {
       if (entry.filePath.trim().isEmpty) continue;
@@ -2794,11 +2827,18 @@ class ReaMicroController extends ChangeNotifier {
     if (cfi.isEmpty) return;
     final existing = _progressStates[bookId];
     final now = DateTime.now().millisecondsSinceEpoch;
+    final storedAt = markDirty
+        ? await _library.bookProgressUpdatedAt(bookId)
+        : null;
+    final knownLocalAt = existing?.localUpdatedAt ?? 0;
+    final localUpdatedAt = storedAt != null && storedAt > knownLocalAt
+        ? storedAt
+        : knownLocalAt;
     if (existing != null && existing.cfi == cfi) {
       if (markDirty && !existing.dirty) {
         _progressStates[bookId] = existing.copyWith(
           dirty: true,
-          localUpdatedAt: now,
+          localUpdatedAt: localUpdatedAt > 0 ? localUpdatedAt : now,
         );
         _persistProgressStates();
       }
@@ -2810,7 +2850,9 @@ class ReaMicroController extends ChangeNotifier {
           ? progress!.chapterTitle!.trim()
           : existing?.chapterName ?? '',
       progress: progress?.readingPercent ?? existing?.progress ?? 0,
-      localUpdatedAt: markDirty ? now : existing?.localUpdatedAt ?? 0,
+      localUpdatedAt: markDirty
+          ? (localUpdatedAt > 0 ? localUpdatedAt : now)
+          : localUpdatedAt,
       remoteUpdatedAt: existing?.remoteUpdatedAt ?? 0,
       uploadedAt: existing?.uploadedAt ?? 0,
       dirty: markDirty,
@@ -2833,21 +2875,51 @@ class ReaMicroController extends ChangeNotifier {
     if (book == null) return false;
     final revision = book.contentRevision?.trim() ?? '';
     if (revision.isEmpty) return false;
-    final parsed = EpubCfi.parse(cfi);
-    if (parsed == null) return false;
-    final spineIndex = spineIndexOfCfi(parsed);
-    if (spineIndex == null || spineIndex < 0) return false;
-    final spineCount = book.spineCount ?? 0;
-    if (spineCount > 0 && spineIndex >= spineCount) return false;
     final remoteProgress = progress.clamp(0.0, 1.0).toDouble();
     final mapped = await mapReaMicroProgressToBook(
       sourcePath: book.filePath,
       cfi: cfi,
       progress: remoteProgress,
     );
-    final localCfi = mapped?.cfi ?? cfi;
-    final localSpineIndex = mapped?.spineIndex ?? spineIndex;
-    final normalized = mapped?.progress ?? remoteProgress;
+    final String localCfi;
+    final int localSpineIndex;
+    final double normalized;
+    if (mapped != null) {
+      localCfi = mapped.cfi;
+      localSpineIndex = mapped.spineIndex;
+      normalized = mapped.progress;
+    } else {
+      // 本地原书不可读时仍可保留结构合法且章节存在的 CFI；章节编号越界
+      // 不能直接写入，否则阅读页会拒绝恢复。
+      final spineCount = book.spineCount ?? 0;
+      String? fallbackCfi;
+      int? fallbackSpine;
+      for (final candidate in epubCfiCandidates(cfi)) {
+        final parsed = EpubCfi.parse(candidate);
+        final spine = parsed == null ? null : spineIndexOfCfi(parsed);
+        if (spine == null || spine < 0) continue;
+        if (spineCount > 0 && spine >= spineCount) continue;
+        fallbackCfi = candidate;
+        fallbackSpine = spine;
+        break;
+      }
+      if (fallbackCfi == null || fallbackSpine == null) {
+        unawaited(
+          ReaderLog.instance.log(
+            'reamicro_progress_apply_failed',
+            fields: <String, Object?>{
+              'book_id': bookId,
+              'reason': 'cfi_not_mappable',
+              'cfi': cfi,
+            },
+          ),
+        );
+        return false;
+      }
+      localCfi = fallbackCfi;
+      localSpineIndex = fallbackSpine;
+      normalized = remoteProgress;
+    }
     try {
       await store.save(
         bookId,
@@ -2861,7 +2933,17 @@ class ReaMicroController extends ChangeNotifier {
           chapterTitle: chapterName.trim().isEmpty ? null : chapterName.trim(),
         ),
       );
-    } on Object {
+    } on Object catch (error) {
+      unawaited(
+        ReaderLog.instance.log(
+          'reamicro_progress_apply_failed',
+          fields: <String, Object?>{
+            'book_id': bookId,
+            'reason': '$error',
+            'cfi': localCfi,
+          },
+        ),
+      );
       return false;
     }
     final existing = _progressStates[bookId];

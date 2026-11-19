@@ -191,6 +191,32 @@ void main() {
     expect(stored.note, '跨章笔记');
   });
 
+  test('导入云端标注按本地原文重建锚点，缺省间接引用也能恢复', () async {
+    final annotations = DriftAnnotationStore(db, 'current');
+    final selection = index.capture(cfi(4), endCfi: cfi(12))!;
+    final updatedAt = DateTime.utc(2026, 11, 19, 8);
+    await annotations.importSynced(
+      ReaderAnnotation(
+        id: 'mark-cloud-1',
+        type: ReaderAnnotationType.mark,
+        startCfi: selection.start.cfi.replaceFirst('!', ''),
+        endCfi: selection.end!.cfi.replaceFirst('!', ''),
+        quote: selection.quote,
+        createdAt: updatedAt,
+        updatedAt: updatedAt,
+      ),
+    );
+
+    final imported = (await annotations.list()).single;
+    expect(imported.needsRelocation, isFalse);
+    expect(imported.anchorData, isNotNull);
+    final record = AnchorRecord.decode(imported.anchorData)!;
+    expect(record.isResolved, isTrue);
+    expect(record.effective.quote, selection.quote);
+    expect(imported.startCfi, contains('!'));
+    expect(imported.endCfi, contains('!'));
+  });
+
   test('当前身份优先，书籍修订标识仅唯一时可读取', () async {
     final otherId = await db
         .into(db.books)
