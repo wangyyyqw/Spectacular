@@ -2,6 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/system_ui.dart';
 
+/// 让导航栈中的阅读页也能切换并保存全局界面主题。
+class AppThemeScope extends InheritedWidget {
+  /// 创建全局主题入口。
+  const AppThemeScope({
+    super.key,
+    required this.mode,
+    required this.onModeChanged,
+    required super.child,
+  });
+
+  /// 全局主题选择。
+  final ThemeMode mode;
+
+  /// 统一保存并应用主题。
+  final Future<void> Function(ThemeMode) onModeChanged;
+
+  /// 读取宿主提供的全局主题入口。
+  static AppThemeScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AppThemeScope>();
+
+  @override
+  bool updateShouldNotify(AppThemeScope oldWidget) => mode != oldWidget.mode;
+}
+
 const _ink = Color(0xFF222427);
 const _secondary = Color(0xFF686C71);
 const _canvas = Color(0xFFF6F6F4);

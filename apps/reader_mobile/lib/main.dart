@@ -228,9 +228,13 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     darkTheme: _night,
     themeMode: mode,
     themeAnimationDuration: Duration.zero,
-    builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-      value: readerSystemBarStyle(Theme.of(context).scaffoldBackgroundColor),
-      child: child!,
+    builder: (context, child) => AppThemeScope(
+      mode: mode,
+      onModeChanged: _setMode,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: readerSystemBarStyle(Theme.of(context).scaffoldBackgroundColor),
+        child: child!,
+      ),
     ),
     home: HomeShell(
       library: widget.library,
