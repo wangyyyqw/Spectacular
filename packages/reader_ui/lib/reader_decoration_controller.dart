@@ -24,6 +24,7 @@ extension _ReaderDecorationController on _ReaderPageState {
           endCfi: match.endCfi,
           color: match.style.decorationStyle.textColor,
           colorOpacity: match.style.decorationStyle.textColorOpacity,
+          paddingByTextHeight: _decorationPadding(match.style.decorationStyle),
         ),
     for (final decoration in _orderedManualDecorations)
       _manualTextOverlay(decoration),
@@ -40,6 +41,7 @@ extension _ReaderDecorationController on _ReaderPageState {
   ReaderTextOverlay _manualTextOverlay(
     ReaderDecoration decoration, {
     bool checkFontAvailability = true,
+    bool includePadding = true,
   }) {
     final style = decoration.style;
     return ReaderTextOverlay(
@@ -56,8 +58,60 @@ extension _ReaderDecorationController on _ReaderPageState {
       letterSpacingEm: style.letterSpacingEm,
       color: style.textColor,
       colorOpacity: style.textColorOpacity,
+      paddingByTextHeight: includePadding ? _decorationPadding(style) : null,
     );
   }
+
+  EdgeInsets? _decorationPadding(ReaderDecorationStyle style) {
+    if (style.backgroundImagePath == null) return null;
+    if (style.backgroundImageFit != ReaderDecorationImageFit.nineSlice) {
+      return EdgeInsets.zero;
+    }
+    final image = _decorationImages[style.backgroundImagePath];
+    if (image == null) return EdgeInsets.zero;
+    final config =
+        style.backgroundImageNineSlice ??
+        _decorationNineSlices[style.backgroundImagePath] ??
+        const ReaderDecorationNineSlice();
+    return config.paddingFor(
+      Size(image.width.toDouble(), image.height.toDouble()),
+    );
+  }
+
+  String get _decorationRequestFingerprint => jsonEncode([
+    ReaderTextOverlayResolver([
+      for (final item in List.of(_decorations)..sort(_compareManualDecorations))
+        _manualTextOverlay(
+          item,
+          checkFontAvailability: false,
+          includePadding: false,
+        ),
+    ], colors: false).typographyFingerprint,
+    for (final item in List.of(_decorations)..sort(_compareManualDecorations))
+      if (item.style.backgroundImagePath != null &&
+          item.style.backgroundImageFit == ReaderDecorationImageFit.nineSlice)
+        [
+          item.startCfi,
+          item.endCfi,
+          item.style.backgroundImagePath,
+          item.style.backgroundImageNineSlice?.toJson(),
+        ],
+    for (final rule in ReaderDecorationRuleEngine.orderedRules(
+      groups: _decorationGroups,
+      rules: _decorationRules,
+      bookId: widget.bookId,
+    ))
+      if (rule.style.backgroundImagePath != null &&
+          rule.style.backgroundImageFit == ReaderDecorationImageFit.nineSlice)
+        [
+          rule.id,
+          rule.pattern,
+          rule.isRegex,
+          rule.caseSensitive,
+          rule.style.backgroundImagePath,
+          rule.style.backgroundImageNineSlice?.toJson(),
+        ],
+  ]);
 
   List<ReaderDecorationRange> _decorationRangesFor(PageContent page) => [
     for (final match
@@ -148,6 +202,7 @@ extension _ReaderDecorationController on _ReaderPageState {
       }
       if (!await _verifyManualDecorations(generation)) return false;
       await _loadDecorationFonts(generation);
+      await _loadDecorationImages(generation);
       if (!_currentDecorationRequest(generation)) return false;
       final source = widget.source;
       final changed =
@@ -244,6 +299,7 @@ extension _ReaderDecorationController on _ReaderPageState {
       return false;
     }
     await _loadDecorationFonts(generation, spineIndex: spineIndex);
+    await _loadDecorationImages(generation);
     if (!_currentDecorationRequest(generation)) return false;
     final source = widget.source;
     final changed =
@@ -281,13 +337,7 @@ extension _ReaderDecorationController on _ReaderPageState {
       });
     }
     if (source is PreparedChapterSource) {
-      final ordered = List.of(items)..sort(_compareManualDecorations);
-      source.setBookTypographyFingerprint(
-        ReaderTextOverlayResolver([
-          for (final item in ordered)
-            _manualTextOverlay(item, checkFontAvailability: false),
-        ], colors: false).typographyFingerprint,
-      );
+      source.setBookTypographyFingerprint(_decorationRequestFingerprint);
     }
     return true;
   }
@@ -466,6 +516,17 @@ extension _ReaderDecorationController on _ReaderPageState {
       }
       _painter = _buildPainter();
     });
+    final source = widget.source;
+    if (source is ReaderTextOverlaySource) {
+      await _loadDecorationImages(token);
+      if (!_currentDecorationRequest(token)) return;
+      final anchor = _session.currentCfi;
+      final changed = await (source as ReaderTextOverlaySource)
+          .applyTextOverlays(_textOverlays);
+      if (spine == _session.page?.spineIndex) {
+        await _restoreDecorationPosition(changed, anchor, token);
+      }
+    }
   }
 
   void _scheduleDecorationChapter(PageContent page) {
@@ -520,10 +581,25 @@ extension _ReaderDecorationController on _ReaderPageState {
           _missingDecorationImages.contains(path)) {
         continue;
       }
-      await _decodeDecorationImage(path, generation);
+      await _ensureDecorationImage(path, generation);
     }
     if (_currentDecorationRequest(generation)) {
       _changeReaderState(() => _painter = _buildPainter());
+    }
+  }
+
+  Future<void> _ensureDecorationImage(String path, int generation) async {
+    final key = (generation, path);
+    final task = _decorationImageLoads.putIfAbsent(
+      key,
+      () => _decodeDecorationImage(path, generation),
+    );
+    try {
+      await task;
+    } finally {
+      if (identical(_decorationImageLoads[key], task)) {
+        unawaited(_decorationImageLoads.remove(key));
+      }
     }
   }
 

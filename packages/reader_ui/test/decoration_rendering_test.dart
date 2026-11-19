@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
+import 'package:reader_core/paint/page_renderer.dart';
+import 'package:reader_core/text/reader_text_overlay.dart';
 import 'package:reader_ui/decorations/decoration.dart';
 import 'package:reader_ui/decorations/decoration_geometry.dart';
 import 'package:reader_ui/decorations/decoration_painter.dart';
@@ -153,7 +155,7 @@ void main() {
     );
     final restored = ReaderDecorationRuleStyle.fromJson(rule.toJson());
     expect(restored.backgroundImageNineSlice!.toJson(), nineSlice.toJson());
-    expect(restored.decorationStyle.changesMetrics, isFalse);
+    expect(restored.decorationStyle.changesMetrics, isTrue);
     final replaced = restored.decorationStyle.merge(
       const ReaderDecorationStyle(backgroundImagePath: '/local/new.png'),
     );
@@ -419,6 +421,103 @@ void main() {
       (await paint(split)).buffer.asUint8List(),
       (await paint(original)).buffer.asUint8List(),
     );
+  });
+
+  test('四字点九经正式页面绘制保留四角，背景不侵入左右邻字', () async {
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(decoded.image.dispose);
+    final config = decoded.nineSlice!;
+    final size = Size(
+      decoded.image.width.toDouble(),
+      decoded.image.height.toDouble(),
+    );
+    const start = 'epubcfi(/6/2!/4/2/1:2)';
+    const end = 'epubcfi(/6/2!/4/2/1:6)';
+    const text = '前文彻底消失后文';
+    final typography = ComputedStyle(const {
+      'font-family': 'Ahem',
+      'font-size': '16px',
+      'line-height': '1.2',
+    });
+    final page = Paginator(pageHeight: 180, trimTextEdges: true)
+        .measureChapter(
+          blocks: [
+            PageBlock(
+              layout: TextLayoutEngine.layout(
+                text: text,
+                style: typography,
+                maxWidth: 240,
+                runs:
+                    ReaderTextOverlayResolver([
+                      ReaderTextOverlay(
+                        startCfi: start,
+                        endCfi: end,
+                        paddingByTextHeight: config.paddingFor(size),
+                      ),
+                    ]).resolve(
+                      blockCfi: _start,
+                      text: text,
+                      style: typography,
+                      runs: const [],
+                    ),
+              ),
+              style: typography,
+              startCfi: _start,
+            ),
+          ],
+        )
+        .pages
+        .single;
+    final ranges = [
+      _range(
+        ReaderDecorationStyle(
+          backgroundImagePath: '/local/bubble.9.png',
+          backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+          backgroundImageNineSlice: config,
+        ),
+        start: start,
+        end: end,
+      ),
+    ];
+    final box = ReaderDecorationGeometry.boxesFor(page, ranges).single;
+    final anchor = box.imageAnchorFor(box.rects.single);
+    final bounds = config.imageRectFor(anchor, size);
+    final pixels = await _pixels(
+      (canvas) => PagePainter(
+        beforeBlockText: (canvas, page, slice) {
+          for (final box in ReaderDecorationGeometry.boxesFor(
+            page,
+            ranges,
+            slice: slice,
+          )) {
+            for (final rect in box.rects) {
+              ReaderDecorationPainter.paintBox(
+                canvas,
+                rect,
+                box.style,
+                image: decoded.image,
+                imageAnchor: box.imageAnchorFor(rect),
+                clipRect: box.imageClipFor(rect, const Size(240, 180)),
+              );
+            }
+          }
+        },
+      ).paint(canvas, page, pageSize: const Size(240, 180)),
+    );
+    final left = (bounds.left + 3).floor();
+    final right = (bounds.right - 3).floor();
+    final top = (bounds.top + 3).floor();
+    final bottom = (bounds.bottom - 3).floor();
+    expect(_color(pixels, left, top), _red);
+    expect(_color(pixels, right, top), _blue);
+    expect(_color(pixels, left, bottom), _green);
+    expect(_color(pixels, right, bottom), _yellow);
+    expect(bounds.left, closeTo(32, 0.01));
+    expect(bounds.right, lessThanOrEqualTo(240));
+    expect(bounds.top, greaterThanOrEqualTo(-0.01));
+    expect(bounds.bottom, lessThanOrEqualTo(page.usedHeight + 0.01));
   });
 
   test('竖排点九随字宽等比旋转，圆角高亮不加深行距连接处', () async {
@@ -786,7 +885,7 @@ void main() {
           .decorationStyle;
       expect(style.backgroundImagePath, '/local/texture.png');
       expect(style.backgroundImageFit, fit);
-      expect(style.changesMetrics, isFalse);
+      expect(style.changesMetrics, fit == ReaderDecorationImageFit.nineSlice);
       final pixels = await _pixels(
         (canvas) => ReaderDecorationPainter.paintBox(
           canvas,

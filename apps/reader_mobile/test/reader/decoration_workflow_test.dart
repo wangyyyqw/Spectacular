@@ -18,6 +18,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
+import 'package:reader_ui/decorations/decoration_image_codec.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_style.dart';
 
@@ -73,7 +74,7 @@ class _Fixture {
   }
 }
 
-Future<_Fixture> _fixture(WidgetTester tester) async {
+Future<_Fixture> _fixture(WidgetTester tester, {String? body}) async {
   return (await tester.runAsync(() async {
     final directory = Directory.systemTemp.createTempSync('decoration-flow-');
     final database = AppDatabase(NativeDatabase.memory());
@@ -82,7 +83,7 @@ Future<_Fixture> _fixture(WidgetTester tester) async {
       directoryProvider: () async => directory,
     );
     final bytes = buildCssChapterBook(
-      body: '<h1>标题</h1><p>${'甲乙丙丁戊己庚辛壬癸' * 60}</p>',
+      body: body ?? '<h1>标题</h1><p>${'甲乙丙丁戊己庚辛壬癸' * 60}</p>',
       css:
           'body { margin:0; font-size:16px; } '
           'p,h1 { margin:0; line-height:1.5; }',
@@ -195,6 +196,120 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);
   });
+
+  for (final regex in [false, true]) {
+    testWidgets('${regex ? '正则' : '手工'}四字点九在真实阅读页预留空间，保留邻字与完整边角', (
+      tester,
+    ) async {
+      final fixture = await _fixture(tester, body: '<p>前文彻底消失后文</p>');
+      addTearDown(() => tester.runAsync(fixture.close));
+      final decoded = (await tester.runAsync(
+        () async => ReaderDecorationImageCodec.decode(
+          await File('assets/textures/paper.png').readAsBytes(),
+        ),
+      ))!;
+      addTearDown(decoded.image.dispose);
+      const requested = ReaderDecorationNineSlice();
+      final bytes = (await tester.runAsync(
+        () => ReaderDecorationImageCodec.encodeNinePatch(
+          decoded.image,
+          requested,
+        ),
+      ))!;
+      final saved = (await tester.runAsync(
+        () => ReaderDecorationImageCodec.decode(bytes),
+      ))!;
+      addTearDown(saved.image.dispose);
+      final config = saved.nineSlice!;
+      final path = (await tester.runAsync(
+        () => fixture.images.saveNinePatch(bytes),
+      ))!;
+      final block = (await tester.runAsync(
+        () => fixture.source.loadAnchorChapter(0),
+      ))!.blocks.single;
+      final start = block.cfiAt(2)!;
+      final end = block.cfiAt(6, end: true)!;
+      await tester.runAsync(() async {
+        if (regex) {
+          final store = fixture.library.decorationRuleStore(
+            fixture.book.id,
+            images: fixture.images,
+          )!;
+          final group = (await store.listGroups()).first;
+          await store.saveRule(
+            ReaderDecorationRule(
+              id: 'four-character-bubble',
+              groupId: group.id,
+              pattern: '彻底消失',
+              isRegex: true,
+              style: ReaderDecorationRuleStyle(
+                backgroundImagePath: path,
+                backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+              ),
+            ),
+          );
+        } else {
+          await fixture.library
+              .decorationStore(fixture.book.id, images: fixture.images)!
+              .add(
+                startCfi: start,
+                endCfi: end,
+                quote: '彻底消失',
+                style: ReaderDecorationStyle(
+                  backgroundImagePath: path,
+                  backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+                ),
+              );
+        }
+      });
+      final images = _CountingImages(fixture.images);
+      await _show(tester, fixture, images: images);
+      await pumpReaderUntilComplete(
+        tester,
+        () => fixture.session.page!.slices.single.block.layout.runs.any(
+          (run) => run.inlinePadding.horizontal > 0,
+        ),
+        description: '点九占位重排完成',
+      );
+      final page = fixture.session.page!;
+      final line = TextHitTester.lineBoxes(page).single;
+      final text = TextHitTester.selectionRects(
+        line,
+        2,
+        6,
+      ).single.shift(line.rect.topLeft);
+      final bounds = config.imageRectFor(
+        text,
+        Size(decoded.image.width.toDouble(), decoded.image.height.toDouble()),
+      );
+      final before = TextHitTester.selectionRects(line, 0, 2).single;
+      final after = TextHitTester.selectionRects(line, 6, 8).single;
+      expect(
+        bounds.left + 0.01,
+        greaterThanOrEqualTo(line.rect.left + before.right),
+      );
+      expect(
+        bounds.right - 0.01,
+        lessThanOrEqualTo(line.rect.left + after.left),
+      );
+      expect(bounds.top, greaterThanOrEqualTo(-0.01));
+      expect(bounds.bottom, lessThanOrEqualTo(page.usedHeight + 0.01));
+      expect(line.slice.block.offsetForCfi(start), 2);
+      expect(line.slice.block.offsetForCfi(end), 6);
+      expect(images.loaded, [path]);
+      expect(
+        await fixture.database.select(fixture.database.decorations).get(),
+        hasLength(regex ? 0 : 1),
+      );
+      expect(
+        await fixture.database.select(fixture.database.annotations).get(),
+        isEmpty,
+      );
+      expect(fixture.session.pageTurns, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 
   testWidgets('正则点九图片规则从真实存储加载背景，不生成手工记录', (tester) async {
     final fixture = await _fixture(tester);
