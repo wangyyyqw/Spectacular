@@ -7,6 +7,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:path/path.dart' as p;
+import 'package:xml/xml.dart';
+import 'package:xml/xml_events.dart' as xml;
 
 import '../epub/epub_document.dart';
 import '../epub/epub_chapter_source.dart';
@@ -14,6 +16,7 @@ import '../epub/chapter/chapter_preview_cache.dart';
 import '../epub/chapter/chapter_structure.dart';
 import '../epub/opf.dart';
 import '../parser/document_parser.dart';
+import '../parser/cfi_children.dart';
 import '../position/cfi.dart';
 import '../source/format_opener.dart';
 import 'editable_document.dart';
@@ -163,6 +166,18 @@ class EpubEditSession {
   List<String> get spinePaths => [
     for (final item in _package.spine) resolvePath(item.href, opfPath),
   ];
+  List<String> get previewPaths {
+    final reading = spinePaths;
+    return [
+      ...reading,
+      for (final file in resources)
+        if ((file.mediaType == 'application/xhtml+xml' ||
+                file.mediaType == 'text/html') &&
+            !reading.contains(file.path))
+          file.path,
+    ];
+  }
+
   OpfPackage get _package {
     try {
       final package = OpfParser.parse(readText(opfPath));
@@ -217,8 +232,12 @@ class EpubEditSession {
     revision: revision,
   );
 
-  EditableElementRef resolveEditableElement(int spineIndex, String cfi) {
-    final paths = spinePaths;
+  EditableElementRef resolveEditableElement(
+    int spineIndex,
+    String cfi, {
+    bool preview = false,
+  }) {
+    final paths = preview ? previewPaths : spinePaths;
     if (spineIndex < 0 || spineIndex >= paths.length) {
       throw const EpubEditException('章节不存在');
     }
@@ -254,9 +273,9 @@ class EpubEditSession {
   }
 
   /// 从原始元素范围生成正文 CFI，并反向核验，拒绝容错或过期映射。
-  String cfiForElement(EditableElementRef element) {
+  String cfiForElement(EditableElementRef element, {bool preview = false}) {
     checkElement(element);
-    final spine = spinePaths.indexOf(element.path);
+    final spine = (preview ? previewPaths : spinePaths).indexOf(element.path);
     if (spine < 0) throw const EpubEditException('此文件不在阅读顺序中');
     final parsed = DocumentParser.parse(
       xhtml: readText(element.path),
@@ -270,7 +289,7 @@ class EpubEditSession {
       final node = pending.removeLast();
       if (node.start == element.start && node.tag == element.tag) {
         final cfi = node.cfi.serialize();
-        final resolved = resolveEditableElement(spine, cfi);
+        final resolved = resolveEditableElement(spine, cfi, preview: preview);
         if (resolved.start == element.start && resolved.end == element.end) {
           return cfi;
         }
@@ -279,6 +298,30 @@ class EpubEditSession {
       pending.addAll(node.children.whereType<ParsedElement>());
     }
     throw const EpubEditException('光标不在可精确定位的正文元素中');
+  }
+
+  String cfiForSourceOffset(String path, int offset, {bool preview = false}) {
+    path = normalizePath(path);
+    final spine = (preview ? previewPaths : spinePaths).indexOf(path);
+    if (spine < 0) throw const EpubEditException('此文件不在阅读顺序中');
+    final source = readText(path);
+    RangeError.checkValueInInterval(offset, 0, source.length, 'offset');
+    final parsed = DocumentParser.parse(xhtml: source, spineIndex: spine);
+    if (parsed.parseDiagnostics.isNotEmpty) {
+      throw const EpubEditException('容错文档不能精确定位到预览');
+    }
+    for (final text in parsed.textNodes) {
+      if (offset >= text.start && offset <= text.end) {
+        return text.cfi
+            .withCharOffset(_sourceTextOffset(source, text, offset))
+            .serialize();
+      }
+    }
+    final element = editableDocument(path).elementAtOffset(offset);
+    if (element == null) {
+      throw const EpubEditException('光标不在可精确定位的正文元素中');
+    }
+    return cfiForElement(element, preview: preview);
   }
 
   void transaction(
@@ -378,9 +421,14 @@ class EpubEditSession {
 
   Future<EpubChapterSource> createPreviewSource({
     ReaderOpenOptions options = const ReaderOpenOptions(),
+    bool includeUnlistedHtml = false,
   }) {
     _checkOpen();
     validate();
+    final overrides = resourceOverrides;
+    if (includeUnlistedHtml && previewPaths.length != spinePaths.length) {
+      overrides[opfPath] = utf8.encode(_previewPackage());
+    }
     return EpubChapterSource.openFile(
       baseFile,
       contentWidth: options.contentWidth,
@@ -388,10 +436,10 @@ class EpubEditSession {
       style: options.style,
       trimTextEdges: options.trimTextEdges,
       contentVersion: '编辑:$baseDigest',
-      resourceOverrides: resourceOverrides,
+      resourceOverrides: overrides,
       previewCache: _previewCache,
       resourceVersions: {
-        for (final entry in _overrides.entries)
+        for (final entry in overrides.entries)
           entry.key: entry.value == null
               ? 'deleted'
               : (_resourceDigests[entry.value!] ??= sha256
@@ -399,6 +447,33 @@ class EpubEditSession {
                     .toString()),
       },
     );
+  }
+
+  String _previewPackage() {
+    final document = XmlDocument.parse(readText(opfPath));
+    final manifest = document.descendants.whereType<XmlElement>().firstWhere(
+      (node) => node.name.local == 'manifest',
+    );
+    final spine = document.descendants.whereType<XmlElement>().firstWhere(
+      (node) => node.name.local == 'spine',
+    );
+    final reading = spinePaths.toSet();
+    final ids = {
+      for (final item in manifest.childElements.where(
+        (node) => node.name.local == 'item',
+      ))
+        resolvePath(item.getAttribute('href')!, opfPath): item.getAttribute(
+          'id',
+        )!,
+    };
+    for (final path in previewPaths.where((path) => !reading.contains(path))) {
+      spine.children.add(
+        XmlElement(XmlName.parts('itemref', prefix: spine.name.prefix), [
+          XmlAttribute(XmlName.parts('idref'), ids[path]!),
+        ]),
+      );
+    }
+    return document.toXmlString();
   }
 
   /// 预览和导出的强校验闸门；无效草稿仍可保存，但不能发布为 EPUB。
@@ -600,3 +675,30 @@ bool _sameSteps(EpubCfi actual, EpubCfi expected) =>
       actual.steps.length,
       (i) => actual.steps[i] == expected.steps[i],
     ).every((value) => value);
+
+int _sourceTextOffset(String source, ParsedText text, int offset) {
+  var length = 0;
+  for (final event in xml.parseEvents(
+    source,
+    entityMapping: cfiEntityMapping,
+    withLocation: true,
+  )) {
+    final cdata = event is xml.XmlCDATAEvent;
+    if (event is! xml.XmlTextEvent && !cdata) continue;
+    final start = event.start! + (cdata ? 9 : 0);
+    final end = event.stop! - (cdata ? 3 : 0);
+    if (end <= text.start) continue;
+    if (start >= offset) break;
+    var prefix = source.substring(start, offset.clamp(start, end));
+    if (!cdata) {
+      final entity = prefix.lastIndexOf('&');
+      if (entity > prefix.lastIndexOf(';')) {
+        prefix = prefix.substring(0, entity);
+      }
+      prefix = cfiEntityMapping.decode(prefix);
+    }
+    length += prefix.length;
+    if (end >= offset) break;
+  }
+  return length;
+}

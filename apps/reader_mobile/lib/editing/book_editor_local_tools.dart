@@ -30,11 +30,10 @@ class BookEditorLocalTools {
   final BookEditorController editor;
   final String title;
 
-  Future<void> open() async {
-    final tool = await _localDialog<LocalEpubTool>(
-      context,
-      (_) => const _ToolPicker(),
-    );
+  Future<void> open([LocalEpubTool? selected]) async {
+    final tool =
+        selected ??
+        await _localDialog<LocalEpubTool>(context, (_) => const _ToolPicker());
     if (tool == null || !context.mounted) return;
     switch (tool) {
       case LocalEpubTool.health:

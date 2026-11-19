@@ -79,10 +79,13 @@ Map<_FileGroup, List<_BrowserFile>> _indexFiles(EpubEditSession session) {
     for (final group in _FileGroup.values) group: <_BrowserFile>[],
   };
   final remaining = {
-    for (final resource in session.resources) resource.path: _BrowserFile(resource),
+    for (final resource in session.resources)
+      resource.path: _BrowserFile(resource),
   };
   for (final path in session.spinePaths) {
-    if (remaining.remove(path) case final file?) groups[_FileGroup.text]!.add(file);
+    if (remaining.remove(path) case final file?) {
+      groups[_FileGroup.text]!.add(file);
+    }
   }
   for (final path in remaining.keys.toList()..sort()) {
     final file = remaining[path]!;
@@ -227,7 +230,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
       expanded: canToggle ? expanded : null,
       child: ListTile(
         dense: true,
-        minTileHeight: 44,
+        minTileHeight: 32,
         minLeadingWidth: 18,
         horizontalTitleGap: 8,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
@@ -256,49 +259,44 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
   }
 
   Widget _fileRow(_BrowserFile file) {
-    final parents = p.posix.split(file.path);
-    final name = parents.removeLast();
-    final folder = switch (parents) {
-      [] => '根目录',
-      [_, ..., final parent, final leaf] => '…/$parent/$leaf/',
-      _ => '${parents.join('/')}/',
-    };
-    return ListTile(
-      key: ValueKey(file.path),
-      dense: true,
-      horizontalTitleGap: 0,
-      minVerticalPadding: 2,
-      contentPadding: const EdgeInsetsDirectional.only(start: 20),
-      selected: widget.editor.activePath == file.path,
-      selectedTileColor: Theme.of(context).colorScheme.secondaryContainer,
-      title: Tooltip(
-        message: file.path,
-        child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+    return GestureDetector(
+      onSecondaryTapDown: (details) => showBookEditorFileMenu(
+        context,
+        widget.editor,
+        file.path,
+        details.globalPosition,
       ),
-      subtitle: Text(folder, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: _fileMenu(file),
-      onTap: () => _open(file),
+      child: ListTile(
+        key: ValueKey(file.path),
+        dense: true,
+        minTileHeight: 32,
+        horizontalTitleGap: 0,
+        minVerticalPadding: 2,
+        contentPadding: const EdgeInsetsDirectional.only(start: 20),
+        selected: widget.editor.activePath == file.path,
+        selectedTileColor: Theme.of(context).colorScheme.secondaryContainer,
+        title: Tooltip(
+          message: file.path,
+          child: Text(
+            p.posix.basename(file.path),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        trailing: _fileMenu(file),
+        onTap: () => _open(file),
+      ),
     );
   }
 
   Widget _fileMenu(_BrowserFile file) => PopupMenuButton<String>(
     tooltip: '文件操作',
+    enabled: !widget.editor.busy,
     icon: const AppIcon(AppGlyph.more, size: 18),
     onSelected: (action) =>
         BookEditorTools(context, widget.editor).fileAction(file.path, action),
-    itemBuilder: (context) => [
-      PopupMenuItem(
-        enabled: false,
-        child: Text(file.path, style: Theme.of(context).textTheme.bodySmall),
-      ),
-      const PopupMenuDivider(),
-      const PopupMenuItem(value: 'rename', child: Text('重命名')),
-      const PopupMenuItem(value: 'delete', child: Text('删除')),
-      if (file.group == _FileGroup.images)
-        const PopupMenuItem(value: 'cover', child: Text('设为封面')),
-      if (file.raster)
-        const PopupMenuItem(value: 'replace-image', child: Text('替换图片资源（全书）')),
-    ],
+    itemBuilder: (context) =>
+        bookEditorFileMenuItems(context, widget.editor, file.path),
   );
 
   void _open(_BrowserFile file) {

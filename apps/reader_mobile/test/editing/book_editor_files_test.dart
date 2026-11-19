@@ -254,5 +254,7 @@ class _CountingEditor extends Fake with ChangeNotifier implements BookEditorCont
   final EpubEditSession session;
   @override
   String? get activePath => null;
+  @override
+  bool get busy => false;
   void refresh() => notifyListeners();
 }

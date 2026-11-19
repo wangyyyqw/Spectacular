@@ -235,13 +235,19 @@ void main() {
     );
     await tester.tap(find.widgetWithText(SubmenuButton, '工具'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('本地 EPUB 工具'));
-    await tester.pumpAndSettle();
     expect(find.textContaining('TXT'), findsNothing);
     for (final label in ['转换', '结构', '图片', '字体', '注释与正文']) {
-      expect(find.widgetWithText(Tab, label), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SubmenuButton &&
+              widget.child is Text &&
+              (widget.child as Text).data == label,
+        ),
+        findsOneWidget,
+      );
     }
-    await tester.tap(find.widgetWithText(Tab, '注释与正文'));
+    await tester.tap(find.text('注释与正文'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('广告规则清理'));
     await tester.pumpAndSettle();
