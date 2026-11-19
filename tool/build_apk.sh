@@ -18,6 +18,11 @@ elif [ "$#" -ne 0 ]; then
   echo '用法：tool/build_apk.sh [--allow-downloads]' >&2
   exit 2
 fi
+# Windows 下 Kotlin 增量缓存可能被文件锁占用，改为非增量编译以保证打包稳定。
+kotlin_incremental=
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*) kotlin_incremental='-Pkotlin.incremental=false' ;;
+esac
 flutter_sdk="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent.parent)' "$(command -v flutter)")"
 
 if [ ! -f "$app/.dart_tool/package_config.json" ] || [ -z "$cache_option" ]; then
@@ -36,7 +41,8 @@ fi
   ./gradlew ${cache_option:+"$cache_option"} --console=plain :app:assembleRelease \
     -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
     -Pbase-application-name=android.app.Application \
-    -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true
+    -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true \
+    ${kotlin_incremental:+"$kotlin_incremental"}
 )
 
 [ -f "$build_apk" ] || { echo "构建产物缺失：$build_apk" >&2; exit 1; }
@@ -52,4 +58,8 @@ else
 fi
 
 ls -lh "$dist/$name.apk"
-shasum -a 256 "$dist/$name.apk"
+if command -v shasum >/dev/null 2>&1; then
+  shasum -a 256 "$dist/$name.apk"
+elif command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$dist/$name.apk"
+fi
