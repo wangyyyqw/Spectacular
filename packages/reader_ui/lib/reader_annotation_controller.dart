@@ -9,17 +9,8 @@ extension _ReaderAnnotationController on _ReaderPageState {
       final last = end == null ? first : spineIndexOfCfi(end);
       return first != null && last != null && first <= spine && last >= spine;
     }).toList();
-    final pages = items.isEmpty
-        ? const <PageContent>[]
-        : spine == _session.page?.spineIndex
-        ? await _session.chapterPages()
-        : await widget.source.loadChapter(spine);
+    final relocations = await _relocateAnnotationItems(items, spine);
     if (!mounted || generation != _annotationGeneration) return;
-    final relocations = AnnotationRelocator.relocate(
-      annotations: items,
-      pages: pages,
-      contentRevision: widget.contentRevision,
-    );
     _changeReaderState(() {
       _annotationsByChapter[spine] = [
         for (final item in relocations)
@@ -35,6 +26,31 @@ extension _ReaderAnnotationController on _ReaderPageState {
       _resolvedAnnotations = unique.values.toList();
       _painter = _buildPainter();
     });
+  }
+
+  Future<List<AnnotationRelocation>> _relocateAnnotationItems(
+    List<ReaderAnnotation> items,
+    int spine,
+  ) async {
+    if (items.isEmpty) return const [];
+    final source = widget.source;
+    if (source is AnchorChapterSource) {
+      // 排版块可合并多个 XML 文本节点，不能用块首 CFI 重建整段原文坐标。
+      return AnnotationRelocator.relocateAnchors(
+        annotations: items,
+        book: AnchorBook(
+          revision: widget.contentRevision ?? 'reader-layout',
+          chapters: [await source.loadAnchorChapter(spine)],
+        ),
+      );
+    }
+    return AnnotationRelocator.relocate(
+      annotations: items,
+      pages: spine == _session.page?.spineIndex
+          ? await _session.chapterPages()
+          : await source.loadChapter(spine),
+      contentRevision: widget.contentRevision,
+    );
   }
 
   void _scheduleAnnotationChapter(PageContent page) {
