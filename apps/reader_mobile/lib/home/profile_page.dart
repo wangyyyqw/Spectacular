@@ -14,11 +14,15 @@ class ProfilePage extends StatefulWidget {
   const ProfilePage({
     super.key,
     required this.library,
+    this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
   });
 
   /// 书架存储。
   final LibraryStore library;
+
+  /// 已保存的界面主题选择。
+  final ThemeMode themeMode;
 
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
@@ -95,6 +99,7 @@ class _ProfilePageState extends State<ProfilePage> {
           child: const Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              RadioListTile(value: ThemeMode.system, title: Text('跟随系统')),
               RadioListTile(value: ThemeMode.light, title: Text('日间模式')),
               RadioListTile(value: ThemeMode.dark, title: Text('夜间模式')),
             ],
@@ -237,16 +242,18 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _appearance(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final mode = widget.themeMode;
     return _section(context, '外观', [
       ListTile(
         leading: const AppIcon(AppGlyph.palette),
         title: const Text('界面主题'),
-        subtitle: Text(dark ? '夜间模式' : '日间模式'),
+        subtitle: Text(switch (mode) {
+          ThemeMode.system => '跟随系统',
+          ThemeMode.light => '日间模式',
+          ThemeMode.dark => '夜间模式',
+        }),
         trailing: const AppIcon(AppGlyph.chevronRight),
-        onTap: _savingTheme
-            ? null
-            : () => _chooseTheme(dark ? ThemeMode.dark : ThemeMode.light),
+        onTap: _savingTheme ? null : () => _chooseTheme(mode),
       ),
     ]);
   }

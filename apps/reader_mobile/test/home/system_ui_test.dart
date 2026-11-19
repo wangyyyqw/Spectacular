@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +55,10 @@ Future<void> _selectMode(
   await tester.tap(find.widgetWithText(RadioListTile<ThemeMode>, label));
   await pumpReaderUntilComplete(
     tester,
+    () => find.byType(AlertDialog).evaluate().isEmpty,
+  );
+  await pumpReaderUntilComplete(
+    tester,
     () =>
         tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode == mode,
   );
@@ -74,6 +79,14 @@ void main() {
       final region = _regions(tester).first;
       expect(region.value.statusBarIconBrightness, Brightness.dark);
       expect(region.value.systemNavigationBarIconBrightness, Brightness.dark);
+      expect(region.value.systemStatusBarContrastEnforced, false);
+      expect(region.value.systemNavigationBarContrastEnforced, false);
+      expect(region.value.statusBarColor, Colors.transparent);
+      expect(region.value.systemNavigationBarColor, Colors.transparent);
+      expect(
+        _regions(tester).last.value.systemStatusBarContrastEnforced,
+        false,
+      );
     }
     expect(tester.takeException(), isNull);
   });
@@ -94,6 +107,7 @@ void main() {
       Brightness.dark,
     );
     expect(regions.last.value.statusBarIconBrightness, Brightness.dark);
+    expect(regions.last.value.systemStatusBarContrastEnforced, false);
     expect(tester.takeException(), isNull);
   });
 
@@ -112,7 +126,11 @@ void main() {
       final messenger = tester.binding.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(window, (call) async {
         expect(call.method, 'setDarkMode');
-        windowModes.add(call.arguments as bool);
+        windowModes.add(
+          call.arguments as bool? ??
+              (tester.binding.platformDispatcher.platformBrightness ==
+                  Brightness.dark),
+        );
         return null;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(window, null));
@@ -128,9 +146,11 @@ void main() {
       }
 
       await openApp();
-      expect(windowModes, [false]);
+      expect(windowModes, [
+        tester.binding.platformDispatcher.platformBrightness == Brightness.dark,
+      ]);
       await _openProfile(tester);
-      expect(find.text('日间模式'), findsOneWidget);
+      expect(find.text('跟随系统'), findsOneWidget);
       await _selectMode(tester, '夜间模式', ThemeMode.dark);
       expect(windowModes, [false, true]);
       expect(
@@ -164,6 +184,140 @@ void main() {
     variant: const TargetPlatformVariant({
       TargetPlatform.macOS,
       TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets(
+    '跟随系统实时更新亮度并持久化选择，固定主题不受系统变化影响',
+    (tester) async {
+      final directory = Directory.systemTemp.createTempSync('system-theme');
+      final file = File('${directory.path}/reader.sqlite');
+      var database = AppDatabase(NativeDatabase(file));
+      final dispatcher = tester.binding.platformDispatcher;
+      dispatcher.platformBrightnessTestValue = Brightness.light;
+      addTearDown(dispatcher.clearPlatformBrightnessTestValue);
+      addTearDown(() async {
+        await database.close();
+        await directory.delete(recursive: true);
+      });
+      final windowModes = <bool>[];
+      final windowArguments = <Object?>[];
+      const window = MethodChannel('com.spectacular.reader_mobile/window');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(window, (call) async {
+        windowArguments.add(call.arguments);
+        windowModes.add(
+          call.arguments as bool? ??
+              (tester.binding.platformDispatcher.platformBrightness ==
+                  Brightness.dark),
+        );
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(window, null));
+
+      Future<void> openApp() async {
+        await tester.pumpWidget(
+          ReaderApp(
+            library: LibraryStore(database: database),
+            progressStore: MemoryReaderProgressStore(),
+          ),
+        );
+        await pumpReaderUntil(tester, find.text('书架还是空的'));
+        await _openProfile(tester);
+      }
+
+      Brightness brightness() =>
+          Theme.of(tester.element(find.text('界面主题'))).brightness;
+
+      await openApp();
+      if (defaultTargetPlatform == TargetPlatform.macOS) {
+        expect(windowArguments.last, isNull);
+      } else if (defaultTargetPlatform == TargetPlatform.windows) {
+        expect(windowArguments.last, false);
+      }
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.system,
+      );
+      expect(find.text('跟随系统'), findsOneWidget);
+      await _selectMode(tester, '日间模式', ThemeMode.light);
+      await _selectMode(tester, '跟随系统', ThemeMode.system);
+      expect(find.text('跟随系统'), findsOneWidget);
+      expect(brightness(), Brightness.light);
+      dispatcher.platformBrightnessTestValue = Brightness.dark;
+      await _pumpApp(tester);
+      expect(brightness(), Brightness.dark);
+      expect(find.text('跟随系统'), findsOneWidget);
+      expect(
+        _regions(tester).last.value.statusBarIconBrightness,
+        Brightness.light,
+      );
+      expect(
+        _regions(tester).first.value.systemNavigationBarIconBrightness,
+        Brightness.light,
+      );
+      if (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS) {
+        expect(windowModes.last, true);
+        expect(
+          windowArguments.last,
+          defaultTargetPlatform == TargetPlatform.macOS ? isNull : isTrue,
+        );
+      }
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await pumpReaderTask(tester, database.close());
+      database = AppDatabase(NativeDatabase(file));
+      await openApp();
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.system,
+      );
+      expect(find.text('跟随系统'), findsOneWidget);
+      expect(brightness(), Brightness.dark);
+      await tester.tap(find.text('界面主题'));
+      await _pumpApp(tester);
+      expect(
+        tester
+            .widget<RadioGroup<ThemeMode>>(find.byType(RadioGroup<ThemeMode>))
+            .groupValue,
+        ThemeMode.system,
+      );
+      Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+      await _pumpApp(tester);
+
+      dispatcher.platformBrightnessTestValue = Brightness.light;
+      await _pumpApp(tester);
+      expect(brightness(), Brightness.light);
+      await _selectMode(tester, '夜间模式', ThemeMode.dark);
+      dispatcher.platformBrightnessTestValue = Brightness.dark;
+      await _pumpApp(tester);
+      dispatcher.platformBrightnessTestValue = Brightness.light;
+      await _pumpApp(tester);
+      expect(brightness(), Brightness.dark);
+      expect(find.text('夜间模式'), findsOneWidget);
+      await _selectMode(tester, '日间模式', ThemeMode.light);
+      dispatcher.platformBrightnessTestValue = Brightness.dark;
+      await _pumpApp(tester);
+      expect(brightness(), Brightness.light);
+      expect(find.text('日间模式'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await pumpReaderTask(tester, database.close());
+      database = AppDatabase(NativeDatabase(file));
+      await openApp();
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.light,
+      );
+      expect(brightness(), Brightness.light);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
     }),
   );
 }

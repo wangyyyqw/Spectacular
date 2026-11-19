@@ -20,6 +20,7 @@ class HomeShell extends StatefulWidget {
     required this.library,
     required this.progressStore,
     this.storageRecovery,
+    this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
   });
 
@@ -31,6 +32,9 @@ class HomeShell extends StatefulWidget {
 
   /// 数据库不可用时的恢复入口；正常页面与测试可省略。
   final StartupStorage? storageRecovery;
+
+  /// 已保存的界面主题选择，独立于当前实际亮度。
+  final ThemeMode themeMode;
 
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
@@ -98,6 +102,7 @@ class _HomeShellState extends State<HomeShell> {
       if (desktop) EpubFileEditorPage(active: _index == 3),
       ProfilePage(
         library: widget.library,
+        themeMode: widget.themeMode,
         onThemeModeChanged: widget.onThemeModeChanged,
       ),
     ];

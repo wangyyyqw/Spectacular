@@ -80,7 +80,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun applySystemBars() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        applyEdgeToEdge(window)
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

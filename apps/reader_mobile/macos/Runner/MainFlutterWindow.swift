@@ -27,6 +27,12 @@ class MainFlutterWindow: NSWindow {
         return
       }
       guard let dark = call.arguments as? Bool else {
+        // 跟随系统时解除窗口外观覆盖，让系统亮度继续传入 Flutter。
+        if call.arguments == nil || call.arguments is NSNull {
+          self?.appearance = nil
+          result(nil)
+          return
+        }
         result(FlutterError(code: "invalid_argument", message: nil, details: nil))
         return
       }
