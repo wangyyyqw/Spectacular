@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:re_editor/re_editor.dart';
 import 'package:reader_core/editing/editable_document.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -285,6 +286,20 @@ class _BookEditorPageState extends State<BookEditorPage> {
             const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
                 unawaited(_save()),
             const SingleActivator(
+              LogicalKeyboardKey.keyS,
+              control: true,
+              shift: true,
+              includeRepeats: false,
+            ): () =>
+                unawaited(_tool('export')),
+            const SingleActivator(
+              LogicalKeyboardKey.keyS,
+              meta: true,
+              shift: true,
+              includeRepeats: false,
+            ): () =>
+                unawaited(_tool('export')),
+            const SingleActivator(
               LogicalKeyboardKey.keyF,
               control: true,
               shift: true,
@@ -297,15 +312,25 @@ class _BookEditorPageState extends State<BookEditorPage> {
             ): () =>
                 unawaited(_tool('find')),
           },
-          child: Focus(
-            autofocus: true,
-            child: Scaffold(
-              key: _scaffold,
-              appBar: _toolbar(wide),
-              drawer: _isDesktop && !wide
-                  ? Drawer(width: 268, child: SafeArea(child: _files()))
-                  : null,
-              body: _body(bounds.maxWidth, wide && _filesPinned),
+          child: Actions(
+            actions: {
+              CodeShortcutSaveIntent: CallbackAction<CodeShortcutSaveIntent>(
+                onInvoke: (_) {
+                  unawaited(_save());
+                  return null;
+                },
+              ),
+            },
+            child: Focus(
+              autofocus: true,
+              child: Scaffold(
+                key: _scaffold,
+                appBar: _toolbar(wide),
+                drawer: _isDesktop && !wide
+                    ? Drawer(width: 268, child: SafeArea(child: _files()))
+                    : null,
+                body: _body(bounds.maxWidth, wide && _filesPinned),
+              ),
             ),
           ),
         ),

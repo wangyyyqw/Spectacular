@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:re_highlight/languages/css.dart';
 import 'package:re_highlight/languages/xml.dart';
@@ -19,13 +20,49 @@ class BookEditorSource extends StatefulWidget {
 }
 
 class _BookEditorSourceState extends State<BookEditorSource> {
+  final _codeFocus = FocusNode();
   bool _wrap = true;
+
+  @override
+  void dispose() {
+    _codeFocus.dispose();
+    super.dispose();
+  }
+
+  void _focusSource() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.controller.activeDocument != null) {
+        _codeFocus.requestFocus();
+      }
+    });
+  }
+
+  void _showSource(String path) {
+    if (widget.controller.busy) return;
+    widget.controller.showSource(path);
+    _focusSource();
+  }
+
+  void _switchDocument(int direction) {
+    final editor = widget.controller;
+    if (editor.busy || editor.documents.length < 2) return;
+    final paths = editor.documents.keys.toList();
+    final current = paths.indexOf(editor.activePath!);
+    _showSource(paths[(current + direction) % paths.length]);
+  }
+
+  void _closeDocument(String path) {
+    final editor = widget.controller;
+    if (editor.busy) return;
+    editor.closeDocument(path);
+    _focusSource();
+  }
 
   @override
   Widget build(BuildContext context) {
     final editor = widget.controller;
     final doc = editor.activeDocument;
-    return ColoredBox(
+    final source = ColoredBox(
       color: Theme.of(context).colorScheme.surface,
       child: Column(
         children: [
@@ -57,6 +94,33 @@ class _BookEditorSourceState extends State<BookEditorSource> {
         ],
       ),
     );
+    final macOS = Theme.of(context).platform == TargetPlatform.macOS;
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(
+          LogicalKeyboardKey.tab,
+          control: true,
+          includeRepeats: false,
+        ): () =>
+            _switchDocument(1),
+        const SingleActivator(
+          LogicalKeyboardKey.tab,
+          control: true,
+          shift: true,
+          includeRepeats: false,
+        ): () =>
+            _switchDocument(-1),
+        SingleActivator(
+          LogicalKeyboardKey.keyW,
+          meta: macOS,
+          control: !macOS,
+          includeRepeats: false,
+        ): () {
+          if (editor.activePath case final path?) _closeDocument(path);
+        },
+      },
+      child: source,
+    );
   }
 
   Widget _tab(BookEditorDocument doc) {
@@ -73,7 +137,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
               selected: active,
               child: InkWell(
                 key: ValueKey('document-${doc.path}'),
-                onTap: () => editor.showSource(doc.path),
+                onTap: () => _showSource(doc.path),
                 child: Container(
                   alignment: Alignment.centerLeft,
                   constraints: const BoxConstraints(maxWidth: 190),
@@ -95,7 +159,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
             constraints: const BoxConstraints.tightFor(width: 32, height: 42),
             padding: EdgeInsets.zero,
             icon: const AppIcon(AppGlyph.close, size: 14),
-            onPressed: () => editor.closeDocument(doc.path),
+            onPressed: () => _closeDocument(doc.path),
           ),
           const VerticalDivider(width: 1),
         ],
@@ -110,6 +174,8 @@ class _BookEditorSourceState extends State<BookEditorSource> {
       key: ValueKey(doc.path),
       controller: doc.code,
       findController: doc.find,
+      focusNode: _codeFocus,
+      readOnly: widget.controller.busy,
       autofocus: false,
       wordWrap: _wrap,
       chunkAnalyzer: css
