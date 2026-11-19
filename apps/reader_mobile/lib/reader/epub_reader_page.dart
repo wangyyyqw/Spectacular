@@ -23,8 +23,10 @@ import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
+import 'package:reader_ui/theme/reader_theme.dart';
 
 import '../home/finish_book_sheet.dart';
+import '../theme/app_theme.dart';
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import '../diagnostics/reader_log.dart';
@@ -257,6 +259,14 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   void _changeSettings(ReaderSettings next) {
     setState(() => _settings = next);
     widget.onSettingsChanged?.call(next);
+  }
+
+  void _changeTheme(String themeId) {
+    _changeSettings(_settings.copyWithTheme(themeId));
+    final scope = AppThemeScope.maybeOf(context);
+    if (scope == null) return;
+    final dark = ReaderTheme.byId(themeId).background.computeLuminance() < 0.35;
+    unawaited(scope.onModeChanged(dark ? ThemeMode.dark : ThemeMode.light));
   }
 
   Future<void> _toggleTts() async {
@@ -995,6 +1005,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     // 打开书期间先出骨架；就绪后由 ReaderPage 平滑接管（P2-27）。
     return Scaffold(
       key: const ValueKey<String>('epub-reader-scaffold'),
+      backgroundColor: _pageTheme.background,
       // 阅读页自行处理安全区，并让正文始终铺满可用区域。
       resizeToAvoidBottomInset: false,
       body: AnimatedSwitcher(
@@ -1004,6 +1015,18 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         child: _buildBody(),
       ),
     );
+  }
+
+  // 深浅色跟随界面主题，保留已保存的日间配色以便切回日间时恢复。
+  ReaderTheme get _pageTheme {
+    if (AppThemeScope.maybeOf(context) == null) return _settings.theme;
+    if (Theme.of(context).brightness == Brightness.dark) {
+      return ReaderTheme.black;
+    }
+    final theme = _settings.theme;
+    return theme.background.computeLuminance() < 0.35
+        ? ReaderTheme.white
+        : theme;
   }
 
   Widget _buildBody() {
@@ -1035,6 +1058,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           _changeSettings(_settings.copyWithMarkSettings(mark)),
       overrides: settings.overrides,
       theme: settings.theme,
+      pageBrightness: AppThemeScope.maybeOf(context) == null
+          ? null
+          : Theme.of(context).brightness,
       customTheme: settings.customTheme,
       backgroundImageLoader: _backgroundStore.load,
       onPickBackgroundImage: _backgroundStore.pick,
@@ -1051,8 +1077,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       inkMode: settings.inkMode,
       onOverridesChanged: (overrides) =>
           _changeSettings(_settings.copyWithOverrides(overrides)),
-      onThemeChanged: (themeId) =>
-          _changeSettings(_settings.copyWithTheme(themeId)),
+      onThemeChanged: _changeTheme,
       onBackgroundChanged: (backgroundId) =>
           _changeSettings(_settings.copyWithBackground(backgroundId)),
       onInkModeChanged: (enabled) =>
@@ -1145,7 +1170,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   Widget _finishForm(ReaderSession session, BookReview? review, bool rtl) =>
       ReaderPanelTheme(
-        theme: _settings.theme,
+        theme: _pageTheme,
         child: FinishBookSheet(
           book:
               widget.book ??
