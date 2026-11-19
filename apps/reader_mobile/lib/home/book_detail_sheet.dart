@@ -15,6 +15,7 @@ class BookDetailSheet extends StatelessWidget {
     super.key,
     required this.entry,
     required this.library,
+    this.onlineSourceName,
   });
 
   /// 书籍条目。
@@ -22,6 +23,9 @@ class BookDetailSheet extends StatelessWidget {
 
   /// 书库（读导入报告）。
   final LibraryStore library;
+
+  /// 书籍关联的在线书源名称；为空表示尚未关联。
+  final String? onlineSourceName;
 
   static const _levelLabels = <String>['完整', '已修复', '部分降级', '结构异常', '无法阅读'];
 
@@ -70,6 +74,18 @@ class BookDetailSheet extends StatelessWidget {
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
+                      if (onlineSourceName != null &&
+                          onlineSourceName!.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '在线来源：$onlineSourceName',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
+import '../book_source/online_book_controller.dart';
+import '../book_source/online_source_page.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
@@ -14,13 +16,21 @@ import 'bookshelf_sort.dart';
 /// 我的页：书架设置、应用/引擎信息、诊断日志导出。
 class ProfilePage extends StatefulWidget {
   /// 创建页面。
-  const ProfilePage({super.key, required this.library, this.reaMicro});
+  const ProfilePage({
+    super.key,
+    required this.library,
+    this.reaMicro,
+    this.onlineBooks,
+  });
 
   /// 书架存储。
   final LibraryStore library;
 
   /// 阅微登录与同步状态；测试或未接入时不显示入口。
   final ReaMicroController? reaMicro;
+
+  /// 在线书源；测试或未接入时不显示入口。
+  final OnlineBookController? onlineBooks;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -163,6 +173,8 @@ class _ProfilePageState extends State<ProfilePage> {
               trailing: const AppIcon(AppGlyph.chevronRight),
               onTap: _chooseShelfSort,
             ),
+            if (widget.onlineBooks != null)
+              _OnlineSourceEntry(controller: widget.onlineBooks!),
           ]),
           if (widget.reaMicro != null) ...[
             const SizedBox(height: 24),
@@ -251,6 +263,42 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _OnlineSourceEntry extends StatelessWidget {
+  const _OnlineSourceEntry({required this.controller});
+
+  final OnlineBookController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) {
+        final subtitle = controller.error != null
+            ? controller.error!
+            : controller.enabledCount == 0
+            ? '导入 Legado/阅读 JSON 书源，搜索并下载书籍'
+            : '已启用 ${controller.enabledCount} / ${controller.sources.length} 个书源';
+        return ListTile(
+          key: const ValueKey<String>('online-source-entry'),
+          leading: const AppIcon(AppGlyph.link),
+          title: const Text('在线书源'),
+          subtitle: Text(
+            subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (context) => OnlineSourcePage(controller: controller),
+            ),
+          ),
+        );
+      },
     );
   }
 }

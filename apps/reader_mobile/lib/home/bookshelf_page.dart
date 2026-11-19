@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -10,6 +11,9 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_core/epub/importer.dart';
 import 'package:reader_core/position/locator.dart';
 
+import '../book_source/book_source_models.dart';
+import '../book_source/online_book_controller.dart';
+import '../book_source/online_search_page.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_models.dart';
@@ -45,6 +49,7 @@ class BookshelfPage extends StatefulWidget {
     this.allowImport = true,
     this.onReadingFinished,
     this.reaMicro,
+    this.onlineBooks,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
   });
@@ -66,6 +71,9 @@ class BookshelfPage extends StatefulWidget {
 
   /// 阅微控制器；用于读取离线音色目录。
   final ReaMicroController? reaMicro;
+
+  /// 在线书源控制器；用于搜索、下载与更新关联书籍。
+  final OnlineBookController? onlineBooks;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;
@@ -650,7 +658,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => BookDetailSheet(entry: entry, library: widget.library),
+      builder: (_) => BookDetailSheet(
+        entry: entry,
+        library: widget.library,
+        onlineSourceName: widget.onlineBooks?.sourceForBook(entry.id)?.name,
+      ),
     );
     if (!mounted) {
       return;
@@ -703,6 +715,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   Future<void> _pickBookUpdate(BookEntry entry) async {
     if (!widget.allowImport) return;
+    final controller = widget.onlineBooks;
+    final source = controller?.sourceForBook(entry.id);
+    if (controller != null && source != null) {
+      await _updateFromOnlineSource(controller, entry, source);
+      return;
+    }
     try {
       final paths = await widget.pickEpubFiles();
       if (!mounted || paths.isEmpty || !widget.allowImport) return;
@@ -723,6 +741,131 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('无法更新：$error')));
       }
+    }
+  }
+
+  Future<void> _openOnlineSearch() async {
+    final controller = widget.onlineBooks;
+    if (controller == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('在线书源暂不可用')));
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => OnlineSearchPage(controller: controller),
+      ),
+    );
+    if (mounted) {
+      await _reload();
+    }
+  }
+
+  Future<void> _updateFromOnlineSource(
+    OnlineBookController controller,
+    BookEntry entry,
+    BookSource source,
+  ) async {
+    if (!widget.allowImport) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('从 ${source.name} 更新'),
+        content: Text(
+          '将重新下载《${entry.title}》并覆盖书架中的 EPUB，'
+          '阅读进度、书签与笔记会按现有重排规则保留。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('online-update-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('更新'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    var cancelled = false;
+    final progress =
+        ValueNotifier<({int completed, int total, String message})>((
+          completed: 0,
+          total: 0,
+          message: '正在准备',
+        ));
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope<Object?>(
+        canPop: false,
+        child: AlertDialog(
+          title: Text('更新《${entry.title}》'),
+          content:
+              ValueListenableBuilder<
+                ({int completed, int total, String message})
+              >(
+                valueListenable: progress,
+                builder: (context, value, child) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    LinearProgressIndicator(
+                      value: value.total > 0
+                          ? value.completed / value.total
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(value.message),
+                  ],
+                ),
+              ),
+          actions: <Widget>[
+            TextButton(
+              key: const ValueKey<String>('online-update-cancel'),
+              onPressed: () => cancelled = true,
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    ).ignore();
+
+    try {
+      final updated = await controller.updateBook(
+        entry,
+        onProgress: (completed, total, message) {
+          progress.value = (
+            completed: completed,
+            total: total,
+            message: message,
+          );
+        },
+        isCancelled: () => cancelled,
+      );
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('《${updated.title}》已更新')));
+      await _reload();
+    } on BookSourceException catch (error) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      final message = error.code == 'ONLINE_CANCELLED'
+          ? '已取消更新'
+          : '更新失败：${error.message}';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } on Object catch (error) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('更新失败：$error')));
+    } finally {
+      progress.dispose();
     }
   }
 
@@ -1004,6 +1147,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 onPressed: _toggleSearch,
                 icon: const AppIcon(AppGlyph.search),
               ),
+              if (widget.onlineBooks != null)
+                IconButton(
+                  key: const ValueKey<String>('bookshelf-online-search'),
+                  tooltip: '在线找书',
+                  onPressed: busy ? null : _openOnlineSearch,
+                  icon: const AppIcon(AppGlyph.autoStories),
+                ),
               IconButton(
                 key: const ValueKey<String>('bookshelf-import'),
                 tooltip: busy ? '导入中…' : '导入 EPUB',

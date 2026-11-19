@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../book_source/online_book_controller.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../storage/startup_storage.dart';
@@ -43,6 +44,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _statsRefreshToken = 0;
   bool _exportingDiagnostics = false;
   late final ReaMicroController _reaMicro;
+  late final OnlineBookController _onlineBooks;
   late final ReaderProgressStore _progressStore;
 
   @override
@@ -53,14 +55,17 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       library: widget.library,
       progressStore: widget.progressStore,
     );
+    _onlineBooks = OnlineBookController(library: widget.library);
     _progressStore = _reaMicro.trackedProgressStore ?? widget.progressStore;
     unawaited(_reaMicro.initialize());
+    unawaited(_onlineBooks.initialize());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _reaMicro.dispose();
+    _onlineBooks.dispose();
     super.dispose();
   }
 
@@ -116,6 +121,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           allowImport: widget.storageRecovery == null,
           onReadingFinished: _onReadingFinished,
           reaMicro: _reaMicro,
+          onlineBooks: _onlineBooks,
         ),
         StatsPage(
           library: widget.library,
@@ -130,7 +136,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           active: _index == 2,
           reaMicro: _reaMicro,
         ),
-        ProfilePage(library: widget.library, reaMicro: _reaMicro),
+        ProfilePage(
+          library: widget.library,
+          reaMicro: _reaMicro,
+          onlineBooks: _onlineBooks,
+        ),
       ],
     );
     final recovery = widget.storageRecovery;
