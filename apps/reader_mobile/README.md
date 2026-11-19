@@ -92,6 +92,8 @@ bash ../../packages/epub_toolkit/tool/bundle_cwebp_macos.sh \
 
 本次 macOS 实测为 Apple Silicon。当前包内 `cwebp` 及其动态库仅为 `arm64`，Intel Mac 需准备匹配组件并另行验收；应用主程序为通用二进制不代表所有工具组件也具备双架构支持。
 
+macOS 的 Debug、Profile 和 Release 均提供下载目录读写权限。导入和导出通过系统打开／保存面板授权所选文件或目录，包括桌面与文稿。`Info.plist` 提供这三个目录的中文用途说明。WebP 打包脚本在复制组件后重新签名，验证时以最终 `.app` 的签名权限为准。
+
 大书编辑基准复用上述本地生成的 144 MiB、48 图、单 HTML 200 页样本，在核心包执行：
 
 ```bash
