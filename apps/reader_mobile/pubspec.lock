@@ -506,6 +506,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.2"
+  harfbuzz_ffi:
+    dependency: transitive
+    description:
+      path: "../../packages/epub_toolkit/third_party/harfbuzz_ffi"
+      relative: true
+    source: path
+    version: "0.4.2"
   hooks:
     dependency: transitive
     description:
@@ -546,6 +553,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  image:
+    dependency: transitive
+    description:
+      name: image
+      sha256: bc13f61f0f5cb77936e78ae5dae3800f442718dac5d2bc4654f03c239230ed0c
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.13.1"
   integration_test:
     dependency: "direct dev"
     description: flutter
@@ -767,6 +782,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.1.0"
+  pinyin:
+    dependency: transitive
+    description:
+      name: pinyin
+      sha256: "240f271a3c71af20c8d2757756b5ee8e9d79a955d37abad4b3568fd406b22411"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.3.0"
   platform:
     dependency: transitive
     description:
@@ -853,14 +876,14 @@ packages:
       path: "../../packages/reader_core"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "1.0.0"
   reader_ui:
     dependency: "direct main"
     description:
       path: "../../packages/reader_ui"
       relative: true
     source: path
-    version: "0.0.1"
+    version: "1.0.0"
   recase:
     dependency: transitive
     description:
@@ -1010,6 +1033,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
+  spectacular_epub_tools:
+    dependency: "direct main"
+    description:
+      path: "../../packages/epub_toolkit"
+      relative: true
+    source: path
+    version: "1.0.0"
   sqlite3:
     dependency: "direct main"
     description:

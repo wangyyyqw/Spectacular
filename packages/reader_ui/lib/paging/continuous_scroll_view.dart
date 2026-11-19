@@ -8,6 +8,7 @@ import 'package:reader_core/layout/scroll_layout.dart';
 
 import '../reader_session.dart';
 import 'page_turn_mode.dart';
+
 import 'package:reader_core/source/chapter_source.dart';
 
 /// 连续滚动的纸面构建器。
@@ -27,6 +28,7 @@ class ContinuousScrollView extends StatefulWidget {
     this.onPageVisible,
     this.onTapAtPage,
     this.onUserScroll,
+    this.onBookEnd,
   });
 
   final ReaderSession session;
@@ -37,6 +39,7 @@ class ContinuousScrollView extends StatefulWidget {
 
   final bool Function(PageContent page, Offset localPosition)? onTapAtPage;
   final VoidCallback? onUserScroll;
+  final VoidCallback? onBookEnd;
 
   @override
   State<ContinuousScrollView> createState() => ContinuousScrollViewState();
@@ -810,6 +813,13 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     await _ensureTurnRoom(next);
     if (!mounted || !_controller.hasClients) return;
     final height = _controller.position.viewportDimension;
+    if (next &&
+        _windowAtBookEnd &&
+        widget.onBookEnd != null &&
+        _controller.offset + height >= widget.padding.top + _contentExtent) {
+      widget.onBookEnd!();
+      return;
+    }
     final target = (_controller.offset + (next ? height : -height) * 0.88)
         .clamp(0.0, _controller.position.maxScrollExtent);
     await _controller.animateTo(
@@ -954,6 +964,9 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
                 _captureVisiblePage();
               }
             }
+            if (canNavigate && _windowAtBookEnd && widget.onBookEnd != null) {
+              _handleBookEndOverscroll(notification);
+            }
             return false;
           },
           child: ListView.builder(
@@ -982,6 +995,20 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         );
       },
     );
+  }
+
+  void _handleBookEndOverscroll(ScrollNotification notification) {
+    final forward = switch (notification) {
+      OverscrollNotification(:final dragDetails, :final overscroll) =>
+        dragDetails != null && overscroll > 0,
+      ScrollUpdateNotification(:final dragDetails, :final metrics) =>
+        dragDetails != null && metrics.pixels > metrics.maxScrollExtent + 12,
+      _ => false,
+    };
+    if (!forward) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _windowAtBookEnd) widget.onBookEnd?.call();
+    });
   }
 
   @override

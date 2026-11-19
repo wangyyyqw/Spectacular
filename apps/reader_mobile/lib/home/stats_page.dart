@@ -165,12 +165,13 @@ class _StatsPageState extends State<StatsPage> {
       final storedSessions =
           await (_sessionStore?.list() ??
               Future<List<ReadingSession>>.value(const []));
-      final recordedSessions = storedSessions.where(
-        (session) => session.duration >= minimumCountedSessionDuration,
-      );
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      final insights = ReadingInsights(recordedSessions, now: now);
+      final insights = ReadingInsights(
+        storedSessions,
+        now: now,
+        minimumDayDuration: minimumCountedDayDuration,
+      );
       final sessions = insights.sessions;
       final readingByDay = insights.byDay;
       final rows = <_BookReadingStat>[];
@@ -421,7 +422,6 @@ class _StatsPageState extends State<StatsPage> {
                       ),
                       _Section(
                         title: '阅读日历',
-                        detail: '按月',
                         child: ReadingCalendar(
                           insights: stats.insights,
                           bookTitles: {
@@ -563,7 +563,7 @@ class _BookReadingStat {
   final ReaderProgress? progress;
   final int? percent;
 
-  /// 最近阅读时间：有会话的书取满五分钟会话的结束时间，无会话的历史书沿用最后阅读时间。
+  /// 最近阅读时间：取达标日期内的会话结束时间，无会话的历史书沿用最后阅读时间。
   final DateTime? recentReadAt;
 }
 
@@ -617,12 +617,16 @@ class _Section extends StatelessWidget {
             spacing: 12,
             runSpacing: 6,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
+              Semantics(
+                container: true,
+                header: true,
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
                 ),
               ),
               if (detail != null)

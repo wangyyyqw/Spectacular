@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
+import 'book_notes_list.dart';
+import 'reading_insights.dart';
+import 'review_ticket.dart';
 
 enum _ReviewFilter {
   all('全部'),
@@ -42,24 +46,32 @@ class ReviewsPage extends StatefulWidget {
   /// 可注入的书评存储；为空时使用书架数据库实现。
   final BookReviewStore? reviewStore;
 
-  /// 当前 Tab 是否可见；隐藏时只标记待刷新。
+  /// 当前标签是否可见；重新显示时读取最新书评。
   final bool active;
 
   @override
   State<ReviewsPage> createState() => _ReviewsPageState();
 }
 
-class _ReviewsPageState extends State<ReviewsPage> {
+class _ReviewsPageState extends State<ReviewsPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  int _section = 0;
   List<BookEntry>? _books;
+  Map<String, BookNoteCounts> _counts = const {};
+  Map<String, Duration> _durations = const {};
   Map<String, BookReview> _reviews = const <String, BookReview>{};
+  Set<String> _finishedBooks = const {};
   final TextEditingController _searchController = TextEditingController();
   _ReviewFilter _filter = _ReviewFilter.all;
   _ReviewSort _sort = _ReviewSort.updated;
   bool _searching = false;
   String _query = '';
   int _reloadToken = 0;
-  bool _dirty = true;
+  int _editToken = 0;
   String? _error;
+
+  bool get _notes => _section == 0;
 
   BookReviewStore? get _store =>
       widget.reviewStore ?? widget.library.reviewStore();
@@ -67,6 +79,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: 2, vsync: this)..addListener(_changeSection);
     widget.library.addListener(_onLibraryChanged);
     if (widget.active) _reload();
   }
@@ -74,6 +87,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   void dispose() {
     widget.library.removeListener(_onLibraryChanged);
+    _tabs.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -81,21 +95,37 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   void didUpdateWidget(ReviewsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.library != widget.library) {
+    final libraryChanged = oldWidget.library != widget.library;
+    if (libraryChanged) {
       oldWidget.library.removeListener(_onLibraryChanged);
       widget.library.addListener(_onLibraryChanged);
-      _dirty = true;
+      _books = null;
     }
-    if (oldWidget.reviewStore != widget.reviewStore) _dirty = true;
-    if (widget.active && _dirty) _reload();
+    if (oldWidget.active != widget.active ||
+        libraryChanged ||
+        oldWidget.reviewStore != widget.reviewStore) {
+      _editToken++;
+      if (widget.active) _reload();
+    }
+  }
+
+  void _changeSection() {
+    if (_section == _tabs.index) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _section = _tabs.index;
+      _editToken++;
+      _books = null;
+      _error = null;
+      _searching = false;
+      _query = '';
+      _searchController.clear();
+    });
+    if (widget.active) _reload();
   }
 
   void _onLibraryChanged() {
-    if (!widget.active) {
-      _dirty = true;
-      return;
-    }
-    _reload();
+    if (widget.active) _reload();
   }
 
   void _toggleSearch() {
@@ -127,30 +157,41 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Future<void> _reload() async {
-    _dirty = false;
     final token = ++_reloadToken;
+    final library = widget.library;
+    final notes = _notes;
     try {
-      final books = await widget.library.list();
-      final reviews = await _store?.snapshot() ?? const <String, BookReview>{};
-      final ids = books.map((book) => book.id).toSet();
-      if (mounted && token == _reloadToken) {
+      final books = await library.list();
+      final finished = notes ? _finishedBooks : await library.finishedBookIds();
+      final counts = notes ? await library.bookNoteCounts() : _counts;
+      final reviews = notes
+          ? _reviews
+          : await _store?.snapshot() ?? const <String, BookReview>{};
+      final durations = notes
+          ? _durations
+          : await library.bookReadingDurations(minimumCountedSessionDuration);
+      if (mounted && widget.active && token == _reloadToken) {
         setState(() {
           _books = books;
+          _finishedBooks = finished;
+          _counts = counts;
           _reviews = {
-            for (final entry in reviews.entries)
-              if (ids.contains(entry.key)) entry.key: entry.value,
+            for (final book in books)
+              if (reviews[book.id] != null) book.id: reviews[book.id]!,
           };
+          _durations = durations;
           _error = null;
         });
       }
     } catch (_) {
-      if (!mounted || token != _reloadToken) return;
+      if (!mounted || !widget.active || token != _reloadToken) return;
+      final label = notes ? '笔记' : '书评';
       if (_books == null) {
-        setState(() => _error = '书评加载失败');
+        setState(() => _error = '$label加载失败，请重试');
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('书评刷新失败'),
+            content: Text('$label刷新失败'),
             action: SnackBarAction(label: '重试', onPressed: _reload),
           ),
         );
@@ -165,7 +206,33 @@ class _ReviewsPageState extends State<ReviewsPage> {
           .showSnackBar(const SnackBar(content: Text('当前无法保存书评')));
       return;
     }
-    final review = _reviews[book.id];
+    final token = ++_editToken;
+    final BookReview? review;
+    try {
+      final finished = await widget.library.finishedBookIds();
+      if (!mounted || !widget.active || token != _editToken) return;
+      if (!finished.contains(book.id)) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('标记读完后才能评分或写书评')));
+        return;
+      }
+      review = (await store.snapshot())[book.id];
+    } catch (_) {
+      if (mounted && widget.active && token == _editToken) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('书评读取失败，请重试')));
+      }
+      return;
+    }
+    if (!mounted || !widget.active || token != _editToken) return;
+    await _showEditor(book, store, review);
+  }
+
+  Future<void> _showEditor(
+    BookEntry book,
+    BookReviewStore store,
+    BookReview? review,
+  ) async {
     final draft = await showModalBottomSheet<_ReviewDraft>(
       context: context,
       isScrollControlled: true,
@@ -181,11 +248,11 @@ class _ReviewsPageState extends State<ReviewsPage> {
             : store.save(book.id, rating: draft.rating, content: draft.content),
       ),
     );
-    if (draft == null || !mounted) {
+    if (draft == null || !mounted || !widget.active) {
       return;
     }
     await _reload();
-    if (mounted) {
+    if (mounted && widget.active) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(draft.delete ? '书评已删除' : '书评已保存')));
@@ -193,105 +260,170 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Future<void> _openReview(BookEntry book, BookReview review) async {
+    final token = ++_editToken;
     final edit = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ReviewDetailSheet(book: book, review: review),
+      builder: (_) => _ReviewDetailSheet(
+        book: book,
+        review: review,
+        canEdit: _finishedBooks.contains(book.id),
+      ),
     );
-    if (edit == true && mounted) {
+    if (edit == true && mounted && widget.active && token == _editToken) {
       await _edit(book);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final books = _books;
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
         scrolledUnderElevation: 0,
-        title: _searching
-            ? TextField(
-                key: const ValueKey<String>('reviews-search-field'),
-                controller: _searchController,
-                autofocus: true,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: '搜索书名、作者或书评',
-                  border: InputBorder.none,
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: '清除搜索',
-                          onPressed: _clearSearch,
-                          icon: const AppIcon(AppGlyph.close),
-                        ),
-                ),
-                onChanged: (value) => setState(() => _query = value),
-              )
-            : const Text('书评'),
-        actions: _searching
-            ? [
-                IconButton(
-                  tooltip: '关闭搜索',
-                  onPressed: _toggleSearch,
-                  icon: const AppIcon(AppGlyph.close),
-                ),
-              ]
-            : [
-                if (books != null && books.isNotEmpty)
-                  PopupMenuButton<_ReviewSort>(
-                    key: const ValueKey<String>('reviews-sort'),
-                    tooltip: '书评排序',
-                    initialValue: _sort,
-                    onSelected: (value) => setState(() => _sort = value),
-                    icon: const AppIcon(AppGlyph.sort),
-                    itemBuilder: (_) => <PopupMenuEntry<_ReviewSort>>[
-                      for (final sort in _ReviewSort.values)
-                        appCheckedMenuItem<_ReviewSort>(
-                          key: ValueKey<String>('reviews-sort-${sort.name}'),
-                          value: sort,
-                          checked: sort == _sort,
-                          child: Text(sort.label),
-                        ),
-                    ],
-                  ),
-                if (books != null && books.isNotEmpty)
-                  IconButton(
-                    tooltip: '搜索书评',
-                    onPressed: _toggleSearch,
-                    icon: const AppIcon(AppGlyph.search),
-                  ),
-                IconButton(
-                  key: const ValueKey<String>('reviews-refresh'),
-                  tooltip: '刷新书评',
-                  onPressed: _reload,
-                  icon: const AppIcon(AppGlyph.refresh),
-                ),
-              ],
+        title: _searching ? _searchField() : Text(_notes ? '笔记' : '书评'),
+        actions: _actions(),
       ),
-      body: books == null
-          ? _error == null
-                ? const Center(child: CircularProgressIndicator())
-                : _ReviewLoadError(onRetry: _reload)
-          : books.isEmpty
-          ? const _EmptyReviews()
-          : RefreshIndicator(
-              onRefresh: _reload,
-              child: _ReviewList(
-                books: books,
-                reviews: _reviews,
-                query: _query,
-                filter: _filter,
-                sort: _sort,
-                onFilterChanged: (filter) => setState(() => _filter = filter),
-                onResetSearchAndFilter: _resetSearchAndFilter,
-                onOpen: _openReview,
-                onEdit: _edit,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+                padding: const EdgeInsets.all(3),
+                decoration: ShapeDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  shape: const StadiumBorder(),
+                ),
+                child: TabBar(
+                  controller: _tabs,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  indicator: ShapeDecoration(
+                    color: scheme.surface,
+                    shape: const StadiumBorder(),
+                  ),
+                  dividerColor: Colors.transparent,
+                  labelColor: scheme.onSurface,
+                  unselectedLabelColor: scheme.onSurfaceVariant,
+                  labelStyle: const TextStyle(
+                    fontFamily: 'builtin_song',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  tabs: const [
+                    Tab(key: ValueKey('notes-tab'), text: '笔记'),
+                    Tab(key: ValueKey('reviews-tab'), text: '书评'),
+                  ],
+                ),
               ),
+              Expanded(child: _sectionBody()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _searchField() => TextField(
+    key: const ValueKey<String>('reviews-search-field'),
+    controller: _searchController,
+    autofocus: true,
+    textInputAction: TextInputAction.search,
+    decoration: InputDecoration(
+      hintText: '搜索书名、作者或书评',
+      border: InputBorder.none,
+      suffixIcon: _query.isEmpty
+          ? null
+          : IconButton(
+              tooltip: '清除搜索',
+              onPressed: _clearSearch,
+              icon: const AppIcon(AppGlyph.close),
             ),
+    ),
+    onChanged: (value) => setState(() => _query = value),
+  );
+
+  List<Widget> _actions() {
+    final books = _books;
+    return _searching
+        ? [
+            IconButton(
+              tooltip: '关闭搜索',
+              onPressed: _toggleSearch,
+              icon: const AppIcon(AppGlyph.close),
+            ),
+          ]
+        : [
+            if (!_notes && books != null && books.isNotEmpty)
+              PopupMenuButton<_ReviewSort>(
+                key: const ValueKey<String>('reviews-sort'),
+                tooltip: '书评排序',
+                initialValue: _sort,
+                onSelected: (value) => setState(() => _sort = value),
+                icon: const AppIcon(AppGlyph.sort),
+                itemBuilder: (_) => <PopupMenuEntry<_ReviewSort>>[
+                  for (final sort in _ReviewSort.values)
+                    appCheckedMenuItem<_ReviewSort>(
+                      key: ValueKey<String>('reviews-sort-${sort.name}'),
+                      value: sort,
+                      checked: sort == _sort,
+                      child: Text(sort.label),
+                    ),
+                ],
+              ),
+            if (!_notes && books != null && books.isNotEmpty)
+              IconButton(
+                tooltip: '搜索书评',
+                onPressed: _toggleSearch,
+                icon: const AppIcon(AppGlyph.search),
+              ),
+            IconButton(
+              key: ValueKey(_notes ? 'notes-refresh' : 'reviews-refresh'),
+              tooltip: _notes ? '刷新笔记' : '刷新书评',
+              onPressed: _reload,
+              icon: const AppIcon(AppGlyph.refresh),
+            ),
+          ];
+  }
+
+  Widget _sectionBody() {
+    final books = _books;
+    if (books == null) {
+      return _error == null
+          ? const Center(child: CircularProgressIndicator())
+          : _ReviewLoadError(message: _error!, onRetry: _reload);
+    }
+    if (_notes) {
+      return BookNotesList(
+        books: books,
+        counts: _counts,
+        loadNotes: (id) async =>
+            await widget.library.annotationStore(id)?.list() ??
+            const <ReaderAnnotation>[],
+        onRefresh: _reload,
+      );
+    }
+    if (books.isEmpty) return const _EmptyReviews();
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: _ReviewList(
+        books: books,
+        finishedBooks: _finishedBooks,
+        reviews: _reviews,
+        durations: _durations,
+        query: _query,
+        filter: _filter,
+        sort: _sort,
+        onFilterChanged: (filter) => setState(() => _filter = filter),
+        onResetSearchAndFilter: _resetSearchAndFilter,
+        onOpen: _openReview,
+        onEdit: _edit,
+      ),
     );
   }
 }
@@ -299,7 +431,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
 class _ReviewList extends StatelessWidget {
   const _ReviewList({
     required this.books,
+    required this.finishedBooks,
     required this.reviews,
+    required this.durations,
     required this.query,
     required this.filter,
     required this.sort,
@@ -310,7 +444,9 @@ class _ReviewList extends StatelessWidget {
   });
 
   final List<BookEntry> books;
+  final Set<String> finishedBooks;
   final Map<String, BookReview> reviews;
+  final Map<String, Duration> durations;
   final String query;
   final _ReviewFilter filter;
   final _ReviewSort sort;
@@ -365,8 +501,16 @@ class _ReviewList extends StatelessWidget {
     reviewed.sort(compareBooks);
     final pending = <BookEntry>[
       for (final book in books)
-        if (reviews[book.id] == null && matches(book)) book,
+        if (finishedBooks.contains(book.id) &&
+            reviews[book.id] == null &&
+            matches(book))
+          book,
     ];
+    final pendingCount = books
+        .where(
+          (book) => finishedBooks.contains(book.id) && reviews[book.id] == null,
+        )
+        .length;
     if (sort == _ReviewSort.title) {
       pending.sort(
         (left, right) =>
@@ -379,21 +523,20 @@ class _ReviewList extends StatelessWidget {
     final visiblePending = showPending ? pending : const <BookEntry>[];
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
       children: [
         _ReviewSummary(
           reviewed: allReviewed.length,
-          total: books.length,
+          total: allReviewed.length + pendingCount,
           reviews: reviews,
         ),
-        const SizedBox(height: 14),
         _ReviewFilterBar(
           reviewed: reviewed.length,
           pending: pending.length,
           selected: filter,
           onSelected: onFilterChanged,
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 10),
         if (visibleReviewed.isEmpty && visiblePending.isEmpty)
           _NoReviewMatches(
             query: query.trim(),
@@ -401,34 +544,26 @@ class _ReviewList extends StatelessWidget {
             onReset: onResetSearchAndFilter,
           )
         else ...[
-          if (showReviewed) ...[
-            _SectionTitle(title: '我的书评', detail: '${reviewed.length} 篇'),
-            const SizedBox(height: 10),
-            if (reviewed.isEmpty)
-              const _NoReviewCard()
-            else
-              for (final book in reviewed)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _ReviewCard(
-                    book: book,
-                    review: reviews[book.id]!,
-                    onTap: () => onOpen(book, reviews[book.id]!),
-                  ),
-                ),
-          ],
-          if (showPending && pending.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            _SectionTitle(title: '待写书评', detail: '${pending.length} 本'),
-            const SizedBox(height: 10),
-            for (final book in pending)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _PendingBookTile(book: book, onTap: () => onEdit(book)),
-              ),
-          ],
+          for (final book in [...visibleReviewed, ...visiblePending])
+            _ticket(book),
         ],
       ],
+    );
+  }
+
+  Widget _ticket(BookEntry book) {
+    final review = reviews[book.id];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: ReviewTicket(
+        key: ValueKey(
+          'review-${review == null ? 'pending' : 'card'}-${book.id}',
+        ),
+        book: book,
+        review: review,
+        duration: durations[book.id],
+        onTap: review == null ? () => onEdit(book) : () => onOpen(book, review),
+      ),
     );
   }
 }
@@ -580,224 +715,29 @@ class _ReviewSummary extends StatelessWidget {
     final average = ratings.isEmpty
         ? null
         : ratings.reduce((left, right) => left + right) / ratings.length;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: _SummaryValue(label: '已写书评', value: '$reviewed 篇'),
-          ),
-          Expanded(
-            child: _SummaryValue(label: '待写书评', value: '${total - reviewed} 本'),
-          ),
-          Expanded(
-            child: _SummaryValue(
-              label: '平均评分',
-              value: average?.toStringAsFixed(1) ?? '--',
-              rated: average != null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryValue extends StatelessWidget {
-  const _SummaryValue({
-    required this.label,
-    required this.value,
-    this.rated = false,
-  });
-
-  final String label;
-  final String value;
-  final bool rated;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 8),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                value,
-                key: ValueKey<String>('reviews-summary-value-$label'),
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              if (rated) ...[
-                const SizedBox(width: 4),
-                const AppIcon(
-                  AppGlyph.star,
-                  filled: true,
-                  key: ValueKey<String>('reviews-average-star'),
-                  color: Color(0xFFE0A327),
-                  size: 18,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title, required this.detail});
-
-  final String title;
-  final String detail;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        Expanded(child: Text(title, style: theme.textTheme.titleMedium)),
-        Text(
-          detail,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ReviewCard extends StatelessWidget {
-  const _ReviewCard({
-    required this.book,
-    required this.review,
-    required this.onTap,
-  });
-
-  final BookEntry book;
-  final BookReview review;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final content = review.content.isEmpty ? '仅评分，未写正文。' : review.content;
-    return Card(
-      elevation: 0,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(4)),
-      ),
-      key: ValueKey<String>('review-card-${book.id}'),
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  BookCoverImage(book: book, width: 42, height: 56),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          book.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        if (book.author.isNotEmpty) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            book.author,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 4,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            _StarRow(rating: review.rating, size: 16),
-                            Text(
-                              _relativeTime(review.updatedAt),
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                content,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(height: 1.65),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  AppIcon(
-                    AppGlyph.arrowForward,
-                    size: 16,
-                    color: theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '查看全文',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+    final scheme = Theme.of(context).colorScheme;
+    return Text(
+      '已写 $reviewed 篇 · 待写 ${total - reviewed} 本${average == null ? '' : ' · 平均 ${average.toStringAsFixed(1)} 星'}',
+      key: const ValueKey('reviews-summary'),
+      style: TextStyle(
+        fontSize: 12,
+        color: scheme.onSurfaceVariant,
+        height: 1.5,
       ),
     );
   }
 }
 
 class _ReviewDetailSheet extends StatelessWidget {
-  const _ReviewDetailSheet({required this.book, required this.review});
+  const _ReviewDetailSheet({
+    required this.book,
+    required this.review,
+    required this.canEdit,
+  });
 
   final BookEntry book;
   final BookReview review;
+  final bool canEdit;
 
   Future<void> _copy(BuildContext context) async {
     final text = <String>[
@@ -954,7 +894,7 @@ class _ReviewDetailSheet extends StatelessWidget {
         );
         final edit = FilledButton.icon(
           key: const ValueKey<String>('review-detail-edit'),
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: canEdit ? () => Navigator.of(context).pop(true) : null,
           icon: const AppIcon(AppGlyph.edit),
           label: const Text('编辑书评'),
         );
@@ -973,49 +913,6 @@ class _ReviewDetailSheet extends StatelessWidget {
       },
     ),
   );
-}
-
-class _PendingBookTile extends StatelessWidget {
-  const _PendingBookTile({required this.book, required this.onTap});
-
-  final BookEntry book;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(4)),
-      ),
-      key: ValueKey<String>('review-pending-${book.id}'),
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        onTap: onTap,
-        leading: BookCoverImage(book: book, width: 38, height: 50),
-        title: Text(
-          book.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyLarge,
-        ),
-        subtitle: Text(
-          '写下评分或读后感',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        trailing: Text(
-          '写书评',
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: theme.colorScheme.primary,
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _StarRow extends StatelessWidget {
@@ -1053,37 +950,6 @@ class _StarRow extends StatelessWidget {
   }
 }
 
-class _NoReviewCard extends StatelessWidget {
-  const _NoReviewCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(4)),
-      ),
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            AppIcon(AppGlyph.editNote, color: theme.colorScheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '还没有书评，从下方选一本书开始写吧。',
-                style: theme.textTheme.bodyMedium,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _EmptyReviews extends StatelessWidget {
   const _EmptyReviews();
 
@@ -1095,7 +961,7 @@ class _EmptyReviews extends StatelessWidget {
         children: [
           AppIcon(AppGlyph.rateReview, size: 64),
           SizedBox(height: 12),
-          Text('导入书籍后可以在这里写书评'),
+          Text('标记读完后，可以在这里评分和写书评'),
         ],
       ),
     );
@@ -1103,8 +969,9 @@ class _EmptyReviews extends StatelessWidget {
 }
 
 class _ReviewLoadError extends StatelessWidget {
-  const _ReviewLoadError({required this.onRetry});
+  const _ReviewLoadError({required this.message, required this.onRetry});
 
+  final String message;
   final VoidCallback onRetry;
 
   @override
@@ -1120,7 +987,7 @@ class _ReviewLoadError extends StatelessWidget {
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           const SizedBox(height: 12),
-          const Text('书评加载失败，请重试'),
+          Text(message),
           const SizedBox(height: 16),
           FilledButton.icon(
             key: const ValueKey('reviews-load-retry'),
@@ -1538,14 +1405,6 @@ class _ReviewDraft {
   final int? rating;
   final String content;
   final bool delete;
-}
-
-String _relativeTime(DateTime time) {
-  final delta = DateTime.now().difference(time);
-  if (delta.isNegative || delta.inMinutes < 1) return '刚刚';
-  if (delta.inHours < 1) return '${delta.inMinutes} 分钟前';
-  if (delta.inDays < 1) return '${delta.inHours} 小时前';
-  return '${delta.inDays} 天前';
 }
 
 String _reviewDate(DateTime time) {

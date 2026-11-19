@@ -57,6 +57,13 @@ class PageSnapshotCache {
     }
   }
 
+  /// 静止时只刷新命中的纸面，例如总页数已确定的章节。
+  void removeWhere(bool Function(PageContent) matches) {
+    for (final page in _images.keys.toList()) {
+      if (matches(page)) _release(_images.remove(page)!);
+    }
+  }
+
   void _release(ui.Image image) {
     bytes -= image.width * image.height * 4;
     image.dispose();

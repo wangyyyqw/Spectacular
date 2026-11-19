@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -23,7 +24,8 @@ import '../storage/import_queue.dart';
 /// 书架条目与已保存的当前正文比例；旧记录才按字符权重估算。
 typedef _ShelfItem = ({BookEntry entry, int? percentInt, bool finished});
 
-const _shelfColumns = 3;
+const _shelfMinColumns = 3;
+const _shelfTargetCardWidth = 192.0;
 const _shelfGridPadding = 16.0;
 const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
@@ -1066,15 +1068,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildBookGrid(List<_ShelfItem> books) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cardWidth =
-            (constraints.maxWidth -
-                _shelfGridPadding * 2 -
-                _shelfGridSpacing * (_shelfColumns - 1)) /
-            _shelfColumns;
-        final titleHeight = MediaQuery.textScalerOf(context)
-            .scale(_shelfTitleHeight);
-        final metaHeight = MediaQuery.textScalerOf(context)
-            .scale(_shelfMetaHeight);
         return GridView.builder(
           key: const ValueKey<String>('bookshelf-grid'),
           padding: EdgeInsets.fromLTRB(
@@ -1083,15 +1076,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
             _shelfGridPadding,
             _selectionMode ? 160 : 96,
           ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: _shelfColumns,
-            mainAxisExtent:
-                cardWidth / _shelfCoverAspectRatio +
-                _shelfTitleGap +
-                titleHeight +
-                metaHeight,
-            mainAxisSpacing: 20,
-            crossAxisSpacing: _shelfGridSpacing,
+          gridDelegate: _shelfGridLayout(
+            constraints.maxWidth,
+            MediaQuery.textScalerOf(context),
           ),
           itemCount: books.length,
           itemBuilder: (context, index) {
@@ -1109,6 +1096,29 @@ class _BookshelfPageState extends State<BookshelfPage> {
           },
         );
       },
+    );
+  }
+
+  SliverGridDelegateWithFixedCrossAxisCount _shelfGridLayout(
+    double width,
+    TextScaler textScaler,
+  ) {
+    final available = width - _shelfGridPadding * 2;
+    final columns = math.max(
+      _shelfMinColumns,
+      (available + _shelfGridSpacing) ~/
+          (_shelfTargetCardWidth + _shelfGridSpacing),
+    );
+    final cardWidth = (available - _shelfGridSpacing * (columns - 1)) / columns;
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: columns,
+      mainAxisExtent:
+          cardWidth / _shelfCoverAspectRatio +
+          _shelfTitleGap +
+          textScaler.scale(_shelfTitleHeight) +
+          textScaler.scale(_shelfMetaHeight),
+      mainAxisSpacing: 20,
+      crossAxisSpacing: _shelfGridSpacing,
     );
   }
 

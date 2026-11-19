@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:reader_core/editing/epub_editing.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/reader_page.dart';
 
 import '../reader/reader_settings.dart';
@@ -20,8 +21,15 @@ class BookEditorDocument {
 
   final String path;
   final CodeLineEditingController code;
+  CodeFindController? _find;
+  CodeFindController get find => _find ??= CodeFindController(code);
   String acceptedText;
   String? error;
+
+  void dispose() {
+    _find?.dispose();
+    code.dispose();
+  }
 }
 
 typedef SaveEditorDraft = Future<void> Function(
@@ -92,9 +100,18 @@ class BookEditorController extends ChangeNotifier {
     _notify();
   }
 
-  void showSource(String path) {
+  /// 从浏览器、标签或查找结果打开文件。正文切章，样式等资源保留对照页。
+  void showSource(String path, {int? offset}) {
     sourceRequested = true;
-    openDocument(path);
+    final spine = session.spinePaths.indexOf(path);
+    if (spine >= 0 && previewTarget?.spineIndex != spine) {
+      previewTarget = ReaderEditTarget(
+        spineIndex: spine,
+        cfi: CfiBuilder().itemRef((spine + 1) * 2).body(4).build().serialize(),
+      );
+      previewNavigation++;
+    }
+    openDocument(path, offset: offset);
   }
 
   bool _documentDirty(BookEditorDocument doc) {
@@ -135,8 +152,16 @@ class BookEditorController extends ChangeNotifier {
     final doc = documents[path];
     if (doc == null) return;
     if (_documentDirty(doc) && !flush()) return;
-    documents.remove(path)?.code.dispose();
-    if (activePath == path) activePath = documents.keys.lastOrNull;
+    if (activePath == path) FocusManager.instance.primaryFocus?.unfocus();
+    documents.remove(path);
+    WidgetsBinding.instance.addPostFrameCallback((_) => doc.dispose());
+    if (activePath == path) {
+      activePath = documents.keys.lastOrNull;
+      if (activePath case final next?) {
+        showSource(next);
+        return;
+      }
+    }
     _notify();
   }
 
@@ -186,9 +211,7 @@ class BookEditorController extends ChangeNotifier {
     for (final path
         in documents.keys.where((path) => !paths.contains(path)).toList()) {
       final removed = documents.remove(path)!;
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => removed.code.dispose(),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
       if (activePath == path) activePath = documents.keys.lastOrNull;
     }
     for (final doc in documents.values) {
@@ -417,7 +440,7 @@ class BookEditorController extends ChangeNotifier {
     _debounce?.cancel();
     unawaited(_subscription.cancel());
     for (final doc in documents.values) {
-      doc.code.dispose();
+      doc.dispose();
     }
     previewSource?.close();
     for (final source in _retiredSources) {

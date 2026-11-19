@@ -62,6 +62,31 @@ String _cfi(String steps, int offset) => 'epubcfi(/6/2!/4$steps:$offset)';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('隐藏父节点下恢复可见的子段保留分页原文锚点', () async {
+    final source = await const EpubFormatOpener().openBytes(
+      _epub(
+        '<p>前文</p><div style="visibility:hidden">隐藏父文'
+        '<p>继承隐藏</p><p style="visibility:visible">可见子段</p>隐藏尾文</div>'
+        '<div style="display:none"><p style="visibility:visible">不可恢复</p></div>'
+        '<p>后文</p>',
+        '',
+      ),
+      options: const ReaderOpenOptions(contentWidth: 350, contentHeight: 700),
+    );
+    addTearDown(source.close);
+    final pages = await source.loadChapter(0);
+    final visible = pages
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .singleWhere((block) => block.layout.text == '可见子段');
+    expect(visible.style!.visibility, CssVisibility.visible);
+    final chapter = await source.loadAnchorChapter(0);
+    expect(chapter.text, '前文可见子段后文');
+    final offset = '前文'.length;
+    expect(chapter.offsetFor(visible.cfiAt(0)!), offset);
+    expect(chapter.cfiAt(offset), visible.cfiAt(0));
+  });
+
   test('正式阅读锚点将段内 tail 偏移映射到 /5 并精确回读', () async {
     final source = await _source(
       '<p id="p">lead<b id="b">A</b><i id="i">B</i>tail</p>',

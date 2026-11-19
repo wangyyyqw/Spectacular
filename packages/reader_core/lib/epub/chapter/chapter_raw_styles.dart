@@ -1,13 +1,14 @@
 import 'package:reader_core/api.dart' show EpubNode;
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
 import 'package:reader_core/parser/document_parser.dart';
 
 import 'chapter_selectors.dart';
-import 'chapter_styles.dart' show inlineDeclarationsOf;
+import 'chapter_styles.dart' show inlineDeclarationsOf, ruleMediaMatches;
 import 'pseudo_element_selector.dart';
 
 /// 原文结构的作者级联，不读取用户字体、装饰或原生文字测量状态。
@@ -39,10 +40,57 @@ class ChapterRawStyles {
   ComputedStyle styleOf(EpubNode node) =>
       _styleFor(selectors.chainOf(node) ?? const [], useBase: true);
 
-  /// 记录真实元素计算后的字族，覆盖作者样式、行内声明及 CSS 变量。
-  Set<String> get referencedFontFamilies => {
-    for (final chain in selectors.chains) ..._familiesFor(chain),
-  };
+  /// 一次遍历分别记录快照依赖的计算字族、声明中命中的书内字族。
+  ({Set<String> referenced, List<CssFontFace> candidates}) collectFonts(
+    Iterable<List<SelectorElement>> chains,
+    List<CssStylesheet> sheets,
+  ) {
+    final faces = [for (final sheet in sheets) ...sheet.fontFaces];
+    final declared = {for (final face in faces) face.family.toLowerCase()};
+    final referenced = <String>{};
+    final matched = <String>{};
+    for (final chain in chains) {
+      referenced.addAll(_familiesFor(chain));
+      if (matched.length == declared.length) continue;
+      for (final declaration in _fontDeclarationsFor(chain)) {
+        if (declaration.property == 'font' ||
+            declaration.property == 'font-family' ||
+            declaration.property.startsWith('--')) {
+          final value = declaration.value.toLowerCase();
+          matched.addAll(declared.where(value.contains));
+        }
+      }
+    }
+    return (
+      referenced: Set.unmodifiable(referenced),
+      candidates: List.unmodifiable(
+        faces.where((face) => matched.contains(face.family.toLowerCase())),
+      ),
+    );
+  }
+
+  Iterable<CssDeclaration> _fontDeclarationsFor(
+    List<SelectorElement> chain,
+  ) sync* {
+    final element = chain.last;
+    final ancestors = chain.sublist(0, chain.length - 1);
+    bool matches(CascadeRule rule) => rule.selectors.selectors.any(
+      (selector) => selector.matches(element, ancestors),
+    );
+
+    yield* inlineDeclarationsOf(element.attributes['style']);
+    for (final rule in rules.candidatesFor(element)) {
+      if (ruleMediaMatches(rule.rule.media, rule.rule.mediaConditions, width) &&
+          matches(rule)) {
+        yield* rule.rule.declarations;
+      }
+    }
+    for (final group in _pseudoRules) {
+      for (final rule in group) {
+        if (matches(rule)) yield* rule.rule.declarations;
+      }
+    }
+  }
 
   Iterable<String> _familiesFor(List<SelectorElement> chain) sync* {
     final parent = _styleFor(chain, useBase: true);

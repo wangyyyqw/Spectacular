@@ -7,9 +7,8 @@ import 'text_cfi_map.dart';
 
 /// 当前正文聚合与锚点坐标语义版本。
 ///
-/// 记录只使用当前格式；解析、行内块提升或空白处理变化时同步更新
-/// 编解码与行为测试，不在读取时转换坐标语义。
-const String currentAnchorSemanticVersion = 'text-3';
+/// 新记录使用来源 CFI；text-3 只是旧名，更早的显示块偏移须重新定位。
+const String currentAnchorSemanticVersion = 'source-text-v1';
 
 /// 阅读器实际使用的文本块；显示 UTF-16 偏移通过映射定位原 XML 字符块。
 class AnchorBlock {
@@ -265,16 +264,12 @@ class AnchorRecord {
     this.current,
     this.status = 'verified',
     this.reason,
-    this.semanticVersion = currentAnchorSemanticVersion,
   });
 
   final LocationAnchor original;
   final LocationAnchor? current;
   final String status;
   final String? reason;
-
-  /// 创建锚点时的正文语义版本。
-  final String semanticVersion;
   LocationAnchor get effective => current ?? original;
   bool get isResolved => status == 'verified' || status == 'relocated';
 
@@ -284,7 +279,7 @@ class AnchorRecord {
     'current': current?.toJson(),
     'status': status,
     'reason': reason,
-    'semanticVersion': semanticVersion,
+    'semanticVersion': currentAnchorSemanticVersion,
   };
 
   String encode() => jsonEncode(toJson());
@@ -293,12 +288,15 @@ class AnchorRecord {
     if (source == null) return null;
     try {
       final json = jsonDecode(source) as Map<String, dynamic>;
-      if (json['version'] != 1 ||
-          json['semanticVersion'] != currentAnchorSemanticVersion) {
-        return null;
-      }
+      if (json['version'] != 1) return null;
+      final version = json['semanticVersion'] as String?;
+      final usesSourceCfi = switch (version) {
+        currentAnchorSemanticVersion || 'text-3' => true,
+        null || 'text-1' || 'text-2' => false,
+        _ => throw FormatException('未知锚点语义版本：$version'),
+      };
       final status = json['status'] as String;
-      if (!{
+      if (!const {
         'verified',
         'relocated',
         'approximate',
@@ -306,6 +304,7 @@ class AnchorRecord {
       }.contains(status)) {
         return null;
       }
+      final reason = json['reason'] as String?;
       return AnchorRecord(
         original: LocationAnchor.fromJson(
           json['original'] as Map<String, dynamic>,
@@ -313,9 +312,13 @@ class AnchorRecord {
         current: json['current'] == null
             ? null
             : LocationAnchor.fromJson(json['current'] as Map<String, dynamic>),
-        status: status,
-        reason: json['reason'] as String?,
-        semanticVersion: json['semanticVersion'] as String,
+        status: usesSourceCfi ? status : 'pending',
+        reason: usesSourceCfi
+            ? reason
+            : [
+                '旧版正文偏移（${version ?? '无版号'}）未经原文核验，需重新定位',
+                if (reason != null && reason.isNotEmpty) reason,
+              ].join('；'),
       );
     } catch (_) {
       return null;

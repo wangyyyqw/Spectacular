@@ -143,17 +143,16 @@ Future<void> _seedData(
 }) async {
   final index = await buildRevisionAnchorBook(bytes);
   await _seedAnnotations(library, entry, index);
-  await DriftProgressStore(db).save(
-    entry.id,
-    ReaderProgress(
-      spineIndex: 0,
-      pageIndex: 2,
-      cfi: _quoteAnchor(index).start.cfi,
-      contentRevision: index.revision,
-      finished: finished,
-    ),
+  final progress = ReaderProgress(
+    spineIndex: 0,
+    pageIndex: 2,
+    cfi: _quoteAnchor(index).start.cfi,
+    contentRevision: index.revision,
+    finished: finished,
   );
+  await DriftProgressStore(db).save(entry.id, progress.withFinished(true));
   await _seedHistory(db, library, entry);
+  if (!finished) await DriftProgressStore(db).save(entry.id, progress);
 }
 
 Map<String, dynamic> _userAnnotation(AnnotationRow row) => row.toJson()
@@ -443,6 +442,72 @@ void main() {
     }
   });
 
+  test('新版复用文字位置时保留待定位旧笔记，只合并新版同一选区', () async {
+    const oldText = '松树枝头昨夜落满积雪';
+    const newText = '碧海远帆清晨渡过长江';
+    final oldBytes = buildRevisionTestEpub(
+      chapters: const [
+        RevisionTestChapter('first.xhtml', '旧章', [oldText]),
+      ],
+    );
+    final newBytes = buildRevisionTestEpub(
+      chapters: const [
+        RevisionTestChapter('new.xhtml', '新章', [newText]),
+      ],
+    );
+    final entry = await library.importBytes(oldBytes);
+    final chapter = (await buildRevisionAnchorBook(oldBytes)).chapter(0)!;
+    final offset = chapter.text.indexOf(oldText);
+    final startCfi = chapter.cfiAt(offset)!;
+    final endCfi = chapter.cfiAt(offset + oldText.length, end: true)!;
+    Future<ReaderAnnotation> addNote(
+      ReaderAnnotationStore store,
+      String quote,
+      String note,
+    ) async => (await store.add(
+      type: ReaderAnnotationType.thought,
+      startCfi: startCfi,
+      endCfi: endCfi,
+      quote: quote,
+      note: note,
+    ))!;
+
+    final oldNote = await addNote(
+      library.annotationStore(entry.id)!,
+      oldText,
+      '旧笔记正文',
+    );
+    expect(oldNote.relocationStatus, 'verified');
+    final current = await library.updateBytes(entry.id, newBytes);
+    final store = library.annotationStore(current.id)!;
+    final pending = (await store.list()).single;
+    expect(
+      (pending.startCfi, pending.endCfi, pending.relocationStatus),
+      (startCfi, endCfi, 'pending'),
+    );
+    final index = await buildRevisionAnchorBook(newBytes);
+    expect(index.capture(startCfi, endCfi: endCfi)?.quote, newText);
+
+    final newNote = await addNote(store, newText, '新笔记正文');
+    expect(newNote.id, isNot(oldNote.id));
+    expect(
+      (newNote.quote, newNote.note, newNote.relocationStatus),
+      (newText, '新笔记正文', 'verified'),
+    );
+    final merged = await addNote(store, newText, '新笔记补记');
+    expect(merged.id, newNote.id);
+    expect(
+      {
+        for (final item in await store.list())
+          item.id: (item.quote, item.note, item.relocationStatus),
+      },
+      {
+        oldNote.id: (oldText, '旧笔记正文', 'pending'),
+        newNote.id: (newText, '新笔记补记', 'verified'),
+      },
+    );
+  });
+
   test('真实 EPUB 跨段标注拆成跨章后核对新版实际范围', () async {
     final entry = await library.importBytes(original);
     final oldIndex = await buildRevisionAnchorBook(original);
@@ -706,9 +771,21 @@ void main() {
     await _seedData(db, library, old, original, finished: true);
     final history = _jsonRows(await db.select(db.readingSessions).get());
     expect((await DriftProgressStore(db).load(old.id))!.finished, isTrue);
+    expect(await library.finishedBookIds(), {old.id});
+    final review = (await db.select(db.bookReviews).get()).single;
     final result = await library.importBytes(updated);
     final progress = (await DriftProgressStore(db).load(result.id))!;
     expect(progress.finished, isFalse);
+    expect(await library.finishedBookIds(), isEmpty);
+    expect(
+      (await DriftBookReviewStore(db).snapshot())[result.id]!.content,
+      review.content,
+    );
+    await expectLater(
+      DriftBookReviewStore(db).save(result.id, rating: 1, content: '未重新读完不能改写'),
+      throwsA(isA<FormatException>()),
+    );
+    expect((await db.select(db.bookReviews).get()).single, review);
     expect(
       result.statusWith(finished: progress.finished),
       BookReadingStatus.reading,
@@ -736,6 +813,7 @@ void main() {
     final result = await library.importBytes(changed);
     expect(result.importOutcome, BookImportOutcome.updated);
     expect((await DriftProgressStore(db).load(result.id))!.finished, isTrue);
+    expect(await library.finishedBookIds(), {result.id});
     final notes = await library.annotationStore(result.id)!.list();
     expect(
       notes

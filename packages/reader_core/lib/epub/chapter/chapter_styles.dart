@@ -3,7 +3,6 @@ import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
 import 'package:reader_core/css/reader_contract.dart';
-import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/css/selector.dart';
 import 'package:reader_core/css/stylesheet_loader.dart';
 import 'package:reader_core/css/ua_stylesheet.dart';
@@ -15,7 +14,6 @@ import '../../util/bounded_cache.dart';
 import 'book_fonts.dart';
 import 'book_resources.dart';
 import 'chapter_preparation_job.dart';
-import 'chapter_selectors.dart';
 import 'pseudo_element_selector.dart';
 import 'css_preparation.dart';
 import 'chapter_resource_dependencies.dart';
@@ -236,7 +234,7 @@ class ChapterStyles {
     return _fontCache.putIfAbsent(key, () => _rewriteFonts(base, view));
   }
 
-  /// 无字体注册依赖的作者级联；可供原文核验和字体使用分析直接复用。
+  /// 无字体注册依赖的作者级联；按作者表身份复用选择器。
   ChapterCascadePreparation prepareBase(List<CssStylesheet> sheets) {
     return _baseCache.putIfAbsent(_CssSheetSetKey(sheets, ''), () {
       final pseudoRules = Map<String, List<AuxiliaryCssRule>>.unmodifiable({
@@ -299,81 +297,6 @@ class ChapterStyles {
               : rule,
       ]),
     );
-  }
-
-  /// 只注册当前真实元素及伪元素命中的字族，避免全局字体清单阻塞首屏。
-  List<CssFontFace> usedBookFonts(
-    List<CssStylesheet> sheets,
-    ChapterSelectors selectors,
-    ReaderOverrides overrides,
-    double width,
-  ) {
-    final faces = <CssFontFace>[for (final sheet in sheets) ...sheet.fontFaces];
-    if (faces.isEmpty ||
-        (overrides.isCustomFont && overrides.overrideEmbeddedFonts)) {
-      return const [];
-    }
-    final families = {for (final face in faces) face.family.toLowerCase()};
-    final wanted = <String>{};
-    final prepared = prepareBase(sheets);
-    for (final chain in selectors.chains) {
-      for (final declarations in _fontDeclarationsFor(chain, prepared, width)) {
-        _inspectFonts(declarations, families, wanted);
-      }
-    }
-    return [
-      for (final face in faces)
-        if (wanted.contains(face.family.toLowerCase())) face,
-    ];
-  }
-
-  static Iterable<List<CssDeclaration>> _fontDeclarationsFor(
-    List<SelectorElement> chain,
-    ChapterCascadePreparation prepared,
-    double width,
-  ) sync* {
-    yield inlineDeclarationsOf(chain.last.attributes['style']);
-    for (final rule in prepared.cascadeRules.candidatesFor(chain.last)) {
-      if (ruleMediaMatches(rule.rule.media, rule.rule.mediaConditions, width) &&
-          _matches(chain, rule.selectors.selectors)) {
-        yield rule.rule.declarations;
-      }
-    }
-    for (final rule in prepared.firstLetterRules) {
-      if (_matches(chain, rule.selectors.selectors)) yield rule.declarations;
-    }
-    for (final rule in prepared.firstLineRules) {
-      if (_matches(chain, rule.selectors.selectors)) yield rule.declarations;
-    }
-    for (final rules in prepared.pseudoRules.values) {
-      for (final rule in rules) {
-        if (_matches(chain, rule.selectors.selectors)) yield rule.declarations;
-      }
-    }
-  }
-
-  static bool _matches(
-    List<SelectorElement> chain,
-    Iterable<ComplexSelector> selectors,
-  ) => selectors.any(
-    (selector) =>
-        selector.matches(chain.last, chain.sublist(0, chain.length - 1)),
-  );
-
-  static void _inspectFonts(
-    List<CssDeclaration> declarations,
-    Set<String> families,
-    Set<String> wanted,
-  ) {
-    for (final declaration in declarations) {
-      if (declaration.property != 'font' &&
-          declaration.property != 'font-family' &&
-          !declaration.property.startsWith('--')) {
-        continue;
-      }
-      final value = declaration.value.toLowerCase();
-      wanted.addAll(families.where(value.contains));
-    }
   }
 
   static List<AuxiliaryCssRule> _prepareTextPseudoRules(

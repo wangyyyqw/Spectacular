@@ -59,9 +59,8 @@ class PageIndex {
   /// 创建索引。
   const PageIndex({required this.schemaVersion, required this.entries});
 
-  /// 当前 schema 版本；换代即整体失效（不迁移，对照 RPI2 换代策略）。
-  // 纯图不再重复消费保留容器边距，旧版块位置与页断点必须重新计算。
-  static const int currentSchemaVersion = 11;
+  /// 当前页索引格式；不兼容的缓存直接重排，不迁移。
+  static const int currentSchemaVersion = 1;
 
   /// schema 版本。
   final int schemaVersion;
@@ -69,8 +68,8 @@ class PageIndex {
   /// 页起点数组（页序敏感）。
   final List<PageIndexEntry> entries;
 
-  /// 魔数「RPI1」（u32 big-endian，对照 RPI2 命名传统）。
-  static const int _magic = 0x52504931;
+  /// 正式格式标识「SPIX」，与开发期曾复用版本号的 RPI1 缓存分开。
+  static const int _magic = 0x53504958;
 
   static const int _headerBytes = 4 + 2 + 4;
   static const int _entryBytes = 4 + 4 + 8 + 8 + 8;

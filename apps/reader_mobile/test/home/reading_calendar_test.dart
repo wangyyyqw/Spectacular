@@ -137,12 +137,12 @@ void main() {
     expect(sixWeeks.dateAt(5, 1), DateTime(2026, 8, 31));
   });
 
-  test('四本全部保留，五本取时长前三本，跨日换行不会漏书或重叠', () {
+  test('单日保留时长最多的四本，跨日沿用原行且不重叠', () {
     final month = _month(_fourThenFiveBooks(), _now);
     final spans = month.spansForWeek(0);
     const expected = [
       ['0', '1', '2', '3'],
-      ['4', '3', '2'],
+      ['4', '3', '2', '1'],
       ['3'],
     ];
     for (var column = 0; column < 3; column++) {
@@ -154,13 +154,10 @@ void main() {
         unorderedEquals(expected[column]),
       );
       expect(active.map((span) => span.lane).toSet().length, active.length);
-      expect(active.every((span) => span.lane < (column == 1 ? 3 : 4)), isTrue);
+      expect(active.every((span) => span.lane < 4), isTrue);
     }
     final fourth = spans.where((span) => span.bookId == '3').toList();
-    expect(fourth.map((span) => (span.firstColumn, span.lastColumn)), [
-      (0, 0),
-      (1, 2),
-    ]);
+    expect(fourth.map((span) => (span.firstColumn, span.lastColumn)), [(0, 2)]);
   });
 
   testWidgets('月历条带覆盖连续日期，点条带对应日期查看当天真实时长', (tester) async {
@@ -186,7 +183,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('多书当天显示三条和额外数量，详情保留所有书目与完整名称', (tester) async {
+  testWidgets('月历长书名单行省略，详情保留完整书目和书名', (tester) async {
+    const visibleTitle = '一部书名很长且需要在日历条带里省略的作品';
     const title = '一本名称很长很长而且需要在当日明细中完整展示的书籍';
     await _pump(tester, [
       for (var id = 0; id < 6; id++)
@@ -194,10 +192,18 @@ void main() {
           '$id',
           DateTime(2026, 11, 15, 9),
           10,
-          title: id == 5 ? title : null,
+          title: switch (id) {
+            0 => visibleTitle,
+            5 => title,
+            _ => null,
+          },
         ),
     ]);
-    expect(find.text('+3'), findsOneWidget);
+    final preview = tester.widget<Text>(find.text(visibleTitle));
+    expect(preview.maxLines, 1);
+    expect(preview.overflow, TextOverflow.ellipsis);
+    expect(find.text('+2'), findsOneWidget);
+    expect(find.text(title), findsNothing);
     await _tap(tester, 'day-2026-11-15');
     expect(find.text('6 本书 · 合计 1 小时'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -218,23 +224,27 @@ void main() {
   });
 
   for (final scale in [1.0, 2.0]) {
-    testWidgets('四本显示四条、五本显示三条和剩余数量，字号 $scale 倍不重叠', (tester) async {
+    testWidgets('五本显示四条，字号 $scale 倍时右下角的 +1 不重叠', (tester) async {
       await _pump(tester, _fourThenFiveBooks(), width: 320, scale: scale);
       expect(_key('more-2026-11-1'), findsNothing);
       for (var id = 0; id < 4; id++) {
         expect(_key('bar-0-$id-0'), findsOneWidget);
       }
-      expect(find.text('+2'), findsOneWidget);
+      expect(find.text('+1'), findsOneWidget);
       final fourth = tester.getRect(_key('bar-0-3-0'));
       final firstNumber = tester.getRect(_key('number-2026-11-1'));
       expect(fourth.bottom, lessThan(firstNumber.top));
       final overflow = tester.getRect(_key('more-2026-11-2'));
-      final lastOnSecondDay = tester.getRect(_key('bar-0-2-0'));
-      expect(lastOnSecondDay.bottom, lessThan(overflow.top));
+      final secondDay = tester.getRect(_key('day-2026-11-2'));
+      final secondNumber = tester.getRect(_key('number-2026-11-2'));
+      expect(fourth.right, greaterThan(secondDay.center.dx));
+      expect(overflow.top, greaterThan(fourth.bottom));
+      expect(overflow.overlaps(secondNumber), isFalse);
       expect(
-        overflow.bottom,
-        lessThan(tester.getRect(_key('day-2026-11-2')).bottom),
+        overflow.right,
+        inInclusiveRange(secondDay.center.dx, secondDay.right),
       );
+      expect(overflow.bottom, lessThan(secondDay.bottom));
       await _tap(tester, 'day-2026-11-1');
       expect(find.text('4 本书 · 合计 1 小时 40 分'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -267,7 +277,25 @@ void main() {
     }
   });
 
-  testWidgets('箭头可浏览空月和跨年月份，月份标题不打开选择面板', (tester) async {
+  testWidgets('紧凑月历将空周收至点击高度，多书周仍完整展开', (tester) async {
+    await _pump(tester, _fourThenFiveBooks());
+    final month = tester.getRect(_key('month'));
+    final summary = tester.getRect(_key('summary'));
+    final previous = tester.getRect(_key('previous'));
+    final next = tester.getRect(_key('next'));
+    expect(month.left, summary.left);
+    expect(month.bottom, lessThanOrEqualTo(summary.top));
+    expect(previous.right, next.left);
+    expect(previous.width, greaterThanOrEqualTo(kMinInteractiveDimension));
+    final empty = tester.getRect(_key('day-2026-11-8'));
+    final busy = tester.getRect(_key('day-2026-11-1'));
+    expect(empty.height, kMinInteractiveDimension);
+    expect(busy.height, greaterThan(empty.height));
+    await _tap(tester, 'day-2026-11-8');
+    expect(find.text('这一天没有阅读记录'), findsOneWidget);
+  });
+
+  testWidgets('箭头可浏览空月和跨年月份，今天按钮回到当前月份', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2025, 12, 31, 9), 10),
     ], now: DateTime(2026, 2, 15));
@@ -284,7 +312,9 @@ void main() {
       await _tap(tester, 'next');
     }
     expect(find.text('2026年2月'), findsOneWidget);
-    expect(find.byType(TextButton), findsNothing);
+    await _tap(tester, 'next');
+    await _tap(tester, 'today');
+    expect(find.text('2026年2月'), findsOneWidget);
     expect(find.text('选择月份'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -310,7 +340,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('窄屏双倍字号可横向浏览周末并打开明细，刷新保留所选月份', (tester) async {
+  testWidgets('窄屏双倍字号直接显示周末并打开明细，刷新保留所选月份', (tester) async {
     final sessions = [_session('a', DateTime(2026, 10, 31, 9), 30)];
     await _pump(tester, sessions, width: 320, scale: 2);
     await _tap(tester, 'previous');
@@ -320,6 +350,119 @@ void main() {
     expect(find.text('1 天阅读 · 2 本 · 40 分钟'), findsOneWidget);
     await _tap(tester, 'day-2026-10-31');
     expect(find.text('2 本书 · 合计 40 分钟'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('圆角边框包住完整日历，今天使用浅色背景', (tester) async {
+    await _pump(tester, []);
+    final frame = tester.widget<Material>(
+      find.byKey(const ValueKey('stats-reading-calendar')),
+    );
+    final shape = frame.shape! as RoundedRectangleBorder;
+    expect(shape.borderRadius, BorderRadius.circular(20));
+    expect(shape.side.width, 1);
+    expect(frame.clipBehavior, Clip.antiAlias);
+    final context = tester.element(_key('day-2026-11-15'));
+    final scheme = Theme.of(context).colorScheme;
+    BoxDecoration background(String day) =>
+        tester
+                .widget<DecoratedBox>(
+                  find.descendant(
+                    of: _key('day-$day'),
+                    matching: find.byType(DecoratedBox),
+                  ),
+                )
+                .decoration
+            as BoxDecoration;
+    expect(
+      background('2026-11-15').color,
+      scheme.primary.withValues(alpha: .06),
+    );
+    expect(background('2026-11-14').color, isNull);
+    expect(background('2026-11-16').color, isNull);
+    expect(background('2026-11-15').border, background('2026-11-14').border);
+    expect(background('2026-11-15').border, background('2026-11-16').border);
+    final title = tester.getRect(_key('month'));
+    final previous = tester.getRect(_key('previous'));
+    final next = tester.getRect(_key('next'));
+    final today = tester.getRect(_key('today'));
+    expect(title.right, lessThan(previous.left));
+    expect(previous.center.dy, next.center.dy);
+    expect(next.center.dy, today.center.dy);
+    expect(next.right, lessThan(today.left));
+    expect(today.width, greaterThanOrEqualTo(44));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('窄屏字号 $scale 倍七列都在边框内，左右拖动不移动日历或切月', (tester) async {
+      await _pump(tester, _fourThenFiveBooks(), width: 320, scale: scale);
+      final frame = find.byKey(const ValueKey('stats-reading-calendar'));
+      expect(
+        find.descendant(
+          of: frame,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Scrollable &&
+                [
+                  AxisDirection.left,
+                  AxisDirection.right,
+                ].contains(widget.axisDirection),
+          ),
+        ),
+        findsNothing,
+      );
+      expect(find.text('左右滑动查看完整一周'), findsNothing);
+      final bounds = tester.getRect(frame);
+      for (var day = 1; day <= 30; day++) {
+        final rect = tester.getRect(_key('day-2026-11-$day'));
+        expect(rect.left, greaterThan(bounds.left));
+        expect(rect.right, lessThan(bounds.right));
+      }
+      final sunday = tester.getRect(_key('day-2026-11-1'));
+      final saturday = tester.getRect(_key('day-2026-11-7'));
+      for (final distance in [-180.0, 180.0]) {
+        await tester.drag(_key('day-2026-11-4'), Offset(distance, 0));
+        await tester.pumpAndSettle();
+        expect(find.text('2026年11月'), findsOneWidget);
+        expect(tester.getRect(_key('day-2026-11-1')), sunday);
+        expect(tester.getRect(_key('day-2026-11-7')), saturday);
+      }
+      await _tap(tester, 'day-2026-11-7');
+      expect(find.text('2026-11-07'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('月份下拉可跨年选择空月，今天返回本月并保留原统计', (tester) async {
+    await _pump(tester, [_session('a', DateTime(2026, 11, 2, 9), 30)]);
+    await _tap(tester, 'pick-month');
+    expect(find.text('选择月份'), findsOneWidget);
+    await _tap(tester, 'previous-year');
+    await _tap(tester, 'pick-2025-12');
+    expect(find.text('2025年12月'), findsOneWidget);
+    expect(_key('month-picker'), findsNothing);
+    expect(find.text('本月暂无阅读记录'), findsOneWidget);
+    await _tap(tester, 'today');
+    expect(find.text('2026年11月'), findsOneWidget);
+    expect(find.text('1 天阅读 · 1 本 · 30 分钟'), findsOneWidget);
+    await _tap(tester, 'pick-month');
+    await _tap(tester, 'next-year');
+    await _tap(tester, 'pick-2027-1');
+    expect(find.text('2027年1月'), findsOneWidget);
+    await _tap(tester, 'pick-month');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('2027年1月'), findsOneWidget);
+    expect(_key('month-picker'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('窄屏双倍字号的月份选择器可见并能选择十二月', (tester) async {
+    await _pump(tester, [], width: 320, scale: 2);
+    await _tap(tester, 'pick-month');
+    await _tap(tester, 'pick-2026-12');
+    expect(find.text('2026年12月'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

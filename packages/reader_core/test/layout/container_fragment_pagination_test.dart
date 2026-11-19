@@ -135,7 +135,7 @@ void main() {
       expect(actual.trailingExtent, expected.trailingExtent);
       expect(replayed[i].usedHeight, measured.pages[i].usedHeight);
     }
-    final old = PageIndex(schemaVersion: 1, entries: index.entries);
+    final old = PageIndex(schemaVersion: 11, entries: index.entries);
     expect(PageIndex.decode(old.encode()), isNull);
     expect(PageIndex.apply(old, blocks, spineIndex: 0), isNull);
   });

@@ -1,11 +1,16 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:reader_core/editing/class_style_editor.dart';
 import 'package:reader_core/editing/class_style_worker.dart';
+import 'package:reader_core/editing/epub_edit_session.dart';
 import 'package:reader_core/editing/package_editor.dart';
+import 'package:reader_core/epub/opf.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_editor_controller.dart';
+
+part 'book_editor_files.dart';
 
 /// 等反向动画卸载输入控件后才释放调用方持有的控制器。
 Future<T?> _showEditorDialog<T>({
@@ -439,7 +444,7 @@ class BookEditorTools {
     final title = await editorPrompt(context, '章节标题', initial: '新章节');
     if (title != null &&
         editor.runCommand(() => package.addXhtml(path, title))) {
-      editor.openDocument(path);
+      editor.showSource(path);
     }
   }
 
@@ -503,12 +508,14 @@ class BookEditorTools {
   }
 
   Future<bool> replaceImageResource(String path) async {
-    final extension = path.split('.').last.toLowerCase();
+    final resource = editor.session.resources.firstWhere(
+      (item) => item.path == path,
+    );
     final file = await FilePicker.pickFile(
       type: FileType.custom,
-      allowedExtensions: extension == 'jpg' || extension == 'jpeg'
-          ? ['jpg', 'jpeg']
-          : [extension],
+      allowedExtensions:
+          _rasterExtensions[_resourceMediaType(resource)] ??
+          [path.split('.').last.toLowerCase()],
     );
     if (file == null || !context.mounted) return false;
     if (!await editorConfirm(
@@ -549,7 +556,7 @@ class BookEditorTools {
                 subtitle: Text(items[index].path),
                 leading: Text('${index + 1}'),
                 onTap: () {
-                  editor.openDocument(items[index].path);
+                  editor.showSource(items[index].path);
                   Navigator.pop(context);
                 },
               ),
@@ -836,7 +843,7 @@ class BookEditorTools {
                         title: Text(item.path),
                         subtitle: Text(item.text, maxLines: 1),
                         onTap: () {
-                          editor.openDocument(item.path, offset: item.start);
+                          editor.showSource(item.path, offset: item.start);
                           Navigator.pop(context);
                         },
                       );
@@ -957,135 +964,6 @@ class BookEditorTools {
         ScaffoldMessenger.of(dialogContext)
             .showSnackBar(SnackBar(content: Text('$error')));
       }
-    }
-  }
-}
-
-class BookEditorFiles extends StatelessWidget {
-  const BookEditorFiles({
-    super.key,
-    required this.editor,
-    required this.onOpen,
-  });
-  final BookEditorController editor;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final folders = <String, List<String>>{};
-    for (final resource in editor.session.resources) {
-      final index = resource.path.lastIndexOf('/');
-      folders
-          .putIfAbsent(
-            index < 0 ? '根目录' : resource.path.substring(0, index),
-            () => [],
-          )
-          .add(resource.path);
-    }
-    final keys = folders.keys.toList()..sort();
-    return ListView(
-      children: [
-        ListTile(
-          title: const Text('书籍文件'),
-          trailing: IconButton(
-            tooltip: '新增文件',
-            icon: const AppIcon(AppGlyph.add),
-            onPressed: () => BookEditorTools(context, editor).addResource(),
-          ),
-        ),
-        for (final folder in keys)
-          AppExpansionTile(
-            initiallyExpanded: true,
-            title: Text(folder),
-            children: [
-              for (final path in folders[folder]!..sort())
-                ListTile(
-                  dense: true,
-                  selected: editor.activePath == path,
-                  title: Text(
-                    path.split('/').last,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () => _open(context, path),
-                  trailing: PopupMenuButton<String>(
-                    icon: const AppIcon(AppGlyph.more),
-                    tooltip: '文件操作',
-                    onSelected: (value) => BookEditorTools(
-                      context,
-                      editor,
-                    ).fileAction(path, value),
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'rename', child: Text('重命名')),
-                      const PopupMenuItem(value: 'delete', child: Text('删除')),
-                      if (_image(path))
-                        const PopupMenuItem(
-                          value: 'cover',
-                          child: Text('设为封面'),
-                        ),
-                      if (_image(path))
-                        const PopupMenuItem(
-                          value: 'replace-image',
-                          child: Text('替换图片资源（全书）'),
-                        ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-      ],
-    );
-  }
-
-  bool _image(String path) =>
-      RegExp(r'\.(png|jpe?g|gif|webp)$', caseSensitive: false).hasMatch(path);
-
-  void _open(BuildContext context, String path) {
-    if (_image(path)) {
-      _showEditorDialog<void>(
-        context: context,
-        builder: (context) => Dialog(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: InteractiveViewer(
-                  child: Image.memory(editor.session.readBytes(path)!),
-                ),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('关闭图片'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  if (await BookEditorTools(
-                        context,
-                        editor,
-                      ).replaceImageResource(path) &&
-                      context.mounted) {
-                    Navigator.pop(context);
-                  }
-                },
-                child: const Text('替换图片资源（全书引用生效）'),
-              ),
-            ],
-          ),
-        ),
-      );
-    } else if (RegExp(
-      r'\.(xhtml|html|xml|opf|ncx|css|svg|txt)$',
-      caseSensitive: false,
-    ).hasMatch(path)) {
-      editor.openDocument(path);
-      onOpen();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '$path · ${editor.session.readBytes(path)?.length ?? 0} 字节',
-          ),
-        ),
-      );
     }
   }
 }

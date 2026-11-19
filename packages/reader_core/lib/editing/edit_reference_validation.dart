@@ -27,28 +27,60 @@ class EditReferenceValidator {
 
   List<String> validate(Iterable<String> changedPaths) {
     final warnings = <String>[];
-    for (final path in changedPaths) {
+    final affectedTargets = originalPaths.difference(availablePaths);
+    final changed = changedPaths.toSet();
+    for (final path in changed) {
+      if (!_referenceDocument(path)) continue;
       final after = readAfter(path);
-      if (after == null || !_referenceDocument(path)) continue;
-      final previous = _originalReferences(path);
-      for (final ref in _references(path, _decode(after))) {
-        final failure = _failure(ref);
-        if (failure == null) continue;
-        if (previous.contains(ref) && _failure(ref, original: true) != null) {
-          warnings.add('保留原有引用问题：$path → $failure');
-        } else {
-          throw EpubEditException('新增引用无效：$path → $failure');
-        }
+      if (after == null) continue;
+      final previous = _originalReferences(path, collectIds: true);
+      final current = _references(path, _decode(after), idsByPath: _targetIds);
+      _checkLinks(path, current, previous, warnings);
+      final ids = _targetIds[path];
+      if (ids != null &&
+          !ids.containsAll(_originalTargetIds[path] ?? const {})) {
+        affectedTargets.add(path);
+      }
+    }
+    if (affectedTargets.isNotEmpty) {
+      for (final path in availablePaths) {
+        if (changed.contains(path) || !_referenceDocument(path)) continue;
+        final unchanged = _originalReferences(path);
+        final incoming = unchanged.where(
+          (ref) => affectedTargets.contains(ref.path),
+        );
+        _checkLinks(path, incoming, unchanged, warnings);
       }
     }
     return warnings;
   }
 
-  Set<_Reference> _originalReferences(String path) {
-    final bytes = readBefore(path);
-    if (bytes == null) return {};
+  void _checkLinks(
+    String path,
+    Iterable<_Reference> links,
+    Set<_Reference> previous,
+    List<String> warnings,
+  ) {
+    for (final ref in links) {
+      final failure = _failure(ref);
+      if (failure == null) continue;
+      if (previous.contains(ref) && _failure(ref, original: true) != null) {
+        warnings.add('保留原有引用问题：$path → $failure');
+      } else {
+        throw EpubEditException('新增引用无效：$path → $failure');
+      }
+    }
+  }
+
+  Set<_Reference> _originalReferences(String path, {bool collectIds = false}) {
     try {
-      return _references(path, _decode(bytes));
+      final bytes = readBefore(path);
+      if (bytes == null) return {};
+      return _references(
+        path,
+        _decode(bytes),
+        idsByPath: collectIds ? _originalTargetIds : null,
+      );
     } catch (_) {
       // 旧源码无法可靠解析时，不把未知引用当作已确认的历史问题。
       return {};
@@ -67,14 +99,7 @@ class EditReferenceValidator {
       final ids = cache.putIfAbsent(ref.path, () {
         final bytes = read(ref.path);
         if (bytes == null) return {};
-        final document = XmlDocument.parse(_decode(bytes));
-        return {
-          for (final node in document.descendants.whereType<XmlElement>())
-            for (final attribute in node.attributes)
-              if (attribute.name.qualified == 'id' ||
-                  attribute.name.qualified == 'xml:id')
-                attribute.value,
-        };
+        return _documentIds(XmlDocument.parse(_decode(bytes)));
       });
       return ids.contains(ref.fragment) ? null : '$label（片段不存在）';
     } catch (_) {
@@ -98,12 +123,25 @@ bool _referenceDocument(String path) =>
 
 String _decode(Uint8List bytes) => EditTextEncoding.detect(bytes).decode(bytes);
 
-Set<_Reference> _references(String path, String source) {
+Set<String> _documentIds(XmlDocument document) => {
+  for (final node in document.descendants.whereType<XmlElement>())
+    for (final attribute in node.attributes)
+      if (attribute.name.qualified == 'id' ||
+          attribute.name.qualified == 'xml:id')
+        attribute.value,
+};
+
+Set<_Reference> _references(
+  String path,
+  String source, {
+  Map<String, Set<String>>? idsByPath,
+}) {
   final base = Uri(path: path);
   if (p.posix.extension(path).toLowerCase() == '.css') {
     return _cssReferences(source, base);
   }
   final document = XmlDocument.parse(source);
+  if (idsByPath != null) idsByPath[path] = _documentIds(document);
   final htmlBase = document.descendants
       .whereType<XmlElement>()
       .where((e) => e.name.local == 'base')

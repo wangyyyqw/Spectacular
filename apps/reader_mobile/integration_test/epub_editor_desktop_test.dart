@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:re_editor/re_editor.dart';
@@ -13,6 +15,8 @@ import 'package:reader_mobile/editing/book_editor_controller.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/editing/book_editor_inspector.dart';
 import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
@@ -26,6 +30,28 @@ Future<void> _until(WidgetTester tester, bool Function() ready) async {
     await tester.pump(const Duration(milliseconds: 50));
   }
   await tester.pump();
+}
+
+Future<void> _capture(WidgetTester tester, String name) async {
+  const capture = bool.fromEnvironment('CAPTURE_EDITOR_PREVIEW');
+  if (!capture) return;
+  final output = Directory(
+    '${Directory.systemTemp.path}/spectacular-editor-evidence',
+  );
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(const ValueKey('desktop-editor-capture')),
+  );
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pump(const Duration(milliseconds: 350));
+  final image = await boundary.toImage(pixelRatio: 2);
+  try {
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    await output.create(recursive: true);
+    await File('${output.path}/$name.png')
+        .writeAsBytes(bytes!.buffer.asUint8List());
+  } finally {
+    image.dispose();
+  }
 }
 
 /// ReEditor 使用增量输入协议；标准 tester.enterText 只发送旧版完整状态。
@@ -125,9 +151,12 @@ void main() {
                   saved =
                       await Navigator.of(context).push<bool>(
                         MaterialPageRoute(
-                          builder: (_) => BookEditorPage(
-                            controller: controller,
-                            title: book.title,
+                          builder: (_) => RepaintBoundary(
+                            key: const ValueKey('desktop-editor-capture'),
+                            child: BookEditorPage(
+                              controller: controller,
+                              title: book.title,
+                            ),
                           ),
                         ),
                       ) ??
@@ -185,6 +214,27 @@ void main() {
     );
     reopened.close();
     await reopened.preparationsStopped;
+    await _until(tester, () => find.byType(PageTurnView).evaluate().isNotEmpty);
+    final preview = tester
+        .widget<PageTurnView>(find.byType(PageTurnView))
+        .session;
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).pageTurnMode,
+      PageTurnMode.slideHorizontal,
+    );
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).bookTitle,
+      book.title,
+    );
+    expect(tester.getSize(find.byType(ReaderPage)), const Size(360, 800));
+    final media = MediaQuery.of(tester.element(find.byType(ReaderPage)));
+    expect(media.size * media.devicePixelRatio, const Size(1080, 2400));
+    await _until(tester, () => preview.page != null && !preview.loading);
+    await tester.tap(find.byTooltip('下一页'));
+    await _until(tester, () => preview.page?.spineIndex == 1);
+    await tester.tap(find.byTooltip('上一页'));
+    await _until(tester, () => preview.page?.spineIndex == 0);
+    await _capture(tester, '编辑器手机分页');
     controller.openDocument(
       'OEBPS/middle.xhtml',
       offset: session
@@ -213,11 +263,18 @@ void main() {
     );
     await tester.pump();
     expect(controller.activePath, 'OEBPS/middle.xhtml');
+    await _capture(tester, '编辑器样式检查');
     if (find.byType(BookEditorInspector).evaluate().isEmpty) {
       Navigator.of(tester.element(find.textContaining('编辑 <'))).pop();
       await tester.pump();
     }
-    await tester.tap(find.byTooltip('保存书籍'));
+    await tester.binding.setSurfaceSize(const Size(960, 760));
+    await tester.pump();
+    await tester.tap(find.byTooltip('打开书籍浏览器'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.sendKeyDownEvent(modifier);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(modifier);
     await _until(tester, () => saved);
     expect(savedBook!.id, book.id);
     expect(savedBook!.contentRevision, isNot(book.contentRevision));

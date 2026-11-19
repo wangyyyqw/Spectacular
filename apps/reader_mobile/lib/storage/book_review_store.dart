@@ -37,7 +37,7 @@ abstract interface class BookReviewStore {
   /// 全部书评快照：书籍 uuid → 书评。
   Future<Map<String, BookReview>> snapshot();
 
-  /// 保存或覆盖一条书评；评分和正文都为空时删除。
+  /// 保存或覆盖已读完书籍的书评；评分和正文都为空时删除。
   Future<void> save(String bookId, {int? rating, required String content});
 
   /// 删除书评。
@@ -82,25 +82,33 @@ class DriftBookReviewStore implements BookReviewStore {
       await remove(bookId);
       return;
     }
-    final internalId = await _bookIdOf(bookId);
-    if (internalId == null) {
-      throw const FormatException('书籍已移除，无法保存书评');
-    }
-    final existing = await (_db.select(
-      _db.bookReviews,
-    )..where((table) => table.bookId.equals(internalId))).getSingleOrNull();
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await _db
-        .into(_db.bookReviews)
-        .insertOnConflictUpdate(
-          BookReviewsCompanion.insert(
-            bookId: Value<int>(internalId),
-            rating: Value<int?>(normalizedRating),
-            content: Value<String>(normalizedContent),
-            createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
-          ),
-        );
+    await _db.transaction(() async {
+      final internalId = await _bookIdOf(bookId);
+      if (internalId == null) {
+        throw const FormatException('书籍已移除，无法保存书评');
+      }
+      final progress = await (_db.select(
+        _db.readingProgress,
+      )..where((table) => table.bookId.equals(internalId))).getSingleOrNull();
+      if (progress?.finished != true) {
+        throw const FormatException('标记读完后才能评分或写书评');
+      }
+      final existing = await (_db.select(
+        _db.bookReviews,
+      )..where((table) => table.bookId.equals(internalId))).getSingleOrNull();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await _db
+          .into(_db.bookReviews)
+          .insertOnConflictUpdate(
+            BookReviewsCompanion.insert(
+              bookId: Value<int>(internalId),
+              rating: Value<int?>(normalizedRating),
+              content: Value<String>(normalizedContent),
+              createdAt: existing?.createdAt ?? now,
+              updatedAt: now,
+            ),
+          );
+    });
   }
 
   @override

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:reader_core/api.dart' hide ComputedStyle, Paginator;
+import 'package:reader_core/cache/chapter_pagination_store.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
@@ -34,6 +35,7 @@ import 'chapter/container_blocks.dart';
 import 'chapter/chapter_layout_job.dart';
 import 'chapter/chapter_preparation_job.dart';
 import 'chapter/chapter_layout_cache.dart';
+import 'chapter/chapter_pagination_cache.dart';
 import 'chapter/chapter_layout_pipeline.dart';
 import 'chapter/chapter_block_walker.dart';
 import 'chapter/chapter_text_overlays.dart';
@@ -56,6 +58,8 @@ class EpubChapterSource
         PreparedChapterSource,
         BookTypographyFontSource,
         ScheduledChapterSource,
+        ProgressiveChapterSource,
+        BackgroundLayoutChapterSource,
         CurrentReadingChapterSource,
         SpineLayoutDependencyChapterSource,
         ReaderTextOverlaySource {
@@ -69,7 +73,10 @@ class EpubChapterSource
     ChapterPreviewCache<ChapterStructure>? previewCache,
     Map<String, String> resourceVersions = const {},
     Future<Directory> Function()? networkImageCacheDirectoryProvider,
-  }) : _resources = BookResources(
+    ChapterPaginationStore? paginationStore,
+  }) : _paginationCache = ChapterPaginationCache(paginationStore),
+       _hasStableContentVersion = contentVersion?.trim().isNotEmpty == true,
+       _resources = BookResources(
          document,
          trackDependencies: previewCache != null,
          networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
@@ -82,6 +89,8 @@ class EpubChapterSource
 
   static int _sessionSequence = 0;
   String _contentVersion;
+  bool _hasStableContentVersion;
+  final ChapterPaginationCache _paginationCache;
   final ChapterPreviewCache<ChapterStructure>? _previewCache;
   final Map<String, String> _resourceVersions;
 
@@ -95,6 +104,7 @@ class EpubChapterSource
     bool trimTextEdges = true,
     String? contentVersion,
     Future<Directory> Function()? networkImageCacheDirectoryProvider,
+    ChapterPaginationStore? paginationStore,
   }) async {
     // 小数行高（T1 实验开关）：Skia 会把行盒高取整成整数，CSS 的
     // `line-height: 1.7` × 15px = 25.5 会变成 26，列表/表格行位置逐行
@@ -109,6 +119,7 @@ class EpubChapterSource
       trimTextEdges: trimTextEdges,
       contentVersion: contentVersion,
       networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
+      paginationStore: paginationStore,
     );
   }
 
@@ -127,6 +138,7 @@ class EpubChapterSource
     ChapterPreviewCache<ChapterStructure>? previewCache,
     Map<String, String> resourceVersions = const {},
     Future<Directory> Function()? networkImageCacheDirectoryProvider,
+    ChapterPaginationStore? paginationStore,
   }) async {
     line_breaker.LineBreaker.preserveFractionalLineHeight = true;
     final result = await openEpubFile(
@@ -144,6 +156,7 @@ class EpubChapterSource
       previewCache: previewCache,
       resourceVersions: resourceVersions,
       networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
+      paginationStore: paginationStore,
     );
   }
 
@@ -157,6 +170,7 @@ class EpubChapterSource
     ChapterPreviewCache<ChapterStructure>? previewCache,
     Map<String, String> resourceVersions = const {},
     Future<Directory> Function()? networkImageCacheDirectoryProvider,
+    ChapterPaginationStore? paginationStore,
   }) {
     final document = result.document;
     if (document == null) {
@@ -181,6 +195,7 @@ class EpubChapterSource
       previewCache: previewCache,
       resourceVersions: resourceVersions,
       networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
+      paginationStore: paginationStore,
     );
   }
 
@@ -201,7 +216,9 @@ class EpubChapterSource
 
   /// 首次排版前绑定导入摘要；完成布局按实际内容版本复用。
   void setContentVersion(String version) {
-    if (_closed || version.trim().isEmpty || version == _contentVersion) return;
+    if (_closed || version.trim().isEmpty) return;
+    _hasStableContentVersion = true;
+    if (version == _contentVersion) return;
     _contentVersion = version;
     _layoutGeneration += 1;
     cancelPendingLayouts();
@@ -287,10 +304,12 @@ class EpubChapterSource
   int _preparerEpoch = 0;
   int _blockCacheHits = 0;
   int _chapterLayoutCount = 0;
+  int _storedIndexReplays = 0;
   late final ChapterLayoutScheduler _scheduler = ChapterLayoutScheduler(
     run: _runLayout,
     isCurrent: _isCurrentSnapshot,
     onFinished: _releaseLayoutInput,
+    onPageCount: _rememberPageCount,
   );
   late final ChapterLayoutPipeline _pipeline = ChapterLayoutPipeline(
     _resources,
@@ -324,6 +343,8 @@ class EpubChapterSource
     return '页缓存 $pages/$pageCacheChapterLimit 章；'
         '块缓存 ${entries.length}/$blockCacheChapterLimit 章；'
         '完成布局 ${_completed.estimatedBytes}/${ChapterLayoutCache.maxBytes} 字节；'
+        '持久分页命中 ${_paginationCache.hits} 次，缓存异常 ${_paginationCache.failures} 次；'
+        '持久页索引回放 $_storedIndexReplays 次；'
         '文档缓存 ${_structures.length}/$documentCacheChapterLimit 章；'
         '${_styles.cacheReport}；'
         '满屏索引 ${_structures.length}/$chapterIndexCacheLimit 章；'
@@ -343,6 +364,7 @@ class EpubChapterSource
       '|page=$baseContentHeight|top=$_contentTopInset|trim=$trimTextEdges'
       '|sides=${_contentSideInsets.left},${_contentSideInsets.right}'
       '|spacing=$textSpacingRevision|index=${PageIndex.currentSchemaVersion}'
+      '|platform=${Platform.operatingSystem}:${Platform.operatingSystemVersion}'
       '|${_overrides.fingerprint}';
 
   String get _preparationKey =>
@@ -616,6 +638,7 @@ class EpubChapterSource
     _structures.preparationsStopped,
     _styles.preparationsStopped,
     _resources.preparationsStopped,
+    cacheWritesStopped,
   ]);
 
   /// 关闭在途任务和书籍资源；近期缓存只保留不含资源句柄的纯布局。
@@ -739,7 +762,21 @@ class EpubChapterSource
     int spineIndex, {
     ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
     bool retainResult = true,
-  }) {
+  }) => _scheduleChapter(spineIndex, priority, retainResult, false);
+
+  @override
+  ProgressiveChapterLoadHandle scheduleProgressiveChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+    bool retainResult = true,
+  }) => _scheduleChapter(spineIndex, priority, retainResult, true);
+
+  ProgressiveChapterLoadHandle _scheduleChapter(
+    int spineIndex,
+    ChapterLayoutPriority priority,
+    bool retainResult,
+    bool progressive,
+  ) {
     if (!_closed && isChapterMissing(spineIndex)) return _emptyChapterHandle();
     final key = _preparationKey;
     final preparation = _structures.schedule(
@@ -747,15 +784,28 @@ class EpubChapterSource
       contentWidth,
       priority: priority,
     );
+    final budget = LayoutBudget(
+      priority: priority,
+      isCurrent: () => !_closed && key == _preparationKey,
+      waitForBackground: () => _scheduler.backgroundResumeSignal,
+    );
     final handle = PreparingChapterHandle(
       (cancelled) => _prepareAndSchedule(
         spineIndex,
         key,
         cancelled,
         preparation,
-        (priority: priority, retain: retainResult),
+        (budget: budget, retain: retainResult, progressive: progressive),
       ),
-      onCancel: preparation.cancel,
+      onCancel: () {
+        budget.cancel();
+        preparation.cancel();
+      },
+      onPriorityChanged: (next) {
+        budget.priority = next;
+        preparation.promote(next);
+      },
+      priority: priority,
     );
     _waitingLayouts.add(handle);
     unawaited(
@@ -772,7 +822,7 @@ class EpubChapterSource
     String preparationKey,
     bool Function() cancelled,
     ChapterPreparationHandle<ChapterStructure> preparation,
-    ({ChapterLayoutPriority priority, bool retain}) request,
+    ({LayoutBudget budget, bool retain, bool progressive}) request,
   ) async {
     void check() {
       if (_closed || cancelled() || preparationKey != _preparationKey) {
@@ -784,21 +834,12 @@ class EpubChapterSource
       check();
       final structure = await preparation.result;
       check();
-      await _prepareChapterDecoration(spine, preparationKey);
-      check();
-      final snapshot = await _prepareLayoutSnapshot(spine, structure, check);
-      if (!_scheduler.contains(snapshot.key)) {
-        _layoutInputs[snapshot.key] = _prepareLayoutInput(
-          snapshot,
-          structure,
-          structure.sheets,
-        );
-      }
-      check();
-      return _scheduler.schedule(
-        snapshot,
-        priority: request.priority,
-        retainResult: request.retain,
+      return await _schedulePreparedLayout(
+        spine,
+        preparationKey,
+        structure,
+        check,
+        request,
       );
     } on EpubException catch (error) {
       if (error.code != 'E_SPINE_MISSING') rethrow;
@@ -809,17 +850,49 @@ class EpubChapterSource
     }
   }
 
+  Future<ChapterLoadHandle> _schedulePreparedLayout(
+    int spine,
+    String preparationKey,
+    ChapterStructure structure,
+    void Function() check,
+    ({LayoutBudget budget, bool retain, bool progressive}) request,
+  ) async {
+    final budget = request.budget;
+    // 原文可在 isolate 中继续准备，主线程阶段必须先等待空闲或前台接管。
+    await budget.checkpoint(
+      force: budget.priority == ChapterLayoutPriority.background,
+    );
+    await _prepareChapterDecoration(spine, preparationKey);
+    check();
+    await budget.checkpoint(
+      force: budget.priority == ChapterLayoutPriority.background,
+    );
+    final snapshot = await _prepareLayoutSnapshot(spine, structure, check);
+    await budget.checkpoint(
+      force: budget.priority == ChapterLayoutPriority.background,
+    );
+    if (!_scheduler.contains(snapshot.key)) {
+      _layoutInputs[snapshot.key] = _prepareLayoutInput(
+        snapshot,
+        structure,
+        structure.sheets,
+      );
+    }
+    check();
+    return _scheduler.schedule(
+      snapshot,
+      priority: budget.priority,
+      retainResult: request.retain,
+      progressive: request.progressive,
+    );
+  }
+
   Future<LayoutSnapshot> _prepareLayoutSnapshot(
     int spine,
     ChapterStructure structure,
     void Function() check,
   ) async {
-    final faces = _styles.usedBookFonts(
-      structure.sheets,
-      structure.selectors,
-      _overrides,
-      contentWidth,
-    );
+    final faces = structure.usedBookFonts(_overrides);
     await _fonts.ensure(faces);
     check();
     return _freezeLayout(spine, {
@@ -929,7 +1002,6 @@ class EpubChapterSource
     bool Function() retainResult,
   ) async {
     budget.check();
-    final input = _layoutInputs[snapshot.key]!;
     final watch = Stopwatch()..start();
     final cached = _completed.get(snapshot.key, snapshot.fontDependency);
     _traceCache(cached != null && !_completed.requiresReplay(snapshot.key));
@@ -940,18 +1012,62 @@ class EpubChapterSource
     }
     if (cached != null) _blockCacheHits += 1;
     if (cached == null) _chapterLayoutCount += 1;
-    final result = await _pipeline.run(input, budget, cached: cached);
+    final result = await _rebuildLayout(snapshot, budget, cached);
+    _commitLayout(snapshot, budget, result.layout, retainResult());
+    _traceLayout(ReaderTraceName.chapterLayout, watch);
+    return result.layout.pages;
+  }
+
+  Future<ChapterPipelineResult> _rebuildLayout(
+    LayoutSnapshot snapshot,
+    LayoutBudget budget,
+    CompletedChapterLayout? cached,
+  ) async {
+    final stored = cached == null
+        ? await _loadStoredPagination(snapshot, budget)
+        : null;
+    final result = await _pipeline.run(
+      _layoutInputs[snapshot.key]!,
+      budget,
+      cached: cached,
+      pageIndex: stored?.pageIndex,
+      onPages: budget.wantsProgressivePages?.call() == true
+          ? budget.publishPages
+          : null,
+    );
     budget.check();
+    if (stored?.pageIndex != null &&
+        identical(stored!.pageIndex, result.layout.pageIndex)) {
+      _storedIndexReplays += 1;
+    }
     if (result.indexDiagnostic case final diagnostic?) {
       _logInvalidation(diagnostic, snapshot.key, snapshot.key);
     }
     if (result.warning case final warning?) {
       _layoutWarnings.putIfAbsent(snapshot.spineIndex, () => warning);
     }
-    _commitLayout(snapshot, budget, result.layout, retainResult());
-    _traceLayout(ReaderTraceName.chapterLayout, watch);
-    return result.layout.pages;
+    return result;
   }
+
+  Future<ChapterPaginationData?> _loadStoredPagination(
+    LayoutSnapshot snapshot,
+    LayoutBudget budget,
+  ) async {
+    if (!_hasStableContentVersion) return null;
+    final stored = await _paginationCache.read(snapshot.key);
+    budget.check();
+    if (stored != null) budget.publishPageCount?.call(stored.pageCount);
+    return stored;
+  }
+
+  void _rememberPageCount(LayoutSnapshot snapshot, int count) {
+    if (_hasStableContentVersion && _isCurrentSnapshot(snapshot)) {
+      _paginationCache.rememberCount(snapshot.key, count);
+    }
+  }
+
+  /// 关闭后已确定结果的文件写入仍可完成，不等待剩余章节排版。
+  Future<void> get cacheWritesStopped => _paginationCache.writesStopped;
 
   void _commitLayout(
     LayoutSnapshot snapshot,
@@ -965,6 +1081,7 @@ class EpubChapterSource
         _completed.setCurrent(snapshot.key);
       }
       _completed.put(layout);
+      if (_hasStableContentVersion) _paginationCache.rememberLayout(layout);
       _lastSnapshots[snapshot.spineIndex] = snapshot;
     }
   }
@@ -1006,12 +1123,32 @@ class EpubChapterSource
     if (snapshot != null) _completed.setCurrent(snapshot.key);
   }
 
-  ChapterLoadHandle _emptyChapterHandle() => _EmptyChapterHandle();
+  @override
+  void setBackgroundLayoutPaused(bool paused) =>
+      _scheduler.setBackgroundPaused(paused);
+
+  ProgressiveChapterLoadHandle _emptyChapterHandle() => _EmptyChapterHandle();
 }
 
-class _EmptyChapterHandle implements ChapterLoadHandle {
+class _EmptyChapterHandle implements ProgressiveChapterLoadHandle {
   @override
   Future<List<PageContent>> get result => Future.value(const []);
+  @override
+  Future<List<PageContent>> get firstPages => result;
+  @override
+  List<PageContent> get availablePages => const [];
+  @override
+  Stream<List<PageContent>> get updates => const Stream.empty();
+  @override
+  Stream<int> get pageCountUpdates => const Stream.empty();
+  @override
+  bool get isComplete => true;
+  @override
+  int get pageCount => 0;
+  @override
+  ChapterLayoutPriority get priority => ChapterLayoutPriority.background;
+  @override
+  void setPriority(ChapterLayoutPriority priority) {}
   @override
   void cancel() {}
 }

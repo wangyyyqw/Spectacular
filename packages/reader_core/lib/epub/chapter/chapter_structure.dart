@@ -3,7 +3,9 @@ import 'dart:convert';
 
 import 'package:reader_core/api.dart' show EpubLayoutType;
 import 'package:reader_core/css/computed_style.dart';
+import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/parser.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/document_parser.dart';
@@ -36,6 +38,7 @@ class ChapterStructure {
     required this.images,
     required this.sheets,
     required this.fontFamilies,
+    required this.bookFontCandidates,
     this.resourceDependency = '',
   });
 
@@ -53,6 +56,7 @@ class ChapterStructure {
        fixedFullBleed = source.fixedFullBleed,
        images = source.images,
        fontFamilies = source.fontFamilies,
+       bookFontCandidates = source.bookFontCandidates,
        resourceDependency = resourceDependency ?? source.resourceDependency;
   final ParsedDocument parsed;
   final BlockDocument document;
@@ -64,7 +68,13 @@ class ChapterStructure {
   final List<String> images;
   final List<CssStylesheet> sheets;
   final Set<String> fontFamilies;
+  final List<CssFontFace> bookFontCandidates;
   final String resourceDependency;
+
+  List<CssFontFace> usedBookFonts(ReaderOverrides overrides) =>
+      overrides.isCustomFont && overrides.overrideEmbeddedFonts
+      ? const []
+      : bookFontCandidates;
 }
 
 typedef _StructureConfig = ({
@@ -315,6 +325,7 @@ ChapterStructure _buildStructure(_StructureInput input) {
       : structural;
   final document = aggregateAnchorDocument(display, raw);
   final anchors = collectChapterAnchors(document, raw, input.parsed);
+  final fonts = raw.collectFonts(selectors.chains, input.sheets);
   return ChapterStructure(
     parsed: input.parsed,
     document: document,
@@ -332,7 +343,8 @@ ChapterStructure _buildStructure(_StructureInput input) {
     fixedFullBleed: visible,
     images: imageCoordinatesOf(input.parsed.root, raw),
     sheets: List.unmodifiable(input.sheets),
-    fontFamilies: Set.unmodifiable(raw.referencedFontFamilies),
+    fontFamilies: fonts.referenced,
+    bookFontCandidates: fonts.candidates,
   );
 }
 

@@ -37,9 +37,12 @@ import 'revision_anchor_store.dart' show requireAnchorRecord;
 part 'library_revision.dart';
 part 'library_editing.dart';
 part 'library_edit_drafts.dart';
+part 'library_sweep_paths.dart';
 
 /// 导入成功的实际结果，覆盖更新不会新建用户数据。
 enum BookImportOutcome { added, updated, unchanged }
+
+typedef BookNoteCounts = ({int thoughts, int marks, DateTime updatedAt});
 
 /// 阅读状态（P4-04）：未读 / 在读 / 已读。
 enum BookReadingStatus {
@@ -946,6 +949,66 @@ class LibraryStore {
     await store.remove(annotationId);
   }
 
+  Future<Map<String, BookNoteCounts>> bookNoteCounts() async {
+    final db = _db;
+    if (db == null) return {};
+    final notes = db.annotations;
+    final books = db.books;
+    final thought = notes.type.equals(
+      ReaderAnnotationType.thought.storageValue,
+    );
+    final mark = notes.type.equals(ReaderAnnotationType.mark.storageValue);
+    final thoughts = notes.id.count(filter: thought);
+    final marks = notes.id.count(filter: mark);
+    final updatedAt = notes.updatedAt.max();
+    final query = db.selectOnly(notes)
+      ..join([
+        innerJoin(books, books.id.equalsExp(notes.bookId), useColumns: false),
+      ])
+      ..addColumns([books.uuid, thoughts, marks, updatedAt])
+      ..where(books.deletedAt.isNull() & (thought | mark))
+      ..groupBy([books.uuid]);
+    return {
+      for (final row in await query.get())
+        row.read(books.uuid)!: (
+          thoughts: row.read(thoughts)!,
+          marks: row.read(marks)!,
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(row.read(updatedAt)!),
+        ),
+    };
+  }
+
+  Future<Map<String, Duration>> bookReadingDurations(
+    Duration minimumSession,
+  ) async {
+    final db = _db;
+    if (db == null) return {};
+    final sessions = db.readingSessions;
+    final books = db.books;
+    final total = sessions.durationMs.sum();
+    final query = db.selectOnly(sessions)
+      ..join([
+        innerJoin(
+          books,
+          books.id.equalsExp(sessions.bookId),
+          useColumns: false,
+        ),
+      ])
+      ..addColumns([books.uuid, total])
+      ..where(
+        books.deletedAt.isNull() &
+            sessions.endedAt.isBiggerThan(sessions.startedAt) &
+            sessions.durationMs.isBiggerOrEqualValue(
+              minimumSession.inMilliseconds,
+            ),
+      )
+      ..groupBy([books.uuid]);
+    return {
+      for (final row in await query.get())
+        row.read(books.uuid)!: Duration(milliseconds: row.read(total)!),
+    };
+  }
+
   /// 当前书的手工装饰存储；彻底删除或更换图片时检查全库引用。
   DriftDecorationStore? decorationStore(
     String bookId, {
@@ -971,6 +1034,24 @@ class LibraryStore {
   BookReviewStore? reviewStore() {
     final db = _db;
     return db == null ? null : DriftBookReviewStore(db);
+  }
+
+  Future<Set<String>> finishedBookIds() async {
+    final db = _db;
+    if (db == null) return const {};
+    final query =
+        db.selectOnly(db.books).join([
+            innerJoin(
+              db.readingProgress,
+              db.readingProgress.bookId.equalsExp(db.books.id),
+            ),
+          ])
+          ..addColumns([db.books.uuid])
+          ..where(
+            db.books.deletedAt.isNull() &
+                db.readingProgress.finished.equals(true),
+          );
+    return {for (final row in await query.get()) row.read(db.books.uuid)!};
   }
 
   /// 全库阅读会话存储；内存模式下没有持久化能力时返回 null。
@@ -1735,31 +1816,30 @@ class LibraryStore {
     final rows = await (db.select(
       db.books,
     )..where((table) => table.deletedAt.isNull())).get();
-    final knownFiles = <String>{
+    final paths = _LibrarySweepPaths(Directory(p.join(root.path, 'books')));
+    await paths.resolveReferences(db, rows);
+    await _sweepEditDrafts([
       for (final row in rows)
-        if (row.sourcePath != null) p.normalize(row.sourcePath!),
-      for (final row in rows)
-        if (row.coverPath != null) p.normalize(row.coverPath!),
-    };
-    knownFiles.addAll(await _protectedEditFiles());
-    await _sweepEditDrafts(rows);
-    return _sweepBookDirectory(Directory('${root.path}/books'), {
-      for (final row in rows) row.uuid,
-    }, knownFiles);
+        if (!paths.deferredBookIds.contains(row.uuid)) row,
+    ]);
+    return _sweepBookDirectory(paths, {for (final row in rows) row.uuid});
   }
 
   Future<({int removed, int bytes})> _sweepBookDirectory(
-    Directory booksDirectory,
+    _LibrarySweepPaths paths,
     Set<String> knownIds,
-    Set<String> knownFiles,
   ) async {
+    final booksDirectory = paths.booksDirectory;
+    final knownFiles = paths.files;
     if (!await booksDirectory.exists()) return (removed: 0, bytes: 0);
     var removed = 0;
     var bytes = 0;
     await for (final entity in booksDirectory.list(followLinks: false)) {
       if (entity is Directory) {
         // books/<id>/；未知标识且无活动文件引用即为孤儿目录。
-        if (knownIds.contains(p.basename(entity.path)) ||
+        final id = p.basename(entity.path);
+        if (paths.deferredBookIds.contains(id)) continue;
+        if (knownIds.contains(id) ||
             knownFiles.any((path) => p.isWithin(entity.path, path))) {
           final retired = await _sweepRetiredVersions(entity, knownFiles);
           removed += retired.removed;

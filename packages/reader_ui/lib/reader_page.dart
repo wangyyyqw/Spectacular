@@ -130,6 +130,7 @@ class ReaderPage extends StatefulWidget {
     this.onInkModeChanged,
     this.onSearch,
     this.onSessionReady,
+    this.onBookEnd,
     this.editMode = false,
     this.onEditTarget,
     this.onOpenEditor,
@@ -291,6 +292,8 @@ class ReaderPage extends StatefulWidget {
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
+
+  final void Function(ReaderSession session, bool rtl)? onBookEnd;
 
   /// 图片解码缓存（可选）；传入后背景图按需解码并触发重绘。
   final DecodedImageCache? imageCache;
@@ -893,6 +896,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       store: widget.store,
       bookId: widget.bookId,
       contentRevision: widget.contentRevision,
+      autoFinish: widget.onBookEnd == null,
     );
     _session.addListener(_reportProgressSaveError);
     widget.onSessionReady?.call(_session);
@@ -999,7 +1003,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 滑杆气泡文案：章名 + 章内页。
   String _chapterLabelOf(PageContent page) =>
       '${_chapterTitleOf(page.spineIndex)} · '
-      '${page.pageIndex + 1}/${_session.chapterPageCount} 页';
+      '${_session.pageLabelOf(page)}${_session.isChapterComplete(page.spineIndex) ? ' 页' : ''}';
 
   /// 打开/关闭沉浸式菜单（设计稿 `.screen.menu-open`）。
   void _toggleReaderMenu() {
@@ -1164,6 +1168,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final page = _session.page;
     if (selection == null ||
         page == null ||
+        (_session.isChapterComplete(page.spineIndex) &&
+            page.pageIndex >= _session.chapterPageCount - 1)) {
+      return;
+    }
+    await _session.chapterPages();
+    if (!mounted ||
+        !identical(selection, _selection) ||
+        !identical(page, _session.page) ||
         page.pageIndex >= _session.chapterPageCount - 1) {
       return;
     }
@@ -1255,7 +1267,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     SemanticsService.sendAnnouncement(
       View.of(context),
-      '第 ${page.pageIndex + 1} 页，共 $totalPages 页',
+      totalPages > 0
+          ? '第 ${page.pageIndex + 1} 页，共 $totalPages 页'
+          : '第 ${page.pageIndex + 1} 页',
       TextDirection.ltr,
     );
   }
@@ -2792,6 +2806,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   );
 
   void _requestPageTurn(bool next) {
+    if (ModalRoute.of(context)?.isCurrent == false) return;
     _searchRequest += 1;
     _clearSelection();
     _log('user_page', {
@@ -2803,6 +2818,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     _pageTurnKey.currentState?.controller.request(next);
+  }
+
+  void _openBookEnd() {
+    if (!_hasOverlayOpen && ModalRoute.of(context)?.isCurrent != false) {
+      widget.onBookEnd?.call(_session, _readingRtl);
+    }
   }
 
   Future<void> _handlePlatformCall(MethodCall call) async {
@@ -2872,6 +2893,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           paperBuilder: _buildScrollPaper,
           onTapAtPage: _handleTapInPage,
           onUserScroll: _clearSelection,
+          onBookEnd: widget.onBookEnd == null ? null : _openBookEnd,
           onPageVisible: (page) =>
               _schedulePrefetch(page, size.width - padding.horizontal),
         ),
@@ -2921,6 +2943,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ? null
               : _paintTurnBackground,
           preparePageImages: _prepareTurnPageImages,
+          onBookEnd: widget.onBookEnd == null ? null : _openBookEnd,
           preload: !_editingMargins && !_finishingMarginEdit,
           rtl: _readingRtl,
         ),
@@ -3004,8 +3027,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final data = ReaderCornerData(
       bookTitle: widget.bookTitle,
       chapterTitle: _chapterTitleOf(page.spineIndex),
-      pageLabel:
-          '${page.pageIndex + 1}/${_session.pageCountOf(page.spineIndex)}',
+      pageLabel: _session.pageLabelOf(page),
       progress: _bookProgressOf(page),
     );
     return [
@@ -3019,8 +3041,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             child: ReaderPageHeader(
               theme: _effectiveTheme,
               title: _chapterTitleOf(page.spineIndex),
-              pageLabel:
-                  '${page.pageIndex + 1}/${_session.pageCountOf(page.spineIndex)}',
+              pageLabel: _session.pageLabelOf(page),
               inkMode: _inkMode,
               info: _cornerInfo,
               data: data,

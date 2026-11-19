@@ -5,6 +5,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/epub/epub_format_opener.dart';
 import 'package:reader_core/source/format_opener.dart';
+import 'package:reader_core/source/chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../../reader_core/test/audit/audit_epub_fixture.dart';
@@ -68,36 +69,38 @@ Future<ReaderSession> _session(EpubChapterSource source, int pageIndex) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('正式 EPUB 到 80% 只预解析，四页储备不足时才排版并复用原文', () async {
+  test('正式 EPUB 在本章首页空闲时预排下一整章，跨章复用原文与已发布首页', () async {
     final source = await _source();
     final decorated = <int>[];
     source.setChapterPreparer((spine) async => decorated.add(spine));
-    final session = await _session(source, 14);
+    final session = await _session(source, 0);
+    await session.chapterPages();
     final original = session.page;
     expect(session.chapterPageCount, 20);
     await session.preparseNextChapter();
-    expect(source.anchorPreparationCount, 1, reason: '15/20 未达到 80%');
+    expect(source.anchorPreparationCount, 2, reason: '本章首页即可后台预解析邻章');
     expect(source.chapterLayoutCount, 1);
     expect(session.page, same(original));
 
-    expect(await session.next(), isTrue);
-    final atThreshold = session.page;
     final progress = session.progress;
-    await session.preparseNextChapter();
-    expect(source.anchorPreparationCount, 2);
-    expect(source.chapterLayoutCount, 1, reason: '16/20 只解析原文');
     expect(decorated, [0]);
-    expect(session.page, same(atThreshold));
+    expect(session.page, same(original));
     expect(session.progress, progress);
     expect(await session.prefetchTurnChapter(true), isNull);
     expect(source.chapterLayoutCount, 1, reason: '前方四页已就绪，不排版邻章');
 
-    expect(await session.next(), isTrue);
-    final first = await session.prefetchTurnChapter(true);
+    final first = await session.prefetchTurnChapter(true, idle: true);
     expect(first!.spineIndex, 1);
     expect(source.anchorPreparationCount, 2, reason: '排版复用预解析结构');
     expect(source.chapterLayoutCount, 2);
     expect(decorated, [0, 1]);
+    await source
+        .scheduleChapter(1, priority: ChapterLayoutPriority.background)
+        .result;
+    await Future<void>.delayed(Duration.zero);
+    expect(session.isChapterComplete(1), isTrue, reason: '仍在上一章时下一章已后台排版完成');
+    expect(session.page, same(original));
+    expect(session.progress, progress);
     while (session.page!.pageIndex < 19) {
       expect(await session.next(), isTrue);
     }
@@ -170,7 +173,6 @@ void main() {
       contentTopInset: 56.075,
       contentSideInsets: (left: 8.8, right: 8.53333333333336),
     );
-    expect(session.chapterPageCount, 20);
     expect(session.page!.pageIndex, 17);
     var prefetchFinished = false;
     final pending = [
@@ -180,6 +182,7 @@ void main() {
       }),
     ];
     await started.future;
+    expect(session.chapterPageCount, 20);
 
     for (var pageIndex = 18; pageIndex <= 19; pageIndex++) {
       final turn = await session.preparePageTurn(true);

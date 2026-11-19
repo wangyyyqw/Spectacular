@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -11,6 +13,7 @@ import 'book_resources.dart';
 import 'block_style_helpers.dart';
 import 'chapter_block_walker.dart';
 import 'chapter_flow.dart';
+import 'chapter_head_layout.dart';
 import 'chapter_layout_cache.dart';
 import 'chapter_layout_job.dart';
 import 'chapter_pagination.dart';
@@ -60,7 +63,7 @@ typedef _ChapterBlocks = ({
   String? warning,
 });
 
-/// 一次完整构块与分页，仅产出纯结果；缓存和计数统一由门面提交。
+/// 同一 walker 先发布稳定页，再完成构块与分页；完整缓存统一由门面提交。
 class ChapterLayoutPipeline {
   ChapterLayoutPipeline(this.resources, this.textCache, this.widthCache);
   final BookResources resources;
@@ -71,9 +74,14 @@ class ChapterLayoutPipeline {
     PreparedChapterLayout input,
     LayoutBudget budget, {
     CompletedChapterLayout? cached,
+    Uint8List? pageIndex,
+    void Function(List<PageContent>)? onPages,
   }) async {
+    final head = onPages == null || cached != null
+        ? null
+        : ChapterHeadLayout(input.snapshot, budget, textCache, onPages);
     final blocks = cached == null
-        ? await _buildBlocks(input, budget)
+        ? await _buildBlocks(input, budget, head)
         : (
             flow: cached.blocks,
             fixed: cached.fixedBlocks,
@@ -81,12 +89,17 @@ class ChapterLayoutPipeline {
             warning: null,
           );
     final watch = Stopwatch()..start();
-    final pages = await ChapterPageLayout(input.snapshot, budget, textCache)
-        .paginate(
+    final pages =
+        await ChapterPageLayout(
+          input.snapshot,
+          budget,
+          textCache,
+          cursor: head?.cursor,
+        ).paginate(
           blocks.flow,
           blocks.fixed,
           blocks.background,
-          pageIndex: cached?.pageIndex,
+          pageIndex: cached?.pageIndex ?? pageIndex,
         );
     budget.check();
     _trace(ReaderTraceName.chapterPagination, watch, input.traceBook);
@@ -94,7 +107,7 @@ class ChapterLayoutPipeline {
       layout: await CompletedChapterLayout.createAsync(
         key: input.snapshot.key,
         spineIndex: input.snapshot.spineIndex,
-        pages: pages.pages,
+        pages: head?.retainPages(pages.pages) ?? pages.pages,
         blocks: blocks.flow,
         fixedBlocks: blocks.fixed,
         background: blocks.background,
@@ -110,6 +123,7 @@ class ChapterLayoutPipeline {
   Future<_ChapterBlocks> _buildBlocks(
     PreparedChapterLayout input,
     LayoutBudget budget,
+    ChapterHeadLayout? head,
   ) async {
     await budget.checkpoint();
     final image = FullPageChapterLayout(
@@ -148,12 +162,25 @@ class ChapterLayoutPipeline {
       input.footnotes,
     );
     final flow = ChapterFlow();
+    final background = chapterPageBackground(
+      resolver.chainStyle([
+        ChapterNodeView('body', input.document.root.attributes, const []),
+      ]),
+      resolveUrl: (url) => resources.imageUrl(input.snapshot.spineIndex, url),
+    );
+    final traits = head != null && input.document.root.children.length > 1
+        ? await ChapterHeadLayout.inspect(resolver, budget)
+        : (supported: false, mayClone: false);
+    head?.waitForClone = traits.mayClone;
     final watch = Stopwatch()..start();
     await ChapterBlockWalker(
       resolver,
       inline,
       content,
       flow,
+      onRootChild: traits.supported
+          ? () => head!.collect(flow, background)
+          : null,
     ).build(input.document);
     _trace(ReaderTraceName.chapterCollect, watch, input.traceBook);
     await budget.checkpoint();
@@ -166,17 +193,13 @@ class ChapterLayoutPipeline {
       flow.blocks,
       checkpoint: budget.checkpoint,
     );
+    head?.retainBlocks(flow.blocks);
     _expandPageBackground(input, resolver, flow);
     await budget.checkpoint();
     return (
       flow: flow.blocks,
       fixed: flow.fixedBlocks,
-      background: chapterPageBackground(
-        resolver.chainStyle([
-          ChapterNodeView('body', input.document.root.attributes, const []),
-        ]),
-        resolveUrl: (url) => resources.imageUrl(input.snapshot.spineIndex, url),
-      ),
+      background: background,
       warning: image.warning,
     );
   }

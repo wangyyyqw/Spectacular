@@ -32,11 +32,12 @@ class ChapterPaginationResult {
 
 /// 只依赖本次冻结的尺寸、字形与预算，不持有书籍资源或阅读会话。
 class ChapterPageLayout {
-  ChapterPageLayout(this.snapshot, this.budget, this.textCache);
+  ChapterPageLayout(this.snapshot, this.budget, this.textCache, {this.cursor});
 
   final LayoutSnapshot snapshot;
   final LayoutBudget budget;
   final TextLayoutCache textCache;
+  final StablePageCursor? cursor;
 
   Future<ChapterPaginationResult> paginate(
     List<PageBlock> blocks,
@@ -51,9 +52,10 @@ class ChapterPageLayout {
     final ChapterPaginationResult result;
     if (traits.floats) {
       final floated = await _FloatPagination(this, input).run();
+      _publishPageCount(floated);
       final pages = await _withFixedOverlays(floated, overlays);
       result = ChapterPaginationResult(
-        pages: await _finishChapterPages(pages, background),
+        pages: await finishPages(pages, background),
       );
     } else {
       result = await _paginateOrdinary(
@@ -95,8 +97,9 @@ class ChapterPageLayout {
   ) async {
     final replay = await _replayIndex(cachedIndex, blocks);
     if (replay.pages case final pages?) {
+      _publishPageCount(pages);
       return ChapterPaginationResult(
-        pages: await _finishChapterPages(
+        pages: await finishPages(
           await _withFixedOverlays(pages, fixed),
           background,
         ),
@@ -104,7 +107,8 @@ class ChapterPageLayout {
       );
     }
     final pages = await _measurePages(blocks);
-    final finished = await _finishChapterPages(
+    _publishPageCount(pages);
+    final finished = await finishPages(
       await _withFixedOverlays(pages, fixed),
       background,
     );
@@ -114,6 +118,12 @@ class ChapterPageLayout {
       pageIndex: skipIndex ? null : await _encodeIndex(finished, blocks),
       indexDiagnostic: replay.diagnostic,
     );
+  }
+
+  void _publishPageCount(List<PageContent> pages) {
+    budget.check();
+    // 空正文也由正式入口补一页；覆盖层和背景处理不会再改变页界。
+    budget.publishPageCount?.call(pages.isEmpty ? 1 : pages.length);
   }
 
   Future<Uint8List> _encodeIndex(
@@ -159,6 +169,9 @@ class ChapterPageLayout {
   }
 
   Future<List<PageContent>> _measurePages(List<PageBlock> blocks) async {
+    if (cursor case final prepared?) {
+      return prepared.finish(blocks, budget.checkpoint);
+    }
     final paginator = Paginator(
       pageHeight: snapshot.height,
       pageWidth: snapshot.width,
@@ -244,7 +257,7 @@ class ChapterPageLayout {
     return overlays;
   }
 
-  Future<List<PageContent>> _finishChapterPages(
+  Future<List<PageContent>> finishPages(
     List<PageContent> source,
     PageBackground? background,
   ) async {
@@ -561,6 +574,7 @@ class _FloatPagination {
   }
 
   Future<void> _layoutFlowBlock(PageBlock block, int index) async {
+    if (block.pageBreakBefore && slices.isNotEmpty) await closePage();
     await _applyClear(block);
     await _keepWithNext(block, index);
     final rows = block.table == null ? 0 : Paginator.splittableTableRows(block);
@@ -578,6 +592,7 @@ class _FloatPagination {
     } else {
       await _layoutText(block);
     }
+    if (block.pageBreakAfter && slices.isNotEmpty) await closePage();
   }
 
   Future<List<double?>> _nextLeading() async {
@@ -1188,7 +1203,6 @@ class _FloatPagination {
       start = fit.block == null ? first : fit.end;
       if (start < rows) await closePage();
     }
-    if (block.pageBreakAfter) await closePage();
   }
 
   Future<_TableFit> _fitTableRows(
@@ -1267,7 +1281,6 @@ class _FloatPagination {
 
   // 取带、提交和收页保持同一循环，避免游标已前进但片段尚未保存。
   Future<void> _layoutMulticol(PageBlock block) async {
-    if (block.pageBreakBefore && slices.isNotEmpty) await closePage();
     await _clearMulticolArea(block);
     final flow = MulticolFlow(block.multicolContent!);
     var first = true;
@@ -1299,7 +1312,7 @@ class _FloatPagination {
         ));
         first = false;
       }
-      if (!flow.isDone || band.pageBreak || block.pageBreakAfter) {
+      if (!flow.isDone || band.pageBreak) {
         if (slices.isNotEmpty) await closePage();
       }
     }

@@ -9,6 +9,8 @@ import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
+import '../support/progressive_source.dart';
+
 class _Source implements ReaderChapterSource {
   _Source(this.pageCount);
 
@@ -37,13 +39,21 @@ Future<PageTurnController> _controller(
   Future<void>? imageGate,
   Future<void>? targetImageGate,
   int pageCount = 3,
+  ReaderChapterSource? source,
+  int initialPage = 1,
+  bool autoFinish = true,
+  void Function()? onBookEnd,
 }) async {
   final store = MemoryReaderProgressStore();
-  await store.save('curl', const ReaderProgress(spineIndex: 0, pageIndex: 1));
+  await store.save(
+    'curl',
+    ReaderProgress(spineIndex: 0, pageIndex: initialPage),
+  );
   final session = ReaderSession(
-    source: _Source(pageCount),
+    source: source ?? _Source(pageCount),
     store: store,
     bookId: 'curl',
+    autoFinish: autoFinish,
   );
   await session.open();
   final image = _image();
@@ -51,6 +61,7 @@ Future<PageTurnController> _controller(
       PageTurnController(
           session: session,
           vsync: tester,
+          onBookEnd: onBookEnd,
           acquireImage: (page) async {
             await imageGate;
             if (page.pageIndex != 1) await targetImageGate;
@@ -214,6 +225,130 @@ Completer<void> _requestWithActivationCancellation(
 }
 
 void main() {
+  for (final mode in PageTurnMode.values.where(
+    (mode) => mode != PageTurnMode.scroll,
+  )) {
+    for (final rtl in [false, true]) {
+      testWidgets('${mode.label} ${rtl ? '从右向左阅读' : '从左向右阅读'} '
+          '书尾取消和反向不确认，正向达阈值松手或点击才确认', (tester) async {
+        var confirmations = 0;
+        final controller =
+            await _controller(
+                tester,
+                rtl: rtl,
+                pageCount: 2,
+                autoFinish: false,
+                onBookEnd: () => confirmations += 1,
+              )
+              ..mode = mode;
+        final session = controller.session;
+        final lastPage = session.page;
+        expect(session.atBookEnd, isTrue);
+        expect(session.progress?.finished, isFalse);
+
+        _swipeDuringTurn(controller, release: false);
+        await tester.pump();
+        expect(confirmations, 0, reason: '拖动未松手不打开确认页');
+        controller.cancelDrag();
+        await tester.pumpAndSettle();
+        expect(confirmations, 0);
+        expect(controller.phase, PageTurnPhase.idle);
+
+        _swipeDuringTurn(controller, complete: false);
+        await tester.pumpAndSettle();
+        expect(confirmations, 0, reason: '未达到位移门槛不打开确认页');
+
+        _swipeDuringTurn(controller, release: false);
+        _releaseCurl(controller, rtl ? -400 : 400);
+        await tester.pumpAndSettle();
+        expect(confirmations, 0, reason: '反向甩动不打开确认页');
+        expect(session.page, same(lastPage));
+
+        controller.request(false);
+        await tester.pumpAndSettle();
+        expect(session.progress?.pageIndex, 0);
+        expect(confirmations, 0);
+        controller.request(true);
+        await tester.pumpAndSettle();
+        expect(session.page, same(lastPage));
+        expect(session.progress?.finished, isFalse);
+        expect(confirmations, 0, reason: '刚到末页不能自动打开确认页');
+
+        _swipeDuringTurn(controller, release: false);
+        expect(confirmations, 0);
+        controller.endDrag(DragEndDetails());
+        await tester.pumpAndSettle();
+        expect(confirmations, 1);
+        expect(controller.phase, PageTurnPhase.idle);
+        expect(session.page, same(lastPage));
+        expect(session.progress?.finished, isFalse);
+
+        controller.request(true);
+        await tester.pumpAndSettle();
+        expect(confirmations, 2, reason: '退出确认页后仍可从正文末页再次进入');
+        expect(session.page, same(lastPage));
+        await session.flushProgress();
+        expect((await session.store.load(session.bookId))?.finished, isFalse);
+      });
+    }
+  }
+
+  testWidgets('前进探测多个尾部空章后打开确认页，保留最后正文页', (tester) async {
+    final source = ProgressiveTestSource(counts: [2, 0, 0], heldSpines: {});
+    addTearDown(source.cancelPendingLayouts);
+    var confirmations = 0;
+    final controller = await _controller(
+      tester,
+      source: source,
+      autoFinish: false,
+      onBookEnd: () => confirmations += 1,
+    );
+    final lastPage = controller.session.page;
+    expect(controller.session.atBookEnd, isFalse);
+
+    controller.request(true);
+    await tester.pumpAndSettle();
+    expect(confirmations, 1);
+    expect(controller.session.atBookEnd, isTrue);
+    expect(controller.session.page, same(lastPage));
+    expect(controller.session.progress?.finished, isFalse);
+    expect(controller.session.pageTurns, 0);
+  });
+
+  testWidgets('渐进分页尚未结束时等待后续页，取消后补全也不误开确认页', (tester) async {
+    final source = ProgressiveTestSource(counts: [2], heldSpines: {0});
+    addTearDown(source.cancelPendingLayouts);
+    var confirmations = 0;
+    final controller = await _controller(
+      tester,
+      source: source,
+      initialPage: 0,
+      autoFinish: false,
+      onBookEnd: () => confirmations += 1,
+    );
+    final firstPage = controller.session.page;
+    expect(controller.session.atBookEnd, isFalse);
+    _swipeDuringTurn(controller, release: false);
+    await tester.pump();
+    expect(controller.phase, PageTurnPhase.preparing);
+    expect(confirmations, 0);
+
+    controller.cancelDrag();
+    source.complete(0);
+    await tester.pumpAndSettle();
+    expect(controller.session.page, same(firstPage));
+    expect(confirmations, 0);
+    controller.request(true);
+    await tester.pumpAndSettle();
+    expect(controller.session.progress?.pageIndex, 1);
+    expect(controller.session.progress?.finished, isFalse);
+    expect(confirmations, 0);
+    controller.request(true);
+    await tester.pumpAndSettle();
+    expect(confirmations, 1);
+    await controller.session.flushProgress();
+  });
+
   testWidgets('3D 起手以平移检测器的采样锚点为准', (tester) async {
     final controller = await _curlController(tester);
     controller.pointerDown(const ui.Offset(310, 100));

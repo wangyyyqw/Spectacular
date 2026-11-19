@@ -214,6 +214,7 @@ class BookOpener {
     );
     final decorationRules = library.decorationRuleStore(entry.id);
     final readingSessions = library.readingSessionStore();
+    final reviews = library.reviewStore();
     final fontStore = ReaderFontStore(library);
     return (onReady, readingActive) => EpubReaderPage(
       bytesFuture: opening.bytes,
@@ -237,6 +238,8 @@ class BookOpener {
       readingActive: readingActive,
       onReady: onReady,
       onClosed: opening.finishClose,
+      book: entry,
+      reviewStore: reviews,
     );
   }
 }

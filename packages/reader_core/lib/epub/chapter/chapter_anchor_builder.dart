@@ -138,34 +138,33 @@ class _AnchorBlocks {
   int _offset = 0;
 
   void walk(EpubNode node, ComputedStyle parent) {
-    final style = node is TextContentNode ? parent : styles.styleOf(node);
-    if (style.display == CssDisplay.none ||
-        style.visibility != CssVisibility.visible) {
+    if (node is TextContentNode) {
+      if (parent.visibility == CssVisibility.visible) _appendText(node);
       return;
     }
-    if (node is TextContentNode) {
-      _appendText(node);
-    } else if (node is BlockNode) {
-      _recordElementPath(node.cfi, _offset);
-      if (const {'td', 'th', 'caption'}.contains(node.tag)) {
+    final style = styles.styleOf(node);
+    if (style.display == CssDisplay.none) return;
+    final visible = style.visibility == CssVisibility.visible;
+    if (node is BlockNode) {
+      if (visible) _recordElementPath(node.cfi, _offset);
+      if (visible && const {'td', 'th', 'caption'}.contains(node.tag)) {
         final text = _cellText(node);
         if (text.text.isNotEmpty) {
           _appendBlock(node.cfi, text.text, text.textCfis);
         }
-      } else {
-        final imageCfi =
-            const {'img', 'image', 'svg', 'object'}.contains(node.tag)
-            ? styles.selectors.imageCfiOf(node)
-            : null;
+        return;
+      }
+      if (visible && const {'img', 'image', 'svg', 'object'}.contains(node.tag)) {
+        final imageCfi = styles.selectors.imageCfiOf(node);
         if (imageCfi != null) {
           _recordElementPath(EpubCfi.parse(imageCfi)!, _offset);
         }
-        for (final child in node.children) {
-          walk(child, style);
-        }
+      }
+      for (final child in node.children) {
+        walk(child, style);
       }
     } else if (node is InlineNode) {
-      _recordElementPath(node.cfi, _offset);
+      if (visible) _recordElementPath(node.cfi, _offset);
       for (final child in node.children) {
         walk(child, style);
       }

@@ -35,6 +35,42 @@ abstract interface class ChapterLoadHandle {
   void cancel();
 }
 
+/// 稳定页只追加；[result] 始终代表完整章节，取消由各等待者独立持有。
+abstract interface class ProgressiveChapterLoadHandle
+    implements ChapterLoadHandle {
+  Future<List<PageContent>> get firstPages;
+  List<PageContent> get availablePages;
+
+  /// 仅稳定页追加或完整页面交付时发送，不用于通知页数统计。
+  Stream<List<PageContent>> get updates;
+
+  /// 完整页界确定后即可提供准确总数；未知为 null，不代表完整结果已交付。
+  int? get pageCount;
+
+  /// 准确总数独立发布，可早于首页；不得借此把章节标为完整。
+  Stream<int> get pageCountUpdates;
+
+  /// 仅完整章节成功交付时为 true；取消和失败不构成章节完成。
+  bool get isComplete;
+  ChapterLayoutPriority get priority;
+  void setPriority(ChapterLayoutPriority priority);
+}
+
+/// 分页阅读可以先取得稳定首页，滚动与位置定位仍等待完整章节。
+abstract interface class ProgressiveChapterSource
+    implements ScheduledChapterSource {
+  ProgressiveChapterLoadHandle scheduleProgressiveChapter(
+    int spineIndex, {
+    ChapterLayoutPriority priority = ChapterLayoutPriority.reading,
+    bool retainResult = true,
+  });
+}
+
+/// 翻页活动期间暂停低优先级排版，当前目标页的前台请求仍可执行。
+abstract interface class BackgroundLayoutChapterSource {
+  void setBackgroundLayoutPaused(bool paused);
+}
+
 /// 可取消、可按优先级调度的章节源。
 abstract interface class ScheduledChapterSource implements ReaderChapterSource {
   ChapterLoadHandle scheduleChapter(

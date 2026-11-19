@@ -8,105 +8,179 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'book_editor_controller.dart';
 import 'xhtml_chunk_analyzer.dart';
 
-/// ReEditor 保持每份文档独立缓冲、选择范围和撤销栈。
-class BookEditorSource extends StatelessWidget {
+class BookEditorSource extends StatefulWidget {
   const BookEditorSource({super.key, required this.controller, this.onLocate});
   final BookEditorController controller;
   final VoidCallback? onLocate;
 
   @override
+  State<BookEditorSource> createState() => _BookEditorSourceState();
+}
+
+class _BookEditorSourceState extends State<BookEditorSource> {
+  bool _wrap = true;
+
+  @override
   Widget build(BuildContext context) {
-    final document = controller.activeDocument;
-    return Column(
-      children: [
-        SizedBox(
-          height: 44,
-          child: Row(
-            children: [
-              Expanded(
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    for (final doc in controller.documents.values)
-                      InputChip(
-                        key: ValueKey('document-${doc.path}'),
-                        selected: doc.path == controller.activePath,
-                        label: Text(
-                          '${doc.path.split('/').last}${controller.documentDirty(doc.path) ? ' •' : ''}',
-                        ),
-                        onPressed: () => controller.openDocument(doc.path),
-                        deleteIcon: const AppIcon(AppGlyph.close),
-                        onDeleted: () => controller.closeDocument(doc.path),
-                      ),
-                  ],
-                ),
-              ),
-              IconButton(
-                tooltip: '定位到预览',
-                onPressed: document == null || controller.busy
-                    ? null
-                    : onLocate,
-                icon: const AppIcon(AppGlyph.locate),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        if (document == null)
-          const Expanded(child: Center(child: Text('从文件列表打开 XHTML、CSS 或包文件')))
-        else ...[
-          if (document.error != null)
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                '校验未通过，预览保留上次有效内容。\n${document.error}',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
-          Expanded(
-            child: CodeEditor(
-              key: ValueKey(document.path),
-              controller: document.code,
-              autofocus: false,
-              wordWrap: false,
-              chunkAnalyzer: document.path.toLowerCase().endsWith('.css')
-                  ? const DefaultCodeChunkAnalyzer()
-                  : const XhtmlChunkAnalyzer(),
-              padding: const EdgeInsets.all(12),
-              style: CodeEditorStyle(
-                fontSize: 14,
-                codeTheme: CodeHighlightTheme(
-                  languages: {
-                    if (document.path.toLowerCase().endsWith('.css'))
-                      'css': CodeHighlightThemeMode(mode: langCss)
-                    else
-                      'xml': CodeHighlightThemeMode(mode: langXml),
-                  },
-                  theme: githubTheme,
-                ),
-              ),
-              indicatorBuilder: (context, editing, chunks, notifier) => Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DefaultCodeLineNumber(
-                    controller: editing,
-                    notifier: notifier,
-                  ),
-                  DefaultCodeChunkIndicator(
-                    width: 20,
-                    controller: chunks,
-                    notifier: notifier,
-                  ),
-                ],
-              ),
-              findBuilder: (context, find, readOnly) =>
-                  EditorFindBar(controller: find),
+    final editor = widget.controller;
+    final doc = editor.activeDocument;
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
+        children: [
+          SizedBox(
+            height: 42,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final file in editor.documents.values) _tab(file),
+              ],
             ),
           ),
+          const Divider(height: 1),
+          if (doc == null)
+            const Expanded(child: Center(child: Text('从书籍浏览器打开正文、样式或包文件')))
+          else ...[
+            if (doc.error != null)
+              Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(
+                  '校验未通过，预览保留上次有效内容。',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            Expanded(child: _code(doc)),
+            const Divider(height: 1),
+            _status(doc),
+          ],
         ],
-      ],
+      ),
     );
   }
+
+  Widget _tab(BookEditorDocument doc) {
+    final editor = widget.controller;
+    final active = doc.path == editor.activePath;
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: active ? colors.surfaceContainerLow : colors.surface,
+      child: Row(
+        children: [
+          Tooltip(
+            message: doc.path,
+            child: Semantics(
+              selected: active,
+              child: InkWell(
+                key: ValueKey('document-${doc.path}'),
+                onTap: () => editor.showSource(doc.path),
+                child: Container(
+                  alignment: Alignment.centerLeft,
+                  constraints: const BoxConstraints(maxWidth: 190),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    '${doc.path.split('/').last}${editor.documentDirty(doc.path) ? ' •' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: '关闭 ${doc.path.split('/').last}',
+            constraints: const BoxConstraints.tightFor(width: 32, height: 42),
+            padding: EdgeInsets.zero,
+            icon: const AppIcon(AppGlyph.close, size: 14),
+            onPressed: () => editor.closeDocument(doc.path),
+          ),
+          const VerticalDivider(width: 1),
+        ],
+      ),
+    );
+  }
+
+  Widget _code(BookEditorDocument doc) {
+    final css = doc.path.toLowerCase().endsWith('.css');
+    return CodeEditor(
+      key: ValueKey(doc.path),
+      controller: doc.code,
+      findController: doc.find,
+      autofocus: false,
+      wordWrap: _wrap,
+      chunkAnalyzer: css
+          ? const DefaultCodeChunkAnalyzer()
+          : const XhtmlChunkAnalyzer(),
+      padding: const EdgeInsets.all(10),
+      style: CodeEditorStyle(
+        fontSize: 14,
+        fontFamily: 'monospace',
+        codeTheme: CodeHighlightTheme(
+          languages: {
+            if (css)
+              'css': CodeHighlightThemeMode(mode: langCss)
+            else
+              'xml': CodeHighlightThemeMode(mode: langXml),
+          },
+          theme: githubTheme,
+        ),
+      ),
+      indicatorBuilder: (_, editing, chunks, notifier) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DefaultCodeLineNumber(controller: editing, notifier: notifier),
+          DefaultCodeChunkIndicator(
+            width: 16,
+            controller: chunks,
+            notifier: notifier,
+          ),
+        ],
+      ),
+      findBuilder: (_, find, _) => EditorFindBar(controller: find),
+    );
+  }
+
+  Widget _status(BookEditorDocument doc) => SizedBox(
+    height: 38,
+    child: Row(
+      children: [
+        const SizedBox(width: 10),
+        Expanded(
+          child: Tooltip(
+            message: doc.path,
+            child: ListenableBuilder(
+              listenable: doc.code,
+              builder: (context, _) {
+                final cursor = doc.code.unfoldLineSelection;
+                return Text(
+                  '行 ${cursor.extentIndex + 1} · 列 ${cursor.extentOffset + 1}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                );
+              },
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: '在文档中查找',
+          icon: const AppIcon(AppGlyph.search, size: 18),
+          onPressed: doc.find.findMode,
+        ),
+        TextButton(
+          onPressed: () => setState(() => _wrap = !_wrap),
+          child: Text(_wrap ? '关闭换行' : '自动换行'),
+        ),
+        IconButton(
+          tooltip: '定位到预览',
+          icon: const AppIcon(AppGlyph.locate, size: 18),
+          onPressed: widget.controller.busy ? null : widget.onLocate,
+        ),
+      ],
+    ),
+  );
 }
 
 class EditorFindBar extends StatelessWidget implements PreferredSizeWidget {
@@ -114,60 +188,80 @@ class EditorFindBar extends StatelessWidget implements PreferredSizeWidget {
   final CodeFindController controller;
 
   @override
-  Size get preferredSize => const Size.fromHeight(108);
+  Size get preferredSize => Size.fromHeight(switch (controller.value) {
+    null => 0,
+    CodeFindValue(replaceMode: true) => 92,
+    _ => 46,
+  });
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<CodeFindValue?>(
-    valueListenable: controller,
-    builder: (context, value, _) => Column(
-      children: [
-        Row(
+  Widget build(BuildContext context) {
+    final value = controller.value;
+    if (value == null) return const SizedBox.shrink();
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: SizedBox(
+        height: preferredSize.height,
+        child: Column(
           children: [
-            Expanded(
-              child: TextField(
-                controller: controller.findInputController,
-                focusNode: controller.findInputFocusNode,
-                decoration: const InputDecoration(labelText: '文档内查找'),
-                onSubmitted: (_) => controller.nextMatch(),
-              ),
-            ),
-            IconButton(
-              tooltip: '上一处',
-              onPressed: controller.previousMatch,
-              icon: const AppIcon(AppGlyph.chevronUp),
-            ),
-            IconButton(
-              tooltip: '下一处',
-              onPressed: controller.nextMatch,
-              icon: const AppIcon(AppGlyph.chevronDown),
-            ),
-            IconButton(
-              tooltip: '关闭查找',
-              onPressed: controller.close,
-              icon: const AppIcon(AppGlyph.close),
-            ),
+            Expanded(child: _findRow(value.replaceMode)),
+            if (value.replaceMode) Expanded(child: _replaceRow()),
           ],
         ),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller.replaceInputController,
-                focusNode: controller.replaceInputFocusNode,
-                decoration: const InputDecoration(labelText: '替换为'),
-              ),
-            ),
-            TextButton(
-              onPressed: controller.replaceMatch,
-              child: const Text('替换'),
-            ),
-            TextButton(
-              onPressed: controller.replaceAllMatches,
-              child: const Text('全部'),
-            ),
-          ],
+      ),
+    );
+  }
+
+  Widget _findRow(bool replacing) => Row(
+    children: [
+      IconButton(
+        tooltip: replacing ? '收起替换' : '展开替换',
+        onPressed: controller.toggleMode,
+        icon: AppIcon(
+          replacing ? AppGlyph.chevronDown : AppGlyph.chevronRight,
+          size: 16,
         ),
-      ],
-    ),
+      ),
+      Expanded(
+        child: TextField(
+          controller: controller.findInputController,
+          focusNode: controller.findInputFocusNode,
+          decoration: const InputDecoration(isDense: true, labelText: '文档内查找'),
+          onSubmitted: (_) => controller.nextMatch(),
+        ),
+      ),
+      IconButton(
+        tooltip: '上一处',
+        onPressed: controller.previousMatch,
+        icon: const AppIcon(AppGlyph.chevronUp),
+      ),
+      IconButton(
+        tooltip: '下一处',
+        onPressed: controller.nextMatch,
+        icon: const AppIcon(AppGlyph.chevronDown),
+      ),
+      IconButton(
+        tooltip: '关闭查找',
+        onPressed: controller.close,
+        icon: const AppIcon(AppGlyph.close),
+      ),
+    ],
+  );
+
+  Widget _replaceRow() => Row(
+    children: [
+      Expanded(
+        child: TextField(
+          controller: controller.replaceInputController,
+          focusNode: controller.replaceInputFocusNode,
+          decoration: const InputDecoration(isDense: true, labelText: '替换为'),
+        ),
+      ),
+      TextButton(onPressed: controller.replaceMatch, child: const Text('替换')),
+      TextButton(
+        onPressed: controller.replaceAllMatches,
+        child: const Text('全部替换'),
+      ),
+    ],
   );
 }

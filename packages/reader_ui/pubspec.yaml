@@ -1,6 +1,6 @@
 name: reader_ui
 description: "阅读器 UI：视图、手势、翻页动画与面板。"
-version: 0.0.1
+version: 1.0.0
 publish_to: 'none'
 homepage:
 
