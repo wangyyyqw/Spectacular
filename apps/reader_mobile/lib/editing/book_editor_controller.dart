@@ -17,6 +17,7 @@ class EditorExportCancelled implements Exception {
 class BookEditorDocument {
   BookEditorDocument(this.path, String text)
     : acceptedText = text,
+      _lastInputText = text,
       code = CodeLineEditingController.fromText(text);
 
   final String path;
@@ -24,6 +25,7 @@ class BookEditorDocument {
   CodeFindController? _find;
   CodeFindController get find => _find ??= CodeFindController(code);
   String acceptedText;
+  String _lastInputText;
   String? error;
 
   void dispose() {
@@ -166,7 +168,11 @@ class BookEditorController extends ChangeNotifier {
   }
 
   void _inputChanged(BookEditorDocument doc) {
-    if (_syncing || _disposed || !_documentDirty(doc)) return;
+    if (_disposed) return;
+    final text = doc.code.text;
+    if (text == doc._lastInputText) return;
+    doc._lastInputText = text;
+    if (_syncing) return;
     doc.error = null;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
