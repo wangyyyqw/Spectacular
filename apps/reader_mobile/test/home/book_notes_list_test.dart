@@ -58,6 +58,38 @@ Widget _app({
 );
 
 void main() {
+  testWidgets(
+    '桌面笔记按可用宽度并排，窄窗大字号不溢出',
+    (tester) async {
+      tester.view
+        ..physicalSize = const Size(1280, 800)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final books = [_book('one', '第一本很长书名的笔记'), _book('two', '第二本书的笔记')];
+      final counts = {'one': _counts(3, 12), 'two': _counts(1, 4)};
+      await tester.pumpWidget(_app(books: books, counts: counts));
+      await tester.pumpAndSettle();
+      expect(find.byType(SliverGrid), findsOneWidget);
+      final covers = find.byType(BookCoverImage);
+      expect(
+        tester.getTopLeft(covers.first).dy,
+        tester.getTopLeft(covers.last).dy,
+      );
+      tester.view.physicalSize = const Size(390, 900);
+      await tester.pumpWidget(_app(books: books, counts: counts, scale: 2));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(covers.last).dy,
+        greaterThan(tester.getTopLeft(covers.first).dy),
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
   testWidgets('只列出书架上有笔记的书，按最近笔记排序，隐藏零计数', (tester) async {
     await tester.pumpWidget(
       _app(

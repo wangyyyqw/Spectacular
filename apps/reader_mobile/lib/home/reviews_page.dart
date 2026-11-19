@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -7,6 +9,7 @@ import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 import 'book_notes_list.dart';
+import 'desktop_layout.dart';
 import 'reading_insights.dart';
 import 'review_ticket.dart';
 
@@ -63,6 +66,8 @@ class _ReviewsPageState extends State<ReviewsPage>
   Map<String, BookReview> _reviews = const <String, BookReview>{};
   Set<String> _finishedBooks = const {};
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  final FocusNode _keyboardFocus = FocusNode();
   _ReviewFilter _filter = _ReviewFilter.all;
   _ReviewSort _sort = _ReviewSort.updated;
   bool _searching = false;
@@ -89,6 +94,8 @@ class _ReviewsPageState extends State<ReviewsPage>
     widget.library.removeListener(_onLibraryChanged);
     _tabs.dispose();
     _searchController.dispose();
+    _searchFocus.dispose();
+    _keyboardFocus.dispose();
     super.dispose();
   }
 
@@ -105,7 +112,12 @@ class _ReviewsPageState extends State<ReviewsPage>
         libraryChanged ||
         oldWidget.reviewStore != widget.reviewStore) {
       _editToken++;
-      if (widget.active) _reload();
+      if (widget.active) {
+        _reload();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && widget.active) _keyboardFocus.requestFocus();
+        });
+      }
     }
   }
 
@@ -121,6 +133,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       _query = '';
       _searchController.clear();
     });
+    if (usesDesktopLayout(context)) _keyboardFocus.requestFocus();
     if (widget.active) _reload();
   }
 
@@ -129,6 +142,10 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   void _toggleSearch() {
+    if (usesDesktopLayout(context)) {
+      _searchFocus.requestFocus();
+      return;
+    }
     setState(() {
       _searching = !_searching;
       if (!_searching) {
@@ -233,20 +250,15 @@ class _ReviewsPageState extends State<ReviewsPage>
     BookReviewStore store,
     BookReview? review,
   ) async {
-    final draft = await showModalBottomSheet<_ReviewDraft>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ReviewEditorSheet(
+    final draft = await _showPanel<_ReviewDraft>(
+      (_) => _ReviewEditorSheet(
         book: book,
         review: review,
         onCommit: (draft) => draft.delete
             ? store.remove(book.id)
             : store.save(book.id, rating: draft.rating, content: draft.content),
       ),
+      editing: true,
     );
     if (draft == null || !mounted || !widget.active) {
       return;
@@ -261,12 +273,8 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Future<void> _openReview(BookEntry book, BookReview review) async {
     final token = ++_editToken;
-    final edit = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ReviewDetailSheet(
+    final edit = await _showPanel<bool>(
+      (_) => _ReviewDetailSheet(
         book: book,
         review: review,
         canEdit: _finishedBooks.contains(book.id),
@@ -277,62 +285,132 @@ class _ReviewsPageState extends State<ReviewsPage>
     }
   }
 
+  Future<T?> _showPanel<T>(WidgetBuilder builder, {bool editing = false}) {
+    if (usesDesktopLayout(context)) {
+      return showDialog<T>(
+        context: context,
+        barrierDismissible: !editing,
+        builder: (context) => Dialog(
+          insetPadding: const EdgeInsets.all(24),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 680,
+              maxHeight: MediaQuery.sizeOf(context).height * .88,
+            ),
+            child: builder(context),
+          ),
+        ),
+      );
+    }
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      isDismissible: !editing,
+      enableDrag: !editing,
+      backgroundColor: Colors.transparent,
+      builder: builder,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: false,
-        scrolledUnderElevation: 0,
-        title: _searching ? _searchField() : Text(_notes ? '笔记' : '书评'),
-        actions: _actions(),
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 680),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                margin: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-                padding: const EdgeInsets.all(3),
-                decoration: ShapeDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  shape: const StadiumBorder(),
-                ),
-                child: TabBar(
-                  controller: _tabs,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  indicator: ShapeDecoration(
-                    color: scheme.surface,
-                    shape: const StadiumBorder(),
-                  ),
-                  dividerColor: Colors.transparent,
-                  labelColor: scheme.onSurface,
-                  unselectedLabelColor: scheme.onSurfaceVariant,
-                  labelStyle: const TextStyle(
-                    fontFamily: 'builtin_song',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  tabs: const [
-                    Tab(key: ValueKey('notes-tab'), text: '笔记'),
-                    Tab(key: ValueKey('reviews-tab'), text: '书评'),
+    final desktop = usesDesktopLayout(context);
+    return CallbackShortcuts(
+      bindings: {
+        if (desktop && widget.active && !_notes)
+          SingleActivator(
+            LogicalKeyboardKey.keyF,
+            meta: Theme.of(context).platform == TargetPlatform.macOS,
+            control: Theme.of(context).platform != TargetPlatform.macOS,
+          ): _toggleSearch,
+      },
+      child: ExcludeFocus(
+        excluding: !widget.active,
+        child: Focus(
+          focusNode: _keyboardFocus,
+          autofocus: widget.active,
+          child: Scaffold(
+            appBar: AppBar(
+              centerTitle: false,
+              scrolledUnderElevation: 0,
+              title: _searching ? _searchField() : Text(_notes ? '笔记' : '书评'),
+              actions: _actions(),
+            ),
+            body: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: desktop ? 1280 : 680),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _header(desktop),
+                    Expanded(child: _sectionBody()),
                   ],
                 ),
               ),
-              Expanded(child: _sectionBody()),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
+  Widget _header(bool desktop) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+    child: LayoutBuilder(
+      builder: (context, bounds) => Wrap(
+        spacing: 24,
+        runSpacing: 12,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SizedBox(
+            width: desktop ? math.min(260, bounds.maxWidth) : bounds.maxWidth,
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: ShapeDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                shape: const StadiumBorder(),
+              ),
+              child: TabBar(
+                controller: _tabs,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: ShapeDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  shape: const StadiumBorder(),
+                ),
+                dividerColor: Colors.transparent,
+                labelColor: Theme.of(context).colorScheme.onSurface,
+                unselectedLabelColor: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant,
+                labelStyle: const TextStyle(
+                  fontFamily: 'builtin_song',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+                tabs: const [
+                  Tab(key: ValueKey('notes-tab'), text: '笔记'),
+                  Tab(key: ValueKey('reviews-tab'), text: '书评'),
+                ],
+              ),
+            ),
+          ),
+          if (desktop && !_notes)
+            SizedBox(
+              width: math.min(360, bounds.maxWidth),
+              child: _searchField(),
+            ),
+        ],
+      ),
+    ),
+  );
+
   Widget _searchField() => TextField(
     key: const ValueKey<String>('reviews-search-field'),
     controller: _searchController,
-    autofocus: true,
+    focusNode: _searchFocus,
+    autofocus: !usesDesktopLayout(context),
     textInputAction: TextInputAction.search,
     decoration: InputDecoration(
       hintText: '搜索书名、作者或书评',
@@ -543,10 +621,28 @@ class _ReviewList extends StatelessWidget {
             filter: filter,
             onReset: onResetSearchAndFilter,
           )
-        else ...[
+        else if (usesDesktopLayout(context))
+          LayoutBuilder(
+            builder: (context, bounds) {
+              final columns = (bounds.maxWidth / 380).floor().clamp(1, 3);
+              final width = (bounds.maxWidth - (columns - 1) * 20) / columns;
+              return Wrap(
+                key: const ValueKey('reviews-desktop-grid'),
+                spacing: 20,
+                children: [
+                  for (final book in [...visibleReviewed, ...visiblePending])
+                    SizedBox(
+                      key: ValueKey(book.id),
+                      width: width,
+                      child: _ticket(book),
+                    ),
+                ],
+              );
+            },
+          )
+        else
           for (final book in [...visibleReviewed, ...visiblePending])
             _ticket(book),
-        ],
       ],
     );
   }
@@ -782,15 +878,17 @@ class _ReviewDetailSheet extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 10, 12, 14),
                 child: Column(
                   children: [
-                    Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.outlineVariant,
-                        borderRadius: BorderRadius.circular(2),
+                    if (!usesDesktopLayout(context)) ...[
+                      Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.outlineVariant,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 14),
+                      const SizedBox(height: 14),
+                    ],
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

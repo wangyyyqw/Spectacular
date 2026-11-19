@@ -13,6 +13,9 @@ import 'package:reader_core/position/locator.dart';
 import '../library/library_store.dart';
 import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
+import '../editing/book_edit_repository.dart';
+import '../editing/book_editor_route.dart';
+import 'desktop_layout.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
 import 'bookshelf_sort.dart';
@@ -705,6 +708,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       ),
       items: [
         const PopupMenuItem(value: 'open', child: Text('开始阅读')),
+        if (usesDesktopLayout(context))
+          PopupMenuItem(
+            value: 'edit',
+            enabled:
+                widget.library.supportsPersistence &&
+                entry.contentRevision != null,
+            child: const Text('编辑 EPUB'),
+          ),
         const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
         const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
         const PopupMenuItem(value: 'create-group', child: Text('新建分组')),
@@ -724,6 +735,21 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _applyBookAction(BookEntry entry, String? action) async {
+    if (action == 'edit') {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => BookEditorRoute(
+            repository: BookEditRepository(widget.library),
+            bookId: entry.id,
+            sourcePath: entry.filePath,
+            contentRevision: entry.contentRevision!,
+            title: entry.title,
+          ),
+        ),
+      );
+      if (mounted) await _reload();
+      return;
+    }
     if (action == 'open') {
       await _open(entry);
       return;
