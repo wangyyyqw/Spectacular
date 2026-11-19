@@ -7,16 +7,24 @@ class ReaderFrostedSurface extends StatelessWidget {
     super.key,
     required this.child,
     this.radius = 20,
+    this.bottomRadius,
     this.inkMode = false,
     this.inset = EdgeInsets.zero,
   });
 
   final Widget child;
   final double radius;
+  final double? bottomRadius;
   final bool inkMode;
 
   /// 只缩小可见底板，保留内容的触控区域。
   final EdgeInsets inset;
+
+  /// 抽屉内的内容面板共用凝光底板，独立显示时保留原来的背景色。
+  static Color panelColorOf(BuildContext context, {Color? fallback}) =>
+      context.dependOnInheritedWidgetOfExactType<_FrostedPanelContent>() != null
+      ? Colors.transparent
+      : fallback ?? Theme.of(context).colorScheme.surface;
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +40,10 @@ class ReaderFrostedSurface extends StatelessWidget {
               padding: inset,
               child: GlassContainer.card(
                 padding: EdgeInsets.zero,
-                shape: LiquidRoundedRectangle(borderRadius: radius),
+                shape: LiquidVerticalRoundedRectangle(
+                  topRadius: radius,
+                  bottomRadius: bottomRadius ?? radius,
+                ),
                 useOwnLayer: true,
                 quality: GlassQuality.minimal,
                 surfaceStyle: inkMode || MediaQuery.highContrastOf(context)
@@ -64,9 +75,18 @@ class ReaderFrostedSurface extends StatelessWidget {
               ),
             ),
           ),
-          Material(type: MaterialType.transparency, child: child),
+          _FrostedPanelContent(
+            child: Material(type: MaterialType.transparency, child: child),
+          ),
         ],
       ),
     );
   }
+}
+
+class _FrostedPanelContent extends InheritedWidget {
+  const _FrostedPanelContent({required super.child});
+
+  @override
+  bool updateShouldNotify(_FrostedPanelContent oldWidget) => false;
 }

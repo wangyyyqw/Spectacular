@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 一条搜索结果的展示模型（P4-26，§29.4）。
 class SearchPanelResult {
@@ -201,7 +202,7 @@ class _SearchPanelState extends State<SearchPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

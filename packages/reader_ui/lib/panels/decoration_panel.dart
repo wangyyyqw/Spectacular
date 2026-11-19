@@ -4,6 +4,7 @@ import 'package:reader_core/position/cfi.dart';
 
 import '../decorations/decoration.dart';
 import '../icons/app_icon.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 只管理手工装饰的抽屉页签。
 class ReaderDecorationPanel extends StatefulWidget {
@@ -101,7 +102,7 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
   Widget build(BuildContext context) {
     final items = _items;
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
