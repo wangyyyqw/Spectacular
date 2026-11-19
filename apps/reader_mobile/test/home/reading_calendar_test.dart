@@ -137,12 +137,12 @@ void main() {
     expect(sixWeeks.dateAt(5, 1), DateTime(2026, 8, 31));
   });
 
-  test('四本全部保留，五本取时长前三本，跨日换行不会漏书或重叠', () {
+  test('单日保留时长最多的四本，跨日沿用原行且不重叠', () {
     final month = _month(_fourThenFiveBooks(), _now);
     final spans = month.spansForWeek(0);
     const expected = [
       ['0', '1', '2', '3'],
-      ['4', '3', '2'],
+      ['4', '3', '2', '1'],
       ['3'],
     ];
     for (var column = 0; column < 3; column++) {
@@ -154,13 +154,10 @@ void main() {
         unorderedEquals(expected[column]),
       );
       expect(active.map((span) => span.lane).toSet().length, active.length);
-      expect(active.every((span) => span.lane < (column == 1 ? 3 : 4)), isTrue);
+      expect(active.every((span) => span.lane < 4), isTrue);
     }
     final fourth = spans.where((span) => span.bookId == '3').toList();
-    expect(fourth.map((span) => (span.firstColumn, span.lastColumn)), [
-      (0, 0),
-      (1, 2),
-    ]);
+    expect(fourth.map((span) => (span.firstColumn, span.lastColumn)), [(0, 2)]);
   });
 
   testWidgets('月历条带覆盖连续日期，点条带对应日期查看当天真实时长', (tester) async {
@@ -186,7 +183,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('多书当天显示三条和额外数量，详情保留所有书目与完整名称', (tester) async {
+  testWidgets('月历长书名单行省略，详情保留完整书目和书名', (tester) async {
+    const visibleTitle = '一部书名很长且需要在日历条带里省略的作品';
     const title = '一本名称很长很长而且需要在当日明细中完整展示的书籍';
     await _pump(tester, [
       for (var id = 0; id < 6; id++)
@@ -194,10 +192,18 @@ void main() {
           '$id',
           DateTime(2026, 11, 15, 9),
           10,
-          title: id == 5 ? title : null,
+          title: switch (id) {
+            0 => visibleTitle,
+            5 => title,
+            _ => null,
+          },
         ),
     ]);
-    expect(find.text('+3'), findsOneWidget);
+    final preview = tester.widget<Text>(find.text(visibleTitle));
+    expect(preview.maxLines, 1);
+    expect(preview.overflow, TextOverflow.ellipsis);
+    expect(find.text('+2'), findsOneWidget);
+    expect(find.text(title), findsNothing);
     await _tap(tester, 'day-2026-11-15');
     expect(find.text('6 本书 · 合计 1 小时'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -218,23 +224,27 @@ void main() {
   });
 
   for (final scale in [1.0, 2.0]) {
-    testWidgets('四本显示四条、五本显示三条和剩余数量，字号 $scale 倍不重叠', (tester) async {
+    testWidgets('五本显示四条，字号 $scale 倍时右下角的 +1 不重叠', (tester) async {
       await _pump(tester, _fourThenFiveBooks(), width: 320, scale: scale);
       expect(_key('more-2026-11-1'), findsNothing);
       for (var id = 0; id < 4; id++) {
         expect(_key('bar-0-$id-0'), findsOneWidget);
       }
-      expect(find.text('+2'), findsOneWidget);
+      expect(find.text('+1'), findsOneWidget);
       final fourth = tester.getRect(_key('bar-0-3-0'));
       final firstNumber = tester.getRect(_key('number-2026-11-1'));
       expect(fourth.bottom, lessThan(firstNumber.top));
       final overflow = tester.getRect(_key('more-2026-11-2'));
-      final lastOnSecondDay = tester.getRect(_key('bar-0-2-0'));
-      expect(lastOnSecondDay.bottom, lessThan(overflow.top));
+      final secondDay = tester.getRect(_key('day-2026-11-2'));
+      final secondNumber = tester.getRect(_key('number-2026-11-2'));
+      expect(fourth.right, greaterThan(secondDay.center.dx));
+      expect(overflow.top, greaterThan(fourth.bottom));
+      expect(overflow.left, greaterThan(secondNumber.right));
       expect(
-        overflow.bottom,
-        lessThan(tester.getRect(_key('day-2026-11-2')).bottom),
+        overflow.right,
+        inInclusiveRange(secondDay.center.dx, secondDay.right),
       );
+      expect(overflow.bottom, lessThan(secondDay.bottom));
       await _tap(tester, 'day-2026-11-1');
       expect(find.text('4 本书 · 合计 1 小时 40 分'), findsOneWidget);
       expect(tester.takeException(), isNull);

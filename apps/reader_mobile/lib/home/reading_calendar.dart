@@ -314,7 +314,7 @@ class _CalendarWeek extends StatelessWidget {
             Expanded(
               child: Text(
                 span.title,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 11, height: 1.2, color: color),
               ),
@@ -361,8 +361,8 @@ class _CalendarWeek extends StatelessWidget {
     final date = month.dateAt(week, column);
     if (date.month != month.start.month) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final books = month.days[date] ?? const <BookDurationEntry>[];
-    final extra = books.length > 4 ? books.length - 3 : 0;
+    final extra =
+        (month.days[date]?.length ?? 0) - ReadingCalendarMonth.maxVisibleBooks;
     final enabled = !date.isAfter(today);
     final isToday = date == today;
     return Padding(
