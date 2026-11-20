@@ -7,6 +7,7 @@ import 'package:reader_mobile/home/book_detail_sheet.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../support/test_epub.dart';
@@ -45,7 +46,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('告警书'), findsWidgets);
-    expect(find.text('内容完整'), findsOneWidget);
+    expect(find.text('内容完整'), findsNothing);
+    expect(find.text('导入'), findsNothing);
+    expect(find.text('最近阅读'), findsNothing);
     expect(find.text('E_MANIFEST_MEDIA_TYPE_INFERRED'), findsNothing);
     expect(find.textContaining('缺少 media-type'), findsNothing);
     expect(find.text('导入报告'), findsNothing);
@@ -71,10 +74,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('无修复或告警'), findsNothing);
     expect(find.text('未知作者'), findsOneWidget);
+    expect(find.text('已读 0 / 3 章'), findsOneWidget);
     final coverSize = tester.getSize(
       find.byKey(const ValueKey<String>('book-detail-cover')),
     );
     expect(coverSize, const Size(80, 108));
+  });
+
+  testWidgets('作者下方显示已保存的章节进度，隐藏内容等级与日期', (tester) async {
+    final entry = BookEntry(
+      id: 'reading-book',
+      title: '章节进度',
+      author: '测试作者',
+      filePath: '',
+      addedAt: DateTime(2026, 11, 1),
+      lastReadAt: DateTime(2026, 11, 20),
+      spineCount: 15,
+      readabilityLevel: 2,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BookDetailSheet(
+            entry: entry,
+            library: store,
+            progress: const ReaderProgress(spineIndex: 3, pageIndex: 2),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final progress = find.text('已读 4 / 15 章');
+    expect(progress, findsOneWidget);
+    expect(
+      tester.getTopLeft(progress).dy,
+      greaterThan(tester.getBottomLeft(find.text('测试作者')).dy),
+    );
+    expect(find.text('内容部分降级'), findsNothing);
+    expect(find.text('章节'), findsNothing);
+    expect(find.text('导入'), findsNothing);
+    expect(find.text('最近阅读'), findsNothing);
+    expect(find.text('2026-11-01'), findsNothing);
+    expect(find.text('2026-11-20'), findsNothing);
   });
 
   testWidgets('窄屏和放大文字下两组操作分别同行，遮罩和下拉仍可关闭', (tester) async {

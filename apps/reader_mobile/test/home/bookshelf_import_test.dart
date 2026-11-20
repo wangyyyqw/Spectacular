@@ -84,11 +84,12 @@ void main() {
 
   testWidgets('长按卡片看详情，详情里删除后书架清空', (tester) async {
     final library = LibraryStore.memory();
+    final progressStore = MemoryReaderProgressStore();
     await tester.pumpWidget(
       MaterialApp(
         home: BookshelfPage(
           library: library,
-          progressStore: MemoryReaderProgressStore(),
+          progressStore: progressStore,
           pickEpubFiles: () async => <String>[epubFile.path],
           readFile: (path) async => File(path).readAsBytesSync(),
         ),
@@ -98,11 +99,17 @@ void main() {
     await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester, frames: 10);
     expect(find.text('山海小记'), findsWidgets);
+    final book = (await library.list()).single;
+    await progressStore.save(
+      book.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 0),
+    );
 
     await tester.longPress(find.text('山海小记').first);
     await _settle(tester);
     expect(find.text('图书详情'), findsOneWidget, reason: '长按打开快捷操作面板');
     expect(find.text('导入报告'), findsNothing);
+    expect(find.text('已读 1 / 1 章'), findsOneWidget);
 
     await tester.tap(find.text('删除'));
     await _settle(tester);
