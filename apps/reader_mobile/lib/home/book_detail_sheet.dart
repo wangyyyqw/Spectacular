@@ -41,10 +41,6 @@ class BookDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final totalChapters = entry.spineCount ?? 0;
-    final currentChapter = progress == null
-        ? 0
-        : (progress!.spineIndex + 1).clamp(0, totalChapters);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -102,7 +98,7 @@ class BookDetailSheet extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '已读 $currentChapter / $totalChapters 章',
+                          formatReadingChapters(progress?.spineIndex, entry.spineCount),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

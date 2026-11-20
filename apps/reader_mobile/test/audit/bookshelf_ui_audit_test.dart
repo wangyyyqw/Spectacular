@@ -78,7 +78,7 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  testWidgets('三列书架将书名与状态置于封面下方，文字分组和搜索仍可用', (tester) async {
+  testWidgets('三列书架显示封面和书名，分组、搜索及列表阅读信息可用', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -122,10 +122,7 @@ void main() {
       tester.getTopLeft(title).dy,
       greaterThan(tester.getBottomLeft(cover).dy),
     );
-    expect(
-      tester.widget<Text>(_key('book-card-meta-${second.id}')).data,
-      '已读完 · 乙作者',
-    );
+    expect(_key('book-card-meta-${second.id}'), findsNothing);
     expect(find.text('全部 4'), findsOneWidget);
 
     await _tap(tester, _key('bookshelf-group-${group.id}'));
@@ -141,6 +138,8 @@ void main() {
     await _tap(tester, find.byTooltip('关闭搜索'));
     await _tap(tester, find.byTooltip('列表视图'));
     expect(_key('book-row-${first.id}'), findsOneWidget);
+    expect(find.text('乙作者'), findsOneWidget);
+    expect(find.text('已读 1 / 1 章'), findsOneWidget);
     final rowCover = tester.getSize(_key('book-row-cover').first);
     expect(rowCover.width / rowCover.height, closeTo(3 / 4, 0.001));
     expect(tester.takeException(), isNull);

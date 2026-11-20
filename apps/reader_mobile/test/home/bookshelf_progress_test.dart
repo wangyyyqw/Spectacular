@@ -65,7 +65,7 @@ Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
 }
 
 void main() {
-  testWidgets('书架按字符权重显示阅读进度（P4-09）', (tester) async {
+  testWidgets('列表分行显示作者、有效阅读时长和已读章节', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookshelf-progress');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -77,18 +77,31 @@ void main() {
 
     late BookEntry entry;
     await tester.runAsync(() async {
-      entry = await library.importBytes(buildTestEpub(title: '进度书'));
+      entry = await library.importBytes(
+        buildMultiChapterEpub(title: '进度书', chapters: ['甲', '乙', '丙']),
+      );
+      final other = await library.importBytes(buildTestEpub(title: '其他书'));
+      final sessions = library.readingSessionStore()!;
+      final start = DateTime(2026, 11, 21, 10);
+      for (final (bookId, minutes) in [
+        (entry.id, 60),
+        (entry.id, 15),
+        (entry.id, 1),
+        (other.id, 90),
+      ]) {
+        await sessions.add(
+          bookId: bookId,
+          startedAt: start,
+          endedAt: start.add(Duration(minutes: minutes)),
+        );
+      }
     });
-    // 阅读会话按正文字符权重保存 50%，书架必须直接展示同一比例，
-    // 不能再用页号或章号重新估算。
     await library.touchLastRead(entry.id);
     final progressStore = _TrackingProgressStore(<String, ReaderProgress>{});
     await progressStore.save(
       entry.id,
-      const ReaderProgress(spineIndex: 0, pageIndex: 2, readingPercent: 0.5),
+      const ReaderProgress(spineIndex: 1, pageIndex: 2, readingPercent: 0.5),
     );
-    final weights = await library.progressWeights(entry.id);
-    expect(weights.total, greaterThan(0), reason: '导入期已统计字符数');
 
     await tester.pumpWidget(
       MaterialApp(
@@ -97,23 +110,24 @@ void main() {
     );
     await _settle(tester, frames: 16);
 
-    expect(find.textContaining('在读 50%'), findsNothing);
-    expect(find.byKey(ValueKey('book-card-meta-${entry.id}')), findsNothing);
+    expect(find.text('已读 1 小时 15 分'), findsNothing);
+    expect(find.text('已读 2 / 3 章'), findsNothing);
     expect(progressStore.loads, 0, reason: '书架应一次读取全部进度');
     expect(progressStore.snapshots, 1);
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(ValueKey<String>('book-row-meta-${entry.id}')),
-          )
-          .data,
-      '在读 50% · 测试作者',
-    );
+    final row = find.byKey(ValueKey('book-row-${entry.id}'));
+    Finder line(String label) => find.descendant(of: row, matching: find.text(label));
+    final author = tester.getRect(line('未知作者'));
+    final duration = tester.getRect(line('已读 1 小时 15 分'));
+    final chapters = tester.getRect(line('已读 2 / 3 章'));
+    expect(author.bottom, lessThanOrEqualTo(duration.top));
+    expect(duration.bottom, lessThanOrEqualTo(chapters.top));
+    expect(find.textContaining('50%'), findsNothing);
+    expect(find.text('已读 0 / 1 章'), findsOneWidget);
   });
 
-  testWidgets('已读完书回翻后书架同时显示当前正文比例与读完状态', (tester) async {
+  testWidgets('已读完的书回翻后列表显示当前章节与累计时长', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookshelf-finished');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -126,7 +140,9 @@ void main() {
 
     late BookEntry entry;
     await tester.runAsync(() async {
-      entry = await library.importBytes(buildTestEpub(title: '读完书'));
+      entry = await library.importBytes(
+        buildMultiChapterEpub(title: '读完书', chapters: ['甲', '乙']),
+      );
       await library.touchLastRead(entry.id);
     });
     await progressStore.save(
@@ -149,14 +165,8 @@ void main() {
     await tester.pump();
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    expect(
-      tester
-          .widget<Text>(
-            find.byKey(ValueKey<String>('book-row-meta-${entry.id}')),
-          )
-          .data,
-      '已读完 · 38% · 测试作者',
-    );
+    expect(find.text('已读 1 / 2 章'), findsOneWidget);
+    expect(find.text('已读 0 分钟'), findsOneWidget);
   });
 
   testWidgets('刷新进行中连续通知只追加一次最终刷新', (tester) async {
