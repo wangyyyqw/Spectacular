@@ -203,6 +203,7 @@ void main() {
         kind: PointerDeviceKind.mouse,
         buttons: kSecondaryButton,
       );
+      await pumpReaderUntil(tester, find.text('编辑 EPUB'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('编辑 EPUB'));
       await pumpReaderUntil(tester, find.byType(BookEditorPage));

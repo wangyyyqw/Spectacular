@@ -675,18 +675,22 @@ class BookSourceService {
     OnlineBook searchBook, {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
+    OnlineBook? preparedBook,
+    List<OnlineChapter>? selectedChapters,
   }) async {
     await cookieStore.load();
     onProgress?.call(0, 0, '正在读取详情');
-    final info = await loadBookInfo(source, searchBook);
+    final info = preparedBook ?? await loadBookInfo(source, searchBook);
     _checkCancelled(isCancelled);
     onProgress?.call(0, 0, '正在读取目录');
-    final toc = await fetchToc(source, info);
+    final toc = selectedChapters ?? await fetchToc(source, info);
     _checkCancelled(isCancelled);
 
     final images = <String, OnlineEpubImage>{};
     var imageBytes = 0;
-    final cover = await _downloadCover(source, info);
+    final cover = selectedChapters == null
+        ? await _downloadCover(source, info)
+        : null;
     final chapters = <OnlineEpubChapter>[];
     final skippedReasons = <String>[];
     var skipped = 0;
@@ -733,7 +737,12 @@ class BookSourceService {
           _recordSkipped(skippedReasons, chapter.title, '正文为空');
         } else {
           chapters.add(
-            OnlineEpubChapter(title: chapter.title, html: prepared.html),
+            OnlineEpubChapter(
+              title: chapter.title,
+              html: prepared.html,
+              sourceUrl: chapter.url,
+              volume: chapter.volume,
+            ),
           );
         }
       } on Object catch (error) {

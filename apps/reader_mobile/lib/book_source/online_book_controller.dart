@@ -7,6 +7,7 @@ import 'book_source_cookie_store.dart';
 import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'book_source_store.dart';
+import 'online_epub_update.dart';
 
 /// 在线书源状态与下载入库入口。
 class OnlineBookController extends ChangeNotifier {
@@ -34,6 +35,7 @@ class OnlineBookController extends ChangeNotifier {
   bool _loading = false;
   String? _error;
   int _lastSkippedChapters = 0;
+  int _lastAddedChapters = 0;
   List<String> _lastSkippedReasons = const <String>[];
 
   List<BookSource> get sources => List<BookSource>.unmodifiable(_sources);
@@ -43,6 +45,7 @@ class OnlineBookController extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
   int get lastSkippedChapters => _lastSkippedChapters;
+  int get lastAddedChapters => _lastAddedChapters;
   List<String> get lastSkippedReasons =>
       List<String>.unmodifiable(_lastSkippedReasons);
   int get enabledCount => _sources.where((source) => source.enabled).length;
@@ -214,13 +217,14 @@ class OnlineBookController extends ChangeNotifier {
     return entry;
   }
 
-  /// 重新下载关联书籍并更新书架内容。
+  /// 获取最新目录，只追加新增正文，复用原章节和阅读数据。
   Future<BookEntry> updateBook(
     BookEntry entry, {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
   }) async {
     _lastSkippedChapters = 0;
+    _lastAddedChapters = 0;
     _lastSkippedReasons = const <String>[];
     final link = _links[entry.id];
     final source = sourceForBook(entry.id);
@@ -235,14 +239,41 @@ class OnlineBookController extends ChangeNotifier {
       bookUrl: link.bookUrl,
       tocUrl: link.bookUrl,
     );
+    onProgress?.call(0, 0, '正在获取最新目录');
+    final original = await OnlineEpubUpdate.open(entry.filePath);
+    final info = await service.loadBookInfo(source, book);
+    final toc = await service.fetchToc(source, info);
+    if (isCancelled?.call() ?? false) {
+      throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
+    }
+    final added = original.newChapters(toc);
+    if (added.isEmpty) return entry;
     final result = await service.download(
       source,
       book,
       onProgress: onProgress,
       isCancelled: isCancelled,
+      preparedBook: info,
+      selectedChapters: added,
     );
+    if (result.skippedChapters > 0) {
+      throw const BookSourceException('新增章节未全部获取成功，原书保持不变');
+    }
+    final bytes = original.append(result.bytes, toc);
+    if (isCancelled?.call() ?? false) {
+      throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
+    }
+    final latest = await library.bookById(entry.id);
+    if (latest == null || latest.contentRevision != entry.contentRevision) {
+      throw const BookSourceException('本地图书已变化，已停止更新');
+    }
     onProgress?.call(0, 0, '正在更新书架');
-    final updated = await library.updateBytes(entry.id, result.bytes);
+    final updated = await library.updateBytes(
+      entry.id,
+      bytes,
+      isCancelled: isCancelled,
+    );
+    _lastAddedChapters = added.length;
     await _store.saveLink(
       entry.id,
       OnlineBookLink(

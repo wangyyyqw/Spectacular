@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_detail_sheet.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/txt/txt_book_service.dart';
 
 import '../support/test_epub.dart';
+import '../support/reader_pump.dart';
 
 void main() {
   late Directory dir;
@@ -23,7 +25,7 @@ void main() {
   tearDown(() async {
     await db.close();
     if (dir.existsSync()) {
-      dir.deleteSync(recursive: true);
+      await dir.delete(recursive: true);
     }
   });
 
@@ -47,6 +49,11 @@ void main() {
     expect(find.text('E_MANIFEST_MEDIA_TYPE_INFERRED'), findsOneWidget);
     expect(find.textContaining('缺少 media-type'), findsOneWidget);
     expect(find.text('导入报告'), findsOneWidget);
+    // 面板还会异步检查 TXT 元数据，交付真实文件 IO 后再清理样本。
+    expect(
+      await pumpReaderTask(tester, TxtBookService(store).canRechapter(entry)),
+      isFalse,
+    );
   });
 
   testWidgets('无报告的书显示「无修复或告警」', (tester) async {
@@ -72,6 +79,44 @@ void main() {
       find.byKey(const ValueKey<String>('book-detail-cover')),
     );
     expect(coverSize, const Size(80, 108));
+  });
+
+  testWidgets('在线书长按菜单显示获取最新章节并返回更新动作', (tester) async {
+    final entry = BookEntry(
+      id: 'online-book',
+      title: '在线书',
+      author: '作者',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    String? popped;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              popped = await Navigator.of(context).push<String>(
+                MaterialPageRoute<String>(
+                  builder: (_) => BookDetailSheet(
+                    entry: entry,
+                    library: store,
+                    onlineSourceName: '测试源',
+                  ),
+                ),
+              );
+            },
+            child: const Text('打开详情'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开详情'));
+    await tester.pumpAndSettle();
+    expect(find.text('更新获取最新章节'), findsOneWidget);
+    await tester.ensureVisible(find.text('更新获取最新章节'));
+    await tester.tap(find.text('更新获取最新章节'));
+    await tester.pumpAndSettle();
+    expect(popped, 'update');
   });
 
   testWidgets('点删除返回 delete，由书架执行确认流程', (tester) async {

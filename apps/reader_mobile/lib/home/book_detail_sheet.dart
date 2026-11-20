@@ -180,7 +180,7 @@ class BookDetailSheet extends StatelessWidget {
             _DetailAction(
               key: const ValueKey<String>('book-detail-update'),
               icon: AppGlyph.refresh,
-              label: '更新',
+              label: onlineSourceName?.isNotEmpty ?? false ? '更新获取最新章节' : '更新',
               onTap: () => Navigator.of(context).pop('update'),
             ),
             FutureBuilder<bool>(

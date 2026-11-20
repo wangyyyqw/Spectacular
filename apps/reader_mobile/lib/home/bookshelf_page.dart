@@ -789,7 +789,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
         const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
         const PopupMenuItem(value: 'create-group', child: Text('新建分组')),
         if (widget.allowImport)
-          const PopupMenuItem(value: 'update', child: Text('更新 EPUB')),
+          PopupMenuItem(
+            value: 'update',
+            child: Text(
+              widget.onlineBooks?.sourceForBook(entry.id) != null
+                  ? '更新获取最新章节'
+                  : '更新 EPUB',
+            ),
+          ),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: 'delete',
@@ -942,11 +949,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('从 ${source.name} 更新'),
-        content: Text(
-          '将重新下载《${entry.title}》并覆盖书架中的 EPUB，'
-          '阅读进度、书签与笔记会按现有重排规则保留。',
-        ),
+        title: Text('从 ${source.name} 获取最新章节'),
+        content: Text('将检查《${entry.title}》的最新目录并获取新增章节，保留已有正文、阅读进度、书签与笔记。'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -955,7 +959,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           FilledButton(
             key: const ValueKey<String>('online-update-confirm'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('更新'),
+            child: const Text('获取最新章节'),
           ),
         ],
       ),
@@ -1021,9 +1025,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
       final skipped = controller.lastSkippedChapters;
-      final message = skipped > 0
+      final added = controller.lastAddedChapters;
+      final message = added == 0
+          ? '《${updated.title}》已是最新章节'
+          : skipped > 0
           ? '《${updated.title}》已更新，跳过 $skipped 章'
-          : '《${updated.title}》已更新';
+          : '《${updated.title}》已获取 $added 章最新章节';
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
       await _reload();

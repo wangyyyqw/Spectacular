@@ -8,10 +8,17 @@ import 'package:html/parser.dart' as html_parser;
 
 /// 在线书源正文的一章。
 class OnlineEpubChapter {
-  const OnlineEpubChapter({required this.title, required this.html});
+  const OnlineEpubChapter({
+    required this.title,
+    required this.html,
+    this.sourceUrl = '',
+    this.volume = '',
+  });
 
   final String title;
   final String html;
+  final String sourceUrl;
+  final String volume;
 }
 
 /// 已下载并准备写入 EPUB 的图片。
@@ -82,6 +89,7 @@ class OnlineEpubBuilder {
       '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
       '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
       '<item id="style" href="style.css" media-type="text/css"/>',
+      '<item id="online-index" href="online_chapters.json" media-type="application/json"/>',
     ];
     final spine = <String>[];
     final navItems = <String>[];
@@ -170,6 +178,22 @@ class OnlineEpubBuilder {
         spine: spine.join(),
         coverHref: coverHref,
       ),
+    );
+    addText(
+      'OEBPS/online_chapters.json',
+      jsonEncode({
+        'version': 1,
+        'chapters': [
+          for (var index = 0; index < input.chapters.length; index++)
+            {
+              'href':
+                  'text/chapter_${(index + 1).toString().padLeft(4, '0')}.xhtml',
+              'title': input.chapters[index].title,
+              'url': input.chapters[index].sourceUrl,
+              'volume': input.chapters[index].volume,
+            },
+        ],
+      }),
     );
     return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
   }
