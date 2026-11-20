@@ -60,6 +60,16 @@ void main() {
     expect(reloaded.single.id, source.id);
     expect(reloaded.single.toJson()['customField'], '保留');
     expect(reloaded.single.toc.chapterList, 'ul li');
+    expect(reloaded.single.loadMode, BookSourceLoadMode.chapter);
+  });
+
+  test('书源可以显式选择整本加载并持久化', () async {
+    final source = await store.importText(
+      _sourceJson.replaceFirst('"bookSourceName": "示例源"', '"bookSourceName": "整本源", "loadMode": "book"'),
+    );
+    expect(source.loadMode, BookSourceLoadMode.book);
+    final json = source.toJson();
+    expect(json['loadMode'], 'book');
   });
 
   test('重复导入保留启停状态', () async {

@@ -284,6 +284,9 @@ class ContentRule {
   final String sourceRegex;
 }
 
+/// Online正文加载策略。默认按章请求，整本模式保留给离线 EPUB 下载。
+enum BookSourceLoadMode { chapter, book }
+
 /// 单个 Legado/阅读书源。
 ///
 /// [raw] 保留导入时的完整对象，未识别字段在重新保存时不会丢失。
@@ -312,6 +315,7 @@ class BookSource {
     this.respondTime = 60000,
     this.exploreUrl = '',
     this.jsLib = '',
+    this.loadMode = BookSourceLoadMode.chapter,
     this.raw = const <String, Object?>{},
   });
 
@@ -384,6 +388,7 @@ class BookSource {
         'discoverUrl',
       ]),
       jsLib: _rawJsonString(json['jsLib']),
+      loadMode: _loadMode(json['loadMode'] ?? json['contentLoadMode']),
       search: search,
       bookInfo: bookInfo,
       toc: toc,
@@ -450,6 +455,9 @@ class BookSource {
   /// 公共 JS 库；当前只保存。
   final String jsLib;
 
+  /// 未声明时为逐章，兼容旧书源配置。
+  final BookSourceLoadMode loadMode;
+
   /// 搜索、详情、目录与正文规则。
   final BookListRule search;
   final BookInfoRule bookInfo;
@@ -508,6 +516,7 @@ class BookSource {
     Map<String, Object?>? searchOptions,
     String? exploreUrl,
     String? jsLib,
+    BookSourceLoadMode? loadMode,
     BookListRule? search,
     BookInfoRule? bookInfo,
     TocRule? toc,
@@ -534,6 +543,7 @@ class BookSource {
       searchOptions: searchOptions ?? this.searchOptions,
       exploreUrl: exploreUrl ?? this.exploreUrl,
       jsLib: jsLib ?? this.jsLib,
+      loadMode: loadMode ?? this.loadMode,
       search: search ?? this.search,
       bookInfo: bookInfo ?? this.bookInfo,
       toc: toc ?? this.toc,
@@ -556,6 +566,7 @@ class BookSource {
       'searchUrl': searchUrl,
       'exploreUrl': exploreUrl,
       'bookSourceId': id,
+      'loadMode': loadMode.name,
     };
   }
 }
@@ -704,6 +715,14 @@ int _int(Object? value) {
 int _positiveInt(Object? value, {required int fallback}) {
   final parsed = _int(value);
   return parsed > 0 ? parsed : fallback;
+}
+
+BookSourceLoadMode _loadMode(Object? value) {
+  final text = '$value'.trim().toLowerCase();
+  if (text == 'book' || text == 'all' || text == 'whole') {
+    return BookSourceLoadMode.book;
+  }
+  return BookSourceLoadMode.chapter;
 }
 
 /// 拆分 Legado URL 后的 `,{...}` 请求参数，兼容逗号后的空格。

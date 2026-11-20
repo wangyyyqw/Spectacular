@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -12,6 +13,7 @@ import 'book_source_models.dart';
 import 'book_source_rule_engine.dart';
 import 'book_source_script.dart';
 import 'online_epub_builder.dart';
+import 'online_chapter_content_store.dart';
 
 const List<String> _onlineWordCountFields = <String>[
   'wordCount',
@@ -102,6 +104,7 @@ class BookSourceService {
     OnlineEpubBuilder epubBuilder = const OnlineEpubBuilder(),
     BookSourceScriptFactory? scriptFactory,
     BookSourceCookieStore? cookieStore,
+    OnlineChapterContentStore? chapterContentStore,
   }) {
     final store = cookieStore ?? BookSourceCookieStore();
     return BookSourceService._(
@@ -109,6 +112,7 @@ class BookSourceService {
       http: httpClient ?? BookSourceHttpClient(cookieStore: store),
       rules: ruleEngine,
       epubBuilder: epubBuilder,
+      chapterContentStore: chapterContentStore ?? OnlineChapterContentStore(),
       scriptFactory:
           scriptFactory ??
           (source) => QuickJsBookSourceScriptSession(
@@ -127,6 +131,7 @@ class BookSourceService {
     required this.http,
     required this.rules,
     required this.epubBuilder,
+    required this.chapterContentStore,
     required this.scriptFactory,
   });
 
@@ -135,6 +140,8 @@ class BookSourceService {
   final BookSourceRuleEngine rules;
   final OnlineEpubBuilder epubBuilder;
   final BookSourceScriptFactory scriptFactory;
+  final OnlineChapterContentStore chapterContentStore;
+  final Map<String, Future<String>> _chapterRequests = <String, Future<String>>{};
   final Map<String, Future<Uint8List?>> _coverCache =
       <String, Future<Uint8List?>>{};
 
@@ -702,7 +709,12 @@ class BookSourceService {
       Object? failure;
       for (var attempt = 1; attempt <= 2; attempt++) {
         try {
-          content = await fetchChapterContent(source, chapter, info.bookUrl);
+          content = await fetchChapterContent(
+            source,
+            chapter,
+            info.bookUrl,
+            forceRefresh: info.loadMode == BookSourceLoadMode.book,
+          );
           failure = null;
           break;
         } on Object catch (error) {
@@ -790,6 +802,45 @@ class BookSourceService {
   Future<String> fetchChapterContent(
     BookSource source,
     OnlineChapter chapter,
+    String bookUrl, {
+    bool forceRefresh = false,
+  }) async {
+    final fingerprint = _contentRulesFingerprint(source);
+    final key = '${source.id}|$bookUrl|${chapter.url}|$fingerprint';
+    if (!forceRefresh) {
+      final cached = await chapterContentStore.read(
+        sourceId: source.id,
+        bookUrl: bookUrl,
+        chapterUrl: chapter.url,
+        rulesFingerprint: fingerprint,
+      );
+      if (cached != null) return cached;
+      final pending = _chapterRequests[key];
+      if (pending != null) return pending;
+    }
+    final task = _fetchChapterContent(source, chapter, bookUrl).then((content) async {
+      try {
+        await chapterContentStore.write(
+          sourceId: source.id,
+          bookUrl: bookUrl,
+          chapterUrl: chapter.url,
+          rulesFingerprint: fingerprint,
+          content: content,
+        );
+      } on Object {}
+      return content;
+    });
+    if (!forceRefresh) _chapterRequests[key] = task;
+    try {
+      return await task;
+    } finally {
+      if (identical(_chapterRequests[key], task)) _chapterRequests.remove(key);
+    }
+  }
+
+  Future<String> _fetchChapterContent(
+    BookSource source,
+    OnlineChapter chapter,
     String bookUrl,
   ) async {
     await cookieStore.load();
@@ -868,6 +919,32 @@ class BookSourceService {
     }
   }
 
+  /// 先获取当前章，再按顺序预取邻章；重复章节由缓存和 in-flight 任务合并。
+  Future<String> loadChapterWithPrefetch(
+    BookSource source,
+    OnlineBook book,
+    List<OnlineChapter> chapters,
+    int index, {
+    int nextCount = 1,
+    int previousCount = 0,
+  }) async {
+    if (index < 0 || index >= chapters.length) {
+      throw const BookSourceException('章节序号超出目录范围', code: 'ONLINE_CHAPTER_INDEX');
+    }
+    final current = await fetchChapterContent(source, chapters[index], book.bookUrl);
+    for (var offset = 1; offset <= nextCount; offset++) {
+      final target = index + offset;
+      if (target >= chapters.length) break;
+      unawaited(fetchChapterContent(source, chapters[target], book.bookUrl).catchError((_) => ''));
+    }
+    for (var offset = 1; offset <= previousCount; offset++) {
+      final target = index - offset;
+      if (target < 0) break;
+      unawaited(fetchChapterContent(source, chapters[target], book.bookUrl).catchError((_) => ''));
+    }
+    return current;
+  }
+
   Future<String> _evaluateContentRule({
     required BookSource source,
     required Object? root,
@@ -905,6 +982,15 @@ class BookSourceService {
       code: 'ONLINE_CONTENT_SCRIPT_LOOP',
     );
   }
+
+  String _contentRulesFingerprint(BookSource source) => sha256
+      .convert(utf8.encode(jsonEncode(<String, String>{
+        'content': source.content.content,
+        'next': source.content.nextContentUrl,
+        'replace': source.content.replaceRegex,
+        'source': source.content.sourceRegex,
+      })))
+      .toString();
 
   String? _decodeDataUrl(String raw) {
     final text = raw.trim();
