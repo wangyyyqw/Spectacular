@@ -2394,6 +2394,7 @@ class _BookRow extends StatelessWidget {
         book: entry,
         width: 66,
         height: 88,
+        showShadow: true,
       ),
     );
     final trailing = <Widget>[
@@ -2634,7 +2635,11 @@ class _BookCard extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          BookCoverImage(book: entry, showReadabilityBadge: true),
+          BookCoverImage(
+            book: entry,
+            showReadabilityBadge: true,
+            showShadow: true,
+          ),
           if (selectionMode)
             Positioned.fill(
               child: IgnorePointer(
