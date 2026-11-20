@@ -4,6 +4,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_detail_sheet.dart';
+import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
@@ -75,6 +76,7 @@ void main() {
     expect(find.text('无修复或告警'), findsNothing);
     expect(find.text('未知作者'), findsOneWidget);
     expect(find.text('已读 0 / 3 章'), findsOneWidget);
+    expect(find.text('已读 0 分钟'), findsOneWidget);
     final coverSize = tester.getSize(
       find.byKey(const ValueKey<String>('book-detail-cover')),
     );
@@ -99,6 +101,7 @@ void main() {
             entry: entry,
             library: store,
             progress: const ReaderProgress(spineIndex: 3, pageIndex: 2),
+            readingDuration: const Duration(hours: 2, minutes: 15),
           ),
         ),
       ),
@@ -106,10 +109,24 @@ void main() {
     await tester.pumpAndSettle();
     final progress = find.text('已读 4 / 15 章');
     expect(progress, findsOneWidget);
+    final duration = find.text('已读 2 小时 15 分');
+    expect(duration, findsOneWidget);
     expect(
-      tester.getTopLeft(progress).dy,
+      tester.getTopLeft(duration).dy,
       greaterThan(tester.getBottomLeft(find.text('测试作者')).dy),
     );
+    expect(
+      tester.getTopLeft(progress).dy,
+      greaterThan(tester.getBottomLeft(duration).dy),
+    );
+    final cover = tester.getRect(
+      find.byKey(const ValueKey('book-detail-cover')),
+    );
+    final metadata = tester.getRect(
+      find.byKey(const ValueKey('book-detail-metadata')),
+    );
+    expect(metadata.top, closeTo(cover.top, 0.1));
+    expect(metadata.bottom, closeTo(cover.bottom, 0.1));
     expect(find.text('内容部分降级'), findsNothing);
     expect(find.text('章节'), findsNothing);
     expect(find.text('导入'), findsNothing);
@@ -118,12 +135,46 @@ void main() {
     expect(find.text('2026-11-20'), findsNothing);
   });
 
+  testWidgets('书架长按按本书汇总有效阅读时长，不混入其他书或短会话', (tester) async {
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(buildTestEpub(title: '计时书籍'));
+      final other = await store.importBytes(buildTestEpub(title: '其他书籍'));
+      final sessions = store.readingSessionStore()!;
+      for (final (bookId, minutes) in [
+        (entry.id, 60),
+        (entry.id, 15),
+        (entry.id, 1),
+        (other.id, 120),
+      ]) {
+        await sessions.add(
+          bookId: bookId,
+          startedAt: DateTime(2026, 11, 20, 10),
+          endedAt: DateTime(2026, 11, 20, 10).add(Duration(minutes: minutes)),
+        );
+      }
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: store,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.byKey(ValueKey('book-card-${entry.id}')));
+    await tester.pumpAndSettle();
+    expect(find.text('已读 1 小时 15 分'), findsOneWidget);
+    expect(find.text('已读 0 / 1 章'), findsOneWidget);
+  });
+
   testWidgets('窄屏和放大文字下两组操作分别同行，遮罩和下拉仍可关闭', (tester) async {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final entry = BookEntry(
       id: 'layout-book',
-      title: '长按布局检查',
-      author: '作者',
+      title: '用于检查窄屏长书名换行和封面对齐的阅读作品',
+      author: '用于检查单行省略的很长作者姓名',
       filePath: '',
       addedAt: DateTime(2026),
     );
@@ -157,6 +208,14 @@ void main() {
       );
       await tester.tap(find.text('打开'));
       await tester.pumpAndSettle();
+      final cover = tester.getRect(
+        find.byKey(const ValueKey('book-detail-cover')),
+      );
+      final metadata = tester.getRect(
+        find.byKey(const ValueKey('book-detail-metadata')),
+      );
+      expect(metadata.top, closeTo(cover.top, 0.1));
+      expect(metadata.bottom, closeTo(cover.bottom, 0.1));
       for (final (left, right) in [
         ('book-detail-update', 'book-detail-create-group'),
         ('book-detail-multi-select', 'book-detail-delete'),

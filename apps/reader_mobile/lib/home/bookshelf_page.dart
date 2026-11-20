@@ -24,6 +24,7 @@ import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
 import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
+import 'reading_insights.dart';
 import '../storage/import_queue.dart';
 
 /// 书架条目与已保存的当前正文比例；旧记录才按字符权重估算。
@@ -709,7 +710,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 长按卡片：快捷详情面板；可继续进入完整详情页或删除。
   Future<void> _openBookDetail(BookEntry entry) async {
-    final progress = await widget.progressStore.load(entry.id);
+    final (progress, durations) = await (
+      widget.progressStore.load(entry.id),
+      widget.library.bookReadingDurations(minimumCountedSessionDuration),
+    ).wait;
     if (!mounted) return;
     final action = await showReaderBottomSheet<String>(
       context: context,
@@ -719,6 +723,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         entry: entry,
         library: widget.library,
         progress: progress,
+        readingDuration: durations[entry.id] ?? Duration.zero,
       ),
     );
     if (!mounted) {
