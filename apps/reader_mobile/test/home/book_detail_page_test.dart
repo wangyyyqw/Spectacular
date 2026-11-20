@@ -71,6 +71,29 @@ void main() {
     }
   });
 
+  testWidgets('详情页隐藏图书信息与导入报告，保留阅读记录', (tester) async {
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(buildWarningEpub());
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('图书信息'), findsNothing);
+    expect(find.text('章节'), findsNothing);
+    expect(find.text('导入'), findsNothing);
+    expect(find.text('最近阅读'), findsNothing);
+    expect(find.text('可读性'), findsNothing);
+    expect(find.text('导入报告'), findsNothing);
+    expect(find.text('E_MANIFEST_MEDIA_TYPE_INFERRED'), findsNothing);
+    expect(find.text('阅读记录'), findsOneWidget);
+  });
+
   testWidgets('读完信息支持长书评，保存失败保留草稿且不提前标记读完', (tester) async {
     late BookEntry entry;
     await tester.runAsync(() async {
