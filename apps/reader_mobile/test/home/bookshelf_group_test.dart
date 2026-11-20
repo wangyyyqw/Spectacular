@@ -56,6 +56,8 @@ void main() {
     await _settle(tester, frames: 4);
     await tester.tap(find.text('分组'));
     await _settle(tester, frames: 4);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     await tester.enterText(
       find.byKey(const ValueKey<String>('bookshelf-group-create-name')),
       '小说',
@@ -203,5 +205,57 @@ void main() {
       first.id: groups.single.id,
       second.id: groups.single.id,
     });
+  });
+
+  testWidgets('小屏键盘弹出时新建分组抽屉保留输入和操作，取消不创建分组', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    final library = LibraryStore.memory();
+    late BookEntry book;
+    await tester.runAsync(() async {
+      book = await library.importBytes(buildTestEpub(title: '抽屉测试书籍'));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(1.3)),
+          child: child!,
+        ),
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.longPress(find.byKey(ValueKey('book-card-${book.id}')));
+    await _settle(tester);
+    await tester.tap(find.text('分组'));
+    await _settle(tester);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+    await _settle(tester);
+    final confirm = find.byKey(
+      const ValueKey('bookshelf-group-create-confirm'),
+    );
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+    await tester.enterText(
+      find.byKey(const ValueKey('bookshelf-group-create-name')),
+      '待读',
+    );
+    await tester.pump();
+    expect(confirm.hitTestable(), findsOneWidget);
+    expect(tester.getBottomLeft(confirm).dy, lessThanOrEqualTo(380));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('取消'));
+    await _settle(tester);
+    expect(
+      find.byKey(const ValueKey('bookshelf-group-create-sheet')),
+      findsNothing,
+    );
+    expect(await library.listGroups(), isEmpty);
   });
 }
