@@ -14,6 +14,111 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
+  testWidgets('内容区左右滑动切换分组，兼容空组、列表、多选及溢出标签', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final library = LibraryStore.memory();
+    late BookEntry first;
+    await tester.runAsync(() async {
+      first = await library.importBytes(
+        buildTestEpub(title: '滑动甲', identifier: 'swipe-a'),
+      );
+      await library.importBytes(
+        buildTestEpub(title: '滑动乙', identifier: 'swipe-b'),
+      );
+    });
+    final groups = <ShelfGroup>[
+      for (var i = 1; i <= 5; i++) await library.createGroup('阅读分组$i'),
+    ];
+    await library.setBooksGroup([first.id], groupId: groups.first.id);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    final pages = find.byKey(const ValueKey('bookshelf-group-pages'));
+
+    // 全部页向右不循环；短距离和纵向滑动不切换。
+    for (final offset in [
+      const Offset(180, 0),
+      const Offset(-32, 0),
+      const Offset(0, -120),
+    ]) {
+      await tester.drag(pages, offset);
+      await _settle(tester, frames: 3);
+      expect(find.text('滑动乙'), findsWidgets);
+      expect(find.byTooltip('分组选项'), findsNothing);
+    }
+    await tester.drag(pages, const Offset(-180, 0));
+    await _settle(tester, frames: 3);
+    expect(find.text('滑动甲'), findsWidgets);
+    expect(find.text('滑动乙'), findsNothing);
+
+    // 切换时保留查询，即使当前没有匹配项也能滑动。
+    final search = find.byKey(const ValueKey('bookshelf-search-field'));
+    await tester.tap(search);
+    await tester.enterText(search, '滑动乙');
+    tester.testTextInput.hide();
+    await tester.pump();
+    expect(find.text('没有找到相关书籍'), findsOneWidget);
+    await tester.drag(pages, const Offset(-180, 0));
+    await _settle(tester, frames: 3);
+    expect(tester.widget<TextField>(search).controller!.text, '滑动乙');
+    await tester.tap(find.byTooltip('关闭搜索'));
+    await _settle(tester, frames: 3);
+    expect(find.text('这个分组还没有书'), findsOneWidget);
+
+    for (final group in groups.skip(2)) {
+      await tester.drag(pages, const Offset(-180, 0));
+      await _settle(tester, frames: 3);
+      expect(find.textContaining('「${group.name}」'), findsOneWidget);
+      final tab = tester.getRect(
+        find.byKey(ValueKey('bookshelf-group-${group.id}')),
+      );
+      final bar = tester.getRect(find.byType(SingleChildScrollView).first);
+      expect(tab.left, greaterThanOrEqualTo(bar.left));
+      expect(tab.right, lessThanOrEqualTo(bar.right));
+    }
+    await tester.drag(pages, const Offset(-180, 0));
+    await _settle(tester, frames: 3);
+    expect(find.textContaining('「${groups.last.name}」'), findsOneWidget);
+
+    // 空组也可向右返回；列表使用相同分组顺序。
+    for (var i = 0; i < groups.length; i++) {
+      await tester.drag(pages, const Offset(180, 0));
+      await _settle(tester, frames: 3);
+    }
+    expect(find.text('滑动乙'), findsWidgets);
+    await tester.tap(find.byTooltip('列表视图'));
+    await _settle(tester, frames: 3);
+    await tester.drag(pages, const Offset(-180, 0));
+    await _settle(tester, frames: 3);
+    expect(find.text('滑动甲'), findsWidgets);
+    expect(find.text('滑动乙'), findsNothing);
+    expect(find.byKey(const ValueKey('bookshelf-list')), findsOneWidget);
+
+    await tester.longPress(find.text('滑动甲').first);
+    await _settle(tester, frames: 3);
+    await tester.tap(find.text('多选'));
+    await _settle(tester, frames: 3);
+    await tester.drag(pages, const Offset(-180, 0));
+    await _settle(tester, frames: 3);
+    expect(find.text('已选 1 本'), findsOneWidget);
+    expect(find.text('滑动甲'), findsWidgets);
+    expect(find.text('滑动乙'), findsWidgets);
+    await tester.tap(find.byTooltip('退出多选'));
+    await _settle(tester, frames: 3);
+    expect(find.text('滑动甲'), findsWidgets);
+    expect(find.text('滑动乙'), findsWidgets);
+    expect(find.byTooltip('分组选项'), findsNothing);
+  });
+
   testWidgets('书架用自定义分组替代状态标签，并支持移入与重命名', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry first;

@@ -105,6 +105,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
   String? _activeGroupId;
+  double _groupDragDistance = 0;
   bool _grid = true;
   bool _searching = false;
   bool _selectionMode = false;
@@ -223,6 +224,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
     setState(() {
       _activeGroupId = _activeGroupId == id ? null : id;
     });
+  }
+
+  void _finishGroupSwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final distance = _groupDragDistance;
+    if (distance.abs() < 48 && (distance.abs() < 20 || velocity.abs() < 400)) {
+      return;
+    }
+    final ids = <String?>[null, for (final group in _groups) group.id];
+    final index = ids.indexOf(_activeGroupId);
+    final next = index + (distance < 0 ? 1 : -1);
+    if (next >= 0 && next < ids.length) {
+      setState(() => _activeGroupId = ids[next]);
+    }
   }
 
   int _groupBookCount(ShelfGroup group) => (_items ?? const <_ShelfItem>[])
@@ -1103,36 +1118,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       automaticallyImplyLeading: false,
       toolbarHeight: 72,
       titleSpacing: 16,
-      title: TextField(
-        key: const ValueKey<String>('bookshelf-search-field'),
-        controller: _searchController,
-        focusNode: _searchFocus,
-        textInputAction: TextInputAction.search,
-        onTap: _focusSearch,
-        decoration: InputDecoration(
-          hintText: '搜索书名或作者',
-          filled: true,
-          fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
-          contentPadding: const EdgeInsets.symmetric(vertical: 12),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          prefixIcon: IconButton(
-            tooltip: '搜索书架',
-            onPressed: _focusSearch,
-            icon: const AppIcon(AppGlyph.search),
-          ),
-          suffixIcon: !_searching
-              ? null
-              : IconButton(
-                  tooltip: '关闭搜索',
-                  onPressed: _toggleSearch,
-                  icon: const AppIcon(AppGlyph.close),
-                ),
-        ),
-        onChanged: (value) => setState(() => _query = value),
-      ),
+      title: _buildSearchField(),
       actions: [
         IconButton(
           key: const ValueKey<String>('bookshelf-import'),
@@ -1148,6 +1134,50 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ),
         const SizedBox(width: 8),
       ],
+    );
+  }
+
+  Widget _buildSearchField() {
+    final colors = Theme.of(context).colorScheme;
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(24),
+      borderSide: BorderSide.none,
+    );
+    return Material(
+      key: const ValueKey('bookshelf-search-surface'),
+      color: colors.surface,
+      borderRadius: border.borderRadius,
+      elevation: 2,
+      shadowColor: colors.shadow.withValues(alpha: .12),
+      child: TextField(
+        key: const ValueKey<String>('bookshelf-search-field'),
+        controller: _searchController,
+        focusNode: _searchFocus,
+        textInputAction: TextInputAction.search,
+        onTap: _focusSearch,
+        decoration: InputDecoration(
+          hintText: '搜索书名或作者',
+          filled: true,
+          fillColor: colors.surface,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: border,
+          enabledBorder: border,
+          focusedBorder: border,
+          prefixIcon: IconButton(
+            tooltip: '搜索书架',
+            onPressed: _focusSearch,
+            icon: const AppIcon(AppGlyph.search),
+          ),
+          suffixIcon: !_searching
+              ? null
+              : IconButton(
+                  tooltip: '关闭搜索',
+                  onPressed: _toggleSearch,
+                  icon: const AppIcon(AppGlyph.close),
+                ),
+        ),
+        onChanged: (value) => setState(() => _query = value),
+      ),
     );
   }
 
@@ -1199,6 +1229,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
     List<_ShelfItem>? visible,
     bool busy,
   ) {
+    final canSwipe =
+        !_selectionMode &&
+        _error == null &&
+        items != null &&
+        _groups.isNotEmpty;
     return Column(
       children: [
         if (busy)
@@ -1213,7 +1248,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
         if (!_selectionMode && _error == null && items != null)
           _buildShelfControls(items),
-        Expanded(child: _buildLibraryBody(items, visible)),
+        Expanded(
+          child: GestureDetector(
+            key: const ValueKey('bookshelf-group-pages'),
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragStart: canSwipe
+                ? (_) => _groupDragDistance = 0
+                : null,
+            onHorizontalDragUpdate: canSwipe
+                ? (details) => _groupDragDistance += details.primaryDelta ?? 0
+                : null,
+            onHorizontalDragEnd: canSwipe ? _finishGroupSwipe : null,
+            child: _buildLibraryBody(items, visible),
+          ),
+        ),
       ],
     );
   }
@@ -1817,7 +1865,7 @@ class _ShelfGroupBar extends StatelessWidget {
 }
 
 /// 分组采用文字页签，让书封面成为书架的视觉重点。
-class _ShelfGroupTab extends StatelessWidget {
+class _ShelfGroupTab extends StatefulWidget {
   const _ShelfGroupTab({
     super.key,
     required this.label,
@@ -1832,14 +1880,35 @@ class _ShelfGroupTab extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   @override
+  State<_ShelfGroupTab> createState() => _ShelfGroupTabState();
+}
+
+class _ShelfGroupTabState extends State<_ShelfGroupTab> {
+  @override
+  void didUpdateWidget(_ShelfGroupTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected && !oldWidget.selected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Scrollable.ensureVisible(
+            context,
+            duration: const Duration(milliseconds: 180),
+            alignment: .5,
+          );
+        }
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Semantics(
-      selected: selected,
+      selected: widget.selected,
       button: true,
       child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
         child: Container(
           margin: const EdgeInsets.only(right: 20),
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1847,19 +1916,19 @@ class _ShelfGroupTab extends StatelessWidget {
             border: Border(
               bottom: BorderSide(
                 width: 2,
-                color: selected
+                color: widget.selected
                     ? theme.colorScheme.primary
                     : Colors.transparent,
               ),
             ),
           ),
           child: Text(
-            label,
+            widget.label,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: selected
+              color: widget.selected
                   ? theme.colorScheme.onSurface
                   : theme.colorScheme.onSurfaceVariant,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              fontWeight: widget.selected ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
         ),
