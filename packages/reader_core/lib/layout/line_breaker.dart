@@ -2615,7 +2615,11 @@ abstract final class TextLayoutEngine {
     List<_InlineBoxMark> marks,
     List<int> offsets,
   ) => {
-    for (final mark in marks) ...[mark.index, mark.index + 1],
+    // 留白盒只占宽，不是原子内容；两侧标点仍可各自压缩。
+    // 插入的占位符仍隔开标点，不会跨作者留白应用相邻压缩。
+    for (final mark in marks)
+      if (mark.spec.payload is! InlineSpacingEdge)
+        ...[mark.index, mark.index + 1],
     for (final ruby in rubies)
       for (
         var i = _measuredOffset(offsets, ruby.start);
