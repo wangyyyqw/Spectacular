@@ -17,13 +17,12 @@ void main() {
   testWidgets('书架用自定义分组替代状态标签，并支持移入与重命名', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry first;
-    late BookEntry second;
     late BookEntry third;
     await tester.runAsync(() async {
       first = await library.importBytes(
         buildTestEpub(title: '分组甲', identifier: 'widget-group-a'),
       );
-      second = await library.importBytes(
+      await library.importBytes(
         buildTestEpub(title: '分组乙', identifier: 'widget-group-b'),
       );
       third = await library.importBytes(
@@ -54,34 +53,32 @@ void main() {
       find.byKey(ValueKey<String>('book-card-${first.id}')),
     );
     await _settle(tester, frames: 4);
-    await tester.tap(find.text('新建分组'));
+    await tester.tap(find.text('分组'));
     await _settle(tester, frames: 4);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     await tester.enterText(
       find.byKey(const ValueKey<String>('bookshelf-group-create-name')),
       '小说',
     );
     await tester.pump();
-    expect(
-      tester
-          .widget<CheckboxListTile>(
-            find.byKey(ValueKey<String>('bookshelf-group-book-${first.id}')),
-          )
-          .value,
-      isTrue,
-      reason: '长按的那本书应已预选',
-    );
-    await tester.tap(
-      find.byKey(ValueKey<String>('bookshelf-group-book-${second.id}')),
-    );
-    await tester.pump();
+    expect(find.byType(CheckboxListTile), findsNothing);
     await tester.tap(
       find.byKey(const ValueKey<String>('bookshelf-group-create-confirm')),
     );
     await _settle(tester);
 
-    expect(find.text('小说 2'), findsOneWidget);
+    expect(find.text('小说 1'), findsOneWidget);
+    final allTab = tester.getRect(
+      find.byKey(const ValueKey('bookshelf-group-all')),
+    );
+    expect(allTab.left, 16);
+    expect(
+      tester.getTopLeft(find.text('小说 1')).dx,
+      greaterThanOrEqualTo(allTab.right),
+    );
     expect(find.text('分组甲'), findsWidgets);
-    expect(find.text('分组乙'), findsWidgets);
+    expect(find.text('分组乙'), findsNothing);
     expect(find.text('分组丙'), findsNothing);
 
     await tester.tap(
@@ -114,9 +111,9 @@ void main() {
       find.byKey(ValueKey<String>('bookshelf-group-${group.id}')),
     );
     await _settle(tester, frames: 4);
-    expect(find.text('小说 3'), findsOneWidget);
+    expect(find.text('小说 2'), findsOneWidget);
     expect(find.text('分组甲'), findsWidgets);
-    expect(find.text('分组乙'), findsWidgets);
+    expect(find.text('分组乙'), findsNothing);
     expect(find.text('分组丙'), findsWidgets);
 
     await tester.tap(
@@ -136,7 +133,7 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-group-name-confirm')),
     );
     await _settle(tester);
-    expect(find.text('文学 3'), findsOneWidget);
+    expect(find.text('文学 2'), findsOneWidget);
   });
 
   testWidgets('多选底栏新建分组并预选已选书籍', (tester) async {
@@ -203,5 +200,116 @@ void main() {
       first.id: groups.single.id,
       second.id: groups.single.id,
     });
+  });
+
+  testWidgets('长按分组仅移动当前书籍，也可为当前书籍新建分组', (tester) async {
+    final library = LibraryStore.memory();
+    final books = <BookEntry>[];
+    await tester.runAsync(() async {
+      for (final title in ['当前书籍', '其他书籍']) {
+        books.add(await library.importBytes(buildTestEpub(title: title)));
+      }
+    });
+    final original = await library.createGroup('原分组');
+    final target = await library.createGroup('待读');
+    await library.setBooksGroup(
+      books.map((book) => book.id),
+      groupId: original.id,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.longPress(find.byKey(ValueKey('book-card-${books.first.id}')));
+    await _settle(tester);
+    await tester.tap(find.text('分组'));
+    await _settle(tester);
+    expect(find.byType(CheckboxListTile), findsNothing);
+    expect(find.text('当前分组'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('bookshelf-book-group-${target.id}')));
+    await _settle(tester);
+    expect(await library.groupAssignments(), {
+      books.first.id: target.id,
+      books.last.id: original.id,
+    });
+    expect(await library.listGroups(), hasLength(2));
+    await tester.longPress(find.byKey(ValueKey('book-card-${books.first.id}')));
+    await _settle(tester);
+    await tester.tap(find.text('分组'));
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('bookshelf-book-group-new')));
+    await _settle(tester);
+    expect(find.byType(CheckboxListTile), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('bookshelf-group-create-name')),
+      '收藏',
+    );
+    await tester.pump();
+    await tester.tap(find.text('创建并移入'));
+    await _settle(tester);
+    final created = (await library.listGroups()).singleWhere(
+      (group) => group.name == '收藏',
+    );
+    expect(await library.groupAssignments(), {
+      books.first.id: created.id,
+      books.last.id: original.id,
+    });
+  });
+
+  testWidgets('小屏键盘弹出时新建分组抽屉保留输入和操作，取消不创建分组', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    final library = LibraryStore.memory();
+    late BookEntry book;
+    await tester.runAsync(() async {
+      book = await library.importBytes(buildTestEpub(title: '抽屉测试书籍'));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(1.3)),
+          child: child!,
+        ),
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.longPress(find.byKey(ValueKey('book-card-${book.id}')));
+    await _settle(tester);
+    await tester.tap(find.text('分组'));
+    await _settle(tester);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+    await _settle(tester);
+    final confirm = find.byKey(
+      const ValueKey('bookshelf-group-create-confirm'),
+    );
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+    await tester.enterText(
+      find.byKey(const ValueKey('bookshelf-group-create-name')),
+      '待读',
+    );
+    await tester.pump();
+    expect(confirm.hitTestable(), findsOneWidget);
+    expect(tester.getBottomLeft(confirm).dy, lessThanOrEqualTo(380));
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('取消'));
+    await _settle(tester);
+    expect(
+      find.byKey(const ValueKey('bookshelf-book-group-sheet')),
+      findsNothing,
+    );
+    expect(await library.listGroups(), isEmpty);
   });
 }

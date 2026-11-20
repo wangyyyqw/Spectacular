@@ -579,7 +579,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         ? '⌘'
         : 'Ctrl';
     unawaited(
-      showDialog<void>(
+      showReaderDialog<void>(
         context: context,
         builder: (context) => ReaderPanelTheme(
           theme: _effectiveTheme ?? ReaderTheme.white,
@@ -1926,7 +1926,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     String? reason, {
     String? replacement,
   }) async =>
-      await showDialog<bool>(
+      await showReaderDialog<bool>(
         context: context,
         builder: (context) => ReaderPanelTheme(
           theme: _effectiveTheme ?? ReaderTheme.white,

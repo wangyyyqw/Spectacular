@@ -6,7 +6,7 @@ import 'package:reader_ui/theme/reader_frosted_popup.dart';
 Future<String?> chooseTxtEncoding(
   BuildContext context,
   List<TxtEncodingCandidate> candidates,
-) => showDialog<String>(
+) => showReaderDialog<String>(
   context: context,
   builder: (_) => _EncodingDialog(candidates: candidates),
 );

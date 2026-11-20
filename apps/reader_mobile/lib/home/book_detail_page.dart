@@ -382,7 +382,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     if (progressStore == null) {
       return;
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('取消读完标记？'),

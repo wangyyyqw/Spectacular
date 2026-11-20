@@ -19,17 +19,11 @@ part 'book_editor_file_menu.dart';
 Future<T?> _showEditorDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
-}) async {
-  final navigator = Navigator.of(context, rootNavigator: true);
-  final route = DialogRoute<T>(
-    context: context,
-    builder: builder,
-    themes: InheritedTheme.capture(from: context, to: navigator.context),
-  );
-  final result = await navigator.push(route);
-  await route.completed;
-  return result;
-}
+}) => showReaderDialog<T>(
+  context: context,
+  builder: builder,
+  waitForDismissal: true,
+);
 
 Future<String?> editorPrompt(
   BuildContext context,

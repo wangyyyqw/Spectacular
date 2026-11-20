@@ -217,7 +217,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       for (final annotation in widget.annotations)
         if (_selectedIds.contains(annotation.id)) annotation,
     ];
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除 ${selected.length} 条标注？'),
@@ -268,7 +268,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       for (final annotation in widget.annotations)
         if (_selectedIds.contains(annotation.id)) annotation,
     ];
-    final color = await showDialog<int>(
+    final color = await showReaderDialog<int>(
       context: context,
       builder: (context) => _BatchColorDialog(count: selected.length),
     );

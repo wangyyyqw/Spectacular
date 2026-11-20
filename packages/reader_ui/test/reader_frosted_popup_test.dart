@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_ui/theme/reader_environment.dart';
@@ -8,6 +9,121 @@ import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
+  testWidgets('弹窗保持焦点循环、遮罩关闭约定与返回值，退场结束后释放输入控制器', (tester) async {
+    final input = TextEditingController();
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    var dismissible = false;
+    var completed = false;
+    String? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await showReaderDialog<String>(
+                  context: context,
+                  barrierDismissible: dismissible,
+                  waitForDismissal: true,
+                  builder: (context) => ReaderFrostedAlertDialog(
+                    title: const Text('输入名称'),
+                    content: TextField(
+                      controller: input,
+                      focusNode: focus,
+                      autofocus: true,
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, input.text),
+                        child: const Text('保存'),
+                      ),
+                    ],
+                  ),
+                );
+                completed = true;
+              },
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    expect(focus.hasFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    expect(focus.hasFocus, isTrue, reason: '键盘焦点留在对话框内');
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderFrostedDialog), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '新名字');
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(completed, isFalse);
+    expect(find.byType(ReaderFrostedDialog), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(completed, isTrue);
+    expect(result, '新名字');
+    expect(find.byType(ReaderFrostedDialog), findsNothing);
+    dismissible = true;
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+    expect(find.byType(ReaderFrostedDialog), findsNothing);
+    input.dispose();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final ink in [false, true]) {
+    testWidgets('${ink ? '墨水屏' : '减少动态效果'}即时打开和关闭居中弹窗', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: !ink),
+            child: child!,
+          ),
+          home: ReaderPanelTheme(
+            theme: ink ? ReaderEnvironment.inkTheme : ReaderTheme.white,
+            child: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showReaderDialog<void>(
+                    context: context,
+                    builder: (context) => ReaderFrostedSimpleDialog(
+                      title: const Text('选项'),
+                      children: [
+                        SimpleDialogOption(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('关闭'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  child: const Text('打开'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开'));
+      await tester.pump();
+      final route = ModalRoute.of(
+        tester.element(find.byType(ReaderFrostedDialog)),
+      )!;
+      expect(route.animation!.value, 1);
+      expect(route.animation!.isAnimating, isFalse);
+      await tester.tap(find.text('关闭'));
+      await tester.pump();
+      expect(find.byType(ReaderFrostedDialog), findsNothing);
+    });
+  }
+
   testWidgets('短抽屉只使用一层磨砂，保留返回值和拖动关闭', (tester) async {
     String? result;
     await tester.pumpWidget(
@@ -75,7 +191,7 @@ void main() {
             body: Builder(
               builder: (context) => TextButton(
                 onPressed: () async {
-                  result = await showDialog<String>(
+                  result = await showReaderDialog<String>(
                     context: context,
                     builder: (context) => ReaderFrostedAlertDialog(
                       title: const Text('重命名'),
@@ -134,7 +250,7 @@ void main() {
                   onPressed: () => showReaderBottomSheet<void>(
                     context: context,
                     builder: (context) => TextButton(
-                      onPressed: () => showDialog<void>(
+                      onPressed: () => showReaderDialog<void>(
                         context: context,
                         builder: (_) =>
                             const ReaderFrostedAlertDialog(title: Text('确认')),

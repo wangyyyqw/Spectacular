@@ -140,47 +140,43 @@ class ReaderMenuOverlay extends StatelessWidget {
       left: 0,
       right: 0,
       bottom: 0,
-      child: AnimatedSlide(
-        offset: open ? Offset.zero : const Offset(0, 1.01),
+      child: _SlidingMenuBar(
+        open: open,
+        closedOffset: const Offset(0, 1.01),
         duration: duration,
-        curve: _ease,
-        child: AnimatedOpacity(
-          opacity: open ? 1 : 0,
-          duration: duration,
-          child: IgnorePointer(
-            ignoring: !open,
-            child: ExcludeFocus(
-              excluding: drawerChild != null,
-              child: ReaderFrostedSurface(
-                key: const ValueKey('reader-menu-bottom-surface'),
-                radius: 0,
-                inkMode: inkMode,
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: line)),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-                        child: _ProgressRow(
-                          fg: fg,
-                          fill: fill,
-                          progress: progress,
-                          label: chapterLabel,
-                          onPrevious: onPreviousChapter,
-                          onNext: onNextChapter,
-                          onSeek: onSeek,
-                        ),
-                      ),
-                      _EntriesRow(
+        child: IgnorePointer(
+          ignoring: !open,
+          child: ExcludeFocus(
+            excluding: drawerChild != null,
+            child: ReaderFrostedSurface(
+              key: const ValueKey('reader-menu-bottom-surface'),
+              radius: 0,
+              inkMode: inkMode,
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: line)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                      child: _ProgressRow(
                         fg: fg,
-                        onEntry: onEntry,
-                        safeBottom: safeBottom,
+                        fill: fill,
+                        progress: progress,
+                        label: chapterLabel,
+                        onPrevious: onPreviousChapter,
+                        onNext: onNextChapter,
+                        onSeek: onSeek,
                       ),
-                    ],
-                  ),
+                    ),
+                    _EntriesRow(
+                      fg: fg,
+                      onEntry: onEntry,
+                      safeBottom: safeBottom,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -201,100 +197,90 @@ class ReaderMenuOverlay extends StatelessWidget {
               top: 0,
               left: 0,
               right: 0,
-              child: AnimatedSlide(
-                offset: open ? Offset.zero : const Offset(0, -1.01),
+              child: _SlidingMenuBar(
+                open: open,
+                closedOffset: const Offset(0, -1.01),
                 duration: duration,
-                curve: _ease,
-                child: AnimatedOpacity(
-                  opacity: open ? 1 : 0,
-                  duration: duration,
-                  child: IgnorePointer(
-                    ignoring: !open,
-                    child: ExcludeFocus(
-                      excluding: drawerChild != null,
-                      child: ReaderFrostedSurface(
-                        key: const ValueKey('reader-menu-top-surface'),
-                        radius: 0,
-                        inkMode: inkMode,
-                        child: Container(
-                          padding: EdgeInsets.only(top: topInset),
-                          decoration: BoxDecoration(
-                            border: Border(bottom: BorderSide(color: line)),
-                          ),
-                          child: SizedBox(
-                            height: 56,
-                            child: Row(
-                              children: <Widget>[
+                child: IgnorePointer(
+                  ignoring: !open,
+                  child: ExcludeFocus(
+                    excluding: drawerChild != null,
+                    child: ReaderFrostedSurface(
+                      key: const ValueKey('reader-menu-top-surface'),
+                      radius: 0,
+                      inkMode: inkMode,
+                      child: Container(
+                        padding: EdgeInsets.only(top: topInset),
+                        decoration: BoxDecoration(
+                          border: Border(bottom: BorderSide(color: line)),
+                        ),
+                        child: SizedBox(
+                          height: 56,
+                          child: Row(
+                            children: <Widget>[
+                              _IconButton(
+                                icon: AppGlyph.arrowBack,
+                                iconSize: 22,
+                                color: fg,
+                                onTap: onBack,
+                                tooltip: '返回书架',
+                                buttonKey: const ValueKey<String>('menu-back'),
+                              ),
+                              const SizedBox(width: 2),
+                              Flexible(
+                                child: Text(
+                                  bookTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(color: fg),
+                                ),
+                              ),
+                              const Spacer(),
+                              if (onShowShortcuts != null)
                                 _IconButton(
-                                  icon: AppGlyph.arrowBack,
+                                  icon: AppGlyph.info,
+                                  color: fg,
+                                  onTap: onShowShortcuts,
+                                  tooltip: '桌面操作与快捷键（F1）',
+                                ),
+                              _IconButton(
+                                icon: nightMode
+                                    ? AppGlyph.lightMode
+                                    : AppGlyph.darkMode,
+                                iconSize: 19,
+                                color: fg,
+                                onTap: inkMode ? null : onToggleDayNight,
+                                tooltip: inkMode
+                                    ? '墨水屏模式固定纯黑白'
+                                    : nightMode
+                                    ? '日间'
+                                    : '夜间',
+                                buttonKey: const ValueKey<String>(
+                                  'menu-daynight',
+                                ),
+                              ),
+                              if (onEdit != null)
+                                _IconButton(
+                                  icon: AppGlyph.editNote,
                                   iconSize: 22,
                                   color: fg,
-                                  onTap: onBack,
-                                  tooltip: '返回书架',
+                                  onTap: onEdit,
+                                  tooltip: '编辑书籍',
                                   buttonKey: const ValueKey<String>(
-                                    'menu-back',
+                                    'menu-edit',
                                   ),
                                 ),
-                                const SizedBox(width: 2),
-                                Flexible(
-                                  child: Text(
-                                    bookTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(color: fg),
-                                  ),
-                                ),
-                                const Spacer(),
-                                if (onShowShortcuts != null)
-                                  _IconButton(
-                                    icon: AppGlyph.info,
-                                    color: fg,
-                                    onTap: onShowShortcuts,
-                                    tooltip: '桌面操作与快捷键（F1）',
-                                  ),
+                              if (onTts != null)
                                 _IconButton(
-                                  icon: nightMode
-                                      ? AppGlyph.lightMode
-                                      : AppGlyph.darkMode,
+                                  icon: AppGlyph.headphones,
                                   iconSize: 19,
                                   color: fg,
-                                  onTap: inkMode ? null : onToggleDayNight,
-                                  tooltip: inkMode
-                                      ? '墨水屏模式固定纯黑白'
-                                      : nightMode
-                                      ? '日间'
-                                      : '夜间',
-                                  buttonKey: const ValueKey<String>(
-                                    'menu-daynight',
-                                  ),
+                                  onTap: onTts!,
+                                  tooltip: '听书',
+                                  buttonKey: const ValueKey<String>('menu-tts'),
                                 ),
-                                if (onEdit != null)
-                                  _IconButton(
-                                    icon: AppGlyph.editNote,
-                                    iconSize: 22,
-                                    color: fg,
-                                    onTap: onEdit,
-                                    tooltip: '编辑书籍',
-                                    buttonKey: const ValueKey<String>(
-                                      'menu-edit',
-                                    ),
-                                  ),
-                                if (onTts != null)
-                                  _IconButton(
-                                    icon: AppGlyph.headphones,
-                                    iconSize: 19,
-                                    color: fg,
-                                    onTap: onTts!,
-                                    tooltip: '听书',
-                                    buttonKey: const ValueKey<String>(
-                                      'menu-tts',
-                                    ),
-                                  ),
-                              ],
-                            ),
+                            ],
                           ),
                         ),
                       ),
@@ -358,6 +344,34 @@ class ReaderMenuOverlay extends StatelessWidget {
       child: RepaintBoundary(child: overlay),
     );
   }
+}
+
+/// 磨砂底板直接采样正文，避免整体淡入的离屏层在末帧撤销时突变。
+class _SlidingMenuBar extends StatelessWidget {
+  const _SlidingMenuBar({
+    required this.open,
+    required this.closedOffset,
+    required this.duration,
+    required this.child,
+  });
+
+  final bool open;
+  final Offset closedOffset;
+  final Duration duration;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<Offset>(
+    tween: Tween(end: open ? Offset.zero : closedOffset),
+    duration: duration,
+    curve: ReaderMenuOverlay._ease,
+    child: child,
+    builder: (context, offset, child) => Offstage(
+      // 完全收起后停止绘制，防止屏外阴影和模糊继续影响正文。
+      offstage: offset == closedOffset,
+      child: FractionalTranslation(translation: offset, child: child),
+    ),
+  );
 }
 
 class _IconButton extends StatelessWidget {

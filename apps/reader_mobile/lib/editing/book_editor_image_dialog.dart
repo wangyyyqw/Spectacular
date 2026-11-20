@@ -11,7 +11,7 @@ Future<bool> editBookImage(
   BookEditorController editor,
   EditableElementRef image,
 ) async =>
-    await showDialog<bool>(
+    await showReaderDialog<bool>(
       context: context,
       builder: (_) => _ImageEditor(editor: editor, image: image),
     ) ??

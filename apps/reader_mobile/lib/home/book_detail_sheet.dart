@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
 import 'book_cover_image.dart';
+import 'reading_insights.dart';
 
-/// 书籍详情（P4-06）：元信息 + 导入报告（修复项与告警）。
+/// 长按书架卡片展示书籍元信息和快捷操作。
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
-/// `'create-group'` 新建分组，`'multi-select'` 进入多选，
+/// `'create-group'` 将本书移入已有或新建分组，`'multi-select'` 进入多选，
 /// `'reamicro-link'` 进入阅微关联与公开阅读。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
@@ -17,95 +19,116 @@ class BookDetailSheet extends StatelessWidget {
     required this.entry,
     required this.library,
     this.onlineSourceName,
+    this.progress,
+    this.readingDuration = Duration.zero,
   });
 
   /// 书籍条目。
   final BookEntry entry;
 
-  /// 书库（读导入报告）。
+  /// 书库（查询待定位记录和章节重划分能力）。
   final LibraryStore library;
 
   /// 书籍关联的在线书源名称；为空表示尚未关联。
   final String? onlineSourceName;
 
-  static const _levelLabels = <String>['完整', '已修复', '部分降级', '结构异常', '无法阅读'];
+  /// 已保存的阅读位置；没有进度时显示已读 0 章。
+  final ReaderProgress? progress;
+
+  /// 本书累计有效阅读时长，与图书详情的统计口径一致。
+  final Duration readingDuration;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final totalChapters = entry.spineCount ?? 0;
+    final currentChapter = progress == null
+        ? 0
+        : (progress!.spineIndex + 1).clamp(0, totalChapters);
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                BookCoverImage(
-                  key: const ValueKey('book-detail-cover'),
-                  book: entry,
-                  width: 80,
-                  height: 108,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        entry.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  BookCoverImage(
+                    key: const ValueKey('book-detail-cover'),
+                    book: entry,
+                    width: 80,
+                    height: 108,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      key: const ValueKey('book-detail-metadata'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          entry.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontSize: 18,
+                            height: 1.25,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        entry.author.isEmpty ? '未知作者' : entry.author,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '内容${_levelLabels[entry.readabilityLevel.clamp(0, 4)]}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      if (onlineSourceName != null &&
-                          onlineSourceName!.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
-                          '在线来源：$onlineSourceName',
+                          entry.author.isEmpty ? '未知作者' : entry.author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.primary,
+                            fontSize: 13,
+                            height: 1.3,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '已读 ${formatReadingDuration(readingDuration)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 13,
+                            height: 1.3,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '已读 $currentChapter / $totalChapters 章',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 13,
+                            height: 1.3,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        if (onlineSourceName?.isNotEmpty ?? false) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '在线来源：$onlineSourceName',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: 13,
+                              height: 1.3,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 16,
-              runSpacing: 4,
-              children: [
-                _MetaItem(label: '章节', value: '${entry.spineCount ?? 0} 章'),
-                _MetaItem(label: '导入', value: _formatDate(entry.addedAt)),
-                _MetaItem(
-                  label: '最近阅读',
-                  value: entry.lastReadAt == null
-                      ? '未读'
-                      : _formatDate(entry.lastReadAt!),
-                ),
-              ],
+                ],
+              ),
             ),
             const Divider(height: 24),
             FutureBuilder<List<String>>(
@@ -132,39 +155,6 @@ class BookDetailSheet extends StatelessWidget {
                 );
               },
             ),
-            Text('导入报告', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            FutureBuilder<List<ImportReportEntry>>(
-              future: library.importReports(entry.id),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  );
-                }
-                final items = snapshot.data ?? const <ImportReportEntry>[];
-                if (items.isEmpty) {
-                  return Text(
-                    '无修复或告警',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  );
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [for (final item in items) _ReportRow(item: item)],
-                );
-              },
-            ),
-            const Divider(height: 32),
             _DetailAction(
               key: const ValueKey<String>('book-detail-open-page'),
               icon: AppGlyph.menuBook,
@@ -177,12 +167,6 @@ class BookDetailSheet extends StatelessWidget {
               label: '关联阅微公开阅读',
               onTap: () => Navigator.of(context).pop('reamicro-link'),
             ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-update'),
-              icon: AppGlyph.refresh,
-              label: onlineSourceName?.isNotEmpty ?? false ? '更新获取最新章节' : '更新',
-              onTap: () => Navigator.of(context).pop('update'),
-            ),
             FutureBuilder<bool>(
               future: TxtBookService(library).canRechapter(entry),
               builder: (context, snapshot) => snapshot.data == true
@@ -194,42 +178,54 @@ class BookDetailSheet extends StatelessWidget {
                     )
                   : const SizedBox.shrink(),
             ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-create-group'),
-              icon: AppGlyph.folderAdd,
-              label: '新建分组',
-              onTap: () => Navigator.of(context).pop('create-group'),
+            Row(
+              children: [
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-update'),
+                    icon: AppGlyph.refresh,
+                    label: onlineSourceName?.isNotEmpty ?? false
+                        ? '更新获取最新章节'
+                        : '更新',
+                    onTap: () => Navigator.of(context).pop('update'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-create-group'),
+                    icon: AppGlyph.folderAdd,
+                    label: '分组',
+                    onTap: () => Navigator.of(context).pop('create-group'),
+                  ),
+                ),
+              ],
             ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-multi-select'),
-              icon: AppGlyph.checklist,
-              label: '多选',
-              onTap: () => Navigator.of(context).pop('multi-select'),
-            ),
-            _DetailAction(
-              icon: AppGlyph.delete,
-              label: '删除本书',
-              destructive: true,
-              onTap: () => Navigator.of(context).pop('delete'),
-            ),
-            const Divider(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('关闭'),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-multi-select'),
+                    icon: AppGlyph.checklist,
+                    label: '多选',
+                    onTap: () => Navigator.of(context).pop('multi-select'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-delete'),
+                    icon: AppGlyph.delete,
+                    label: '删除',
+                    onTap: () => Navigator.of(context).pop('delete'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
-  }
-
-  static String _formatDate(DateTime time) {
-    final local = time.toLocal();
-    String two(int value) => value.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
 }
 
@@ -239,20 +235,16 @@ class _DetailAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.destructive = false,
   });
 
   final AppGlyph icon;
   final String label;
   final VoidCallback onTap;
-  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = destructive
-        ? theme.colorScheme.error
-        : theme.colorScheme.onSurface;
+    final color = theme.colorScheme.onSurface;
     return Material(
       type: MaterialType.transparency,
       child: ListTile(
@@ -263,92 +255,7 @@ class _DetailAction extends StatelessWidget {
           label,
           style: theme.textTheme.bodyMedium?.copyWith(color: color),
         ),
-        trailing: destructive
-            ? null
-            : AppIcon(
-                AppGlyph.chevronRight,
-                size: 20,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
         onTap: onTap,
-      ),
-    );
-  }
-}
-
-class _MetaItem extends StatelessWidget {
-  const _MetaItem({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        Text(value, style: theme.textTheme.bodySmall),
-      ],
-    );
-  }
-}
-
-class _ReportRow extends StatelessWidget {
-  const _ReportRow({required this.item});
-
-  final ImportReportEntry item;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // 2 错误、1 警告、0 提示：颜色区分但不弹窗（§82.4 纪律 3）。
-    final (label, color) = switch (item.severity) {
-      >= 2 => ('错误', theme.colorScheme.error),
-      1 => ('警告', theme.colorScheme.tertiary),
-      _ => ('提示', theme.colorScheme.onSurfaceVariant),
-    };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              label,
-              style: theme.textTheme.labelSmall?.copyWith(color: color),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.code,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFeatures: const <FontFeature>[
-                      FontFeature.tabularFigures(),
-                    ],
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                Text(item.message, style: theme.textTheme.bodySmall),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

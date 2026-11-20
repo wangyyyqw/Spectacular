@@ -363,7 +363,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }
 
   Future<void> _editTheme() async {
-    final result = await showDialog<ReaderTheme>(
+    final result = await showReaderDialog<ReaderTheme>(
       context: context,
       builder: (_) => CustomThemeDialog(
         theme: widget.customTheme ?? ReaderTheme.byId(widget.themeId),
