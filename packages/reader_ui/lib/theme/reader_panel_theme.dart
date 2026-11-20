@@ -82,9 +82,24 @@ ThemeData _panelTypography(
   scaffoldBackgroundColor: theme.background,
   dividerColor: scheme.outlineVariant,
   iconTheme: base.iconTheme.copyWith(color: theme.text),
-  textTheme: base.textTheme.apply(
-    bodyColor: theme.text,
-    displayColor: theme.text,
+  textTheme: base.textTheme
+      .apply(bodyColor: theme.text, displayColor: theme.text)
+      .copyWith(
+        bodySmall: base.textTheme.bodySmall?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
+        labelMedium: base.textTheme.labelMedium?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
+        labelSmall: base.textTheme.labelSmall?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+  listTileTheme: base.listTileTheme.copyWith(
+    titleTextStyle: base.textTheme.bodyMedium?.copyWith(color: theme.text),
+    subtitleTextStyle: base.textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    ),
   ),
   appBarTheme: base.appBarTheme.copyWith(
     backgroundColor: theme.background,

@@ -582,11 +582,7 @@ class _Section extends StatelessWidget {
                 header: true,
                 child: Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    height: 1.3,
-                  ),
+                  style: theme.textTheme.titleSmall?.copyWith(height: 1.3),
                 ),
               ),
               if (detail != null)
@@ -670,10 +666,7 @@ class _StatsError extends StatelessWidget {
           children: [
             AppIcon(AppGlyph.error, size: 32, color: muted),
             const SizedBox(height: 12),
-            const Text(
-              '统计加载失败',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
+            Text('统计加载失败', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             Text('请稍后重试', style: TextStyle(fontSize: 13, color: muted)),
             const SizedBox(height: 16),

@@ -27,10 +27,7 @@ class _ReadingCalendarMonthPickerState
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            '选择月份',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
+          Text('选择月份', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 12),
           _yearNavigation(),
           const SizedBox(height: 12),
@@ -52,7 +49,7 @@ class _ReadingCalendarMonthPickerState
         child: Text(
           '$_year年',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          style: Theme.of(context).textTheme.titleSmall,
         ),
       ),
       IconButton(

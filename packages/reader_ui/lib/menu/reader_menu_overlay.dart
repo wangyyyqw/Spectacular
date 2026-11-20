@@ -241,11 +241,10 @@ class ReaderMenuOverlay extends StatelessWidget {
                                     bookTitle,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: fg,
-                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(color: fg),
                                   ),
                                 ),
                                 const Spacer(),
