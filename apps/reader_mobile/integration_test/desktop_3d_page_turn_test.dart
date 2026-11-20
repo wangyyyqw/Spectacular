@@ -16,6 +16,8 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 import '../test/support/test_epub.dart';
+import '../../../packages/reader_ui/test/paging/curl3d_shadow_seams_test.dart'
+    show verifyCurlShadowSeams;
 
 Future<void> _until(WidgetTester tester, bool Function() ready) async {
   final deadline = DateTime.now().add(const Duration(seconds: 30));
@@ -26,8 +28,42 @@ Future<void> _until(WidgetTester tester, bool Function() ready) async {
   await tester.pump();
 }
 
+Future<void> _capture(WidgetTester tester, String name) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(const ValueKey('desktop-3d-capture')),
+  );
+  final image = await boundary.toImage(pixelRatio: 1.75);
+  try {
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    final directory = Directory(
+      '${Directory.systemTemp.path}/spectacular-desktop-3d',
+    );
+    await directory.create(recursive: true);
+    await File('${directory.path}/$name.png')
+        .writeAsBytes(data!.buffer.asUint8List());
+  } finally {
+    image.dispose();
+  }
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('桌面显卡高 DPI 阴影公共边没有白缝或重复叠黑', (tester) async {
+    await tester.runAsync(
+      () => verifyCurlShadowSeams(
+        capture: (name, image) async {
+          final directory = Directory(
+            '${Directory.systemTemp.path}/spectacular-desktop-3d',
+          );
+          await directory.create(recursive: true);
+          final data = await image.toByteData(format: ui.ImageByteFormat.png);
+          await File('${directory.path}/shadow-$name.png')
+              .writeAsBytes(data!.buffer.asUint8List());
+        },
+      ),
+    );
+  });
 
   testWidgets('桌面正式 EPUB 切换 3D 后可前后翻页并保留阅读位置', (tester) async {
     final bytes = buildTestEpub(
@@ -72,6 +108,32 @@ void main() {
     await tester.pump();
     final view = tester.state<PageTurnViewState>(find.byType(PageTurnView));
     await _until(tester, () => view.snapshotCount >= 2);
+    final size = view.controller.size;
+    final start = Offset(size.width - 20, size.height - 20);
+    view.controller.beginDrag(DragStartDetails(localPosition: start));
+    view.controller.updateDrag(
+      DragUpdateDetails(
+        globalPosition: start - const Offset(30, 20),
+        localPosition: start - const Offset(30, 20),
+      ),
+    );
+    view.controller.updateDrag(
+      DragUpdateDetails(
+        globalPosition: start - Offset(size.width * 0.35, size.height * 0.25),
+        localPosition: start - Offset(size.width * 0.35, size.height * 0.25),
+      ),
+    );
+    await _until(tester, () => view.controller.phase == PageTurnPhase.dragging);
+    await tester.pump(const Duration(milliseconds: 300));
+    await _capture(tester, 'corner-turn');
+    view.controller.endDrag(DragEndDetails(primaryVelocity: 0));
+    await _until(tester, () => !view.controller.active);
+    if (session!.page!.pageIndex == 1) {
+      view.controller.request(false);
+      await _until(tester, () => !view.controller.active);
+    }
+    expect(session!.readingCfi, firstCfi);
+    await tester.pump(const Duration(milliseconds: 350));
     for (final next in [true, true, false, false]) {
       final page = session!.page!.pageIndex;
       view.controller.pointerDown(
@@ -87,21 +149,7 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 80));
       if (next && page == 0) {
-        final boundary = tester.renderObject<RenderRepaintBoundary>(
-          find.byKey(const ValueKey('desktop-3d-capture')),
-        );
-        final image = await boundary.toImage(pixelRatio: 1);
-        try {
-          final data = await image.toByteData(format: ui.ImageByteFormat.png);
-          final directory = Directory(
-            '${Directory.systemTemp.path}/spectacular-desktop-3d',
-          );
-          await directory.create(recursive: true);
-          await File('${directory.path}/3d-turn.png')
-              .writeAsBytes(data!.buffer.asUint8List());
-        } finally {
-          image.dispose();
-        }
+        await _capture(tester, '3d-turn');
       }
       await _until(tester, () => !view.controller.active);
       expect(session!.page!.pageIndex, page + (next ? 1 : -1));

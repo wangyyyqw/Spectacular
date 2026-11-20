@@ -86,7 +86,9 @@ vec4 shadowColor(vec2 source) {
   for (int index = 0; index < 3; index++) {
     vec4 edge = uShadowEdges[index];
     float side = dot(vec3(source, 1.0), edge.xyz);
-    if (side < 0.0 || (side == 0.0 && edge.w > 0.5)) {
+    // 先用公共边的同一组系数求值，再反转方向，保证两侧互补。
+    if (edge.w < 0.0) side = -side;
+    if (side < 0.0 || (side == 0.0 && edge.w < 0.0)) {
       covered = false;
     }
   }

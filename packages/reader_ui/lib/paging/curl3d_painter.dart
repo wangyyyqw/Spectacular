@@ -114,6 +114,10 @@ class Curl3dPainter {
     ui.Image paper,
   ) {
     if (shadow.length < 3) return;
+    // 统一使用纸面矩形插值片元坐标；不同局部矩形在 Windows ANGLE
+    // 中的舍入差异会造成白缝或重复混合。裁剪限制实际阴影绘制范围。
+    canvas.save();
+    canvas.clipRect(_shadowBounds(shadow).inflate(1), doAntiAlias: false);
     final shader = _shader(size, paper, false)..setFloat(16, -1);
     _shadowPaint.shader = shader;
     try {
@@ -128,11 +132,12 @@ class Curl3dPainter {
           );
         }
         _setShadowEdges(shader, triangle);
-        canvas.drawRect(_shadowBounds(triangle), _shadowPaint);
+        canvas.drawRect(Offset.zero & size, _shadowPaint);
       }
     } finally {
       _shadowPaint.shader = null;
       shader.dispose();
+      canvas.restore();
     }
   }
 
@@ -157,14 +162,23 @@ class Curl3dPainter {
     final c = triangle[2].position - triangle[0].position;
     final sign = (b.dx * c.dy - b.dy * c.dx).sign;
     for (var index = 0; index < 3; index++) {
-      final a = triangle[index].position;
-      final delta = (triangle[(index + 1) % 3].position - a) * sign;
+      var a = triangle[index].position;
+      var b = triangle[(index + 1) % 3].position;
+      // 公共边统一从下往上、水平时从左往右计算；相邻三角形使用完全
+      // 相同的 float 系数，只在片元中反转符号，避免舍入后漏画或叠黑。
+      final forward = a.dy > b.dy || (a.dy == b.dy && a.dx < b.dx);
+      if (!forward) {
+        final swap = a;
+        a = b;
+        b = swap;
+      }
+      final delta = b - a;
       final values = [
         -delta.dy,
         delta.dx,
         delta.dy * a.dx - delta.dx * a.dy,
-        // 半开公共边，每个像素只归属于一个三角形。
-        delta.dy < 0 || (delta.dy == 0 && delta.dx > 0) ? 0.0 : 1.0,
+        // 正向包含公共边，反向排除，每个像素只归属于一个三角形。
+        forward ? sign : -sign,
       ];
       for (var component = 0; component < values.length; component++) {
         shader.setFloat(
