@@ -194,7 +194,8 @@ void main() {
       ),
     );
 
-    expect(find.text('阅微唯一数据源'), findsOneWidget);
+    expect(find.text('阅微唯一数据源'), findsNothing);
+    expect(find.text('阅读概览'), findsOneWidget);
     expect(find.text('累计阅读'), findsOneWidget);
     expect(find.text('2 小时'), findsOneWidget);
     await tester.scrollUntilVisible(

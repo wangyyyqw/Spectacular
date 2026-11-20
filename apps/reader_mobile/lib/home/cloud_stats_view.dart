@@ -69,7 +69,6 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                 const LinearProgressIndicator(minHeight: 2),
                 const SizedBox(height: 14),
               ],
-              _SourceBanner(stats: stats),
               StatsSection(
                 title: '阅读概览',
                 detail: '更新于 ${_formatDateTime(stats.fetchedAt)}',
@@ -193,46 +192,6 @@ Map<DateTime, Duration> _buildDailyTotals(ReaMicroCloudStats stats) {
     }
   }
   return totals;
-}
-
-class _SourceBanner extends StatelessWidget {
-  const _SourceBanner({required this.stats});
-
-  final ReaMicroCloudStats stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final years = stats.overview.years;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.52),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(Icons.cloud_done_outlined, color: theme.colorScheme.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('阅微唯一数据源', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 3),
-                Text(
-                  '更新于 ${_formatDateTime(stats.fetchedAt)}'
-                  '${years.isEmpty ? '' : ' · 记录年份 ${years.join('、')}'}',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _SummaryGrid extends StatelessWidget {
