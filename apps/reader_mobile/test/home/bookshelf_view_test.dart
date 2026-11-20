@@ -69,6 +69,23 @@ void main() {
       findsOneWidget,
     );
     final entries = await library.list();
+    expect(find.byKey(const ValueKey('bookshelf-count')), findsNothing);
+    expect(find.text('书架'), findsNothing);
+    final search = tester.getRect(
+      find.byKey(const ValueKey('bookshelf-search-field')),
+    );
+    final toolbar = tester.getRect(
+      find.byKey(const ValueKey('bookshelf-group-toolbar')),
+    );
+    final toggle = tester.getRect(find.byTooltip('列表视图'));
+    expect(
+      search.width,
+      greaterThan(
+        tester.view.physicalSize.width / tester.view.devicePixelRatio * .7,
+      ),
+    );
+    expect(search.bottom, lessThanOrEqualTo(toolbar.top));
+    expect(toggle.center.dy, closeTo(toolbar.center.dy, 1));
     expect(
       find.byWidgetPredicate(
         (widget) =>

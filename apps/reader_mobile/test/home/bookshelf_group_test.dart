@@ -40,7 +40,7 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('全部 3'), findsNothing);
+    expect(find.text('全部 3'), findsOneWidget);
     expect(find.text('未读 3'), findsNothing);
     expect(find.text('在读 0'), findsNothing);
     expect(find.text('已读完 0'), findsNothing);
