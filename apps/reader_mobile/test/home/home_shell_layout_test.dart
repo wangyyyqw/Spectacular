@@ -60,6 +60,65 @@ Future<void> _shortcut(WidgetTester tester, LogicalKeyboardKey key) async {
 }
 
 void main() {
+  testWidgets('切换书评和我的不重建无关的隐藏书架与统计页', (tester) async {
+    await _showHome(tester, LibraryStore.memory());
+    await tester.pumpAndSettle();
+    final navigation = find.byType(NavigationRail).evaluate().isNotEmpty
+        ? find.byType(NavigationRail)
+        : find.byType(BottomNavigationBar);
+    await _select(tester, navigation, '统计');
+    await _select(tester, navigation, '书评');
+    await tester.pumpAndSettle();
+
+    final rebuilt = <Type>[];
+    final previous = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtBefore) {
+      previous?.call(element, builtBefore);
+      if (builtBefore &&
+          (element.widget is BookshelfPage || element.widget is StatsPage)) {
+        rebuilt.add(element.widget.runtimeType);
+      }
+    };
+    addTearDown(() => debugOnRebuildDirtyWidget = previous);
+    await _select(tester, navigation, '我的');
+    await _select(tester, navigation, '书评');
+    await tester.pumpAndSettle();
+    expect(rebuilt, isEmpty);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant(TargetPlatform.values.toSet()));
+
+  testWidgets('宿主更新主题与回调后保留当前页并使用最新配置', (tester) async {
+    final library = LibraryStore.memory();
+    final progress = MemoryReaderProgressStore();
+    final saved = <String>[];
+    Widget app(ThemeMode mode, String callback) => MaterialApp(
+      home: HomeShell(
+        library: library,
+        progressStore: progress,
+        themeMode: mode,
+        onThemeModeChanged: (selected) async {
+          saved.add('$callback:${selected.name}');
+        },
+      ),
+    );
+    await tester.pumpWidget(app(ThemeMode.light, '旧'));
+    await tester.pumpAndSettle();
+    await _select(tester, find.byType(BottomNavigationBar), '我的');
+    expect(find.text('日间模式'), findsOneWidget);
+    final profile = tester.state(find.byType(ProfilePage));
+
+    await tester.pumpWidget(app(ThemeMode.dark, '新'));
+    await tester.pumpAndSettle();
+    expect(tester.state(find.byType(ProfilePage)), same(profile));
+    expect(find.text('夜间模式'), findsOneWidget);
+    await tester.tap(find.text('界面主题'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('跟随系统'));
+    await tester.pumpAndSettle();
+    expect(saved, ['新:system']);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('桌面数字快捷键切换五个页面并保留书架搜索', (tester) async {
     await _showHome(tester, LibraryStore.memory());
     await tester.pumpAndSettle();

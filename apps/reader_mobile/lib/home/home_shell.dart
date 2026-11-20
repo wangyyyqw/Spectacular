@@ -48,6 +48,20 @@ class _HomeShellState extends State<HomeShell> {
   int _bookshelfRefreshToken = 0;
   int _statsRefreshToken = 0;
   bool _exportingDiagnostics = false;
+  bool _desktop = false;
+  List<Widget> _pages = [];
+
+  @override
+  void didUpdateWidget(HomeShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.library != widget.library ||
+        oldWidget.progressStore != widget.progressStore ||
+        oldWidget.storageRecovery != widget.storageRecovery ||
+        oldWidget.themeMode != widget.themeMode ||
+        oldWidget.onThemeModeChanged != widget.onThemeModeChanged) {
+      _pages = [];
+    }
+  }
 
   Future<void> _retryStorage() async {
     if (_exportingDiagnostics) return;
@@ -73,43 +87,53 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _selectDestination(int index) {
+    if (index == _index) return;
     setState(() {
+      final previous = _index;
       _index = index;
       if (index == 0) {
         _bookshelfRefreshToken += 1;
       } else if (index == 1) {
         _statsRefreshToken += 1;
       }
+      // 只更新切入与切出页；其余隐藏页复用，避免重新筛书和汇总统计。
+      _pages[previous] = _buildPage(previous);
+      _pages[index] = _buildPage(index);
     });
   }
 
+  Widget _buildPage(int index) => switch (index) {
+    0 => BookshelfPage(
+      library: widget.library,
+      progressStore: widget.progressStore,
+      refreshToken: _bookshelfRefreshToken,
+      active: _index == 0,
+      allowImport: widget.storageRecovery == null,
+    ),
+    1 => StatsPage(
+      library: widget.library,
+      progressStore: widget.progressStore,
+      refreshToken: _statsRefreshToken,
+      active: _index == 1,
+    ),
+    2 => ReviewsPage(library: widget.library, active: _index == 2),
+    3 when _desktop => EpubFileEditorPage(active: _index == 3),
+    _ => ProfilePage(
+      library: widget.library,
+      themeMode: widget.themeMode,
+      onThemeModeChanged: widget.onThemeModeChanged,
+    ),
+  };
+
   Widget _buildBody(bool desktop) {
-    final pages = <Widget>[
-      BookshelfPage(
-        library: widget.library,
-        progressStore: widget.progressStore,
-        refreshToken: _bookshelfRefreshToken,
-        active: _index == 0,
-        allowImport: widget.storageRecovery == null,
-      ),
-      StatsPage(
-        library: widget.library,
-        progressStore: widget.progressStore,
-        refreshToken: _statsRefreshToken,
-        active: _index == 1,
-      ),
-      ReviewsPage(library: widget.library, active: _index == 2),
-      if (desktop) EpubFileEditorPage(active: _index == 3),
-      ProfilePage(
-        library: widget.library,
-        themeMode: widget.themeMode,
-        onThemeModeChanged: widget.onThemeModeChanged,
-      ),
-    ];
+    if (_pages.isEmpty || _desktop != desktop) {
+      _desktop = desktop;
+      _pages = List.generate(desktop ? 5 : 4, _buildPage);
+    }
     final content = IndexedStack(
       index: _index,
       children: [
-        for (final (index, page) in pages.indexed)
+        for (final (index, page) in _pages.indexed)
           TickerMode(
             enabled: index == _index,
             child: ExcludeFocus(excluding: index != _index, child: page),
