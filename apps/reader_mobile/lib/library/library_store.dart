@@ -1036,6 +1036,7 @@ class LibraryStore {
 
   /// 导入 EPUB 字节：解析校验 → 落盘原书 → 提取并缓存封面 → 入库。
   ///
+  /// 书名仅取 EPUB 元数据；[fallbackTitle] 保留兼容调用，不用于书名。
   /// [onProgress] 上报阶段进度 0～1（解析 → 落盘 → 封面 → 入库）。
   Future<BookEntry> importBytes(
     Uint8List bytes, {
@@ -1045,7 +1046,6 @@ class LibraryStore {
   }) => _enqueueOperation(
     () => _import(
       _ImportPayload.bytes(bytes),
-      fallbackTitle: fallbackTitle,
       onProgress: onProgress,
       isCancelled: isCancelled,
     ),
@@ -1071,7 +1071,6 @@ class LibraryStore {
     return _enqueueOperation(
       () => _import(
         _ImportPayload.file(path),
-        fallbackTitle: fallbackTitle,
         onProgress: onProgress,
         isCancelled: isCancelled,
       ),
@@ -1082,7 +1081,6 @@ class LibraryStore {
   // 此协调方法保留较长结构，避免拆散软删除恢复的外键与失败清理边界。
   Future<BookEntry> _import(
     _ImportPayload payload, {
-    String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -1187,7 +1185,7 @@ class LibraryStore {
     final title =
         existing?.title ??
         (meta.title.trim().isEmpty
-            ? (fallbackTitle?.trim().isEmpty ?? true ? '未命名书籍' : fallbackTitle!)
+            ? '未命名书籍'
             : meta.title.trim());
     final author = existing == null
         ? meta.author.trim()
