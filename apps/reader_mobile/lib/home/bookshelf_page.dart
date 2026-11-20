@@ -39,6 +39,7 @@ const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
 const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
+const _pinnedCoverShadowOpacity = .42;
 final _bookPressOverlay = WidgetStateProperty.resolveWith<Color?>(
   (states) => states.contains(WidgetState.pressed) ? Colors.transparent : null,
 );
@@ -1291,8 +1292,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
           itemCount: books.length,
           itemBuilder: (context, index) {
             final item = books[index];
+            final pinned = _pinnedIds.contains(item.entry.id);
             return _BookCard(
               entry: item.entry,
+              pinned: pinned,
               selectionMode: _selectionMode,
               selected: _selectedIds.contains(item.entry.id),
               onSelect: () => _toggleSelected(item.entry.id),
@@ -1338,6 +1341,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         final item = books[index];
         return _BookRow(
           item: item,
+          pinned: _pinnedIds.contains(item.entry.id),
           selectionMode: _selectionMode,
           selected: _selectedIds.contains(item.entry.id),
           onSelect: () => _toggleSelected(item.entry.id),
@@ -1905,6 +1909,7 @@ class _ImportBanner extends StatelessWidget {
 class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.item,
+    required this.pinned,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -1914,6 +1919,7 @@ class _BookRow extends StatelessWidget {
   });
 
   final _ShelfItem item;
+  final bool pinned;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -1938,6 +1944,7 @@ class _BookRow extends StatelessWidget {
         width: 66,
         height: 88,
         showShadow: true,
+        shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
       ),
     );
     final trailing = <Widget>[
@@ -2154,6 +2161,7 @@ class _ErrorPane extends StatelessWidget {
 class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
+    required this.pinned,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2163,6 +2171,7 @@ class _BookCard extends StatelessWidget {
   });
 
   final BookEntry entry;
+  final bool pinned;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2183,6 +2192,7 @@ class _BookCard extends StatelessWidget {
             book: entry,
             showReadabilityBadge: true,
             showShadow: true,
+            shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
           ),
           if (selectionMode)
             Positioned.fill(
