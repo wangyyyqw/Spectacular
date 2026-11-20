@@ -231,6 +231,7 @@ class ReaderSettings {
     this.pageTurnMode = PageTurnMode.cover,
     this.keepScreenOn = false,
     this.volumeKeyPaging = false,
+    this.showSystemBars = false,
     this.markSettings = const ReaderMarkSettings(),
     this.tts = ReaderTtsSettings.defaults,
   });
@@ -290,6 +291,9 @@ class ReaderSettings {
   /// 用音量键翻页。
   final bool volumeKeyPaging;
 
+  /// 阅读时透明显示状态栏与导航栏。
+  final bool showSystemBars;
+
   /// 划线的默认外观和自定义颜色。
   final ReaderMarkSettings markSettings;
 
@@ -339,6 +343,7 @@ class ReaderSettings {
     PageTurnMode pageTurnMode = PageTurnMode.cover,
     bool keepScreenOn = false,
     bool volumeKeyPaging = false,
+    bool showSystemBars = false,
     ReaderMarkSettings markSettings = const ReaderMarkSettings(),
     ReaderTtsSettings tts = ReaderTtsSettings.defaults,
   }) => ReaderSettings(
@@ -360,6 +365,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -386,6 +392,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -410,6 +417,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -436,6 +444,7 @@ class ReaderSettings {
       pageTurnMode: pageTurnMode,
       keepScreenOn: keepScreenOn,
       volumeKeyPaging: volumeKeyPaging,
+      showSystemBars: showSystemBars,
       markSettings: markSettings,
       tts: tts,
     );
@@ -461,6 +470,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -485,6 +495,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -509,6 +520,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -533,6 +545,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -557,6 +570,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -581,6 +595,7 @@ class ReaderSettings {
     pageTurnMode: value,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -605,6 +620,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: enabled,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
   );
@@ -629,6 +645,32 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: enabled,
+    showSystemBars: showSystemBars,
+    markSettings: markSettings,
+    tts: tts,
+  );
+
+  /// 复制并替换系统栏显示开关。
+  ReaderSettings copyWithShowSystemBars(bool enabled) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    cornerInfo: cornerInfo,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: enabled,
     markSettings: markSettings,
     tts: tts,
   );
@@ -653,6 +695,7 @@ class ReaderSettings {
     pageTurnMode: pageTurnMode,
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: value,
   );
@@ -678,6 +721,7 @@ class ReaderSettings {
         pageTurnMode: pageTurnMode,
         keepScreenOn: keepScreenOn,
         volumeKeyPaging: volumeKeyPaging,
+        showSystemBars: showSystemBars,
         markSettings: value,
         tts: tts,
       );
@@ -703,11 +747,12 @@ class ReaderSettings {
       other.pageTurnMode == pageTurnMode &&
       other.keepScreenOn == keepScreenOn &&
       other.volumeKeyPaging == volumeKeyPaging &&
+      other.showSystemBars == showSystemBars &&
       other.markSettings == markSettings &&
       other.tts == tts;
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     fontSize,
     fontFamily,
     overrideEmbeddedFonts,
@@ -726,9 +771,10 @@ class ReaderSettings {
     pageTurnMode,
     keepScreenOn,
     volumeKeyPaging,
+    showSystemBars,
     markSettings,
     tts,
-  );
+  ]);
 }
 
 /// 阅读设置的持久化（settings 表，键前缀 `reader.`）。
@@ -757,6 +803,8 @@ class ReaderSettingsStore {
   static const String keyInkMode = 'reader.inkMode';
   static const String keyPageTurnMode = 'reader.pageTurnMode';
   static const String keyKeepScreenOn = 'reader.keepScreenOn';
+  static const String keyShowSystemBars = 'reader.showSystemBars';
+
   static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
   static const String keyMarkLastColor = 'reader.mark.lastColor';
   static const String keyMarkLastStyle = 'reader.mark.lastStyle';
@@ -808,6 +856,7 @@ class ReaderSettingsStore {
       keepScreenOn: (await _library.getSetting(keyKeepScreenOn)) == 'true',
       volumeKeyPaging:
           (await _library.getSetting(keyVolumeKeyPaging)) == 'true',
+      showSystemBars: (await _library.getSetting(keyShowSystemBars)) == 'true',
       markSettings: await _loadMarkSettings(),
       tts: _readTts(await _library.getSetting(keyTts)),
     );
@@ -951,6 +1000,10 @@ class ReaderSettingsStore {
     await _library.setSetting(
       keyVolumeKeyPaging,
       settings.volumeKeyPaging.toString(),
+    );
+    await _library.setSetting(
+      keyShowSystemBars,
+      settings.showSystemBars.toString(),
     );
     final margins = settings.margins;
     await _library.setSetting(

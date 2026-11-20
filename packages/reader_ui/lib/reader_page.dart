@@ -162,7 +162,9 @@ class ReaderPage extends StatefulWidget {
     this.keepScreenOn = false,
     this.onKeepScreenOnChanged,
     this.volumeKeyPaging = false,
+    this.showSystemBars = false,
     this.onVolumeKeyPagingChanged,
+    this.onShowSystemBarsChanged,
     this.onTts,
   });
 
@@ -298,8 +300,14 @@ class ReaderPage extends StatefulWidget {
   /// 用音量键翻页。
   final bool volumeKeyPaging;
 
+  /// 阅读时透明显示系统状态栏与导航栏。
+  final bool showSystemBars;
+
   /// 音量键翻页开关变化（调用方持久化）。
   final ValueChanged<bool>? onVolumeKeyPagingChanged;
+
+  /// 系统栏显示开关变化，由宿主持久化。
+  final ValueChanged<bool>? onShowSystemBarsChanged;
 
   /// 听书入口；为 null 时菜单不显示听书按钮。
   final VoidCallback? onTts;
@@ -2459,8 +2467,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   void _scheduleSystemBars(bool normalPage) {
     final bars = (
-      statusBar: normalPage || _menuOpen || _drawer != null,
-      navigationBar: normalPage,
+      statusBar:
+          normalPage || widget.showSystemBars || _menuOpen || _drawer != null,
+      navigationBar: normalPage || widget.showSystemBars,
     );
     if (_systemBars == bars) return;
     _systemBars = bars;
@@ -2936,12 +2945,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       tapZones: _tapZones,
                       keepScreenOn: widget.keepScreenOn,
                       volumeKeyPaging: widget.volumeKeyPaging,
+                      showSystemBars: widget.showSystemBars,
                       onPageTurnModeChanged: (mode) {
                         unawaited(_applyPageTurnMode(mode));
                       },
                       onTapZonesChanged: _applyTapZones,
                       onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
                       onVolumeKeyPagingChanged: widget.onVolumeKeyPagingChanged,
+                      onShowSystemBarsChanged: widget.onShowSystemBarsChanged,
                       onOverridesChanged: _applyOverrides,
                       onThemeChanged: _applyTheme,
                       onBackgroundChanged: widget.onBackgroundChanged == null
@@ -3494,10 +3505,12 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.tapZones,
     required this.keepScreenOn,
     required this.volumeKeyPaging,
+    required this.showSystemBars,
     required this.onPageTurnModeChanged,
     required this.onTapZonesChanged,
     required this.onKeepScreenOnChanged,
     required this.onVolumeKeyPagingChanged,
+    required this.onShowSystemBarsChanged,
     required this.onOverridesChanged,
     required this.onThemeChanged,
     required this.onBackgroundChanged,
@@ -3559,10 +3572,16 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ReaderTapZones tapZones;
   final bool keepScreenOn;
   final bool volumeKeyPaging;
+
+  /// 阅读时透明显示系统状态栏与导航栏。
+  final bool showSystemBars;
   final ValueChanged<PageTurnMode> onPageTurnModeChanged;
   final ValueChanged<ReaderTapZones> onTapZonesChanged;
   final ValueChanged<bool>? onKeepScreenOnChanged;
   final ValueChanged<bool>? onVolumeKeyPagingChanged;
+
+  /// 系统栏显示开关变化，由宿主持久化。
+  final ValueChanged<bool>? onShowSystemBarsChanged;
   final ValueChanged<ReaderOverrides> onOverridesChanged;
   final ValueChanged<String> onThemeChanged;
   final ValueChanged<String>? onBackgroundChanged;
@@ -3661,12 +3680,14 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           tapZones: widget.tapZones,
           keepScreenOn: widget.keepScreenOn,
           volumeKeyPaging: widget.volumeKeyPaging,
+          showSystemBars: widget.showSystemBars,
           cornerInfo: widget.cornerInfo,
           onCornerInfoChanged: widget.onCornerInfoChanged,
           onPageTurnModeChanged: widget.onPageTurnModeChanged,
           onTapZonesChanged: widget.onTapZonesChanged,
           onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
           onVolumeKeyPagingChanged: widget.onVolumeKeyPagingChanged,
+          onShowSystemBarsChanged: widget.onShowSystemBarsChanged,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,
           onInkModeChanged: widget.onInkModeChanged,

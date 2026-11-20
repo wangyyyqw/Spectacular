@@ -1116,6 +1116,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       keepScreenOn: settings.keepScreenOn,
       onKeepScreenOnChanged: (enabled) =>
           _changeSettings(_settings.copyWithKeepScreenOn(enabled)),
+      showSystemBars: settings.showSystemBars,
+      onShowSystemBarsChanged: (enabled) =>
+          _changeSettings(_settings.copyWithShowSystemBars(enabled)),
       volumeKeyPaging: settings.volumeKeyPaging,
       onVolumeKeyPagingChanged: (enabled) =>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),

@@ -116,7 +116,9 @@ class SettingsPanel extends StatefulWidget {
     this.keepScreenOn = false,
     this.onKeepScreenOnChanged,
     this.volumeKeyPaging = false,
+    this.showSystemBars = false,
     this.onVolumeKeyPagingChanged,
+    this.onShowSystemBarsChanged,
   });
 
   /// 初始排版覆盖。
@@ -215,8 +217,14 @@ class SettingsPanel extends StatefulWidget {
   /// 用音量键翻页。
   final bool volumeKeyPaging;
 
+  /// 阅读时透明显示系统状态栏与导航栏。
+  final bool showSystemBars;
+
   /// 音量键翻页开关变化。
   final ValueChanged<bool>? onVolumeKeyPagingChanged;
+
+  /// 系统栏显示开关变化，由宿主持久化。
+  final ValueChanged<bool>? onShowSystemBarsChanged;
 
   @override
   State<SettingsPanel> createState() => _SettingsPanelState();
@@ -1081,6 +1089,13 @@ class _SettingsPanelState extends State<SettingsPanel> {
         label: '音量键翻页',
         value: widget.volumeKeyPaging,
         onChanged: widget.onVolumeKeyPagingChanged,
+      ),
+      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+      _compactSwitchRow(
+        key: const ValueKey<String>('settings-show-system-bars'),
+        label: '状态栏和导航栏',
+        value: widget.showSystemBars,
+        onChanged: widget.onShowSystemBarsChanged,
       ),
       if (widget.onOpenTapZoneEditor != null ||
           widget.onInkModeChanged != null ||

@@ -49,6 +49,33 @@ String _layoutSettingsFingerprint(String fingerprint) => fingerprint
     .join(';');
 
 void main() {
+  test('系统栏偏好默认关闭，保存后在主题、字体和排版修改中保留', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+    expect((await store.load()).showSystemBars, isFalse);
+    final settings = ReaderSettings.defaults.copyWithShowSystemBars(true);
+    for (final changed in [
+      settings.copyWithTheme('sepia'),
+      settings.copyWithFont('字体'),
+      settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 22)),
+      settings.copyWithVolumeKeyPaging(true),
+      settings.copyWithKeepScreenOn(true),
+      settings.copyWithTts(settings.tts),
+      settings.copyWithMarkSettings(settings.markSettings),
+    ]) {
+      expect(changed.showSystemBars, isTrue);
+      await store.save(changed);
+      final restored = await store.load();
+      expect(restored.showSystemBars, isTrue);
+      expect(restored.fontSize, changed.fontSize);
+      expect(restored.themeId, changed.themeId);
+      expect(restored.volumeKeyPaging, changed.volumeKeyPaging);
+      expect(restored.keepScreenOn, changed.keepScreenOn);
+    }
+    expect(settings, isNot(ReaderSettings.defaults));
+    expect(settings.hashCode, isNot(ReaderSettings.defaults.hashCode));
+  });
+
   test('旧主题设置兼容日夜模式，分别保存的配色在修改其它设置后仍可恢复', () async {
     final library = LibraryStore.memory();
     final store = ReaderSettingsStore(library);

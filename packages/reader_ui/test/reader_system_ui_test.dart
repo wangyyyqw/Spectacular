@@ -31,13 +31,15 @@ class _Source implements ReaderChapterSource {
   ];
 }
 
-ReaderPage _reader({bool editMode = false}) => ReaderPage(
-  source: _Source(),
-  store: MemoryReaderProgressStore(),
-  bookId: 'system-bars',
-  theme: ReaderTheme.white,
-  editMode: editMode,
-);
+ReaderPage _reader({bool editMode = false, bool showSystemBars = false}) =>
+    ReaderPage(
+      source: _Source(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'system-bars',
+      theme: ReaderTheme.white,
+      editMode: editMode,
+      showSystemBars: showSystemBars,
+    );
 
 Widget _app({Widget? home, GlobalKey<NavigatorState>? navigator}) =>
     MaterialApp(navigatorKey: navigator, home: home ?? _reader());
@@ -48,6 +50,24 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final requests = <Map<Object?, Object?>>[];
   final platform = <MethodCall>[];
+
+  testWidgets('系统栏开关即时显示两栏，菜单关闭后保留并可恢复隐藏', (tester) async {
+    await tester.pumpWidget(_app(home: _reader()));
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': false, 'navigationBar': false});
+    await tester.pumpWidget(_app(home: _reader(showSystemBars: true)));
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': true, 'navigationBar': true});
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': true, 'navigationBar': true});
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': true, 'navigationBar': true});
+    await tester.pumpWidget(_app(home: _reader()));
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': false, 'navigationBar': false});
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   setUp(() {
     requests.clear();
