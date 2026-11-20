@@ -154,6 +154,25 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final coverRect = tester.getRect(
+      find.byKey(const ValueKey<String>('book-detail-page-cover')),
+    );
+    expect(
+      tester
+          .getRect(
+            find.byKey(const ValueKey<String>('book-detail-title-field')),
+          )
+          .left,
+      greaterThanOrEqualTo(coverRect.right),
+    );
+    expect(
+      tester
+          .getRect(
+            find.byKey(const ValueKey<String>('book-detail-author-field')),
+          )
+          .left,
+      greaterThanOrEqualTo(coverRect.right),
+    );
     await tester.enterText(
       find.byKey(const ValueKey<String>('book-detail-title-field')),
       '新书名',
@@ -213,7 +232,7 @@ void main() {
     expect(tags, isEmpty, reason: '再次点击标签应取消关联');
   });
 
-  testWidgets('详情页更换封面调用存储并提示成功', (tester) async {
+  testWidgets('详情页点击封面调用存储并完成更新', (tester) async {
     final coverStore = _FakeCoverLibrary();
     late BookEntry entry;
     await tester.runAsync(() async {
@@ -234,12 +253,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey<String>('book-detail-change-cover')),
+      find.byKey(const ValueKey<String>('book-detail-page-cover')),
     );
     await tester.pumpAndSettle();
 
     expect(coverStore.replaced, isTrue);
-    expect(find.text('封面已更新'), findsOneWidget);
+    expect(find.text('封面已更新'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('详情页按书汇总阅读时长、次数和翻页', (tester) async {

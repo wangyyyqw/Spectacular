@@ -481,30 +481,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   entry: _entry,
                   busy: _changingCover,
                   onChange: _changeCover,
+                  titleController: _titleController,
+                  authorController: _authorController,
                 ),
-                const Divider(height: 40),
-                Text('图书资料', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey<String>('book-detail-title-field'),
-                  controller: _titleController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '书名',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey<String>('book-detail-author-field'),
-                  controller: _authorController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '作者',
-                    hintText: '未填写',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
+                const Divider(height: 32),
                 const SizedBox(height: 12),
                 TextField(
                   key: const ValueKey<String>('book-detail-description-field'),
@@ -691,11 +671,15 @@ class _CoverEditor extends StatelessWidget {
     required this.entry,
     required this.busy,
     required this.onChange,
+    required this.titleController,
+    required this.authorController,
   });
 
   final BookEntry entry;
   final bool busy;
   final VoidCallback onChange;
+  final TextEditingController titleController;
+  final TextEditingController authorController;
 
   @override
   Widget build(BuildContext context) {
@@ -703,44 +687,81 @@ class _CoverEditor extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        BookCoverImage(
-          key: const ValueKey('book-detail-page-cover'),
-          book: entry,
-          width: 120,
-          height: 160,
+        Semantics(
+          button: true,
+          enabled: !busy,
+          label: '点击更换封面',
+          child: GestureDetector(
+            key: const ValueKey('book-detail-page-cover'),
+            onTap: busy ? null : onChange,
+            child: SizedBox(
+              width: 120,
+              height: 160,
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  BookCoverImage(book: entry, width: 120, height: 160),
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface.withValues(alpha: .9),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : AppIcon(
+                                AppGlyph.image,
+                                size: 18,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
         const SizedBox(width: 20),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                entry.title,
+              Text('图书资料', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              TextField(
+                key: const ValueKey<String>('book-detail-title-field'),
+                controller: titleController,
+                textInputAction: TextInputAction.next,
+                minLines: 1,
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
+                decoration: const InputDecoration(
+                  labelText: '书名',
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                entry.author.isEmpty ? '未知作者' : entry.author,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 10),
+              TextField(
+                key: const ValueKey<String>('book-detail-author-field'),
+                controller: authorController,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: '作者',
+                  hintText: '未填写',
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextButton.icon(
-                key: const ValueKey<String>('book-detail-change-cover'),
-                onPressed: busy ? null : onChange,
-                icon: busy
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const AppIcon(AppGlyph.image),
-                label: Text(busy ? '正在更新…' : '更换封面'),
               ),
             ],
           ),
