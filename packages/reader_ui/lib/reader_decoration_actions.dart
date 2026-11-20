@@ -115,7 +115,7 @@ extension _ReaderDecorationActions on _ReaderPageState {
   }
 
   Future<void> _removeDecoration(ReaderDecoration decoration) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderPanelTheme(
         theme: _effectiveTheme ?? ReaderTheme.white,

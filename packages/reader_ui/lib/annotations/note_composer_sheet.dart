@@ -79,7 +79,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
       return;
     }
     _dialogVisible = true;
-    final discard = await showDialog<bool>(
+    final discard = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的想法？'),

@@ -208,7 +208,7 @@ class _ReaderDecorationRuleEditorState
       return;
     }
     _confirming = true;
-    final discard = await showDialog<bool>(
+    final discard = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的规则？'),

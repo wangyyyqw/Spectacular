@@ -59,7 +59,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _chooseShelfSort() async {
-    final selected = await showDialog<BookSortOrder>(
+    final selected = await showReaderDialog<BookSortOrder>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('书架排序'),
@@ -90,7 +90,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _chooseTheme(ThemeMode current) async {
-    final selected = await showDialog<ThemeMode>(
+    final selected = await showReaderDialog<ThemeMode>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('界面主题'),
@@ -123,7 +123,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _clearLogs() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('清理日志'),

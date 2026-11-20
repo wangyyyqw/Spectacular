@@ -17,13 +17,12 @@ part 'book_editor_local_forms.dart';
 part 'book_editor_local_navigation.dart';
 part 'book_editor_local_health.dart';
 
-Future<T?> _localDialog<T>(BuildContext context, WidgetBuilder builder) async {
-  final navigator = Navigator.of(context, rootNavigator: true);
-  final route = DialogRoute<T>(context: context, builder: builder);
-  final result = await navigator.push(route);
-  await route.completed;
-  return result;
-}
+Future<T?> _localDialog<T>(BuildContext context, WidgetBuilder builder) =>
+    showReaderDialog<T>(
+      context: context,
+      builder: builder,
+      waitForDismissal: true,
+    );
 
 class BookEditorLocalTools {
   const BookEditorLocalTools(this.context, this.editor, this.title);
