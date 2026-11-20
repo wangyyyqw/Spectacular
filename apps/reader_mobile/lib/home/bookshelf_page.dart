@@ -1280,7 +1280,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           key: const ValueKey<String>('bookshelf-grid'),
           padding: EdgeInsets.fromLTRB(
             _shelfGridPadding,
-            12,
+            4,
             _shelfGridPadding,
             _selectionMode ? 160 : 96,
           ),
@@ -1768,7 +1768,7 @@ class _ShelfGroupBar extends StatelessWidget {
       width: double.infinity,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
         child: Row(
           children: <Widget>[
             _ShelfGroupTab(
@@ -1841,7 +1841,9 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
         onLongPress: widget.onLongPress,
         child: Container(
           margin: const EdgeInsets.only(right: 20),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          height: 44,
+          alignment: Alignment.bottomCenter,
+          padding: const EdgeInsets.only(bottom: 4),
           child: Text(
             widget.label,
             style: theme.textTheme.bodyMedium?.copyWith(
