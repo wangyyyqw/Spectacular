@@ -105,8 +105,9 @@ class VirtualPager {
       spine,
       prefetch: prefetch,
       progressive: _partialSpines.contains(spine),
+      priority: priority,
     );
-    await _waitForPage(spine, -1, prefetch: prefetch);
+    await _waitForPage(spine, -1, prefetch: prefetch, priority: priority);
     return _spinePages[spine]!;
   }
 
