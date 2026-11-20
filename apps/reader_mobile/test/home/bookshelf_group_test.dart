@@ -126,12 +126,19 @@ void main() {
     await _settle(tester, frames: 3);
     expect(find.text('已选 1 本'), findsOneWidget);
     expect(find.text('滑动甲'), findsWidgets);
-    expect(find.text('滑动乙'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('bookshelf-search-field')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bookshelf-group-toolbar')),
+      findsOneWidget,
+    );
     await tester.tap(find.byTooltip('退出多选'));
     await _settle(tester, frames: 3);
     expect(find.text('滑动甲'), findsWidgets);
-    expect(find.text('滑动乙'), findsWidgets);
-    expect(find.byTooltip('分组选项'), findsNothing);
+    expect(find.text('滑动乙'), findsNothing);
+    expect(find.byTooltip('分组选项'), findsOneWidget);
   });
 
   testWidgets('书架用自定义分组替代状态标签，并支持移入与重命名', (tester) async {
@@ -214,13 +221,26 @@ void main() {
     await tester.tap(find.byKey(ValueKey<String>('book-card-${third.id}')));
     await _settle(tester, frames: 4);
     expect(find.text('已选 1 本'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('bookshelf-search-field')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('bookshelf-group-toolbar')),
+      findsOneWidget,
+    );
     await tester.tap(
       find.byKey(const ValueKey<String>('bookshelf-batch-group')),
     );
     await _settle(tester, frames: 4);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(CheckboxListTile), findsNothing);
     final group = (await library.listGroups()).single;
     await tester.tap(
-      find.byKey(ValueKey<String>('bookshelf-group-pick-${group.id}')),
+      find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.text(group.name),
+      ),
     );
     await _settle(tester);
     expect(find.text('已移入「小说」'), findsNothing);
@@ -254,15 +274,14 @@ void main() {
     expect(find.text('文学 2'), findsOneWidget);
   });
 
-  testWidgets('多选底栏新建分组并预选已选书籍', (tester) async {
+  testWidgets('多选底栏新建分组直接使用已选书籍', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry first;
-    late BookEntry second;
     await tester.runAsync(() async {
       first = await library.importBytes(
         buildTestEpub(title: '新建甲', identifier: 'widget-new-group-a'),
       );
-      second = await library.importBytes(
+      await library.importBytes(
         buildTestEpub(title: '新建乙', identifier: 'widget-new-group-b'),
       );
     });
@@ -288,33 +307,21 @@ void main() {
     );
     await _settle(tester, frames: 4);
     await tester.enterText(
-      find.byKey(const ValueKey<String>('bookshelf-group-create-name')),
+      find.byKey(const ValueKey<String>('bookshelf-group-name-field')),
       '待读',
     );
     await tester.pump();
-    expect(
-      tester
-          .widget<CheckboxListTile>(
-            find.byKey(ValueKey<String>('bookshelf-group-book-${first.id}')),
-          )
-          .value,
-      isTrue,
-    );
+    expect(find.byType(CheckboxListTile), findsNothing);
     await tester.tap(
-      find.byKey(ValueKey<String>('bookshelf-group-book-${second.id}')),
-    );
-    await tester.pump();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-group-create-confirm')),
+      find.byKey(const ValueKey<String>('bookshelf-group-name-confirm')),
     );
     await _settle(tester);
 
-    expect(find.text('待读 2'), findsOneWidget);
+    expect(find.text('待读 1'), findsOneWidget);
     final groups = await library.listGroups();
     expect(groups, hasLength(1));
     expect(await library.groupAssignments(), <String, String>{
       first.id: groups.single.id,
-      second.id: groups.single.id,
     });
   });
 
