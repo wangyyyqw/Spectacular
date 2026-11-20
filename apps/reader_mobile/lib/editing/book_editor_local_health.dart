@@ -20,7 +20,7 @@ class _HealthDialogState extends State<_HealthDialog> {
     final issues = report.issues
         .where((issue) => _filter == null || issue.severity == _filter)
         .toList();
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: const Text('编辑快照体检'),
       content: SizedBox(
         width: 780,

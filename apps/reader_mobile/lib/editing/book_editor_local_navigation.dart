@@ -20,7 +20,7 @@ class _NavigationDialogState extends State<_NavigationDialog> {
   List<NavigationEntry> get _entries => _sections[_section]!;
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('目录与导航'),
     content: SizedBox(
       width: 790,
@@ -223,7 +223,7 @@ class _NavigationEntryDialogState extends State<_NavigationEntryDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: Text('编辑${widget.section.label}条目'),
     content: SizedBox(
       width: 540,

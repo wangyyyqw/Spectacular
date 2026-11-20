@@ -244,7 +244,10 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await pumpReaderUntilComplete(
       tester,
-      () => find.byType(AlertDialog).evaluate().isEmpty,
+      () => find
+          .byWidgetPredicate((widget) => widget is AlertDialog)
+          .evaluate()
+          .isEmpty,
     );
     await _focusSource(tester);
     await _shortcut(tester);

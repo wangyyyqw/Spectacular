@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'reader_frosted_surface.dart';
 import 'reader_theme.dart';
 
 const _shape = RoundedRectangleBorder(
@@ -24,7 +25,10 @@ class ReaderPanelTheme extends StatelessWidget {
     data = _panelSurfaces(data, theme, scheme);
     data = _panelButtons(data, theme);
     data = _panelInputs(data, theme, scheme);
-    return Theme(data: data, child: child);
+    return ReaderFrostedScope(
+      inkMode: theme.id == 'ink',
+      child: Theme(data: data, child: child),
+    );
   }
 }
 

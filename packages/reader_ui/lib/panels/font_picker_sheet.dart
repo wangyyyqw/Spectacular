@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
 import 'package:reader_core/css/font_face.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_frosted_popup.dart';
 
 /// 宿主保存的字体标识与名称，UI 不读取字体文件。
 class ReaderFontOption {
@@ -112,7 +114,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
   Future<bool> _confirmRemove(ReaderFontOption font) async =>
       await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => ReaderFrostedAlertDialog(
           title: Text('移除“${font.label}”？'),
           content: Text(
             _selected == font.family
@@ -292,7 +294,7 @@ class _FontRenameDialogState extends State<_FontRenameDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('字体名称'),
     content: TextField(
       key: const ValueKey('font-rename-input'),

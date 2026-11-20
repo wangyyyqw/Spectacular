@@ -8,6 +8,8 @@ import 'annotation_appearance_editor.dart';
 import 'annotation_editor_sheet.dart';
 import 'annotation_quote_preview.dart';
 import 'mark_settings.dart';
+import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 新建纯文本想法，外观与正文一起保存。
 class ReaderNoteComposerSheet extends StatefulWidget {
@@ -79,7 +81,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
     _dialogVisible = true;
     final discard = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的想法？'),
         content: const Text('想法内容或划线外观还没有保存，离开后本次输入会丢失。'),
         actions: [
@@ -121,7 +123,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Material(
         key: const ValueKey<String>('note-composer-sheet'),
-        color: Theme.of(context).colorScheme.surface,
+        color: ReaderFrostedSurface.panelColorOf(context),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
         clipBehavior: Clip.antiAlias,
         child: SafeArea(

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+
 import 'package:reader_core/position/cfi.dart';
 
 import '../annotations/annotation.dart';
 import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
 import '../icons/app_icon.dart';
+import '../theme/reader_frosted_popup.dart';
 import '../theme/reader_frosted_surface.dart';
 
 /// 阅读器内的想法与划线列表，装饰不进入此面板。
@@ -217,7 +219,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     ];
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除 ${selected.length} 条标注？'),
         content: const Text('选中的想法和划线都会删除，且不可恢复。'),
         actions: [
@@ -539,7 +541,7 @@ class _BatchColorDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: Text('更换 $count 条标注的颜色'),
       content: Wrap(
         spacing: 14,

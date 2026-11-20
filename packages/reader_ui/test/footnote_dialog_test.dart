@@ -12,6 +12,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
 class _Source implements ReaderChapterSource {
@@ -122,8 +123,18 @@ void main() {
             find.byKey(const ValueKey<String>('reader-footnote-dialog')),
           )
           .color,
+      Colors.transparent,
+      reason: '脚注内容透出共用磨砂底板',
+    );
+    final frosted = find.ancestor(
+      of: find.byType(ReaderFootnoteDialog),
+      matching: find.byType(ReaderFrostedSurface),
+    );
+    expect(frosted, findsOneWidget);
+    expect(
+      Theme.of(tester.element(frosted)).colorScheme.surface,
       ReaderTheme.black.background,
-      reason: '深色阅读主题下脚注弹层不能保持白色',
+      reason: '深色阅读主题下脚注底板不能保持白色',
     );
     expect(
       tester.getSize(find.byType(ReaderFootnoteDialog)).height,

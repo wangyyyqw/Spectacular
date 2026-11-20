@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/txt.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 /// 候选样例由实际导入字节解码得到，选定后使用同一任务重试。
 Future<String?> chooseTxtEncoding(
@@ -22,7 +23,7 @@ class _EncodingDialogState extends State<_EncodingDialog> {
   int _selected = 0;
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('选择 TXT 编码'),
     content: SizedBox(
       width: 520,

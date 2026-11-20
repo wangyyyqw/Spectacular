@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_duration_summary.dart';
 import 'reading_insights.dart';
@@ -78,7 +79,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         if (portion.duration > Duration.zero && !portion.date.isAfter(_now))
           _period.startOf(portion.date),
     }.toList()..sort((left, right) => right.compareTo(left));
-    final selected = await showModalBottomSheet<DateTime>(
+    final selected = await showReaderBottomSheet<DateTime>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,

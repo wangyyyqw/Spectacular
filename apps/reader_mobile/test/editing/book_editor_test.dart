@@ -197,7 +197,10 @@ void main() {
     await tester.tap(find.text('知道了'));
     await pumpReaderUntilComplete(
       tester,
-      () => find.byType(AlertDialog).evaluate().isEmpty,
+      () => find
+          .byWidgetPredicate((widget) => widget is AlertDialog)
+          .evaluate()
+          .isEmpty,
     );
     await tester.pumpWidget(const SizedBox());
   });

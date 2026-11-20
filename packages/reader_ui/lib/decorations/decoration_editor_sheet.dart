@@ -14,6 +14,8 @@ import 'decoration_style.dart';
 import 'decoration_style_preview.dart';
 import 'decoration_typography_editor.dart';
 import 'style_controls.dart';
+import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 手工装饰预设与高级属性编辑面板。
 class ReaderDecorationEditorSheet extends StatefulWidget {
@@ -135,7 +137,7 @@ class _ReaderDecorationEditorSheetState
     _dialogVisible = true;
     final discard = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的装饰？'),
         content: const Text('样式修改还没有保存，离开后本次修改会丢失。'),
         actions: [
@@ -201,7 +203,7 @@ class _ReaderDecorationEditorSheetState
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Material(
         key: const ValueKey<String>('decoration-editor-sheet'),
-        color: Theme.of(context).colorScheme.surface,
+        color: ReaderFrostedSurface.panelColorOf(context),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
         clipBehavior: Clip.antiAlias,
         child: SafeArea(

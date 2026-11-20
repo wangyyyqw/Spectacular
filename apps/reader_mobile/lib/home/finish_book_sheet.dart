@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
@@ -78,7 +80,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     _confirming = true;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的书评？'),
         content: const Text('离开后本次尚未保存的修改会丢失。'),
         actions: [
@@ -348,7 +350,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
         ? _fullPage(context)
         : Material(
             key: const ValueKey<String>('book-detail-finish-sheet'),
-            color: Theme.of(context).colorScheme.surface,
+            color: ReaderFrostedSurface.panelColorOf(context),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
             clipBehavior: Clip.antiAlias,
             child: SafeArea(

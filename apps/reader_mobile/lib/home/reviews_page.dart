@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
@@ -290,7 +292,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       return showDialog<T>(
         context: context,
         barrierDismissible: !editing,
-        builder: (context) => Dialog(
+        builder: (context) => ReaderFrostedDialog(
           insetPadding: const EdgeInsets.all(24),
           clipBehavior: Clip.antiAlias,
           child: ConstrainedBox(
@@ -303,13 +305,12 @@ class _ReviewsPageState extends State<ReviewsPage>
         ),
       );
     }
-    return showModalBottomSheet<T>(
+    return showReaderBottomSheet<T>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       isDismissible: !editing,
       enableDrag: !editing,
-      backgroundColor: Colors.transparent,
       builder: builder,
     );
   }
@@ -862,7 +863,7 @@ class _ReviewDetailSheet extends StatelessWidget {
     final content = review.content.isEmpty ? '仅评分，未写正文。' : review.content;
     return Material(
       key: const ValueKey<String>('review-detail'),
-      color: theme.colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
@@ -1178,7 +1179,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
     _discardDialogVisible = true;
     final discard = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的书评？'),
         content: const Text('评分或正文还没有保存，离开后本次修改会丢失。'),
         actions: [
@@ -1258,7 +1259,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   Future<void> _delete() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('删除书评？'),
         content: const Text('评分和正文都会删除，且不可恢复。'),
         actions: [
@@ -1395,7 +1396,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
     },
     child: Material(
       key: const ValueKey<String>('review-editor'),
-      color: Theme.of(context).colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
@@ -1439,7 +1440,7 @@ class _ReviewEditorActions extends StatelessWidget {
     final theme = Theme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: ReaderFrostedSurface.panelColorOf(context),
         border: Border(
           top: BorderSide(color: theme.colorScheme.outlineVariant),
         ),

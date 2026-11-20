@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/txt.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../library/library_store.dart';
 import 'txt_book_service.dart';
@@ -284,7 +285,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
     if (_busy) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('恢复上一保存版本？'),
         content: const Text('书籍内容将恢复到上一次保存前。阅读进度和已有笔记会重新定位，记录不会删除。'),
         actions: [
@@ -588,7 +589,7 @@ class _SaveRuleDialogState extends State<_SaveRuleDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('另存为我的规则'),
     content: SizedBox(
       width: 420,
@@ -651,7 +652,7 @@ class _RuleManagerState extends State<_RuleManager> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('我的规则'),
     content: SizedBox(
       width: 520,

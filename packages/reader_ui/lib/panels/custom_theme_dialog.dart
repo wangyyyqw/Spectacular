@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_theme.dart';
+import '../theme/reader_frosted_popup.dart';
 
 /// 配色草稿只在保存时应用，取消保留原主题。
 class CustomThemeDialog extends StatefulWidget {
@@ -142,7 +144,7 @@ class _CustomThemeDialogState extends State<CustomThemeDialog> {
   );
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('自定义主题'),
     content: SizedBox(
       width: 340,

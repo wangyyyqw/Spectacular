@@ -11,18 +11,13 @@ extension _ReaderDecorationActions on _ReaderPageState {
   }
 
   Future<void> _openMarkSettings() async {
-    final settings = await showModalBottomSheet<ReaderMarkSettings>(
+    final settings = await showReaderBottomSheet<ReaderMarkSettings>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => ReaderPanelTheme(
-        theme: _effectiveTheme ?? ReaderTheme.white,
-        child: ReaderMarkSettingsSheet(
-          settings: _markSettings,
-          inkMode: _inkMode,
-        ),
-      ),
+      readerTheme: _effectiveTheme ?? ReaderTheme.white,
+      builder: (context) =>
+          ReaderMarkSettingsSheet(settings: _markSettings, inkMode: _inkMode),
     );
     if (mounted && settings != null) _applyMarkSettings(settings);
   }
@@ -42,21 +37,18 @@ extension _ReaderDecorationActions on _ReaderPageState {
   Future<ReaderDecorationStyle?> _decorationEditor(
     String quote,
     ReaderDecorationStyle initialStyle,
-  ) => showModalBottomSheet<ReaderDecorationStyle>(
+  ) => showReaderBottomSheet<ReaderDecorationStyle>(
     context: context,
     useSafeArea: true,
     isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (context) => ReaderPanelTheme(
-      theme: _effectiveTheme ?? ReaderTheme.white,
-      child: ReaderDecorationEditorSheet(
-        quote: quote,
-        initialStyle: initialStyle,
-        fonts: _customFonts,
-        onLoadFont: widget.onLoadFont,
-        images: widget.decorationImages,
-        inkMode: _inkMode,
-      ),
+    readerTheme: _effectiveTheme ?? ReaderTheme.white,
+    builder: (context) => ReaderDecorationEditorSheet(
+      quote: quote,
+      initialStyle: initialStyle,
+      fonts: _customFonts,
+      onLoadFont: widget.onLoadFont,
+      images: widget.decorationImages,
+      inkMode: _inkMode,
     ),
   );
 
@@ -125,19 +117,22 @@ extension _ReaderDecorationActions on _ReaderPageState {
   Future<void> _removeDecoration(ReaderDecoration decoration) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除这条装饰？'),
-        content: Text(decoration.quote),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
+      builder: (context) => ReaderPanelTheme(
+        theme: _effectiveTheme ?? ReaderTheme.white,
+        child: ReaderFrostedAlertDialog(
+          title: const Text('删除这条装饰？'),
+          content: Text(decoration.quote),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('删除'),
+            ),
+          ],
+        ),
       ),
     );
     if (!mounted || confirmed != true) return;

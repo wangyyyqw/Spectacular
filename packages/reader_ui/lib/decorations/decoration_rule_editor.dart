@@ -13,6 +13,8 @@ import 'decoration_rules.dart';
 import 'decoration_style.dart';
 import 'decoration_style_preview.dart';
 import 'style_controls.dart';
+import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 规则表单，仅开放不会改变字体度量的样式。
 class ReaderDecorationRuleEditor extends StatefulWidget {
@@ -208,7 +210,7 @@ class _ReaderDecorationRuleEditorState
     _confirming = true;
     final discard = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的规则？'),
         content: const Text('本次匹配内容和样式修改将丢失。'),
         actions: [
@@ -237,7 +239,7 @@ class _ReaderDecorationRuleEditorState
       duration: const Duration(milliseconds: 180),
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Material(
-        color: Theme.of(context).colorScheme.surface,
+        color: ReaderFrostedSurface.panelColorOf(context),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
         clipBehavior: Clip.antiAlias,
         child: SafeArea(

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 import '../support/test_epub.dart';
 
@@ -77,10 +78,15 @@ void main() {
     await _settle(tester);
     expect(find.text('删除选中的 2 本书？'), findsOneWidget);
     expect(find.textContaining('书签、笔记和高亮'), findsOneWidget);
+    expect(find.byType(ReaderFrostedSurface), findsOneWidget);
+    expect(
+      tester.widget<Dialog>(find.byType(Dialog)).backgroundColor,
+      Colors.transparent,
+    );
 
     await tester.tap(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byWidgetPredicate((widget) => widget is AlertDialog),
         matching: find.widgetWithText(TextButton, '取消'),
       ),
     );
@@ -94,7 +100,7 @@ void main() {
     await _settle(tester);
     await tester.tap(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byWidgetPredicate((widget) => widget is AlertDialog),
         matching: find.widgetWithText(FilledButton, '删除'),
       ),
     );

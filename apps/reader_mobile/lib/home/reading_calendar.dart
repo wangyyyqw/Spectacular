@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_duration_summary.dart';
 import 'reading_calendar_month.dart';
@@ -50,7 +51,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
       _showMonth(DateTime(_visibleMonth.year, _visibleMonth.month + offset));
 
   Future<void> _pickMonth() async {
-    final selected = await showModalBottomSheet<DateTime>(
+    final selected = await showReaderBottomSheet<DateTime>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
@@ -61,7 +62,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   }
 
   void _openDay(ReadingCalendarMonth month, DateTime date) {
-    showModalBottomSheet<void>(
+    showReaderBottomSheet<void>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,

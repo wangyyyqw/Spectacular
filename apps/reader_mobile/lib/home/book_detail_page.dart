@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
@@ -312,13 +313,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _showMessage('当前无法保存读完标记');
       return;
     }
-    final savedReview = await showModalBottomSheet<bool>(
+    final savedReview = await showReaderBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       isDismissible: false,
       enableDrag: false,
-      backgroundColor: Colors.transparent,
       builder: (_) => FinishBookSheet(
         book: _entry,
         review: _review,
@@ -384,7 +384,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('取消读完标记？'),
         content: const Text('书评和评分会保留，阅读进度不会改变。'),
         actions: <Widget>[
