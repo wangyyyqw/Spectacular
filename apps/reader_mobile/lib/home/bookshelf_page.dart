@@ -39,6 +39,9 @@ const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
 const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
+final _bookPressOverlay = WidgetStateProperty.resolveWith<Color?>(
+  (states) => states.contains(WidgetState.pressed) ? Colors.transparent : null,
+);
 
 /// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
@@ -1957,6 +1960,7 @@ class _BookRow extends StatelessWidget {
       selected: selectionMode && selected,
       child: InkWell(
         key: ValueKey<String>('book-row-${entry.id}'),
+        overlayColor: _bookPressOverlay,
         onTap: () {
           if (selectionMode) {
             onSelect();
@@ -2210,6 +2214,7 @@ class _BookCard extends StatelessWidget {
     return InkWell(
       key: ValueKey<String>('book-card-${entry.id}'),
       borderRadius: BorderRadius.circular(4),
+      overlayColor: _bookPressOverlay,
       onTap: () {
         if (selectionMode) {
           onSelect();
