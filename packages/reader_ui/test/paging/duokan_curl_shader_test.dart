@@ -34,6 +34,14 @@ ui.FragmentShader _shader(
   Color background = const Color(0xFFFFFFFF),
 }) {
   final shader = DuokanCurlShader.program!.fragmentShader();
+  // 引擎使用未初始化的 uniform 内存，夹具需明确设置阴影平面与边界。
+  for (
+    var index = 0;
+    index < DuokanCurlShader.shadowEdgesOffset + 12;
+    index++
+  ) {
+    shader.setFloat(index, 0);
+  }
   final values = <double>[
     100,
     100,
