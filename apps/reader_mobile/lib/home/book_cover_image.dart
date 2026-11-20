@@ -13,12 +13,14 @@ class BookCoverImage extends StatelessWidget {
     this.width,
     this.height,
     this.showReadabilityBadge = false,
+    this.showShadow = false,
   });
 
   final BookEntry book;
   final double? width;
   final double? height;
   final bool showReadabilityBadge;
+  final bool showShadow;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -34,26 +36,32 @@ class BookCoverImage extends StatelessWidget {
         return Semantics(
           label: '${book.title}封面',
           image: true,
-          child: Container(
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: scheme.surface,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            foregroundDecoration: BoxDecoration(
-              border: Border.all(color: scheme.outlineVariant),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (book.coverPath == null)
-                  placeholder
-                else
-                  _image(context, constraints, placeholder),
-                if (showReadabilityBadge && book.readabilityLevel >= 2)
-                  _ReadabilityBadge(book: book),
-              ],
+          child: Material(
+            color: scheme.surface,
+            elevation: showShadow ? 2 : 0,
+            shadowColor: scheme.shadow.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(4),
+            child: Container(
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              foregroundDecoration: BoxDecoration(
+                border: Border.all(color: scheme.outlineVariant),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (book.coverPath == null)
+                    placeholder
+                  else
+                    _image(context, constraints, placeholder),
+                  if (showReadabilityBadge && book.readabilityLevel >= 2)
+                    _ReadabilityBadge(book: book),
+                ],
+              ),
             ),
           ),
         );

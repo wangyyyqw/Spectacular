@@ -104,6 +104,41 @@ void main() {
     expect(find.byKey(const ValueKey('book-damaged-badge')), findsOneWidget);
   });
 
+  testWidgets('可按需应用与搜索栏一致的轻阴影', (tester) async {
+    final book = BookEntry(
+      id: 'shadow',
+      title: '立体封面',
+      author: '',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    final theme = ThemeData();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme,
+        home: Scaffold(
+          body: BookCoverImage(
+            book: book,
+            width: 100,
+            height: 140,
+            showShadow: true,
+          ),
+        ),
+      ),
+    );
+    final material = tester.widget<Material>(
+      find.descendant(
+        of: find.byType(BookCoverImage),
+        matching: find.byType(Material),
+      ),
+    );
+    expect(material.elevation, 2);
+    expect(
+      material.shadowColor,
+      theme.colorScheme.shadow.withValues(alpha: .12),
+    );
+  });
+
   testWidgets('封面文件缺失时显示书名占位和结构异常提示', (tester) async {
     final book = BookEntry(
       id: 'missing',
