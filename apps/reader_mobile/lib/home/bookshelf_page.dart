@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -10,7 +11,6 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
-import 'package:reader_core/position/locator.dart';
 
 import '../book_source/book_source_models.dart';
 import '../book_source/online_book_controller.dart';
@@ -23,6 +23,7 @@ import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
 import '../editing/book_edit_repository.dart';
 import '../editing/book_editor_route.dart';
+import '../editing/epub_export.dart';
 import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import '../txt/txt_encoding_dialog.dart';
@@ -34,8 +35,8 @@ import 'book_cover_image.dart';
 import 'reading_insights.dart';
 import '../storage/import_queue.dart';
 
-/// 书架条目与已保存的当前正文比例；旧记录才按字符权重估算。
-typedef _ShelfItem = ({BookEntry entry, int? percentInt, bool finished});
+/// 书架条目及列表显示的阅读记录。
+typedef _ShelfItem = ({BookEntry entry, int? spineIndex, Duration duration});
 
 const _shelfMinColumns = 3;
 const _shelfTargetCardWidth = 192.0;
@@ -44,7 +45,6 @@ const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
 const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
-const _shelfMetaHeight = 18.0;
 
 /// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
@@ -115,6 +115,7 @@ class BookshelfPage extends StatefulWidget {
 
 class _BookshelfPageState extends State<BookshelfPage> {
   static const _viewKey = 'bookshelf.grid';
+  static const _pinnedKey = 'bookshelf.pinned';
 
   List<_ShelfItem>? _items;
 
@@ -125,6 +126,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   String? _error;
   ImportJob? _encodingJob;
   BookSortOrder _sort = BookSortOrder.recent;
+  List<String> _pinnedIds = const <String>[];
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
   String? _activeGroupId;
@@ -134,6 +136,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   bool _selectionMode = false;
   bool _removing = false;
   bool _pickingFiles = false;
+  bool _exportingBook = false;
   String _query = '';
   final Set<String> _selectedIds = <String>{};
   final TextEditingController _searchController = TextEditingController();
@@ -234,12 +237,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _loadPreferences() async {
     final sort = await widget.library.getSetting(bookshelfSortKey);
     final grid = await widget.library.getSetting(_viewKey);
+    final pinned = await widget.library.getSetting(_pinnedKey);
     if (!mounted) {
       return;
     }
     setState(() {
       _sort = BookSortOrder.fromValue(sort);
       _grid = grid != 'false';
+      _pinnedIds = pinned == null
+          ? const <String>[]
+          : (jsonDecode(pinned) as List).cast<String>();
     });
   }
 
@@ -247,6 +254,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final grid = !_grid;
     setState(() => _grid = grid);
     await widget.library.setSetting(_viewKey, '$grid');
+  }
+
+  Future<void> _togglePinned(BookEntry entry) async {
+    final pinned = List<String>.of(_pinnedIds);
+    if (!pinned.remove(entry.id)) pinned.insert(0, entry.id);
+    await widget.library.setSetting(_pinnedKey, jsonEncode(pinned));
+    if (mounted) setState(() => _pinnedIds = pinned);
   }
 
   ShelfGroup? get _activeGroup {
@@ -470,7 +484,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     });
   }
 
-  void _startSelection(BookEntry entry) {
+  void _startSelection([BookEntry? entry]) {
     _searchController.clear();
     _keyboardFocus.requestFocus();
     setState(() {
@@ -478,9 +492,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _searching = false;
       _query = '';
       _activeGroupId = null;
-      _selectedIds
-        ..clear()
-        ..add(entry.id);
+      _selectedIds.clear();
+      if (entry != null) _selectedIds.add(entry.id);
     });
   }
 
@@ -526,7 +539,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     });
   }
 
-  /// 按当前排序方式排序（list() 默认最近阅读优先）。
+  /// 置顶书籍按置顶先后排在前面，其余沿用当前排序。
   List<_ShelfItem> _sorted(List<_ShelfItem> items) {
     final sorted = List<_ShelfItem>.of(items);
     switch (_sort) {
@@ -537,7 +550,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       case BookSortOrder.title:
         sorted.sort((a, b) => a.entry.title.compareTo(b.entry.title));
     }
-    return sorted;
+    final byId = {for (final item in sorted) item.entry.id: item};
+    return [
+      for (final id in _pinnedIds) ?byId[id],
+      for (final item in sorted)
+        if (!_pinnedIds.contains(item.entry.id)) item,
+    ];
   }
 
   /// 先按关键词与当前分组过滤，再沿用书架排序。
@@ -685,32 +703,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _reloadOnce() async {
-    // 四份数据互不依赖；并发读取后仍只对本轮完整快照调用一次 setState。
-    final (books, groups, bookGroups, progress) = await (
+    // 并发读取后一次更新书架快照。
+    final (books, groups, bookGroups, progress, durations) = await (
       widget.library.list(),
       widget.library.listGroups(),
       widget.library.groupAssignments(),
       widget.progressStore.snapshot(),
+      widget.library.bookReadingDurations(minimumCountedSessionDuration),
     ).wait;
-    final weights = await widget.library.progressWeightsForBooks(<String>[
+    final items = <_ShelfItem>[
       for (final book in books)
-        if (progress.containsKey(book.id)) book.id,
-    ]);
-    final items = <_ShelfItem>[];
-    for (final book in books) {
-      int? percent;
-      final current = progress[book.id];
-      if (current != null) {
-        percent = current.readingPercent == null
-            ? _fallbackPercent(weights[book.id], current)
-            : (current.readingPercent! * 100).round().clamp(0, 100);
-      }
-      items.add((
-        entry: book,
-        percentInt: percent,
-        finished: current?.finished ?? false,
-      ));
-    }
+        (
+          entry: book,
+          spineIndex: progress[book.id]?.spineIndex,
+          duration: durations[book.id] ?? Duration.zero,
+        ),
+    ];
     if (mounted) {
       final validIds = <String>{for (final item in items) item.entry.id};
       setState(() {
@@ -727,11 +735,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
         }
       });
     }
-  }
-
-  int? _fallbackPercent(ProgressWeights? weights, ReaderProgress progress) {
-    if (weights == null || weights.total <= 0) return null;
-    return weights.percentInt(progress.spineIndex);
   }
 
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
@@ -810,6 +813,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         onlineSourceName: widget.onlineBooks?.sourceForBook(entry.id)?.name,
         progress: progress,
         readingDuration: durations[entry.id] ?? Duration.zero,
+        pinned: _pinnedIds.contains(entry.id),
       ),
     );
     if (!mounted) {
@@ -844,6 +848,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
             child: const Text('编辑 EPUB'),
           ),
         const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
+        PopupMenuItem(
+          value: 'pin',
+          child: Text(_pinnedIds.contains(entry.id) ? '取消置顶' : '置顶'),
+        ),
+        const PopupMenuItem(value: 'export', child: Text('导出 EPUB')),
         if (canRechapter)
           const PopupMenuItem(value: 'chapters', child: Text('章节正则')),
         const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
@@ -923,6 +932,39 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _startSelection(entry);
     } else if (action == 'reamicro-link') {
       await _openReaMicroPublicReading(entry);
+    } else if (action == 'export') {
+      await _exportBook(entry);
+    } else if (action == 'pin') {
+      await _togglePinned(entry);
+    }
+  }
+
+  Future<void> _exportBook(BookEntry entry) async {
+    if (_exportingBook) return;
+    _exportingBook = true;
+    final title = entry.title
+        .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
+        .trim();
+    final name = String.fromCharCodes(title.runes.take(64));
+    final fileName = '${name.isEmpty ? '未命名书籍' : name}.epub';
+    try {
+      final saved = await EpubExport.saveToDownloads(
+        File(entry.filePath),
+        fileName: fileName,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(saved ? '已导出：$fileName' : '已取消导出')),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        final message = error is PlatformException ? error.message : '$error';
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败：${message ?? '请重试'}')));
+      }
+    } finally {
+      _exportingBook = false;
     }
   }
 
@@ -1456,6 +1498,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
         onPressed: _toggleView,
         icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
       ),
+      IconButton(
+        key: const ValueKey('bookshelf-multi-select'),
+        tooltip: '多选',
+        onPressed: items.isEmpty ? null : _startSelection,
+        icon: const AppIcon(AppGlyph.checklist),
+      ),
       const SizedBox(width: 8),
     ],
   );
@@ -1561,8 +1609,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
             final item = books[index];
             return _BookCard(
               entry: item.entry,
-              percentInt: item.percentInt,
-              finished: item.finished,
               selectionMode: _selectionMode,
               selected: _selectedIds.contains(item.entry.id),
               onSelect: () => _toggleSelected(item.entry.id),
@@ -1592,8 +1638,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       mainAxisExtent:
           cardWidth / _shelfCoverAspectRatio +
           _shelfTitleGap +
-          textScaler.scale(_shelfTitleHeight) +
-          textScaler.scale(_shelfMetaHeight),
+          textScaler.scale(_shelfTitleHeight),
       mainAxisSpacing: 20,
       crossAxisSpacing: _shelfGridSpacing,
     );
@@ -1608,9 +1653,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       itemBuilder: (context, index) {
         final item = books[index];
         return _BookRow(
-          entry: item.entry,
-          percentInt: item.percentInt,
-          finished: item.finished,
+          item: item,
           selectionMode: _selectionMode,
           selected: _selectedIds.contains(item.entry.id),
           onSelect: () => _toggleSelected(item.entry.id),
@@ -2246,22 +2289,10 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
         child: Container(
           margin: const EdgeInsets.only(right: 20),
           padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                width: 2,
-                color: widget.selected
-                    ? theme.colorScheme.primary
-                    : Colors.transparent,
-              ),
-            ),
-          ),
           child: Text(
             widget.label,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: widget.selected
-                  ? theme.colorScheme.onSurface
-                  : theme.colorScheme.onSurfaceVariant,
+              color: theme.colorScheme.onSurface,
               fontWeight: widget.selected ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
@@ -2315,12 +2346,10 @@ class _ImportBanner extends StatelessWidget {
   }
 }
 
-/// 列表视图的一行（P4-08）：封面缩略 + 书名。
+/// 列表中的封面、书名与阅读记录。
 class _BookRow extends StatelessWidget {
   const _BookRow({
-    required this.entry,
-    required this.percentInt,
-    required this.finished,
+    required this.item,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2329,9 +2358,7 @@ class _BookRow extends StatelessWidget {
     required this.onSecondaryTap,
   });
 
-  final BookEntry entry;
-  final int? percentInt;
-  final bool finished;
+  final _ShelfItem item;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2342,6 +2369,11 @@ class _BookRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final entry = item.entry;
+    final author = entry.author.trim();
+    final metadataStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final cover = Hero(
       tag: bookCoverHeroTag(entry.id),
       transitionOnUserGestures: true,
@@ -2406,16 +2438,18 @@ class _BookRow extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _shelfMetaLabel(entry, percentInt, finished),
-                      key: ValueKey<String>('book-row-meta-${entry.id}'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 4),
+                    for (final label in [
+                      author.isEmpty ? '未知作者' : author,
+                      '已读 ${formatReadingDuration(item.duration)}',
+                      formatReadingChapters(item.spineIndex, entry.spineCount),
+                    ])
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: metadataStyle,
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -2429,17 +2463,6 @@ class _BookRow extends StatelessWidget {
       ),
     );
   }
-}
-
-String _shelfMetaLabel(BookEntry entry, int? percentInt, bool finished) {
-  final author = entry.author.trim().isEmpty ? '未知作者' : entry.author.trim();
-  final status = switch (finished ? BookReadingStatus.finished : entry.status) {
-    BookReadingStatus.unread => percentInt == null ? '未开始' : '在读 $percentInt%',
-    BookReadingStatus.reading => percentInt == null ? '在读' : '在读 $percentInt%',
-    BookReadingStatus.finished =>
-      percentInt == null ? '已读完' : '已读完 · $percentInt%',
-  };
-  return '$status · $author';
 }
 
 class _EmptyPane extends StatelessWidget {
@@ -2518,7 +2541,7 @@ class _NoMatchesPane extends StatelessWidget {
             ] else if (groupName != null) ...[
               const SizedBox(height: 4),
               Text(
-                '长按书籍选择多选，再移入「$groupName」',
+                '点击顶部多选，再移入「$groupName」',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),
@@ -2574,8 +2597,6 @@ class _ErrorPane extends StatelessWidget {
 class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
-    required this.percentInt,
-    required this.finished,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2585,8 +2606,6 @@ class _BookCard extends StatelessWidget {
   });
 
   final BookEntry entry;
-  final int? percentInt;
-  final bool finished;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2669,21 +2688,6 @@ class _BookCard extends StatelessWidget {
                   color: selectionMode && selected
                       ? theme.colorScheme.primary
                       : null,
-                ),
-              ),
-            ),
-          ),
-          SizedBox(
-            height: MediaQuery.textScalerOf(context).scale(_shelfMetaHeight),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                _shelfMetaLabel(entry, percentInt, finished),
-                key: ValueKey<String>('book-card-meta-${entry.id}'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ),

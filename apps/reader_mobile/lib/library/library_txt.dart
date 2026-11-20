@@ -82,7 +82,6 @@ extension LibraryTxtOperations on LibraryStore {
         _isMemory
             ? _ImportPayload.bytes(await converted.file.readAsBytes())
             : _ImportPayload.file(converted.filePath),
-        fallbackTitle: fallbackTitle,
         onProgress: (value) => onProgress?.call(0.65 + value * 0.35),
         isCancelled: isCancelled,
       );

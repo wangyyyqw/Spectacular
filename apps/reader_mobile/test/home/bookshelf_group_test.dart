@@ -83,7 +83,7 @@ void main() {
 
     for (final group in groups.skip(2)) {
       await tester.drag(pages, const Offset(-180, 0));
-      await _settle(tester, frames: 3);
+      await tester.pumpAndSettle();
       expect(find.textContaining('「${group.name}」'), findsOneWidget);
       final tab = tester.getRect(
         find.byKey(ValueKey('bookshelf-group-${group.id}')),
@@ -118,9 +118,9 @@ void main() {
     expect(find.text('滑动乙'), findsNothing);
     expect(find.byKey(const ValueKey('bookshelf-list')), findsOneWidget);
 
-    await tester.longPress(find.text('滑动甲').first);
+    await tester.tap(find.byTooltip('多选'));
     await _settle(tester, frames: 3);
-    await tester.tap(find.text('多选'));
+    await tester.tap(find.text('滑动甲').first);
     await _settle(tester, frames: 3);
     await tester.drag(pages, const Offset(-180, 0));
     await _settle(tester, frames: 3);
@@ -209,11 +209,9 @@ void main() {
     await _settle(tester, frames: 4);
     expect(find.text('分组丙'), findsWidgets);
 
-    await tester.longPress(
-      find.byKey(ValueKey<String>('book-card-${third.id}')),
-    );
+    await tester.tap(find.byTooltip('多选'));
     await _settle(tester, frames: 4);
-    await tester.tap(find.text('多选'));
+    await tester.tap(find.byKey(ValueKey<String>('book-card-${third.id}')));
     await _settle(tester, frames: 4);
     expect(find.text('已选 1 本'), findsOneWidget);
     await tester.tap(
@@ -279,11 +277,9 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.longPress(
-      find.byKey(ValueKey<String>('book-card-${first.id}')),
-    );
+    await tester.tap(find.byTooltip('多选'));
     await _settle(tester, frames: 4);
-    await tester.tap(find.text('多选'));
+    await tester.tap(find.byKey(ValueKey<String>('book-card-${first.id}')));
     await _settle(tester, frames: 4);
     expect(find.text('已选 1 本'), findsOneWidget);
 

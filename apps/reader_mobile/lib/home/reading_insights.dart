@@ -1,6 +1,6 @@
 import '../storage/reading_session_store.dart';
 
-/// 书籍详情与书评时长只计入不少于该时长的阅读会话。
+/// 书架、书籍详情与书评时长只计入不少于该时长的阅读会话。
 const minimumCountedSessionDuration = Duration(minutes: 5);
 const minimumCountedDayDuration = Duration(minutes: 5);
 
@@ -248,6 +248,13 @@ int _currentStreak(List<DateTime> days, DateTime today) {
     cursor--;
   }
   return count;
+}
+
+/// 将已保存的章节位置转换为读者看到的章数。
+String formatReadingChapters(int? spineIndex, int? spineCount) {
+  final total = spineCount ?? 0;
+  final current = ((spineIndex ?? -1) + 1).clamp(0, total);
+  return '已读 $current / $total 章';
 }
 
 String formatReadingDuration(Duration duration) {

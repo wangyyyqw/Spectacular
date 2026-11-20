@@ -10,8 +10,8 @@ import 'reading_insights.dart';
 /// 长按书架卡片展示书籍元信息和快捷操作。
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
-/// `'create-group'` 将本书移入已有或新建分组，`'multi-select'` 进入多选，
-/// `'reamicro-link'` 进入阅微关联与公开阅读。
+/// `'create-group'` 将本书移入已有或新建分组，`'export'` 导出本书 EPUB，
+/// `'pin'` 切换置顶状态，`'reamicro-link'` 进入阅微关联与公开阅读。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
   const BookDetailSheet({
@@ -21,6 +21,7 @@ class BookDetailSheet extends StatelessWidget {
     this.onlineSourceName,
     this.progress,
     this.readingDuration = Duration.zero,
+    this.pinned = false,
   });
 
   /// 书籍条目。
@@ -38,13 +39,12 @@ class BookDetailSheet extends StatelessWidget {
   /// 本书累计有效阅读时长，与图书详情的统计口径一致。
   final Duration readingDuration;
 
+  /// 本书是否已置顶。
+  final bool pinned;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final totalChapters = entry.spineCount ?? 0;
-    final currentChapter = progress == null
-        ? 0
-        : (progress!.spineIndex + 1).clamp(0, totalChapters);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -102,7 +102,10 @@ class BookDetailSheet extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '已读 $currentChapter / $totalChapters 章',
+                          formatReadingChapters(
+                            progress?.spineIndex,
+                            entry.spineCount,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -176,6 +179,12 @@ class BookDetailSheet extends StatelessWidget {
                 ),
               ],
             ),
+            _DetailAction(
+              key: const ValueKey<String>('book-detail-pin'),
+              icon: AppGlyph.pushPin,
+              label: pinned ? '取消置顶' : '置顶',
+              onTap: () => Navigator.of(context).pop('pin'),
+            ),
             FutureBuilder<bool>(
               future: TxtBookService(library).canRechapter(entry),
               builder: (context, snapshot) => snapshot.data == true
@@ -214,10 +223,10 @@ class BookDetailSheet extends StatelessWidget {
               children: [
                 Expanded(
                   child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-multi-select'),
-                    icon: AppGlyph.checklist,
-                    label: '多选',
-                    onTap: () => Navigator.of(context).pop('multi-select'),
+                    key: const ValueKey<String>('book-detail-export'),
+                    icon: AppGlyph.upload,
+                    label: '导出',
+                    onTap: () => Navigator.of(context).pop('export'),
                   ),
                 ),
                 const SizedBox(width: 16),

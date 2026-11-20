@@ -73,4 +73,41 @@ void main() {
     );
     expect(await file.exists(), isTrue);
   });
+
+  test('下载目录导出只传原文件路径，系统返回 URI 后才报告成功', () async {
+    final file = await source();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'saveToDownloads');
+      expect(call.arguments, {
+        'sourcePath': file.absolute.path,
+        'fileName': '原书.epub',
+      });
+      return 'content://media/external/downloads/123';
+    });
+    expect(await EpubExport.saveToDownloads(file, fileName: '原书.epub'), isTrue);
+    expect(await file.readAsBytes(), [1, 2, 3]);
+  });
+
+  test('下载目录导出报告缺失文件、取消及写入失败，不修改源文件', () async {
+    final file = await source();
+    messenger.setMockMethodCallHandler(channel, (_) async => null);
+    expect(
+      await EpubExport.saveToDownloads(file, fileName: '取消.epub'),
+      isFalse,
+    );
+    messenger.setMockMethodCallHandler(
+      channel,
+      (_) async => throw PlatformException(code: 'E_EXPORT_WRITE'),
+    );
+    await expectLater(
+      EpubExport.saveToDownloads(file, fileName: '失败.epub'),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(await file.readAsBytes(), [1, 2, 3]);
+    await file.delete();
+    await expectLater(
+      EpubExport.saveToDownloads(file, fileName: '缺失.epub'),
+      throwsA(isA<FileSystemException>()),
+    );
+  });
 }

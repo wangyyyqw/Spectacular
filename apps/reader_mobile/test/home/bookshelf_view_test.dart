@@ -37,7 +37,7 @@ void main() {
     temp = Directory.systemTemp.createTempSync('bookshelf-view');
     files = <File>[
       for (final title in <String>['B书', 'A书', 'C书'])
-        File('${temp.path}/$title.epub')
+        File('${temp.path}/文件名与元数据不同-$title.epub')
           ..writeAsBytesSync(buildTestEpub(title: title)),
     ];
   });
@@ -123,6 +123,20 @@ void main() {
       findsOneWidget,
     );
     final entries = await library.list();
+    for (final entry in entries) {
+      final card = find.byKey(ValueKey('book-card-${entry.id}'));
+      expect(
+        tester
+            .widgetList<Text>(
+              find.descendant(of: card, matching: find.byType(Text)),
+            )
+            .every((text) => text.data == entry.title),
+        isTrue,
+      );
+      expect(find.byKey(ValueKey('book-card-meta-${entry.id}')), findsNothing);
+      expect(find.text(entry.title), findsWidgets);
+    }
+    expect(find.textContaining('文件名与元数据不同'), findsNothing);
     expect(find.byKey(const ValueKey('bookshelf-count')), findsNothing);
     expect(find.text('书架'), findsNothing);
     final search = tester.getRect(
@@ -156,7 +170,10 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-list')),
       findsOneWidget,
     );
-    expect(find.text('未开始 · 测试作者'), findsNWidgets(entries.length));
+    expect(find.text('测试作者'), findsNWidgets(entries.length));
+    expect(find.text('已读 0 分钟'), findsNWidgets(entries.length));
+    expect(find.text('已读 0 / 1 章'), findsNWidgets(entries.length));
+    expect(find.textContaining('文件名与元数据不同'), findsNothing);
     expect(
       find.byWidgetPredicate(
         (widget) =>

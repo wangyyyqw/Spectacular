@@ -108,6 +108,8 @@ void main() {
       fallbackTitle: '文件乙',
     );
     expect(first.id, second.id);
+    expect(first.title, '未命名书籍');
+    expect(second.title, '未命名书籍');
     expect(first.id, generateBookId(title: '', author: '', identifier: ''));
     expect(
       (await library.importBytes(bytes)).importOutcome,
