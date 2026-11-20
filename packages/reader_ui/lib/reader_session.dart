@@ -422,6 +422,14 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
+  /// 首页预热后继续等待同一章完成；准确总数随分页通知提前保留。
+  Future<void> completeChapterPreload(int spineIndex) async {
+    await _pager?.completeChapter(
+      spineIndex,
+      priority: ChapterLayoutPriority.background,
+    );
+  }
+
   void setBackgroundLayoutPaused(bool paused) {
     if (!_disposed && source is BackgroundLayoutChapterSource) {
       (source as BackgroundLayoutChapterSource).setBackgroundLayoutPaused(

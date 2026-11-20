@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -58,10 +59,13 @@ Future<EpubOpenResult> openEpubFile(
     return resourceOverrides.isEmpty
         ? archive
         : EpubArchive.withOverrides(archive, resourceOverrides);
-  });
+  }, parseContainerInIsolate: true);
 }
 
-Future<EpubOpenResult> _openWith(Future<EpubArchive> Function() create) async {
+Future<EpubOpenResult> _openWith(
+  Future<EpubArchive> Function() create, {
+  bool parseContainerInIsolate = false,
+}) async {
   final warnings = <String>[];
   EpubArchive? archive;
   var archiveOwnedByResult = false;
@@ -88,7 +92,9 @@ Future<EpubOpenResult> _openWith(Future<EpubArchive> Function() create) async {
     ContainerInfo container;
     String? containerDiagnostic;
     try {
-      final containerParsed = EpubContainer.parseWithFallback(archive);
+      final containerParsed = parseContainerInIsolate
+          ? await _parseContainerInIsolate(archive)
+          : EpubContainer.parseWithFallback(archive);
       container = containerParsed.$1;
       containerDiagnostic = containerParsed.$2;
     } on EpubException catch (error) {
@@ -183,6 +189,18 @@ Future<EpubOpenResult> _openWith(Future<EpubArchive> Function() create) async {
     if (!archiveOwnedByResult) {
       archive?.close();
     }
+  }
+}
+
+Future<(ContainerInfo, String?)> _parseContainerInIsolate(
+  EpubArchive archive,
+) async {
+  final bytes = await archive.readBytesAsync(EpubContainer.containerPath);
+  if (bytes == null) return EpubContainer.parseWithFallback(archive);
+  try {
+    return (await Isolate.run(() => EpubContainer.parseBytes(bytes)), null);
+  } on EpubException {
+    return EpubContainer.parseWithFallback(archive);
   }
 }
 

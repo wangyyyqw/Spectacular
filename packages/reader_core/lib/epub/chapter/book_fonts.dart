@@ -33,6 +33,14 @@ class BookFonts {
   int _frozenCoverageRevision = -1;
   final _frozenSets =
       BoundedCache<(List<CssFontFace>, int, int, int), BookFontView>(8);
+  ({
+    List<CssFontFace> faces,
+    int bookRevision,
+    int availabilityRevision,
+    int coverageRevision,
+    BookFontView view,
+  })?
+  _lastFrozenSet;
   bool _closed = false;
 
   /// 只有 CSS 族到引擎族的映射真正变化时递增，不参与稳定字体依赖键。
@@ -145,13 +153,33 @@ class BookFonts {
     );
   }
 
-  /// 作业传入只读声明列表；依赖检查直接复用视图，不在逐行预算中重算覆盖。
-  BookFontView freezeFor(List<CssFontFace> faces) => _frozenSets.putIfAbsent((
-    faces,
-    _revision,
-    _availabilityRevision,
-    FontCoverageRegistry.revision,
-  ), () => _freezeFaces(faces));
+  /// 作业传入只读声明列表；连续检查同一章时只比较身份与版本，
+  /// 避免逐行预算反复构造缓存键、哈希并移动 LRU 条目。
+  BookFontView freezeFor(List<CssFontFace> faces) {
+    final coverageRevision = FontCoverageRegistry.revision;
+    final last = _lastFrozenSet;
+    if (last != null &&
+        identical(last.faces, faces) &&
+        last.bookRevision == _revision &&
+        last.availabilityRevision == _availabilityRevision &&
+        last.coverageRevision == coverageRevision) {
+      return last.view;
+    }
+    final view = _frozenSets.putIfAbsent((
+      faces,
+      _revision,
+      _availabilityRevision,
+      coverageRevision,
+    ), () => _freezeFaces(faces));
+    _lastFrozenSet = (
+      faces: faces,
+      bookRevision: _revision,
+      availabilityRevision: _availabilityRevision,
+      coverageRevision: coverageRevision,
+      view: view,
+    );
+    return view;
+  }
 
   /// 全局加载缓存可累积，章节视图只使用本章的声明及顺序。
   BookFontView _freezeFaces(List<CssFontFace> faces) {
@@ -199,6 +227,7 @@ class BookFonts {
     _availabilityRevision = 0;
     _frozen = null;
     _frozenSets.clear();
+    _lastFrozenSet = null;
   }
 }
 

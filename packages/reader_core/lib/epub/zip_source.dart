@@ -119,6 +119,34 @@ class _FileZipSource implements ZipByteSource {
     }
   }
 
+  /// 读取并校验 ZIP 局部头，再异步取得压缩数据；不在调用 isolate 做文件同步读。
+  Future<Uint8List?> readZipEntryAsync(ZipEntryInfo entry) async {
+    if (_closed || entry.localHeaderOffset < 0) return null;
+    final handle = await _file.open();
+    try {
+      await handle.setPosition(entry.localHeaderOffset);
+      final header = await handle.read(30);
+      if (header.length != 30) return null;
+      final data = ByteData.sublistView(header);
+      if (data.getUint32(0, Endian.little) != 0x04034b50) return null;
+      final nameLength = data.getUint16(26, Endian.little);
+      final extraLength = data.getUint16(28, Endian.little);
+      if (nameLength != entry.rawNameBytes.length) return null;
+      final remainder = await handle.read(
+        nameLength + extraLength + entry.compressedSize,
+      );
+      if (remainder.length != nameLength + extraLength + entry.compressedSize) {
+        return null;
+      }
+      for (var index = 0; index < nameLength; index++) {
+        if (remainder[index] != entry.rawNameBytes[index]) return null;
+      }
+      return Uint8List.sublistView(remainder, nameLength + extraLength);
+    } finally {
+      await handle.close();
+    }
+  }
+
   @override
   Future<void> close() async {
     if (_closed) return;
@@ -350,11 +378,14 @@ class ZipIndex {
     final entry = entries[path];
     if (entry == null) return null;
     try {
-      final range = _fullReadRange(entry);
-      if (range == null) return null;
-      final bytes = await source.readRangeAsync(range.start, range.length);
+      var bytes = await source.readZipEntryAsync(entry);
+      if (bytes == null) {
+        final range = _fullReadRange(entry);
+        if (range == null) return null;
+        bytes = await source.readRangeAsync(range.start, range.length);
+      }
       if (!identical(entries[path], entry)) return null;
-      if (bytes.length != range.length) {
+      if (bytes.length != entry.compressedSize) {
         throw _ZipEntryFailure('E_ZIP_ENTRY_TRUNCATED: 条目 ${entry.name} 数据不完整');
       }
       return (
