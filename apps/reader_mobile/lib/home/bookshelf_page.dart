@@ -1458,7 +1458,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 }
 
-/// 视图切换淡入缩放，分组切换沿分组顺序滑入。
+/// 视图切换轻微纵移淡入，分组切换沿分组顺序滑入。
 class _ShelfBodyTransition extends StatefulWidget {
   const _ShelfBodyTransition({
     required this.groupId,
@@ -1480,6 +1480,7 @@ class _ShelfBodyTransition extends StatefulWidget {
 
 class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
   double _groupDirection = 0;
+  double _viewDirection = 0;
 
   @override
   void didUpdateWidget(_ShelfBodyTransition oldWidget) {
@@ -1487,6 +1488,11 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     if (oldWidget.groupId != widget.groupId || oldWidget.grid != widget.grid) {
       _groupDirection = (widget.groupIndex - oldWidget.groupIndex).sign
           .toDouble();
+      _viewDirection = oldWidget.grid == widget.grid
+          ? 0
+          : widget.grid
+          ? -1
+          : 1;
     }
   }
 
@@ -1518,9 +1524,16 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     final direction = child.key == currentKey
         ? _groupDirection
         : -_groupDirection;
+    final viewDirection = child.key == currentKey
+        ? _viewDirection
+        : -_viewDirection;
     final content = direction == 0
-        ? ScaleTransition(
-            scale: Tween(begin: .98, end: 1.0).animate(animation),
+        ? AnimatedBuilder(
+            animation: animation,
+            builder: (_, child) => Transform.translate(
+              offset: Offset(0, viewDirection * 12 * (1 - animation.value)),
+              child: child,
+            ),
             child: child,
           )
         : SlideTransition(
