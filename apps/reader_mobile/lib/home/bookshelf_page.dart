@@ -803,6 +803,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
       widget.library.bookReadingDurations(minimumCountedSessionDuration),
     ).wait;
     if (!mounted) return;
+    final reaMicroLink = widget.reaMicro?.links[entry.id];
+    final publicLink =
+        reaMicroLink != null &&
+            reaMicroLink.cloudBookId > 0 &&
+            reaMicroLink.publisherId > 0
+        ? reaMicroLink
+        : null;
+    final publisherNameFuture = publicLink?.publisherName.trim().isEmpty == true
+        ? widget.reaMicro!.resolveLinkedPublisherName(entry.id)
+        : null;
     final action = await showReaderBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -811,6 +821,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
         entry: entry,
         library: widget.library,
         onlineSourceName: widget.onlineBooks?.sourceForBook(entry.id)?.name,
+        linkedPublisherName: publicLink?.publisherName,
+        linkedPublisherNameFuture: publisherNameFuture,
         progress: progress,
         readingDuration: durations[entry.id] ?? Duration.zero,
         pinned: _pinnedIds.contains(entry.id),

@@ -216,6 +216,8 @@ class _FakeApi implements ReaMicroApi {
   final List<Map<String, Object?>> cloudBookRequests = <Map<String, Object?>>[];
   final List<Map<String, Object?>> relateRequests = <Map<String, Object?>>[];
   ReaMicroCloudBook? cloudBookInfo;
+  Future<void> Function()? onCloudBookInfoFetch;
+  ReaMicroUserBookRegistration? userBookRegistration;
   List<ReaMicroCloudBook> cloudBooks = <ReaMicroCloudBook>[];
   int cloudBookInfoCalls = 0;
   int nextUserBookId = 7001;
@@ -374,6 +376,7 @@ class _FakeApi implements ReaMicroApi {
     bool byPublisherId = false,
   }) async {
     cloudBookInfoCalls += 1;
+    await onCloudBookInfoFetch?.call();
     return cloudBookInfo ??
         ReaMicroCloudBook(
           cloudBookId: byPublisherId ? 0 : bookId,
@@ -397,7 +400,8 @@ class _FakeApi implements ReaMicroApi {
       'cover': cover,
       'coverMd5': coverMd5,
     });
-    return ReaMicroUserBookRegistration(userBookId: nextUserBookId++);
+    return userBookRegistration ??
+        ReaMicroUserBookRegistration(userBookId: nextUserBookId++);
   }
 
   @override
@@ -1333,17 +1337,249 @@ void main() {
 
     await controller.linkBook(
       'book-a',
-      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书', author: '作者'),
+      const ReaMicroCloudBook(
+        cloudBookId: 11,
+        name: '云端书',
+        author: '作者',
+        publishers: [
+          ReaMicroCloudPublisher(publisherId: 22, publisher: '晋江文学城'),
+          ReaMicroCloudPublisher(publisherId: 88, publisher: '起点中文网'),
+        ],
+      ),
+      publisherId: 88,
     );
 
     expect(controller.links['book-a']?.cloudBookId, 11);
     expect((await ReaMicroStore(library).loadLinks())['book-a']?.name, '云端书');
+    expect(controller.links['book-a']?.publisherName, '起点中文网');
+    expect(
+      (await ReaMicroStore(library).loadLinks())['book-a']?.publisherName,
+      '起点中文网',
+    );
+    expect(await controller.resolveLinkedPublisherName('book-a'), '起点中文网');
+    expect(api.cloudBookInfoCalls, 0);
 
     await controller.unlinkBook('book-a');
 
     expect(controller.links, isEmpty);
     expect(await ReaMicroStore(library).loadLinks(), isEmpty);
+    expect(await controller.resolveLinkedPublisherName('book-a'), isEmpty);
+    expect(api.cloudBookInfoCalls, 0);
   });
+
+  test('旧关联补齐匹配出版方名称并缓存，退出账号仍保留出版方', () async {
+    final library = _TestLibrary();
+    await library.setSetting(
+      'reamicro.book.links',
+      '{"book-a":{"cloudBookId":11,"userBookId":7001,"publisherId":88,'
+          '"name":"云端书","author":"作者","linkedAt":1763340000000}}',
+    );
+    final fetch = Completer<void>();
+    final api = _FakeApi()
+      ..onCloudBookInfoFetch = () {
+        return fetch.future;
+      }
+      ..cloudBookInfo = const ReaMicroCloudBook(
+        cloudBookId: 11,
+        name: '云端书',
+        publishers: [
+          ReaMicroCloudPublisher(publisherId: 22, publisher: '晋江文学城'),
+          ReaMicroCloudPublisher(publisherId: 88, publisher: '起点中文网'),
+        ],
+      );
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final original = controller.links['book-a']!;
+    expect(original.publisherName, isEmpty);
+
+    final first = controller.resolveLinkedPublisherName('book-a');
+    final second = controller.resolveLinkedPublisherName('book-a');
+    expect(api.cloudBookInfoCalls, 1);
+    fetch.complete();
+    expect(await Future.wait([first, second]), ['起点中文网', '起点中文网']);
+    expect(await controller.resolveLinkedPublisherName('book-a'), '起点中文网');
+    expect(api.cloudBookInfoCalls, 1);
+
+    final saved = (await ReaMicroStore(library).loadLinks())['book-a']!;
+    expect(saved.publisherName, '起点中文网');
+    expect(saved.cloudBookId, original.cloudBookId);
+    expect(saved.userBookId, original.userBookId);
+    expect(saved.publisherId, original.publisherId);
+    expect(saved.linkedAt, original.linkedAt);
+    expect(api.userBookRequests, isEmpty);
+    expect(api.relateRequests, isEmpty);
+
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+    );
+    expect(controller.links['book-a']?.publisherName, '起点中文网');
+    await controller.logout();
+    expect(controller.links['book-a']?.publisherName, '起点中文网');
+    expect(
+      (await ReaMicroStore(library).loadLinks())['book-a']?.publisherName,
+      '起点中文网',
+    );
+    expect(await controller.resolveLinkedPublisherName('book-a'), '起点中文网');
+    expect(api.cloudBookInfoCalls, 1);
+  });
+
+  test('登记接口已匹配出版方时保存名称且不额外获取详情', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(buildTestEpub(title: '登记匹配书'));
+    final api = _FakeApi()
+      ..userBookRegistration = const ReaMicroUserBookRegistration(
+        userBookId: 7001,
+        cloudBookId: 11,
+        publisherId: 88,
+        publisher: '起点中文网',
+      );
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+
+    final link = await controller.registerAndLinkBook(book.id);
+    expect(link.publisherName, '起点中文网');
+    expect(
+      (await ReaMicroStore(library).loadLinks())[book.id]?.publisherName,
+      '起点中文网',
+    );
+    expect(api.cloudBookInfoCalls, 0);
+    expect(api.cloudBookRequests, isEmpty);
+    expect(api.relateRequests.single['bookPublisherId'], 88);
+  });
+
+  for (final failure in ['出版方不匹配', '云端书不匹配', '网络失败']) {
+    test('旧关联名称补齐$failure时保留关联，下次请求可恢复', () async {
+      final library = _TestLibrary();
+      await ReaMicroStore(library).saveLinks({
+        'book-a': ReaMicroBookLink(
+          cloudBookId: 11,
+          publisherId: 88,
+          name: '云端书',
+          linkedAt: DateTime(2026),
+        ),
+      });
+      final api = _FakeApi()
+        ..cloudBookInfo = ReaMicroCloudBook(
+          cloudBookId: failure == '云端书不匹配' ? 12 : 11,
+          name: '云端书',
+          publishers: [
+            ReaMicroCloudPublisher(
+              publisherId: failure == '出版方不匹配' ? 22 : 88,
+              publisher: '起点中文网',
+            ),
+          ],
+        );
+      if (failure == '网络失败') {
+        api.onCloudBookInfoFetch = () async =>
+            throw const ReaMicroException('网络不可用');
+      }
+      final controller = await _createController(library, api);
+      addTearDown(controller.dispose);
+
+      expect(await controller.resolveLinkedPublisherName('book-a'), isEmpty);
+      expect(api.cloudBookInfoCalls, 1);
+      expect(controller.links['book-a']?.cloudBookId, 11);
+      expect(controller.links['book-a']?.publisherId, 88);
+      expect(controller.links['book-a']?.publisherName, isEmpty);
+      expect(
+        (await ReaMicroStore(library).loadLinks())['book-a']?.publisherName,
+        isEmpty,
+      );
+      expect(controller.signedIn, isTrue);
+      expect(api.userBookRequests, isEmpty);
+      expect(api.relateRequests, isEmpty);
+      api
+        ..onCloudBookInfoFetch = null
+        ..cloudBookInfo = const ReaMicroCloudBook(
+          cloudBookId: 11,
+          name: '云端书',
+          publishers: [
+            ReaMicroCloudPublisher(publisherId: 88, publisher: '起点中文网'),
+          ],
+        );
+      expect(await controller.resolveLinkedPublisherName('book-a'), '起点中文网');
+      expect(api.cloudBookInfoCalls, 2);
+      expect(
+        (await ReaMicroStore(library).loadLinks())['book-a']?.publisherName,
+        '起点中文网',
+      );
+    });
+  }
+
+  test('未登录的旧关联不联网补齐名称', () async {
+    final library = _TestLibrary();
+    await ReaMicroStore(library).saveLinks({
+      'book-a': ReaMicroBookLink(
+        cloudBookId: 11,
+        publisherId: 88,
+        name: '云端书',
+        linkedAt: DateTime(2026),
+      ),
+    });
+    final api = _FakeApi();
+    final controller = await _createController(library, api, signedIn: false);
+    addTearDown(controller.dispose);
+
+    expect(await controller.resolveLinkedPublisherName('book-a'), isEmpty);
+    expect(api.cloudBookInfoCalls, 0);
+    expect(controller.links['book-a']?.publisherId, 88);
+  });
+
+  for (final changedAccount in [false, true]) {
+    test('旧关联名称响应不会覆盖${changedAccount ? '退出账号' : '切换关联'}后的状态', () async {
+      final library = _TestLibrary();
+      await ReaMicroStore(library).saveLinks({
+        'book-a': ReaMicroBookLink(
+          cloudBookId: 11,
+          userBookId: 7001,
+          publisherId: 88,
+          name: '云端书',
+          linkedAt: DateTime(2026),
+        ),
+      });
+      final fetch = Completer<void>();
+      final api = _FakeApi()
+        ..onCloudBookInfoFetch = () {
+          return fetch.future;
+        }
+        ..cloudBookInfo = const ReaMicroCloudBook(
+          cloudBookId: 11,
+          name: '云端书',
+          publishers: [
+            ReaMicroCloudPublisher(publisherId: 88, publisher: '起点中文网'),
+          ],
+        );
+      final controller = await _createController(library, api);
+      addTearDown(controller.dispose);
+      final pending = controller.resolveLinkedPublisherName('book-a');
+      if (changedAccount) {
+        await controller.logout();
+      } else {
+        await controller.linkBook(
+          'book-a',
+          const ReaMicroCloudBook(
+            cloudBookId: 12,
+            name: '新版云端书',
+            publishers: [
+              ReaMicroCloudPublisher(publisherId: 22, publisher: '晋江文学城'),
+            ],
+          ),
+          publisherId: 22,
+        );
+      }
+      fetch.complete();
+      expect(await pending, changedAccount ? '' : '晋江文学城');
+      final saved = (await ReaMicroStore(library).loadLinks())['book-a']!;
+      expect(saved.cloudBookId, changedAccount ? 11 : 12);
+      expect(saved.publisherId, changedAccount ? 88 : 22);
+      expect(saved.publisherName, changedAccount ? '' : '晋江文学城');
+      if (changedAccount) {
+        expect(saved.userBookId, 0);
+        expect(controller.signedIn, isFalse);
+      }
+    });
+  }
 
   test('云端搜索触发 401 时清除登录令牌', () async {
     final library = _TestLibrary();
@@ -1390,12 +1626,14 @@ void main() {
       name: '云端登记书',
       author: '云端作者',
       publishers: <ReaMicroCloudPublisher>[
-        ReaMicroCloudPublisher(publisherId: 88, publisher: '出版社'),
+        ReaMicroCloudPublisher(publisherId: 87, publisher: '其他出版社'),
+        ReaMicroCloudPublisher(publisherId: 88, publisher: '起点中文网'),
       ],
     );
     final link = await controller.registerAndLinkBook(
       'book-a',
       cloudBook: cloudBook,
+      publisher: cloudBook.publishers.last,
     );
 
     expect(api.userBookRequests.single['md5'], md5.convert(bytes).toString());
@@ -1409,6 +1647,11 @@ void main() {
     expect(link.cloudBookId, 42);
     expect(link.userBookId, 7001);
     expect(link.publisherId, 88);
+    expect(link.publisherName, '起点中文网');
+    expect(
+      (await ReaMicroStore(library).loadLinks())['book-a']?.publisherName,
+      '起点中文网',
+    );
     expect(controller.links['book-a']?.cloudBookId, 42);
   });
 
@@ -1457,6 +1700,7 @@ void main() {
     expect(api.relateRequests.single['bookPublisherId'], 88);
     expect(link.cloudBookId, 42);
     expect(link.publisherId, 88);
+    expect(link.publisherName, '出版社');
   });
 
   test('补全后仍无出版方时保留云端书标识而不生成重复条目', () async {

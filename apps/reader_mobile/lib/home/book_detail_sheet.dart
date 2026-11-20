@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../book_source/book_source_compat.dart';
 import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
 import 'book_cover_image.dart';
@@ -19,6 +20,8 @@ class BookDetailSheet extends StatelessWidget {
     required this.entry,
     required this.library,
     this.onlineSourceName,
+    this.linkedPublisherName,
+    this.linkedPublisherNameFuture,
     this.progress,
     this.readingDuration = Duration.zero,
     this.pinned = false,
@@ -32,6 +35,12 @@ class BookDetailSheet extends StatelessWidget {
 
   /// 书籍关联的在线书源名称；为空表示尚未关联。
   final String? onlineSourceName;
+
+  /// 阅微关联的出版方名称；null 表示未关联，旧关联的名称可为空。
+  final String? linkedPublisherName;
+
+  /// 旧关联的名称补齐任务；不等待网络就能展示和使用菜单。
+  final Future<String>? linkedPublisherNameFuture;
 
   /// 已保存的阅读位置；没有进度时显示已读 0 章。
   final ReaderProgress? progress;
@@ -170,11 +179,28 @@ class BookDetailSheet extends StatelessWidget {
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-public-reading'),
-                    icon: AppGlyph.share,
-                    label: '关联',
-                    onTap: () => Navigator.of(context).pop('reamicro-link'),
+                  child: FutureBuilder<String>(
+                    future: linkedPublisherNameFuture,
+                    initialData: linkedPublisherName,
+                    builder: (context, snapshot) {
+                      final linked = linkedPublisherName != null;
+                      final name = normalizeOnlinePlatformLabel(
+                        snapshot.data ?? '',
+                      );
+                      return _DetailAction(
+                        key: const ValueKey<String>(
+                          'book-detail-public-reading',
+                        ),
+                        icon: AppGlyph.share,
+                        iconColor: linked ? theme.disabledColor : null,
+                        label: linked
+                            ? name.isEmpty
+                                  ? '阅微'
+                                  : name
+                            : '关联',
+                        onTap: () => Navigator.of(context).pop('reamicro-link'),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -253,11 +279,13 @@ class _DetailAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.iconColor,
   });
 
   final AppGlyph icon;
   final String label;
   final VoidCallback onTap;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -268,7 +296,7 @@ class _DetailAction extends StatelessWidget {
       child: ListTile(
         contentPadding: EdgeInsets.zero,
         minLeadingWidth: 24,
-        leading: AppIcon(icon, size: 22, color: color),
+        leading: AppIcon(icon, size: 22, color: iconColor ?? color),
         title: Text(
           label,
           style: theme.textTheme.bodyMedium?.copyWith(color: color),

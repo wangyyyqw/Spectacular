@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
@@ -10,6 +11,7 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/txt/txt_book_service.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
@@ -473,25 +475,94 @@ void main() {
     expect(popped, 'create-group');
   });
 
-  testWidgets('点关联返回 reamicro-link', (tester) async {
-    final entry = BookEntry(
-      id: 'clean-book',
-      title: '干净书',
-      author: '作者',
-      filePath: '',
-      addedAt: DateTime(2026),
-    );
-    String? popped;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Center(
-            child: TextButton(
+  for (final (publisherName, label) in [
+    (null, '关联'),
+    ('起点中文网', '起点'),
+    ('番茄小说', '番茄'),
+    ('未收录的出版社', '未收录的出版社'),
+    ('', '阅微'),
+  ]) {
+    testWidgets('关联入口显示$label并返回 reamicro-link', (tester) async {
+      final entry = BookEntry(
+        id: 'clean-book',
+        title: '干净书',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026),
+      );
+      String? popped;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Center(
+              child: TextButton(
+                onPressed: () async {
+                  popped = await Navigator.of(context).push<String>(
+                    MaterialPageRoute<String>(
+                      builder: (_) => BookDetailSheet(
+                        entry: entry,
+                        library: store,
+                        onlineSourceName: '起点中文网',
+                        linkedPublisherName: publisherName,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('打开详情'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开详情'));
+      await tester.pumpAndSettle();
+      final action = find.byKey(
+        const ValueKey<String>('book-detail-public-reading'),
+      );
+      expect(
+        find.descendant(of: action, matching: find.text(label)),
+        findsOneWidget,
+      );
+      final icon = tester.widget<AppIcon>(
+        find.descendant(of: action, matching: find.byType(AppIcon)),
+      );
+      final theme = Theme.of(tester.element(action));
+      expect(
+        icon.color,
+        publisherName == null
+            ? theme.colorScheme.onSurface
+            : theme.disabledColor,
+      );
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(popped, 'reamicro-link');
+    });
+  }
+
+  for (final fails in [false, true]) {
+    testWidgets('旧关联名称请求${fails ? '失败' : '完成'}前后均可使用菜单', (tester) async {
+      final entry = BookEntry(
+        id: 'linked-book',
+        title: '已关联书籍',
+        author: '作者',
+        filePath: '',
+        addedAt: DateTime(2026),
+      );
+      final name = Completer<String>();
+      String? popped;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
               onPressed: () async {
                 popped = await Navigator.of(context).push<String>(
                   MaterialPageRoute<String>(
-                    builder: (_) =>
-                        BookDetailSheet(entry: entry, library: store),
+                    builder: (_) => BookDetailSheet(
+                      entry: entry,
+                      library: store,
+                      linkedPublisherName: '',
+                      linkedPublisherNameFuture: name.future,
+                    ),
                   ),
                 );
               },
@@ -499,14 +570,27 @@ void main() {
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('打开详情'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('关联'));
-    await tester.pumpAndSettle();
-    expect(popped, 'reamicro-link');
-  });
+      );
+      await tester.tap(find.text('打开详情'));
+      await tester.pumpAndSettle();
+      final action = find.byKey(
+        const ValueKey<String>('book-detail-public-reading'),
+      );
+      expect(action.hitTestable(), findsOneWidget);
+      expect(find.text('阅微'), findsOneWidget);
+      if (fails) {
+        name.completeError(StateError('名称读取失败'));
+      } else {
+        name.complete('起点中文网');
+      }
+      await tester.pumpAndSettle();
+      expect(find.text(fails ? '阅微' : '起点'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(popped, 'reamicro-link');
+    });
+  }
 
   testWidgets('长按菜单用导出替代多选，点击返回 export', (tester) async {
     final entry = BookEntry(

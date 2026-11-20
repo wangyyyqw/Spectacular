@@ -827,6 +827,7 @@ class ReaMicroBookLink {
     this.author = '',
     this.userBookId = 0,
     this.publisherId = 0,
+    this.publisherName = '',
     required this.linkedAt,
   });
 
@@ -845,6 +846,9 @@ class ReaMicroBookLink {
   /// 阅微出版方标识；为 0 表示还未建立出版书关联。
   final int publisherId;
 
+  /// 已关联出版方的名称；旧记录或接口未返回名称时为空。
+  final String publisherName;
+
   /// 关联时间。
   final DateTime linkedAt;
 
@@ -856,6 +860,7 @@ class ReaMicroBookLink {
         author: _stringValue(json['author']) ?? '',
         userBookId: _intValue(json['userBookId']),
         publisherId: _intValue(json['publisherId']),
+        publisherName: _stringValue(json['publisherName']) ?? '',
         linkedAt: DateTime.fromMillisecondsSinceEpoch(
           _intValue(json['linkedAt']),
         ),
@@ -868,6 +873,7 @@ class ReaMicroBookLink {
     'author': author,
     'userBookId': userBookId,
     'publisherId': publisherId,
+    'publisherName': publisherName,
     'linkedAt': linkedAt.millisecondsSinceEpoch,
   };
 }

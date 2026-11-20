@@ -90,6 +90,7 @@ class ReaMicroController extends ChangeNotifier {
       <String, ReaMicroBookSyncIdentity>{};
   final Map<String, Future<ReaMicroBookSyncIdentity?>> _identityRequests =
       <String, Future<ReaMicroBookSyncIdentity?>>{};
+  final Map<(String, int, int), Future<String>> _publisherNameRequests = {};
   DateTime? _lastSyncAt;
   DateTime? _lastRefreshAt;
   bool _busy = false;
@@ -672,6 +673,7 @@ class ReaMicroController extends ChangeNotifier {
     _cloudStats = null;
     _cloudStatsAt = null;
     _cloudStatsError = null;
+    _publisherNameRequests.clear();
     // 公开版本可跨账号复用，内部用户书标识必须在新账号重新解析或登记。
     _links = {
       for (final entry in _links.entries)
@@ -680,6 +682,7 @@ class ReaMicroController extends ChangeNotifier {
           name: entry.value.name,
           author: entry.value.author,
           publisherId: entry.value.publisherId,
+          publisherName: entry.value.publisherName,
           linkedAt: entry.value.linkedAt,
         ),
     };
@@ -1525,6 +1528,13 @@ class ReaMicroController extends ChangeNotifier {
     int publisherId = 0,
   }) async {
     final previous = _links[bookId];
+    final resolvedPublisherId = publisherId > 0
+        ? publisherId
+        : previous?.cloudBookId == book.cloudBookId
+        ? previous!.publisherId
+        : 0;
+    final publisherName = _publisherNameForId(book, resolvedPublisherId);
+    _publisherNameRequests.removeWhere((key, _) => key.$1 == bookId);
     _links = <String, ReaMicroBookLink>{
       ..._links,
       bookId: ReaMicroBookLink(
@@ -1536,11 +1546,13 @@ class ReaMicroController extends ChangeNotifier {
             : previous?.cloudBookId == book.cloudBookId
             ? previous!.userBookId
             : 0,
-        publisherId: publisherId > 0
-            ? publisherId
-            : previous?.cloudBookId == book.cloudBookId
-            ? previous!.publisherId
-            : 0,
+        publisherId: resolvedPublisherId,
+        publisherName: publisherName.isNotEmpty
+            ? publisherName
+            : previous?.cloudBookId == book.cloudBookId &&
+                  previous?.publisherId == resolvedPublisherId
+            ? previous!.publisherName
+            : '',
         linkedAt: DateTime.now(),
       ),
     };
@@ -1548,6 +1560,78 @@ class ReaMicroController extends ChangeNotifier {
     await _seedProgressStatesForBook(bookId);
     _notice = '已关联《${book.name}》';
     _notify();
+  }
+
+  /// 补齐既有关联的出版方名称；名称读取失败不改变关联或阻止菜单打开。
+  Future<String> resolveLinkedPublisherName(String bookId) {
+    final link = _links[bookId];
+    if (link == null) return Future<String>.value('');
+    final knownName = link.publisherName.trim();
+    if (knownName.isNotEmpty) return Future<String>.value(knownName);
+    final token = _token;
+    if (_disposed ||
+        token == null ||
+        link.cloudBookId <= 0 ||
+        link.publisherId <= 0) {
+      return Future<String>.value('');
+    }
+    final key = (bookId, link.cloudBookId, link.publisherId);
+    final existing = _publisherNameRequests[key];
+    if (existing != null) return existing;
+    late final Future<String> request;
+    request = _fetchLinkedPublisherName(bookId, link, token).whenComplete(() {
+      if (identical(_publisherNameRequests[key], request)) {
+        _publisherNameRequests.remove(key);
+      }
+    });
+    _publisherNameRequests[key] = request;
+    return request;
+  }
+
+  Future<String> _fetchLinkedPublisherName(
+    String bookId,
+    ReaMicroBookLink link,
+    String token,
+  ) async {
+    try {
+      final book = await _api.fetchCloudBookInfo(
+        token,
+        bookId: link.cloudBookId,
+      );
+      if (_disposed ||
+          _token != token ||
+          !identical(_links[bookId], link) ||
+          book?.cloudBookId != link.cloudBookId) {
+        return _links[bookId]?.publisherName.trim() ?? '';
+      }
+      final name = _publisherNameForId(book, link.publisherId);
+      if (name.isEmpty) return '';
+      _links = {
+        ..._links,
+        bookId: ReaMicroBookLink(
+          cloudBookId: link.cloudBookId,
+          name: link.name,
+          author: link.author,
+          userBookId: link.userBookId,
+          publisherId: link.publisherId,
+          publisherName: name,
+          linkedAt: link.linkedAt,
+        ),
+      };
+      await _store.saveLinks(_links);
+      _notify();
+      return name;
+    } on Object {
+      return '';
+    }
+  }
+
+  String _publisherNameForId(ReaMicroCloudBook? book, int publisherId) {
+    if (publisherId <= 0 || book == null) return '';
+    for (final publisher in book.publishers) {
+      if (publisher.publisherId == publisherId) return publisher.displayName;
+    }
+    return '';
   }
 
   /// 将本地书登记到阅微，并建立用户书与出版书的关联。
@@ -1621,12 +1705,34 @@ class ReaMicroController extends ChangeNotifier {
         publisherId: publisherId,
       );
     }
+    final selectedName =
+        publisherId > 0 && publisher?.publisherId == publisherId
+        ? publisher!.displayName
+        : '';
+    final registeredName =
+        publisherId > 0 && registration.publisherId == publisherId
+        ? registration.publisher.trim()
+        : '';
+    final resolvedName = _publisherNameForId(resolvedCloudBook, publisherId);
+    final previous = _links[bookId];
+    final previousName =
+        previous?.cloudBookId == cloudBookId &&
+            previous?.publisherId == publisherId
+        ? previous!.publisherName
+        : '';
+    _publisherNameRequests.removeWhere((key, _) => key.$1 == bookId);
     final link = ReaMicroBookLink(
       cloudBookId: cloudBookId,
       name: resolvedCloudBook?.name ?? book.title,
       author: resolvedCloudBook?.author ?? book.author,
       userBookId: registration.userBookId,
       publisherId: publisherId,
+      publisherName: <String>[
+        selectedName,
+        registeredName,
+        resolvedName,
+        previousName,
+      ].firstWhere((name) => name.isNotEmpty, orElse: () => ''),
       linkedAt: DateTime.now(),
     );
     _links = <String, ReaMicroBookLink>{..._links, bookId: link};
@@ -1669,6 +1775,7 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 解除本地书籍关联。
   Future<void> unlinkBook(String bookId) async {
+    _publisherNameRequests.removeWhere((key, _) => key.$1 == bookId);
     final next = Map<String, ReaMicroBookLink>.of(_links)..remove(bookId);
     _links = next;
     await _store.saveLinks(_links);
@@ -2219,6 +2326,7 @@ class ReaMicroController extends ChangeNotifier {
             name: link.name,
             author: link.author,
             publisherId: link.publisherId,
+            publisherName: link.publisherName,
             linkedAt: link.linkedAt,
           ),
         };

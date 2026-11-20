@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../support/test_epub.dart';
 
@@ -209,46 +211,77 @@ void main() {
     expect(_listTitles(tester), <String>['C书', 'A书', 'B书']);
   });
 
-  testWidgets('长按书籍可进入阅微公开阅读入口', (tester) async {
-    final library = LibraryStore.memory();
-    final progress = MemoryReaderProgressStore();
-    final reaMicro = ReaMicroController(
-      library: library,
-      progressStore: progress,
-      enableLanLoginServer: false,
-    );
-    addTearDown(reaMicro.dispose);
-    await reaMicro.initialize();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: BookshelfPage(
+  for (final publisherId in [null, 0, 88]) {
+    final public = publisherId != null && publisherId > 0;
+    testWidgets(
+      '长按书籍${publisherId == null
+          ? '未关联'
+          : public
+          ? '已公开关联'
+          : '仅同步身份'}保持正确关联入口',
+      (tester) async {
+        final library = LibraryStore.memory();
+        final progress = MemoryReaderProgressStore();
+        final reaMicro = ReaMicroController(
           library: library,
           progressStore: progress,
-          reaMicro: reaMicro,
-          pickEpubFiles: () async => <String>[files.first.path],
-          readFile: (path) async => File(path).readAsBytesSync(),
-        ),
-      ),
-    );
-    await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
-    await _settle(tester, frames: 12);
-    final entry = (await library.list()).single;
+          enableLanLoginServer: false,
+        );
+        addTearDown(reaMicro.dispose);
+        await reaMicro.initialize();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: BookshelfPage(
+              library: library,
+              progressStore: progress,
+              reaMicro: reaMicro,
+              pickEpubFiles: () async => <String>[files.first.path],
+              readFile: (path) async => File(path).readAsBytesSync(),
+            ),
+          ),
+        );
+        await _settle(tester);
+        await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+        await _settle(tester, frames: 12);
+        final entry = (await library.list()).single;
+        if (publisherId != null) {
+          await reaMicro.linkBook(
+            entry.id,
+            const ReaMicroCloudBook(
+              cloudBookId: 11,
+              name: '云端书',
+              publishers: [
+                ReaMicroCloudPublisher(publisherId: 88, publisher: '起点中文网'),
+              ],
+            ),
+            publisherId: publisherId,
+          );
+        }
 
-    await tester.longPress(
-      find.byKey(ValueKey<String>('book-card-${entry.id}')),
-    );
-    await _settle(tester);
-    expect(find.text('关联'), findsOneWidget);
+        await tester.longPress(
+          find.byKey(ValueKey<String>('book-card-${entry.id}')),
+        );
+        await _settle(tester);
+        expect(find.text(public ? '起点' : '关联'), findsOneWidget);
 
-    final publicReading = find.byKey(
-      const ValueKey<String>('book-detail-public-reading'),
+        final publicReading = find.byKey(
+          const ValueKey<String>('book-detail-public-reading'),
+        );
+        final icon = tester.widget<AppIcon>(
+          find.descendant(of: publicReading, matching: find.byType(AppIcon)),
+        );
+        final theme = Theme.of(tester.element(publicReading));
+        expect(
+          icon.color,
+          public ? theme.disabledColor : theme.colorScheme.onSurface,
+        );
+        await tester.ensureVisible(publicReading);
+        await _settle(tester);
+        await tester.tap(publicReading);
+        // 导入完成的提示还在展示，登录提示会排在它的 4 秒展示时间之后。
+        await _settle(tester, frames: 60);
+        expect(find.text('请先登录阅微账号'), findsOneWidget);
+      },
     );
-    await tester.ensureVisible(publicReading);
-    await _settle(tester);
-    await tester.tap(publicReading);
-    // 导入完成的提示还在展示，登录提示会排在它的 4 秒展示时间之后。
-    await _settle(tester, frames: 60);
-    expect(find.text('请先登录阅微账号'), findsOneWidget);
-  });
+  }
 }
