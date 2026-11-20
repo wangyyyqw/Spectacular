@@ -286,6 +286,10 @@ void main() {
   });
 
   testWidgets('详情页按书汇总阅读时长、次数和翻页', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = DateTime(today.year, today.month, today.day - 1);
@@ -350,6 +354,10 @@ void main() {
     expect(valueOf('book-detail-reading-days'), '2');
     expect(valueOf('book-detail-page-turns'), '10');
     expect(valueOf('book-detail-characters-read'), '220');
+    expect(
+      find.byKey(const ValueKey<String>('book-detail-reading-summary')),
+      findsOneWidget,
+    );
 
     final todayKey = _dateKey(today);
     final yesterdayKey = _dateKey(yesterday);
@@ -365,6 +373,22 @@ void main() {
     );
     expect(valueOf('book-detail-daily-detail-$todayKey'), '1 次 · 翻页 2 · 40 字');
     expect(valueOf('book-detail-daily-duration-$yesterdayKey'), '1 小时 30 分');
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(
+            find.byKey(ValueKey<String>('book-detail-daily-bar-$todayKey')),
+          )
+          .value,
+      closeTo(40 / 90, 0.001),
+    );
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(
+            find.byKey(ValueKey<String>('book-detail-daily-bar-$yesterdayKey')),
+          )
+          .value,
+      1,
+    );
     expect(
       valueOf('book-detail-daily-detail-$yesterdayKey'),
       '2 次 · 翻页 8 · 180 字',
