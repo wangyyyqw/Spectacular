@@ -358,7 +358,8 @@ class _CalendarWeek extends StatelessWidget {
               child: Text(
                 span.title,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                overflow: TextOverflow.clip,
+                softWrap: false,
                 style: TextStyle(fontSize: 11, height: 1.2, color: color),
               ),
             ),

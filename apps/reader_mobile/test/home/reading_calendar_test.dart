@@ -294,7 +294,8 @@ void main() {
     ]);
     final preview = tester.widget<Text>(find.text(visibleTitle));
     expect(preview.maxLines, 1);
-    expect(preview.overflow, TextOverflow.ellipsis);
+    expect(preview.overflow, TextOverflow.clip);
+    expect(preview.softWrap, isFalse);
     expect(find.text('+2'), findsNothing);
     expect(find.text(title), findsNothing);
     await _tap(tester, 'day-2026-11-15');
