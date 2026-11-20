@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 
@@ -117,6 +118,65 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('没有找到「zzz」'), findsOneWidget);
   });
+
+  for (final (query, context, expectedContext) in [
+    ('魔王', '。\r\n\n　　毕竟连神以及魔王都存在，这样也不值得惊讶', '。 毕竟连神以及魔王都存在，这样也不值得惊讶'),
+    ('魔王  存在', ' \n。\t\r\n魔王  存在。\n ', '。 魔王 存在。'),
+  ]) {
+    testWidgets('搜索片段折叠正文空白，命中词保持可见且跳转位置不变：$query', (tester) async {
+      final result = SearchPanelResult(
+        spineIndex: 12,
+        charOffset: 164,
+        chapterTitle: '冒险者公会',
+        context: context,
+        matchLength: query.length,
+        cfi: 'epubcfi(/6/26!/4/2/1:164)',
+      );
+      SearchPanelResult? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 320,
+                child: SearchPanel(
+                  debounce: Duration.zero,
+                  onSearch: (_) async => [result],
+                  onSelect: (value) => selected = value,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.enterText(find.byKey(const ValueKey('search-input')), query);
+      await tester.pumpAndSettle();
+
+      final hit = find.byKey(const ValueKey('search-hit-12-164'));
+      final text = find.descendant(of: hit, matching: find.byType(Text));
+      final span = tester.widget<Text>(text).textSpan! as TextSpan;
+      expect(span.toPlainText(), expectedContext);
+      final highlighted = span.children![1] as TextSpan;
+      expect(highlighted.text, query.replaceAll(RegExp(r'\s+'), ' '));
+      expect(highlighted.style?.fontWeight, FontWeight.w600);
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: text, matching: find.byType(RichText)),
+      );
+      final start = expectedContext.indexOf(highlighted.text!);
+      expect(
+        paragraph.getBoxesForSelection(
+          TextSelection(
+            baseOffset: start,
+            extentOffset: start + highlighted.text!.length,
+          ),
+        ),
+        isNotEmpty,
+        reason: '命中词不能被两行上限裁掉',
+      );
+      await tester.tap(hit);
+      expect(selected, same(result), reason: '保留原始上下文、字符偏移和 CFI');
+    });
+  }
 
   testWidgets('输入变化立即使旧查询失效，不等待新查询防抖结束', (tester) async {
     final oldQuery = Completer<List<SearchPanelResult>>();
