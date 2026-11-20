@@ -1172,26 +1172,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onManage: _manageGroup,
         ),
       ),
-      if (_activeGroupId != null)
-        PopupMenuButton<String>(
-          key: const ValueKey<String>('bookshelf-group-options'),
-          tooltip: '分组选项',
-          icon: const AppIcon(AppGlyph.filter),
-          onSelected: (action) {
-            if (action == 'exit') {
-              setState(() => _activeGroupId = null);
-              return;
-            }
-            final group = _activeGroup;
-            if (group != null) {
-              _manageGroup(group);
-            }
-          },
-          itemBuilder: (_) => const <PopupMenuEntry<String>>[
-            PopupMenuItem<String>(value: 'exit', child: Text('退出分组')),
-            PopupMenuItem<String>(value: 'manage', child: Text('管理当前分组')),
-          ],
-        ),
       IconButton(
         tooltip: _grid ? '列表视图' : '网格视图',
         onPressed: _toggleView,
