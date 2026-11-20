@@ -858,47 +858,102 @@ class _ReadingStatsSection extends StatelessWidget {
         ),
       );
     }
+    final maxDailyDuration = stats.recentDays.fold<Duration>(
+      Duration.zero,
+      (longest, day) => day.duration > longest ? day.duration : longest,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Wrap(
-          spacing: 24,
-          runSpacing: 12,
-          children: <Widget>[
-            _ReadingMetric(
-              label: '累计时长',
-              value: _formatReadingDuration(stats.totalDuration),
-              valueKey: const ValueKey<String>('book-detail-total-duration'),
-            ),
-            _ReadingMetric(
-              label: '阅读次数',
-              value: '${stats.sessionCount}',
-              valueKey: const ValueKey<String>('book-detail-session-count'),
-            ),
-            _ReadingMetric(
-              label: '阅读天数',
-              value: '${stats.readingDays}',
-              valueKey: const ValueKey<String>('book-detail-reading-days'),
-            ),
-            _ReadingMetric(
-              label: '翻页次数',
-              value: '${stats.pageTurns}',
-              valueKey: const ValueKey<String>('book-detail-page-turns'),
-            ),
-            _ReadingMetric(
-              label: '阅读字数',
-              value: _formatReadingCharacters(stats.charactersRead),
-              valueKey: const ValueKey<String>('book-detail-characters-read'),
-            ),
-          ],
+        Container(
+          key: const ValueKey<String>('book-detail-reading-summary'),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                '累计时长',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                _formatReadingDuration(stats.totalDuration),
+                key: const ValueKey<String>('book-detail-total-duration'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 14),
+        _ReadingMetricRow(
+          left: _ReadingMetric(
+            label: '阅读次数',
+            value: '${stats.sessionCount}',
+            valueKey: const ValueKey<String>('book-detail-session-count'),
+          ),
+          right: _ReadingMetric(
+            label: '阅读天数',
+            value: '${stats.readingDays}',
+            valueKey: const ValueKey<String>('book-detail-reading-days'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _ReadingMetricRow(
+          left: _ReadingMetric(
+            label: '翻页次数',
+            value: '${stats.pageTurns}',
+            valueKey: const ValueKey<String>('book-detail-page-turns'),
+          ),
+          right: _ReadingMetric(
+            label: '阅读字数',
+            value: _formatReadingCharacters(stats.charactersRead),
+            valueKey: const ValueKey<String>('book-detail-characters-read'),
+          ),
+        ),
+        const SizedBox(height: 20),
         Text('最近 7 天', style: theme.textTheme.labelLarge),
-        const SizedBox(height: 4),
-        for (final day in stats.recentDays) _DailyReadingRow(day: day),
+        const SizedBox(height: 6),
+        for (final day in stats.recentDays)
+          _DailyReadingRow(day: day, maxDuration: maxDailyDuration),
       ],
     );
   }
+}
+
+class _ReadingMetricRow extends StatelessWidget {
+  const _ReadingMetricRow({required this.left, required this.right});
+
+  final _ReadingMetric left;
+  final _ReadingMetric right;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: <Widget>[
+      Expanded(
+        child: Padding(padding: const EdgeInsets.only(right: 12), child: left),
+      ),
+      Container(
+        width: 1,
+        height: 32,
+        color: Theme.of(context).colorScheme.outlineVariant,
+      ),
+      Expanded(
+        child: Padding(padding: const EdgeInsets.only(left: 12), child: right),
+      ),
+    ],
+  );
 }
 
 class _ReadingMetric extends StatelessWidget {
@@ -927,7 +982,7 @@ class _ReadingMetric extends StatelessWidget {
         Text(
           value,
           key: valueKey,
-          style: theme.textTheme.titleSmall?.copyWith(
+          style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -937,15 +992,20 @@ class _ReadingMetric extends StatelessWidget {
 }
 
 class _DailyReadingRow extends StatelessWidget {
-  const _DailyReadingRow({required this.day});
+  const _DailyReadingRow({required this.day, required this.maxDuration});
 
   final _BookDailyReading day;
+  final Duration maxDuration;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasActivity = day.duration > Duration.zero;
     final dateKey = _formatDateKey(day.date);
+    final maximum = maxDuration.inMicroseconds;
+    final value = maximum == 0
+        ? 0.0
+        : (day.duration.inMicroseconds / maximum).clamp(0.0, 1.0);
     return Container(
       key: ValueKey<String>('book-detail-daily-$dateKey'),
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -957,15 +1017,19 @@ class _DailyReadingRow extends StatelessWidget {
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           SizedBox(
             width: 64,
-            child: Text(
-              _formatDayLabel(day.date),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: hasActivity
-                    ? theme.colorScheme.onSurface
-                    : theme.colorScheme.onSurfaceVariant,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                _formatDayLabel(day.date),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: hasActivity
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),
@@ -983,6 +1047,22 @@ class _DailyReadingRow extends StatelessWidget {
                     fontWeight: hasActivity ? FontWeight.w600 : null,
                   ),
                 ),
+                const SizedBox(height: 5),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    key: ValueKey<String>('book-detail-daily-bar-$dateKey'),
+                    value: value,
+                    minHeight: 4,
+                    backgroundColor: theme.colorScheme.surfaceContainer,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      hasActivity
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.outlineVariant,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
                   '${day.sessionCount} 次 · 翻页 ${day.pageTurns} · '
                   '${_formatReadingCharacters(day.charactersRead)} 字',

@@ -72,15 +72,36 @@ void main() {
       await _settle(tester);
       final grid = find.byKey(const ValueKey('bookshelf-grid'));
       final list = find.byKey(const ValueKey('bookshelf-list'));
+      final restingBounds = tester.getRect(grid);
       await tester.tap(find.byTooltip('列表视图'));
       await tester.pump();
+      final enteringBounds = tester.getRect(list);
+      expect(enteringBounds.size, restingBounds.size, reason: '切换时不缩放封面与文字');
+      expect(enteringBounds.left, restingBounds.left);
+      expect(
+        enteringBounds.top - restingBounds.top,
+        reducedMotion ? 0 : inExclusiveRange(0, 13),
+      );
       await tester.pump(const Duration(milliseconds: 80));
       expect(list, findsOneWidget);
       expect(grid, reducedMotion ? findsNothing : findsOneWidget);
-      if (!reducedMotion) expect(grid.hitTestable(), findsNothing);
+      if (!reducedMotion) {
+        expect(grid.hitTestable(), findsNothing);
+        expect(tester.getRect(grid).top, lessThan(restingBounds.top));
+        expect(
+          tester.getRect(list).top,
+          inExclusiveRange(restingBounds.top, enteringBounds.top),
+        );
+      }
 
       await tester.tap(find.byTooltip('网格视图'));
       await tester.pump();
+      final returningGrid = grid.last;
+      expect(tester.getRect(returningGrid).size, restingBounds.size);
+      expect(
+        tester.getRect(returningGrid).top - restingBounds.top,
+        reducedMotion ? 0 : inExclusiveRange(-13, 0),
+      );
       await tester.pump(const Duration(milliseconds: 40));
       await tester.tap(find.byTooltip('列表视图'));
       await tester.pump();
@@ -98,6 +119,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(list, findsOneWidget);
       expect(grid, findsNothing);
+      expect(tester.getRect(list), restingBounds);
       expect(find.text('切换动画'), findsWidgets);
     });
   }

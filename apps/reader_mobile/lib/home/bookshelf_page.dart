@@ -1369,26 +1369,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onManage: _manageGroup,
         ),
       ),
-      if (_activeGroupId != null)
-        PopupMenuButton<String>(
-          key: const ValueKey<String>('bookshelf-group-options'),
-          tooltip: '分组选项',
-          icon: const AppIcon(AppGlyph.filter),
-          onSelected: (action) {
-            if (action == 'exit') {
-              setState(() => _activeGroupId = null);
-              return;
-            }
-            final group = _activeGroup;
-            if (group != null) {
-              _manageGroup(group);
-            }
-          },
-          itemBuilder: (_) => const <PopupMenuEntry<String>>[
-            PopupMenuItem<String>(value: 'exit', child: Text('退出分组')),
-            PopupMenuItem<String>(value: 'manage', child: Text('管理当前分组')),
-          ],
-        ),
       IconButton(
         tooltip: _grid ? '列表视图' : '网格视图',
         onPressed: _toggleView,
@@ -1655,7 +1635,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 }
 
-/// 视图切换淡入缩放，分组切换沿分组顺序滑入。
+/// 视图切换轻微纵移淡入，分组切换沿分组顺序滑入。
 class _ShelfBodyTransition extends StatefulWidget {
   const _ShelfBodyTransition({
     required this.groupId,
@@ -1677,6 +1657,7 @@ class _ShelfBodyTransition extends StatefulWidget {
 
 class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
   double _groupDirection = 0;
+  double _viewDirection = 0;
 
   @override
   void didUpdateWidget(_ShelfBodyTransition oldWidget) {
@@ -1684,6 +1665,11 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     if (oldWidget.groupId != widget.groupId || oldWidget.grid != widget.grid) {
       _groupDirection = (widget.groupIndex - oldWidget.groupIndex).sign
           .toDouble();
+      _viewDirection = oldWidget.grid == widget.grid
+          ? 0
+          : widget.grid
+          ? -1
+          : 1;
     }
   }
 
@@ -1695,8 +1681,8 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     final key = ValueKey((widget.groupId, widget.grid));
     return ClipRect(
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 280),
-        reverseDuration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 200),
+        reverseDuration: const Duration(milliseconds: 150),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeOutCubic,
         layoutBuilder: _layoutLayers,
@@ -1715,14 +1701,21 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     final direction = child.key == currentKey
         ? _groupDirection
         : -_groupDirection;
+    final viewDirection = child.key == currentKey
+        ? _viewDirection
+        : -_viewDirection;
     final content = direction == 0
-        ? ScaleTransition(
-            scale: Tween(begin: .97, end: 1.0).animate(animation),
+        ? AnimatedBuilder(
+            animation: animation,
+            builder: (_, child) => Transform.translate(
+              offset: Offset(0, viewDirection * 12 * (1 - animation.value)),
+              child: child,
+            ),
             child: child,
           )
         : SlideTransition(
             position: Tween(
-              begin: Offset(direction * .18, 0),
+              begin: Offset(direction * .1, 0),
               end: Offset.zero,
             ).animate(animation),
             child: child,
