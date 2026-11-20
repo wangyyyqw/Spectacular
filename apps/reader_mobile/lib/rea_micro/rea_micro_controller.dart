@@ -3,12 +3,14 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:html/parser.dart' as html_parser;
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
+import '../book_source/book_source_compat.dart';
 import '../storage/reading_session_store.dart';
 import 'rea_micro_api_client.dart';
 import 'rea_micro_annotation_cfi.dart';
@@ -1746,6 +1748,57 @@ class ReaMicroController extends ChangeNotifier {
     };
     await _store.saveSyncBooks(_syncBooks);
     await _seedProgressStatesForBook(bookId);
+    var intro = publisher?.intro.trim() ?? '';
+    if (intro.isEmpty) intro = resolvedCloudBook?.intro.trim() ?? '';
+    if (intro.isEmpty) {
+      intro =
+          resolvedCloudBook?.publishers
+              .where((item) => item.publisherId == publisherId)
+              .map((item) => item.intro.trim())
+              .firstWhere((value) => value.isNotEmpty, orElse: () => '') ??
+          '';
+    }
+    if (intro.isEmpty && publisherId > 0) {
+      try {
+        final info = await _api.fetchCloudBookInfo(
+          token,
+          bookId: publisherId,
+          byPublisherId: true,
+        );
+        intro = info?.intro.trim() ?? '';
+        if (intro.isEmpty) {
+          intro =
+              info?.publishers
+                  .where((item) => item.publisherId == publisherId)
+                  .map((item) => item.intro.trim())
+                  .firstWhere((value) => value.isNotEmpty, orElse: () => '') ??
+              '';
+        }
+      } catch (_) {
+        // 简介补齐失败时保留已经成功的关联，允许再次关联补齐。
+      }
+    }
+    if (intro.isNotEmpty) {
+      final current = await _library.bookById(bookId);
+      if (current != null) {
+        await _library.updateBookMetadata(
+          bookId,
+          title: current.title,
+          author: current.author,
+          description: normalizeOnlineIntro(
+            html_parser
+                    .parseFragment(
+                      intro.replaceAll(
+                        RegExp(r'<br\s*/?>|</p>|</div>', caseSensitive: false),
+                        '\n',
+                      ),
+                    )
+                    .text ??
+                '',
+          ),
+        );
+      }
+    }
     _notice = '已登记并关联《${link.name}》';
     _notify();
     return link;

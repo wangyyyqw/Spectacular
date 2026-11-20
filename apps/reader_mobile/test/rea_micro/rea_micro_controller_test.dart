@@ -42,6 +42,28 @@ class _TestLibrary extends LibraryStore {
   }
 
   @override
+  Future<BookEntry> updateBookMetadata(
+    String id, {
+    required String title,
+    required String author,
+    required String description,
+  }) async {
+    if (book?.id == id) {
+      return book = book!.copyWith(
+        title: title,
+        author: author,
+        description: description.trim(),
+      );
+    }
+    return super.updateBookMetadata(
+      id,
+      title: title,
+      author: author,
+      description: description,
+    );
+  }
+
+  @override
   Future<List<BookEntry>> list() async {
     final value = book;
     return value == null ? super.list() : <BookEntry>[value];
@@ -1424,7 +1446,7 @@ void main() {
     expect(api.cloudBookInfoCalls, 1);
   });
 
-  test('登记接口已匹配出版方时保存名称且不额外获取详情', () async {
+  test('登记接口已匹配出版方时保存名称并获取出版简介', () async {
     final library = await _openDbLibrary();
     final book = await library.importBytes(buildTestEpub(title: '登记匹配书'));
     final api = _FakeApi()
@@ -1443,7 +1465,7 @@ void main() {
       (await ReaMicroStore(library).loadLinks())[book.id]?.publisherName,
       '起点中文网',
     );
-    expect(api.cloudBookInfoCalls, 0);
+    expect(api.cloudBookInfoCalls, 1);
     expect(api.cloudBookRequests, isEmpty);
     expect(api.relateRequests.single['bookPublisherId'], 88);
   });
@@ -1625,6 +1647,7 @@ void main() {
       cloudBookId: 42,
       name: '云端登记书',
       author: '云端作者',
+      intro: '<p>关联获取的简介</p>',
       publishers: <ReaMicroCloudPublisher>[
         ReaMicroCloudPublisher(publisherId: 87, publisher: '其他出版社'),
         ReaMicroCloudPublisher(publisherId: 88, publisher: '起点中文网'),
@@ -1653,6 +1676,9 @@ void main() {
       '起点中文网',
     );
     expect(controller.links['book-a']?.cloudBookId, 42);
+    expect((await library.bookById('book-a'))?.description, '关联获取的简介');
+    expect((await library.bookById('book-a'))?.title, '本地登记书');
+    expect((await library.bookById('book-a'))?.author, '作者');
   });
 
   test('已有云端书缺少出版方时先补全资料且不重复创建云端书', () async {
@@ -1695,7 +1721,7 @@ void main() {
       ),
     );
 
-    expect(api.cloudBookInfoCalls, 1);
+    expect(api.cloudBookInfoCalls, 2);
     expect(api.cloudBookRequests, isEmpty);
     expect(api.relateRequests.single['bookPublisherId'], 88);
     expect(link.cloudBookId, 42);

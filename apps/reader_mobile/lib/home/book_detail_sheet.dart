@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
-import '../book_source/book_source_compat.dart';
 import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
 import 'book_cover_image.dart';
@@ -100,7 +99,9 @@ class BookDetailSheet extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '已读 ${formatReadingDuration(readingDuration)}',
+                          '已读 ${formatReadingDuration(readingDuration)} · '
+                          '${formatReadingChapters(progress?.spineIndex, entry.spineCount).replaceFirst('已读 ', '')}',
+                          key: const ValueKey('book-detail-reading-summary'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -110,18 +111,40 @@ class BookDetailSheet extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          formatReadingChapters(
-                            progress?.spineIndex,
-                            entry.spineCount,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 13,
-                            height: 1.3,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                        FutureBuilder<String>(
+                          future: linkedPublisherNameFuture,
+                          initialData: linkedPublisherName,
+                          builder: (context, snapshot) {
+                            final linked = linkedPublisherName != null;
+                            final name = snapshot.data?.trim() ?? '';
+                            return Material(
+                              type: MaterialType.transparency,
+                              child: InkWell(
+                                key: const ValueKey(
+                                  'book-detail-public-reading',
+                                ),
+                                onTap: () =>
+                                    Navigator.of(context).pop('reamicro-link'),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
+                                  child: Text(
+                                    linked
+                                        ? (name.isEmpty ? '已关联' : name)
+                                        : '未关联',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontSize: 13,
+                                      height: 1.3,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                         if (onlineSourceName?.isNotEmpty ?? false) ...[
                           const SizedBox(height: 4),
@@ -179,37 +202,14 @@ class BookDetailSheet extends StatelessWidget {
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: FutureBuilder<String>(
-                    future: linkedPublisherNameFuture,
-                    initialData: linkedPublisherName,
-                    builder: (context, snapshot) {
-                      final linked = linkedPublisherName != null;
-                      final name = normalizeOnlinePlatformLabel(
-                        snapshot.data ?? '',
-                      );
-                      return _DetailAction(
-                        key: const ValueKey<String>(
-                          'book-detail-public-reading',
-                        ),
-                        icon: AppGlyph.share,
-                        iconColor: linked ? theme.disabledColor : null,
-                        label: linked
-                            ? name.isEmpty
-                                  ? '阅微'
-                                  : name
-                            : '关联',
-                        onTap: () => Navigator.of(context).pop('reamicro-link'),
-                      );
-                    },
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-pin'),
+                    icon: AppGlyph.pushPin,
+                    label: pinned ? '取消置顶' : '置顶',
+                    onTap: () => Navigator.of(context).pop('pin'),
                   ),
                 ),
               ],
-            ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-pin'),
-              icon: AppGlyph.pushPin,
-              label: pinned ? '取消置顶' : '置顶',
-              onTap: () => Navigator.of(context).pop('pin'),
             ),
             FutureBuilder<bool>(
               future: TxtBookService(library).canRechapter(entry),
@@ -279,13 +279,11 @@ class _DetailAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.iconColor,
   });
 
   final AppGlyph icon;
   final String label;
   final VoidCallback onTap;
-  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -296,7 +294,7 @@ class _DetailAction extends StatelessWidget {
       child: ListTile(
         contentPadding: EdgeInsets.zero,
         minLeadingWidth: 24,
-        leading: AppIcon(icon, size: 22, color: iconColor ?? color),
+        leading: AppIcon(icon, size: 22, color: color),
         title: Text(
           label,
           style: theme.textTheme.bodyMedium?.copyWith(color: color),

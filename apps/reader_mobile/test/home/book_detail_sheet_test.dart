@@ -11,7 +11,6 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/txt/txt_book_service.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
-import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
@@ -142,8 +141,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('无修复或告警'), findsNothing);
     expect(find.text('未知作者'), findsOneWidget);
-    expect(find.text('已读 0 / 3 章'), findsOneWidget);
-    expect(find.text('已读 0 分钟'), findsOneWidget);
+    expect(find.text('已读 0 分钟 · 0 / 3 章'), findsOneWidget);
+    expect(find.textContaining('已读 0 分钟'), findsOneWidget);
     final coverSize = tester.getSize(
       find.byKey(const ValueKey<String>('book-detail-cover')),
     );
@@ -185,8 +184,8 @@ void main() {
     await tester.tap(find.text('打开详情'));
     await tester.pumpAndSettle();
     expect(find.text('在线来源：测试源'), findsOneWidget);
-    expect(find.text('已读 4 / 15 章'), findsOneWidget);
-    expect(find.text('已读 2 小时 15 分'), findsOneWidget);
+    expect(find.text('已读 2 小时 15 分 · 4 / 15 章'), findsOneWidget);
+    expect(find.textContaining('已读 2 小时 15 分'), findsOneWidget);
     expect(find.text('更新获取最新章节'), findsOneWidget);
     await tester.ensureVisible(find.text('更新获取最新章节'));
     await tester.tap(find.text('更新获取最新章节'));
@@ -218,9 +217,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final progress = find.text('已读 4 / 15 章');
+    final progress = find.text('已读 2 小时 15 分 · 4 / 15 章');
     expect(progress, findsOneWidget);
-    final duration = find.text('已读 2 小时 15 分');
+    final duration = find.textContaining('已读 2 小时 15 分');
     expect(duration, findsOneWidget);
     expect(
       tester.getTopLeft(duration).dy,
@@ -228,7 +227,7 @@ void main() {
     );
     expect(
       tester.getTopLeft(progress).dy,
-      greaterThan(tester.getBottomLeft(duration).dy),
+      closeTo(tester.getTopLeft(duration).dy, 0.1),
     );
     final cover = tester.getRect(
       find.byKey(const ValueKey('book-detail-cover')),
@@ -276,8 +275,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.longPress(find.byKey(ValueKey('book-card-${entry.id}')));
     await tester.pumpAndSettle();
-    expect(find.text('已读 1 小时 15 分'), findsOneWidget);
-    expect(find.text('已读 0 / 1 章'), findsOneWidget);
+    expect(find.text('已读 1 小时 15 分 · 0 / 1 章'), findsOneWidget);
+    expect(find.textContaining('0 / 1 章'), findsOneWidget);
     // 等待面板的真实文件查询完成，避免清理 EPUB 时仍持有文件句柄。
     expect(
       await pumpReaderTask(tester, TxtBookService(store).canRechapter(entry)),
@@ -338,7 +337,7 @@ void main() {
       expect(metadata.top, closeTo(cover.top, 0.1));
       expect(metadata.bottom, closeTo(cover.bottom, 0.1));
       for (final (left, right) in [
-        ('book-detail-open-page', 'book-detail-public-reading'),
+        ('book-detail-open-page', 'book-detail-pin'),
         ('book-detail-update', 'book-detail-create-group'),
         ('book-detail-export', 'book-detail-delete'),
       ]) {
@@ -476,11 +475,11 @@ void main() {
   });
 
   for (final (publisherName, label) in [
-    (null, '关联'),
-    ('起点中文网', '起点'),
-    ('番茄小说', '番茄'),
+    (null, '未关联'),
+    ('起点中文网', '起点中文网'),
+    ('番茄小说', '番茄小说'),
     ('未收录的出版社', '未收录的出版社'),
-    ('', '阅微'),
+    ('', '已关联'),
   ]) {
     testWidgets('关联入口显示$label并返回 reamicro-link', (tester) async {
       final entry = BookEntry(
@@ -523,16 +522,10 @@ void main() {
         find.descendant(of: action, matching: find.text(label)),
         findsOneWidget,
       );
-      final icon = tester.widget<AppIcon>(
-        find.descendant(of: action, matching: find.byType(AppIcon)),
+      final reading = tester.getRect(
+        find.byKey(const ValueKey('book-detail-reading-summary')),
       );
-      final theme = Theme.of(tester.element(action));
-      expect(
-        icon.color,
-        publisherName == null
-            ? theme.colorScheme.onSurface
-            : theme.disabledColor,
-      );
+      expect(tester.getRect(action).top, greaterThanOrEqualTo(reading.bottom));
       await tester.tap(action);
       await tester.pumpAndSettle();
       expect(popped, 'reamicro-link');
@@ -577,14 +570,14 @@ void main() {
         const ValueKey<String>('book-detail-public-reading'),
       );
       expect(action.hitTestable(), findsOneWidget);
-      expect(find.text('阅微'), findsOneWidget);
+      expect(find.text('已关联'), findsOneWidget);
       if (fails) {
         name.completeError(StateError('名称读取失败'));
       } else {
         name.complete('起点中文网');
       }
       await tester.pumpAndSettle();
-      expect(find.text(fails ? '阅微' : '起点'), findsOneWidget);
+      expect(find.text(fails ? '已关联' : '起点中文网'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.tap(action);
       await tester.pumpAndSettle();

@@ -597,6 +597,7 @@ class ReaMicroCloudPublisher {
     this.name = '',
     this.publisher = '',
     this.cover = '',
+    this.intro = '',
   });
 
   /// 出版方标识；建立用户书关联时使用。
@@ -615,6 +616,9 @@ class ReaMicroCloudPublisher {
   String get displayName =>
       publisher.trim().isNotEmpty ? publisher.trim() : name.trim();
 
+  /// 云端简介。
+  final String intro;
+
   /// 从接口数据解析。
   factory ReaMicroCloudPublisher.fromJson(Map<String, Object?> json) {
     final id = _intValue(
@@ -628,6 +632,11 @@ class ReaMicroCloudPublisher {
       name: _stringValue(json['name']) ?? '',
       publisher: _stringValue(json['publisher']) ?? '',
       cover: _stringValue(json['cover']) ?? '',
+      intro:
+          _stringValue(
+            json['intro'] ?? json['description'] ?? json['bookIntro'],
+          ) ??
+          '',
     );
   }
 }
@@ -641,6 +650,7 @@ class ReaMicroCloudBook {
     this.author = '',
     this.subtitle = '',
     this.original = '',
+    this.intro = '',
     this.publishers = const <ReaMicroCloudPublisher>[],
   });
 
@@ -676,6 +686,9 @@ class ReaMicroCloudBook {
       if (publisher.displayName.isNotEmpty) publisher.displayName,
   ];
 
+  /// 云端简介。
+  final String intro;
+
   /// 从接口数据解析。
   factory ReaMicroCloudBook.fromJson(Map<String, Object?> json) {
     final publishers = <ReaMicroCloudPublisher>[];
@@ -705,6 +718,11 @@ class ReaMicroCloudBook {
           '',
       subtitle: _stringValue(json['subtitle']) ?? '',
       original: _stringValue(json['original']) ?? '',
+      intro:
+          _stringValue(
+            json['intro'] ?? json['description'] ?? json['bookIntro'],
+          ) ??
+          '',
       publishers: publishers,
     );
   }
