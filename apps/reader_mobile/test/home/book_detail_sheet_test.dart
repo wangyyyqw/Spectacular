@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_detail_sheet.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
@@ -55,6 +56,59 @@ void main() {
     expect(find.text('导入报告'), findsNothing);
     expect(find.text('关闭'), findsNothing);
   });
+
+  for (final fail in [false, true]) {
+    testWidgets('书架导出传入本书原文件并报告保存结果：$fail', (tester) async {
+      late BookEntry entry;
+      await tester.runAsync(() async {
+        entry = await store.importBytes(buildTestEpub(title: '原书/导出:测试'));
+      });
+      const channel = MethodChannel(
+        'com.spectacular.reader_mobile/epub_export',
+      );
+      final messenger = tester.binding.defaultBinaryMessenger;
+      var called = false;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        called = true;
+        expect(call.method, 'saveToDownloads');
+        expect(call.arguments, {
+          'sourcePath': entry.filePath,
+          'fileName': '原书_导出_测试.epub',
+        });
+        if (fail) {
+          throw PlatformException(code: 'E_EXPORT_WRITE', message: '空间不足');
+        }
+        return 'content://media/external/downloads/123';
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BookshelfPage(
+            library: store,
+            progressStore: MemoryReaderProgressStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.longPress(find.byKey(ValueKey('book-card-${entry.id}')));
+      await tester.pumpAndSettle();
+      expect(find.text('多选'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('book-detail-export')));
+      await tester.runAsync(() async {
+        for (var i = 0; i < 30 && !called; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pumpAndSettle();
+      expect(called, isTrue);
+      expect(
+        find.text(fail ? '导出失败：空间不足' : '已导出：原书_导出_测试.epub'),
+        findsOneWidget,
+      );
+      expect(await store.list(), hasLength(1));
+      expect(File(entry.filePath).existsSync(), isTrue);
+    });
+  }
 
   testWidgets('无报告的书保留封面和未知作者，不显示报告空状态', (tester) async {
     final entry = BookEntry(
@@ -218,7 +272,7 @@ void main() {
       expect(metadata.bottom, closeTo(cover.bottom, 0.1));
       for (final (left, right) in [
         ('book-detail-update', 'book-detail-create-group'),
-        ('book-detail-multi-select', 'book-detail-delete'),
+        ('book-detail-export', 'book-detail-delete'),
       ]) {
         final leftButton = find.byKey(ValueKey(left));
         final rightButton = find.byKey(ValueKey(right));
@@ -353,7 +407,7 @@ void main() {
     expect(popped, 'create-group');
   });
 
-  testWidgets('点多选返回 multi-select', (tester) async {
+  testWidgets('长按菜单用导出替代多选，点击返回 export', (tester) async {
     final entry = BookEntry(
       id: 'clean-book',
       title: '干净书',
@@ -383,10 +437,9 @@ void main() {
     );
     await tester.tap(find.text('打开详情'));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('book-detail-multi-select')),
-    );
+    expect(find.text('多选'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey<String>('book-detail-export')));
     await tester.pumpAndSettle();
-    expect(popped, 'multi-select');
+    expect(popped, 'export');
   });
 }
