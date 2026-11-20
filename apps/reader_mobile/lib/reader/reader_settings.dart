@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' show Brightness;
 
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -219,6 +220,8 @@ class ReaderSettings {
     this.paragraphSpacing = ReaderSettingsDefaults.paragraphSpacing,
     this.horizontalPadding = ReaderSettingsDefaults.horizontalPadding,
     this.themeId = ReaderSettingsDefaults.themeId,
+    this.dayThemeId = ReaderSettingsDefaults.themeId,
+    this.nightThemeId = 'black',
     this.backgroundId = 'none',
     this.customThemeId,
     this.inkMode = false,
@@ -252,6 +255,10 @@ class ReaderSettings {
 
   /// 主题 id。
   final String themeId;
+
+  /// 日间和夜间分别记住上次选择的配色。
+  final String dayThemeId;
+  final String nightThemeId;
 
   /// 上次保存的自定义配色，切换内置主题后仍可复用。
   final String? customThemeId;
@@ -310,10 +317,21 @@ class ReaderSettings {
   /// 主题对象。
   ReaderTheme get theme => ReaderTheme.byId(themeId);
 
+  /// 旧设置仍从当前主题恢复，对侧模式使用各自保存的配色。
+  ReaderTheme themeForBrightness(Brightness brightness) {
+    final current = theme;
+    if (current.isDark == (brightness == Brightness.dark)) return current;
+    return ReaderTheme.byId(
+      brightness == Brightness.dark ? nightThemeId : dayThemeId,
+    ).resolveForBrightness(brightness);
+  }
+
   /// 从排版覆盖与主题还原（设置面板回调 → 持久化用）。
   static ReaderSettings fromOverrides(
     ReaderOverrides overrides, {
     required String themeId,
+    String dayThemeId = ReaderSettingsDefaults.themeId,
+    String nightThemeId = 'black',
     String backgroundId = 'none',
     String? customThemeId,
     bool inkMode = false,
@@ -333,6 +351,8 @@ class ReaderSettings {
     horizontalPadding:
         overrides.padding?.left ?? ReaderSettingsDefaults.horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -355,6 +375,8 @@ class ReaderSettings {
     horizontalPadding:
         value.padding?.left ?? ReaderSettingsDefaults.horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -377,6 +399,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -391,26 +415,31 @@ class ReaderSettings {
   );
 
   /// 复制并替换主题。
-  ReaderSettings copyWithTheme(String id) => ReaderSettings(
-    fontSize: fontSize,
-    fontFamily: fontFamily,
-    overrideEmbeddedFonts: overrideEmbeddedFonts,
-    lineHeight: lineHeight,
-    paragraphSpacing: paragraphSpacing,
-    horizontalPadding: horizontalPadding,
-    themeId: id,
-    customThemeId: ReaderTheme.customById(id)?.id ?? customThemeId,
-    backgroundId: backgroundId,
-    inkMode: inkMode,
-    cornerInfo: cornerInfo,
-    margins: margins,
-    tapZones: tapZones,
-    pageTurnMode: pageTurnMode,
-    keepScreenOn: keepScreenOn,
-    volumeKeyPaging: volumeKeyPaging,
-    markSettings: markSettings,
-    tts: tts,
-  );
+  ReaderSettings copyWithTheme(String id) {
+    final next = ReaderTheme.byId(id);
+    return ReaderSettings(
+      fontSize: fontSize,
+      fontFamily: fontFamily,
+      overrideEmbeddedFonts: overrideEmbeddedFonts,
+      lineHeight: lineHeight,
+      paragraphSpacing: paragraphSpacing,
+      horizontalPadding: horizontalPadding,
+      themeId: id,
+      dayThemeId: next.isDark ? themeForBrightness(Brightness.light).id : id,
+      nightThemeId: next.isDark ? id : themeForBrightness(Brightness.dark).id,
+      customThemeId: ReaderTheme.customById(id)?.id ?? customThemeId,
+      backgroundId: backgroundId,
+      inkMode: inkMode,
+      cornerInfo: cornerInfo,
+      margins: margins,
+      tapZones: tapZones,
+      pageTurnMode: pageTurnMode,
+      keepScreenOn: keepScreenOn,
+      volumeKeyPaging: volumeKeyPaging,
+      markSettings: markSettings,
+      tts: tts,
+    );
+  }
 
   /// 复制并替换背景。
   ReaderSettings copyWithBackground(String id) => ReaderSettings(
@@ -421,6 +450,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: id,
     inkMode: inkMode,
@@ -443,6 +474,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: enabled,
@@ -465,6 +498,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -487,6 +522,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -509,6 +546,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -531,6 +570,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -553,6 +594,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -575,6 +618,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -597,6 +642,8 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing,
     horizontalPadding: horizontalPadding,
     themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     inkMode: inkMode,
@@ -620,6 +667,8 @@ class ReaderSettings {
         paragraphSpacing: paragraphSpacing,
         horizontalPadding: horizontalPadding,
         themeId: themeId,
+        dayThemeId: dayThemeId,
+        nightThemeId: nightThemeId,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
         inkMode: inkMode,
@@ -643,6 +692,8 @@ class ReaderSettings {
       other.paragraphSpacing == paragraphSpacing &&
       other.horizontalPadding == horizontalPadding &&
       other.themeId == themeId &&
+      other.dayThemeId == dayThemeId &&
+      other.nightThemeId == nightThemeId &&
       other.customThemeId == customThemeId &&
       other.backgroundId == backgroundId &&
       other.inkMode == inkMode &&
@@ -664,6 +715,8 @@ class ReaderSettings {
     paragraphSpacing,
     horizontalPadding,
     themeId,
+    dayThemeId,
+    nightThemeId,
     customThemeId,
     backgroundId,
     inkMode,
@@ -697,6 +750,8 @@ class ReaderSettingsStore {
   static const String keyMargins = 'reader.margins';
   static const String keyCornerInfo = 'reader.cornerInfo';
   static const String keyThemeId = 'reader.themeId';
+  static const String keyDayThemeId = 'reader.dayThemeId';
+  static const String keyNightThemeId = 'reader.nightThemeId';
   static const String keyCustomThemeId = 'reader.customThemeId';
   static const String keyBackgroundId = 'reader.backgroundId';
   static const String keyInkMode = 'reader.inkMode';
@@ -735,6 +790,10 @@ class ReaderSettingsStore {
       themeId:
           await _library.getSetting(keyThemeId) ??
           ReaderSettingsDefaults.themeId,
+      dayThemeId:
+          await _library.getSetting(keyDayThemeId) ??
+          ReaderSettingsDefaults.themeId,
+      nightThemeId: await _library.getSetting(keyNightThemeId) ?? 'black',
       customThemeId: ReaderTheme.customById(
         await _library.getSetting(keyCustomThemeId),
       )?.id,
@@ -879,6 +938,8 @@ class ReaderSettingsStore {
       settings.horizontalPadding.toStringAsFixed(1),
     );
     await _library.setSetting(keyThemeId, settings.themeId);
+    await _library.setSetting(keyDayThemeId, settings.dayThemeId);
+    await _library.setSetting(keyNightThemeId, settings.nightThemeId);
     await _library.setSetting(keyCustomThemeId, settings.customThemeId ?? '');
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
     await _library.setSetting(keyInkMode, settings.inkMode.toString());

@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/locator.dart';
+import 'package:reader_mobile/home/book_duration_chart.dart';
+import 'package:reader_mobile/home/reading_calendar.dart';
 import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
@@ -13,7 +18,7 @@ import '../support/reader_pump.dart';
 class _FakeLibrary extends LibraryStore {
   _FakeLibrary(this.books, this.weights) : super.memory();
 
-  final List<BookEntry> books;
+  List<BookEntry> books;
   final Map<String, ProgressWeights> weights;
   int progressWeightCalls = 0;
   int batchProgressWeightCalls = 0;
@@ -71,7 +76,7 @@ class _FailingLibrary extends LibraryStore {
 class _FakeSessionStore implements ReadingSessionStore {
   _FakeSessionStore(this.items);
 
-  final List<ReadingSession> items;
+  List<ReadingSession> items;
 
   @override
   Future<void> add({
@@ -84,6 +89,56 @@ class _FakeSessionStore implements ReadingSessionStore {
 
   @override
   Future<List<ReadingSession>> list() async => items;
+}
+
+class _PendingSessionStore extends _FakeSessionStore {
+  _PendingSessionStore(super.items);
+
+  Completer<List<ReadingSession>>? pending;
+  int listCalls = 0;
+
+  @override
+  Future<List<ReadingSession>> list() {
+    listCalls++;
+    return pending?.future ?? super.list();
+  }
+}
+
+class _ObservedSessions extends ListBase<ReadingSession> {
+  _ObservedSessions(this.items);
+
+  final List<ReadingSession> items;
+  int reads = 0;
+
+  @override
+  int get length {
+    reads++;
+    return items.length;
+  }
+
+  @override
+  set length(int value) => throw UnsupportedError('只读样本');
+
+  @override
+  ReadingSession operator [](int index) {
+    reads++;
+    return items[index];
+  }
+
+  @override
+  void operator []=(int index, ReadingSession value) =>
+      throw UnsupportedError('只读样本');
+}
+
+ReadingSession _todaySession(int minutes) {
+  final now = DateTime.now();
+  final start = DateTime(now.year, now.month, now.day, 8);
+  return ReadingSession(
+    bookId: 'a',
+    startedAt: start,
+    endedAt: start.add(Duration(minutes: minutes)),
+    duration: Duration(minutes: minutes),
+  );
 }
 
 BookEntry _book(
@@ -135,6 +190,301 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
 }
 
 void main() {
+  testWidgets('切入等待和切出复用统计图表，刷新成功更新且失败保留旧内容', (tester) async {
+    tester.view
+      ..physicalSize = const Size(1280, 900)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final library = _FakeLibrary([_book('a', '第一本')], const {});
+    final progress = _FakeProgressStore(const {});
+    final sessions = _PendingSessionStore([_todaySession(5)]);
+    Widget page(bool active, int refreshToken) => MaterialApp(
+      theme: ThemeData(platform: TargetPlatform.windows),
+      home: StatsPage(
+        library: library,
+        progressStore: progress,
+        sessionStore: sessions,
+        active: active,
+        refreshToken: refreshToken,
+      ),
+    );
+    await tester.pumpWidget(page(true, 0));
+    await tester.pumpAndSettle();
+    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    await _tapControl(tester, 'stats-calendar-previous');
+    final range = _valueOf(tester, 'stats-book-duration-range');
+    final month = _valueOf(tester, 'stats-calendar-month');
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
+    scroll.position.jumpTo(40);
+    await tester.pumpAndSettle();
+    final rebuilt = <Type>[];
+    final previous = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtBefore) {
+      previous?.call(element, builtBefore);
+      if (element.widget is BookDurationChart ||
+          element.widget is ReadingCalendar) {
+        rebuilt.add(element.widget.runtimeType);
+      }
+    };
+    addTearDown(() => debugOnRebuildDirtyWidget = previous);
+
+    await tester.pumpWidget(page(false, 0));
+    await tester.pumpAndSettle();
+    final pending = sessions.pending = Completer<List<ReadingSession>>();
+    await tester.pumpWidget(page(true, 1));
+    await tester.pumpAndSettle();
+    expect(sessions.listCalls, 2);
+    expect(rebuilt, isEmpty);
+    expect(scroll.position.pixels, 40);
+    expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
+
+    final originalBook = library.books.single;
+    final originalSession = sessions.items.single;
+    library.books = [_book('a', '第一本')];
+    sessions.items = [_todaySession(5)];
+    expect(identical(library.books.single, originalBook), isFalse);
+    expect(identical(sessions.items.single, originalSession), isFalse);
+    pending.complete(sessions.items);
+    sessions.pending = null;
+    await tester.pumpAndSettle();
+    expect(rebuilt, isEmpty, reason: '新对象的值相同，返回刷新仍复用图表');
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester.pumpAndSettle();
+    expect(sessions.listCalls, 3);
+    expect(rebuilt, isEmpty, reason: '显式刷新仍重新查询，但不重建相同内容');
+
+    final changed = sessions.pending = Completer<List<ReadingSession>>();
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester.pump();
+    changed.complete([_todaySession(10)]);
+    await tester.pumpAndSettle();
+    expect(rebuilt, containsAll([BookDurationChart, ReadingCalendar]));
+    expect(_valueOf(tester, 'stats-book-duration-total'), '10 分钟');
+    expect(_valueOf(tester, 'stats-book-duration-range'), range);
+    expect(_valueOf(tester, 'stats-calendar-month'), month);
+    expect(scroll.position.pixels, 40);
+    rebuilt.clear();
+    final failed = sessions.pending = Completer<List<ReadingSession>>();
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester.pump();
+    failed.completeError(StateError('读取失败'));
+    await tester.pumpAndSettle();
+    expect(rebuilt, isEmpty);
+    expect(_valueOf(tester, 'stats-book-duration-total'), '10 分钟');
+    expect(find.text('统计刷新失败，请稍后重试'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('相同数据跨自然日刷新，书籍进度与权重变化仍更新', (tester) async {
+    tester.view
+      ..physicalSize = const Size(1280, 1200)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final day = DateTime(2026, 11, 15, 12);
+    final library = _FakeLibrary(
+      [_book('a', '旧书名')],
+      {
+        'a': ProgressWeights.fromCharCounts([1, 1]),
+      },
+    );
+    final progress = _FakeProgressStore({
+      'a': const ReaderProgress(spineIndex: 1, pageIndex: 0),
+    });
+    final sessions = _PendingSessionStore([
+      ReadingSession(
+        bookId: 'a',
+        startedAt: day.subtract(const Duration(hours: 4)),
+        endedAt: day.subtract(const Duration(hours: 3, minutes: 55)),
+        duration: const Duration(minutes: 5),
+      ),
+    ]);
+    Widget page(DateTime now) => MaterialApp(
+      home: StatsPage(
+        library: library,
+        progressStore: progress,
+        sessionStore: sessions,
+        now: now,
+      ),
+    );
+    await tester.pumpWidget(page(day));
+    await tester.pumpAndSettle();
+    expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
+    final original = tester.widget<BookDurationChart>(
+      find.byType(BookDurationChart),
+    );
+    library.weights['a'] = ProgressWeights.fromCharCounts([1, 3]);
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
+      isNot(same(original)),
+    );
+    await _scrollTo(tester, find.byKey(const ValueKey('stats-book-a')), 300);
+    expect(_valueOf(tester, 'stats-book-a'), '25%');
+
+    library.books = [
+      library.books.single.copyWith(title: '新书名', contentRevision: '修订2'),
+    ];
+    progress.items['a'] = const ReaderProgress(
+      spineIndex: 1,
+      pageIndex: 1,
+      readingPercent: .6,
+      finished: true,
+    );
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester.pumpAndSettle();
+    expect(_valueOf(tester, 'stats-book-a'), '60%');
+    expect(find.text('新书名'), findsWidgets);
+    expect(find.text('旧书名'), findsNothing);
+
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
+    scroll.position.jumpTo(0);
+    await tester.pumpAndSettle();
+    final sameHour = tester.widget<BookDurationChart>(
+      find.byType(BookDurationChart),
+    );
+    await tester.pumpWidget(page(day.add(const Duration(minutes: 1))));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
+      same(sameHour),
+    );
+    await tester.pumpWidget(page(day.add(const Duration(hours: 1))));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
+      isNot(same(sameHour)),
+      reason: '最近阅读的小时标签变化需要更新',
+    );
+    final previousDay = tester.widget<BookDurationChart>(
+      find.byType(BookDurationChart),
+    );
+    await tester.pumpWidget(page(day.add(const Duration(days: 1))));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
+      isNot(same(previousDay)),
+    );
+    expect(_valueOf(tester, 'stats-book-duration-range'), '今天 · 2026年11月16日');
+    expect(
+      find.byKey(const ValueKey('stats-book-duration-total')),
+      findsNothing,
+    );
+    expect(find.text('该时段没有阅读记录'), findsOneWidget);
+    expect(sessions.listCalls, 6);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('隐藏时完成的刷新不遍历会话，重入读取最新数据', (tester) async {
+    final library = _FakeLibrary([_book('a', '第一本')], const {});
+    final progress = _FakeProgressStore(const {});
+    final sessions = _PendingSessionStore([_todaySession(5)]);
+    Widget page(bool active) => MaterialApp(
+      home: StatsPage(
+        library: library,
+        progressStore: progress,
+        sessionStore: sessions,
+        active: active,
+      ),
+    );
+    await tester.pumpWidget(page(true));
+    await tester.pumpAndSettle();
+    final chart = tester.widget<BookDurationChart>(
+      find.byType(BookDurationChart),
+    );
+    final pending = sessions.pending = Completer<List<ReadingSession>>();
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester.pump();
+    expect(sessions.listCalls, 2);
+    await tester.pumpWidget(page(false));
+    final stale = _ObservedSessions([_todaySession(15)]);
+    pending.complete(stale);
+    sessions.pending = null;
+    await tester.pumpAndSettle();
+    expect(stale.reads, 0);
+    expect(
+      tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
+      same(chart),
+    );
+    expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
+
+    sessions.items
+      ..clear()
+      ..add(_todaySession(20));
+    await tester.pumpWidget(page(true));
+    await tester.pumpAndSettle();
+    expect(sessions.listCalls, 3);
+    expect(_valueOf(tester, 'stats-book-duration-total'), '20 分钟');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('复用统计内容仍响应主题字号和平台，保留周期月份', (tester) async {
+    tester.view
+      ..physicalSize = const Size(1280, 1200)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final library = _FakeLibrary([_book('a', '第一本')], const {});
+    final progress = _FakeProgressStore(const {});
+    final sessions = _PendingSessionStore([_todaySession(5)]);
+    Widget page(ThemeData theme, double scale) => MaterialApp(
+      theme: theme,
+      themeAnimationDuration: Duration.zero,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
+      home: StatsPage(
+        library: library,
+        progressStore: progress,
+        sessionStore: sessions,
+      ),
+    );
+    final day = buildAppTheme().copyWith(platform: TargetPlatform.windows);
+    final night = buildAppTheme(brightness: Brightness.dark)
+        .copyWith(platform: TargetPlatform.windows);
+    await tester.pumpWidget(page(day, 1));
+    await tester.pumpAndSettle();
+    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    await _tapControl(tester, 'stats-calendar-previous');
+    final range = _valueOf(tester, 'stats-book-duration-range');
+    final month = _valueOf(tester, 'stats-calendar-month');
+    final chartState = tester.state(find.byType(BookDurationChart));
+    final calendarState = tester.state(find.byType(ReadingCalendar));
+
+    await tester.pumpWidget(page(night, 2));
+    await tester.pumpAndSettle();
+    expect(tester.state(find.byType(BookDurationChart)), same(chartState));
+    expect(tester.state(find.byType(ReadingCalendar)), same(calendarState));
+    expect(_valueOf(tester, 'stats-book-duration-range'), range);
+    expect(_valueOf(tester, 'stats-calendar-month'), month);
+    expect(
+      tester
+          .widget<Material>(
+            find.byKey(const ValueKey('stats-reading-calendar')),
+          )
+          .color,
+      night.colorScheme.surface,
+    );
+    final monthText = find.descendant(
+      of: find.byKey(const ValueKey('stats-calendar-month')),
+      matching: find.byType(RichText),
+    );
+    expect(tester.widget<RichText>(monthText).textScaler.scale(12), 24);
+    expect(
+      find.byKey(const ValueKey('stats-desktop-sections')),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(
+      page(night.copyWith(platform: TargetPlatform.android), 1),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('stats-desktop-sections')), findsNothing);
+    expect(sessions.listCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     '桌面统计宽窗双栏、窄窗单栏，缩放保留所选统计周期',
     (tester) async {

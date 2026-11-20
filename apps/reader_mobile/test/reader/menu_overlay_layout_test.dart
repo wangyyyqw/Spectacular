@@ -125,8 +125,18 @@ void main() {
       expect(session.layoutFingerprint, fingerprint);
       expect(session.page, same(pageBefore));
     }
-    await tester.binding.handlePopRoute();
+    // 再点当前入口执行收起，底栏回到未展开位置且阅读位置不变。
+    final selectedButton = find.byKey(const ValueKey('drawer-entry-settings'));
+    final selectedBounds = tester.getRect(selectedButton);
+    await tester.tap(selectedButton);
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('reader-drawer-surface')), findsNothing);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('menu-entry-settings'))),
+      selectedBounds,
+    );
+    expect(session.page, same(pageBefore));
+    expect(session.layoutFingerprint, fingerprint);
     await tester.binding.handlePopRoute();
     tester.view.viewPadding = FakeViewPadding.zero;
     await tester.pumpAndSettle();

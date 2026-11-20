@@ -12,6 +12,13 @@ class _FakeLibrary extends LibraryStore {
 
   final List<ReadingSession> sessions = <ReadingSession>[];
   late final _FakeSessionStore sessionStore = _FakeSessionStore(sessions);
+  int settingCalls = 0;
+
+  @override
+  Future<String?> getSetting(String key) {
+    settingCalls++;
+    return super.getSetting(key);
+  }
 
   @override
   Future<List<BookEntry>> list() async => const <BookEntry>[];
@@ -47,6 +54,37 @@ class _FakeSessionStore implements ReadingSessionStore {
 }
 
 void main() {
+  testWidgets('重复点击当前标签不查询，统计仍可显式刷新', (tester) async {
+    final library = _FakeLibrary();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeShell(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final settings = library.settingCalls;
+    final navigation = find.byType(BottomNavigationBar);
+    final shelf = find.descendant(of: navigation, matching: find.text('书架'));
+    await tester.tap(shelf);
+    await tester.pumpAndSettle();
+    expect(library.settingCalls, settings);
+
+    final stats = find.descendant(of: navigation, matching: find.text('统计'));
+    await tester.tap(stats);
+    await tester.pumpAndSettle();
+    expect(library.sessionStore.listCalls, 1);
+    await tester.tap(stats);
+    await tester.pumpAndSettle();
+    expect(library.sessionStore.listCalls, 1);
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester.pumpAndSettle();
+    expect(library.sessionStore.listCalls, 2);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('点击底部统计标签时重新读取会话，同天跨次累计满五分钟后计入', (tester) async {
     final library = _FakeLibrary();
     await tester.pumpWidget(

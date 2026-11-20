@@ -159,10 +159,27 @@ void main() {
         onThemeChanged: (value) => theme = value,
       ),
     );
-    await tester.tap(_key('settings-theme-black'));
-    expect(theme, 'black');
+    expect(_key('settings-theme-black'), findsNothing);
+    await tester.tap(_key('settings-theme-sepia'));
+    expect(theme, 'sepia');
     await tester.tap(_key('settings-theme-white'));
     expect(theme, 'white');
+    await _pumpPage(
+      tester,
+      Theme(
+        data: ThemeData.dark(),
+        child: SettingsPanel(
+          overrides: const ReaderOverrides(),
+          themeId: 'black',
+          section: SettingsSection.theme,
+          onOverridesChanged: (_) {},
+          onThemeChanged: (value) => theme = value,
+        ),
+      ),
+    );
+    expect(_key('settings-theme-white'), findsNothing);
+    await tester.tap(_key('settings-theme-black'));
+    expect(theme, 'black');
     expect(tester.takeException(), isNull);
   });
 

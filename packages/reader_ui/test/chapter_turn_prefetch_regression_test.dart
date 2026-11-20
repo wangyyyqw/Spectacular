@@ -6,11 +6,14 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/epub/epub_format_opener.dart';
 import 'package:reader_core/source/format_opener.dart';
 import 'package:reader_core/source/chapter_source.dart';
+import 'package:reader_ui/paging/chapter_preload_controller.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../../reader_core/test/audit/audit_epub_fixture.dart';
 
-Future<EpubChapterSource> _source() => const EpubFormatOpener().openBytes(
+Future<EpubChapterSource> _source({
+  int nextRepeats = 100,
+}) => const EpubFormatOpener().openBytes(
   auditZip({
     'mimetype': 'application/epub+zip',
     'META-INF/container.xml':
@@ -32,7 +35,10 @@ Future<EpubChapterSource> _source() => const EpubFormatOpener().openBytes(
         '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
         '${List.generate(20, (i) => '<p style="break-before:page">本章第 ${i + 1} 页正文。</p>').join()}'
         '</body></html>',
-    'next.xhtml': auditChapter('next', '下一章正文。' * 100),
+    'next.xhtml':
+        '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+        '${List.generate((nextRepeats / 20).ceil(), (i) => '<p id="next-$i">${'下一章正文。' * 20}</p>').join()}'
+        '</body></html>',
   }),
   options: const ReaderOpenOptions(
     contentWidth: 366.6666666666667,
@@ -68,6 +74,75 @@ Future<ReaderSession> _session(EpubChapterSource source, int pageIndex) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // 保留首页、暂停、取消、恢复和跨章的顺序，验证正式引擎作业与页数通知。
+  test('正式长章预排中断后在前一章恢复，切入首屏直接带准确总页数', () async {
+    final source = await _source(nextRepeats: 4000);
+    final session = await _session(source, 0);
+    await session.chapterPages();
+    final page = session.page;
+    final progress = session.progress;
+    final firstReady = Completer<void>();
+    late ChapterPreloadController controller;
+    controller = ChapterPreloadController(
+      session,
+      onFirstPage: () {
+        if (!firstReady.isCompleted) {
+          controller.update(paused: true);
+          firstReady.complete();
+        }
+      },
+    );
+    addTearDown(controller.dispose);
+    controller.update(paused: false);
+    await firstReady.future.timeout(const Duration(seconds: 15));
+    expect(session.isChapterComplete(1), isFalse);
+    expect(session.pageCountOf(1), 0);
+    source.cancelPendingLayouts();
+    await Future<void>.delayed(Duration.zero);
+    final completed = Completer<void>();
+    session.addListener(() {
+      if (session.isChapterComplete(1) && !completed.isCompleted) {
+        completed.complete();
+      }
+    });
+    controller.update(paused: false);
+    await completed.future.timeout(const Duration(seconds: 15));
+    final count = session.pageCountOf(1);
+    expect(count, greaterThan(20));
+    expect(session.page, same(page));
+    expect(session.progress, progress);
+    expect(source.chapterLayoutCount, 3, reason: '只重试被取消的邻章作业');
+    while (session.page!.pageIndex < 19) {
+      await session.next();
+    }
+    final turn = (await session.preparePageTurn(true))!;
+    expect(session.pageLabelOf(turn.target.content), '1/$count');
+    expect(session.commitPageTurn(turn), isTrue);
+    expect(session.chapterPageCount, count);
+    expect(source.chapterLayoutCount, 3, reason: '进入长章直接复用已算结果');
+    await session.flushProgress();
+  });
+
+  test('前一章修改字号后重新预排邻章，旧总数不带入新布局', () async {
+    final source = await _source(nextRepeats: 4000);
+    final session = await _session(source, 0);
+    await session.chapterPages();
+    await session.prefetchTurnChapter(true, idle: true);
+    await session.completeChapterPreload(1);
+    final before = session.pageCountOf(1);
+    expect(before, greaterThan(20));
+    await session.applyOverrides(session.overrides.copyWith(fontSize: 24));
+    expect(session.pageCountOf(1), 0, reason: '新设置不能显示旧字号的总页数');
+    await session.prefetchTurnChapter(true, idle: true);
+    await session.completeChapterPreload(1);
+    final after = session.pageCountOf(1);
+    expect(after, greaterThan(before));
+    expect(session.page!.spineIndex, 0);
+    expect(await session.jumpToChapter(1), isTrue);
+    expect(session.pageLabelOf(session.page!), '1/$after');
+    await session.flushProgress();
+  });
 
   test('正式 EPUB 在本章首页空闲时预排下一整章，跨章复用原文与已发布首页', () async {
     final source = await _source();

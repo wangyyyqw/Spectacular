@@ -54,7 +54,7 @@ Future<void> _tap(WidgetTester tester, String key) async {
 }
 
 void main() {
-  testWidgets('正文与面板跟随界面深浅色，切回日间恢复已保存配色且不重排', (tester) async {
+  testWidgets('正文与色块跟随软件和系统日夜模式，分别恢复配色且不重排', (tester) async {
     final dispatcher = tester.binding.platformDispatcher;
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
@@ -109,8 +109,15 @@ void main() {
       final panel = find.byType(SettingsPanel);
       expect(
         Theme.of(tester.element(panel)).brightness,
-        expected == ReaderTheme.black ? Brightness.dark : Brightness.light,
+        expected.isDark ? Brightness.dark : Brightness.light,
       );
+      expect(tester.widget<SettingsPanel>(panel).themeId, expected.id);
+      for (final theme in ReaderTheme.themes) {
+        expect(
+          find.byKey(ValueKey('settings-theme-${theme.id}')),
+          theme.isDark == expected.isDark ? findsOneWidget : findsNothing,
+        );
+      }
       final themes = tester.widgetList<ReaderPanelTheme>(
         find.ancestor(of: panel, matching: find.byType(ReaderPanelTheme)),
       );
@@ -122,14 +129,18 @@ void main() {
     await verify(ReaderTheme.sepia);
     dispatcher.platformBrightnessTestValue = Brightness.dark;
     await verify(ReaderTheme.black);
+    await _tap(tester, 'settings-theme-moss');
+    await verify(ReaderTheme.moss);
+    expect(mode.value, ThemeMode.system, reason: '同模式选色保留跟随系统');
+    expect(changes.single.themeId, 'moss');
     mode.value = ThemeMode.light;
     await verify(ReaderTheme.sepia);
     dispatcher.platformBrightnessTestValue = Brightness.light;
     mode.value = ThemeMode.dark;
-    await verify(ReaderTheme.black);
+    await verify(ReaderTheme.moss);
     mode.value = ThemeMode.light;
     await verify(ReaderTheme.sepia);
-    expect(changes, isEmpty, reason: '环境变化不覆盖持久化的阅读配色');
+    expect(changes, hasLength(1), reason: '环境变化不覆盖持久化的阅读配色');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await pumpReaderUntilComplete(
@@ -139,7 +150,7 @@ void main() {
     );
   });
 
-  testWidgets('阅读页日夜按钮和配色选择同步全局主题并保存，连续切换立即生效', (tester) async {
+  testWidgets('阅读页日夜按钮保存全局模式，色块按模式切换并记住各自选择', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.resetPhysicalSize);
@@ -176,7 +187,7 @@ void main() {
       find.byType(ReaderMenuOverlay),
     );
     expect(initialMenu.nightMode, isTrue);
-    Future<void> verify(ThemeMode expected) async {
+    Future<void> verify(ThemeMode expected, ReaderTheme expectedTheme) async {
       await pumpReaderUntilComplete(
         tester,
         () =>
@@ -191,16 +202,30 @@ void main() {
               find.byKey(const ValueKey('epub-reader-scaffold')),
             )
             .backgroundColor,
-        expected == ThemeMode.dark
-            ? ReaderTheme.black.background
-            : ReaderTheme.white.background,
+        expectedTheme.background,
       );
+      if (find.byType(SettingsPanel).evaluate().isNotEmpty) {
+        expect(
+          tester.widget<SettingsPanel>(find.byType(SettingsPanel)).themeId,
+          expectedTheme.id,
+        );
+        expect(
+          find.byKey(
+            ValueKey(
+              expected == ThemeMode.dark
+                  ? 'settings-theme-white'
+                  : 'settings-theme-black',
+            ),
+          ),
+          findsNothing,
+        );
+      }
       expect(session.progress, position);
       expect(session.layoutFingerprint, fingerprint);
     }
 
     initialMenu.onToggleDayNight();
-    await verify(ThemeMode.light);
+    await verify(ThemeMode.light, ReaderTheme.sepia);
     expect(
       tester
           .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
@@ -210,28 +235,23 @@ void main() {
     tester
         .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
         .onToggleDayNight();
-    await verify(ThemeMode.dark);
+    await verify(ThemeMode.dark, ReaderTheme.black);
     await tester.tap(find.byKey(const ValueKey('menu-entry-theme')));
     await tester.pumpAndSettle();
-    await _tap(tester, 'settings-theme-sepia');
-    await pumpReaderUntilComplete(
-      tester,
-      () =>
-          tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode ==
-          ThemeMode.light,
-    );
-    await tester.pumpAndSettle();
-    expect(await library.getSetting('app.themeMode'), 'light');
-    expect(
-      Theme.of(tester.element(find.byType(SettingsPanel))).brightness,
-      Brightness.light,
-    );
-    await _tap(tester, 'settings-theme-black');
-    await verify(ThemeMode.dark);
-    expect(
-      Theme.of(tester.element(find.byType(SettingsPanel))).brightness,
-      Brightness.dark,
-    );
+    await _tap(tester, 'settings-theme-moss');
+    await verify(ThemeMode.dark, ReaderTheme.moss);
+    tester
+        .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+        .onToggleDayNight();
+    await verify(ThemeMode.light, ReaderTheme.sepia);
+    await _tap(tester, 'settings-theme-paper');
+    await verify(ThemeMode.light, ReaderTheme.paper);
+    tester
+        .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+        .onToggleDayNight();
+    await verify(ThemeMode.dark, ReaderTheme.moss);
+    await _tap(tester, 'settings-theme-plum');
+    await verify(ThemeMode.dark, ReaderTheme.plum);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await pumpReaderUntilComplete(
@@ -266,16 +286,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(changes.last.themeId, 'sepia');
     expect(changes.last.backgroundId, 'paper');
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('settings-theme-black')),
-      -120,
-      scrollable: find
-          .descendant(
-            of: find.byType(SettingsPanel),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
+    tester
+        .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+        .onToggleDayNight();
+    await tester.pumpAndSettle();
     await _tap(tester, 'settings-theme-black');
     expect(changes.last.themeId, 'black');
     expect(changes.last.backgroundId, 'paper');
@@ -365,7 +379,13 @@ void main() {
       ),
     );
     await pumpReaderUntil(tester, find.byType(ReaderView));
+    expect(find.text('背景图片无法读取，请重新选择'), findsOneWidget);
+    // 提示结束后再点底栏，确保测试确实进入主题抽屉。
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
     await _themeMenu(tester);
+    expect(find.byType(SettingsPanel), findsOneWidget);
     expect(find.text('图片背景已启用'), findsNothing);
     expect(changes, isEmpty, reason: '恢复失败不会保存无效图片');
     expect(tester.takeException(), isNull);

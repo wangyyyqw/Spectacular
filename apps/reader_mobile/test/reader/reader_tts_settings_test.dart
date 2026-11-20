@@ -41,6 +41,21 @@ void main() {
     expect(restored.hasVoice, isTrue);
   });
 
+  test('切换日夜配色保留听书偏好', () {
+    const tts = ReaderTtsSettings(
+      mode: ReaderTtsMode.offline,
+      narratorVoiceId: 'vits-piper-zh_CN-chaowen-medium',
+      dialogueSpeed: 0.9,
+    );
+    final settings = ReaderSettings.defaults
+        .copyWithTts(tts)
+        .copyWithTheme('sepia')
+        .copyWithTheme('moss');
+    expect(settings.tts, tts);
+    expect(settings.dayThemeId, 'sepia');
+    expect(settings.nightThemeId, 'moss');
+  });
+
   test('离线语速与说话人越界值会收敛', () {
     final restored = ReaderTtsSettings.fromJson(<String, Object?>{
       'narratorSpeed': 9,

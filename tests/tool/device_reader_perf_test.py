@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 import threading
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import Mock, patch
 
 
@@ -87,6 +88,52 @@ class BaselineWorkspaceTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "不支持的源码归档条目"):
                     perf.prepare(workspace, "baseline-commit")
             self.assertEqual(original.read_text(), "当前源码")
+
+
+class IsolatedManifestTest(unittest.TestCase):
+    def test_prepare_keeps_existing_network_manifest_entries_valid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            manifest = write(
+                workspace,
+                "apps/reader_mobile/android/app/src/main/AndroidManifest.xml",
+                '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                '<uses-permission android:name="android.permission.INTERNET"/>'
+                '<application android:label="CSS 真机测试" '
+                'android:usesCleartextTraffic="true"/></manifest>',
+            )
+            write(
+                workspace,
+                "apps/reader_mobile/pubspec.yaml",
+                "dev_dependencies:\n  integration_test:\n    sdk: flutter\n",
+            )
+
+            with patch.object(perf, "prepare_workspace"):
+                perf.prepare(workspace, None)
+
+            root = ET.parse(manifest).getroot()
+            android = "{http://schemas.android.com/apk/res/android}"
+            permissions = root.findall("uses-permission")
+            self.assertEqual(len(permissions), 1)
+            self.assertEqual(
+                permissions[0].get(android + "name"),
+                "android.permission.INTERNET",
+            )
+            application = root.find("application")
+            self.assertEqual(application.get(android + "usesCleartextTraffic"), "true")
+            self.assertEqual(application.get(android + "label"), "阅读性能测试")
+
+    def test_prepare_workspace_rewrites_every_kotlin_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+
+            perf.prepare_workspace(workspace)
+
+            kotlin_root = workspace / "apps/reader_mobile/android/app/src/main/kotlin"
+            sources = list(kotlin_root.rglob("*.kt"))
+            self.assertGreater(len(sources), 1)
+            for source in sources:
+                self.assertIn(f"package {perf.TEST_ID}", source.read_text())
 
 
 class RevisionMetadataTest(unittest.TestCase):
