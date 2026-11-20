@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../reader_ui_diagnostics.dart';
+
 import '../icons/app_icon.dart';
 import '../panels/settings_panel.dart' show ReaderFontOption;
 import 'decoration_border_editor.dart';
@@ -181,10 +183,12 @@ class _ReaderDecorationEditorSheetState
           );
         }
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('图片无法导入，请选择 20MB 以内的本地图片')),
+        ReaderUiDiagnostics.record(
+          'decoration_image_import_failed',
+          error: error,
+          stackTrace: stackTrace,
         );
       }
     } finally {

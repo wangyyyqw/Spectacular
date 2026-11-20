@@ -223,7 +223,7 @@ void main() {
       find.byKey(ValueKey<String>('bookshelf-group-pick-${group.id}')),
     );
     await _settle(tester);
-    expect(find.text('已移入「小说」'), findsOneWidget);
+    expect(find.text('已移入「小说」'), findsNothing);
 
     await tester.tap(
       find.byKey(ValueKey<String>('bookshelf-group-${group.id}')),

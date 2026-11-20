@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../reader_ui_diagnostics.dart';
+
 import '../annotations/text_value_dialog.dart';
 
 import '../icons/app_icon.dart';
@@ -86,12 +88,9 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
       await _load();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is FormatException ? error.message : '规则操作失败，请重试',
-            ),
-          ),
+        ReaderUiDiagnostics.record(
+          'decoration_rule_operation_failed',
+          error: error,
         );
       }
     } finally {

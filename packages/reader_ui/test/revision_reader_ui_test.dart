@@ -476,7 +476,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('阅读位置已近似恢复'), findsOneWidget);
+    expect(find.text('阅读位置已近似恢复'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

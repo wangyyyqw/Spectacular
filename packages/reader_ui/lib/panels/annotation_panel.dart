@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../reader_ui_diagnostics.dart';
+
 import 'package:reader_core/position/cfi.dart';
 
 import '../annotations/annotation.dart';
@@ -246,12 +248,15 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
         return;
       }
       _exitSelection();
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(const SnackBar(content: Text('删除标注失败，请重试')));
+      ReaderUiDiagnostics.record(
+        'annotation_delete_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     } finally {
       if (mounted) {
         setState(() => _deleting = false);
@@ -278,10 +283,13 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
     setState(() => _recoloring = true);
     try {
       await recolor(selected, color);
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(const SnackBar(content: Text('更换标注颜色失败，请重试')));
+        ReaderUiDiagnostics.record(
+          'annotation_recolor_failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
       }
     } finally {
       if (mounted) {

@@ -14,6 +14,7 @@ import 'book_notes_list.dart';
 import 'desktop_layout.dart';
 import 'reading_insights.dart';
 import 'review_ticket.dart';
+import '../diagnostics/reader_log.dart';
 
 enum _ReviewFilter {
   all('全部'),
@@ -202,18 +203,13 @@ class _ReviewsPageState extends State<ReviewsPage>
           _error = null;
         });
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (!mounted || !widget.active || token != _reloadToken) return;
       final label = notes ? '笔记' : '书评';
       if (_books == null) {
         setState(() => _error = '$label加载失败，请重试');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$label刷新失败'),
-            action: SnackBarAction(label: '重试', onPressed: _reload),
-          ),
-        );
+        recordAppError('reviews_reload_failed', error, stackTrace: stackTrace);
       }
     }
   }
@@ -221,8 +217,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   Future<void> _edit(BookEntry book) async {
     final store = _store;
     if (store == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('当前无法保存书评')));
+      recordAppEvent('review_store_unavailable');
       return;
     }
     final token = ++_editToken;
@@ -231,15 +226,13 @@ class _ReviewsPageState extends State<ReviewsPage>
       final finished = await widget.library.finishedBookIds();
       if (!mounted || !widget.active || token != _editToken) return;
       if (!finished.contains(book.id)) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('标记读完后才能评分或写书评')));
+        recordAppEvent('review_requires_finished_book');
         return;
       }
       review = (await store.snapshot())[book.id];
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (mounted && widget.active && token == _editToken) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('书评读取失败，请重试')));
+        recordAppError('review_load_failed', error, stackTrace: stackTrace);
       }
       return;
     }
@@ -267,9 +260,7 @@ class _ReviewsPageState extends State<ReviewsPage>
     }
     await _reload();
     if (mounted && widget.active) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(draft.delete ? '书评已删除' : '书评已保存')));
+      recordAppEvent(draft.delete ? 'review_deleted' : 'review_saved');
     }
   }
 
@@ -841,15 +832,13 @@ class _ReviewDetailSheet extends StatelessWidget {
       '',
       review.content.isEmpty ? '仅评分，未写正文。' : review.content,
     ].join('\n');
-    var message = '书评已复制';
     try {
       await Clipboard.setData(ClipboardData(text: text));
-    } catch (_) {
-      message = '复制失败，请重试';
-    }
-    if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      if (context.mounted) recordAppEvent('review_copied');
+    } catch (error, stackTrace) {
+      if (context.mounted) {
+        recordAppError('review_copy_failed', error, stackTrace: stackTrace);
+      }
     }
   }
 

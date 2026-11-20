@@ -9,6 +9,7 @@ export 'tap_zones.dart';
 export 'virtual_pager.dart';
 export 'reader_session.dart';
 export 'reader_page.dart';
+export 'reader_ui_diagnostics.dart';
 export 'paging/page_turn_mode.dart';
 export 'loading_skeleton.dart';
 export 'image_preview_page.dart';

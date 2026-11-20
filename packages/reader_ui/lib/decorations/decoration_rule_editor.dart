@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../reader_ui_diagnostics.dart';
+
 import '../icons/app_icon.dart';
 import 'decoration_highlight_editor.dart';
 import 'decoration_image_store.dart';
@@ -169,9 +171,7 @@ class _ReaderDecorationRuleEditorState
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('图片无法导入，请选择 20MB 以内的本地图片')),
-        );
+        ReaderUiDiagnostics.record('decoration_rule_image_import_failed');
       }
     } finally {
       if (mounted) setState(() => _pickingImage = false);
