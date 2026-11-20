@@ -70,7 +70,7 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-select-all')),
     );
     await _settle(tester, frames: 3);
-    expect(find.text('多选'), findsOneWidget);
+    expect(find.byTooltip('退出多选'), findsOneWidget);
     expect(find.text('请选择书籍'), findsOneWidget);
 
     await tester.tap(find.byKey(ValueKey<String>('book-card-${first.id}')));
@@ -110,7 +110,11 @@ void main() {
         matching: find.widgetWithText(FilledButton, '删除'),
       ),
     );
-    await pumpReaderUntil(tester, find.text('已删除 2 本书'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byTooltip('退出多选').evaluate().isEmpty,
+      description: '批量删除完成',
+    );
     await _settle(tester, frames: 16);
 
     expect((await library.list()).map((entry) => entry.id), <String>[third.id]);
@@ -123,7 +127,10 @@ void main() {
     expect(find.text('批量乙'), findsNothing);
     expect(find.text('批量丙'), findsWidgets);
     expect(find.byTooltip('批量管理'), findsNothing);
-    expect(find.text('已删除 2 本书'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('bookshelf-search-field')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('列表视图支持勾选书籍进入批量管理', (tester) async {
@@ -151,7 +158,7 @@ void main() {
     await _settle(tester);
     await tester.tap(find.byTooltip('多选'));
     await _settle(tester, frames: 4);
-    expect(find.text('多选'), findsOneWidget);
+    expect(find.byTooltip('退出多选'), findsOneWidget);
     await tester.tap(find.byKey(ValueKey<String>('book-row-${first.id}')));
     await _settle(tester);
 
