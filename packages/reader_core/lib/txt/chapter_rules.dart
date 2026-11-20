@@ -55,10 +55,16 @@ const builtInChapterRules = <ChapterRule>[
     autoEnabled: true,
   ),
   ChapterRule(
+    id: 'builtin-unnamed',
+    name: '未命名章节（需前后章号佐证）',
+    pattern: r'未命名(?:草稿|章节|章節)',
+    autoEnabled: true,
+  ),
+  ChapterRule(
     id: 'builtin-numbered',
     name: '数字、分隔符与标题',
     pattern:
-        '$_number(?:[、，,:：_—-]|[.．](?![0-9０-９])|[ \t　]+)'
+        '$_number(?:[、，,:：_—.．-]|[ \t　]+)'
         '[^\r\n]{1,60}',
     autoEnabled: true,
   ),

@@ -117,6 +117,120 @@ void main() {
     ]);
   });
 
+  test('数字主序列恢复数字开头的标题，正文编号清单不借全书间隔成章', () {
+    final body = '普通段落正文' * 40;
+    final result = ChapterDetector.detect([
+      '1.开场',
+      body,
+      '2.3层平台',
+      body,
+      '1.第一个清单项目。',
+      '2.第二个清单项目。',
+      '3.第三个清单项目。',
+      body,
+      '3.再会',
+      body,
+      '4.末章',
+      body,
+      '3.14',
+    ]);
+    expect(result.boundaries.map((item) => item.title), [
+      '1.开场',
+      '2.3层平台',
+      '3.再会',
+      '4.末章',
+    ]);
+  });
+
+  test('稳定章序列排除文中标题、节句和卷说明，保留相邻无空格的真标题', () {
+    final body = '普通段落正文' * 40;
+    final result = ChapterDetector.detect([
+      '第10章 开场',
+      body,
+      '第一章 总则',
+      body,
+      '第11章 过渡',
+      body,
+      '第三节打完，比赛继续。',
+      '第四节开始后，队员返回场上。',
+      '第二卷的卷名为《远行》。',
+      '第 12 章再会',
+      body,
+      '1.清单第一项',
+      body,
+      '2.清单第二项',
+      body,
+      '3.清单第三项',
+      body,
+      '第13章 末章',
+      body,
+    ]);
+    expect(result.boundaries.map((item) => item.title), [
+      '第10章 开场',
+      '第11章 过渡',
+      '第 12 章再会',
+      '第13章 末章',
+    ]);
+  });
+
+  test('原文件重复、错号、跳号及番外重置保持真实边界，不补造标题', () {
+    const titles = [
+      '第20章 一',
+      '第21章 二',
+      '第21章 重复号',
+      '第22章 三',
+      '第13章 原文错号',
+      '第24章 五',
+      '第25章 六',
+      '第27章 跳号',
+      '第28章 八',
+      '第1章 番外一',
+      '第2章 番外二',
+      '第3章 番外三',
+    ];
+    final result = ChapterDetector.detect([
+      for (final title in titles) ...[title, '正文内容'],
+    ]);
+    expect(result.boundaries.map((item) => item.title), titles);
+  });
+
+  test('混合中阿拉伯数字不崩溃，廿卅卌与异常强标题仍保留', () {
+    for (final titles in [
+      ['第一2章 起点', '第一3章 继续', '第一4章 末章'],
+      ['第廿章 起点', '第廿一章 继续', '第廿二章 末章'],
+      ['第卅章 起点', '第卅一章 继续', '第卅二章 末章'],
+      ['第卌章 起点', '第卌一章 继续', '第卌二章 末章'],
+    ]) {
+      final result = ChapterDetector.detect([
+        for (final title in titles) ...[title, '正文内容'],
+      ]);
+      expect(result.boundaries.map((item) => item.title), titles);
+    }
+  });
+
+  test('未命名标题仅在前后章号缺一且两边有正文时加入', () {
+    final body = '普通段落正文' * 40;
+    for (final title in ['未命名草稿', '未命名章节']) {
+      final result = ChapterDetector.detect([
+        '第40章 开场',
+        body,
+        title,
+        body,
+        '第42章 继续',
+        body,
+        '第43章 末章',
+        body,
+        title,
+      ]);
+      expect(result.boundaries.map((item) => item.title), [
+        '第40章 开场',
+        title,
+        '第42章 继续',
+        '第43章 末章',
+      ]);
+    }
+  });
+
   test('书首清单在后文重复才排除切点，前言文本仍保留', () {
     final result = ChapterDetector.detect([
       '目录',
