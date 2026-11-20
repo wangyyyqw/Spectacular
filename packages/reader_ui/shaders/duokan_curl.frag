@@ -20,10 +20,12 @@ vec3 projectionAt(float x) {
   x = clamp(x, uProjectionProfile[0].x, uProjectionProfile[23].x);
   vec4 a = uProjectionProfile[0];
   vec4 b = uProjectionProfile[1];
-  for (int index = 1; index < 24; index++) {
-    b = uProjectionProfile[index];
-    if (x <= b.x) break;
-    a = b;
+  // 不在循环中提前退出，避免 ANGLE 展开嵌套跳转时触发 D3D 编译器异常。
+  for (int index = 2; index < 24; index++) {
+    if (x > b.x) {
+      a = b;
+      b = uProjectionProfile[index];
+    }
   }
   float weight = clamp((x - a.x) / (b.x - a.x), 0.0, 1.0);
   return mix(a.yzw, b.yzw, weight);
@@ -79,50 +81,61 @@ vec2 nearestUV(vec2 uv, vec2 size) {
   return (clamp(floor(uv * size), vec2(0.0), size - 1.0) + 0.5) / size;
 }
 
-void main() {
-  vec2 source = FlutterFragCoord().xy;
-  if (uProfileCount < 0.0) {
-    for (int index = 0; index < 3; index++) {
-      vec4 edge = uShadowEdges[index];
-      float side = dot(vec3(source, 1.0), edge.xyz);
-      if (side < 0.0 || (side == 0.0 && edge.w > 0.5)) {
-        fragColor = vec4(0.0);
-        return;
-      }
+vec4 shadowColor(vec2 source) {
+  bool covered = true;
+  for (int index = 0; index < 3; index++) {
+    vec4 edge = uShadowEdges[index];
+    float side = dot(vec3(source, 1.0), edge.xyz);
+    // 先用公共边的同一组系数求值，再反转方向，保证两侧互补。
+    if (edge.w < 0.0) side = -side;
+    if (side < 0.0 || (side == 0.0 && edge.w < 0.0)) {
+      covered = false;
     }
-    // alpha 已在几何中乘 0.5；在片元写回时截断并按原 RGBA8 源色阶混合。
-    float alpha = clamp(dot(vec3(source, 1.0), uShadowAlphaPlane), 0.0, 0.5);
-    float stored = floor(halfTrunc(alpha) * 255.0 + 0.5) / 255.0;
-    fragColor = vec4(0.0, 0.0, 0.0, stored);
-    return;
   }
+  // alpha 已在几何中乘 0.5；在片元写回时截断并按原 RGBA8 源色阶混合。
+  float alpha = clamp(dot(vec3(source, 1.0), uShadowAlphaPlane), 0.0, 0.5);
+  float stored = floor(halfTrunc(alpha) * 255.0 + 0.5) / 255.0;
+  return vec4(0.0, 0.0, 0.0, covered ? stored : 0.0);
+}
+
+vec4 paperColor(vec2 source) {
+  bool covered = true;
   vec3 normal = vec3(0.0, 0.0, uProjectionProfile[0].w);
   if (uProfileCount > 1.5) {
     float x = dot(source - uCurlSpace.xy, uCurlSpace.zw);
     if (x < uProjectionProfile[0].x || x > uProjectionProfile[23].x) {
-      fragColor = vec4(0.0);
-      return;
+      covered = false;
     }
     vec3 projection = projectionAt(x);
     source += uCurlSpace.zw * (projection.x - x);
     if (source.x < 0.0 || source.y < 0.0 ||
         source.x > uSheetSize.x || source.y > uSheetSize.y) {
-      fragColor = vec4(0.0);
-      return;
+      covered = false;
     }
     normal = normalize(vec3(uCurlSpace.zw * projection.y, projection.z));
   }
   vec2 uv = source / uSheetSize;
   if (uMirror > 0.5) uv.x = 1.0 - uv.x;
   vec4 front = sample565(texture(uFront, nearestUV(uv, uFrontSize)));
+  vec4 color;
   if (normal.z > 0.1) {
-    fragColor = halfRound(front);
+    color = halfRound(front);
   } else {
     vec4 background = sample565(uHasBackground > 0.5
         ? texture(uBackground, nearestUV(uv, uBackgroundSize)) : uPaperColor);
     vec4 mixed = front * 0.05 + background * 0.95;
     // 原 Adreno GLSL 在混色写回时向零截断，最后光照乘法按最近偶数取整。
     vec3 stored = vec3(halfTrunc(mixed.r), halfTrunc(mixed.g), halfTrunc(mixed.b));
-    fragColor = halfRound(vec4(stored * (0.5 + abs(normal.z) * 0.5), mixed.a));
+    color = halfRound(vec4(stored * (0.5 + abs(normal.z) * 0.5), mixed.a));
+  }
+  return covered ? color : vec4(0.0);
+}
+
+void main() {
+  vec2 source = FlutterFragCoord().xy;
+  if (uProfileCount < 0.0) {
+    fragColor = shadowColor(source);
+  } else {
+    fragColor = paperColor(source);
   }
 }

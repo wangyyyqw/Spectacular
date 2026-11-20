@@ -10,9 +10,11 @@ class DuokanCurlShader {
   static const shadowEdgesOffset = shadowPlaneOffset + 3;
 
   static ui.FragmentProgram? _program;
+  static ui.FragmentProgram? _shadowProgram;
   static Future<ui.FragmentProgram>? _pending;
 
   static ui.FragmentProgram? get program => _program;
+  static ui.FragmentProgram? get shadowProgram => _shadowProgram;
 
   static Future<ui.FragmentProgram> load() {
     final loaded = _program;
@@ -26,6 +28,11 @@ class DuokanCurlShader {
       final asset = manifest.listAssets().contains(packaged)
           ? packaged
           : 'shaders/duokan_curl.frag';
+      final shadowAsset = asset.replaceFirst(
+        'duokan_curl.frag',
+        'duokan_shadow.frag',
+      );
+      _shadowProgram = await ui.FragmentProgram.fromAsset(shadowAsset);
       return _program = await ui.FragmentProgram.fromAsset(asset);
     } finally {
       _pending = null;
