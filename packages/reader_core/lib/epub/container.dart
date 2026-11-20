@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:xml/xml.dart';
 
 import 'archive_reader.dart';
@@ -29,7 +31,11 @@ abstract final class EpubContainer {
         '缺少 META-INF/container.xml',
       );
     }
+    return parseBytes(bytes);
+  }
 
+  /// 解析已异步读取的容器字节，供文件打开路径在后台 isolate 执行。
+  static ContainerInfo parseBytes(Uint8List bytes) {
     final XmlDocument document;
     try {
       document = XmlDocument.parse(decodeXmlBytes(bytes));
