@@ -6,6 +6,44 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 void main() {
+  testWidgets('发现选中态填实外轮廓并用底栏背景镂空指南针', (tester) async {
+    final boundaryKey = GlobalKey();
+    for (final filled in [false, true]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: boundaryKey,
+              child: ColoredBox(
+                color: Colors.white,
+                child: AppIcon(
+                  AppGlyph.discover,
+                  size: 24,
+                  color: Colors.black,
+                  filled: filled,
+                  cutoutColor: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.runAsync(() async {
+        final image = await tester
+            .renderObject<RenderRepaintBoundary>(find.byKey(boundaryKey))
+            .toImage(pixelRatio: 4);
+        final bytes = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        final field = (24 * image.width + 48) * 4;
+        final center = (48 * image.width + 48) * 4;
+        expect(bytes.getUint8(field), filled ? 0 : 255);
+        expect(bytes.getUint8(center), 255);
+        image.dispose();
+      });
+    }
+  });
+
   testWidgets('图标在大点击区域内保持指定尺寸并居中', (tester) async {
     const target = ValueKey('图标区域');
     await tester.pumpWidget(

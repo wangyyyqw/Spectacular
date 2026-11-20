@@ -8,6 +8,7 @@ const double _strokeWidth = 1.7;
 /// 细节以实心小片表示；实心态把轮廓改为实心，细节镂空为底色。
 enum AppGlyph {
   bookshelf(_bookshelf),
+  discover(_discover),
   stats(_stats),
   review(_review),
   profile(_profile),
@@ -1128,4 +1129,20 @@ void _autoStories(AppIconCanvas canvas) {
   canvas.solid(_roundRect(6, 13, 9.5, 14.5, 0.75));
   canvas.solid(_roundRect(14.5, 9.5, 18, 11, 0.75));
   canvas.solid(_roundRect(14.5, 13, 18, 14.5, 0.75));
+}
+
+/// 与现有图标相同线宽的发现指南针。
+void _discover(AppIconCanvas context) {
+  context.outline(Path()..addOval(const Rect.fromLTWH(3, 3, 18, 18)));
+  final needle = Path()
+    ..moveTo(16, 8)
+    ..lineTo(14, 14)
+    ..lineTo(8, 16)
+    ..lineTo(10, 10)
+    ..close();
+  if (context.filled) {
+    context.solid(needle);
+  } else {
+    context.line(needle);
+  }
 }

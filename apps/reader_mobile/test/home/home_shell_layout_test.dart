@@ -313,11 +313,11 @@ void main() {
     await tester.pump();
     expect(rail, findsOneWidget);
     expect(bottom, findsNothing);
-    expect(tester.widget<NavigationRail>(rail).selectedIndex, 4);
+    expect(tester.widget<NavigationRail>(rail).selectedIndex, 5);
     await _select(tester, rail, '书评');
     tester.view.physicalSize = _desktop;
     await tester.pump();
-    expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
+    expect(tester.widget<NavigationRail>(rail).selectedIndex, 3);
     expect(find.byKey(const ValueKey('notes-tab')), findsOneWidget);
     await _select(tester, rail, '书架');
     expect(tester.widget<TextField>(search).controller!.text, '山海');
@@ -339,7 +339,7 @@ void main() {
       tester.view.physicalSize = const Size(390, 844);
       await tester.pump();
       expect(find.byType(NavigationRail), findsNothing);
-      expect(tester.widget<BottomNavigationBar>(bottom).currentIndex, 3);
+      expect(tester.widget<BottomNavigationBar>(bottom).currentIndex, 4);
       await _select(tester, bottom, '书架');
 
       tester.view.physicalSize = _desktop;

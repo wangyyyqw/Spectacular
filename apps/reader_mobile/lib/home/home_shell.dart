@@ -13,6 +13,7 @@ import '../rea_micro/rea_micro_models.dart';
 import '../reader/book_opener.dart';
 import '../storage/startup_storage.dart';
 import 'bookshelf_page.dart';
+import 'discover_page.dart';
 import 'desktop_layout.dart';
 import 'profile_page.dart';
 import 'reviews_page.dart';
@@ -147,7 +148,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       _index = index;
       if (index == 0) {
         _bookshelfRefreshToken += 1;
-      } else if (index == 1) {
+      } else if (index == 2) {
         _statsRefreshToken += 1;
       }
       // 只更新切入与切出页；其余隐藏页复用，避免重新筛书和汇总统计。
@@ -168,20 +169,25 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       onlineBooks: _onlineBooks,
       bookOpener: _bookOpener,
     ),
-    1 => StatsPage(
+    1 => DiscoverPage(
+      controller: _onlineBooks,
+      onRead: _bookOpener.openOnline,
+      active: _index == 1,
+    ),
+    2 => StatsPage(
       library: widget.library,
       progressStore: _progressStore,
       refreshToken: _statsRefreshToken,
-      active: _index == 1,
+      active: _index == 2,
       onReadingFinished: _onReadingFinished,
       reaMicro: _reaMicro,
     ),
-    2 => ReviewsPage(
+    3 => ReviewsPage(
       library: widget.library,
-      active: _index == 2,
+      active: _index == 3,
       reaMicro: _reaMicro,
     ),
-    3 when _desktop => EpubFileEditorPage(active: _index == 3),
+    4 when _desktop => EpubFileEditorPage(active: _index == 4),
     _ => ProfilePage(
       library: widget.library,
       reaMicro: _reaMicro,
@@ -195,7 +201,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Widget _buildBody(bool desktop) {
     if (_pages.isEmpty || _desktop != desktop) {
       _desktop = desktop;
-      _pages = List.generate(desktop ? 5 : 4, _buildPage);
+      _pages = List.generate(desktop ? 6 : 5, _buildPage);
     }
     final content = IndexedStack(
       index: _index,
@@ -266,6 +272,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     return [
       for (final (label, glyph) in [
         ('书架', AppGlyph.bookshelf),
+        ('发现', AppGlyph.discover),
         ('统计', AppGlyph.stats),
         ('书评', AppGlyph.review),
         if (usesDesktopLayout(context)) ('编辑器', AppGlyph.code),

@@ -10,6 +10,7 @@ import 'book_source_compat.dart';
 import 'book_source_cookie_store.dart';
 import 'book_source_http_client.dart';
 import 'book_source_models.dart';
+import 'book_source_discovery.dart';
 import 'book_source_rule_engine.dart';
 import 'book_source_script.dart';
 import 'online_epub_builder.dart';
@@ -210,27 +211,102 @@ class BookSourceService {
     return <OnlineSourceSearchResult>[for (final result in results) ?result];
   }
 
+  /// 读取来源声明的发现分类，脚本使用现有正式书源运行时。
+  List<BookDiscoverCategory> discoverCategories(BookSource source) {
+    var raw = source.exploreUrl.trim();
+    final scriptDeclared = raw.startsWith('@js:') || raw.startsWith('<js>');
+    if (scriptDeclared) {
+      final filter = parseDiscoverFilter(raw, const []);
+      if (filter != null) {
+        return [
+          for (final group in filter.groups)
+            for (final option in group.options)
+              if (option.parameters.isNotEmpty)
+                BookDiscoverCategory(
+                  option.title,
+                  filter.category({
+                    ...filter.defaults,
+                    group.name: option.title,
+                  }).url,
+                ),
+        ];
+      }
+    }
+    final parsed = scriptDeclared
+        ? <BookDiscoverCategory>[]
+        : parseDiscoverCategories(raw);
+    if (!scriptDeclared && parsed.isNotEmpty) return parsed;
+    if (scriptDeclared || raw.startsWith('[') || raw.startsWith('{')) {
+      final script = scriptFactory(source);
+      try {
+        final body = scriptDeclared
+            ? raw.substring(4).replaceFirst(RegExp(r'</js>\s*$'), '')
+            : '($raw)';
+        raw = script.evaluate(
+          'JSON.stringify(eval(${jsonEncode(body)}))',
+          result: '',
+          variables: {'baseUrl': source.baseUrl},
+          resolveString: (_) => '',
+          resolveList: (_) => const [],
+        );
+      } finally {
+        script.dispose();
+      }
+    }
+    return parseDiscoverCategories(raw);
+  }
+
+  /// 发现列表与搜索列表共用请求、规则和字段解析，只替换地址及列表声明。
+  Future<List<OnlineBook>> discover(
+    BookSource source,
+    BookDiscoverCategory category, {
+    int page = 1,
+  }) async {
+    final rawRule = source.raw['ruleExplore'];
+    final rule = rawRule is Map
+        ? BookListRule.fromJson(Map<String, Object?>.from(rawRule))
+        : source.search;
+    return _loadBookList(
+      source,
+      '',
+      page: page,
+      listRule: rule,
+      requestUrl: category.url,
+      requestOptions: category.options,
+    );
+  }
+
   /// 搜索单个来源。
   Future<List<OnlineBook>> search(
     BookSource source,
     String rawQuery, {
     int page = 1,
+  }) => _loadBookList(source, rawQuery, page: page);
+
+  Future<List<OnlineBook>> _loadBookList(
+    BookSource source,
+    String rawQuery, {
+    int page = 1,
+    BookListRule? listRule,
+    String? requestUrl,
+    Map<String, Object?>? requestOptions,
   }) async {
     await cookieStore.load();
+    final fields = listRule ?? source.search;
     final query = rawQuery.trim();
-    if (query.isEmpty) {
+    if (requestUrl == null && query.isEmpty) {
       throw const BookSourceException('请输入要搜索的书名或作者');
     }
-    if (!source.canSearch) {
+    if (requestUrl == null && !source.canSearch) {
       throw const BookSourceException('该书源未启用或不支持搜索');
     }
     final script = scriptFactory(source);
     try {
-      final url = _searchUrl(source, query, page, script);
+      final url = _searchUrl(source, query, page, script, requestUrl);
       final response = await http.fetchText(
         source,
         url,
-        options: source.searchOptions,
+        options: requestOptions ?? source.searchOptions,
         referer: source.baseUrl,
       );
       final root = _parseBody(response.body);
@@ -246,7 +322,7 @@ class BookSourceService {
       );
       var nodes = rules.evaluateList(
         root,
-        source.search.bookList,
+        fields.bookList,
         context,
         script: script,
       );
@@ -255,7 +331,7 @@ class BookSourceService {
         if (data is Map) {
           nodes = rules.evaluateList(
             data,
-            source.search.bookList,
+            fields.bookList,
             context,
             script: script,
           );
@@ -267,7 +343,12 @@ class BookSourceService {
       if (nodes.isEmpty && root is List) {
         nodes = root.whereType<Object>().toList();
       }
-      if (nodes.isEmpty && root is Document) {
+      // 列表声明可能直接命中 JSON 数组；每个数组元素才是一条书籍。
+      nodes = [
+        for (final node in nodes)
+          if (node is List) ...node.whereType<Object>() else node,
+      ];
+      if (nodes.isEmpty && root is Document && requestUrl == null) {
         return _fallbackHtmlSearch(
           source,
           root,
@@ -279,16 +360,11 @@ class BookSourceService {
       final books = <OnlineBook>[];
       final seen = <String>{};
       for (final node in nodes) {
-        final name = _field(node, source.search.name, context, script).ifBlank(
+        final name = _field(node, fields.name, context, script).ifBlank(
           _commonJsonField(node, const <String>['name', 'title', 'bookName']),
         );
         if (name.isEmpty) continue;
-        final bookUrlRule = _field(
-          node,
-          source.search.bookUrl,
-          context,
-          script,
-        );
+        final bookUrlRule = _field(node, fields.bookUrl, context, script);
         var bookUrl = bookUrlRule;
         if (bookUrl.isEmpty && node is Element) {
           bookUrl =
@@ -309,52 +385,50 @@ class BookSourceService {
         if (absoluteBookUrl.isEmpty) continue;
         final author = _field(
           node,
-          source.search.author,
+          fields.author,
           context,
           script,
         ).ifBlank(_commonJsonField(node, const <String>['author', 'writer']));
-        final cover = _field(node, source.search.coverUrl, context, script)
+        final cover = _field(node, fields.coverUrl, context, script).ifBlank(
+          _commonJsonField(node, const <String>[
+            'coverUrl',
+            'cover',
+            'picUrl',
+            'imageUrl',
+          ]),
+        );
+        final lastChapter = _field(node, fields.lastChapter, context, script)
             .ifBlank(
-              _commonJsonField(node, const <String>[
-                'coverUrl',
-                'cover',
-                'picUrl',
-                'imageUrl',
-              ]),
-            );
-        final lastChapter =
-            _field(node, source.search.lastChapter, context, script).ifBlank(
               _commonJsonField(node, const <String>[
                 'lastChapter',
                 'latestChapter',
                 'last_chapter',
               ]),
             );
-        final kindRaw = _field(node, source.search.kind, context, script)
-            .ifBlank(
-              _commonJsonField(node, const <String>[
-                'kind',
-                'category',
-                'status',
-                'bookStatus',
-              ]),
-            );
+        final kindRaw = _field(node, fields.kind, context, script).ifBlank(
+          _commonJsonField(node, const <String>[
+            'kind',
+            'category',
+            'status',
+            'bookStatus',
+          ]),
+        );
         final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
         final rawWordCount = _field(
           node,
-          source.search.wordCount,
+          fields.wordCount,
           context,
           script,
         ).ifBlank(_commonJsonField(node, _onlineWordCountFields));
         final rawChapterCount = _field(
           node,
-          source.search.chapterCount,
+          fields.chapterCount,
           context,
           script,
         ).ifBlank(_commonJsonField(node, _onlineChapterCountFields));
         final rawUpdateTime = _field(
           node,
-          source.search.updateTime,
+          fields.updateTime,
           context,
           script,
         ).ifBlank(_commonJsonField(node, _onlineUpdateTimeFields));
@@ -369,7 +443,7 @@ class BookSourceService {
           tocOptions: bookRequest.options,
           coverUrl: rules.resolveUrl(context.pageUrl, cover),
           intro: normalizeOnlineIntro(
-            _field(node, source.search.intro, context, script, true).ifBlank(
+            _field(node, fields.intro, context, script, true).ifBlank(
               _commonJsonField(node, const <String>[
                 'intro',
                 'description',
@@ -377,7 +451,7 @@ class BookSourceService {
               ]),
             ),
           ),
-          kind: status.ifBlank(kindRaw),
+          kind: requestUrl == null ? status.ifBlank(kindRaw) : kindRaw,
           status: status,
           wordCount: normalizeOnlineWordCount(rawWordCount),
           chapterCount: parseOnlineChapterCount(rawChapterCount),
@@ -1363,9 +1437,10 @@ class BookSourceService {
     String query,
     int page, [
     BookSourceScriptSession? script,
+    String? requestUrl,
   ]) {
     final encoded = Uri.encodeQueryComponent(query);
-    final searchUrl = source.searchUrl.trim();
+    final searchUrl = (requestUrl ?? source.searchUrl).trim();
     if (searchUrl.toLowerCase().startsWith('@js:')) {
       if (script == null) {
         throw const BookSourceException('该书源的搜索地址依赖 JS，当前版本暂不支持');
@@ -1403,7 +1478,7 @@ class BookSourceService {
       }
       return result;
     }
-    var template = source.searchUrl.replaceAllMapped(
+    var template = searchUrl.replaceAllMapped(
       RegExp(r'\{\{\s*\(\s*page\s*-\s*1\s*\)\s*\*\s*10\s*\}\}'),
       (_) => '${(page - 1) * 10}',
     );

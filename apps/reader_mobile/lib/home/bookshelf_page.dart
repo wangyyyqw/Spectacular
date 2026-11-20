@@ -14,7 +14,6 @@ import 'package:reader_core/epub/importer.dart';
 
 import '../book_source/book_source_models.dart';
 import '../book_source/online_book_controller.dart';
-import '../book_source/online_search_page.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_models.dart';
@@ -1037,26 +1036,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  Future<void> _openOnlineSearch() async {
-    final controller = widget.onlineBooks;
-    if (controller == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('在线书源暂不可用')));
-      return;
-    }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => OnlineSearchPage(
-          controller: controller,
-          onRead: _bookOpener.openOnline,
-        ),
-      ),
-    );
-    if (mounted) {
-      await _reload();
-    }
-  }
-
   Future<void> _updateFromOnlineSource(
     OnlineBookController controller,
     BookEntry entry,
@@ -1380,13 +1359,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
       titleSpacing: 16,
       title: _buildSearchField(),
       actions: [
-        if (widget.onlineBooks != null)
-          IconButton(
-            key: const ValueKey<String>('bookshelf-online-search'),
-            tooltip: '在线找书',
-            onPressed: busy ? null : _openOnlineSearch,
-            icon: const AppIcon(AppGlyph.autoStories),
-          ),
         Padding(
           padding: const EdgeInsets.only(right: 16),
           child: Center(child: _buildImportButton(busy)),

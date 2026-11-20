@@ -262,19 +262,12 @@ void main() {
           find.byKey(ValueKey<String>('book-card-${entry.id}')),
         );
         await _settle(tester);
-        expect(find.text(public ? '起点' : '关联'), findsOneWidget);
+        expect(find.text(public ? '起点中文网' : '未关联'), findsOneWidget);
 
         final publicReading = find.byKey(
           const ValueKey<String>('book-detail-public-reading'),
         );
-        final icon = tester.widget<AppIcon>(
-          find.descendant(of: publicReading, matching: find.byType(AppIcon)),
-        );
-        final theme = Theme.of(tester.element(publicReading));
-        expect(
-          icon.color,
-          public ? theme.disabledColor : theme.colorScheme.onSurface,
-        );
+        expect(publicReading.hitTestable(), findsOneWidget);
         await tester.ensureVisible(publicReading);
         await _settle(tester);
         await tester.tap(publicReading);
