@@ -213,4 +213,34 @@ void main() {
     );
     expect(_listTitles(tester), <String>['C书', 'A书', 'B书']);
   });
+
+  testWidgets('网格与列表按压图书时不覆盖封面', (tester) async {
+    final library = LibraryStore.memory();
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(buildTestEpub(title: '无按压叠层'));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    void expectPressOverlayIsTransparent(String key) {
+      final inkWell = tester.widget<InkWell>(find.byKey(ValueKey(key)));
+      expect(
+        inkWell.overlayColor?.resolve({WidgetState.pressed}),
+        Colors.transparent,
+      );
+    }
+
+    expectPressOverlayIsTransparent('book-card-${entry.id}');
+    await tester.tap(find.byTooltip('列表视图'));
+    await _settle(tester);
+    expectPressOverlayIsTransparent('book-row-${entry.id}');
+  });
 }
