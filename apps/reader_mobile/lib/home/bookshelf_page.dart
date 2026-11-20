@@ -39,7 +39,6 @@ const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
 const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
-const _shelfMetaHeight = 18.0;
 
 /// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
@@ -1413,8 +1412,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
             final item = books[index];
             return _BookCard(
               entry: item.entry,
-              percentInt: item.percentInt,
-              finished: item.finished,
               selectionMode: _selectionMode,
               selected: _selectedIds.contains(item.entry.id),
               onSelect: () => _toggleSelected(item.entry.id),
@@ -1444,8 +1441,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       mainAxisExtent:
           cardWidth / _shelfCoverAspectRatio +
           _shelfTitleGap +
-          textScaler.scale(_shelfTitleHeight) +
-          textScaler.scale(_shelfMetaHeight),
+          textScaler.scale(_shelfTitleHeight),
       mainAxisSpacing: 20,
       crossAxisSpacing: _shelfGridSpacing,
     );
@@ -2414,8 +2410,6 @@ class _ErrorPane extends StatelessWidget {
 class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
-    required this.percentInt,
-    required this.finished,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2425,8 +2419,6 @@ class _BookCard extends StatelessWidget {
   });
 
   final BookEntry entry;
-  final int? percentInt;
-  final bool finished;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2509,21 +2501,6 @@ class _BookCard extends StatelessWidget {
                   color: selectionMode && selected
                       ? theme.colorScheme.primary
                       : null,
-                ),
-              ),
-            ),
-          ),
-          SizedBox(
-            height: MediaQuery.textScalerOf(context).scale(_shelfMetaHeight),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                _shelfMetaLabel(entry, percentInt, finished),
-                key: ValueKey<String>('book-card-meta-${entry.id}'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ),

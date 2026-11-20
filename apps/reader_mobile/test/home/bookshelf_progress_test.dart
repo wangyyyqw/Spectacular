@@ -97,7 +97,8 @@ void main() {
     );
     await _settle(tester, frames: 16);
 
-    expect(find.textContaining('在读 50%'), findsOneWidget);
+    expect(find.textContaining('在读 50%'), findsNothing);
+    expect(find.byKey(ValueKey('book-card-meta-${entry.id}')), findsNothing);
     expect(progressStore.loads, 0, reason: '书架应一次读取全部进度');
     expect(progressStore.snapshots, 1);
     await tester.tap(find.byTooltip('列表视图'));
