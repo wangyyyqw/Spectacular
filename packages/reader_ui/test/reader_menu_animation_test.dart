@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
+import 'package:reader_ui/theme/reader_panel_theme.dart';
 
 Widget _menu({
   required bool open,
@@ -46,6 +47,46 @@ Widget _menu({
 );
 
 void main() {
+  testWidgets('抽屉动画复用主题和导航，静态内容不随动画逐帧重绘', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var paints = 0;
+    await tester.pumpWidget(_menu(open: true));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      _menu(
+        open: true,
+        drawer: true,
+        content: CustomPaint(
+          painter: _PaintProbe(() => paints++),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 40));
+    final painted = paints;
+    expect(painted, greaterThan(0));
+    final rebuilt = <Type>[];
+    final previous = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtBefore) {
+      previous?.call(element, builtBefore);
+      if (builtBefore &&
+          (element.widget is ReaderPanelTheme ||
+              element.widget is ReaderFrostedSurface ||
+              element.widget.key == const ValueKey('drawer-entry-settings'))) {
+        rebuilt.add(element.widget.runtimeType);
+      }
+    };
+    addTearDown(() => debugOnRebuildDirtyWidget = previous);
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(rebuilt, isEmpty);
+    expect(paints, painted, reason: '露出区域变化只合成已有内容');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('四入口位置以未展开时为准，再点当前项原位收起，进度条结束后恢复', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -381,4 +422,19 @@ void main() {
       expect(find.byKey(const ValueKey('reader-drawer-surface')), findsNothing);
     });
   }
+}
+
+class _PaintProbe extends CustomPainter {
+  _PaintProbe(this.onPaint);
+
+  final VoidCallback onPaint;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    onPaint();
+    canvas.drawRect(Offset.zero & size, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(_PaintProbe oldDelegate) => false;
 }

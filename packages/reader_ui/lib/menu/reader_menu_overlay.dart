@@ -759,6 +759,13 @@ class _DrawerLayerState extends State<_DrawerLayer>
       final media = MediaQuery.of(context);
       final bottom = media.viewInsets.bottom;
       _height = (constraints.maxHeight - media.padding.top - bottom) * 0.75;
+      final bottomInset = media.padding.bottom.clamp(
+        widget.safeBottom,
+        double.infinity,
+      );
+      final navigationHeight =
+          _EntriesRow.itemHeight + _EntriesRow.padding.vertical + bottomInset;
+      final contentHeight = _height - navigationHeight;
       return AnimatedBuilder(
         animation: Listenable.merge([widget.animation, _drag]),
         builder: (context, panel) {
@@ -769,28 +776,37 @@ class _DrawerLayerState extends State<_DrawerLayer>
               excluding: exiting || _closing,
               child: ExcludeSemantics(
                 excluding: exiting || _closing,
-                child: _buildLayers(panel!, bottom),
+                child: _buildLayers(
+                  panel!,
+                  bottom,
+                  navigationHeight,
+                  contentHeight,
+                ),
               ),
             ),
           );
         },
-        child: Column(
-          children: [
-            _buildHandle(),
-            Expanded(child: _buildScrollableContent()),
-          ],
+        // 动画只更新遮罩和露出高度，主题、导航与面板内容复用同一棵子树。
+        child: _buildPanel(
+          Column(
+            children: [
+              _buildHandle(),
+              Expanded(child: _buildScrollableContent()),
+            ],
+          ),
+          contentHeight,
         ),
       );
     },
   );
 
-  Widget _buildLayers(Widget content, double bottom) {
+  Widget _buildLayers(
+    Widget panel,
+    double bottom,
+    double navigationHeight,
+    double contentHeight,
+  ) {
     final progress = widget.animation.value;
-    final bottomInset = MediaQuery.paddingOf(context).bottom
-        .clamp(widget.safeBottom, double.infinity);
-    final navigationHeight =
-        _EntriesRow.itemHeight + _EntriesRow.padding.vertical + bottomInset;
-    final contentHeight = _height - navigationHeight;
     final revealedHeight =
         (contentHeight - _drag.value).clamp(0.0, contentHeight) * progress;
     return Stack(
@@ -812,7 +828,7 @@ class _DrawerLayerState extends State<_DrawerLayer>
           right: 0,
           bottom: bottom,
           height: navigationHeight + revealedHeight,
-          child: _buildPanel(content, contentHeight),
+          child: panel,
         ),
       ],
     );
@@ -850,11 +866,11 @@ class _DrawerLayerState extends State<_DrawerLayer>
             alignment: Alignment.topCenter,
             minHeight: contentHeight,
             maxHeight: contentHeight,
-            child: content,
+            child: RepaintBoundary(child: content),
           ),
         ),
       ),
-      _buildNavigation(),
+      RepaintBoundary(child: _buildNavigation()),
     ],
   );
 
