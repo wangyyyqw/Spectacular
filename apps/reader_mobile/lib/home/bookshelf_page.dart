@@ -1498,8 +1498,8 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     final key = ValueKey((widget.groupId, widget.grid));
     return ClipRect(
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 280),
-        reverseDuration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 200),
+        reverseDuration: const Duration(milliseconds: 150),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeOutCubic,
         layoutBuilder: _layoutLayers,
@@ -1520,12 +1520,12 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
         : -_groupDirection;
     final content = direction == 0
         ? ScaleTransition(
-            scale: Tween(begin: .97, end: 1.0).animate(animation),
+            scale: Tween(begin: .98, end: 1.0).animate(animation),
             child: child,
           )
         : SlideTransition(
             position: Tween(
-              begin: Offset(direction * .18, 0),
+              begin: Offset(direction * .1, 0),
               end: Offset.zero,
             ).animate(animation),
             child: child,
