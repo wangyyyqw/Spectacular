@@ -21,6 +21,10 @@ import '../support/reader_pump.dart';
 
 void main() {
   testWidgets('发现页加载分类、切换分类、去重分页并搜索，搜索栏位于按钮栏上方', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final dir = Directory.systemTemp.createTempSync('discover-test');
     final store = BookSourceStore(directoryProvider: () async => dir);
     final requested = <Uri>[];
@@ -29,7 +33,9 @@ void main() {
       httpClient: BookSourceHttpClient(
         client: MockClient((request) async {
           requested.add(request.url);
-          final name = request.url.path.contains('search')
+          final name = request.url.host == 'second.example.com'
+              ? '第二来源书'
+              : request.url.path.contains('search')
               ? '搜索书'
               : request.url.queryParameters['sort'] == 'popular'
               ? '人气书'
@@ -37,7 +43,12 @@ void main() {
           return http.Response(
             jsonEncode({
               'books': [
-                {'name': name, 'author': '作者', 'url': '/book/$name'},
+                {
+                  'name': name,
+                  'author': '作者',
+                  'status': '连载',
+                  'url': '/book/$name',
+                },
               ],
             }),
             200,
@@ -68,13 +79,40 @@ void main() {
             'chapterUrl': 'url',
           },
           'ruleContent': {'content': 'content'},
-          'exploreUrl': '最近更新::/latest?sort=updated&page={{page}}\n人气最高::/latest?sort=popular&page={{page}}\n起点::/latest?platform=qidian&page={{page}}',
+          'exploreUrl': '最近更新::/latest?sort=updated&page={{page}}\n人气最高::/latest?sort=popular&page={{page}}\n起点::/latest?platform=qidian&page={{page}}\n玄幻奇幻::/latest?tag=玄幻&page={{page}}\n都市修真::/latest?tag=都市&page={{page}}',
           'ruleSearch': {
             'bookList': r'$.books',
             'name': 'name',
             'author': 'author',
             'bookUrl': 'url',
           },
+          'ruleExplore': {
+            'bookList': r'$.books',
+            'name': 'name',
+            'author': 'author',
+            'bookUrl': 'url',
+          },
+        }),
+      );
+      await store.importText(
+        jsonEncode({
+          'bookSourceName': '第二来源',
+          'bookSourceUrl': 'https://second.example.com',
+          'searchUrl': '/search?q={{key}}',
+          'ruleSearch': {
+            'bookList': r'$.books',
+            'name': 'name',
+            'author': 'author',
+            'bookUrl': 'url',
+          },
+          'enabledExplore': true,
+          'exploreUrl': '推荐::/recommended',
+          'ruleToc': {
+            'chapterList': r'$.chapters',
+            'chapterName': 'name',
+            'chapterUrl': 'url',
+          },
+          'ruleContent': {'content': 'content'},
           'ruleExplore': {
             'bookList': r'$.books',
             'name': 'name',
@@ -91,6 +129,7 @@ void main() {
     await pumpReaderUntil(tester, find.text('更新书'));
     await tester.pumpAndSettle();
     expect(find.text('更新书'), findsWidgets);
+    expect(find.textContaining('作者 · 连载 / '), findsOneWidget);
     final categoryText = tester.widget<Text>(find.text('最近更新'));
     final categoryTheme = Theme.of(tester.element(find.text('最近更新')));
     expect(
@@ -116,6 +155,11 @@ void main() {
         tester.getRect(find.byKey(const ValueKey('discover-toggle-view'))).left,
       ),
     );
+    tester.view.physicalSize = const Size(800, 844);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('分类分组'), findsNothing);
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('分类分组'));
     await tester.pumpAndSettle();
     final firstChoice = find.byKey(const ValueKey('discover-choice-最近更新'));
@@ -179,6 +223,18 @@ void main() {
           .crossAxisCount,
       greaterThanOrEqualTo(3),
     );
+    await tester.tap(find.byTooltip('筛选管理'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('切换书源'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('第二来源'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('应用'));
+    await pumpReaderUntil(tester, find.text('第二来源书'));
+    await tester.pumpAndSettle();
+    expect(find.text('推荐'), findsOneWidget);
+    expect(find.byTooltip('分类分组'), findsNothing);
+    expect(requested.last.host, 'second.example.com');
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -239,6 +295,7 @@ void main() {
     );
     final sort = find.byKey(const ValueKey('discover-filter-排序'));
     final platform = find.byKey(const ValueKey('discover-filter-平台'));
+    expect(tester.getRect(sourceArrow).right, tester.getRect(platform).right);
     expect(tester.getSize(sort).height, 44);
     expect(tester.getRect(sort).bottom, tester.getRect(platform).top);
     await tester.tap(find.byKey(const ValueKey('discover-filter-标签')));

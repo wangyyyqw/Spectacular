@@ -382,87 +382,131 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ),
         ),
         actions: [
-          IconButton(
-            key: const ValueKey('discover-source-menu'),
-            tooltip: '筛选管理',
-            icon: const AppIcon(AppGlyph.more),
-            onPressed: _openFilter,
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Material(
+                color: colors.surface,
+                borderRadius: BorderRadius.circular(22),
+                elevation: 2,
+                shadowColor: colors.shadow.withValues(alpha: .12),
+                child: IconButton(
+                  key: const ValueKey('discover-source-menu'),
+                  tooltip: '筛选管理',
+                  constraints: const BoxConstraints.tightFor(
+                    width: 44,
+                    height: 44,
+                  ),
+                  icon: const AppIcon(AppGlyph.more),
+                  onPressed: _openFilter,
+                ),
+              ),
+            ),
           ),
-          const SizedBox(width: 8),
         ],
       ),
       body: Column(
         children: [
-          Row(
-            key: const ValueKey('discover-category-toolbar'),
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      if (_searchMode)
-                        Text(
-                          '搜索结果 ${_books.length}',
-                          style: theme.textTheme.bodyMedium,
-                        )
-                      else if (_categories.isEmpty)
-                        Text(
-                          _source?.name ?? '发现',
-                          style: theme.textTheme.bodyMedium,
-                        )
-                      else
-                        for (final category in [
-                          ?_filteredCategory,
-                          ..._categories,
-                        ])
-                          Semantics(
-                            selected: category == _category,
-                            button: true,
-                            child: InkWell(
-                              onTap: () {
-                                setState(() {
-                                  _category = category;
-                                  _searchMode = false;
-                                });
-                                unawaited(_load(reset: true));
-                              },
-                              child: Container(
-                                margin: const EdgeInsets.only(right: 20),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                child: Text(
-                                  category.title,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: colors.onSurface,
-                                    fontWeight: category == _category
-                                        ? FontWeight.w600
-                                        : FontWeight.normal,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final categories = [?_filteredCategory, ..._categories];
+              var categoryWidth = 32.0;
+              for (final category in categories) {
+                final painter = TextPainter(
+                  text: TextSpan(
+                    text: category.title,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: category == _category
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  textDirection: Directionality.of(context),
+                  textScaler: MediaQuery.textScalerOf(context),
+                )..layout();
+                categoryWidth += painter.width + 20;
+                painter.dispose();
+              }
+              final showPicker =
+                  !_searchMode &&
+                  categories.isNotEmpty &&
+                  categoryWidth > constraints.maxWidth - 56;
+              return Row(
+                key: const ValueKey('discover-category-toolbar'),
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          if (_searchMode)
+                            Text(
+                              '搜索结果 ${_books.length}',
+                              style: theme.textTheme.bodyMedium,
+                            )
+                          else if (_categories.isEmpty)
+                            Text(
+                              _source?.name ?? '发现',
+                              style: theme.textTheme.bodyMedium,
+                            )
+                          else
+                            for (final category in [
+                              ?_filteredCategory,
+                              ..._categories,
+                            ])
+                              Semantics(
+                                selected: category == _category,
+                                button: true,
+                                child: InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      _category = category;
+                                      _searchMode = false;
+                                    });
+                                    unawaited(_load(reset: true));
+                                  },
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 20),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    child: Text(
+                                      category.title,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: colors.onSurface,
+                                            fontWeight: category == _category
+                                                ? FontWeight.w600
+                                                : FontWeight.normal,
+                                          ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              IconButton(
-                key: const ValueKey('discover-category-picker'),
-                tooltip: '分类分组',
-                onPressed: _categories.isEmpty ? null : _pickCategory,
-                icon: const AppIcon(AppGlyph.chevronDown, size: 18),
-              ),
-              IconButton(
-                key: const ValueKey('discover-toggle-view'),
-                tooltip: _grid ? '列表视图' : '网格视图',
-                onPressed: () => setState(() => _grid = !_grid),
-                icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
-              ),
-              const SizedBox(width: 8),
-            ],
+                  if (showPicker)
+                    IconButton(
+                      key: const ValueKey('discover-category-picker'),
+                      tooltip: '分类分组',
+                      onPressed: _categories.isEmpty ? null : _pickCategory,
+                      icon: const AppIcon(AppGlyph.chevronDown, size: 18),
+                    ),
+                  IconButton(
+                    key: const ValueKey('discover-toggle-view'),
+                    tooltip: _grid ? '列表视图' : '网格视图',
+                    onPressed: () => setState(() => _grid = !_grid),
+                    icon: AppIcon(
+                      _grid ? AppGlyph.listView : AppGlyph.gridView,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              );
+            },
           ),
           if (_loading) const LinearProgressIndicator(minHeight: 2),
           Expanded(child: _buildList()),
@@ -598,8 +642,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
           const SizedBox(height: 3),
           Text(
             [
-              book.author.isEmpty ? '佚名' : book.author,
-              if (book.status.isNotEmpty) book.status,
+              [
+                book.author.isEmpty ? '佚名' : book.author,
+                if (book.status.isNotEmpty) book.status,
+              ].join(' · '),
               if (book.wordCount.isNotEmpty) book.wordCount,
               _platformAndTags(book, source).$1,
             ].join(' / '),

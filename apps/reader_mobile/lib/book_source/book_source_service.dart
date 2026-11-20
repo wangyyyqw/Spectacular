@@ -389,20 +389,33 @@ class BookSourceService {
           context,
           script,
         ).ifBlank(_commonJsonField(node, const <String>['author', 'writer']));
-        final cover = _field(node, fields.coverUrl, context, script).ifBlank(
+        var cover = _field(node, fields.coverUrl, context, script).ifBlank(
           _commonJsonField(node, const <String>[
             'coverUrl',
             'cover',
             'picUrl',
             'imageUrl',
+            'thumb_url',
+            'thumbUrl',
           ]),
         );
+        // 部分书源用图片标识拼出的旧地址已失效，保留接口提供的签名缩略图。
+        if (Uri.tryParse(cover)?.path.contains('/novel-pic-r/') ?? false) {
+          final thumbnail = _commonJsonField(node, const [
+            'thumb_url',
+            'thumbUrl',
+          ]);
+          if (_isHttpUrl(thumbnail)) cover = thumbnail;
+        }
         final lastChapter = _field(node, fields.lastChapter, context, script)
             .ifBlank(
               _commonJsonField(node, const <String>[
                 'lastChapter',
                 'latestChapter',
                 'last_chapter',
+                'last_chapter_title',
+                'latest_chapter_name',
+                'lastChapterTitle',
               ]),
             );
         final kindRaw = _field(node, fields.kind, context, script).ifBlank(
@@ -413,7 +426,18 @@ class BookSourceService {
             'bookStatus',
           ]),
         );
-        final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter);
+        final status = normalizeOnlineStatus(kindRaw, lastChapter: lastChapter)
+            .ifBlank(
+              normalizeOnlineStatus(
+                _commonJsonField(node, const [
+                  'status',
+                  'bookStatus',
+                  'serializeStatus',
+                  'serializeStatusName',
+                  'creation_status',
+                ]),
+              ),
+            );
         final rawWordCount = _field(
           node,
           fields.wordCount,

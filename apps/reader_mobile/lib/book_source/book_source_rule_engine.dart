@@ -47,6 +47,10 @@ class BookSourceRuleEngine {
   }) {
     final rule = rawRule.trim();
     if (rule.isEmpty) return const <Object>[];
+    // 后置脚本处理整个前导规则的结果，不能被前导的 || 提前截断。
+    if (_splitScriptRule(rule) != null) {
+      return _evaluateSingle(root, rule, context, script);
+    }
     final alternatives = _splitTopLevel(rule, '||');
     if (alternatives.length > 1) {
       for (final alternative in alternatives) {
@@ -162,7 +166,7 @@ class BookSourceRuleEngine {
       final leading = parts.leading.trim();
       final inputs = leading.isEmpty
           ? <Object?>[root]
-          : _evaluateSingle(root, leading, context, script);
+          : evaluateList(root, leading, context, script: script);
       final output = <Object>[];
       for (final input in inputs) {
         final evaluated = script
@@ -178,10 +182,11 @@ class BookSourceRuleEngine {
         if (evaluated.isEmpty) continue;
         if (parts.trailing.isNotEmpty) {
           output.addAll(
-            _evaluatePlain(
+            evaluateList(
               _parseScriptOutput(evaluated),
               parts.trailing,
               context,
+              script: script,
             ),
           );
         } else {

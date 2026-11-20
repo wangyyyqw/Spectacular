@@ -77,40 +77,42 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
           const Expanded(child: Text('筛选管理')),
           if (_source != null)
             Flexible(
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: _source!.id,
-                  isDense: true,
-                  icon: const AppIcon(
-                    AppGlyph.chevronDown,
-                    key: ValueKey('discover-source-arrow'),
-                    size: 18,
-                  ),
-                  style: theme.textTheme.bodyMedium,
-                  selectedItemBuilder: (context) => [
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: PopupMenuButton<String>(
+                  tooltip: '切换书源',
+                  initialValue: _source!.id,
+                  itemBuilder: (context) => [
                     for (final source in widget.sources)
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 120),
-                        child: Text(
-                          source.name,
-                          key: ValueKey('discover-source-name-${source.id}'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                      PopupMenuItem(value: source.id, child: Text(source.name)),
                   ],
-                  items: [
-                    for (final source in widget.sources)
-                      DropdownMenuItem(
-                        value: source.id,
-                        child: Text(
-                          source.name,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                  onChanged: (id) => setState(
+                  onSelected: (id) => setState(
                     () => _source = widget.sources.firstWhere(
                       (source) => source.id == id,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _source!.name,
+                            key: ValueKey(
+                              'discover-source-name-${_source!.id}',
+                            ),
+                            style: theme.textTheme.bodyMedium,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const AppIcon(
+                          AppGlyph.chevronDown,
+                          key: ValueKey('discover-source-arrow'),
+                          size: 18,
+                        ),
+                      ],
                     ),
                   ),
                 ),

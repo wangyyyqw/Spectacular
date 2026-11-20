@@ -179,4 +179,81 @@ function search(params){var parts=[];parts.push('cache_min=1');parts.push('page=
     expect((await service.search(source, '搜索书')).single.name, '搜索书');
     expect(requests.last.url.queryParameters['q'], '搜索书');
   });
+
+  test('发现保留接口签名缩略图并读取独立状态、简介和最新章节', () async {
+    const thumbnail =
+        'https://p3-reading-sign.fqnovelpic.com/novel-pic-r/image'
+        '~tplv-shrink:240:0.image?x-signature=a%2Bb%3D&x-expires=1802978218';
+    final service = BookSourceService(
+      scriptFactory: fakeScriptFactory(
+        FakeBookSourceScriptSession((code, result, variables, session) {
+          if (code.trim() == 'result') return result;
+          expect(code, contains('result.startsWith("http")'));
+          expect(result, 'novel-pic-r/image');
+          return 'http://p6-novel.byteimg.com/$result'
+              '~tplv-shrink:320:0.image';
+        }),
+      ),
+      httpClient: BookSourceHttpClient(
+        client: MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'data': {
+                'cell_view': {
+                  'book_data': [
+                    {
+                      'book_name': '番茄发现书',
+                      'book_id': '123',
+                      'author': '测试作者',
+                      'thumb_uri': 'novel-pic-r/image',
+                      'thumb_url': thumbnail,
+                      'category': '都市脑洞',
+                      'creation_status': '1',
+                      'abstract': '发现书简介',
+                      'word_number': '250256',
+                      'last_chapter_title': '最新章节',
+                    },
+                  ],
+                },
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          ),
+        ),
+      ),
+    );
+    addTearDown(service.dispose);
+    final source = BookSource.fromJson({
+      'bookSourceName': '番茄测试源',
+      'bookSourceUrl': 'https://example.com',
+      'ruleExplore': {
+        'bookList':
+            '<js>result</js>\n'
+            r'$.data.detail_list[*]||$.data.cell_view.book_data',
+        'name': 'book_name',
+        'author': 'author',
+        'bookUrl': 'https://example.com/book/123',
+        'coverUrl':
+            r'$.thumb_uri||$.thumb_url'
+            '\n'
+            '@js:result.startsWith("http")?result:'
+            '"http://p6-novel.byteimg.com/"+result+"~tplv-shrink:320:0.image"',
+        'kind': 'category',
+        'intro': 'abstract',
+        'wordCount': 'word_number',
+      },
+    });
+    final books = await service.discover(
+      source,
+      const BookDiscoverCategory('推荐', '/recommended'),
+    );
+    expect(books, hasLength(1));
+    expect(books.single.coverUrl, thumbnail);
+    expect(books.single.status, '连载');
+    expect(books.single.kind, '都市脑洞');
+    expect(books.single.intro, '发现书简介');
+    expect(books.single.lastChapter, '最新章节');
+    expect(books.single.wordCount, '25万字');
+  });
 }
