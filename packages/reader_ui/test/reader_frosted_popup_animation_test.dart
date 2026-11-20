@@ -7,8 +7,12 @@ import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
-  for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
-    testWidgets('${theme.name}居中磨砂弹窗入场末帧与退场首帧不突变', (tester) async {
+  for (final theme in [
+    ReaderTheme.white,
+    ReaderTheme.black,
+    ReaderTheme.sepia,
+  ]) {
+    testWidgets('${theme.name}居中弹窗完全不透明且入场末帧与退场首帧不突变', (tester) async {
       // 真机 1080×2400、450 dpi 对应的逻辑视口。
       await tester.binding.setSurfaceSize(const Size(384, 2560 / 3));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -51,6 +55,12 @@ void main() {
       final entering = await _samples(tester, boundary);
       await tester.pump(const Duration(milliseconds: 10));
       final settled = await _samples(tester, boundary);
+      expect(
+        settled,
+        everyElement(closeTo(theme.background.r * 255, 1)),
+        reason: '底板覆盖黑白背景，颜色不得混入背景或遮罩',
+      );
+      expect(find.byType(BackdropFilter), findsNothing);
       _expectContinuous(entering, settled, '入场末帧');
       navigator.currentState!.pop();
       await tester.pump();
@@ -80,7 +90,7 @@ Future<List<int>> _samples(WidgetTester tester, GlobalKey key) async {
 
 void _expectContinuous(List<int> frame, List<int> settled, String phase) {
   for (var i = 0; i < settled.length; i++) {
-    expect(frame[i], closeTo(settled[i], 5), reason: '$phase磨砂底板不得突变');
+    expect(frame[i], closeTo(settled[i], 5), reason: '$phase底板不得突变');
   }
 }
 

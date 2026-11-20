@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
-/// 阅读控件共用的凝光底板：高斯模糊、凝实底色和柔和高光，无玻璃折射。
+/// 阅读控件共用的实色底板：完全不透明，保留柔和高光和阴影，不采样背景。
 class ReaderFrostedSurface extends StatelessWidget {
   const ReaderFrostedSurface({
     super.key,
@@ -52,10 +52,10 @@ class ReaderFrostedSurface extends StatelessWidget {
                         MediaQuery.highContrastOf(context)
                     ? GlassSurfaceStyle.solid
                     : GlassSurfaceStyle.glass,
-                color: scheme.surface,
+                color: scheme.surface.withValues(alpha: 1),
                 settings: LiquidGlassSettings(
-                  glassColor: scheme.surface.withValues(alpha: 0.75),
-                  blur: 16,
+                  glassColor: scheme.surface.withValues(alpha: 1),
+                  blur: 0,
                   thickness: 6,
                   refractiveIndex: 1,
                   chromaticAberration: 0,
