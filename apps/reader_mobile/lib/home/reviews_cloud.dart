@@ -1,6 +1,7 @@
 import 'package:reader_ui/annotations/annotation.dart';
 
 import '../library/library_store.dart';
+import '../rea_micro/rea_micro_annotation_cfi.dart';
 import '../rea_micro/rea_micro_models.dart';
 import '../storage/book_review_store.dart';
 
@@ -232,21 +233,35 @@ CloudReviewMerge mergeCloudReviews({
   );
 }
 
-/// 合并本地与云端标注；相同类型和 CFI 区间的记录只保留本地版本。
+/// 合并本地与云端标注；先认云端身份，再核对转换后的 CFI 区间。
 List<ReaderAnnotation> mergeCloudMarks(
   List<ReaderAnnotation> local,
-  List<ReaMicroMark> remote,
-) {
+  List<ReaMicroMark> remote, {
+  Map<String, int> cloudIds = const {},
+  ReaMicroAnnotationCfis? cfis,
+}) {
   final merged = List<ReaderAnnotation>.of(local);
-  final ranges = <String>{
-    for (final annotation in local)
-      '${annotation.type.storageValue}|${annotation.startCfi}|${annotation.endCfi}',
-  };
+  final seenCloudIds = <int>{};
   for (final mark in remote) {
     if (mark.startCfi.trim().isEmpty) continue;
+    if (mark.id > 0 && !seenCloudIds.add(mark.id)) continue;
     final end = mark.endCfi.trim().isEmpty ? mark.startCfi : mark.endCfi;
-    final key = '${mark.kind}|${mark.startCfi}|$end';
-    if (!ranges.add(key)) continue;
+    if (merged.any((annotation) {
+      if (mark.id > 0 &&
+          (cloudIds[annotation.id] == mark.id ||
+              annotation.id == 'mark-cloud-${mark.id}' ||
+              annotation.id == 'mark-lan-${mark.id}')) {
+        return true;
+      }
+      bool matches(String localCfi, String remoteCfi) =>
+          localCfi == remoteCfi ||
+          (cfis?.matches(localCfi, remoteCfi) ?? false);
+      return annotation.type.storageValue == mark.kind &&
+          matches(annotation.startCfi, mark.startCfi) &&
+          matches(annotation.endCfi, end);
+    })) {
+      continue;
+    }
     merged.add(annotationFromCloudMark(mark));
   }
   merged.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
@@ -290,7 +305,8 @@ BookEntry? matchLocalBook({
   for (final book in books) {
     final link = links[book.id];
     if (link == null) continue;
-    if (link.cloudBookId == cloudBookId ||
+    if ((cloudBookId > 0 && link.cloudBookId == cloudBookId) ||
+        (bookId > 0 && link.userBookId == bookId) ||
         (bookId > 0 && link.cloudBookId == bookId)) {
       return book;
     }

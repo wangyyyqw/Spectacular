@@ -492,7 +492,17 @@ class ReaMicroController extends ChangeNotifier {
     }
   }
 
-  /// 读取一本书在阅微的划线或想法，供书评页直接展示云端笔记。
+  /// 读取本地标注的云端身份，供笔记页合并转换过坐标的记录。
+  Map<String, int> annotationCloudIds(String bookId) {
+    final prefix = '$bookId|';
+    return {
+      for (final entry in _markIds.entries)
+        if (entry.key.startsWith(prefix))
+          entry.key.substring(prefix.length): entry.value,
+    };
+  }
+
+  /// 按内部书籍身份读取云端标注，公开书库 ID 只用于兼容旧记录。
   Future<List<ReaMicroMark>> loadBookMarks({
     required int cloudBookId,
     int bookId = 0,
@@ -506,8 +516,8 @@ class ReaMicroController extends ChangeNotifier {
     }
     try {
       final ids = <String>[
-        if (cloudId.isNotEmpty) cloudId,
-        if (internalId.isNotEmpty && internalId != cloudId) internalId,
+        if (internalId.isNotEmpty) internalId,
+        if (cloudId.isNotEmpty && cloudId != internalId) cloudId,
       ];
       for (final id in ids) {
         final marks = await _api.fetchMarks(token, bookId: id);
@@ -1521,8 +1531,16 @@ class ReaMicroController extends ChangeNotifier {
         cloudBookId: book.cloudBookId,
         name: book.name,
         author: book.author,
-        userBookId: userBookId > 0 ? userBookId : previous?.userBookId ?? 0,
-        publisherId: publisherId > 0 ? publisherId : previous?.publisherId ?? 0,
+        userBookId: userBookId > 0
+            ? userBookId
+            : previous?.cloudBookId == book.cloudBookId
+            ? previous!.userBookId
+            : 0,
+        publisherId: publisherId > 0
+            ? publisherId
+            : previous?.cloudBookId == book.cloudBookId
+            ? previous!.publisherId
+            : 0,
         linkedAt: DateTime.now(),
       ),
     };
@@ -1938,7 +1956,12 @@ class ReaMicroController extends ChangeNotifier {
         final prefix = '$localBookId|';
         final remoteForBook = <ReaMicroMark>[
           for (final mark in remoteMarks)
-            if (_remoteMarkBelongsTo(mark, localBook, markBookId) ||
+            if (_remoteMarkBelongsTo(
+                  mark,
+                  localBook,
+                  markBookId,
+                  _syncBooks[localBookId]?.cloudBookId ?? identity.cloudBookId,
+                ) ||
                 nextMarkIds.entries.any(
                   (entry) =>
                       entry.key.startsWith(prefix) && entry.value == mark.id,
@@ -2150,19 +2173,59 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroBookSyncIdentity identity,
     List<ReaMicroBookRecord> records,
   ) async {
+    if (_token != token) throw const ReaMicroException('账号已变更，同步已停止');
     // 阅读接口 bookId 对应阅微内部书籍，不是公开书库 cloudBookId。
     final matches = records
         .where(
           (record) =>
               record.bookId > 0 &&
-              record.cloudBookId == identity.cloudBookId &&
+              (record.cloudBookId == identity.cloudBookId ||
+                  record.bookId == identity.cloudBookId) &&
               _normalizeBookText(record.name) ==
                   _normalizeBookText(book.title) &&
               _normalizeBookText(record.author) ==
                   _normalizeBookText(book.author),
         )
         .toList();
-    if (matches.length == 1) return matches.single.bookId;
+    if (matches.length == 1) {
+      final record = matches.single;
+      // 旧关联曾把内部 bookId 当公开 ID 保存；同时修正两份身份，
+      // 避免下一轮被旧 link 覆盖，或登记没有封面的另一条用户书。
+      final cloudBookId = record.cloudBookId > 0
+          ? record.cloudBookId
+          : identity.cloudBookId;
+      final previous = _syncBooks[book.id];
+      if (previous?.cloudBookId != cloudBookId ||
+          previous?.userBookId != record.bookId) {
+        _syncBooks = {
+          ..._syncBooks,
+          book.id: ReaMicroBookSyncIdentity(
+            cloudBookId: cloudBookId,
+            userBookId: record.bookId,
+          ),
+        };
+        await _store.saveSyncBooks(_syncBooks);
+      }
+      if (_token != token) throw const ReaMicroException('账号已变更，同步已停止');
+      final link = _links[book.id];
+      if (link != null &&
+          (link.cloudBookId != cloudBookId ||
+              link.userBookId != record.bookId)) {
+        _links = {
+          ..._links,
+          book.id: ReaMicroBookLink(
+            cloudBookId: cloudBookId,
+            userBookId: record.bookId,
+            name: link.name,
+            author: link.author,
+            publisherId: link.publisherId,
+            linkedAt: link.linkedAt,
+          ),
+        };
+        await _store.saveLinks(_links);
+      }
+      return record.bookId;
+    }
     if (matches.length > 1) {
       throw const ReaMicroException('阅微存在多个同版阅读记录，暂不上传阅读数据');
     }
@@ -2215,10 +2278,14 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroMark mark,
     BookEntry local,
     int markBookId,
+    int cloudBookId,
   ) {
     final remoteBookId = mark.bookId.trim();
     if (remoteBookId == markBookId.toString() || remoteBookId == local.id) {
       return true;
+    }
+    if (int.tryParse(remoteBookId) != null) {
+      return remoteBookId == cloudBookId.toString();
     }
     if (mark.bookName.trim().isEmpty) return false;
     return _normalizeBookText(mark.bookName) ==

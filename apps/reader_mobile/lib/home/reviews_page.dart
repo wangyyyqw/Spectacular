@@ -7,6 +7,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_annotation_cfi.dart';
 import '../rea_micro/rea_micro_models.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
@@ -575,9 +576,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   Future<List<ReaderAnnotation>> _loadNotes(String bookId) async {
-    final local =
-        await widget.library.annotationStore(bookId)?.list() ??
-        const <ReaderAnnotation>[];
+    final local = await widget.library.listBookAnnotations(bookId);
     final remote = _cloudMarkBooks[bookId];
     final controller = widget.reaMicro;
     if (remote == null || controller == null || !controller.signedIn) {
@@ -588,7 +587,20 @@ class _ReviewsPageState extends State<ReviewsPage>
         cloudBookId: remote.cloudBookId,
         bookId: remote.bookId,
       );
-      return mergeCloudMarks(local, cloud);
+      final book = await widget.library.bookById(bookId);
+      final cfis = local.isEmpty || book == null || book.filePath.isEmpty
+          ? null
+          : await ReaMicroAnnotationCfis.load(
+              book.filePath,
+              local: local.expand((mark) => [mark.startCfi, mark.endCfi]),
+              remote: cloud.expand((mark) => [mark.startCfi, mark.endCfi]),
+            );
+      return mergeCloudMarks(
+        local,
+        cloud,
+        cloudIds: controller.annotationCloudIds(bookId),
+        cfis: cfis,
+      );
     } catch (_) {
       return local;
     }

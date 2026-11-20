@@ -129,8 +129,8 @@ void main() {
           bookId: '21',
           chapter: '',
           kind: 0,
-          startCfi: local.startCfi,
-          endCfi: local.endCfi,
+          startCfi: 'epubcfi(/6/2/4/2/1/1:4)',
+          endCfi: 'epubcfi(/6/2/4/2/1/1:12)',
           quote: local.quote,
           note: '',
           style: 0,
@@ -143,5 +143,38 @@ void main() {
     );
 
     expect(merged, hasLength(1));
+    expect(merged.single, same(local));
+    final mappedLocal = ReaderAnnotation(
+      id: '本地创建的标注',
+      type: local.type,
+      startCfi: local.startCfi,
+      endCfi: local.endCfi,
+      quote: local.quote,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final cloud = ReaMicroMark(
+      id: 5,
+      bookId: '21',
+      chapter: '',
+      kind: 0,
+      startCfi: 'epubcfi(/6/2/4/2/1/1:4)',
+      endCfi: 'epubcfi(/6/2/4/2/1/1:12)',
+      quote: local.quote,
+      note: '',
+      style: 0,
+      color: '',
+      synced: 1,
+      createdAt: now.millisecondsSinceEpoch,
+      updatedAt: now.millisecondsSinceEpoch,
+    );
+    expect(
+      mergeCloudMarks(
+        [mappedLocal],
+        [cloud, cloud],
+        cloudIds: {mappedLocal.id: 5},
+      ),
+      [mappedLocal],
+    );
   });
 }

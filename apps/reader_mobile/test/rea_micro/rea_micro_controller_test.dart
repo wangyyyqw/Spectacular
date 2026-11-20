@@ -504,8 +504,8 @@ class _FakeApi implements ReaMicroApi {
       throw const ReaMicroException('登录已失效', unauthorized: true);
     }
     markUpserts.add(mark);
-    if (mark.cloudId > 0) return mark.cloudId;
-    final id = nextMarkId++;
+    final id = mark.cloudId > 0 ? mark.cloudId : nextMarkId++;
+    marks.removeWhere((existing) => existing.id == id);
     marks.add(
       ReaMicroMark(
         id: id,
@@ -2917,6 +2917,77 @@ void main() {
     await reloaded.syncReadingSessions();
     expect(api.uploads.last.single.cloudBookId, 46664);
     expect(api.sessionLogUploads.last.single.cloudBookId, 46664);
+    expect(reloaded.links[book.id]!.userBookId, 46664);
+    expect(
+      (await ReaMicroStore(library).loadSyncBooks())[book.id]!.userBookId,
+      46664,
+    );
+    expect((await reloaded.syncMarks()).requests, 0);
+    expect(api.markUpserts, hasLength(1));
+  });
+
+  test('历史内部 ID 误存公开关联时复用原书且重启不登记副本', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(title: '标注书', identifier: 'urn:uuid:wrong-public-id'),
+    );
+    final store = ReaMicroStore(library);
+    await store.saveLinks({
+      book.id: ReaMicroBookLink(
+        cloudBookId: 46664,
+        name: '标注书',
+        linkedAt: DateTime(2026),
+      ),
+    });
+    await store.saveSyncBooks({
+      book.id: const ReaMicroBookSyncIdentity(
+        cloudBookId: 46664,
+        userBookId: 47400,
+      ),
+    });
+    final api = _FakeApi()
+      ..bookRecords = [
+        const ReaMicroBookRecord(
+          bookId: 46664,
+          cloudBookId: 658,
+          name: '标注书',
+          author: '测试作者',
+          cover: '',
+          progress: 0.1,
+          totalReadTimeSeconds: 10,
+          readDays: 1,
+          finishReadTime: 0,
+          listeningDurationSeconds: 0,
+          readingDurationSeconds: 10,
+        ),
+      ];
+    final created = DateTime.fromMillisecondsSinceEpoch(1000);
+    await library.importBookAnnotation(
+      book.id,
+      ReaderAnnotation(
+        id: 'local',
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/4!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/4!/4/2/1:2)',
+        quote: '原文',
+        note: '想法',
+        createdAt: created,
+        updatedAt: created,
+      ),
+    );
+    var controller = await _createController(library, api);
+    expect((await controller.syncMarks()).success, isTrue);
+    expect(api.markUpserts.single.bookId, '46664');
+    expect(controller.links[book.id]!.cloudBookId, 658);
+    expect(controller.links[book.id]!.userBookId, 46664);
+    expect((await store.loadSyncBooks())[book.id]!.cloudBookId, 658);
+    controller.dispose();
+    controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    expect((await controller.syncMarks()).requests, 0);
+    expect(api.userBookRequests, isEmpty);
+    expect(api.markUpserts, hasLength(1));
+    expect(api.marks, hasLength(1));
   });
 
   test('本地删除标注后删除云端标注', () async {
@@ -3349,7 +3420,7 @@ void main() {
     final marks = await controller.loadBookMarks(cloudBookId: 11, bookId: 8);
 
     expect(marks.map((mark) => mark.bookId), <String>['8']);
-    expect(api.requestedBookIds, <String?>['11', '8']);
+    expect(api.requestedBookIds, <String?>['8']);
   });
 
   test('云端标注按全量列表过滤兜底', () async {
@@ -3363,7 +3434,7 @@ void main() {
 
     expect(marks, hasLength(1));
     expect(marks.single.bookId, '8');
-    expect(api.requestedBookIds, <String?>['11', '8', null]);
+    expect(api.requestedBookIds, <String?>['8', '11', null]);
   });
 }
 
