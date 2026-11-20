@@ -5072,7 +5072,7 @@ class PagePainter {
         runs.any(
           (run) =>
               !run.syntheticFontFallback &&
-              (run.style.margin.left != 0 || run.style.margin.right != 0),
+              (run.style.margin.left < 0 || run.style.margin.right < 0),
         )) {
       final marginPlan = _InlineMarginPlan(
         runs: runs,
@@ -5758,11 +5758,10 @@ class _PaintGroup {
 
 enum _FlowPaintPhase { all, negative, background, foreground }
 
-/// 普通行内 run 的水平 margin 在绘制期的位移。
+/// 普通行内 run 的负水平 margin 沿用绘制期位移。
 ///
-/// flat 排版没有把行内 margin 计入 LineBox 宽度。这里按对齐方式补回外边距
-/// 的居中/右对齐偏移，再让每个 run 从累计外边距处开始；文字、背景和边框
-/// 共用同一组位移，避免背景分块后文字仍停在旧位置。
+/// 正外边距已经由行内留白盒计入换行和对齐，不再二次平移。
+/// 负外边距保持既有行为；文字、背景和边框共用位移。
 class _InlineMarginPlan {
   _InlineMarginPlan({
     required this.runs,
@@ -5774,10 +5773,10 @@ class _InlineMarginPlan {
       // 合成 run 继承正文块样式，不是行内元素；块级 margin 已由页面几何消费。
       if (run.syntheticFontFallback) continue;
       if (_hasLeadingMargin(run)) {
-        _total += run.style.margin.left;
+        _total += math.min(0, run.style.margin.left);
       }
       if (_hasTrailingMargin(run)) {
-        _total += run.style.margin.right;
+        _total += math.min(0, run.style.margin.right);
       }
     }
     _baseShift = switch (textAlign) {
@@ -5807,16 +5806,16 @@ class _InlineMarginPlan {
       if (run.syntheticFontFallback) continue;
       if (run.end <= offset) {
         if (_hasLeadingMargin(run)) {
-          shift += run.style.margin.left;
+          shift += math.min(0, run.style.margin.left);
         }
         if (_hasTrailingMargin(run)) {
-          shift += run.style.margin.right;
+          shift += math.min(0, run.style.margin.right);
         }
         continue;
       }
       if (run.start <= offset) {
         if (_hasLeadingMargin(run)) {
-          shift += run.style.margin.left;
+          shift += math.min(0, run.style.margin.left);
         }
       }
       break;

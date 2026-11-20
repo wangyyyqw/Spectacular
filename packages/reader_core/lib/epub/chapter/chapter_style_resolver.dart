@@ -973,11 +973,13 @@ class _InlineRunWinner {
             (mark.chain.last.attributes['data']?.trim().isNotEmpty ?? false);
     if (!atomic && mark.start == start) {
       _leadingInset +=
+          math.max(0, computed.margin.left) +
           computed.padding.left +
           (borders.left.isVisible ? borders.left.width : 0);
     }
     if (!atomic && mark.end == end) {
       _trailingInset +=
+          math.max(0, computed.margin.right) +
           computed.padding.right +
           (borders.right.isVisible ? borders.right.width : 0);
     }
