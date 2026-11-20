@@ -36,7 +36,7 @@ class _Auth extends BookSourceAuthService {
 }
 
 void main() {
-  testWidgets('登录面板使用源字段，密码和 key 隐藏并原样交给登录入口', (tester) async {
+  testWidgets('登录面板保留空网关，密码和 key 隐藏并原样交给登录入口', (tester) async {
     final dir = Directory.systemTemp.createTempSync('source-login-ui-');
     final sourceStore = BookSourceStore(directoryProvider: () async => dir);
     final auth = _Auth();
@@ -72,6 +72,7 @@ void main() {
             {'name': '账号', 'type': 'text'},
             {'name': '密码', 'type': 'password'},
             {'name': '指定 key', 'type': 'text'},
+            {'name': '网关地址（留空使用默认）', 'type': 'text'},
             {'name': '帮助', 'type': 'button'},
           ],
         }),
@@ -87,17 +88,26 @@ void main() {
     final account = find.byKey(const ValueKey('online-login-field-账号'));
     final password = find.byKey(const ValueKey('online-login-field-密码'));
     final key = find.byKey(const ValueKey('online-login-field-指定 key'));
+    final gateway = find.byKey(
+      const ValueKey('online-login-field-网关地址（留空使用默认）'),
+    );
     expect(tester.widget<TextField>(account).obscureText, isFalse);
     expect(tester.widget<TextField>(password).obscureText, isTrue);
     expect(tester.widget<TextField>(key).enableSuggestions, isFalse);
     expect(tester.widget<TextField>(key).obscureText, isTrue);
+    expect(tester.widget<TextField>(gateway).controller!.text, isEmpty);
     expect(find.byKey(const ValueKey('online-login-field-帮助')), findsNothing);
     await tester.enterText(account, '用户');
     await tester.enterText(password, ' 密码 ');
     await tester.enterText(key, ' key== ');
     await tester.tap(find.byKey(const ValueKey('online-login-submit')));
     await tester.pumpAndSettle();
-    expect(auth.received, {'账号': '用户', '密码': ' 密码 ', '指定 key': ' key== '});
+    expect(auth.received, {
+      '账号': '用户',
+      '密码': ' 密码 ',
+      '指定 key': ' key== ',
+      '网关地址（留空使用默认）': '',
+    });
     expect(controller.isLoggedIn(source), isTrue);
     expect(tester.takeException(), isNull);
   });

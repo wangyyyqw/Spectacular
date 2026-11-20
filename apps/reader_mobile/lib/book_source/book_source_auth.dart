@@ -86,14 +86,18 @@ class BookSourceAuthService {
     BookSourceHttpClient? httpClient,
   }) async {
     await store.load();
-    final fields = fieldsFor(source);
+    final configuredFields = bookSourceLoginFields(source);
+    final fields = configuredFields.isNotEmpty
+        ? configuredFields
+        : fieldsFor(source);
     if (fields.isEmpty) {
       return const BookSourceLoginResult(success: false, message: '书源没有登录输入配置');
     }
     final info = {...store.loginInfo(source)};
     for (final field in fields) {
       final value = values[field.name] ?? field.defaultValue;
-      if (value.trim().isEmpty) {
+      // 自定义字段的空值交给源脚本处理，仅自动补出的账号密码必填。
+      if (configuredFields.isEmpty && value.trim().isEmpty) {
         return BookSourceLoginResult(
           success: false,
           message: '请输入${field.name}',

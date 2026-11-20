@@ -174,7 +174,7 @@ function login() {
     expect(store.loginInfo(source), isEmpty);
   });
 
-  test('key 核验支持网络请求和登录头，重新登录不会携带上一账号登录头', () async {
+  test('key 核验允许空网关使用脚本默认值，失败保留已有登录信息', () async {
     final directory = await Directory.systemTemp.createTemp('auth-check-');
     addTearDown(() => directory.delete(recursive: true));
     final store = BookSourceCookieStore(
@@ -183,10 +183,14 @@ function login() {
     final source = _source.copyWith(
       id: 'key-check',
       loginUrl: '',
-      loginUi: '[{"name":"key","type":"text"}]',
+      loginUi: jsonEncode([
+        {'name': 'key', 'type': 'text'},
+        {'name': '网关地址（留空使用默认）', 'type': 'text'},
+      ]),
       header: '<js>JSON.stringify({"X-Key":source.getLoginInfoMap().get("key")})</js>',
       loginCheckJs: '''
-var checked = JSON.parse(java.ajax(source.key+"/check"));
+var gateway = source.getLoginInfoMap().get("网关地址（留空使用默认）") || source.key;
+var checked = JSON.parse(java.ajax(gateway+"/check"));
 if (!checked.success) throw "无效 key";
 source.putLoginHeader(JSON.stringify({Authorization:"Bearer "+checked.token}));
 source.setVariable("已核验");
@@ -200,6 +204,7 @@ true;
       client: MockClient((request) async {
         if (request.url.path == '/check') {
           checks++;
+          expect(request.url.host, 'fanqienovel.com');
           expect(request.headers['X-Key'], fail ? 'bad-key' : 'new-key');
           expect(request.headers.containsKey('Authorization'), isFalse);
           return http.Response(
@@ -216,29 +221,69 @@ true;
     addTearDown(client.close);
     await store.saveSourceLogin(
       source,
-      info: {'key': 'old-key'},
+      info: {
+        'key': 'old-key',
+        '网关地址（留空使用默认）': 'https://old-gateway.example.test',
+      },
       header: '{"Authorization":"Bearer old-token"}',
     );
     final auth = BookSourceAuthService();
     expect(
       (await auth.loginWithCredentials(source, store, {
         'key': 'new-key',
+        '网关地址（留空使用默认）': '',
       }, httpClient: client)).success,
       isTrue,
     );
     expect(checks, 1);
+    expect(store.loginInfo(source)['网关地址（留空使用默认）'], '');
     expect(store.sourceVariable(source), '已核验');
     await client.fetchText(source, 'https://fanqienovel.com/chapters');
     fail = true;
     expect(
       (await auth.loginWithCredentials(source, store, {
         'key': 'bad-key',
+        '网关地址（留空使用默认）': '',
       }, httpClient: client)).success,
       isFalse,
     );
     expect(store.loginInfo(source)['key'], 'new-key');
+    expect(store.loginInfo(source)['网关地址（留空使用默认）'], '');
     expect(store.loginHeader(source), contains('new-token'));
     expect(await store.hasCookiesFor(source), isFalse);
+  });
+
+  test('未声明登录表单时自动补出的账号密码仍需填写', () async {
+    final directory = await Directory.systemTemp.createTemp('auth-required-');
+    addTearDown(() => directory.delete(recursive: true));
+    final store = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    final source = _source.copyWith(
+      loginUrl: '@js:java.ajax("/reader-auth/login")',
+    );
+    final auth = BookSourceAuthService();
+    final client = BookSourceHttpClient(
+      cookieStore: store,
+      client: MockClient((request) async {
+        fail('账号密码为空时不应发送登录请求');
+      }),
+    );
+    addTearDown(client.close);
+    for (final entry in {
+      '账号': {'账号': ' ', '密码': '密码'},
+      '密码': {'账号': '用户', '密码': ''},
+    }.entries) {
+      final result = await auth.loginWithCredentials(
+        source,
+        store,
+        entry.value,
+        httpClient: client,
+      );
+      expect(result.success, isFalse);
+      expect(result.message, '请输入${entry.key}');
+      expect(store.loginInfo(source), isEmpty);
+    }
   });
 
   test('只声明账号接口的旧源沿用参考项目 JSON 登录协议', () async {
