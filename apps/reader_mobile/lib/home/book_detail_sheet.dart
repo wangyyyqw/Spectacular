@@ -10,7 +10,8 @@ import 'reading_insights.dart';
 /// 长按书架卡片展示书籍元信息和快捷操作。
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
-/// `'create-group'` 将本书移入已有或新建分组，`'export'` 导出本书 EPUB。
+/// `'create-group'` 将本书移入已有或新建分组，`'export'` 导出本书 EPUB，
+/// `'pin'` 切换置顶状态。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
   const BookDetailSheet({
@@ -19,6 +20,7 @@ class BookDetailSheet extends StatelessWidget {
     required this.library,
     this.progress,
     this.readingDuration = Duration.zero,
+    this.pinned = false,
   });
 
   /// 书籍条目。
@@ -32,6 +34,9 @@ class BookDetailSheet extends StatelessWidget {
 
   /// 本书累计有效阅读时长，与图书详情的统计口径一致。
   final Duration readingDuration;
+
+  /// 本书是否已置顶。
+  final bool pinned;
 
   @override
   Widget build(BuildContext context) {
@@ -137,11 +142,26 @@ class BookDetailSheet extends StatelessWidget {
                 );
               },
             ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-open-page'),
-              icon: AppGlyph.menuBook,
-              label: '图书详情',
-              onTap: () => Navigator.of(context).pop('detail'),
+            Row(
+              children: [
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-open-page'),
+                    icon: AppGlyph.menuBook,
+                    label: '详情',
+                    onTap: () => Navigator.of(context).pop('detail'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-pin'),
+                    icon: AppGlyph.pushPin,
+                    label: pinned ? '取消置顶' : '置顶',
+                    onTap: () => Navigator.of(context).pop('pin'),
+                  ),
+                ),
+              ],
             ),
             FutureBuilder<bool>(
               future: TxtBookService(library).canRechapter(entry),

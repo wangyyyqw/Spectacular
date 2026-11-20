@@ -223,7 +223,7 @@ void main() {
     expect(find.text('已读 0 / 1 章'), findsOneWidget);
   });
 
-  testWidgets('窄屏和放大文字下两组操作分别同行，遮罩和下拉仍可关闭', (tester) async {
+  testWidgets('窄屏和放大文字下三组操作分别同行，遮罩和下拉仍可关闭', (tester) async {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final entry = BookEntry(
       id: 'layout-book',
@@ -271,6 +271,7 @@ void main() {
       expect(metadata.top, closeTo(cover.top, 0.1));
       expect(metadata.bottom, closeTo(cover.bottom, 0.1));
       for (final (left, right) in [
+        ('book-detail-open-page', 'book-detail-pin'),
         ('book-detail-update', 'book-detail-create-group'),
         ('book-detail-export', 'book-detail-delete'),
       ]) {
@@ -337,7 +338,7 @@ void main() {
     expect(popped, 'delete');
   });
 
-  testWidgets('点图书详情返回 detail，由书架打开完整详情页', (tester) async {
+  testWidgets('点详情返回 detail，由书架打开完整详情页', (tester) async {
     final entry = BookEntry(
       id: 'clean-book',
       title: '干净书',
@@ -367,7 +368,7 @@ void main() {
     );
     await tester.tap(find.text('打开详情'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('图书详情'));
+    await tester.tap(find.text('详情'));
     await tester.pumpAndSettle();
     expect(popped, 'detail');
   });
