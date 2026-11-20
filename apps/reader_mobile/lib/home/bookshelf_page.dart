@@ -280,6 +280,39 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
+  Future<void> _groupBook(BookEntry entry) async {
+    final target =
+        await showReaderBottomSheet<({String? groupId, String? name})>(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          showDragHandle: true,
+          builder: (_) => _BookGroupSheet(
+            entry: entry,
+            groups: _groups,
+            currentGroupId: _bookGroups[entry.id],
+          ),
+        );
+    if (target == null || !mounted) return;
+    try {
+      final groupId =
+          target.groupId ?? (await widget.library.createGroup(target.name!)).id;
+      await widget.library.setBooksGroup([entry.id], groupId: groupId);
+      await _reload();
+      if (mounted) {
+        setState(() {
+          _activeGroupId = groupId;
+          _query = '';
+        });
+      }
+    } on LibraryImportException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
   Future<void> _manageGroup(ShelfGroup group) async {
     final action = await showReaderBottomSheet<String>(
       context: context,
@@ -765,7 +798,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         if (canRechapter)
           const PopupMenuItem(value: 'chapters', child: Text('章节正则')),
         const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
-        const PopupMenuItem(value: 'create-group', child: Text('新建分组')),
+        const PopupMenuItem(value: 'create-group', child: Text('分组')),
         if (widget.allowImport)
           const PopupMenuItem(value: 'update', child: Text('更新 EPUB')),
         const PopupMenuDivider(),
@@ -829,7 +862,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     } else if (action == 'update') {
       await _pickBookUpdate(entry);
     } else if (action == 'create-group') {
-      await _createGroup(initialBookIds: <String>{entry.id});
+      await _groupBook(entry);
     } else if (action == 'multi-select') {
       _startSelection(entry);
     }
@@ -1470,6 +1503,130 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
       ],
     );
   }
+}
+
+class _BookGroupSheet extends StatefulWidget {
+  const _BookGroupSheet({
+    required this.entry,
+    required this.groups,
+    required this.currentGroupId,
+  });
+
+  final BookEntry entry;
+  final List<ShelfGroup> groups;
+  final String? currentGroupId;
+
+  @override
+  State<_BookGroupSheet> createState() => _BookGroupSheetState();
+}
+
+class _BookGroupSheetState extends State<_BookGroupSheet> {
+  final _controller = TextEditingController();
+  late bool _creating = widget.groups.isEmpty;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _create() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) return;
+    Navigator.of(context).pop((groupId: null, name: name));
+  }
+
+  Widget _createForm() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      TextField(
+        key: const ValueKey('bookshelf-group-create-name'),
+        controller: _controller,
+        autofocus: true,
+        textInputAction: TextInputAction.done,
+        decoration: const InputDecoration(
+          labelText: '分组名称',
+          hintText: '例如：小说、待读',
+        ),
+        onChanged: (_) => setState(() {}),
+        onSubmitted: (_) => _create(),
+      ),
+      const SizedBox(height: 16),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          const SizedBox(width: 12),
+          FilledButton(
+            key: const ValueKey('bookshelf-group-create-confirm'),
+            onPressed: _controller.text.trim().isEmpty ? null : _create,
+            child: const Text('创建并移入'),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _groupOptions() => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (final group in widget.groups)
+        ListTile(
+          key: ValueKey('bookshelf-book-group-${group.id}'),
+          contentPadding: EdgeInsets.zero,
+          leading: const AppIcon(AppGlyph.folder),
+          title: Text(group.name),
+          subtitle: group.id == widget.currentGroupId
+              ? const Text('当前分组')
+              : null,
+          onTap: () =>
+              Navigator.of(context).pop((groupId: group.id, name: null)),
+        ),
+      const Divider(),
+      ListTile(
+        key: const ValueKey('bookshelf-book-group-new'),
+        contentPadding: EdgeInsets.zero,
+        leading: const AppIcon(AppGlyph.folderAdd),
+        title: const Text('新建分组'),
+        onTap: () => setState(() => _creating = true),
+      ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: ConstrainedBox(
+        key: const ValueKey('bookshelf-book-group-sheet'),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .7,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('图书分组', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(
+                widget.entry.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+              if (_creating) _createForm() else _groupOptions(),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _NewGroupSheet extends StatefulWidget {
