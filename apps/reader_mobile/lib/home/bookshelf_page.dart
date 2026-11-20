@@ -2072,22 +2072,10 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
         child: Container(
           margin: const EdgeInsets.only(right: 20),
           padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                width: 2,
-                color: widget.selected
-                    ? theme.colorScheme.primary
-                    : Colors.transparent,
-              ),
-            ),
-          ),
           child: Text(
             widget.label,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: widget.selected
-                  ? theme.colorScheme.onSurface
-                  : theme.colorScheme.onSurfaceVariant,
+              color: theme.colorScheme.onSurface,
               fontWeight: widget.selected ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
