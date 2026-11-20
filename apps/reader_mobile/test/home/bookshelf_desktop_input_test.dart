@@ -69,7 +69,9 @@ void main() {
     expect(field.controller!.text, '山川');
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
-    expect(search, findsNothing);
+    expect(search, findsOneWidget);
+    expect(tester.widget<TextField>(search).focusNode!.hasFocus, isFalse);
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
     await _shortcut(tester, LogicalKeyboardKey.keyF);
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(search).controller!.text, isEmpty);
@@ -203,6 +205,7 @@ void main() {
         kind: PointerDeviceKind.mouse,
         buttons: kSecondaryButton,
       );
+      await pumpReaderUntil(tester, find.text('编辑 EPUB'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('编辑 EPUB'));
       await pumpReaderUntil(tester, find.byType(BookEditorPage));
@@ -238,10 +241,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await _shortcut(tester, LogicalKeyboardKey.keyF);
-    expect(
+    final hiddenSearch = tester.widget<TextField>(
       find.byKey(const ValueKey('bookshelf-search-field'), skipOffstage: false),
-      findsNothing,
     );
+    expect(hiddenSearch.focusNode!.hasFocus, isFalse);
+    expect(hiddenSearch.controller!.text, isEmpty);
     await tester.tap(find.descendant(of: rail, matching: find.text('书架')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));

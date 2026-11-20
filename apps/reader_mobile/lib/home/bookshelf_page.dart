@@ -407,11 +407,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  void _clearSearch() {
-    _searchController.clear();
-    setState(() => _query = '');
-  }
-
   void _resetFilters() {
     _searchController.clear();
     FocusScope.of(context).unfocus();
@@ -1105,107 +1100,99 @@ class _BookshelfPageState extends State<BookshelfPage> {
       );
     }
     return AppBar(
-      title: _searching
-          ? TextField(
-              key: const ValueKey<String>('bookshelf-search-field'),
-              controller: _searchController,
-              focusNode: _searchFocus,
-              autofocus: true,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: '搜索书名或作者',
-                border: InputBorder.none,
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: '清除搜索',
-                        onPressed: _clearSearch,
-                        icon: const AppIcon(AppGlyph.close),
-                      ),
-              ),
-              onChanged: (value) => setState(() => _query = value),
-            )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Flexible(
-                  child: Text(
-                    _activeGroup?.name ?? '书架',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+      automaticallyImplyLeading: false,
+      toolbarHeight: 72,
+      titleSpacing: 16,
+      title: TextField(
+        key: const ValueKey<String>('bookshelf-search-field'),
+        controller: _searchController,
+        focusNode: _searchFocus,
+        textInputAction: TextInputAction.search,
+        onTap: _focusSearch,
+        decoration: InputDecoration(
+          hintText: '搜索书名或作者',
+          filled: true,
+          fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          prefixIcon: IconButton(
+            tooltip: '搜索书架',
+            onPressed: _focusSearch,
+            icon: const AppIcon(AppGlyph.search),
+          ),
+          suffixIcon: !_searching
+              ? null
+              : IconButton(
+                  tooltip: '关闭搜索',
+                  onPressed: _toggleSearch,
+                  icon: const AppIcon(AppGlyph.close),
                 ),
-                if (items != null) ...[
-                  const SizedBox(width: 10),
-                  Text(
-                    '${_activeGroup == null ? items.length : _groupBookCount(_activeGroup!)} 本',
-                    key: const ValueKey<String>('bookshelf-count'),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-      actions: _searching
-          ? <Widget>[
-              IconButton(
-                tooltip: '关闭搜索',
-                onPressed: _toggleSearch,
-                icon: const AppIcon(AppGlyph.close),
-              ),
-            ]
-          : <Widget>[
-              if (_activeGroupId != null)
-                PopupMenuButton<String>(
-                  key: const ValueKey<String>('bookshelf-group-options'),
-                  tooltip: '分组选项',
-                  icon: const AppIcon(AppGlyph.filter),
-                  onSelected: (action) {
-                    if (action == 'exit') {
-                      setState(() => _activeGroupId = null);
-                      return;
-                    }
-                    final group = _activeGroup;
-                    if (group != null) {
-                      _manageGroup(group);
-                    }
-                  },
-                  itemBuilder: (_) => const <PopupMenuEntry<String>>[
-                    PopupMenuItem<String>(value: 'exit', child: Text('退出分组')),
-                    PopupMenuItem<String>(
-                      value: 'manage',
-                      child: Text('管理当前分组'),
-                    ),
-                  ],
-                ),
-              IconButton(
-                tooltip: '搜索书架',
-                onPressed: _toggleSearch,
-                icon: const AppIcon(AppGlyph.search),
-              ),
-              IconButton(
-                key: const ValueKey<String>('bookshelf-import'),
-                tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-                onPressed: busy || !widget.allowImport ? null : _import,
-                icon: busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const AppIcon(AppGlyph.add),
-              ),
-              IconButton(
-                tooltip: _grid ? '列表视图' : '网格视图',
-                onPressed: _toggleView,
-                icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
-              ),
-            ],
+        ),
+        onChanged: (value) => setState(() => _query = value),
+      ),
+      actions: [
+        IconButton(
+          key: const ValueKey<String>('bookshelf-import'),
+          tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
+          onPressed: busy || !widget.allowImport ? null : _import,
+          icon: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const AppIcon(AppGlyph.add),
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
+
+  Widget _buildShelfControls(List<_ShelfItem> items) => Row(
+    key: const ValueKey('bookshelf-group-toolbar'),
+    children: [
+      Expanded(
+        child: _ShelfGroupBar(
+          items: items,
+          groups: _groups,
+          assignments: _bookGroups,
+          activeGroupId: _activeGroupId,
+          onToggle: _toggleGroup,
+          onShowAll: () => setState(() => _activeGroupId = null),
+          onManage: _manageGroup,
+        ),
+      ),
+      if (_activeGroupId != null)
+        PopupMenuButton<String>(
+          key: const ValueKey<String>('bookshelf-group-options'),
+          tooltip: '分组选项',
+          icon: const AppIcon(AppGlyph.filter),
+          onSelected: (action) {
+            if (action == 'exit') {
+              setState(() => _activeGroupId = null);
+              return;
+            }
+            final group = _activeGroup;
+            if (group != null) {
+              _manageGroup(group);
+            }
+          },
+          itemBuilder: (_) => const <PopupMenuEntry<String>>[
+            PopupMenuItem<String>(value: 'exit', child: Text('退出分组')),
+            PopupMenuItem<String>(value: 'manage', child: Text('管理当前分组')),
+          ],
+        ),
+      IconButton(
+        tooltip: _grid ? '列表视图' : '网格视图',
+        onPressed: _toggleView,
+        icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
+      ),
+      const SizedBox(width: 8),
+    ],
+  );
 
   Widget _buildBody(
     List<_ShelfItem>? items,
@@ -1224,20 +1211,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
               }
             },
           ),
-        if (!_selectionMode &&
-            _error == null &&
-            items != null &&
-            items.isNotEmpty &&
-            _groups.isNotEmpty)
-          _ShelfGroupBar(
-            items: items,
-            groups: _groups,
-            assignments: _bookGroups,
-            activeGroupId: _activeGroupId,
-            onToggle: _toggleGroup,
-            onShowAll: () => setState(() => _activeGroupId = null),
-            onManage: _manageGroup,
-          ),
+        if (!_selectionMode && _error == null && items != null)
+          _buildShelfControls(items),
         Expanded(child: _buildLibraryBody(items, visible)),
       ],
     );
