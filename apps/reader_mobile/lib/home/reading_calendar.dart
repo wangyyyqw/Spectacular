@@ -158,11 +158,8 @@ class _ReadingCalendarState extends State<ReadingCalendar>
           child: Text(
             '${month.start.year}年${month.start.month}月',
             key: const ValueKey('stats-calendar-month'),
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
           ),
         ),
         const SizedBox(width: 4),
@@ -467,11 +464,7 @@ class _CalendarDaySheet extends StatelessWidget {
         Text(
           _isoDate(date),
           key: const ValueKey('stats-calendar-detail-date'),
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: scheme.onSurface,
-          ),
+          style: Theme.of(context).textTheme.titleSmall,
         ),
         const SizedBox(height: 6),
         Text(
@@ -506,7 +499,8 @@ class _CalendarDaySheet extends StatelessWidget {
                 Flexible(
                   child: Text(
                     book.title,
-                    style: const TextStyle(fontSize: 15, height: 1.4),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(height: 1.4),
                   ),
                 ),
                 if (month.finishDays[book.bookId] == date) ...[

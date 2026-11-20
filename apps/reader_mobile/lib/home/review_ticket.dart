@@ -154,13 +154,8 @@ class ReviewTicket extends StatelessWidget {
                     book.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'builtin_song',
-                      fontSize: 17,
-                      height: 1.32,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(height: 1.32, fontWeight: FontWeight.w600),
                   ),
                   if (book.author.isNotEmpty)
                     Padding(
@@ -185,11 +180,8 @@ class ReviewTicket extends StatelessWidget {
     ],
   );
 
-  TextStyle _caption(BuildContext context) => TextStyle(
-    color: Theme.of(context).colorScheme.onSurfaceVariant,
-    fontSize: 12,
-    height: 1.4,
-  );
+  TextStyle _caption(BuildContext context) =>
+      Theme.of(context).textTheme.bodySmall!.copyWith(height: 1.4);
 
   Widget _marks(BuildContext context) {
     final style = _caption(context);
@@ -238,7 +230,6 @@ class ReviewTicket extends StatelessWidget {
           Text(
             '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}',
             style: caption.copyWith(
-              fontFamily: 'builtin_song',
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
@@ -251,12 +242,8 @@ class ReviewTicket extends StatelessWidget {
             children: [
               TextSpan(
                 text: value,
-                style: TextStyle(
-                  fontFamily: 'builtin_song',
-                  fontSize: 21,
-                  fontWeight: FontWeight.w700,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   height: 1.16,
-                  color: Theme.of(context).colorScheme.onSurface,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),

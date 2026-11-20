@@ -420,7 +420,13 @@ void main() {
         expect(_text(tester, 'value-tiny'), '<1 分钟');
         expect(find.bySemanticsLabel('$title，10 小时，占比 100.0%'), findsOneWidget);
         final total = tester.widget<Text>(_key('total'));
-        expect(total.style!.fontSize, greaterThanOrEqualTo(24));
+        expect(
+          total.style!.fontSize,
+          Theme.of(tester.element(_key('total')))
+              .textTheme
+              .bodyMedium!
+              .fontSize,
+        );
         final longTag = tester.getRect(_key('tag-long'));
         final ring = tester.getRect(_key('ring'));
         expect(longTag.overlaps(ring), isFalse);

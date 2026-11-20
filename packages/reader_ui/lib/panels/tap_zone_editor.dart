@@ -66,11 +66,8 @@ class _TapZoneEditorState extends State<TapZoneEditor> {
                   Expanded(
                     child: Text(
                       '点击区域设置',
-                      style: TextStyle(
-                        color: widget.foreground,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: Theme.of(context).textTheme.titleSmall
+                          ?.copyWith(color: widget.foreground),
                     ),
                   ),
                   TextButton(
@@ -87,9 +84,8 @@ class _TapZoneEditorState extends State<TapZoneEditor> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   '点按方格切换动作',
-                  style: TextStyle(
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: widget.foreground.withValues(alpha: 0.58),
-                    fontSize: 13,
                   ),
                 ),
               ),
@@ -166,11 +162,8 @@ class _TapZoneCell extends StatelessWidget {
               Text(
                 action.label,
                 key: ValueKey<String>('tap-zone-${zone.name}-action'),
-                style: TextStyle(
-                  color: foreground,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(color: foreground),
               ),
               const SizedBox(height: 6),
               AppIcon(

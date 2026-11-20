@@ -385,11 +385,7 @@ class _ReviewsPageState extends State<ReviewsPage>
                 unselectedLabelColor: Theme.of(context)
                     .colorScheme
                     .onSurfaceVariant,
-                labelStyle: const TextStyle(
-                  fontFamily: 'builtin_song',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+                labelStyle: Theme.of(context).textTheme.titleSmall,
                 tabs: const [
                   Tab(key: ValueKey('notes-tab'), text: '笔记'),
                   Tab(key: ValueKey('reviews-tab'), text: '书评'),

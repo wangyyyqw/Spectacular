@@ -170,10 +170,7 @@ ThemeData buildAppTheme({Brightness brightness = Brightness.light}) {
 }
 
 ThemeData _withSurfaces(ThemeData base, ColorScheme colors) => base.copyWith(
-  textTheme: base.textTheme.apply(
-    bodyColor: colors.onSurface,
-    displayColor: colors.onSurface,
-  ),
+  textTheme: _appTextTheme(base.textTheme, colors),
   cardTheme: CardThemeData(
     color: colors.surface,
     elevation: 0,
@@ -208,7 +205,37 @@ ThemeData _withSurfaces(ThemeData base, ColorScheme colors) => base.copyWith(
   ),
 );
 
+TextTheme _appTextTheme(TextTheme base, ColorScheme colors) {
+  // 以书架书名和作者为基准，所有界面共用 14 / 12 号文字层级。
+  final primary = base.bodyMedium!.copyWith(
+    fontSize: 14,
+    color: colors.onSurface,
+  );
+  final secondary = base.bodySmall!.copyWith(
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+  );
+  final title = primary.copyWith(fontWeight: FontWeight.w600);
+  return base
+      .apply(bodyColor: colors.onSurface, displayColor: colors.onSurface)
+      .copyWith(
+        titleLarge: title,
+        titleMedium: primary,
+        titleSmall: title,
+        bodyLarge: primary,
+        bodyMedium: primary,
+        bodySmall: secondary,
+        labelLarge: primary.copyWith(fontWeight: FontWeight.w500),
+        labelMedium: secondary,
+        labelSmall: secondary.copyWith(fontSize: 11),
+      );
+}
+
 ThemeData _withControls(ThemeData base, ColorScheme colors) => base.copyWith(
+  listTileTheme: ListTileThemeData(
+    titleTextStyle: base.textTheme.bodyMedium,
+    subtitleTextStyle: base.textTheme.bodySmall,
+  ),
   filledButtonTheme: FilledButtonThemeData(style: _filledStyle(colors)),
   elevatedButtonTheme: ElevatedButtonThemeData(style: _filledStyle(colors)),
   outlinedButtonTheme: OutlinedButtonThemeData(
@@ -229,7 +256,7 @@ ThemeData _withControls(ThemeData base, ColorScheme colors) => base.copyWith(
     side: BorderSide(color: colors.outlineVariant),
     elevation: 0,
     showCheckmark: false,
-    labelStyle: TextStyle(fontSize: 13, color: colors.onSurface),
+    labelStyle: base.textTheme.bodySmall?.copyWith(color: colors.onSurface),
   ),
 );
 

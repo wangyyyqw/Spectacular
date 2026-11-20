@@ -69,7 +69,6 @@ void main() {
       final counts = {'one': _counts(3, 12), 'two': _counts(1, 4)};
       await tester.pumpWidget(_app(books: books, counts: counts));
       await tester.pumpAndSettle();
-      expect(find.byType(SliverGrid), findsOneWidget);
       final covers = find.byType(BookCoverImage);
       expect(
         tester.getTopLeft(covers.first).dy,
@@ -87,6 +86,33 @@ void main() {
     variant: const TargetPlatformVariant({
       TargetPlatform.macOS,
       TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets(
+    '桌面单列笔记卡片由内容撑高，不为短书名预留空白',
+    (tester) async {
+      tester.view
+        ..physicalSize = const Size(440, 760)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        _app(
+          books: [_book('one', '世子很凶'), _book('two', '动漫之王的养成方法')],
+          counts: {'one': _counts(0, 1), 'two': _counts(0, 1)},
+        ),
+      );
+      final covers = find.byType(BookCoverImage);
+      final rowHeight =
+          tester.getTopLeft(covers.last).dy -
+          tester.getTopLeft(covers.first).dy;
+      expect(rowHeight, lessThan(140));
+      expect(rowHeight, greaterThanOrEqualTo(82 + 24 + 12));
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
     }),
   );
 

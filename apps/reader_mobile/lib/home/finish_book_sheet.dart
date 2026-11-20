@@ -154,7 +154,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
         maxLines: widget.fullScreen ? 3 : 1,
         overflow: TextOverflow.ellipsis,
         style: widget.fullScreen
-            ? theme.textTheme.headlineSmall
+            ? theme.textTheme.titleSmall
             : theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

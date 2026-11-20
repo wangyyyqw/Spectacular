@@ -493,20 +493,18 @@ class _PeriodPicker extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Text(
               '选择阅读时段',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              style: Theme.of(context).textTheme.titleSmall,
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
             child: Text(
               '列出${period.currentLabel}及有阅读记录的时段',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
           Expanded(
@@ -830,11 +828,9 @@ class _DurationRing extends StatelessWidget {
           child: Text(
             formatReadingDuration(summary.total),
             key: const ValueKey('stats-book-duration-total'),
-            style: const TextStyle(
-              fontSize: 24,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
               height: 1.25,
-              fontWeight: FontWeight.w600,
-              fontFeatures: [FontFeature.tabularFigures()],
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ),
