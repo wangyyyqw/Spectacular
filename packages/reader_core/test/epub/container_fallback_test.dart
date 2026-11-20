@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/archive_reader.dart';
 import 'package:reader_core/epub/container.dart';
@@ -31,6 +33,34 @@ Map<String, String> _files({String? container}) => <String, String>{
 };
 
 void main() {
+  test('文件打开在 isolate 解析 container.xml 后保留章节元数据', () async {
+    final directory = await Directory.systemTemp.createTemp('epub-open-file-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final file = File('${directory.path}/book.epub');
+    await file.writeAsBytes(
+      buildZip(
+        _files(
+          container:
+              '<?xml version="1.0"?><container><rootfiles>'
+              '<rootfile full-path="OEBPS/content.opf"/>'
+              '</rootfiles></container>',
+        ),
+      ),
+    );
+
+    final result = await openEpubFile(file);
+    if (result.document case final document?) {
+      addTearDown(document.archive.close);
+    }
+    expect(result.ok, isTrue, reason: result.report.message);
+    expect(result.document!.spine, hasLength(1));
+    expect(result.document!.meta.title, '回退书');
+  });
+
   test('container.xml 损坏时回退扫描 OEBPS/content.opf 并可打开', () async {
     final bytes = buildZip(_files(container: '<?xml 破损'));
     final result = await openEpub(bytes);

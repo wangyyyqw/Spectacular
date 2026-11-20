@@ -318,6 +318,25 @@ void main() {
     expect(archive.readString('good.txt'), isNull);
   });
 
+  test('文件后端异步读取与同步读取内容一致', () async {
+    final directory = await Directory.systemTemp.createTemp('epub-async-file-');
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final file = File('${directory.path}/book.epub');
+    await file.writeAsBytes(_twoEntryZip());
+
+    final archive = await EpubArchive.fromFile(file, verify: false);
+    addTearDown(archive.close);
+    final expected = archive.readBytes('good.txt');
+    final actual = await archive.readBytesAsync('good.txt');
+
+    expect(actual, expected);
+    expect(archive.diagnostics, isEmpty);
+  });
+
   test('文件后端读取 deflate 章节与目录', () async {
     final corpus = findCorpusRoot();
     if (corpus == null) {
