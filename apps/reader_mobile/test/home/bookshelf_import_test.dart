@@ -101,7 +101,8 @@ void main() {
 
     await tester.longPress(find.text('山海小记').first);
     await _settle(tester);
-    expect(find.text('导入报告'), findsOneWidget, reason: '长按打开详情面板');
+    expect(find.text('图书详情'), findsOneWidget, reason: '长按打开快捷操作面板');
+    expect(find.text('导入报告'), findsNothing);
 
     await tester.tap(find.text('删除本书'));
     await _settle(tester);
