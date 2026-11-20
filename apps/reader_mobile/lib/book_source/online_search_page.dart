@@ -92,21 +92,27 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
     setState(() => _openingRecent = true);
     FocusScope.of(context).unfocus();
     try {
-      final current = await widget.controller.catalogs.read(
-        currentSource,
-        catalog.book,
-      );
+      final load = widget.controller.loadCatalog(currentSource, catalog.book);
+      final current = await load.forReading();
       if (!mounted) return;
-      if (current == null || !identical(_sourceFor(source.id), currentSource)) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('目录或来源已更新，请重新打开详情获取目录')));
+      final activeSource = _sourceFor(source.id);
+      if (activeSource == null ||
+          widget.controller.catalogs.requestIdentity(
+                activeSource,
+                catalog.book,
+              ) !=
+              widget.controller.catalogs.requestIdentity(
+                currentSource,
+                catalog.book,
+              )) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('来源已更新，请重新打开目录')));
         return;
       }
       await onRead(
         context,
         OnlineReadingBook(
-          source: currentSource,
+          source: activeSource,
           book: current.book,
           chapters: current.chapters,
           service: widget.controller.service,
@@ -319,7 +325,8 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
                 title: Text(catalog.book.name),
                 subtitle: Text(
                   '${source.name} · ${catalog.chapters.length} 章'
-                  '${catalog.book.author.isEmpty ? '' : ' · ${catalog.book.author}'}',
+                  '${catalog.book.author.isEmpty ? '' : ' · ${catalog.book.author}'}'
+                  '${catalog.isStale ? ' · 目录待更新' : ''}',
                 ),
                 leading: const Icon(Icons.menu_book_outlined),
                 onTap: _openingRecent ? null : () => _resume(catalog, source),

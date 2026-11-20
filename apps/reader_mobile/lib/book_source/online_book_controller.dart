@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -9,6 +11,30 @@ import 'book_source_service.dart';
 import 'book_source_store.dart';
 import 'online_epub_update.dart';
 import 'online_reading_catalog_store.dart';
+
+/// 缓存先显示，快速刷新完成后使用新目录，慢请求继续在后台更新快照。
+class OnlineCatalogLoad {
+  const OnlineCatalogLoad({
+    required this.source,
+    required this.cached,
+    required this.refresh,
+  });
+
+  final BookSource source;
+  final Future<OnlineReadingCatalog?> cached;
+  final Future<OnlineReadingCatalog> refresh;
+
+  /// 有效缓存最多等待 200 毫秒，不把站点超时带入续读。
+  Future<OnlineReadingCatalog> forReading() async {
+    final fallback = await cached;
+    if (fallback == null) return refresh;
+    try {
+      return await refresh.timeout(const Duration(milliseconds: 200));
+    } on Object {
+      return fallback;
+    }
+  }
+}
 
 /// 在线书源状态与下载入库入口。
 class OnlineBookController extends ChangeNotifier {
@@ -41,6 +67,8 @@ class OnlineBookController extends ChangeNotifier {
   int _lastSkippedChapters = 0;
   int _lastAddedChapters = 0;
   List<String> _lastSkippedReasons = const <String>[];
+  final Map<String, Future<OnlineReadingCatalog>> _catalogRefreshes = {};
+  bool _disposed = false;
 
   List<BookSource> get sources => List<BookSource>.unmodifiable(_sources);
   Map<String, OnlineBookLink> get links =>
@@ -180,6 +208,69 @@ class OnlineBookController extends ChangeNotifier {
     );
   }
 
+  /// 详情、最近阅读和选章共享同一刷新，过期缓存只保留最近入口。
+  OnlineCatalogLoad loadCatalog(BookSource source, OnlineBook book) {
+    final cached = catalogs.read(source, book);
+    final refresh = cached.then(
+      (catalog) => refreshCatalog(source, catalog?.book ?? book),
+    );
+    // 页面关闭后刷新仍可落盘，异常由仍在显示的页面或缓存回退处理。
+    refresh.ignore();
+    return OnlineCatalogLoad(source: source, cached: cached, refresh: refresh);
+  }
+
+  /// 只合并完整请求和目录规则相同的网络任务。
+  Future<OnlineReadingCatalog> refreshCatalog(
+    BookSource source,
+    OnlineBook book,
+  ) {
+    final key = catalogs.requestIdentity(source, book);
+    final pending = _catalogRefreshes[key];
+    if (pending != null) return pending;
+    final task = _refreshCatalog(source, book);
+    _catalogRefreshes[key] = task;
+    void finished() {
+      if (identical(_catalogRefreshes[key], task)) {
+        _catalogRefreshes.remove(key);
+      }
+    }
+
+    task.then<void>(
+      (_) => finished(),
+      onError: (Object error, StackTrace stack) => finished(),
+    );
+    return task;
+  }
+
+  Future<OnlineReadingCatalog> _refreshCatalog(
+    BookSource source,
+    OnlineBook book,
+  ) async {
+    final info = await service.loadBookInfo(source, book);
+    final chapters = await service.fetchToc(source, info);
+    bool isCurrent() => !_disposed && _matchesCurrentSource(source, book);
+    if (!isCurrent()) {
+      throw const BookSourceException('来源已更新，请重新获取目录');
+    }
+    await catalogs.save(source, info, chapters, isCurrent: isCurrent);
+    if (!isCurrent()) {
+      throw const BookSourceException('来源已更新，请重新获取目录');
+    }
+    notifyListeners();
+    return OnlineReadingCatalog(book: info, chapters: chapters);
+  }
+
+  bool _matchesCurrentSource(BookSource source, OnlineBook book) {
+    if (!_initialized) return true;
+    for (final current in _sources) {
+      if (current.id == source.id) {
+        return catalogs.requestIdentity(current, book) ==
+            catalogs.requestIdentity(source, book);
+      }
+    }
+    return false;
+  }
+
   /// 按书架条目查找关联来源。
   BookSource? sourceForBook(String bookId) {
     final link = _links[bookId];
@@ -314,6 +405,7 @@ class OnlineBookController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _store.dispose();
     service.dispose();
     super.dispose();

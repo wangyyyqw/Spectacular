@@ -12,11 +12,15 @@ class OnlineReadingCatalog {
     required this.book,
     required List<OnlineChapter> chapters,
     this.lastReadAt,
+    this.isStale = false,
   }) : chapters = List.unmodifiable(chapters);
 
   final OnlineBook book;
   final List<OnlineChapter> chapters;
   final DateTime? lastReadAt;
+
+  /// 最近入口仍可保留书籍信息，过期目录必须联网重新获取后才能阅读。
+  final bool isStale;
 }
 
 /// 持久化在线目录与最多 20 本最近阅读，不创建本地 EPUB 书架条目。
@@ -35,6 +39,17 @@ class OnlineReadingCatalogStore {
   _CatalogOperationQueue get _queue =>
       _queues[library] ??= _CatalogOperationQueue();
 
+  /// 详情和目录的完整请求及规则共同区分刷新任务。
+  String requestIdentity(BookSource source, OnlineBook book) => _digest([
+    source.id,
+    _rulesFingerprint(source),
+    onlineRequestIdentity(book.bookUrl, book.bookOptions),
+    onlineRequestIdentity(
+      book.tocUrl.isEmpty ? book.bookUrl : book.tocUrl,
+      book.tocOptions,
+    ),
+  ]);
+
   /// 来源开关与加载方式变化不删除快照；规则变化后等待新目录成功保存。
   /// 同一详情接口的不同请求参数不得借用另一书的目录。
   Future<OnlineReadingCatalog?> read(BookSource source, OnlineBook book) {
@@ -46,9 +61,12 @@ class OnlineReadingCatalogStore {
   Future<void> save(
     BookSource source,
     OnlineBook book,
-    List<OnlineChapter> chapters,
-  ) => _write(() async {
-    if (!_validCatalog(source, book, chapters)) return;
+    List<OnlineChapter> chapters, {
+    bool Function()? isCurrent,
+  }) => _write(() async {
+    if (!_validCatalog(source, book, chapters) || isCurrent?.call() == false) {
+      return;
+    }
     final recent = await _readRecent();
     DateTime? lastReadAt;
     for (final item in recent) {
@@ -58,6 +76,7 @@ class OnlineReadingCatalogStore {
       }
     }
     lastReadAt ??= (await _readCatalog(source, book.bookUrl))?.lastReadAt;
+    if (isCurrent?.call() == false) return;
     await _saveCatalog(source, book, chapters, lastReadAt);
   });
 
@@ -67,18 +86,32 @@ class OnlineReadingCatalogStore {
   Future<void> remember(
     BookSource source,
     OnlineBook book,
-    List<OnlineChapter> chapters,
-  ) => _write(() async {
+    List<OnlineChapter> chapters, {
+    bool preserveSavedCatalog = false,
+  }) => _write(() async {
     if (!_validCatalog(source, book, chapters)) return;
     final recent = await _readRecent();
     final lastReadAt = _now().toUtc();
-    final cached = await _readMatchingCatalog(source, book);
-    await _saveCatalog(
+    final cached = await _readMatchingCatalog(
       source,
-      cached?.book ?? book,
-      cached?.chapters ?? chapters,
-      lastReadAt,
+      book,
+      allowStale: preserveSavedCatalog,
     );
+    if (cached?.isStale == true) {
+      // 旧快照进入阅读时，后台可能已保存新规则目录，只更新时间。
+      final key = _catalogKey(source.id, book.bookUrl);
+      final json =
+          jsonDecode((await library.getSetting(key))!) as Map<String, dynamic>;
+      json['lastReadAt'] = lastReadAt.toIso8601String();
+      await library.setSetting(key, jsonEncode(json));
+    } else {
+      await _saveCatalog(
+        source,
+        cached?.book ?? book,
+        cached?.chapters ?? chapters,
+        lastReadAt,
+      );
+    }
     await _saveRecent([
       _RecentBook(source.id, book.bookUrl, lastReadAt),
       for (final item in recent)
@@ -100,13 +133,18 @@ class OnlineReadingCatalogStore {
           for (final item in await _readRecent()) {
             final source = available[item.sourceId];
             if (source == null) continue;
-            final catalog = await _readCatalog(source, item.bookUrl);
+            final catalog = await _readCatalog(
+              source,
+              item.bookUrl,
+              allowStale: true,
+            );
             if (catalog == null) continue;
             catalogs.add(
               OnlineReadingCatalog(
                 book: catalog.book,
                 chapters: catalog.chapters,
                 lastReadAt: item.lastReadAt,
+                isStale: catalog.isStale,
               ),
             );
           }
@@ -137,9 +175,14 @@ class OnlineReadingCatalogStore {
 
   Future<OnlineReadingCatalog?> _readMatchingCatalog(
     BookSource source,
-    OnlineBook book,
-  ) async {
-    final cached = await _readCatalog(source, book.bookUrl);
+    OnlineBook book, {
+    bool allowStale = false,
+  }) async {
+    final cached = await _readCatalog(
+      source,
+      book.bookUrl,
+      allowStale: allowStale,
+    );
     if (cached == null) return null;
     try {
       final requested = onlineRequestIdentity(book.bookUrl, book.bookOptions);
@@ -155,18 +198,20 @@ class OnlineReadingCatalogStore {
 
   Future<OnlineReadingCatalog?> _readCatalog(
     BookSource source,
-    String bookUrl,
-  ) async {
+    String bookUrl, {
+    bool allowStale = false,
+  }) async {
     try {
       final raw = await library.getSetting(_catalogKey(source.id, bookUrl));
       if (raw == null || raw.isEmpty) return null;
       final json = jsonDecode(raw) as Map<String, dynamic>;
       if (json['version'] != 1 ||
           json['sourceId'] != source.id ||
-          json['bookUrl'] != bookUrl ||
-          json['rules'] != _rulesFingerprint(source)) {
+          json['bookUrl'] != bookUrl) {
         return null;
       }
+      final isStale = json['rules'] != _rulesFingerprint(source);
+      if (isStale && !allowStale) return null;
       final book = _bookFromJson(json['book'] as Map<String, dynamic>);
       final chapters = [
         for (final value in json['chapters'] as List)
@@ -181,6 +226,7 @@ class OnlineReadingCatalogStore {
         lastReadAt: json['lastReadAt'] == null
             ? null
             : DateTime.parse(json['lastReadAt'] as String),
+        isStale: isStale,
       );
     } on Object {
       return null;

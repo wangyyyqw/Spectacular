@@ -214,6 +214,23 @@ void main() {
     expect((await store.read(renamed, book))?.book.sourceName, '来源新名称');
   });
 
+  test('目录规则变更保留最近书籍信息，过期目录不能作为阅读缓存', () async {
+    final store = OnlineReadingCatalogStore(LibraryStore.memory());
+    final book = _book();
+    await store.remember(_source, book, _chapters);
+    final changed = _source.copyWith(
+      toc: const TocRule(chapterList: r'$.newCatalog'),
+    );
+
+    expect(await store.read(changed, book), isNull);
+    final recent = await store.recent([changed]);
+    expect(recent, hasLength(1));
+    expect(recent.single.book.bookOptions, book.bookOptions);
+    expect(recent.single.isStale, isTrue);
+    await store.save(changed, book, _chapters);
+    expect((await store.recent([changed])).single.isStale, isFalse);
+  });
+
   test('无效身份和目录不覆盖有效缓存，重复请求不登记最近阅读', () async {
     final store = OnlineReadingCatalogStore(LibraryStore.memory());
     final book = _book();
@@ -323,6 +340,32 @@ void main() {
     expect(cached?.book.intro, updated.intro);
     expect(cached?.chapters, hasLength(1));
     expect((await store.recent([changed])).single.chapters, hasLength(1));
+  });
+
+  test('旧阅读会话登记最近时间时不把新规则目录覆盖回旧快照', () async {
+    var when = DateTime.utc(2026, 11, 20, 8);
+    final store = OnlineReadingCatalogStore(
+      LibraryStore.memory(),
+      now: () => when,
+    );
+    final book = _book();
+    await store.remember(_source, book, _chapters);
+    final changed = _source.copyWith(
+      toc: const TocRule(chapterList: r'$.newCatalog'),
+    );
+    final updated = book.copyWith(intro: '新规则简介', chapterCount: 1);
+    await store.save(changed, updated, [_chapters.first]);
+    when = when.add(const Duration(minutes: 1));
+    await store.remember(_source, book, _chapters, preserveSavedCatalog: true);
+
+    expect(await store.read(_source, book), isNull);
+    final catalog = await store.read(changed, book);
+    expect(catalog?.book.intro, '新规则简介');
+    expect(catalog?.chapters, hasLength(1));
+    expect(catalog?.lastReadAt, when);
+    final recent = await store.recent([changed]);
+    expect(recent.single.isStale, isFalse);
+    expect(recent.single.lastReadAt, when);
   });
 
   test('最近阅读最多记录二十本，再次阅读提升顺序且保存目录不增加记录', () async {

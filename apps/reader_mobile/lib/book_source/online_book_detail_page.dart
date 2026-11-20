@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
 import 'online_book_toc_page.dart';
+import 'online_chapter_request.dart';
 import 'online_reading_book.dart';
 
 typedef OnlineBookReadCallback = Future<void> Function(
@@ -37,6 +39,7 @@ class OnlineBookDetailPage extends StatefulWidget {
 class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   OnlineBook? _info;
   List<OnlineChapter>? _chapters;
+  OnlineCatalogLoad? _catalogLoad;
   bool _loading = true;
   bool _refreshing = false;
   bool _usingCachedCatalog = false;
@@ -51,21 +54,35 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    unawaited(_load());
   }
 
-  Future<void> _load({bool refresh = false}) async {
+  BookSource? get _currentSource {
+    if (!widget.controller.initialized) return widget.source;
+    for (final source in widget.controller.sources) {
+      if (source.id == widget.source.id) return source;
+    }
+    return null;
+  }
+
+  bool _sameCatalogSource(BookSource first, BookSource second) =>
+      widget.controller.catalogs.requestIdentity(first, widget.book) ==
+      widget.controller.catalogs.requestIdentity(second, widget.book);
+
+  Future<void> _load() async {
     if (_refreshing) return;
     setState(() {
       _loading = _chapters == null;
       _refreshing = true;
       _error = null;
     });
-    if (!refresh && _chapters == null) {
-      final cached = await widget.controller.catalogs.read(
-        widget.source,
-        widget.book,
-      );
+    final source = _currentSource ?? widget.source;
+    final load = _catalogLoad = widget.controller.loadCatalog(
+      source,
+      _info ?? widget.book,
+    );
+    if (_chapters == null) {
+      final cached = await load.cached;
       if (!mounted) return;
       if (cached != null) {
         setState(() {
@@ -77,22 +94,14 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       }
     }
     try {
-      final info = await widget.controller.service.loadBookInfo(
-        widget.source,
-        widget.book,
-      );
-      final chapters = await widget.controller.service.fetchToc(
-        widget.source,
-        info,
-      );
+      final catalog = await load.refresh;
       if (!mounted) return;
       setState(() {
-        _info = info;
-        _chapters = chapters;
+        _info = catalog.book;
+        _chapters = catalog.chapters;
         _usingCachedCatalog = false;
         _loading = false;
       });
-      await widget.controller.catalogs.save(widget.source, info, chapters);
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -117,7 +126,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     });
     try {
       await widget.controller.downloadAndImport(
-        widget.source,
+        _currentSource ?? widget.source,
         info,
         onProgress: (completed, total, message) {
           if (!mounted) return;
@@ -151,23 +160,54 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
 
   bool get _canRead =>
       widget.onRead != null &&
-      widget.source.loadMode == BookSourceLoadMode.chapter &&
+      _currentSource?.enabled == true &&
+      _currentSource?.loadMode == BookSourceLoadMode.chapter &&
       (_chapters?.isNotEmpty ?? false);
 
-  Future<void> _read([int? index, OnlineReadingBook? preparedBook]) async {
+  Future<void> _read([OnlineChapter? selectedChapter]) async {
     if (!_canRead || _opening || _downloading) return;
     setState(() => _opening = true);
+    final selectedIdentity = selectedChapter == null
+        ? null
+        : onlineChapterIdentity(selectedChapter);
+    OnlineCatalogLoad? usedLoad;
     try {
+      final source = _currentSource!;
+      final currentLoad = _catalogLoad;
+      final load = usedLoad =
+          currentLoad != null && _sameCatalogSource(currentLoad.source, source)
+          ? currentLoad
+          : widget.controller.loadCatalog(source, _info ?? widget.book);
+      final catalog = await load.forReading();
+      if (!mounted) return;
+      final currentSource = _currentSource;
+      if (currentSource == null ||
+          !currentSource.enabled ||
+          currentSource.loadMode != BookSourceLoadMode.chapter ||
+          !_sameCatalogSource(currentSource, source)) {
+        throw const BookSourceException('来源已更新，请重新打开目录');
+      }
+      final start = selectedIdentity == null
+          ? null
+          : catalog.chapters.indexWhere(
+              (chapter) => onlineChapterIdentity(chapter) == selectedIdentity,
+            );
+      if (start == -1) {
+        throw const BookSourceException('所选章节已不在最新目录中，请重新选择');
+      }
+      setState(() {
+        _info = catalog.book;
+        _chapters = catalog.chapters;
+      });
       await widget.onRead!(
         context,
-        preparedBook ??
-            OnlineReadingBook(
-              source: widget.source,
-              book: _info ?? widget.book,
-              chapters: _chapters!,
-              service: widget.controller.service,
-            ),
-        startChapter: index,
+        OnlineReadingBook(
+          source: source,
+          book: catalog.book,
+          chapters: catalog.chapters,
+          service: widget.controller.service,
+        ),
+        startChapter: start,
       );
     } catch (error) {
       if (mounted) {
@@ -175,6 +215,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
             .showSnackBar(SnackBar(content: Text('无法打开阅读页：$error')));
       }
     } finally {
+      if (identical(_catalogLoad, usedLoad)) _catalogLoad = null;
       if (mounted) setState(() => _opening = false);
     }
   }
@@ -183,7 +224,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     final chapters = _chapters;
     if (chapters == null || _opening || _downloading) return;
     final book = OnlineReadingBook(
-      source: widget.source,
+      source: _currentSource ?? widget.source,
       book: _info ?? widget.book,
       chapters: chapters,
       service: widget.controller.service,
@@ -203,7 +244,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
         ),
       ),
     );
-    if (selected != null && mounted) await _read(selected, book);
+    if (selected != null && mounted) await _read(chapters[selected]);
   }
 
   @override
@@ -218,9 +259,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
             IconButton(
               key: const ValueKey('online-book-refresh-catalog'),
               tooltip: '刷新目录',
-              onPressed: _refreshing || _downloading || _opening
-                  ? null
-                  : () => _load(refresh: true),
+              onPressed: _refreshing || _downloading || _opening ? null : _load,
               icon: const Icon(Icons.refresh),
             ),
           ],
@@ -284,7 +323,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                         contentPadding: EdgeInsets.zero,
                         dense: true,
                         onTap: _canRead && !_downloading && !_opening
-                            ? () => _read(index)
+                            ? () => _read(chapter)
                             : null,
                         title: Text(
                           '${index + 1}. ${chapter.title}',

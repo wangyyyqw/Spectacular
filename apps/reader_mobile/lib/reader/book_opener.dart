@@ -64,8 +64,12 @@ class BookOpener {
       final fontStore = ReaderFontStore(library);
       Future<EpubChapterSource>? source;
       final settings = _loadSettings()..ignore();
-      await OnlineReadingCatalogStore(library)
-          .remember(book.source, book.book, book.chapters);
+      await OnlineReadingCatalogStore(library).remember(
+        book.source,
+        book.book,
+        book.chapters,
+        preserveSavedCatalog: true,
+      );
       if (!context.mounted) return;
       final route = MaterialPageRoute<void>(
         builder: (_) {
