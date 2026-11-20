@@ -1,14 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../rea_micro/rea_micro_models.dart';
-import '../storage/reading_session_store.dart';
-import 'reading_calendar.dart';
+import 'cloud_reading_calendar.dart';
 import 'reading_insights.dart';
 import 'stats_section.dart';
 import 'weekday_average_chart.dart';
-
-const _cloudInsightBookId = '__reamicro__';
-const _cloudInsightBookTitle = '阅微阅读';
 
 /// 阅微阅读数据视图，沿用统计页自己的分区、日历和排行排版。
 class CloudStatsView extends StatefulWidget {
@@ -20,6 +16,7 @@ class CloudStatsView extends StatefulWidget {
     required this.loading,
     required this.onRefresh,
     required this.onOpenBook,
+    this.onLoadMonth,
   });
 
   /// 云端数据快照。
@@ -36,6 +33,9 @@ class CloudStatsView extends StatefulWidget {
 
   /// 打开书籍。
   final ValueChanged<ReaMicroBookRecord> onOpenBook;
+
+  /// 读取指定月份的阅微统计。
+  final Future<ReaMicroPeriodStats> Function(DateTime)? onLoadMonth;
 
   @override
   State<CloudStatsView> createState() => _CloudStatsViewState();
@@ -55,8 +55,7 @@ class _CloudStatsViewState extends State<CloudStatsView> {
   @override
   Widget build(BuildContext context) {
     final stats = widget.stats;
-    final insights = _buildInsights(stats);
-    final now = DateTime.now();
+    final dailyTotals = _buildDailyTotals(stats);
     return RefreshIndicator(
       onRefresh: widget.onRefresh,
       child: Center(
@@ -123,20 +122,20 @@ class _CloudStatsViewState extends State<CloudStatsView> {
               ),
               StatsSection(
                 title: '阅读日历',
-                detail: '近 30 天',
-                child: ReadingCalendar(
-                  insights: insights,
-                  bookTitles: const <String, String>{
-                    _cloudInsightBookId: _cloudInsightBookTitle,
-                  },
-                  now: now,
+                detail: '按月',
+                child: CloudReadingCalendar(
+                  stats: stats,
+                  onLoadMonth: widget.onLoadMonth,
                 ),
               ),
               StatsSection(
                 title: '每日平均',
-                detail: '按星期',
+                detail: '近 30 天 · 按星期',
                 caption: '仅计阅微有阅读记录的日期',
-                child: WeekdayAverageChart(insights: insights),
+                child: WeekdayAverageChart(
+                  insights: ReadingInsights(const [], now: stats.fetchedAt),
+                  dailyTotals: dailyTotals,
+                ),
               ),
               StatsSection(
                 title: '阅读排行',
@@ -171,21 +170,12 @@ class _CloudStatsViewState extends State<CloudStatsView> {
   }
 }
 
-ReadingInsights _buildInsights(ReaMicroCloudStats stats) {
-  final now = DateTime.now();
-  final sessions = <ReadingSession>[];
+Map<DateTime, Duration> _buildDailyTotals(ReaMicroCloudStats stats) {
+  final totals = <DateTime, Duration>{};
   void addDay(DateTime date, int seconds) {
     if (seconds <= 0) return;
-    final duration = Duration(seconds: seconds);
-    final start = DateTime(date.year, date.month, date.day, 12);
-    sessions.add(
-      ReadingSession(
-        bookId: _cloudInsightBookId,
-        bookTitle: _cloudInsightBookTitle,
-        startedAt: start,
-        endedAt: start.add(duration),
-        duration: duration,
-      ),
+    totals[DateTime(date.year, date.month, date.day)] = Duration(
+      seconds: seconds,
     );
   }
 
@@ -193,12 +183,16 @@ ReadingInsights _buildInsights(ReaMicroCloudStats stats) {
     final date = DateTime.tryParse(point.day);
     if (date != null) addDay(date, point.durationSeconds);
   }
-  if (sessions.isEmpty) {
+  if (totals.isEmpty) {
+    final month = stats.monthDate ?? stats.fetchedAt;
+    final lastDay = DateTime(month.year, month.month + 1, 0).day;
     for (final day in stats.month.days) {
-      addDay(DateTime(now.year, now.month, day.day), day.durationSeconds);
+      if (day.day >= 1 && day.day <= lastDay) {
+        addDay(DateTime(month.year, month.month, day.day), day.durationSeconds);
+      }
     }
   }
-  return ReadingInsights(sessions, now: now);
+  return totals;
 }
 
 class _SourceBanner extends StatelessWidget {

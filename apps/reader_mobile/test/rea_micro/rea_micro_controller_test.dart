@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -204,6 +205,11 @@ class _FakeApi implements ReaMicroApi {
   final List<List<ReaMicroReadSessionLog>> sessionLogUploads =
       <List<ReaMicroReadSessionLog>>[];
   final List<_ProgressUpload> progressUploads = <_ProgressUpload>[];
+  Future<void> Function()? onProgressUpload;
+  Future<void> Function()? onProgressFetch;
+  Future<void> Function()? onSessionUpload;
+  final List<bool> accountingFlags = [];
+  final List<DateTime> monthRequests = [];
   ReaMicroReadProgress? remoteProgress;
   final List<Map<String, Object?>> userBookRequests = <Map<String, Object?>>[];
   final List<Map<String, Object?>> cloudBookRequests = <Map<String, Object?>>[];
@@ -321,7 +327,10 @@ class _FakeApi implements ReaMicroApi {
     String token, {
     int? year,
     int? month,
-  }) async => period;
+  }) async {
+    monthRequests.add(DateTime(year!, month!));
+    return period;
+  }
 
   @override
   Future<ReaMicroPeriodStats> fetchYearStats(String token, {int? year}) async =>
@@ -437,6 +446,8 @@ class _FakeApi implements ReaMicroApi {
   }) async {
     uploads.add(List<ReaMicroReadTimeEntry>.of(entries));
     sessionLogUploads.add(List<ReaMicroReadSessionLog>.of(sessionLogs));
+    accountingFlags.add(sessionAccounting);
+    await onSessionUpload?.call();
   }
 
   @override
@@ -455,6 +466,7 @@ class _FakeApi implements ReaMicroApi {
         progress: progress,
       ),
     );
+    await onProgressUpload?.call();
   }
 
   @override
@@ -463,6 +475,7 @@ class _FakeApi implements ReaMicroApi {
     required String cloudBookId,
   }) async {
     progressFetchBookIds.add(cloudBookId);
+    await onProgressFetch?.call();
     return remoteProgress;
   }
 
@@ -790,6 +803,20 @@ ReadingSession _session(
   duration: end.difference(start),
 );
 
+ReaMicroBookRecord _accountBookRecord() => const ReaMicroBookRecord(
+  bookId: 7101,
+  cloudBookId: 11,
+  name: '本地书',
+  author: '作者',
+  cover: '',
+  progress: 0.1,
+  totalReadTimeSeconds: 60,
+  readDays: 1,
+  finishReadTime: 0,
+  listeningDurationSeconds: 0,
+  readingDurationSeconds: 60,
+);
+
 Future<ReaMicroController> _createController(
   LibraryStore library,
   _FakeApi api, {
@@ -817,6 +844,173 @@ void main() {
   setUpAll(() {
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
   });
+
+  test('历史月统计传递所选年份和月份', () async {
+    final api = _FakeApi();
+    final controller = await _createController(_TestLibrary(), api);
+    addTearDown(controller.dispose);
+    final result = await controller.loadCloudMonth(DateTime(2025, 12));
+    expect(result, same(api.period));
+    expect(api.monthRequests.last, DateTime(2025, 12));
+  });
+
+  test('退出账号清理内部用户书标识和云统计，保留公开关联与本地会话', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    library.sessions.add(
+      _session(
+        DateTime.utc(2026, 11, 20, 1),
+        DateTime.utc(2026, 11, 20, 1, 10),
+      ),
+    );
+    await controller.refreshCloudStats(force: true);
+    expect(controller.cloudStats, isNotNull);
+    await controller.logout();
+    expect(controller.cloudStats, isNull);
+    expect(controller.links['book-a']!.cloudBookId, 11);
+    expect(controller.links['book-a']!.userBookId, 0);
+    expect(library.sessions, hasLength(1));
+    expect((await ReaMicroStore(library).loadLinks())['book-a']!.userBookId, 0);
+  });
+
+  test('上报按有效时长分配且跨午夜小数秒守恒', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    library.sessions.add(
+      ReadingSession(
+        bookId: 'book-a',
+        startedAt: DateTime.utc(2026, 11, 16, 15, 59, 59, 200),
+        endedAt: DateTime.utc(2026, 11, 16, 16, 0, 2, 800),
+        duration: const Duration(milliseconds: 2600),
+      ),
+    );
+    final result = await controller.syncReadingSessions();
+    expect(result.durationSeconds, 2);
+    expect(api.uploads.expand((list) => list).single.date, '2026-11-17');
+    expect(api.accountingFlags, [true]);
+    expect(api.sessionLogUploads.single.single.durationSeconds, 2);
+    expect((await controller.syncReadingSessions()).requests, 0);
+  });
+
+  test('会话请求超时后重试使用相同标识，确认成功后推进水位', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    library.sessions.add(
+      _session(
+        DateTime.utc(2026, 11, 20, 1),
+        DateTime.utc(2026, 11, 20, 1, 10),
+      ),
+    );
+    api.onSessionUpload = () async {
+      throw const ReaMicroException('请求超时');
+    };
+    expect((await controller.syncReadingSessions()).success, isFalse);
+    expect(await ReaMicroStore(library).loadSessionWatermarks(), isEmpty);
+    final firstId = api.sessionLogUploads.single.single.id;
+    api.onSessionUpload = null;
+    expect((await controller.syncReadingSessions()).success, isTrue);
+    expect(api.sessionLogUploads.last.single.id, firstId);
+    expect(api.accountingFlags, [true, true]);
+    expect((await controller.syncReadingSessions()).requests, 0);
+  });
+
+  for (final fetching in [false, true]) {
+    test('${fetching ? '拉取' : '上报'}进度期间的新保存保留并在下次上报', () async {
+      final library = _TestLibrary()
+        ..book = BookEntry(
+          id: 'book-a',
+          title: '本地书',
+          author: '作者',
+          filePath: '',
+          addedAt: DateTime(2026, 11, 17),
+          spineCount: 10,
+          contentRevision: 'rev',
+        );
+      final api = _FakeApi();
+      final controller = await _createController(
+        library,
+        api,
+        progressStore: MemoryReaderProgressStore(),
+      );
+      addTearDown(controller.dispose);
+      await controller.linkBook(
+        'book-a',
+        const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+        userBookId: 7001,
+      );
+      const old = ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/4!/4/2/1)',
+        contentRevision: 'rev',
+        readingPercent: 0.2,
+      );
+      const newer = ReaderProgress(
+        spineIndex: 2,
+        pageIndex: 0,
+        cfi: 'epubcfi(/6/6!/4/2/1)',
+        contentRevision: 'rev',
+        readingPercent: 0.3,
+      );
+      await controller.trackedProgressStore!.save('book-a', old);
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      Future<void> block() async {
+        if (!entered.isCompleted) entered.complete();
+        await release.future;
+      }
+
+      if (fetching) {
+        api.onProgressFetch = block;
+        api.remoteProgress = ReaMicroReadProgress(
+          cloudBookId: '7001',
+          cfi: old.cfi!,
+          chapterName: '',
+          progress: 0.2,
+          readFinishTime: 0,
+        );
+      } else {
+        api.onProgressUpload = block;
+      }
+      final pending = controller.syncProgress(pullCloud: fetching);
+      await entered.future;
+      await controller.trackedProgressStore!.save('book-a', newer);
+      release.complete();
+      await pending;
+      api.onProgressFetch = null;
+      api.onProgressUpload = null;
+      final saved = await ReaMicroStore(library).loadProgressStates();
+      expect(saved['book-a']!.cfi, newer.cfi);
+      expect(saved['book-a']!.dirty, isTrue);
+      await controller.syncProgress(pullCloud: false);
+      expect(api.progressUploads.last.cfi, newer.cfi);
+      expect(
+        (await ReaMicroStore(library).loadProgressStates())['book-a']!.dirty,
+        isFalse,
+      );
+    });
+  }
 
   test('北京时间跨午夜会话按自然日拆分', () async {
     final library = _TestLibrary();
@@ -1653,6 +1847,7 @@ void main() {
         contentRevision: 'rev-1',
       );
     final api = _FakeApi()
+      ..bookRecords = [_accountBookRecord()]
       ..remoteProgress = ReaMicroReadProgress(
         cloudBookId: '11',
         cfi: 'epubcfi(/6/8!/4/2/1)',
@@ -1712,7 +1907,7 @@ void main() {
         spineCount: 10,
         contentRevision: 'rev-1',
       );
-    final api = _FakeApi();
+    final api = _FakeApi()..bookRecords = [_accountBookRecord()];
     final progressStore = MemoryReaderProgressStore();
     await progressStore.save(
       'book-a',

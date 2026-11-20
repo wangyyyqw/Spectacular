@@ -451,6 +451,7 @@ class ReaMicroCloudStats {
     required this.chart,
     required this.books,
     required this.fetchedAt,
+    this.monthDate,
   });
 
   /// 累计概览。
@@ -473,6 +474,9 @@ class ReaMicroCloudStats {
 
   /// 拉取时间。
   final DateTime fetchedAt;
+
+  /// 月统计所属月份，避免跨月请求完成后误认日期。
+  final DateTime? monthDate;
 }
 
 /// 阅微有标注的书籍。

@@ -13,6 +13,64 @@ http.Response _json(Object? body, {int status = 200}) => http.Response(
 );
 
 void main() {
+  test('书籍分页未读完时拒绝返回不完整清单', () async {
+    var pages = 0;
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        pages++;
+        return _json({
+          'code': 0,
+          'data': {
+            'list': List.generate(
+              200,
+              (index) => {'bookId': pages * 200 + index},
+            ),
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+    await expectLater(
+      api.fetchBookRecords('token'),
+      throwsA(isA<ReaMicroException>()),
+    );
+    expect(pages, 20);
+  });
+
+  test('会话记账必须由服务端确认，不回退到累加接口', () async {
+    final paths = <String>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        paths.add(request.url.path);
+        return _json({
+          'code': 0,
+          'data': {'sessionAccountingSupported': false},
+        });
+      }),
+    );
+    addTearDown(api.close);
+    await expectLater(
+      api.updateReadTimeByDate(
+        'token',
+        const [],
+        sessionLogs: const [
+          ReaMicroReadSessionLog(
+            id: 'stable-session',
+            cloudBookId: 7001,
+            startedAt: 1,
+            endedAt: 1001,
+            durationSeconds: 1,
+            recordDay: '2026-11-20',
+          ),
+        ],
+        sessionAccounting: true,
+      ),
+      throwsA(isA<ReaMicroException>()),
+    );
+    expect(paths, ['/rest/reader/update-time-sessions']);
+  });
   test('标注分页达到上限仍未读完时拒绝返回不完整清单', () async {
     var pages = 0;
     final api = ReaMicroApiClient(
@@ -875,6 +933,12 @@ void main() {
             },
           });
         }
+        if (path.endsWith('/update-time-sessions')) {
+          return _json({
+            'code': 0,
+            'data': {'sessionAccountingSupported': true},
+          });
+        }
         return _json(<String, Object?>{'code': 0, 'data': true});
       }),
     );
@@ -958,7 +1022,7 @@ void main() {
       'actionType': 0,
     });
     expect(bodies['hide-read-record'], <String, Object?>{'bookId': 8});
-    final update = bodies['update-read-time-by-date']! as Map<String, Object?>;
+    final update = bodies['update-time-sessions']! as Map<String, Object?>;
     expect(update['sessionAccounting'], isTrue);
     expect((update['sessionLogs']! as List<Object?>).single, <String, Object?>{
       'id': 'session-1',

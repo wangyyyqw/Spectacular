@@ -11,10 +11,17 @@ import 'reading_insights.dart';
 /// 每个星期的均值只计算有阅读记录的自然日；点击星期可查看对应的阅读天数。
 class WeekdayAverageChart extends StatefulWidget {
   /// 创建七日花瓣图。
-  const WeekdayAverageChart({super.key, required this.insights});
+  const WeekdayAverageChart({
+    super.key,
+    required this.insights,
+    this.dailyTotals,
+  });
 
   /// 与其他统计卡片共用的阅读快照。
   final ReadingInsights insights;
+
+  /// 只有逐日汇总的云端数据不构造会话，也不展示小时分布。
+  final Map<DateTime, Duration>? dailyTotals;
 
   @override
   State<WeekdayAverageChart> createState() => _WeekdayAverageChartState();
@@ -32,7 +39,8 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
   @override
   void didUpdateWidget(WeekdayAverageChart oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.insights, widget.insights)) {
+    if (!identical(oldWidget.insights, widget.insights) ||
+        !identical(oldWidget.dailyTotals, widget.dailyTotals)) {
       _selectedWeekday = _defaultWeekday(_buildAverages());
     }
   }
@@ -40,10 +48,10 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
   List<_WeekdayAverage> _buildAverages() {
     final totals = List<Duration>.filled(7, Duration.zero);
     final readingDays = List<Set<DateTime>>.generate(7, (_) => <DateTime>{});
-    for (final portion in widget.insights.portions) {
-      final index = portion.date.weekday % 7;
-      totals[index] += portion.duration;
-      readingDays[index].add(portion.date);
+    for (final entry in _dailyTotals.entries) {
+      final index = entry.key.weekday % 7;
+      totals[index] += entry.value;
+      readingDays[index].add(entry.key);
     }
     return <_WeekdayAverage>[
       for (var index = 0; index < 7; index++)
@@ -64,8 +72,8 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     final dates = <int, Set<DateTime>>{
       for (var index = 0; index < 7; index++) index: <DateTime>{},
     };
-    for (final portion in widget.insights.portions) {
-      dates[portion.date.weekday % 7]!.add(portion.date);
+    for (final date in _dailyTotals.keys) {
+      dates[date.weekday % 7]!.add(date);
     }
     return <int, List<DateTime>>{
       for (final entry in dates.entries)
@@ -88,6 +96,20 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     }
     return best?.weekday;
   }
+
+  Map<DateTime, Duration> get _dailyTotals =>
+      widget.dailyTotals ?? widget.insights.byDay;
+
+  Duration get _averageDay => _dailyTotals.isEmpty
+      ? Duration.zero
+      : Duration(
+          microseconds:
+              _dailyTotals.values.fold<int>(
+                0,
+                (total, value) => total + value.inMicroseconds,
+              ) ~/
+              _dailyTotals.length,
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -136,6 +158,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
                   average: selected,
                   readingDates: readingDates[selected.weekday] ?? const [],
                   onOpenDay: (date) => _openHourlyPage(context, date),
+                  dailyOnly: widget.dailyTotals != null,
                 ),
         ),
       ],
@@ -147,7 +170,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '日均 ${_formatCenterDuration(widget.insights.averageDay)}',
+            '日均 ${_formatCenterDuration(_averageDay)}',
             key: const ValueKey('stats-weekday-average-value'),
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           ),
@@ -255,7 +278,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _formatCenterDuration(widget.insights.averageDay),
+                      _formatCenterDuration(_averageDay),
                       key: const ValueKey<String>(
                         'stats-weekday-average-value',
                       ),
@@ -309,6 +332,21 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
   }
 
   void _openHourlyPage(BuildContext context, DateTime date) {
+    if (widget.dailyTotals != null) {
+      showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        useSafeArea: true,
+        builder: (_) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            '${date.year}年${date.month}月${date.day}日\n'
+            '阅读与听书 ${formatReadingDuration(_dailyTotals[date] ?? Duration.zero)}',
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) =>
@@ -417,11 +455,13 @@ class _WeekdayDetail extends StatelessWidget {
     required this.average,
     required this.readingDates,
     required this.onOpenDay,
+    this.dailyOnly = false,
   });
 
   final _WeekdayAverage average;
   final List<DateTime> readingDates;
   final ValueChanged<DateTime> onOpenDay;
+  final bool dailyOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -515,7 +555,7 @@ class _WeekdayDetail extends StatelessWidget {
           ),
           iconAlignment: IconAlignment.end,
           icon: const AppIcon(AppGlyph.chevronRight, size: 16),
-          label: const Text('小时分布'),
+          label: Text(dailyOnly ? '当日时长' : '小时分布'),
         ),
       ],
     ),

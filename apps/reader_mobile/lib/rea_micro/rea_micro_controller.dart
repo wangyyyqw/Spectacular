@@ -658,6 +658,21 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 账号变化后清空与云端标识绑定的同步状态，避免复用上一账号的映射。
   Future<void> _resetAccountSyncState() async {
+    _cloudStats = null;
+    _cloudStatsAt = null;
+    _cloudStatsError = null;
+    // 公开版本可跨账号复用，内部用户书标识必须在新账号重新解析或登记。
+    _links = {
+      for (final entry in _links.entries)
+        entry.key: ReaMicroBookLink(
+          cloudBookId: entry.value.cloudBookId,
+          name: entry.value.name,
+          author: entry.value.author,
+          publisherId: entry.value.publisherId,
+          linkedAt: entry.value.linkedAt,
+        ),
+    };
+    await _store.saveLinks(_links);
     if (_markIds.isNotEmpty) {
       _markIds = <String, int>{};
       await _store.saveMarkIds(_markIds);
@@ -1104,6 +1119,7 @@ class ReaMicroController extends ChangeNotifier {
         ),
         books: List<ReaMicroBookRecord>.unmodifiable(books),
         fetchedAt: DateTime.now(),
+        monthDate: DateTime(now.year, now.month),
       );
       _cloudStatsAt = _cloudStats!.fetchedAt;
       _cloudStatsError = null;
@@ -1114,6 +1130,19 @@ class ReaMicroController extends ChangeNotifier {
       _loadingCloudStats = false;
       _notify();
     }
+  }
+
+  /// 读取指定月份，并拒绝账号切换前的旧响应。
+  Future<ReaMicroPeriodStats> loadCloudMonth(DateTime month) async {
+    final token = _token;
+    if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    final result = await _api.fetchMonthStats(
+      token,
+      year: month.year,
+      month: month.month,
+    );
+    if (_token != token) throw const ReaMicroException('账号已变更，请重新加载统计');
+    return result;
   }
 
   /// 拉取阅微读完里程碑。
@@ -1339,6 +1368,7 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 退出登录，保留本地阅读记录和书籍关联。
   Future<void> logout() async {
+    _token = null;
     _stopCloudAutoSync();
     await _stopLanAuthorization();
     _cloudAsPrimary = false;
@@ -1661,6 +1691,11 @@ class ReaMicroController extends ChangeNotifier {
       uploaded = await _store.loadUploadedSessionKeys();
       watermarks = await _store.loadSessionWatermarks();
       final records = await _api.fetchBookRecords(token);
+      if (_token != token) {
+        _syncing = false;
+        _notify();
+        return const ReaMicroSyncResult(success: false, message: '账号已变更，同步已停止');
+      }
       for (final session in sessions) {
         if (readingBookIds.containsKey(session.bookId)) continue;
         final link = _links[session.bookId];
@@ -1758,14 +1793,23 @@ class ReaMicroController extends ChangeNotifier {
     var durationSeconds = 0;
     String? failure;
     for (final group in groups.values) {
+      if (_token != token) {
+        failure = '账号已变更，同步已停止';
+        break;
+      }
       try {
-        await _api.updateReadTimeByDate(token, <ReaMicroReadTimeEntry>[
-          ReaMicroReadTimeEntry(
-            cloudBookId: group.cloudBookId,
-            date: group.date,
-            durationSeconds: group.durationSeconds,
-          ),
-        ], sessionLogs: group.logs);
+        await _api.updateReadTimeByDate(
+          token,
+          <ReaMicroReadTimeEntry>[
+            ReaMicroReadTimeEntry(
+              cloudBookId: group.cloudBookId,
+              date: group.date,
+              durationSeconds: group.durationSeconds,
+            ),
+          ],
+          sessionLogs: group.logs,
+          sessionAccounting: group.logs.isNotEmpty,
+        );
         uploaded.addAll(group.keys);
         for (final bookId in group.bookIds) {
           final remaining = (pendingGroupCount[bookId] ?? 1) - 1;
@@ -1782,8 +1826,8 @@ class ReaMicroController extends ChangeNotifier {
       }
     }
 
-    await saveAdvancedWatermarks();
-    if (requests > 0) {
+    if (_token == token) await saveAdvancedWatermarks();
+    if (requests > 0 && _token == token) {
       await _store.saveUploadedSessionKeys(uploaded);
       final now = DateTime.now();
       _lastSyncAt = now;
@@ -1835,6 +1879,9 @@ class ReaMicroController extends ChangeNotifier {
     try {
       final remoteMarks = await _api.fetchMarks(token);
       final readingBooks = await _api.fetchBookRecords(token);
+      if (_token != token) {
+        return const ReaMicroSyncResult(success: false, message: '账号已变更，同步已停止');
+      }
       final remoteById = <int, ReaMicroMark>{
         for (final mark in remoteMarks)
           if (mark.id > 0) mark.id: mark,
@@ -2064,8 +2111,10 @@ class ReaMicroController extends ChangeNotifier {
       await _handleError(error);
       failure = _error ?? _messageOf(error);
     } finally {
-      _markIds = nextMarkIds;
-      await _store.saveMarkIds(_markIds);
+      if (_token == token) {
+        _markIds = nextMarkIds;
+        await _store.saveMarkIds(_markIds);
+      }
       _syncingMarks = false;
       _notify();
     }
@@ -2116,6 +2165,7 @@ class ReaMicroController extends ChangeNotifier {
       author: book.author,
       md5: md5.convert(await file.readAsBytes()).toString(),
     );
+    if (_token != token) throw const ReaMicroException('账号已变更，同步已停止');
     if (registration.userBookId <= 0) {
       throw const ReaMicroException('阅微未返回标注所需的内部书籍标识');
     }
@@ -2361,6 +2411,9 @@ class ReaMicroController extends ChangeNotifier {
           continue;
         }
         if (identity == null) continue;
+        if (_token != token || !identical(_progressStates[entry.key], state)) {
+          continue;
+        }
         if (state.cfi.trim().isEmpty) {
           _progressStates[entry.key] = state.copyWith(dirty: false);
           continue;
@@ -2375,6 +2428,10 @@ class ReaMicroController extends ChangeNotifier {
                 identity,
               )).toString(),
             );
+            if (_token != token ||
+                !identical(_progressStates[entry.key], state)) {
+              continue;
+            }
             if (remote != null && remote.usable) {
               if (remote.cfi == state.cfi) {
                 _progressStates[entry.key] = state.copyWith(
@@ -2446,6 +2503,9 @@ class ReaMicroController extends ChangeNotifier {
                 identity,
               )).toString(),
             );
+            if (_token != token || !identical(_progressStates[bookId], state)) {
+              continue;
+            }
             if (remote == null || !remote.usable) {
               if (state != null && state.cfi.trim().isNotEmpty) {
                 try {
@@ -2542,13 +2602,16 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroProgressState state,
     ReaMicroBookSyncIdentity identity,
   ) async {
+    final readingBookId = await _resolveReadingBookId(token, bookId, identity);
+    if (_token != token || !identical(_progressStates[bookId], state)) return;
     await _api.updateReadProgress(
       token,
-      cloudBookId: await _resolveReadingBookId(token, bookId, identity),
+      cloudBookId: readingBookId,
       cfi: state.cfi,
       chapterName: _chapterNameOf(state),
       progress: state.progress,
     );
+    if (_token != token || !identical(_progressStates[bookId], state)) return;
     _progressStates[bookId] = state.copyWith(
       dirty: false,
       uploadedAt: DateTime.now().millisecondsSinceEpoch,
@@ -3337,6 +3400,8 @@ class ReaMicroController extends ChangeNotifier {
   }) async {
     final store = _rawProgressStore;
     if (store == null) return false;
+    final initialState = _progressStates[bookId];
+    final token = _token;
     final book = await _library.bookById(bookId);
     if (book == null) return false;
     final revision = book.contentRevision?.trim() ?? '';
@@ -3386,6 +3451,9 @@ class ReaMicroController extends ChangeNotifier {
       localSpineIndex = fallbackSpine;
       normalized = remoteProgress;
     }
+    if (_token != token || !identical(_progressStates[bookId], initialState)) {
+      return false;
+    }
     try {
       await store.save(
         bookId,
@@ -3412,7 +3480,10 @@ class ReaMicroController extends ChangeNotifier {
       );
       return false;
     }
-    final existing = _progressStates[bookId];
+    if (_token != token || !identical(_progressStates[bookId], initialState)) {
+      return false;
+    }
+    final existing = initialState;
     final timestamp = updatedAt > 0
         ? updatedAt
         : DateTime.now().millisecondsSinceEpoch;
@@ -3549,6 +3620,9 @@ List<_SessionPortion> _splitSession(ReadingSession session) {
   final start = _chinaTime(session.startedAt);
   final end = _chinaTime(session.endedAt);
   final portions = <_SessionPortion>[];
+  final span = end.difference(start).inMicroseconds;
+  final totalSeconds = session.duration.inSeconds;
+  var assigned = 0;
   var cursor = start;
   while (cursor.isBefore(end)) {
     // start/end 已平移为北京时间墙钟值并保留 UTC 标志，日期边界也必须
@@ -3556,7 +3630,11 @@ List<_SessionPortion> _splitSession(ReadingSession session) {
     final dayStart = DateTime.utc(cursor.year, cursor.month, cursor.day);
     final dayEnd = dayStart.add(const Duration(days: 1));
     final segmentEnd = end.isBefore(dayEnd) ? end : dayEnd;
-    final seconds = segmentEnd.difference(cursor).inSeconds;
+    // 按累计比例分配有效时长，跨日小数秒只在整段会话取整一次。
+    final cumulative =
+        totalSeconds * segmentEnd.difference(start).inMicroseconds ~/ span;
+    final seconds = cumulative - assigned;
+    assigned = cumulative;
     if (seconds > 0) {
       final date = _dateString(dayStart);
       portions.add(

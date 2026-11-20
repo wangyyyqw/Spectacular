@@ -53,7 +53,8 @@
         "apps/reader_mobile/test/reader/reading_position_test.dart",
         "apps/reader_mobile/test/reader/revision_anchor_index_test.dart",
         "apps/reader_mobile/test/reader/epub/book_progress_test.dart",
-        "apps/reader_mobile/test/reader/epub/chapter_image_cfi_test.dart"
+        "apps/reader_mobile/test/reader/epub/chapter_image_cfi_test.dart",
+        "apps/reader_mobile/test/rea_micro/rea_micro_progress_mapping_test.dart"
       ]
     },
     {
@@ -64,6 +65,7 @@
         "apps/reader_mobile/test/library/library*_test.dart",
         "apps/reader_mobile/test/library/book_edit_repository_test.dart",
         "apps/reader_mobile/test/book_source/*_test.dart",
+        "apps/reader_mobile/test/rea_micro/*_test.dart",
         "apps/reader_mobile/test/editing/epub_export_test.dart",
         "apps/reader_mobile/test/library/revision_update_test.dart",
         "apps/reader_mobile/test/audit/import_queue_audit_test.dart",

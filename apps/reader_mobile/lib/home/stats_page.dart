@@ -468,6 +468,7 @@ class _StatsPageState extends State<StatsPage> {
               loading: controller.loadingCloudStats,
               onRefresh: _refresh,
               onOpenBook: _openCloudBook,
+              onLoadMonth: controller.loadCloudMonth,
             ),
     );
   }

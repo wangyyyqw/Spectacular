@@ -1,9 +1,113 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/cloud_stats_view.dart';
+import 'package:reader_mobile/home/cloud_reading_calendar.dart';
+import 'package:reader_mobile/home/weekday_average_chart.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 
 void main() {
+  testWidgets('云日历使用真实月度本数和每日阅读听书汇总', (tester) async {
+    final month = _period(day: 3, total: 20 * 3600, books: 23);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: CloudReadingCalendar(stats: _snapshot(month))),
+      ),
+    );
+    expect(find.text('1 天阅读 · 23 本 · 20 小时'), findsOneWidget);
+    expect(find.text('阅微阅读'), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('cloud-calendar-day-2026-11-3')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('2026年11月3日'), findsOneWidget);
+    expect(find.text('合计 20 小时'), findsOneWidget);
+    expect(find.text('阅读 20 小时'), findsOneWidget);
+    expect(find.text('听书 0 分钟'), findsOneWidget);
+  });
+
+  testWidgets('历史月份请求乱序完成时保留最后选择的月份', (tester) async {
+    final october = Completer<ReaMicroPeriodStats>();
+    final september = Completer<ReaMicroPeriodStats>();
+    final requests = <DateTime>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudReadingCalendar(
+            stats: _snapshot(_period(day: 3, total: 60)),
+            onLoadMonth: (date) {
+              requests.add(date);
+              return date.month == 10 ? october.future : september.future;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('stats-calendar-previous')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('stats-calendar-previous')));
+    await tester.pump();
+    september.complete(_period(day: 7, total: 7200, books: 4));
+    await tester.pumpAndSettle();
+    october.complete(_period(day: 1, total: 3600, books: 2));
+    await tester.pumpAndSettle();
+    expect(requests, [DateTime(2026, 10), DateTime(2026, 9)]);
+    expect(find.text('2026年9月'), findsOneWidget);
+    expect(find.text('1 天阅读 · 4 本 · 2 小时'), findsOneWidget);
+  });
+
+  testWidgets('历史月份失败可以重试且不会显示当前月数据', (tester) async {
+    var calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudReadingCalendar(
+            stats: _snapshot(_period(day: 3, total: 7200)),
+            onLoadMonth: (_) async {
+              if (++calls == 1) throw Exception('离线');
+              return _period(day: 1, total: 3600, books: 2);
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('stats-calendar-previous')));
+    await tester.pumpAndSettle();
+    expect(find.text('该月阅读记录加载失败'), findsOneWidget);
+    expect(find.byKey(const ValueKey('stats-calendar-summary')), findsNothing);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 天阅读 · 2 本 · 1 小时'), findsOneWidget);
+  });
+
+  testWidgets('云端每日平均不把超过十二小时的总量拆到次日', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudStatsView(
+            stats: _snapshot(_period(day: 3, total: 20 * 3600)),
+            linkedCloudBookIds: const {},
+            loading: false,
+            onRefresh: () async {},
+            onOpenBook: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('stats-weekday-average-chart')),
+      300,
+    );
+    final chart = tester.widget<WeekdayAverageChart>(
+      find.byType(WeekdayAverageChart),
+    );
+    expect(chart.dailyTotals, {
+      DateTime(2026, 11, 3): const Duration(hours: 20),
+    });
+    expect(chart.insights.sessions, isEmpty);
+  });
+
   testWidgets('云端统计展示概览、周期趋势和已关联书籍', (tester) async {
     ReaMicroBookRecord? opened;
     final stats = ReaMicroCloudStats(
@@ -104,14 +208,16 @@ void main() {
     expect(find.text('云端书'), findsWidgets);
     expect(find.text('已关联本地书籍，可打开'), findsOneWidget);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('cloud-stats-book-21')),
-    );
+    await tester.tap(find.byKey(const ValueKey<String>('cloud-stats-book-21')));
     expect(opened?.cloudBookId, 21);
   });
 }
 
-ReaMicroPeriodStats _period({required int day, required int total}) {
+ReaMicroPeriodStats _period({
+  required int day,
+  required int total,
+  int books = 1,
+}) {
   return ReaMicroPeriodStats(
     days: <ReaMicroDayDuration>[
       ReaMicroDayDuration(
@@ -124,7 +230,7 @@ ReaMicroPeriodStats _period({required int day, required int total}) {
     months: const <ReaMicroMonthDuration>[],
     readDays: 1,
     totalDurationSeconds: total,
-    bookCount: 1,
+    bookCount: books,
     finishedBookCount: 0,
     continuousReadDays: 1,
     averageDailyDurationSeconds: total,
@@ -133,3 +239,23 @@ ReaMicroPeriodStats _period({required int day, required int total}) {
     readingDurationSeconds: total,
   );
 }
+
+ReaMicroCloudStats _snapshot(ReaMicroPeriodStats month) => ReaMicroCloudStats(
+  overview: const ReaMicroOverview(
+    years: [],
+    readDays: 1,
+    totalDurationSeconds: 7200,
+    bookCount: 23,
+    finishedBookCount: 0,
+    registerTimestamp: 0,
+    topBooks: [],
+    listeningDurationSeconds: 0,
+    readingDurationSeconds: 7200,
+  ),
+  week: month,
+  month: month,
+  year: month,
+  chart: const [],
+  books: const [],
+  fetchedAt: DateTime(2026, 11, 20),
+);
