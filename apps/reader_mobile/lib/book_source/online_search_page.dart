@@ -12,9 +12,10 @@ import 'online_book_detail_page.dart';
 
 /// 在线书源搜索页。
 class OnlineSearchPage extends StatefulWidget {
-  const OnlineSearchPage({super.key, required this.controller});
+  const OnlineSearchPage({super.key, required this.controller, this.onRead});
 
   final OnlineBookController controller;
+  final OnlineBookReadCallback? onRead;
 
   @override
   State<OnlineSearchPage> createState() => _OnlineSearchPageState();
@@ -82,14 +83,15 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
           controller: widget.controller,
           source: source,
           book: book,
+          onRead: widget.onRead,
         ),
       ),
     );
     if (imported == true && mounted) {
       final skipped = widget.controller.lastSkippedChapters;
       final message = skipped > 0
-          ? '《$book.name》已加入书架，跳过 $skipped 章'
-          : '《$book.name》已加入书架';
+          ? '《${book.name}》已加入书架，跳过 $skipped 章'
+          : '《${book.name}》已加入书架';
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
     }

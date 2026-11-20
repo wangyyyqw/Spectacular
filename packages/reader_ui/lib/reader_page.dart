@@ -135,6 +135,7 @@ class ReaderPage extends StatefulWidget {
     this.onInkModeChanged,
     this.onSearch,
     this.onSessionReady,
+    this.persistInitialPosition = false,
     this.onBookEnd,
     this.editMode = false,
     this.onEditTarget,
@@ -305,6 +306,7 @@ class ReaderPage extends StatefulWidget {
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
+  final bool persistInitialPosition;
 
   final void Function(ReaderSession session, bool rtl)? onBookEnd;
 
@@ -950,6 +952,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     );
   }
 
+  void _retryOpen() {
+    _initialOpen = null;
+    _lastContentSize = null;
+    setState(() {});
+  }
+
+  Future<void> _selectTocEntry(TocEntry entry) async {
+    try {
+      await _session.jumpToTocEntry(
+        entry,
+        continuous: _effectiveTurnMode == PageTurnMode.scroll,
+      );
+    } catch (error) {
+      if (mounted) _showToast('章节加载失败：$error');
+    }
+  }
+
   void _schedulePrefetch(PageContent page, double displayWidth) {
     final key = page.spineIndex * 100000 + page.pageIndex;
     if (identical(page, _session.page)) {
@@ -1055,6 +1074,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       bookId: widget.bookId,
       contentRevision: widget.contentRevision,
       autoFinish: widget.onBookEnd == null,
+      persistInitialPosition: widget.persistInitialPosition,
     );
     _session.addListener(_reportProgressSaveError);
     widget.onSessionReady?.call(_session);
@@ -2673,7 +2693,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (error != null) {
         return Center(
           key: const ValueKey<String>('reader-error'),
-          child: Text('打开失败：$error'),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('打开失败：$error', textAlign: TextAlign.center),
+                TextButton(onPressed: _retryOpen, child: const Text('重试')),
+              ],
+            ),
+          ),
         );
       }
       if (_session.loading || _initialOpen == null) {
@@ -2906,13 +2935,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       },
                       onTocSelect: (entry) {
                         _dismissReaderMenu();
-                        unawaited(
-                          _session.jumpToTocEntry(
-                            entry,
-                            continuous:
-                                _effectiveTurnMode == PageTurnMode.scroll,
-                          ),
-                        );
+                        unawaited(_selectTocEntry(entry));
                       },
                       onChapterRules: widget.onChapterRules == null
                           ? null

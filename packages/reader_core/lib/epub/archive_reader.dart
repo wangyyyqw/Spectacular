@@ -51,6 +51,23 @@ class OcfReport {
 class EpubArchive {
   EpubArchive._(this._backend, this._orderedNames, this._diagnostics);
 
+  /// 为按需提供正文的文档保存共享资源，无需生成 ZIP。
+  factory EpubArchive.fromResources(Map<String, Uint8List> resources) {
+    final files = {
+      for (final entry in resources.entries)
+        _normalizePath(entry.key): ArchiveFile(
+          _normalizePath(entry.key),
+          entry.value.length,
+          Uint8List.fromList(entry.value),
+        ),
+    };
+    return EpubArchive._(
+      _DecodedArchiveBackend(files),
+      files.keys.toList(),
+      [],
+    );
+  }
+
   /// 编辑预览持有独立覆盖快照；关闭时同时关闭传入的基础归档。
   factory EpubArchive.withOverrides(
     EpubArchive base,

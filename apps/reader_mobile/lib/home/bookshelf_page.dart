@@ -57,6 +57,7 @@ class BookshelfPage extends StatefulWidget {
     this.onReadingFinished,
     this.reaMicro,
     this.onlineBooks,
+    this.bookOpener,
     this.active = true,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
@@ -82,6 +83,8 @@ class BookshelfPage extends StatefulWidget {
 
   /// 在线书源控制器；用于搜索、下载与更新关联书籍。
   final OnlineBookController? onlineBooks;
+
+  final BookOpener? bookOpener;
 
   /// 页面是否处于当前分栏；桌面快捷键只响应活动页。
   final bool active;
@@ -148,12 +151,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       debugPrint('reader text warm-up failed: $error\n$stack');
     }
     widget.library.addListener(_reload);
-    _bookOpener = BookOpener(
-      library: widget.library,
-      progressStore: widget.progressStore,
-      onReadingFinished: widget.onReadingFinished,
-      loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
-    );
+    _bookOpener =
+        widget.bookOpener ??
+        BookOpener(
+          library: widget.library,
+          progressStore: widget.progressStore,
+          onReadingFinished: widget.onReadingFinished,
+          loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
+        );
     _queue = ImportQueue(widget.library, readFile: widget.readFile)
       ..addListener(_onQueueChanged);
     _reload();
@@ -932,7 +937,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => OnlineSearchPage(controller: controller),
+        builder: (_) => OnlineSearchPage(
+          controller: controller,
+          onRead: _bookOpener.openOnline,
+        ),
       ),
     );
     if (mounted) {

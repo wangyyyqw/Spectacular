@@ -3,8 +3,10 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
+import '../book_source/online_reading_book.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../editing/book_edit_repository.dart';
@@ -41,6 +43,52 @@ class BookOpener {
   ReaderSettings? _settings;
   Future<void> _settingsSave = Future<void>.value();
   bool _opening = false;
+
+  /// 以目录和单章正文加载器进入常规阅读页。
+  Future<void> openOnline(
+    BuildContext context,
+    OnlineReadingBook book, {
+    int? startChapter,
+  }) async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      final closed = Completer<void>();
+      var created = false;
+      final store = OnlineReadingProgress(
+        library,
+        book,
+        startChapter: startChapter,
+      );
+      final fontStore = ReaderFontStore(library);
+      Future<EpubChapterSource>? source;
+      final settings = _loadSettings()..ignore();
+      final route = MaterialPageRoute<void>(
+        builder: (_) {
+          created = true;
+          return EpubReaderPage(
+            sourceFuture: source ??= Future.sync(book.open),
+            bookId: book.id,
+            bookTitle: book.book.name,
+            contentRevision: book.revision,
+            store: store,
+            settingsFuture: settings,
+            fontStore: fontStore,
+            onSettingsChanged: _saveSettings,
+            loadTtsVoices: loadTtsVoices,
+            enableFullTextSearch: false,
+            persistInitialPosition: startChapter != null,
+            onClosed: () => closed.complete(),
+          );
+        },
+      );
+      await Navigator.of(context).push(route);
+      await route.completed;
+      if (created) await closed.future;
+    } finally {
+      _opening = false;
+    }
+  }
 
   /// 打开图书；重复点击期间忽略后续请求。
   Future<void> open(BuildContext context, BookEntry entry) async {

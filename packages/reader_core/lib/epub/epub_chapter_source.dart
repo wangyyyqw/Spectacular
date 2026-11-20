@@ -24,6 +24,9 @@ import 'package:reader_core/parser/full_bleed.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
 import '../util/bounded_cache.dart';
+import 'archive_reader.dart';
+import 'opf.dart';
+import 'resource_index.dart';
 import 'chapter/chapter_positions.dart';
 import 'chapter/book_resources.dart';
 import 'chapter/book_fonts.dart';
@@ -74,12 +77,16 @@ class EpubChapterSource
     Map<String, String> resourceVersions = const {},
     Future<Directory> Function()? networkImageCacheDirectoryProvider,
     ChapterPaginationStore? paginationStore,
+    Future<String> Function(int)? loadChapterXhtml,
+    Future<Uint8List?> Function(String)? loadNetworkImage,
   }) : _paginationCache = ChapterPaginationCache(paginationStore),
        _hasStableContentVersion = contentVersion?.trim().isNotEmpty == true,
        _resources = BookResources(
          document,
          trackDependencies: previewCache != null,
          networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
+         loadChapterXhtml: loadChapterXhtml,
+         loadNetworkImage: loadNetworkImage,
        ),
        _previewCache = previewCache,
        _resourceVersions = Map.unmodifiable(resourceVersions),
@@ -93,6 +100,58 @@ class EpubChapterSource
   final ChapterPaginationCache _paginationCache;
   final ChapterPreviewCache<ChapterStructure>? _previewCache;
   final Map<String, String> _resourceVersions;
+
+  /// 目录已知、正文按需获取的重排文档，复用 EPUB 的解析、布局和锚点。
+  factory EpubChapterSource.fromChapterLoader({
+    required BookMeta meta,
+    required List<String> chapterTitles,
+    required Future<String> Function(int spineIndex) loadChapterXhtml,
+    Map<String, Uint8List> resources = const {},
+    Future<Uint8List?> Function(String url)? loadNetworkImage,
+  }) {
+    line_breaker.LineBreaker.preserveFractionalLineHeight = true;
+    final archive = EpubArchive.fromResources(resources);
+    const opfPath = 'content.opf';
+    final package = OpfPackage(
+      meta: meta,
+      manifest: const [],
+      spine: List.unmodifiable([
+        for (var index = 0; index < chapterTitles.length; index++)
+          SpineItem(
+            index: index,
+            href: 'text/chapter_$index.xhtml',
+            mediaType: 'application/xhtml+xml',
+          ),
+      ]),
+      version: '3.0',
+      warnings: const [],
+    );
+    final document = EpubDocumentImpl(
+      archive: archive,
+      package: package,
+      resources: ResourceIndex.build(
+        archive: archive,
+        manifest: package.manifest,
+        opfPath: opfPath,
+      ),
+      opfPath: opfPath,
+      toc: [
+        for (final (index, title) in chapterTitles.indexed)
+          TocEntry(title: title, spineIndex: index),
+      ],
+      tocSource: '在线目录',
+      report: const ImportReport(ok: true),
+    );
+    return _fromOpenResult(
+      EpubOpenResult(document: document, report: document.report),
+      contentWidth: 320,
+      contentHeight: 480,
+      style: null,
+      trimTextEdges: true,
+      loadChapterXhtml: loadChapterXhtml,
+      loadNetworkImage: loadNetworkImage,
+    );
+  }
 
   /// 打开 EPUB 并创建来源。
   static Future<EpubChapterSource> open(
@@ -171,6 +230,8 @@ class EpubChapterSource
     Map<String, String> resourceVersions = const {},
     Future<Directory> Function()? networkImageCacheDirectoryProvider,
     ChapterPaginationStore? paginationStore,
+    Future<String> Function(int)? loadChapterXhtml,
+    Future<Uint8List?> Function(String)? loadNetworkImage,
   }) {
     final document = result.document;
     if (document == null) {
@@ -196,6 +257,8 @@ class EpubChapterSource
       resourceVersions: resourceVersions,
       networkImageCacheDirectoryProvider: networkImageCacheDirectoryProvider,
       paginationStore: paginationStore,
+      loadChapterXhtml: loadChapterXhtml,
+      loadNetworkImage: loadNetworkImage,
     );
   }
 

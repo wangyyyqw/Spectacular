@@ -106,6 +106,11 @@ class OnlineBookController extends ChangeNotifier {
     await initialize(refresh: true);
   }
 
+  Future<void> setSourceLoadMode(String id, BookSourceLoadMode mode) async {
+    await _store.setLoadMode(id, mode);
+    await initialize(refresh: true);
+  }
+
   /// 删除来源。
   Future<void> removeSource(String id) async {
     for (final source in _sources) {

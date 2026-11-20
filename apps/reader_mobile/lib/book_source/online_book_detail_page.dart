@@ -6,19 +6,28 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
+import 'online_reading_book.dart';
 
-/// 在线书籍详情、目录与下载。
+typedef OnlineBookReadCallback = Future<void> Function(
+  BuildContext context,
+  OnlineReadingBook book, {
+  int? startChapter,
+});
+
+/// 在线书籍详情、目录、阅读与下载。
 class OnlineBookDetailPage extends StatefulWidget {
   const OnlineBookDetailPage({
     super.key,
     required this.controller,
     required this.source,
     required this.book,
+    this.onRead,
   });
 
   final OnlineBookController controller;
   final BookSource source;
   final OnlineBook book;
+  final OnlineBookReadCallback? onRead;
 
   @override
   State<OnlineBookDetailPage> createState() => _OnlineBookDetailPageState();
@@ -29,6 +38,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   List<OnlineChapter>? _chapters;
   bool _loading = true;
   bool _downloading = false;
+  bool _opening = false;
   bool _cancelRequested = false;
   String? _error;
   int _completed = 0;
@@ -115,6 +125,35 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     }
   }
 
+  bool get _canRead =>
+      widget.onRead != null &&
+      widget.source.loadMode == BookSourceLoadMode.chapter &&
+      (_chapters?.isNotEmpty ?? false);
+
+  Future<void> _read([int? index]) async {
+    if (!_canRead || _opening || _downloading) return;
+    setState(() => _opening = true);
+    try {
+      await widget.onRead!(
+        context,
+        OnlineReadingBook(
+          source: widget.source,
+          book: _info ?? widget.book,
+          chapters: _chapters!,
+          service: widget.controller.service,
+        ),
+        startChapter: index,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('无法打开阅读页：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final info = _info ?? widget.book;
@@ -167,11 +206,15 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                   if (_chapters == null)
                     TextButton(onPressed: _load, child: const Text('重新读取目录'))
                   else
-                    for (final chapter in _chapters!.take(40))
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 7),
-                        child: Text(
-                          '${chapter.index + 1}. ${chapter.title}',
+                    for (final (index, chapter) in _chapters!.take(40).indexed)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        onTap: _canRead && !_downloading && !_opening
+                            ? () => _read(index)
+                            : null,
+                        title: Text(
+                          '${index + 1}. ${chapter.title}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -180,7 +223,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Text(
-                        '仅预览前 40 章，下载时会获取完整目录。',
+                        _canRead ? '仅显示前 40 章' : '仅预览前 40 章',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
@@ -281,7 +324,28 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   }
 
   Widget _buildDownloadButton() {
-    final ready = _chapters != null;
+    final ready = (_chapters?.isNotEmpty ?? false) && !_opening;
+    if (_canRead) {
+      return Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 12,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            key: const ValueKey<String>('online-book-read'),
+            onPressed: ready ? () => _read() : null,
+            icon: const Icon(Icons.menu_book_outlined),
+            label: const Text('在线阅读'),
+          ),
+          OutlinedButton.icon(
+            key: const ValueKey<String>('online-book-download'),
+            onPressed: ready ? _download : null,
+            icon: const Icon(Icons.download_outlined),
+            label: const Text('下载并加入书架'),
+          ),
+        ],
+      );
+    }
     return FilledButton.icon(
       key: const ValueKey<String>('online-book-download'),
       onPressed: ready ? _download : null,

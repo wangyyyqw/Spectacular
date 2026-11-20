@@ -23,7 +23,11 @@ class ChapterPositions {
   int get chapterCount => resources.document.spine.length;
   int get plainTextCacheCount => _plainTexts.length;
   BookProgressIndex get progressIndex =>
-      _progress ??= bookProgressIndexFor(resources.document);
+      _progress ??= resources.loadChapterXhtml == null
+      ? bookProgressIndexFor(resources.document)
+      : BookProgressIndex.fromUncompressedSizes(
+          List.filled(chapterCount, null),
+        );
 
   void bindProgressIndex(BookProgressIndex index) {
     if (index.chapterCount != chapterCount) {
@@ -36,6 +40,7 @@ class ChapterPositions {
     if (spine < 0 || spine >= chapterCount || _knownMissing.contains(spine)) {
       return true;
     }
+    if (resources.loadChapterXhtml != null) return false;
     if (!resources.document.isChapterMissing(spine)) return false;
     markMissing(spine);
     return true;

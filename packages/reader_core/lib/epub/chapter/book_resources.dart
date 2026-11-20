@@ -25,10 +25,14 @@ class BookResources {
     this.document, {
     this.trackDependencies = false,
     Future<Directory> Function()? networkImageCacheDirectoryProvider,
+    this.loadChapterXhtml,
+    this.loadNetworkImage,
   }) : _networkImages = NetworkImageLoader(
          directoryProvider: networkImageCacheDirectoryProvider,
        );
   final bool trackDependencies;
+  final Future<String> Function(int)? loadChapterXhtml;
+  final Future<Uint8List?> Function(String)? loadNetworkImage;
   final NetworkImageLoader _networkImages;
 
   static const imageHeaderProbeBytes = 256 * 1024;
@@ -118,6 +122,26 @@ class BookResources {
     int epoch,
     PreparationTask task,
   ) async {
+    final load = loadChapterXhtml;
+    if (load != null) {
+      final xhtml = await task.waitFuture(load(spineIndex));
+      final parsed = await task.wait(
+        preparationWorker.schedule(
+          'parse:$spineIndex@$epoch',
+          () => (
+            xhtml: xhtml,
+            path: _chapterPath(spineIndex),
+            spine: spineIndex,
+            trackDependencies: trackDependencies,
+          ),
+          _parseChapterText,
+          priority: task.priority,
+        ),
+      );
+      _checkPreparation(epoch);
+      task.check();
+      return _parsed[spineIndex] = parsed;
+    }
     late EpubEntryRead read;
     late String path;
     final result = await task.wait(
@@ -420,7 +444,8 @@ class BookResources {
 
   Future<Uint8List?> _readNetworkImage(Uri uri) async {
     try {
-      return await _networkImages.read(uri);
+      final load = loadNetworkImage;
+      return load == null ? await _networkImages.read(uri) : await load('$uri');
     } finally {
       _imageReads.remove(uri.toString())?.ignore();
     }
@@ -436,7 +461,8 @@ class BookResources {
     final bytes = await readImage(uri.toString());
     if (bytes == null || _closed) return null;
     // 网络入口已经确认是引擎支持的图片，测量只消费其尺寸。
-    final size = ImageSizeParser.readImageSize(bytes)!;
+    final size = ImageSizeParser.readImageSize(bytes);
+    if (size == null) return null;
     final key = uri.toString();
     _imageIntrinsicMiss.remove(key);
     _imageIntrinsicCache[key] = size;

@@ -95,11 +95,17 @@ class EpubReaderPage extends StatefulWidget {
     this.bookEditorRepository,
     this.book,
     this.reviewStore,
+    this.enableFullTextSearch = true,
+    this.persistInitialPosition = false,
   });
 
   final BookEditRepository? bookEditorRepository;
   final BookEntry? book;
   final BookReviewStore? reviewStore;
+
+  /// 在线阅读不为全文搜索触发整本下载。
+  final bool enableFullTextSearch;
+  final bool persistInitialPosition;
 
   /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
   final Uint8List? bytes;
@@ -807,11 +813,13 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   void _showSource() {
     final source = _source!;
     setState(() {
-      _search = ScanSearchService(
-        source: source,
-        onLog: (event, fields) =>
-            unawaited(ReaderLog.instance.log(event, fields: fields)),
-      );
+      if (widget.enableFullTextSearch) {
+        _search = ScanSearchService(
+          source: source,
+          onLog: (event, fields) =>
+              unawaited(ReaderLog.instance.log(event, fields: fields)),
+        );
+      }
       _imageCache = DecodedImageCache(
         // 1080×2400 真机的两页背景与画廊图需共同驻留，仍受双上限约束。
         maxEntries: 32,
@@ -1089,7 +1097,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           _changeSettings(_settings.copyWithBackground(backgroundId)),
       onInkModeChanged: (enabled) =>
           _changeSettings(_settings.copyWithInkMode(enabled)),
-      onSearch: _searchResults,
+      onSearch: _search == null ? null : _searchResults,
       bookTitle: widget.bookTitle,
       margins: settings.margins,
       cornerInfo: settings.cornerInfo,
@@ -1112,6 +1120,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onVolumeKeyPagingChanged: (enabled) =>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
+      persistInitialPosition: widget.persistInitialPosition,
       onTts: _toggleTts,
       onBookEnd: _openFinishPage,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
@@ -1119,8 +1128,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onEditTarget: _canEditBook ? _openEditor : null,
       onLog: (event, fields) =>
           unawaited(ReaderLog.instance.log(event, fields: fields)),
-      onResolveSearchCfi: _resolveSearchCfi,
-      onSearchStream: _searchStream,
+      onResolveSearchCfi: _search == null ? null : _resolveSearchCfi,
+      onSearchStream: _search == null ? null : _searchStream,
     );
   }
 
@@ -1342,6 +1351,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       return;
     }
     _scheduleReady();
+    if (_readyNotified && !_readable && _hasPreparedFrame(session)) {
+      _readable = true;
+      _syncReadingActivity();
+    }
     final pageTurns = session.pageTurns - _trackedPageTurns;
     final characters = session.charactersRead - _trackedCharactersRead;
     if (pageTurns <= 0 && characters <= 0) {

@@ -141,7 +141,8 @@ class BookSourceService {
   final OnlineEpubBuilder epubBuilder;
   final BookSourceScriptFactory scriptFactory;
   final OnlineChapterContentStore chapterContentStore;
-  final Map<String, Future<String>> _chapterRequests = <String, Future<String>>{};
+  final Map<String, Future<String>> _chapterRequests =
+      <String, Future<String>>{};
   final Map<String, Future<Uint8List?>> _coverCache =
       <String, Future<Uint8List?>>{};
 
@@ -805,37 +806,62 @@ class BookSourceService {
     String bookUrl, {
     bool forceRefresh = false,
   }) async {
-    final fingerprint = _contentRulesFingerprint(source);
-    final key = '${source.id}|$bookUrl|${chapter.url}|$fingerprint';
+    final fingerprint = chapterContentRevision(source, chapter);
+    final key = jsonEncode([source.id, bookUrl, chapter.url, fingerprint]);
     if (!forceRefresh) {
-      final cached = await chapterContentStore.read(
-        sourceId: source.id,
-        bookUrl: bookUrl,
-        chapterUrl: chapter.url,
-        rulesFingerprint: fingerprint,
-      );
-      if (cached != null) return cached;
       final pending = _chapterRequests[key];
       if (pending != null) return pending;
     }
-    final task = _fetchChapterContent(source, chapter, bookUrl).then((content) async {
-      try {
-        await chapterContentStore.write(
-          sourceId: source.id,
-          bookUrl: bookUrl,
-          chapterUrl: chapter.url,
-          rulesFingerprint: fingerprint,
-          content: content,
-        );
-      } on Object {}
-      return content;
-    });
+    final task = _readOrFetchChapter(
+      source,
+      chapter,
+      bookUrl,
+      fingerprint,
+      forceRefresh,
+    );
     if (!forceRefresh) _chapterRequests[key] = task;
     try {
       return await task;
     } finally {
-      if (identical(_chapterRequests[key], task)) _chapterRequests.remove(key);
+      if (identical(_chapterRequests[key], task)) {
+        _chapterRequests.remove(key)?.ignore();
+      }
     }
+  }
+
+  Future<String> _readOrFetchChapter(
+    BookSource source,
+    OnlineChapter chapter,
+    String bookUrl,
+    String fingerprint,
+    bool forceRefresh,
+  ) async {
+    if (!forceRefresh) {
+      try {
+        final cached = await chapterContentStore.read(
+          sourceId: source.id,
+          bookUrl: bookUrl,
+          chapterUrl: chapter.url,
+          rulesFingerprint: fingerprint,
+        );
+        if (cached != null) return cached;
+      } on Object {
+        // 缓存不可用时仍允许在线阅读。
+      }
+    }
+    final content = await _fetchChapterContent(source, chapter, bookUrl);
+    try {
+      await chapterContentStore.write(
+        sourceId: source.id,
+        bookUrl: bookUrl,
+        chapterUrl: chapter.url,
+        rulesFingerprint: fingerprint,
+        content: content,
+      );
+    } on Object {
+      // 正文已获取，缓存写入失败不影响本次阅读。
+    }
+    return content;
   }
 
   Future<String> _fetchChapterContent(
@@ -886,7 +912,9 @@ class BookSourceService {
           script: script,
           referer: pageUrl,
         );
-        if (html.trim().isNotEmpty) htmlParts.add(html.trim());
+        if (html.trim().isNotEmpty) {
+          htmlParts.add(_resolveChapterImages(html.trim(), pageUrl));
+        }
         if (data != null) break;
         final nextPages = _urlRequests(
           root,
@@ -919,30 +947,21 @@ class BookSourceService {
     }
   }
 
-  /// 先获取当前章，再按顺序预取邻章；重复章节由缓存和 in-flight 任务合并。
-  Future<String> loadChapterWithPrefetch(
-    BookSource source,
-    OnlineBook book,
-    List<OnlineChapter> chapters,
-    int index, {
-    int nextCount = 1,
-    int previousCount = 0,
-  }) async {
-    if (index < 0 || index >= chapters.length) {
-      throw const BookSourceException('章节序号超出目录范围', code: 'ONLINE_CHAPTER_INDEX');
+  String _resolveChapterImages(String html, String pageUrl) {
+    if (!html.toLowerCase().contains('<img')) return html;
+    final document = rules.parseHtml(html);
+    for (final image in document.querySelectorAll('img')) {
+      final raw = (image.attributes['data-src'] ?? '')
+          .trim()
+          .ifBlank((image.attributes['data-original'] ?? '').trim())
+          .ifBlank((image.attributes['src'] ?? '').trim());
+      if (raw.isNotEmpty) {
+        image.attributes['src'] = rules.resolveUrl(pageUrl, raw);
+      }
+      image.attributes.remove('data-src');
+      image.attributes.remove('data-original');
     }
-    final current = await fetchChapterContent(source, chapters[index], book.bookUrl);
-    for (var offset = 1; offset <= nextCount; offset++) {
-      final target = index + offset;
-      if (target >= chapters.length) break;
-      unawaited(fetchChapterContent(source, chapters[target], book.bookUrl).catchError((_) => ''));
-    }
-    for (var offset = 1; offset <= previousCount; offset++) {
-      final target = index - offset;
-      if (target < 0) break;
-      unawaited(fetchChapterContent(source, chapters[target], book.bookUrl).catchError((_) => ''));
-    }
-    return current;
+    return document.body?.innerHtml ?? html;
   }
 
   Future<String> _evaluateContentRule({
@@ -983,14 +1002,37 @@ class BookSourceService {
     );
   }
 
-  String _contentRulesFingerprint(BookSource source) => sha256
-      .convert(utf8.encode(jsonEncode(<String, String>{
-        'content': source.content.content,
-        'next': source.content.nextContentUrl,
-        'replace': source.content.replaceRegex,
-        'source': source.content.sourceRegex,
-      })))
+  /// 影响正文的书源设置发生变化时，不复用旧章内容与章内坐标。
+  String contentRulesFingerprint(BookSource source) => sha256
+      .convert(
+        utf8.encode(
+          jsonEncode({
+            'version': 2,
+            'base': source.baseUrl,
+            'headers': source.header,
+            'jsLib': source.jsLib,
+            'content': source.content.content,
+            'next': source.content.nextContentUrl,
+            'replace': source.content.replaceRegex,
+            'source': source.content.sourceRegex,
+          }),
+        ),
+      )
       .toString();
+
+  String chapterContentRevision(BookSource source, OnlineChapter chapter) =>
+      sha256
+          .convert(
+            utf8.encode(
+              jsonEncode([
+                contentRulesFingerprint(source),
+                chapter.title,
+                chapter.updateTime,
+                chapter.requestOptions,
+              ]),
+            ),
+          )
+          .toString();
 
   String? _decodeDataUrl(String raw) {
     final text = raw.trim();

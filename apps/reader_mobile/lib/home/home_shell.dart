@@ -9,6 +9,8 @@ import '../book_source/online_book_controller.dart';
 import '../editing/epub_file_editor_page.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_models.dart';
+import '../reader/book_opener.dart';
 import '../storage/startup_storage.dart';
 import 'bookshelf_page.dart';
 import 'desktop_layout.dart';
@@ -55,6 +57,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   late final ReaMicroController _reaMicro;
   late final OnlineBookController _onlineBooks;
   late final ReaderProgressStore _progressStore;
+  late final BookOpener _bookOpener;
 
   @override
   void initState() {
@@ -66,6 +69,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     );
     _onlineBooks = OnlineBookController(library: widget.library);
     _progressStore = _reaMicro.trackedProgressStore ?? widget.progressStore;
+    _bookOpener = BookOpener(
+      library: widget.library,
+      progressStore: _progressStore,
+      onReadingFinished: _onReadingFinished,
+      loadTtsVoices: _loadTtsVoices,
+    );
     unawaited(_reaMicro.initialize());
     unawaited(_onlineBooks.initialize());
   }
@@ -86,6 +95,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   void _onReadingFinished() => _reaMicro.scheduleReadingSync();
+
+  Future<List<ReaMicroTtsVoice>> _loadTtsVoices() async {
+    try {
+      return (await _reaMicro.fetchTtsCatalog()).voices;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   bool _desktop = false;
   List<Widget> _pages = [];
 
@@ -148,6 +166,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       onReadingFinished: _onReadingFinished,
       reaMicro: _reaMicro,
       onlineBooks: _onlineBooks,
+      bookOpener: _bookOpener,
     ),
     1 => StatsPage(
       library: widget.library,
@@ -167,6 +186,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       library: widget.library,
       reaMicro: _reaMicro,
       onlineBooks: _onlineBooks,
+      onReadOnline: _bookOpener.openOnline,
       themeMode: widget.themeMode,
       onThemeModeChanged: widget.onThemeModeChanged,
     ),

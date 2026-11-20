@@ -135,11 +135,20 @@ class BookSourceStore {
   }
 
   /// 启用或停用书源。
-  Future<void> setEnabled(String id, bool enabled) async {
+  Future<void> setEnabled(String id, bool enabled) =>
+      _update(id, (source) => source.copyWith(enabled: enabled));
+
+  Future<void> setLoadMode(String id, BookSourceLoadMode mode) =>
+      _update(id, (source) => source.copyWith(loadMode: mode));
+
+  Future<void> _update(
+    String id,
+    BookSource Function(BookSource) change,
+  ) async {
     final sources = await load();
     final next = <BookSource>[
       for (final source in sources)
-        if (source.id == id) source.copyWith(enabled: enabled) else source,
+        if (source.id == id) change(source) else source,
     ];
     if (!next.any((source) => source.id == id)) {
       throw const BookSourceException('书源不存在');

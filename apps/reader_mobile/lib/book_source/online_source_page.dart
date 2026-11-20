@@ -5,13 +5,15 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'book_source_models.dart';
 import 'book_source_login_config.dart';
 import 'online_book_controller.dart';
+import 'online_book_detail_page.dart';
 import 'online_search_page.dart';
 
 /// 在线书源管理。
 class OnlineSourcePage extends StatefulWidget {
-  const OnlineSourcePage({super.key, required this.controller});
+  const OnlineSourcePage({super.key, required this.controller, this.onRead});
 
   final OnlineBookController controller;
+  final OnlineBookReadCallback? onRead;
 
   @override
   State<OnlineSourcePage> createState() => _OnlineSourcePageState();
@@ -302,7 +304,10 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
   Future<void> _openSearch() async {
     await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (context) => OnlineSearchPage(controller: widget.controller),
+        builder: (context) => OnlineSearchPage(
+          controller: widget.controller,
+          onRead: widget.onRead,
+        ),
       ),
     );
   }
@@ -382,7 +387,8 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
                 <String>[
                   if (source.group.isNotEmpty) source.group,
                   '${source.search.bookList.isEmpty ? '无搜索' : '可搜索'}'
-                      '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? '·已登录' : '·需登录') : ''}',
+                      '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? ' · 已登录' : ' · 需登录') : ''}'
+                      ' · ${source.loadMode == BookSourceLoadMode.chapter ? '逐章加载' : '整本下载'}',
                 ].join('\n'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -421,10 +427,36 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
                       }
                     },
                   ),
-                  IconButton(
-                    tooltip: '删除书源',
-                    onPressed: () => _confirmRemove(source),
-                    icon: const AppIcon(AppGlyph.delete),
+                  PopupMenuButton<String>(
+                    tooltip: '书源选项',
+                    onSelected: (value) async {
+                      if (value == 'remove') {
+                        await _confirmRemove(source);
+                      } else {
+                        try {
+                          await controller.setSourceLoadMode(
+                            source.id,
+                            BookSourceLoadMode.values.byName(value),
+                          );
+                        } on Object catch (error) {
+                          _showError('保存失败：$error');
+                        }
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      CheckedPopupMenuItem(
+                        value: 'chapter',
+                        checked: source.loadMode == BookSourceLoadMode.chapter,
+                        child: const Text('逐章加载'),
+                      ),
+                      CheckedPopupMenuItem(
+                        value: 'book',
+                        checked: source.loadMode == BookSourceLoadMode.book,
+                        child: const Text('整本下载'),
+                      ),
+                      const PopupMenuDivider(),
+                      const PopupMenuItem(value: 'remove', child: Text('删除书源')),
+                    ],
                   ),
                 ],
               ),
@@ -457,10 +489,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 18),
             Text('还没有在线书源', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            const Text(
-              '导入阅读/Legado JSON 书源后，可以搜索书名并下载正文生成 EPUB。',
-              textAlign: TextAlign.center,
-            ),
+            const Text('导入阅读/Legado JSON 书源', textAlign: TextAlign.center),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: onAdd,

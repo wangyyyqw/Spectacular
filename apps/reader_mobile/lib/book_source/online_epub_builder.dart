@@ -83,7 +83,7 @@ class OnlineEpubBuilder {
 
     addText('mimetype', 'application/epub+zip');
     addText('META-INF/container.xml', _containerXml);
-    addText('OEBPS/style.css', _bookCss);
+    addText('OEBPS/style.css', chapterStylesheet);
 
     final manifest = <String>[
       '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
@@ -99,15 +99,7 @@ class OnlineEpubBuilder {
       final chapter = input.chapters[index];
       final id = 'chapter_${(index + 1).toString().padLeft(4, '0')}';
       final href = 'text/$id.xhtml';
-      final body = _chapterBody(chapter, index);
-      addText(
-        'OEBPS/$href',
-        _chapterDocument(
-          title: chapter.title,
-          body: body,
-          stylesheet: '../style.css',
-        ),
-      );
+      addText('OEBPS/$href', buildChapterDocument(chapter));
       manifest.add(
         '<item id="$id" href="$href" media-type="application/xhtml+xml"/>',
       );
@@ -198,7 +190,14 @@ class OnlineEpubBuilder {
     return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
   }
 
-  String _chapterBody(OnlineEpubChapter chapter, int index) {
+  /// 在线阅读和离线 EPUB 共用正文清洗、标题和正文样式。
+  String buildChapterDocument(OnlineEpubChapter chapter) => _chapterDocument(
+    title: chapter.title,
+    body: _chapterBody(chapter),
+    stylesheet: '../style.css',
+  );
+
+  String _chapterBody(OnlineEpubChapter chapter) {
     final fragment = html_parser.parseFragment(chapter.html);
     _sanitizeFragment(fragment);
     final body = _serializeNodes(fragment.nodes);
@@ -355,7 +354,7 @@ class OnlineEpubBuilder {
       'media-type="application/oebps-package+xml"/></rootfiles>\n'
       '</container>';
 
-  static const String _bookCss =
+  static const String chapterStylesheet =
       'html { font-size: 100%; }\n'
       'body { margin: 0; line-height: 1.75; word-wrap: break-word; }\n'
       'p { margin: 0 0 .8em; text-indent: 2em; }\n'

@@ -6,6 +6,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../book_source/online_book_controller.dart';
+import '../book_source/online_book_detail_page.dart';
 import '../book_source/online_source_page.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
@@ -22,6 +23,7 @@ class ProfilePage extends StatefulWidget {
     required this.library,
     this.reaMicro,
     this.onlineBooks,
+    this.onReadOnline,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
   });
@@ -34,6 +36,7 @@ class ProfilePage extends StatefulWidget {
 
   /// 在线书源；测试或未接入时不显示入口。
   final OnlineBookController? onlineBooks;
+  final OnlineBookReadCallback? onReadOnline;
 
   /// 已保存的界面主题选择。
   final ThemeMode themeMode;
@@ -221,7 +224,10 @@ class _ProfilePageState extends State<ProfilePage> {
               onTap: _chooseShelfSort,
             ),
             if (widget.onlineBooks != null)
-              _OnlineSourceEntry(controller: widget.onlineBooks!),
+              _OnlineSourceEntry(
+                controller: widget.onlineBooks!,
+                onRead: widget.onReadOnline,
+              ),
           ]),
           if (widget.reaMicro != null) ...[
             const SizedBox(height: 24),
@@ -332,9 +338,10 @@ class _ProfilePageState extends State<ProfilePage> {
 }
 
 class _OnlineSourceEntry extends StatelessWidget {
-  const _OnlineSourceEntry({required this.controller});
+  const _OnlineSourceEntry({required this.controller, this.onRead});
 
   final OnlineBookController controller;
+  final OnlineBookReadCallback? onRead;
 
   @override
   Widget build(BuildContext context) {
@@ -358,7 +365,8 @@ class _OnlineSourceEntry extends StatelessWidget {
           trailing: const AppIcon(AppGlyph.chevronRight),
           onTap: () => Navigator.of(context).push<void>(
             MaterialPageRoute<void>(
-              builder: (context) => OnlineSourcePage(controller: controller),
+              builder: (context) =>
+                  OnlineSourcePage(controller: controller, onRead: onRead),
             ),
           ),
         );

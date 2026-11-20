@@ -292,6 +292,7 @@ class ReaderSession extends ChangeNotifier {
     this.contentRevision,
     this.layoutDependency,
     this.autoFinish = true,
+    this.persistInitialPosition = false,
   });
 
   /// 进度写入节流间隔（P4-10，§76.6）。
@@ -305,6 +306,9 @@ class ReaderSession extends ChangeNotifier {
 
   /// 书籍标识。
   final String bookId;
+
+  /// 外部目录明确选择了新位置，未翻页退出时也保存该位置。
+  final bool persistInitialPosition;
 
   /// 原 EPUB 文件的内容摘要，用于拒绝旧会话覆盖新版位置。
   final String? contentRevision;
@@ -1529,8 +1533,8 @@ class ReaderSession extends ChangeNotifier {
       await _preparePagePosition(pager.current!.content);
       if (_disposed || generation != _generation) return;
       _loading = false;
-      // 恢复出来的位置不算「变化」，直接记为已持久化值，避免打开就回写。
-      _lastPersisted = progress;
+      // 正常续读不回写，只有外部明确指定的初始位置需要落盘。
+      _lastPersisted = persistInitialPosition ? null : progress;
       _firstChangeAfterOpen = true;
       _dirty = false;
       _notify();
