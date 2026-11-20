@@ -47,6 +47,59 @@ void main() {
     }
   });
 
+  for (final reducedMotion in [false, true]) {
+    testWidgets('视图动画支持连续切换、过渡中导航及减少动态效果：$reducedMotion', (tester) async {
+      final library = LibraryStore.memory();
+      await tester.runAsync(() async {
+        await library.importBytes(buildTestEpub(title: '切换动画'));
+      });
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          builder: (_, child) => MediaQuery(
+            data: MediaQueryData(disableAnimations: reducedMotion),
+            child: child!,
+          ),
+          home: BookshelfPage(
+            library: library,
+            progressStore: MemoryReaderProgressStore(),
+          ),
+        ),
+      );
+      await _settle(tester);
+      final grid = find.byKey(const ValueKey('bookshelf-grid'));
+      final list = find.byKey(const ValueKey('bookshelf-list'));
+      await tester.tap(find.byTooltip('列表视图'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(list, findsOneWidget);
+      expect(grid, reducedMotion ? findsNothing : findsOneWidget);
+      if (!reducedMotion) expect(grid.hitTestable(), findsNothing);
+
+      await tester.tap(find.byTooltip('网格视图'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.tap(find.byTooltip('列表视图'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(await library.getSetting('bookshelf.grid'), 'false');
+
+      // 动画中打开页面也只能收集当前视图的封面 Hero。
+      navigator.currentState!.push<void>(
+        MaterialPageRoute(builder: (_) => const Scaffold(body: Text('目标页面'))),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('目标页面'), findsOneWidget);
+      navigator.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(list, findsOneWidget);
+      expect(grid, findsNothing);
+      expect(find.text('切换动画'), findsWidgets);
+    });
+  }
+
   testWidgets('视图切换生效并持久化，排序入口不再显示在书架顶部', (tester) async {
     final library = LibraryStore.memory();
     await tester.pumpWidget(

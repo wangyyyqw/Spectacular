@@ -1116,7 +1116,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     return AppBar(
       automaticallyImplyLeading: false,
-      toolbarHeight: 72,
+      toolbarHeight: 56,
       titleSpacing: 16,
       title: _buildSearchField(),
       actions: [
@@ -1140,7 +1140,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildSearchField() {
     final colors = Theme.of(context).colorScheme;
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(22),
       borderSide: BorderSide.none,
     );
     return Material(
@@ -1158,11 +1158,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
         decoration: InputDecoration(
           hintText: '搜索书名或作者',
           filled: true,
+          isDense: true,
           fillColor: colors.surface,
-          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
           border: border,
           enabledBorder: border,
           focusedBorder: border,
+          prefixIconConstraints: const BoxConstraints.tightFor(
+            width: 44,
+            height: 44,
+          ),
+          suffixIconConstraints: const BoxConstraints.tightFor(
+            width: 44,
+            height: 44,
+          ),
           prefixIcon: IconButton(
             tooltip: '搜索书架',
             onPressed: _focusSearch,
@@ -1259,7 +1268,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 ? (details) => _groupDragDistance += details.primaryDelta ?? 0
                 : null,
             onHorizontalDragEnd: canSwipe ? _finishGroupSwipe : null,
-            child: _buildLibraryBody(items, visible),
+            child: _ShelfBodyTransition(
+              groupId: _activeGroupId,
+              groupIndex:
+                  _groups.indexWhere((group) => group.id == _activeGroupId) + 1,
+              grid: _grid,
+              animate: !_selectionMode && _error == null && items != null,
+              child: _buildLibraryBody(items, visible),
+            ),
           ),
         ),
       ],
@@ -1467,6 +1483,95 @@ class _BookshelfPageState extends State<BookshelfPage> {
       ),
     );
   }
+}
+
+/// 视图切换淡入缩放，分组切换沿分组顺序滑入。
+class _ShelfBodyTransition extends StatefulWidget {
+  const _ShelfBodyTransition({
+    required this.groupId,
+    required this.groupIndex,
+    required this.grid,
+    required this.animate,
+    required this.child,
+  });
+
+  final String? groupId;
+  final int groupIndex;
+  final bool grid;
+  final bool animate;
+  final Widget child;
+
+  @override
+  State<_ShelfBodyTransition> createState() => _ShelfBodyTransitionState();
+}
+
+class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
+  double _groupDirection = 0;
+
+  @override
+  void didUpdateWidget(_ShelfBodyTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.groupId != widget.groupId || oldWidget.grid != widget.grid) {
+      _groupDirection = (widget.groupIndex - oldWidget.groupIndex).sign
+          .toDouble();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.animate || MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
+    final key = ValueKey((widget.groupId, widget.grid));
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 280),
+        reverseDuration: const Duration(milliseconds: 200),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeOutCubic,
+        layoutBuilder: _layoutLayers,
+        transitionBuilder: (child, animation) =>
+            _transitionContent(child, animation, key),
+        child: KeyedSubtree(key: key, child: widget.child),
+      ),
+    );
+  }
+
+  Widget _transitionContent(
+    Widget child,
+    Animation<double> animation,
+    Key currentKey,
+  ) {
+    final direction = child.key == currentKey
+        ? _groupDirection
+        : -_groupDirection;
+    final content = direction == 0
+        ? ScaleTransition(
+            scale: Tween(begin: .97, end: 1.0).animate(animation),
+            child: child,
+          )
+        : SlideTransition(
+            position: Tween(
+              begin: Offset(direction * .18, 0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          );
+    return FadeTransition(opacity: animation, child: content);
+  }
+
+  Widget _layoutLayers(Widget? current, List<Widget> previous) => Stack(
+    fit: StackFit.expand,
+    children: [
+      for (final child in previous)
+        ExcludeFocus(
+          child: ExcludeSemantics(
+            child: IgnorePointer(child: HeroMode(enabled: false, child: child)),
+          ),
+        ),
+      ?current,
+    ],
+  );
 }
 
 class _GroupNameDialog extends StatefulWidget {
@@ -1892,7 +1997,9 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
         if (mounted) {
           Scrollable.ensureVisible(
             context,
-            duration: const Duration(milliseconds: 180),
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
             alignment: .5,
           );
         }
@@ -2014,8 +2121,8 @@ class _BookRow extends StatelessWidget {
       child: BookCoverImage(
         key: const ValueKey<String>('book-row-cover'),
         book: entry,
-        width: 48,
-        height: 64,
+        width: 66,
+        height: 88,
       ),
     );
     final trailing = <Widget>[
