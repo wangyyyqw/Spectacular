@@ -17,6 +17,7 @@ import 'stats_section.dart';
 import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 统计页：图书时长、阅读日历、每日平均与按书排行，保留完整统计数据汇总。
 ///
@@ -337,8 +338,7 @@ class _StatsPageState extends State<StatsPage> {
       if (_content == null) {
         setState(() => _error = '统计加载失败');
       } else {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('统计刷新失败，请稍后重试')));
+        recordAppEvent('stats_reload_failed');
       }
     }
   }

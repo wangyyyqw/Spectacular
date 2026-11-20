@@ -18,6 +18,7 @@ import 'desktop_layout.dart';
 import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 首页应用壳：桌面平台使用侧栏，移动平台使用底栏。
 class HomeShell extends StatefulWidget {
@@ -123,10 +124,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Future<void> _retryStorage() async {
     if (_exportingDiagnostics) return;
     final restored = await widget.storageRecovery!.retry();
-    if (mounted && !restored) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('本地数据库仍不可用，请稍后重试')));
-    }
+    if (mounted && !restored) recordAppEvent('storage_retry_failed');
   }
 
   Future<void> _exportDiagnostics() async {
@@ -135,10 +133,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final exported = await widget.storageRecovery!.exportDiagnostics();
     if (!mounted) return;
     setState(() => _exportingDiagnostics = false);
-    if (!exported) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('诊断导出失败，请稍后重试')));
-    }
+    if (!exported) recordAppEvent('storage_diagnostics_export_failed');
   }
 
   void _selectDestination(int index) {

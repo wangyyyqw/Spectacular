@@ -301,7 +301,7 @@ void main() {
     finishedIds.clear();
     await tester.tap(find.byKey(ValueKey('review-pending-${book.id}')));
     await tester.pumpAndSettle();
-    expect(find.text('标记读完后才能评分或写书评'), findsOneWidget);
+    expect(find.text('标记读完后才能评分或写书评'), findsNothing);
     expect(find.byKey(const ValueKey('review-editor')), findsNothing);
     expect(store.items, isEmpty);
     expect(store.saveCalls, 0);
@@ -325,7 +325,7 @@ void main() {
     finishedIds.clear();
     await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
     await tester.pumpAndSettle();
-    expect(find.text('标记读完后才能评分或写书评'), findsOneWidget);
+    expect(find.text('标记读完后才能评分或写书评'), findsNothing);
     expect(find.byKey(const ValueKey('review-editor')), findsNothing);
     expect(store.items[book.id], same(review));
     expect(store.saveCalls, 0);
@@ -388,7 +388,7 @@ void main() {
 
     await tester.tap(find.text('写书评'));
     await tester.pumpAndSettle();
-    expect(find.text('书评读取失败，请重试'), findsOneWidget);
+    expect(find.text('书评读取失败，请重试'), findsNothing);
     expect(find.byKey(const ValueKey('review-editor')), findsNothing);
     expect(store.saveCalls, 0);
 

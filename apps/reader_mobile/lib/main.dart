@@ -21,6 +21,9 @@ Future<void> main() async {
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await setReaderSystemBars(statusBar: true, navigationBar: true);
   final log = ReaderLog.instance;
+  ReaderUiDiagnostics.onEvent = (event, fields) {
+    unawaited(log.log(event, fields: fields));
+  };
   FlutterError.onError = (details) {
     unawaited(
       log.log(

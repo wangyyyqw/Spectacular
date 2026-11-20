@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
@@ -299,6 +300,27 @@ class ReaderLog {
     }
     return info;
   }
+}
+
+/// 将界面已处理的异常写入“我的”页可查看的本地日志，不弹出浮动提示。
+void recordAppError(String event, Object error, {StackTrace? stackTrace}) {
+  unawaited(
+    ReaderLog.instance.log(
+      event,
+      fields: <String, Object?>{
+        'error': error,
+        ...?stackTrace == null ? null : <String, Object?>{'stack': stackTrace},
+      },
+    ),
+  );
+}
+
+/// 记录不需要显示浮动提示的结果或输入状态。
+void recordAppEvent(
+  String event, {
+  Map<String, Object?> fields = const <String, Object?>{},
+}) {
+  unawaited(ReaderLog.instance.log(event, fields: fields));
 }
 
 const _contentFields = {

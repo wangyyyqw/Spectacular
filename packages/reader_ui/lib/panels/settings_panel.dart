@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../reader_ui_diagnostics.dart';
+
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -366,8 +368,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
     final message = error is FormatException
         ? error.message
         : '请重新导入有效的 TTF 或 OTF 字体文件';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('$action：$message')));
+    ReaderUiDiagnostics.record(
+      'reader_font_import_failed',
+      message: '$action：$message',
+      error: error,
+    );
   }
 
   Future<void> _editTheme() async {

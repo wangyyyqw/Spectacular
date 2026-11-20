@@ -17,6 +17,7 @@ import 'reading_insights.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
 import '../storage/reading_session_store.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 用户选择的封面图片。
 typedef CoverSelection = ({Uint8List bytes, String extension});
@@ -431,9 +432,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    recordAppEvent('book_detail_message', fields: {'message': message});
   }
 
   Future<void> _openChapterRules() async {
@@ -482,30 +481,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   entry: _entry,
                   busy: _changingCover,
                   onChange: _changeCover,
+                  titleController: _titleController,
+                  authorController: _authorController,
                 ),
-                const Divider(height: 40),
-                Text('图书资料', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey<String>('book-detail-title-field'),
-                  controller: _titleController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '书名',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey<String>('book-detail-author-field'),
-                  controller: _authorController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '作者',
-                    hintText: '未填写',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
+                const Divider(height: 32),
                 const SizedBox(height: 12),
                 TextField(
                   key: const ValueKey<String>('book-detail-description-field'),
@@ -571,8 +550,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   ),
                   onSubmitted: (_) => _createTag(),
                 ),
-                const Divider(height: 40),
-                Text('图书信息', style: theme.textTheme.titleMedium),
                 if (_canRechapter)
                   ListTile(
                     key: const ValueKey('book-detail-page-chapters'),
@@ -582,36 +559,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     trailing: const Icon(Icons.chevron_right),
                     onTap: _openChapterRules,
                   ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 20,
-                  runSpacing: 8,
-                  children: <Widget>[
-                    _MetaItem(
-                      label: '章节',
-                      value: '${_entry.spineCount ?? 0} 章',
-                    ),
-                    _MetaItem(label: '导入', value: _formatDate(_entry.addedAt)),
-                    _MetaItem(
-                      label: '最近阅读',
-                      value: _entry.lastReadAt == null
-                          ? '未读'
-                          : _formatDate(_entry.lastReadAt!),
-                    ),
-                    _MetaItem(
-                      label: '可读性',
-                      value: _levelLabels[_entry.readabilityLevel.clamp(0, 4)],
-                    ),
-                  ],
-                ),
                 const Divider(height: 40),
                 Text('阅读记录', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 10),
                 _ReadingStatsSection(stats: _readingStats),
-                const Divider(height: 40),
-                Text('导入报告', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 8),
-                _ImportReports(library: widget.library, bookId: _entry.id),
                 const Divider(height: 40),
                 Text('阅读状态', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 10),
@@ -625,14 +576,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
               ],
             ),
     );
-  }
-
-  static const _levelLabels = <String>['完整', '已修复', '部分降级', '结构异常', '无法阅读'];
-
-  static String _formatDate(DateTime time) {
-    final local = time.toLocal();
-    String two(int value) => value.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
 }
 
@@ -692,11 +635,15 @@ class _CoverEditor extends StatelessWidget {
     required this.entry,
     required this.busy,
     required this.onChange,
+    required this.titleController,
+    required this.authorController,
   });
 
   final BookEntry entry;
   final bool busy;
   final VoidCallback onChange;
+  final TextEditingController titleController;
+  final TextEditingController authorController;
 
   @override
   Widget build(BuildContext context) {
@@ -704,72 +651,85 @@ class _CoverEditor extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        BookCoverImage(
-          key: const ValueKey('book-detail-page-cover'),
-          book: entry,
-          width: 120,
-          height: 160,
+        Semantics(
+          button: true,
+          enabled: !busy,
+          label: '点击更换封面',
+          child: GestureDetector(
+            key: const ValueKey('book-detail-page-cover'),
+            onTap: busy ? null : onChange,
+            child: SizedBox(
+              width: 120,
+              height: 160,
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  BookCoverImage(book: entry, width: 120, height: 160),
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface.withValues(alpha: .9),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : AppIcon(
+                                AppGlyph.image,
+                                size: 18,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
         const SizedBox(width: 20),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                entry.title,
+              Text('图书资料', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              TextField(
+                key: const ValueKey<String>('book-detail-title-field'),
+                controller: titleController,
+                textInputAction: TextInputAction.next,
+                minLines: 1,
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
+                decoration: const InputDecoration(
+                  labelText: '书名',
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                entry.author.isEmpty ? '未知作者' : entry.author,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 10),
+              TextField(
+                key: const ValueKey<String>('book-detail-author-field'),
+                controller: authorController,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: '作者',
+                  hintText: '未填写',
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
-              ),
-              const SizedBox(height: 16),
-              TextButton.icon(
-                key: const ValueKey<String>('book-detail-change-cover'),
-                onPressed: busy ? null : onChange,
-                icon: busy
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const AppIcon(AppGlyph.image),
-                label: Text(busy ? '正在更新…' : '更换封面'),
               ),
             ],
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _MetaItem extends StatelessWidget {
-  const _MetaItem({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        Text(value, style: theme.textTheme.bodySmall),
       ],
     );
   }
@@ -1168,98 +1128,6 @@ class _ReviewStars extends StatelessWidget {
                 : Theme.of(context).colorScheme.outlineVariant,
           ),
       ],
-    );
-  }
-}
-
-class _ImportReports extends StatelessWidget {
-  const _ImportReports({required this.library, required this.bookId});
-
-  final LibraryStore library;
-  final String bookId;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return FutureBuilder<List<ImportReportEntry>>(
-      future: library.importReports(bookId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Center(
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
-        }
-        final items = snapshot.data ?? const <ImportReportEntry>[];
-        if (items.isEmpty) {
-          return Text(
-            '无修复或告警',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[for (final item in items) _ReportRow(item: item)],
-        );
-      },
-    );
-  }
-}
-
-class _ReportRow extends StatelessWidget {
-  const _ReportRow({required this.item});
-
-  final ImportReportEntry item;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final (label, color) = switch (item.severity) {
-      >= 2 => ('错误', theme.colorScheme.error),
-      1 => ('警告', theme.colorScheme.tertiary),
-      _ => ('提示', theme.colorScheme.onSurfaceVariant),
-    };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              label,
-              style: theme.textTheme.labelSmall?.copyWith(color: color),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  item.code,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                Text(item.message, style: theme.textTheme.bodySmall),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

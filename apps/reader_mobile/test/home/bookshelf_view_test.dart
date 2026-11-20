@@ -6,7 +6,6 @@ import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
-import 'package:reader_ui/icons/app_icon.dart';
 
 import '../support/test_epub.dart';
 
@@ -127,6 +126,12 @@ void main() {
     final entries = await library.list();
     for (final entry in entries) {
       final card = find.byKey(ValueKey('book-card-${entry.id}'));
+      expect(
+        tester
+            .widget<Text>(find.byKey(ValueKey('book-card-title-${entry.id}')))
+            .textAlign,
+        TextAlign.center,
+      );
       expect(
         tester
             .widgetList<Text>(
@@ -271,10 +276,39 @@ void main() {
         await tester.ensureVisible(publicReading);
         await _settle(tester);
         await tester.tap(publicReading);
-        // 导入完成的提示还在展示，登录提示会排在它的 4 秒展示时间之后。
-        await _settle(tester, frames: 60);
+        // 关联入口保留阅微登录提示。
+        await _settle(tester, frames: 6);
         expect(find.text('请先登录阅微账号'), findsOneWidget);
       },
     );
   }
+  testWidgets('网格与列表按压图书时不覆盖封面', (tester) async {
+    final library = LibraryStore.memory();
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(buildTestEpub(title: '无按压叠层'));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    void expectPressOverlayIsTransparent(String key) {
+      final inkWell = tester.widget<InkWell>(find.byKey(ValueKey(key)));
+      expect(
+        inkWell.overlayColor?.resolve({WidgetState.pressed}),
+        Colors.transparent,
+      );
+    }
+
+    expectPressOverlayIsTransparent('book-card-${entry.id}');
+    await tester.tap(find.byTooltip('列表视图'));
+    await _settle(tester);
+    expectPressOverlayIsTransparent('book-row-${entry.id}');
+  });
 }

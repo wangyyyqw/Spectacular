@@ -12,6 +12,7 @@ import 'package:spectacular_epub_tools/local_epub_tools.dart';
 import 'book_editor_controller.dart';
 import 'book_editor_toolkit.dart';
 import 'book_editor_tools.dart';
+import '../diagnostics/reader_log.dart';
 
 part 'book_editor_local_forms.dart';
 part 'book_editor_local_navigation.dart';
@@ -272,16 +273,18 @@ class _ToolResultDialog extends StatelessWidget {
                 fileName,
               );
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(saved ? '文件已导出' : '已取消导出')),
+                recordAppEvent(
+                  saved
+                      ? 'editor_file_exported'
+                      : 'editor_file_export_cancelled',
                 );
               }
-            } on FileSystemException catch (error) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('导出失败：${error.message}')),
-                );
-              }
+            } on FileSystemException catch (error, stackTrace) {
+              recordAppError(
+                'editor_file_export_failed',
+                error,
+                stackTrace: stackTrace,
+              );
             }
           },
           child: const Text('导出文件'),

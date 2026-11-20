@@ -11,6 +11,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_editor_controller.dart';
+import '../diagnostics/reader_log.dart';
 
 part 'book_editor_files.dart';
 part 'book_editor_file_menu.dart';
@@ -997,8 +998,7 @@ class BookEditorTools {
       }
     } catch (error) {
       if (dialogContext.mounted) {
-        ScaffoldMessenger.of(dialogContext)
-            .showSnackBar(SnackBar(content: Text('$error')));
+        recordAppError('editor_tool_failed', error);
       }
     }
   }

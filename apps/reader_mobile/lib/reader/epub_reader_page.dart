@@ -192,14 +192,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   final _backgroundStore = ReaderBackgroundStore();
   String _contentRevision = '';
   List<ReaderFontOption> _customFonts = const [];
-  ScaffoldMessengerState? _progressMessenger;
   bool _reportedClosingProgressFailure = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _progressMessenger = ScaffoldMessenger.maybeOf(context);
-  }
 
   Future<void> _prepareInitialSettings() async {
     final pending = widget.settingsFuture;
@@ -223,12 +216,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (!_settings.overrides.isCustomFont) return;
     try {
       await store.load(_settings.fontFamily!);
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (!mounted || _openingCancelled) return;
       _changeSettings(_settings.copyWithFont(null));
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('自定义字体不可用，已恢复书籍字体，请重新导入')));
+      recordAppError('reader_font_load_failed', error, stackTrace: stackTrace);
     }
   }
 
@@ -950,19 +941,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   void _reportClosingProgressError(Object error) {
     if (_reportedClosingProgressFailure) return;
-    final messenger = _progressMessenger;
-    if (messenger == null || !messenger.mounted) return;
     _reportedClosingProgressFailure = true;
-    final message = error is ReaderProgressSaveException
-        ? error.message
-        : '本次位置未保存，保留上次保存位置，请稍后重试';
-    // 退出后的提示交给仍在显示书架的根消息层，不能依赖已销毁阅读页。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (messenger.mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(message)));
-      }
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
+    recordAppError('reader_progress_close_failed', error);
   }
 
   @override
@@ -1171,11 +1151,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         contentUpdated = true;
         Navigator.of(context).pop(EpubReaderExit.contentUpdated);
       }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('打开章节正则失败：$error')));
-      }
+    } catch (error, stackTrace) {
+      recordAppError(
+        'chapter_rules_open_failed',
+        error,
+        stackTrace: stackTrace,
+      );
     } finally {
       if (!contentUpdated) {
         _editorOpen = false;
@@ -1195,14 +1176,15 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       final saved = await Navigator.of(context)
           .push<bool>(_finishPageRoute(session, review, rtl));
       if (saved != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(saved ? '已标记读完并保存书评' : '已标记读完，可稍后在书评页评分和写书评')),
-        );
+        recordAppEvent(saved ? 'book_finished_review_saved' : 'book_finished');
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       if (mounted && !_closing) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('读完信息读取失败，请再向后翻页重试')));
+        recordAppError(
+          'book_finish_info_failed',
+          error,
+          stackTrace: stackTrace,
+        );
       }
     } finally {
       _finishPageOpen = false;
@@ -1324,11 +1306,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         contentUpdated = true;
         Navigator.of(context).pop(EpubReaderExit.contentUpdated);
       }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('打开编辑器失败：$error')));
-      }
+    } catch (error, stackTrace) {
+      recordAppError(
+        'reader_editor_open_failed',
+        error,
+        stackTrace: stackTrace,
+      );
     } finally {
       // 旧版本退出动画期间继续暂停统计；新会话就绪后自行恢复。
       if (!contentUpdated) {

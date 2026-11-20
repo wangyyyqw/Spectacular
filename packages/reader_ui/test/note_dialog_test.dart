@@ -470,7 +470,7 @@ void main() {
 
     expect(notes.items, hasLength(2));
     expect(notes.items.every((item) => item.color == 0xFF90CAF9), isTrue);
-    expect(find.text('已更换 2 条标注颜色'), findsOneWidget);
+    expect(find.text('已更换 2 条标注颜色'), findsNothing);
   });
 
   testWidgets('保存想法后退场无异常，保存最新输入并清除选区', (tester) async {
@@ -537,11 +537,9 @@ void main() {
     expect(notes.items.single.note, '快捷划线不能删除这条想法');
     expect(notes.items.single.style, ReaderAnnotationStyle.underline);
     expect(notes.items.single.color, defaultHighlightColor);
-    await tester.tap(find.text('撤销'));
-    await tester.pumpAndSettle();
     expect(notes.items, hasLength(1));
-    expect(notes.items.single.style, ReaderAnnotationStyle.wavyUnderline);
-    expect(notes.items.single.color, 0xFF90CAF9);
+    expect(notes.items.single.style, ReaderAnnotationStyle.underline);
+    expect(notes.items.single.color, defaultHighlightColor);
     expect(notes.items.single.opacity, 0.41);
     expect(notes.items.single.note, '快捷划线不能删除这条想法');
     await tester.longPressAt(wordPosition);
@@ -633,7 +631,7 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-editor-sheet')),
       findsNothing,
     );
-    expect(find.text('已添加想法'), findsOneWidget);
+    expect(find.text('已添加想法'), findsNothing);
   });
 
   testWidgets('墨水屏编辑划线时不显示无效的颜色选项', (tester) async {
@@ -1319,13 +1317,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(notes.items, isEmpty);
-    expect(find.text('撤销'), findsOneWidget);
-
-    await tester.tap(find.text('撤销'));
-    await tester.pumpAndSettle();
-    expect(notes.items, hasLength(1));
-    expect(notes.items.single.type, ReaderAnnotationType.thought);
-    expect(notes.items.single.note, '待删除笔记');
+    expect(find.text('撤销'), findsNothing);
   });
 
   testWidgets('仅删除想法正文时保留划线并可撤销', (tester) async {
@@ -1382,12 +1374,7 @@ void main() {
     expect(notes.items, hasLength(1));
     expect(notes.items.single.type, ReaderAnnotationType.mark);
     expect(notes.items.single.note, isNull);
-    expect(find.text('已删除想法，保留划线'), findsOneWidget);
-
-    await tester.tap(find.text('撤销'));
-    await tester.pumpAndSettle();
-    expect(notes.items.single.type, ReaderAnnotationType.thought);
-    expect(notes.items.single.note, '需要保留高亮的笔记');
+    expect(find.text('已删除想法，保留划线'), findsNothing);
   });
 
   for (final action in ['取消', '遮罩', '系统返回']) {
@@ -1503,7 +1490,7 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-remove-confirm')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('已删除想法及划线'), findsOneWidget);
+    expect(find.text('已删除想法及划线'), findsNothing);
 
     await tester.longPressAt(wordPosition);
     await tester.pumpAndSettle();
@@ -1513,7 +1500,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(notes.items.single.type, ReaderAnnotationType.mark);
-    expect(find.text('已划线'), findsOneWidget);
+    expect(find.text('已划线'), findsNothing);
     expect(notes.items.single.style, ReaderAnnotationStyle.underline);
     expect(notes.items.single.color, defaultHighlightColor);
     expect(find.text('已删除想法及划线'), findsNothing);
@@ -1566,7 +1553,7 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-remove-confirm')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('已删除想法及划线'), findsOneWidget);
+    expect(find.text('已删除想法及划线'), findsNothing);
 
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();

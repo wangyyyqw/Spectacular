@@ -128,11 +128,8 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _savingTheme = true);
     try {
       await widget.onThemeModeChanged!(selected);
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('界面主题保存失败，请重试')));
-      }
+    } catch (error, stackTrace) {
+      recordAppError('theme_save_failed', error, stackTrace: stackTrace);
     } finally {
       if (mounted) setState(() => _savingTheme = false);
     }
@@ -162,15 +159,8 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     try {
       await ReaderLog.instance.clear();
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(const SnackBar(content: Text('日志已清理')));
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(SnackBar(content: Text('清理失败：$error')));
-      }
+    } catch (error, stackTrace) {
+      recordAppError('log_clear_failed', error, stackTrace: stackTrace);
     }
   }
 
@@ -182,23 +172,43 @@ class _ProfilePageState extends State<ProfilePage> {
     final log = ReaderLog.instance;
     try {
       await log.log('export_logs');
-      final path = await log.exportFile();
+      await log.exportFile();
       await log.share();
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(SnackBar(content: Text('日志已导出：${path ?? '分享面板已打开'}')));
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(SnackBar(content: Text('日志导出失败：$error')));
-      }
+    } catch (error, stackTrace) {
+      recordAppError('log_export_failed', error, stackTrace: stackTrace);
     } finally {
       if (mounted) {
         setState(() => _exporting = false);
       }
     }
+  }
+
+  Future<void> _viewLogs() async {
+    final text = await ReaderLog.instance.exportText();
+    if (!mounted) return;
+    await showReaderDialog<void>(
+      context: context,
+      builder: (context) => ReaderFrostedAlertDialog(
+        title: const Text('诊断日志'),
+        content: SizedBox(
+          width: 640,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .55,
+            ),
+            child: SingleChildScrollView(
+              child: SelectableText(text.isEmpty ? '暂无日志' : text),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -238,6 +248,12 @@ class _ProfilePageState extends State<ProfilePage> {
           ],
           const SizedBox(height: 24),
           _section(context, '帮助与诊断', [
+            ListTile(
+              leading: const AppIcon(AppGlyph.listBulleted),
+              title: const Text('查看诊断日志'),
+              subtitle: const Text('查看应用错误和运行记录'),
+              onTap: _viewLogs,
+            ),
             ListTile(
               leading: _exporting
                   ? const SizedBox(
