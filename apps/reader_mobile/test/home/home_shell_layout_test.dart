@@ -74,8 +74,7 @@ void main() {
     final previous = debugOnRebuildDirtyWidget;
     debugOnRebuildDirtyWidget = (element, builtBefore) {
       previous?.call(element, builtBefore);
-      if (builtBefore &&
-          (element.widget is BookshelfPage || element.widget is StatsPage)) {
+      if (element.widget is BookshelfPage || element.widget is StatsPage) {
         rebuilt.add(element.widget.runtimeType);
       }
     };

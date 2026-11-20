@@ -187,7 +187,7 @@ class ReaderMenuOverlay extends StatelessWidget {
     );
 
     // 透明 Material：InkWell/InkResponse 需要 Material 祖先（阅读页本身没有）。
-    return ExcludeFocus(
+    final overlay = ExcludeFocus(
       excluding: !open,
       child: Material(
         type: MaterialType.transparency,
@@ -342,6 +342,8 @@ class ReaderMenuOverlay extends StatelessWidget {
         ),
       ),
     );
+    // 菜单与遮罩动画只重绘自身，不让静止的正文和背景重复录制绘图。
+    return RepaintBoundary(child: overlay);
   }
 }
 
