@@ -6,6 +6,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 import '../support/test_epub.dart';
+import '../support/reader_pump.dart';
 
 Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
   for (var i = 0; i < frames; i++) {
@@ -14,9 +15,9 @@ Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
 }
 
 Future<void> _enterMultiSelect(WidgetTester tester, String bookId) async {
-  await tester.longPress(find.byKey(ValueKey<String>('book-card-$bookId')));
+  await tester.tap(find.byTooltip('多选'));
   await _settle(tester, frames: 4);
-  await tester.tap(find.text('多选'));
+  await tester.tap(find.byKey(ValueKey<String>('book-card-$bookId')));
   await _settle(tester, frames: 4);
 }
 
@@ -49,6 +50,11 @@ void main() {
       ),
     );
     await _settle(tester);
+
+    final multiple = tester.getRect(find.byTooltip('多选'));
+    final view = tester.getRect(find.byTooltip('列表视图'));
+    expect(multiple.center.dy, closeTo(view.center.dy, .1));
+    expect(multiple.left, greaterThanOrEqualTo(view.right));
 
     await _enterMultiSelect(tester, first.id);
     expect(find.text('已选 1 本'), findsOneWidget);
@@ -104,6 +110,7 @@ void main() {
         matching: find.widgetWithText(FilledButton, '删除'),
       ),
     );
+    await pumpReaderUntil(tester, find.text('已删除 2 本书'));
     await _settle(tester, frames: 16);
 
     expect((await library.list()).map((entry) => entry.id), <String>[third.id]);
@@ -142,11 +149,10 @@ void main() {
 
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    await tester.longPress(
-      find.byKey(ValueKey<String>('book-row-${first.id}')),
-    );
+    await tester.tap(find.byTooltip('多选'));
     await _settle(tester, frames: 4);
-    await tester.tap(find.text('多选'));
+    expect(find.text('多选'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey<String>('book-row-${first.id}')));
     await _settle(tester);
 
     expect(find.text('已选 1 本'), findsOneWidget);

@@ -10,7 +10,7 @@ import 'reading_insights.dart';
 /// 长按书架卡片展示书籍元信息和快捷操作。
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
-/// `'create-group'` 将本书移入已有或新建分组，`'multi-select'` 进入多选。
+/// `'create-group'` 将本书移入已有或新建分组，`'export'` 导出本书 EPUB。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
   const BookDetailSheet({
@@ -179,10 +179,10 @@ class BookDetailSheet extends StatelessWidget {
               children: [
                 Expanded(
                   child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-multi-select'),
-                    icon: AppGlyph.checklist,
-                    label: '多选',
-                    onTap: () => Navigator.of(context).pop('multi-select'),
+                    key: const ValueKey<String>('book-detail-export'),
+                    icon: AppGlyph.upload,
+                    label: '导出',
+                    onTap: () => Navigator.of(context).pop('export'),
                   ),
                 ),
                 const SizedBox(width: 16),

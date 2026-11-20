@@ -16,6 +16,7 @@ import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
 import '../editing/book_edit_repository.dart';
 import '../editing/book_editor_route.dart';
+import '../editing/epub_export.dart';
 import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import '../txt/txt_encoding_dialog.dart';
@@ -111,6 +112,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   bool _selectionMode = false;
   bool _removing = false;
   bool _pickingFiles = false;
+  bool _exportingBook = false;
   String _query = '';
   final Set<String> _selectedIds = <String>{};
   final TextEditingController _searchController = TextEditingController();
@@ -432,7 +434,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     });
   }
 
-  void _startSelection(BookEntry entry) {
+  void _startSelection([BookEntry? entry]) {
     _searchController.clear();
     _keyboardFocus.requestFocus();
     setState(() {
@@ -440,9 +442,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _searching = false;
       _query = '';
       _activeGroupId = null;
-      _selectedIds
-        ..clear()
-        ..add(entry.id);
+      _selectedIds.clear();
+      if (entry != null) _selectedIds.add(entry.id);
     });
   }
 
@@ -805,6 +806,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             child: const Text('编辑 EPUB'),
           ),
         const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
+        const PopupMenuItem(value: 'export', child: Text('导出 EPUB')),
         if (canRechapter)
           const PopupMenuItem(value: 'chapters', child: Text('章节正则')),
         const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
@@ -875,6 +877,37 @@ class _BookshelfPageState extends State<BookshelfPage> {
       await _groupBook(entry);
     } else if (action == 'multi-select') {
       _startSelection(entry);
+    } else if (action == 'export') {
+      await _exportBook(entry);
+    }
+  }
+
+  Future<void> _exportBook(BookEntry entry) async {
+    if (_exportingBook) return;
+    _exportingBook = true;
+    final title = entry.title
+        .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
+        .trim();
+    final name = String.fromCharCodes(title.runes.take(64));
+    final fileName = '${name.isEmpty ? '未命名书籍' : name}.epub';
+    try {
+      final saved = await EpubExport.saveToDownloads(
+        File(entry.filePath),
+        fileName: fileName,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(saved ? '已导出：$fileName' : '已取消导出')),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        final message = error is PlatformException ? error.message : '$error';
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('导出失败：${message ?? '请重试'}')));
+      }
+    } finally {
+      _exportingBook = false;
     }
   }
 
@@ -1242,6 +1275,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
         tooltip: _grid ? '列表视图' : '网格视图',
         onPressed: _toggleView,
         icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
+      ),
+      IconButton(
+        key: const ValueKey('bookshelf-multi-select'),
+        tooltip: '多选',
+        onPressed: items.isEmpty ? null : _startSelection,
+        icon: const AppIcon(AppGlyph.checklist),
       ),
       const SizedBox(width: 8),
     ],
@@ -2305,7 +2344,7 @@ class _NoMatchesPane extends StatelessWidget {
             ] else if (groupName != null) ...[
               const SizedBox(height: 4),
               Text(
-                '长按书籍选择多选，再移入「$groupName」',
+                '点击顶部多选，再移入「$groupName」',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),
