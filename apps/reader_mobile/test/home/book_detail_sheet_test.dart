@@ -101,10 +101,7 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(called, isTrue);
-      expect(
-        find.text(fail ? '导出失败：空间不足' : '已导出：原书_导出_测试.epub'),
-        findsOneWidget,
-      );
+      expect(find.text(fail ? '导出失败：空间不足' : '已导出：原书_导出_测试.epub'), findsNothing);
       expect(await store.list(), hasLength(1));
       expect(File(entry.filePath).existsSync(), isTrue);
     });

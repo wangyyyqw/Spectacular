@@ -4,6 +4,7 @@ import 'package:reader_core/txt.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../library/library_store.dart';
+import '../diagnostics/reader_log.dart';
 import 'txt_book_service.dart';
 import 'txt_rule_store.dart';
 
@@ -253,8 +254,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
         _generation++;
         _preview = null;
       });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('规则已保存，可用于其他 TXT 书籍')));
+      recordAppEvent('txt_rules_saved');
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
     }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../reader_ui_diagnostics.dart';
+
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_popup.dart';
 import 'annotation.dart';
@@ -245,9 +247,7 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
     if (settings.customColors.contains(selected)) return;
     if (settings.customColors.length >= 8) {
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('最多保存 8 个自定义颜色，请长按删除后再添加')),
-        );
+        ReaderUiDiagnostics.record('annotation_color_limit_reached');
       }
       return;
     }

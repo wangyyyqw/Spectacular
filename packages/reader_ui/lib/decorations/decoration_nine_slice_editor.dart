@@ -5,6 +5,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../reader_ui_diagnostics.dart';
+
 import '../icons/app_icon.dart';
 import 'decoration_image_codec.dart';
 import 'decoration_image_store.dart';
@@ -80,8 +82,7 @@ class _ReaderDecorationNineSliceButtonState
       if (next != null && mounted) widget.onChanged(next);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(const SnackBar(content: Text('图片无法读取，请重新导入')));
+        ReaderUiDiagnostics.record('decoration_nine_slice_load_failed');
       }
     } finally {
       if (!transferred) decoded?.image.dispose();

@@ -216,7 +216,7 @@ void main() {
       find.byKey(const ValueKey<String>('selection-action-mark')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('已划线'), findsOneWidget);
+    expect(find.text('已划线'), findsNothing);
     expect(find.byType(SelectionLayer), findsNothing, reason: '保存后清除选区');
 
     final saved = await annotations.list();
@@ -233,13 +233,7 @@ void main() {
       findsOneWidget,
       reason: '保存后页面出现标注装饰层（P4-18）',
     );
-    expect(find.text('撤销'), findsOneWidget);
-
-    await tester.tap(find.text('撤销'));
-    await tester.pumpAndSettle();
-    expect(await annotations.list(), isEmpty);
-    expect(find.byType(AnnotationLayer), findsNothing);
-    expect(find.text('已撤销'), findsOneWidget);
+    expect(find.text('撤销'), findsNothing);
   });
 
   testWidgets('同一区间重复划线更新原记录且不新增', (tester) async {
@@ -297,11 +291,7 @@ void main() {
       (await annotations.list()).single.style,
       ReaderAnnotationStyle.underline,
     );
-    // 等第一条 SnackBar 消失，避免第二条排队看不到。
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pumpAndSettle();
-
-    // 同一位置再次高亮 → 提示已存在，不新增。
+    // 同一位置再次高亮 → 不新增浮动提示。
     await tester.longPressAt(center);
     await tester.pumpAndSettle();
     await tester.tap(
@@ -310,7 +300,7 @@ void main() {
     await tester.pumpAndSettle();
     final afterSecond = await annotations.list();
     expect(afterSecond, hasLength(1), reason: '重复区间不新增');
-    expect(find.text('已划线'), findsOneWidget);
+    expect(find.text('已划线'), findsNothing);
     expect(afterSecond.single.id, '1');
   });
 
@@ -426,14 +416,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(await annotations.list(), isEmpty);
     expect(find.byType(AnnotationLayer), findsNothing);
-    expect(find.text('撤销'), findsOneWidget);
+    expect(find.text('撤销'), findsNothing);
 
-    await tester.tap(find.text('撤销'));
-    await tester.pumpAndSettle();
-    final restored = (await annotations.list()).single;
-    expect(restored.type, ReaderAnnotationType.mark);
-    expect(restored.color, 0xFFA5D6A7);
-    expect(restored.style, ReaderAnnotationStyle.wavyUnderline);
-    expect(restored.quote, isNotEmpty);
+    expect(await annotations.list(), isEmpty);
   });
 }

@@ -17,6 +17,7 @@ import 'reading_insights.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
 import '../storage/reading_session_store.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 用户选择的封面图片。
 typedef CoverSelection = ({Uint8List bytes, String extension});
@@ -431,9 +432,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    recordAppEvent('book_detail_message', fields: {'message': message});
   }
 
   Future<void> _openChapterRules() async {

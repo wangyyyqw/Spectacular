@@ -10,6 +10,7 @@ import 'book_editor_page.dart';
 import 'book_editor_tools.dart';
 import 'epub_export.dart';
 import '../reader/reader_settings.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 宿主边界：草稿、导出与书库提交不进入通用阅读 UI。
 class BookEditorRoute extends StatefulWidget {
@@ -125,13 +126,16 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
       );
       await _write(session);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('旧草稿的有效内容已导出；未完成源码仍保留在本地草稿中')),
-        );
+        recordAppEvent('editor_draft_exported');
       }
     } on EditorExportCancelled {
       // 用户取消文件选择时保留草稿与当前恢复提示。
-    } catch (error) {
+    } catch (error, stackTrace) {
+      recordAppError(
+        'editor_draft_export_failed',
+        error,
+        stackTrace: stackTrace,
+      );
       if (mounted) setState(() => _error = '旧草稿未能导出：$error');
     } finally {
       session?.close();

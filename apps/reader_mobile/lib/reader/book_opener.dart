@@ -36,7 +36,6 @@ class BookOpener {
       return;
     }
     _opening = true;
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
       var current = entry;
@@ -47,13 +46,8 @@ class BookOpener {
         if (updated == null) throw StateError('保存后的书籍已不在书库中');
         current = updated;
       }
-    } catch (error) {
-      if (context.mounted) {
-        messenger.hideCurrentSnackBar();
-        messenger.showSnackBar(
-          SnackBar(content: Text('打开《${entry.title}》失败：$error')),
-        );
-      }
+    } catch (error, stackTrace) {
+      recordAppError('book_open_failed', error, stackTrace: stackTrace);
     } finally {
       _opening = false;
     }

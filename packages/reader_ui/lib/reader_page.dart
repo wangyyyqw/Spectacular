@@ -76,6 +76,7 @@ import 'theme/reader_theme.dart';
 import 'loading_skeleton.dart';
 import 'system_ui.dart';
 import 'theme/reader_frosted_popup.dart';
+import 'reader_ui_diagnostics.dart';
 
 part 'reader_annotation_controller.dart';
 part 'reader_decoration_controller.dart';
@@ -2374,16 +2375,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     SnackBarAction? action,
     Duration duration = const Duration(seconds: 2),
   }) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger?.clearSnackBars();
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: duration,
-        action: action,
-        persist: false,
-      ),
-    );
+    ReaderUiDiagnostics.record('reader_ui_message', message: message);
   }
 
   void _reportProgressSaveError() {

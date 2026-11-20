@@ -306,9 +306,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
       widget.editor.showSource(file.path);
       widget.onOpen();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${file.path} · ${file.resource.size} 字节')),
-      );
+      recordAppEvent('editor_file_info_opened');
     }
   }
 

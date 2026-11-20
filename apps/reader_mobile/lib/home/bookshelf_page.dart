@@ -27,6 +27,7 @@ import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
 import 'reading_insights.dart';
 import '../storage/import_queue.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 书架条目及列表显示的阅读记录。
 typedef _ShelfItem = ({BookEntry entry, int? spineIndex, Duration duration});
@@ -291,11 +292,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
           _selectedIds.clear();
         });
       }
-    } on LibraryImportException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
-      }
+    } on LibraryImportException catch (error, stackTrace) {
+      recordAppError('group_create_failed', error, stackTrace: stackTrace);
     }
   }
 
@@ -334,11 +332,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
           _query = '';
         });
       }
-    } on LibraryImportException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
-      }
+    } on LibraryImportException catch (error, stackTrace) {
+      recordAppError('book_group_failed', error, stackTrace: stackTrace);
     }
   }
 
@@ -386,11 +381,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
       try {
         await widget.library.renameGroup(group.id, name);
-      } on LibraryImportException catch (error) {
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(error.message)));
-        }
+      } on LibraryImportException catch (error, stackTrace) {
+        recordAppError('group_rename_failed', error, stackTrace: stackTrace);
       }
       return;
     }
@@ -576,42 +568,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final cancelled = _batch
         .where((job) => job.status == ImportStatus.cancelled)
         .length;
-    final messenger = ScaffoldMessenger.maybeOf(context);
     if (succeeded > 0) {
-      final outcomes = _batch
-          .where((job) => job.status == ImportStatus.succeeded)
-          .map((job) => job.entry!.importOutcome)
-          .toList();
-      final added = outcomes
-          .where((value) => value == BookImportOutcome.added)
-          .length;
-      final updated = outcomes
-          .where((value) => value == BookImportOutcome.updated)
-          .length;
-      final unchanged = outcomes
-          .where((value) => value == BookImportOutcome.unchanged)
-          .length;
-      final message = succeeded == 1
-          ? switch (outcomes.single) {
-              BookImportOutcome.added => '已导入 1 本书',
-              BookImportOutcome.updated => '书籍已更新',
-              BookImportOutcome.unchanged => '书籍内容未变化',
-            }
-          : [
-              if (added > 0) '新增 $added 本',
-              if (updated > 0) '更新 $updated 本',
-              if (unchanged > 0) '$unchanged 本内容未变化',
-            ].join('，');
-      messenger?.showSnackBar(SnackBar(content: Text(message)));
+      recordAppEvent('book_import_completed');
     }
     if (failed != null) {
-      _showImportFailure(failed, messenger);
+      _showImportFailure(failed);
     } else if (succeeded == 0 && cancelled > 0) {
-      messenger?.showSnackBar(const SnackBar(content: Text('已取消导入')));
+      recordAppEvent('book_import_cancelled');
     }
   }
 
-  void _showImportFailure(ImportJob failed, ScaffoldMessengerState? messenger) {
+  void _showImportFailure(ImportJob failed) {
     if (failed.encodingCandidates.isNotEmpty) {
       setState(() {
         _encodingJob = failed;
@@ -629,7 +596,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         failed.errorCode == 'E_REVISION_CONFLICT' ||
         failed.errorCode == 'E_STALE_REVISION') {
       // 重复导入不影响现有书架，用户可以直接打开原书。
-      messenger?.showSnackBar(SnackBar(content: Text(message)));
+      recordAppError('book_import_rejected', StateError(message));
     } else {
       setState(() => _error = message);
     }
@@ -706,12 +673,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     // ignore: avoid_print
     print('[import] 开始选择文件');
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('正在打开文件选择器…'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      recordAppEvent('book_import_picker_opened');
     }
     List<String> paths;
     try {
@@ -905,16 +867,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
         fileName: fileName,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(saved ? '已导出：$fileName' : '已取消导出')),
+        recordAppEvent(
+          saved ? 'book_export_completed' : 'book_export_cancelled',
         );
       }
-    } on Object catch (error) {
-      if (mounted) {
-        final message = error is PlatformException ? error.message : '$error';
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('导出失败：${message ?? '请重试'}')));
-      }
+    } on Object catch (error, stackTrace) {
+      recordAppError('book_export_failed', error, stackTrace: stackTrace);
     } finally {
       _exportingBook = false;
     }
@@ -926,14 +884,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
       final paths = await widget.pickEpubFiles();
       if (!mounted || paths.isEmpty || !widget.allowImport) return;
       if (paths.length != 1) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('更新时请选择一本 EPUB')));
+        recordAppEvent('book_update_requires_single_epub');
         return;
       }
       if (!paths.single.toLowerCase().endsWith('.epub')) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('更新书籍请选择 EPUB；TXT 请从导入入口添加')),
-        );
+        recordAppEvent('book_update_requires_epub');
         return;
       }
       setState(() {
@@ -943,11 +898,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       });
       _batch.add(_queue.enqueuePath(paths.single, updateBookId: entry.id));
       setState(() {});
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法更新：$error')));
-      }
+    } catch (error, stackTrace) {
+      recordAppError('book_update_failed', error, stackTrace: stackTrace);
     }
   }
 
@@ -1056,14 +1008,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final groupId = target.groupId;
     final ids = <String>[for (final entry in entries) entry.id];
     try {
-      String message;
       if (groupId == null) {
         await widget.library.setBooksGroup(ids);
-        message = '已移出分组';
       } else {
         final group = _groups.firstWhere((group) => group.id == groupId);
         await widget.library.setBooksGroup(ids, groupId: group.id);
-        message = '已移入「${group.name}」';
       }
       if (!mounted) {
         return;
@@ -1072,13 +1021,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _selectionMode = false;
         _selectedIds.clear();
       });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-    } on LibraryImportException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
-      }
+      recordAppEvent('books_group_updated');
+    } on LibraryImportException catch (error, stackTrace) {
+      recordAppError(
+        'books_group_update_failed',
+        error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -1111,9 +1060,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
       (_, 0) => '已删除 $removed 本书',
       (final done, final failed) => '已删除 $done 本，$failed 本删除失败',
     };
-    ScaffoldMessenger.maybeOf(context)
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    if (failedIds.isEmpty) {
+      recordAppEvent('books_remove_completed');
+    } else {
+      recordAppError('books_remove_partial_failure', StateError(message));
+    }
   }
 
   @override

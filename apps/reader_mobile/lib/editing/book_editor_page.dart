@@ -16,6 +16,7 @@ import 'book_editor_inspector.dart';
 import 'book_editor_preview.dart';
 import 'book_editor_source.dart';
 import 'book_editor_tools.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 桌面编辑工作台：按窗口可用空间停靠书籍浏览器、源码和手机预览。
 class BookEditorPage extends StatefulWidget {
@@ -224,7 +225,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
   }
 
   void _message(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+      recordAppEvent('editor_message', fields: {'message': text});
 
   Future<void> _tool(String action) async {
     if (editor.busy) return;
