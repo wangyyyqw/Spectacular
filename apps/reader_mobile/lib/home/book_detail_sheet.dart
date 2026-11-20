@@ -10,7 +10,7 @@ import 'reading_insights.dart';
 /// 长按书架卡片展示书籍元信息和快捷操作。
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
-/// `'create-group'` 新建分组，`'multi-select'` 进入多选。
+/// `'create-group'` 将本书移入已有或新建分组，`'multi-select'` 进入多选。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
   const BookDetailSheet({
