@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -93,6 +94,7 @@ class BookshelfPage extends StatefulWidget {
 
 class _BookshelfPageState extends State<BookshelfPage> {
   static const _viewKey = 'bookshelf.grid';
+  static const _pinnedKey = 'bookshelf.pinned';
 
   List<_ShelfItem>? _items;
 
@@ -103,6 +105,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   String? _error;
   ImportJob? _encodingJob;
   BookSortOrder _sort = BookSortOrder.recent;
+  List<String> _pinnedIds = const <String>[];
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
   String? _activeGroupId;
@@ -198,12 +201,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _loadPreferences() async {
     final sort = await widget.library.getSetting(bookshelfSortKey);
     final grid = await widget.library.getSetting(_viewKey);
+    final pinned = await widget.library.getSetting(_pinnedKey);
     if (!mounted) {
       return;
     }
     setState(() {
       _sort = BookSortOrder.fromValue(sort);
       _grid = grid != 'false';
+      _pinnedIds = pinned == null
+          ? const <String>[]
+          : (jsonDecode(pinned) as List).cast<String>();
     });
   }
 
@@ -211,6 +218,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final grid = !_grid;
     setState(() => _grid = grid);
     await widget.library.setSetting(_viewKey, '$grid');
+  }
+
+  Future<void> _togglePinned(BookEntry entry) async {
+    final pinned = List<String>.of(_pinnedIds);
+    if (!pinned.remove(entry.id)) pinned.insert(0, entry.id);
+    await widget.library.setSetting(_pinnedKey, jsonEncode(pinned));
+    if (mounted) setState(() => _pinnedIds = pinned);
   }
 
   ShelfGroup? get _activeGroup {
@@ -489,7 +503,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     });
   }
 
-  /// 按当前排序方式排序（list() 默认最近阅读优先）。
+  /// 置顶书籍按置顶先后排在前面，其余沿用当前排序。
   List<_ShelfItem> _sorted(List<_ShelfItem> items) {
     final sorted = List<_ShelfItem>.of(items);
     switch (_sort) {
@@ -500,7 +514,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       case BookSortOrder.title:
         sorted.sort((a, b) => a.entry.title.compareTo(b.entry.title));
     }
-    return sorted;
+    final byId = {for (final item in sorted) item.entry.id: item};
+    return [
+      for (final id in _pinnedIds) ?byId[id],
+      for (final item in sorted)
+        if (!_pinnedIds.contains(item.entry.id)) item,
+    ];
   }
 
   /// 先按关键词与当前分组过滤，再沿用书架排序。
@@ -772,6 +791,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         library: widget.library,
         progress: progress,
         readingDuration: durations[entry.id] ?? Duration.zero,
+        pinned: _pinnedIds.contains(entry.id),
       ),
     );
     if (!mounted) {
@@ -806,6 +826,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
             child: const Text('编辑 EPUB'),
           ),
         const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
+        PopupMenuItem(
+          value: 'pin',
+          child: Text(_pinnedIds.contains(entry.id) ? '取消置顶' : '置顶'),
+        ),
         const PopupMenuItem(value: 'export', child: Text('导出 EPUB')),
         if (canRechapter)
           const PopupMenuItem(value: 'chapters', child: Text('章节正则')),
@@ -879,6 +903,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _startSelection(entry);
     } else if (action == 'export') {
       await _exportBook(entry);
+    } else if (action == 'pin') {
+      await _togglePinned(entry);
     }
   }
 

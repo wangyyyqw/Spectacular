@@ -62,6 +62,7 @@ enum AppGlyph {
   rateReview(_rateReview),
   bookmark(_bookmark),
   bookmarkAdd(_bookmarkAdd),
+  pushPin(_pushPin),
   star(_star),
   radioChecked(_radioChecked),
   radioUnchecked(_radioUnchecked),
@@ -242,6 +243,23 @@ void _arrowForward(AppIconCanvas canvas) => canvas.line(
     [Offset(13, 6.5), Offset(19.5, 12), Offset(13, 17.5)],
   ]),
 );
+
+void _pushPin(AppIconCanvas canvas) {
+  canvas.line(
+    _polylines(const [
+      [Offset(8, 3.5), Offset(16, 3.5)],
+      [
+        Offset(9, 3.5),
+        Offset(9, 10),
+        Offset(6, 14.5),
+        Offset(18, 14.5),
+        Offset(15, 10),
+        Offset(15, 3.5),
+      ],
+      [Offset(12, 14.5), Offset(12, 21)],
+    ]),
+  );
+}
 
 void _chevronLeft(AppIconCanvas canvas) => canvas.line(
   _polylines(const [
