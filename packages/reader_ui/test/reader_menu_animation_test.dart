@@ -47,6 +47,37 @@ Widget _menu({
 );
 
 void main() {
+  testWidgets('阅读菜单和抽屉动画不连带重绘静止背景', (tester) async {
+    var paints = 0;
+    Widget scene({required bool open, bool drawer = false}) => MaterialApp(
+      home: Stack(
+        fit: StackFit.expand,
+        children: [
+          CustomPaint(painter: _PaintProbe(() => paints++)),
+          (_menu(open: open, drawer: drawer) as MaterialApp).home!,
+        ],
+      ),
+    );
+    await tester.pumpWidget(scene(open: false));
+    await tester.pumpAndSettle();
+    for (final (open, drawer) in [
+      (true, false),
+      (true, true),
+      (true, false),
+      (false, false),
+    ]) {
+      await tester.pumpWidget(scene(open: open, drawer: drawer));
+      await tester.pump(const Duration(milliseconds: 40));
+      final painted = paints;
+      for (var frame = 0; frame < 8; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(paints, painted, reason: '菜单和抽屉自行重绘，静止背景复用');
+      await tester.pumpAndSettle();
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('抽屉动画复用主题和导航，静态内容不随动画逐帧重绘', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -70,10 +101,9 @@ void main() {
     final previous = debugOnRebuildDirtyWidget;
     debugOnRebuildDirtyWidget = (element, builtBefore) {
       previous?.call(element, builtBefore);
-      if (builtBefore &&
-          (element.widget is ReaderPanelTheme ||
-              element.widget is ReaderFrostedSurface ||
-              element.widget.key == const ValueKey('drawer-entry-settings'))) {
+      if (element.widget is ReaderPanelTheme ||
+          element.widget is ReaderFrostedSurface ||
+          element.widget.key == const ValueKey('drawer-entry-settings')) {
         rebuilt.add(element.widget.runtimeType);
       }
     };

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -25,6 +26,7 @@ class StatsPage extends StatefulWidget {
     this.sessionStore,
     this.refreshToken = 0,
     this.active = true,
+    this.now,
   });
 
   /// 书架存储。
@@ -42,13 +44,17 @@ class StatsPage extends StatefulWidget {
   /// 当前 Tab 是否可见；隐藏时只标记待刷新，避免后台页面重复查询。
   final bool active;
 
+  /// 测试可固定当前时间；正常使用设备时间。
+  final DateTime? now;
+
   @override
   State<StatsPage> createState() => _StatsPageState();
 }
 
 class _StatsPageState extends State<StatsPage> {
   late final BookOpener _bookOpener;
-  _LibraryStats? _stats;
+  _StatsContent? _content;
+  List<Record> _snapshot = const [];
   int _reloadToken = 0;
   bool _dirty = true;
   String? _error;
@@ -76,10 +82,15 @@ class _StatsPageState extends State<StatsPage> {
   @override
   void didUpdateWidget(StatsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active) {
+      _dirty = true;
+      _reloadToken++;
+    }
     final becameActive = !oldWidget.active && widget.active;
     if ((becameActive && _dirty) ||
         oldWidget.refreshToken != widget.refreshToken ||
-        oldWidget.sessionStore != widget.sessionStore) {
+        oldWidget.sessionStore != widget.sessionStore ||
+        oldWidget.now != widget.now) {
       _reload();
     }
   }
@@ -93,18 +104,27 @@ class _StatsPageState extends State<StatsPage> {
   }
 
   Future<void> _reload() async {
+    if (!widget.active) {
+      _dirty = true;
+      return;
+    }
     _dirty = false;
     final token = ++_reloadToken;
     try {
       final books = await widget.library.list();
+      if (!_acceptsReload(token)) return;
       final progress = await widget.progressStore.snapshot();
+      if (!_acceptsReload(token)) return;
       final weightsByBook = await widget.library.progressWeightsForBooks(
         books.map((book) => book.id),
       );
+      if (!_acceptsReload(token)) return;
       final storedSessions =
           await (_sessionStore?.list() ??
               Future<List<ReadingSession>>.value(const []));
-      final now = DateTime.now();
+      // 已切走或被新刷新取代的读取结果不再聚合，也不重建隐藏图表。
+      if (!_acceptsReload(token)) return;
+      final now = widget.now ?? DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final insights = ReadingInsights(
         storedSessions,
@@ -236,15 +256,20 @@ class _StatsPageState extends State<StatsPage> {
         charactersRead: insights.charactersRead,
         hasReadingSessions: storedSessions.isNotEmpty,
       );
-      if (mounted && token == _reloadToken) {
-        setState(() {
-          _stats = stats;
-          _error = null;
-        });
-      }
+      final snapshot = _statsSnapshot(now, stats, storedSessions);
+      if (listEquals(_snapshot, snapshot)) return;
+      setState(() {
+        _snapshot = snapshot;
+        _content = _StatsContent(
+          stats: stats,
+          onOpenBook: _openBook,
+          now: widget.now,
+        );
+        _error = null;
+      });
     } catch (_) {
-      if (!mounted || token != _reloadToken) return;
-      if (_stats == null) {
+      if (!_acceptsReload(token)) return;
+      if (_content == null) {
         setState(() => _error = '统计加载失败');
       } else {
         ScaffoldMessenger.of(context)
@@ -252,6 +277,9 @@ class _StatsPageState extends State<StatsPage> {
       }
     }
   }
+
+  bool _acceptsReload(int token) =>
+      mounted && widget.active && token == _reloadToken;
 
   Future<void> _openBook(BookEntry entry) async {
     await _bookOpener.open(context, entry);
@@ -262,7 +290,7 @@ class _StatsPageState extends State<StatsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final stats = _stats;
+    final content = _content;
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
@@ -278,17 +306,31 @@ class _StatsPageState extends State<StatsPage> {
         ],
         bottom: const _AppBarHairline(),
       ),
-      body: stats == null
+      body: content == null
           ? _error == null
                 ? const _StatsSkeleton()
                 : _StatsError(onRetry: _reload)
-          : RefreshIndicator(onRefresh: _reload, child: _content(stats)),
+          : RefreshIndicator(onRefresh: _reload, child: content),
     );
   }
+}
 
-  Widget _content(_LibraryStats stats) {
+/// 快照未变时复用内容；主题、字号和平台仍由内容自己的依赖触发更新。
+class _StatsContent extends StatelessWidget {
+  const _StatsContent({
+    required this.stats,
+    required this.onOpenBook,
+    this.now,
+  });
+
+  final _LibraryStats stats;
+  final Future<void> Function(BookEntry) onOpenBook;
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext context) {
     final desktop = usesDesktopLayout(context);
-    final sections = _sections(stats, desktop);
+    final sections = _sections(desktop);
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: desktop ? 1280 : 680),
@@ -320,20 +362,24 @@ class _StatsPageState extends State<StatsPage> {
               )
             else
               ...sections,
-            _RecentSection(stats: stats, onOpenBook: _openBook),
+            _RecentSection(stats: stats, onOpenBook: onOpenBook),
           ],
         ),
       ),
     );
   }
 
-  List<Widget> _sections(_LibraryStats stats, bool desktop) {
+  List<Widget> _sections(bool desktop) {
     final titles = {for (final row in stats.rows) row.book.id: row.book.title};
     return [
       _Section(
         title: '图书时长',
         showDivider: false,
-        child: BookDurationChart(insights: stats.insights, bookTitles: titles),
+        child: BookDurationChart(
+          insights: stats.insights,
+          bookTitles: titles,
+          now: now,
+        ),
       ),
       _Section(
         title: '阅读日历',
@@ -341,6 +387,7 @@ class _StatsPageState extends State<StatsPage> {
         child: ReadingCalendar(
           insights: stats.insights,
           bookTitles: titles,
+          now: now,
           finishedBookIds: {
             for (final row in stats.rows)
               if (row.progress?.finished ?? false) row.book.id,
@@ -362,12 +409,52 @@ class _StatsPageState extends State<StatsPage> {
           books: [for (final row in stats.rows) row.book],
           totals: stats.insights.byBook,
           bookTitles: stats.insights.bookTitles,
-          onOpen: _openBook,
+          onOpen: onOpenBook,
         ),
       ),
     ];
   }
 }
+
+/// 按值比较，权重变化通过实际百分比与总字数体现；保留原始会话全部字段。
+List<Record> _statsSnapshot(
+  DateTime now,
+  _LibraryStats stats,
+  List<ReadingSession> sessions,
+) => [
+  (DateTime(now.year, now.month, now.day), stats.totalCharacters),
+  for (final row in stats.rows)
+    (
+      (
+        row.book.id,
+        row.book.title,
+        row.book.author,
+        row.book.description,
+        row.book.filePath,
+        row.book.addedAt,
+        row.book.lastReadAt,
+        row.book.spineCount,
+        row.book.readabilityLevel,
+        row.book.coverPath,
+        row.book.contentRevision,
+        row.book.importOutcome,
+      ),
+      row.progress,
+      row.percent,
+      row.recentReadAt,
+      _relativeTime(row.recentReadAt, now: now),
+    ),
+  for (final session in sessions)
+    (
+      session.bookId,
+      session.bookTitle,
+      session.startedAt,
+      session.endedAt,
+      session.duration,
+      session.pageTurns,
+      session.charactersRead,
+    ),
+];
 
 /// 统计数据接口继续保留，顶部摘要与概览移除后仍按原口径填充全部字段。
 class _LibraryStats {
@@ -821,11 +908,11 @@ String _positionLabel(BookEntry book, ReaderProgress? progress) {
   return total == null ? position : '$position / 共 $total 章';
 }
 
-String _relativeTime(DateTime? time) {
+String _relativeTime(DateTime? time, {DateTime? now}) {
   if (time == null) {
     return '';
   }
-  final delta = DateTime.now().difference(time);
+  final delta = (now ?? DateTime.now()).difference(time);
   if (delta.isNegative || delta.inMinutes < 1) return '刚刚';
   if (delta.inHours < 1) return '${delta.inMinutes} 分钟前';
   if (delta.inDays < 1) return '${delta.inHours} 小时前';
