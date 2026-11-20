@@ -271,8 +271,10 @@ extension LibraryRevisionOperations on LibraryStore {
   Map<String, AnchorRecord> _migrateRevisionAnnotations(
     List<AnnotationRow> annotations,
     AnchorBook? oldBook,
-    AnchorBook newBook,
-  ) {
+    AnchorBook newBook, {
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
+  }) {
     final migrated = <String, AnchorRecord>{};
     for (final annotation in annotations) {
       final record = requireAnchorRecord(annotation.anchorJson);
@@ -280,6 +282,8 @@ extension LibraryRevisionOperations on LibraryStore {
         oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
         newBook: newBook,
         record: record,
+        preserveTextPositions: preserveTextPositions,
+        elementCfiMap: elementCfiMap,
       );
     }
     return migrated;
@@ -288,14 +292,18 @@ extension LibraryRevisionOperations on LibraryStore {
   Map<String, AnchorRecord> _migrateRevisionDecorations(
     List<DecorationRow> decorations,
     AnchorBook? oldBook,
-    AnchorBook newBook,
-  ) {
+    AnchorBook newBook, {
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
+  }) {
     final migrated = <String, AnchorRecord>{};
     for (final row in decorations) {
       migrated[row.id] = RevisionRelocator.relocate(
         oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
         newBook: newBook,
         record: requireAnchorRecord(row.anchorJson),
+        preserveTextPositions: preserveTextPositions,
+        elementCfiMap: elementCfiMap,
       );
     }
     _resolveDecorationCollisions(decorations, migrated);
@@ -339,8 +347,10 @@ extension LibraryRevisionOperations on LibraryStore {
   AnchorRecord? _migrateRevisionProgress(
     ProgressRow? progress,
     AnchorBook? oldBook,
-    AnchorBook newBook,
-  ) {
+    AnchorBook newBook, {
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
+  }) {
     final record = AnchorRecord.decode(progress?.anchorJson);
     if (record == null) return null;
     return RevisionRelocator.relocate(
@@ -348,6 +358,8 @@ extension LibraryRevisionOperations on LibraryStore {
       newBook: newBook,
       record: record,
       progress: true,
+      preserveTextPositions: preserveTextPositions,
+      elementCfiMap: elementCfiMap,
     );
   }
 

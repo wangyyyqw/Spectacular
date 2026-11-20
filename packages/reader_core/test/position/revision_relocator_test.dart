@@ -73,6 +73,62 @@ void main() {
   const after = '子丑寅卯辰巳午未申酉这是不会变化的后文用于可靠地夹定引用终点。';
   const quote = '旧版里需要保留的选中文字';
 
+  test('纯重分章按核验后的全书位置区分重复段落并迁移跨章选区', () {
+    final old = _book('old', [
+      ['相同文字相同文字', '相同文字相同文字'],
+    ]);
+    final next = _book('new', [
+      ['相同文字'],
+      ['相同文字相同文字'],
+      ['相同文字'],
+    ]);
+    final start = old.chapter(0)!.cfiAt(9)!;
+    final end = old.chapter(0)!.cfiAt(15, end: true)!;
+    final original = old.capture(start, endCfi: end)!;
+    final moved = RevisionRelocator.relocate(
+      oldBook: old,
+      newBook: next,
+      record: AnchorRecord(original: original),
+      preserveTextPositions: true,
+    );
+    expect(moved.status, 'relocated');
+    expect(moved.current!.start.spineIndex, 1);
+    expect(moved.current!.start.charOffset, 5);
+    expect(moved.current!.end!.spineIndex, 2);
+    expect(next.textFor(moved.current!), old.textFor(original));
+  });
+
+  test('纯重分章不把历史待定位记录和不相同原文套入绝对位置', () {
+    final old = _book('old', [
+      ['一样一样一样一样'],
+    ]);
+    final next = _book('new', [
+      ['一样一样'],
+      ['一样一样'],
+    ]);
+    final anchor = old.capture(
+      old.chapter(0)!.cfiAt(2)!,
+      endCfi: old.chapter(0)!.cfiAt(4, end: true)!,
+    )!;
+    final pending = RevisionRelocator.relocate(
+      oldBook: old,
+      newBook: next,
+      record: AnchorRecord(original: anchor, status: 'pending'),
+      preserveTextPositions: true,
+    );
+    expect(pending.status, 'pending');
+    final changed = _book('changed', [
+      ['完全不同的内容'],
+    ]);
+    final rejected = RevisionRelocator.relocate(
+      oldBook: old,
+      newBook: changed,
+      record: AnchorRecord(original: anchor),
+      preserveTextPositions: true,
+    );
+    expect(rejected.status, 'pending');
+  });
+
   test('元素锚点保留身份，文字锚点仍校正 UTF-16 边界', () {
     const elementCfi = 'epubcfi(/6/2!/4/2)';
     final book = AnchorBook(

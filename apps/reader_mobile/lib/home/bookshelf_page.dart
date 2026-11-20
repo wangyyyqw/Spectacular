@@ -15,6 +15,9 @@ import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
 import '../editing/book_edit_repository.dart';
 import '../editing/book_editor_route.dart';
+import '../txt/txt_book_service.dart';
+import '../txt/txt_chapter_rule_page.dart';
+import '../txt/txt_encoding_dialog.dart';
 import 'desktop_layout.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
@@ -34,7 +37,7 @@ const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
 const _shelfMetaHeight = 18.0;
 
-/// 书架页：书籍网格/列表、EPUB 导入、点击进入阅读、长按看详情。
+/// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
   /// 创建页面。
   const BookshelfPage({
@@ -73,7 +76,7 @@ class BookshelfPage extends StatefulWidget {
   static Future<List<String>> _pickWithFilePicker() async {
     final files = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: <String>['epub'],
+      allowedExtensions: <String>['epub', 'txt'],
     );
     return <String>[
       for (final file in files)
@@ -95,6 +98,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   final List<ImportJob> _batch = <ImportJob>[];
   int _reportedJobs = 0;
   String? _error;
+  ImportJob? _encodingJob;
   BookSortOrder _sort = BookSortOrder.recent;
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
@@ -541,6 +545,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   void _showImportFailure(ImportJob failed, ScaffoldMessengerState? messenger) {
+    if (failed.encodingCandidates.isNotEmpty) {
+      setState(() {
+        _encodingJob = failed;
+        _error = failed.error ?? '请选择正文显示正确的 TXT 编码';
+      });
+      return;
+    }
     final friendly = EpubRejectionMessages.forCode(
       failed.errorCode,
       failed.error ?? '',
@@ -555,6 +566,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
     } else {
       setState(() => _error = message);
     }
+  }
+
+  Future<void> _retryEncoding() async {
+    final job = _encodingJob;
+    if (job == null) return;
+    final encoding = await chooseTxtEncoding(context, job.encodingCandidates);
+    if (encoding == null || !mounted) return;
+    setState(() {
+      _error = null;
+      _encodingJob = null;
+      _reportedJobs = 0;
+    });
+    _queue.retry(job.id, encoding: encoding);
   }
 
   Future<void> _reload() {
@@ -623,7 +647,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return weights.percentInt(progress.spineIndex);
   }
 
-  /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
+  /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
     if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
     setState(() => _pickingFiles = true);
@@ -657,6 +681,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     setState(() {
       _error = null;
+      _encodingJob = null;
       _batch.clear();
       _reportedJobs = 0;
     });
@@ -699,6 +724,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
     final local = overlay.globalToLocal(position);
+    final canRechapter = await TxtBookService(widget.library)
+        .canRechapter(entry)
+        .catchError((Object _) => false);
+    if (!mounted) return;
     final action = await showMenu<String>(
       context: context,
       requestFocus: true,
@@ -717,6 +746,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
             child: const Text('编辑 EPUB'),
           ),
         const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
+        if (canRechapter)
+          const PopupMenuItem(value: 'chapters', child: Text('章节正则')),
         const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
         const PopupMenuItem(value: 'create-group', child: Text('新建分组')),
         if (widget.allowImport)
@@ -735,6 +766,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _applyBookAction(BookEntry entry, String? action) async {
+    if (action == 'chapters') {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) =>
+              TxtChapterRulePage(entry: entry, library: widget.library),
+        ),
+      );
+      if (mounted) await _reload();
+      return;
+    }
     if (action == 'edit') {
       await Navigator.of(context).push<bool>(
         MaterialPageRoute(
@@ -786,6 +827,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       if (paths.length != 1) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('更新时请选择一本 EPUB')));
+        return;
+      }
+      if (!paths.single.toLowerCase().endsWith('.epub')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('更新书籍请选择 EPUB；TXT 请从导入入口添加')),
+        );
         return;
       }
       setState(() {
@@ -1092,7 +1139,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               ),
               IconButton(
                 key: const ValueKey<String>('bookshelf-import'),
-                tooltip: busy ? '导入中…' : '导入 EPUB',
+                tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
                 onPressed: busy || !widget.allowImport ? null : _import,
                 icon: busy
                     ? const SizedBox(
@@ -1151,7 +1198,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (_error != null) {
       return _ErrorPane(
         message: _error!,
-        onRetry: widget.allowImport ? _import : null,
+        retryLabel: _encodingJob == null ? '重试' : '选择编码并重试',
+        onRetry: !widget.allowImport
+            ? null
+            : _encodingJob == null
+            ? _import
+            : _retryEncoding,
       );
     }
     if (items == null) {
@@ -1912,10 +1964,15 @@ class _NoMatchesPane extends StatelessWidget {
 }
 
 class _ErrorPane extends StatelessWidget {
-  const _ErrorPane({required this.message, required this.onRetry});
+  const _ErrorPane({
+    required this.message,
+    required this.onRetry,
+    this.retryLabel = '重试',
+  });
 
   final String message;
   final Future<void> Function()? onRetry;
+  final String retryLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1933,7 +1990,7 @@ class _ErrorPane extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 12),
-            FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
+            FilledButton.tonal(onPressed: onRetry, child: Text(retryLabel)),
           ],
         ),
       ),

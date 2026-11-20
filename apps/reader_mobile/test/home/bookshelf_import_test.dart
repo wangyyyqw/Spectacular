@@ -69,7 +69,7 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester, frames: 2);
 
     expect(find.textContaining('正在导入'), findsOneWidget);
@@ -95,7 +95,7 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester, frames: 10);
     expect(find.text('山海小记'), findsWidgets);
 
@@ -126,7 +126,7 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester, frames: 10);
 
     await tester.longPress(find.text('山海小记').first);
@@ -159,7 +159,7 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester, frames: 10);
 
     expect(find.text('山海小记'), findsWidgets);
@@ -189,7 +189,7 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-import')),
     );
     expect(button.onPressed, isNull);
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester);
     expect(pickCalls, 0);
     expect(await library.list(), isEmpty);
@@ -216,7 +216,7 @@ void main() {
     );
     await tester.pumpWidget(page(true));
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await tester.pumpWidget(page(false));
     pending.complete(<String>[epubFile.path]);
     await _settle(tester);

@@ -32,6 +32,8 @@ import '../storage/book_review_store.dart';
 import '../diagnostics/reader_log.dart';
 import '../editing/book_edit_repository.dart';
 import '../editing/book_editor_route.dart';
+import '../txt/txt_book_service.dart';
+import '../txt/txt_chapter_rule_page.dart';
 import '../search/scan_search_service.dart';
 import '../storage/reading_session_store.dart';
 import '../storage/drift_progress_store.dart';
@@ -320,6 +322,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _sourceTask = widget.sourceFuture ?? _openSource();
     _sourceTask.ignore();
     unawaited(_open(watch));
+    unawaited(_loadChapterRuleAvailability());
   }
 
   Future<void> _open(Stopwatch watch) async {
@@ -647,6 +650,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onSessionReady: _bindReaderSession,
       onBookEnd: _openFinishPage,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
+      onChapterRules: _canRechapter ? _openChapterRules : null,
       onEditTarget: _canEditBook ? _openEditor : null,
       onLog: (event, fields) =>
           unawaited(ReaderLog.instance.log(event, fields: fields)),
@@ -656,7 +660,52 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   bool _editorOpen = false;
+  bool _canRechapter = false;
   bool _finishPageOpen = false;
+
+  Future<void> _loadChapterRuleAvailability() async {
+    final library = widget.bookEditorRepository?.library;
+    final book = widget.book;
+    if (library == null || book == null) return;
+    try {
+      final enabled = await TxtBookService(library).canRechapter(book);
+      if (mounted && !_closing) setState(() => _canRechapter = enabled);
+    } catch (_) {
+      // 原书读取错误由打开流程展示，不增加不可用的章节入口。
+    }
+  }
+
+  Future<void> _openChapterRules() async {
+    if (!_canRechapter || _editorOpen || _closing) return;
+    final library = widget.bookEditorRepository!.library;
+    final book = widget.book!;
+    _editorOpen = true;
+    _syncReadingActivity();
+    var contentUpdated = false;
+    try {
+      await _readerSession?.flushProgress();
+      if (!mounted || _closing) return;
+      final saved = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => TxtChapterRulePage(entry: book, library: library),
+        ),
+      );
+      if (saved == true && mounted) {
+        contentUpdated = true;
+        Navigator.of(context).pop(EpubReaderExit.contentUpdated);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('打开章节正则失败：$error')));
+      }
+    } finally {
+      if (!contentUpdated) {
+        _editorOpen = false;
+        if (mounted) _syncReadingActivity();
+      }
+    }
+  }
 
   Future<void> _openFinishPage(ReaderSession session, bool rtl) async {
     if (_finishPageOpen || _editorOpen || _closing) return;

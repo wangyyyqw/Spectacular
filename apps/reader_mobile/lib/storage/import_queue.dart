@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:reader_core/txt.dart';
 
 import '../library/library_store.dart';
 
@@ -34,10 +35,15 @@ class ImportJob {
     this.sourcePath,
     this.fallbackTitle,
     this.updateBookId,
+    this.isTxt = false,
   });
 
   /// 强制覆盖的当前书籍标识；普通导入为空。
   final String? updateBookId;
+
+  final bool isTxt;
+  String? encodingOverride;
+  List<TxtEncodingCandidate> encodingCandidates = const [];
 
   /// 任务标识。
   final String id;
@@ -129,6 +135,7 @@ class ImportQueue extends ChangeNotifier {
     Uint8List bytes, {
     String? fallbackTitle,
     String? updateBookId,
+    bool? isTxt,
   }) {
     if (_disposed) throw StateError('导入队列已释放');
     final job = ImportJob(
@@ -136,6 +143,7 @@ class ImportQueue extends ChangeNotifier {
       bytes: bytes,
       fallbackTitle: fallbackTitle,
       updateBookId: updateBookId,
+      isTxt: isTxt ?? fallbackTitle?.toLowerCase().endsWith('.txt') == true,
     );
     _jobs.add(job);
     _notify();
@@ -160,6 +168,7 @@ class ImportQueue extends ChangeNotifier {
       sourcePath: path,
       fallbackTitle: fallbackTitle,
       updateBookId: updateBookId,
+      isTxt: path.toLowerCase().endsWith('.txt'),
     );
     _jobs.add(job);
     _notify();
@@ -180,12 +189,13 @@ class ImportQueue extends ChangeNotifier {
   }
 
   /// 重试失败/已取消的任务。
-  void retry(String jobId) {
+  void retry(String jobId, {String? encoding}) {
     if (_disposed) return;
     final job = _jobOf(jobId);
     if (job == null || !job.canRetry || job.status == ImportStatus.running) {
       return;
     }
+    if (encoding != null) job.encodingOverride = encoding;
     if (identical(job, _runningJob)) {
       // 底层导入仍在进行；先保留取消状态完成清理，再排入下一轮。
       _retryAfterRun.add(job.id);
@@ -202,6 +212,7 @@ class ImportQueue extends ChangeNotifier {
       ..progress = 0
       ..error = null
       ..errorCode = null
+      ..encodingCandidates = const []
       ..entry = null;
   }
 
@@ -298,7 +309,28 @@ class ImportQueue extends ChangeNotifier {
           job.bytes == null &&
           sourcePath != null &&
           File(sourcePath).existsSync();
-      if (canStreamFile) {
+      if (job.isTxt) {
+        if (job.updateBookId != null) {
+          throw const LibraryImportException(
+            '更新 EPUB 时请选择 EPUB 文件；TXT 请使用导入入口',
+          );
+        }
+        entry = canStreamFile
+            ? await _library.importTxtFile(
+                sourcePath,
+                fallbackTitle: job.fallbackTitle,
+                encoding: job.encodingOverride,
+                onProgress: progress,
+                isCancelled: () => job.status == ImportStatus.cancelled,
+              )
+            : await _library.importTxtBytes(
+                job.bytes ?? (loadedBytes = await readFile!(job.sourcePath!)),
+                fallbackTitle: job.fallbackTitle,
+                encoding: job.encodingOverride,
+                onProgress: progress,
+                isCancelled: () => job.status == ImportStatus.cancelled,
+              );
+      } else if (canStreamFile) {
         // 默认路径：文件直接流式导入，不整本读入内存。
         entry = await _library.importFile(
           sourcePath,
@@ -329,6 +361,13 @@ class ImportQueue extends ChangeNotifier {
         ..progress = 1
         ..status = ImportStatus.succeeded
         ..bytes = null;
+    } on TxtConversionException catch (error) {
+      if (job.status == ImportStatus.cancelled) return;
+      job
+        ..status = ImportStatus.failed
+        ..error = error.message
+        ..errorCode = error.code
+        ..encodingCandidates = error.encodingCandidates;
     } on LibraryImportException catch (error) {
       if (job.status == ImportStatus.cancelled) return;
       job

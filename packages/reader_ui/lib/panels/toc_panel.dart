@@ -19,6 +19,7 @@ class TocPanel extends StatefulWidget {
     this.currentCfi,
     this.scrollController,
     this.onBack,
+    this.onChapterRules,
     this.emptyHint = '本书没有目录',
   });
 
@@ -39,6 +40,7 @@ class TocPanel extends StatefulWidget {
 
   /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
   final VoidCallback? onBack;
+  final VoidCallback? onChapterRules;
 
   /// 无目录时的提示。
   final String emptyHint;
@@ -286,6 +288,18 @@ class _TocPanelState extends State<TocPanel> {
               ],
             ),
           ),
+          if (widget.onChapterRules != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: TextButton(
+                  key: const ValueKey('toc-chapter-rules'),
+                  onPressed: widget.onChapterRules,
+                  child: const Text('章节正则'),
+                ),
+              ),
+            ),
           Expanded(
             child: rows.isEmpty
                 ? Center(
