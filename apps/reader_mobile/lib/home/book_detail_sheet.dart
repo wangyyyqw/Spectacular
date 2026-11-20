@@ -42,7 +42,7 @@ class BookDetailSheet extends StatelessWidget {
         : (progress!.spineIndex + 1).clamp(0, totalChapters);
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
