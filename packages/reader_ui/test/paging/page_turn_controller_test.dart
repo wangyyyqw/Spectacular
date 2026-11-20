@@ -33,6 +33,28 @@ class _Source implements ReaderChapterSource {
   ];
 }
 
+class _FailingChapterSource extends _Source {
+  _FailingChapterSource({this.gate}) : super(1);
+
+  final Completer<void>? gate;
+  final started = Completer<void>();
+  Object failure = StateError('邻章暂时获取失败');
+  bool fail = true;
+
+  @override
+  int get chapterCount => 2;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (spineIndex == 1) {
+      if (!started.isCompleted) started.complete();
+      await gate?.future;
+      if (fail) throw failure;
+    }
+    return super.loadChapter(spineIndex);
+  }
+}
+
 Future<PageTurnController> _controller(
   WidgetTester tester, {
   bool rtl = false,
@@ -43,6 +65,7 @@ Future<PageTurnController> _controller(
   int initialPage = 1,
   bool autoFinish = true,
   void Function()? onBookEnd,
+  void Function(Object error)? onError,
 }) async {
   final store = MemoryReaderProgressStore();
   await store.save(
@@ -62,6 +85,7 @@ Future<PageTurnController> _controller(
           session: session,
           vsync: tester,
           onBookEnd: onBookEnd,
+          onError: onError,
           acquireImage: (page) async {
             await imageGate;
             if (page.pageIndex != 1) await targetImageGate;
@@ -227,6 +251,105 @@ Completer<void> _requestWithActivationCancellation(
 }
 
 void main() {
+  testWidgets('跨章加载失败通知宿主并保留原位置，再次翻页可成功', (tester) async {
+    final source = _FailingChapterSource();
+    final errors = <Object>[];
+    final controller = await _controller(
+      tester,
+      source: source,
+      initialPage: 0,
+      onError: errors.add,
+    );
+    final origin = controller.session.page;
+    final progress = controller.session.progress;
+    controller.request(true);
+    await tester.pumpAndSettle();
+
+    expect(errors, [source.failure]);
+    expect(controller.active, isFalse);
+    expect(controller.session.page, same(origin));
+    expect(controller.session.progress, progress);
+    expect(controller.session.pageTurns, 0);
+    expect(tester.takeException(), isNull);
+
+    source.fail = false;
+    controller.request(true);
+    await tester.pumpAndSettle();
+    expect(controller.session.page?.spineIndex, 1);
+    expect(controller.session.pageTurns, 1);
+    expect(errors, [source.failure]);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('未提供错误回调时跨章失败仍取消翻页并保留原页', (tester) async {
+    final source = _FailingChapterSource();
+    final controller = await _controller(
+      tester,
+      source: source,
+      initialPage: 0,
+    );
+    final origin = controller.session.page;
+    controller.request(true);
+    await tester.pumpAndSettle();
+
+    expect(controller.active, isFalse);
+    expect(controller.session.page, same(origin));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('跨章等待者主动取消不触发错误回调', (tester) async {
+    final source = _FailingChapterSource()
+      ..failure = const ChapterLoadCancelled();
+    final errors = <Object>[];
+    final controller = await _controller(
+      tester,
+      source: source,
+      initialPage: 0,
+      onError: errors.add,
+    );
+    final origin = controller.session.page;
+    controller.request(true);
+    await tester.pumpAndSettle();
+
+    expect(errors, isEmpty);
+    expect(controller.active, isFalse);
+    expect(controller.session.page, same(origin));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final externalNavigation in [false, true]) {
+    testWidgets('${externalNavigation ? '外部跳转' : '手动取消'}后邻章晚到的真实错误不通知宿主', (
+      tester,
+    ) async {
+      final gate = Completer<void>();
+      final source = _FailingChapterSource(gate: gate);
+      final errors = <Object>[];
+      final controller = await _controller(
+        tester,
+        source: source,
+        initialPage: 0,
+        onError: errors.add,
+      );
+      final origin = controller.session.page;
+      controller.request(true);
+      await tester.pump();
+      expect(source.started.isCompleted, isTrue);
+      if (externalNavigation) {
+        await controller.session.jumpToChapter(0);
+      } else {
+        controller.cancel();
+      }
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(errors, isEmpty);
+      expect(controller.active, isFalse);
+      expect(controller.session.page, same(origin));
+      expect(controller.session.pageTurns, 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final mode in PageTurnMode.values.where(
     (mode) => mode != PageTurnMode.scroll,
   )) {

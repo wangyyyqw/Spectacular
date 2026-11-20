@@ -6,6 +6,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
+import 'online_book_toc_page.dart';
 import 'online_reading_book.dart';
 
 typedef OnlineBookReadCallback = Future<void> Function(
@@ -37,6 +38,8 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   OnlineBook? _info;
   List<OnlineChapter>? _chapters;
   bool _loading = true;
+  bool _refreshing = false;
+  bool _usingCachedCatalog = false;
   bool _downloading = false;
   bool _opening = false;
   bool _cancelRequested = false;
@@ -51,11 +54,28 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool refresh = false}) async {
+    if (_refreshing) return;
     setState(() {
-      _loading = true;
+      _loading = _chapters == null;
+      _refreshing = true;
       _error = null;
     });
+    if (!refresh && _chapters == null) {
+      final cached = await widget.controller.catalogs.read(
+        widget.source,
+        widget.book,
+      );
+      if (!mounted) return;
+      if (cached != null) {
+        setState(() {
+          _info = cached.book;
+          _chapters = cached.chapters;
+          _usingCachedCatalog = true;
+          _loading = false;
+        });
+      }
+    }
     try {
       final info = await widget.controller.service.loadBookInfo(
         widget.source,
@@ -69,15 +89,19 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       setState(() {
         _info = info;
         _chapters = chapters;
+        _usingCachedCatalog = false;
         _loading = false;
       });
+      await widget.controller.catalogs.save(widget.source, info, chapters);
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
-        _info = widget.book;
+        _info ??= widget.book;
         _error = '$error';
         _loading = false;
       });
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -130,18 +154,19 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       widget.source.loadMode == BookSourceLoadMode.chapter &&
       (_chapters?.isNotEmpty ?? false);
 
-  Future<void> _read([int? index]) async {
+  Future<void> _read([int? index, OnlineReadingBook? preparedBook]) async {
     if (!_canRead || _opening || _downloading) return;
     setState(() => _opening = true);
     try {
       await widget.onRead!(
         context,
-        OnlineReadingBook(
-          source: widget.source,
-          book: _info ?? widget.book,
-          chapters: _chapters!,
-          service: widget.controller.service,
-        ),
+        preparedBook ??
+            OnlineReadingBook(
+              source: widget.source,
+              book: _info ?? widget.book,
+              chapters: _chapters!,
+              service: widget.controller.service,
+            ),
         startChapter: index,
       );
     } catch (error) {
@@ -154,13 +179,58 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     }
   }
 
+  Future<void> _showToc() async {
+    final chapters = _chapters;
+    if (chapters == null || _opening || _downloading) return;
+    final book = OnlineReadingBook(
+      source: widget.source,
+      book: _info ?? widget.book,
+      chapters: chapters,
+      service: widget.controller.service,
+    );
+    final progress = await OnlineReadingProgress(
+      widget.controller.library,
+      book,
+    ).load(book.id);
+    if (!mounted) return;
+    final selected = await Navigator.of(context).push<int>(
+      MaterialPageRoute(
+        builder: (_) => OnlineBookTocPage(
+          bookTitle: book.book.name,
+          chapters: chapters,
+          currentChapter: progress?.spineIndex,
+          selectable: _canRead,
+        ),
+      ),
+    );
+    if (selected != null && mounted) await _read(selected, book);
+  }
+
   @override
   Widget build(BuildContext context) {
     final info = _info ?? widget.book;
     return PopScope(
       canPop: !_downloading,
       child: Scaffold(
-        appBar: AppBar(title: const Text('书籍详情')),
+        appBar: AppBar(
+          title: const Text('书籍详情'),
+          actions: [
+            IconButton(
+              key: const ValueKey('online-book-refresh-catalog'),
+              tooltip: '刷新目录',
+              onPressed: _refreshing || _downloading || _opening
+                  ? null
+                  : () => _load(refresh: true),
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+          bottom: _refreshing
+              ? const PreferredSize(
+                  preferredSize: Size.fromHeight(2),
+                  child: LinearProgressIndicator(minHeight: 2),
+                )
+              : null,
+        ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
@@ -174,7 +244,9 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Text(
-                          '详情加载不完整：$_error',
+                          _chapters == null
+                              ? '详情加载不完整：$_error'
+                              : '目录更新失败，已保留现有目录：$_error',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
@@ -197,7 +269,8 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                       ),
                       if (_chapters != null)
                         Text(
-                          '${_chapters!.length} 章',
+                          '${_chapters!.length} 章'
+                          '${_usingCachedCatalog ? ' · 缓存目录' : ''}',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                     ],
@@ -220,12 +293,11 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                         ),
                       ),
                   if (_chapters != null && _chapters!.length > 40)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        _canRead ? '仅显示前 40 章' : '仅预览前 40 章',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+                    TextButton.icon(
+                      key: const ValueKey('online-book-full-toc'),
+                      onPressed: _downloading || _opening ? null : _showToc,
+                      icon: const Icon(Icons.list),
+                      label: Text('查看全部 ${_chapters!.length} 章'),
                     ),
                 ],
               ),

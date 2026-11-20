@@ -8,6 +8,7 @@ import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'book_source_store.dart';
 import 'online_epub_update.dart';
+import 'online_reading_catalog_store.dart';
 
 /// 在线书源状态与下载入库入口。
 class OnlineBookController extends ChangeNotifier {
@@ -17,8 +18,10 @@ class OnlineBookController extends ChangeNotifier {
     BookSourceService? service,
     BookSourceCookieStore? cookieStore,
     BookSourceAuthService? authService,
+    OnlineReadingCatalogStore? readingCatalogStore,
   }) : _store = store ?? BookSourceStore(),
        cookieStore = cookieStore ?? BookSourceCookieStore(),
+       catalogs = readingCatalogStore ?? OnlineReadingCatalogStore(library),
        auth = authService ?? BookSourceAuthService() {
     this.service = service ?? BookSourceService(cookieStore: this.cookieStore);
   }
@@ -27,6 +30,7 @@ class OnlineBookController extends ChangeNotifier {
   final BookSourceStore _store;
   final BookSourceCookieStore cookieStore;
   final BookSourceAuthService auth;
+  final OnlineReadingCatalogStore catalogs;
   late final BookSourceService service;
   List<BookSource> _sources = const <BookSource>[];
   Map<String, OnlineBookLink> _links = const <String, OnlineBookLink>{};
@@ -260,6 +264,7 @@ class OnlineBookController extends ChangeNotifier {
       isCancelled: isCancelled,
       preparedBook: info,
       selectedChapters: added,
+      chapterDirectory: toc,
     );
     if (result.skippedChapters > 0) {
       throw const BookSourceException('新增章节未全部获取成功，原书保持不变');

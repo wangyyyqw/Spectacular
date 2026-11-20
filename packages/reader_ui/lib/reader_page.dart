@@ -451,6 +451,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 菜单是否展开（设计稿沉浸式菜单）。
   bool _menuOpen = false;
+  int _navigationErrorToken = 0;
   ({bool statusBar, bool navigationBar})? _systemBars;
   Timer? _systemBarRestoreTimer;
   bool _keyboardVisible = false;
@@ -958,16 +959,41 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {});
   }
 
-  Future<void> _selectTocEntry(TocEntry entry) async {
+  Future<void> _navigate(Future<Object?> Function() navigate) async {
+    final token = ++_navigationErrorToken;
+    final origin = _session.page;
+    final layoutRevision = _session.layoutRevision;
     try {
-      await _session.jumpToTocEntry(
-        entry,
-        continuous: _effectiveTurnMode == PageTurnMode.scroll,
-      );
+      await navigate();
     } catch (error) {
-      if (mounted) _showToast('章节加载失败：$error');
+      // 新导航、重排或退出已经接管阅读时，不提示旧任务的错误。
+      if (token == _navigationErrorToken &&
+          identical(origin, _session.page) &&
+          layoutRevision == _session.layoutRevision &&
+          !_session.loading &&
+          _session.jumpLoadingTitle == null) {
+        _reportChapterLoadError(error);
+      }
     }
   }
+
+  void _reportChapterLoadError(Object error) {
+    if (!mounted || error is ChapterLoadCancelled) return;
+    _showToast('章节加载失败：$error');
+  }
+
+  Future<void> _selectTocEntry(TocEntry entry) => _navigate(
+    () => _session.jumpToTocEntry(
+      entry,
+      continuous: _effectiveTurnMode == PageTurnMode.scroll,
+    ),
+  );
+
+  Future<void> _jumpToChapter(int spineIndex, {int emptyDirection = 1}) =>
+      _navigate(
+        () =>
+            _session.jumpToChapter(spineIndex, emptyDirection: emptyDirection),
+      );
 
   void _schedulePrefetch(PageContent page, double displayWidth) {
     final key = page.spineIndex * 100000 + page.pageIndex;
@@ -1286,12 +1312,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   /// 进度滑杆：按全书正文字符比例定位到章内 CFI。
-  Future<void> _seekToProgress(double percent) async {
-    await _session.seekToReadingPercent(
+  Future<void> _seekToProgress(double percent) => _navigate(
+    () => _session.seekToReadingPercent(
       percent,
       continuous: _effectiveTurnMode == PageTurnMode.scroll,
-    );
-  }
+    ),
+  );
 
   /// 日/夜快速切换（设计稿顶部栏的日间夜间按钮）。
   void _toggleDayNight() {
@@ -2851,10 +2877,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   : () {
                       _closeDrawer();
                       unawaited(
-                        _session.jumpToChapter(
-                          page.spineIndex - 1,
-                          emptyDirection: -1,
-                        ),
+                        _jumpToChapter(page.spineIndex - 1, emptyDirection: -1),
                       );
                     },
               onNextChapter:
@@ -2863,7 +2886,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   ? null
                   : () {
                       _closeDrawer();
-                      unawaited(_session.jumpToChapter(page.spineIndex + 1));
+                      unawaited(_jumpToChapter(page.spineIndex + 1));
                     },
               onSeek: (value) {
                 _closeDrawer();
@@ -3084,7 +3107,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       'mode': _pageTurnMode.id,
     });
     if (_effectiveTurnMode == PageTurnMode.scroll) {
-      unawaited(_scrollKey.currentState?.scrollPage(next) ?? Future.value());
+      unawaited(
+        _navigate(
+          () => _scrollKey.currentState?.scrollPage(next) ?? Future.value(),
+        ),
+      );
       return;
     }
     _pageTurnKey.currentState?.controller.request(next);
@@ -3219,6 +3246,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               : _paintTurnBackground,
           preparePageImages: _prepareTurnPageImages,
           onBookEnd: widget.onBookEnd == null ? null : _openBookEnd,
+          onError: _reportChapterLoadError,
           preload: !_editingMargins && !_finishingMarginEdit,
           rtl: _readingRtl,
         ),

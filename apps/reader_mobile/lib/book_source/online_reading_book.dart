@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_session.dart';
 import '../library/library_store.dart';
 import 'book_source_models.dart';
 import 'book_source_service.dart';
+import 'online_chapter_request.dart';
 import 'online_epub_builder.dart';
 
 /// 一次在线阅读使用同一目录快照；身份与下载后的 EPUB 分开。
@@ -47,6 +48,7 @@ class OnlineReadingBook {
         source,
         chapter,
         book.bookUrl,
+        nextChapter: _nextChapter(index),
       );
       return const OnlineEpubBuilder().buildChapterDocument(
         OnlineEpubChapter(title: chapter.title, html: html),
@@ -56,14 +58,20 @@ class OnlineReadingBook {
         service.loadCover(source, url, referer: book.bookUrl),
   );
 
-  String chapterRevision(int index) =>
-      service.chapterContentRevision(source, chapters[index]);
+  String chapterRevision(int index) => service.chapterContentRevision(
+    source,
+    chapters[index],
+    nextChapter: _nextChapter(index),
+  );
+
+  OnlineChapter? _nextChapter(int index) =>
+      index + 1 < chapters.length ? chapters[index + 1] : null;
 
   static String _digest(Object value) =>
       sha256.convert(utf8.encode(jsonEncode(value))).toString();
 }
 
-/// 目录有新增、重排或规则变化时，按地址恢复到原章，丢弃旧版章内坐标。
+/// 目录有新增、重排或规则变化时，按章节请求身份恢复，丢弃旧版章内坐标。
 class OnlineReadingProgress implements ReaderProgressStore {
   OnlineReadingProgress(this.library, this.book, {this.startChapter});
 
@@ -78,6 +86,9 @@ class OnlineReadingProgress implements ReaderProgressStore {
     if (bookId != book.id) return null;
     final saved = await _load();
     final start = startChapter;
+    if (start != null && (start < 0 || start >= book.chapters.length)) {
+      return saved;
+    }
     if (start == null || saved?.spineIndex == start) return saved;
     return ReaderProgress(
       spineIndex: start,
@@ -93,9 +104,12 @@ class OnlineReadingProgress implements ReaderProgressStore {
     try {
       final json = jsonDecode(value);
       if (json is! Map<String, dynamic>) return null;
-      final index = book.chapters.indexWhere(
-        (chapter) => chapter.url == json['url'],
-      );
+      final identity = json['chapterIdentity'];
+      final index = identity is String
+          ? book.chapters.indexWhere(
+              (chapter) => onlineChapterIdentity(chapter) == identity,
+            )
+          : _legacyChapterIndex(json);
       if (index < 0) return null;
       final sameRevision = json['revision'] == book.revision;
       final sameChapter =
@@ -121,6 +135,15 @@ class OnlineReadingProgress implements ReaderProgressStore {
     }
   }
 
+  int _legacyChapterIndex(Map<String, dynamic> json) {
+    final matches = [
+      for (final (index, chapter) in book.chapters.indexed)
+        if (chapter.url == json['url']) index,
+    ];
+    // 旧记录没有请求参数证据；同地址多章时不猜测要恢复的章节。
+    return matches.length == 1 ? matches.single : -1;
+  }
+
   @override
   Future<void> save(String bookId, ReaderProgress progress) async {
     final spine = progress.spineIndex;
@@ -134,6 +157,7 @@ class OnlineReadingProgress implements ReaderProgressStore {
       _key,
       jsonEncode({
         'url': book.chapters[spine].url,
+        'chapterIdentity': onlineChapterIdentity(book.chapters[spine]),
         'revision': book.revision,
         'chapterRevision': book.chapterRevision(spine),
         'spine': spine,

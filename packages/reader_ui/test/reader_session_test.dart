@@ -77,6 +77,26 @@ class _SparseTurnSource extends FakeSource {
   }
 }
 
+class _FailingNavigationSource extends FakeSource {
+  _FailingNavigationSource({this.gate})
+    : super(chapterCount: 30, pagesPerChapter: 1);
+
+  final Completer<void>? gate;
+  final started = Completer<void>();
+  final failure = StateError('目标章暂时加载失败');
+  bool fail = true;
+
+  @override
+  Future<List<PageContent>> loadChapter(int spineIndex) async {
+    if (spineIndex == 5) {
+      if (!started.isCompleted) started.complete();
+      await gate?.future;
+      if (fail) throw failure;
+    }
+    return super.loadChapter(spineIndex);
+  }
+}
+
 class _MultiLineSource implements ReaderChapterSource {
   _MultiLineSource() {
     final style = ComputedStyle(const <String, String>{
@@ -206,6 +226,59 @@ void main() {
     expect(session.jumpLoadingTitle, isNull);
     session.dispose();
   });
+
+  for (final cfi in [false, true]) {
+    Future<bool> jump(ReaderSession session) => cfi
+        ? session.jumpToCfi('epubcfi(/6/12!/4/2/1:0)')
+        : session.jumpToChapter(5);
+
+    test('${cfi ? 'CFI' : '章节'}当前加载失败保留位置，错误交给调用方且可重试', () async {
+      final source = _FailingNavigationSource();
+      final session = ReaderSession(
+        source: source,
+        store: MemoryReaderProgressStore(),
+        bookId: 'navigation-retry',
+      );
+      addTearDown(session.dispose);
+      await session.open();
+      final origin = session.page;
+      final progress = session.progress;
+
+      await expectLater(jump(session), throwsA(same(source.failure)));
+      expect(session.page, same(origin));
+      expect(session.progress, progress);
+      expect(session.error, isNull);
+      expect(session.jumpLoadingTitle, isNull);
+
+      source.fail = false;
+      expect(await jump(session), isTrue);
+      expect(session.page?.spineIndex, 5);
+    });
+
+    test('${cfi ? 'CFI' : '章节'}旧请求晚到的真实异常不覆盖当前成功导航', () async {
+      final gate = Completer<void>();
+      final source = _FailingNavigationSource(gate: gate);
+      final session = ReaderSession(
+        source: source,
+        store: MemoryReaderProgressStore(),
+        bookId: 'navigation-stale-error',
+      );
+      addTearDown(session.dispose);
+      await session.open();
+      final old = jump(session);
+      await source.started.future;
+      expect(await session.jumpToChapter(20), isTrue);
+      final current = session.page;
+      final progress = session.progress;
+
+      gate.complete();
+      expect(await old, isFalse);
+      expect(session.page, same(current));
+      expect(session.progress, progress);
+      expect(session.error, isNull);
+      expect(session.jumpLoadingTitle, isNull);
+    });
+  }
 
   test('跳转期间暴露目标章名，完成后清空（P4-12 浮层）', () async {
     final session = ReaderSession(

@@ -7,6 +7,7 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../book_source/online_reading_book.dart';
+import '../book_source/online_reading_catalog_store.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../editing/book_edit_repository.dart';
@@ -63,6 +64,9 @@ class BookOpener {
       final fontStore = ReaderFontStore(library);
       Future<EpubChapterSource>? source;
       final settings = _loadSettings()..ignore();
+      await OnlineReadingCatalogStore(library)
+          .remember(book.source, book.book, book.chapters);
+      if (!context.mounted) return;
       final route = MaterialPageRoute<void>(
         builder: (_) {
           created = true;

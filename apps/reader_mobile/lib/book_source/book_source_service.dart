@@ -14,6 +14,7 @@ import 'book_source_rule_engine.dart';
 import 'book_source_script.dart';
 import 'online_epub_builder.dart';
 import 'online_chapter_content_store.dart';
+import 'online_chapter_request.dart';
 
 const List<String> _onlineWordCountFields = <String>[
   'wordCount',
@@ -96,6 +97,13 @@ typedef BookSourceScriptFactory = BookSourceScriptSession Function(
   BookSource source,
 );
 
+class _ChapterContentRequest {
+  _ChapterContentRequest({required this.forceRefresh});
+
+  final bool forceRefresh;
+  late final Future<String> task;
+}
+
 /// 执行书源搜索、详情、目录、正文与 EPUB 下载。
 class BookSourceService {
   factory BookSourceService({
@@ -141,10 +149,12 @@ class BookSourceService {
   final OnlineEpubBuilder epubBuilder;
   final BookSourceScriptFactory scriptFactory;
   final OnlineChapterContentStore chapterContentStore;
-  final Map<String, Future<String>> _chapterRequests =
-      <String, Future<String>>{};
+  final Map<String, _ChapterContentRequest> _chapterRequests = {};
+  final Map<String, Future<void>> _chapterWrites = {};
   final Map<String, Future<Uint8List?>> _coverCache =
       <String, Future<Uint8List?>>{};
+
+  static const int maxChapterContentPages = 100;
 
   void dispose() => http.close();
 
@@ -577,27 +587,48 @@ class BookSourceService {
     await cookieStore.load();
     final script = scriptFactory(source);
     try {
-      var currentUrl = book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl;
-      var currentOptions = book.tocOptions;
-      final pendingPages = <({String url, Map<String, Object?> options})>[];
+      final pendingPages = <({String url, Map<String, Object?> options})>[
+        (
+          url: book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl,
+          options: book.tocOptions,
+        ),
+      ];
       final chapters = <OnlineChapter>[];
-      final seenUrls = <String>{};
+      final seenChapters = <String>{};
       final seenPages = <String>{};
-      while (currentUrl.isNotBlank) {
-        if (!seenPages.add(currentUrl) || seenPages.length > 30) break;
+      var pageCount = 0;
+      while (pendingPages.isNotEmpty) {
+        final current = pendingPages.removeAt(0);
+        if (!current.url.isNotBlank) continue;
+        final identity = onlineRequestIdentity(current.url, current.options);
+        if (!seenPages.add(identity)) continue;
+        if (pageCount >= 30) {
+          throw const BookSourceException(
+            '目录分页过多，已停止获取，请检查书源目录规则',
+            code: 'ONLINE_TOC_PAGE_LIMIT',
+          );
+        }
+        pageCount += 1;
         final response = await http.fetchText(
           source,
-          currentUrl,
-          options: currentOptions,
+          current.url,
+          options: current.options,
           referer: book.bookUrl,
         );
+        final responseIdentity = onlineRequestIdentity(
+          response.uri.toString(),
+          current.options,
+        );
+        if (responseIdentity != identity && !seenPages.add(responseIdentity)) {
+          continue;
+        }
         final root = _parseBody(response.body);
         final context = BookSourceRuleContext(
           baseUrl: source.baseUrl,
           pageUrl: response.uri.toString(),
           variables: <String, String>{
             'bookUrl': book.bookUrl,
-            'tocUrl': currentUrl,
+            'tocUrl': current.url,
           },
         );
         final nodes = rules.evaluateList(
@@ -635,7 +666,11 @@ class BookSourceService {
             chapterRequest.url,
           );
           name = cleanOnlineChapterTitle(name);
-          if (name.isEmpty || absolute.isEmpty || !seenUrls.add(absolute)) {
+          if (name.isEmpty ||
+              absolute.isEmpty ||
+              !seenChapters.add(
+                onlineRequestIdentity(absolute, chapterRequest.options),
+              )) {
             continue;
           }
           chapters.add(
@@ -660,10 +695,6 @@ class BookSourceService {
             pendingPages.add((url: resolved, options: next.options));
           }
         }
-        if (pendingPages.isEmpty) break;
-        final page = pendingPages.removeAt(0);
-        currentUrl = page.url;
-        currentOptions = page.options;
       }
       if (chapters.isEmpty) {
         throw const BookSourceException(
@@ -685,6 +716,7 @@ class BookSourceService {
     bool Function()? isCancelled,
     OnlineBook? preparedBook,
     List<OnlineChapter>? selectedChapters,
+    List<OnlineChapter>? chapterDirectory,
   }) async {
     await cookieStore.load();
     onProgress?.call(0, 0, '正在读取详情');
@@ -693,6 +725,21 @@ class BookSourceService {
     onProgress?.call(0, 0, '正在读取目录');
     final toc = selectedChapters ?? await fetchToc(source, info);
     _checkCancelled(isCancelled);
+    final directory = chapterDirectory ?? toc;
+    final nextChapters = <String, OnlineChapter>{};
+    if (chapterDirectory != null || selectedChapters == null) {
+      for (var index = 0; index + 1 < directory.length; index++) {
+        nextChapters[onlineChapterIdentity(directory[index])] =
+            directory[index + 1];
+      }
+    } else {
+      // 子集不代表完整目录，仅采用序号确实相邻的已知章节。
+      final byIndex = {for (final chapter in directory) chapter.index: chapter};
+      for (final chapter in toc) {
+        final next = byIndex[chapter.index + 1];
+        if (next != null) nextChapters[onlineChapterIdentity(chapter)] = next;
+      }
+    }
 
     final images = <String, OnlineEpubImage>{};
     var imageBytes = 0;
@@ -715,6 +762,7 @@ class BookSourceService {
             chapter,
             info.bookUrl,
             forceRefresh: source.loadMode == BookSourceLoadMode.book,
+            nextChapter: nextChapters[onlineChapterIdentity(chapter)],
           );
           failure = null;
           break;
@@ -805,26 +853,43 @@ class BookSourceService {
     OnlineChapter chapter,
     String bookUrl, {
     bool forceRefresh = false,
+    OnlineChapter? nextChapter,
+    String? nextChapterUrl,
   }) async {
-    final fingerprint = chapterContentRevision(source, chapter);
+    final boundary = _nextChapterRequest(
+      source,
+      chapter,
+      nextChapter: nextChapter,
+      nextChapterUrl: nextChapterUrl,
+    );
+    final fingerprint = chapterContentRevision(
+      source,
+      chapter,
+      nextChapter: nextChapter,
+      nextChapterUrl: nextChapterUrl,
+    );
     final key = jsonEncode([source.id, bookUrl, chapter.url, fingerprint]);
-    if (!forceRefresh) {
-      final pending = _chapterRequests[key];
-      if (pending != null) return pending;
+    final pending = _chapterRequests[key];
+    if (pending != null && (!forceRefresh || pending.forceRefresh)) {
+      return pending.task;
     }
-    final task = _readOrFetchChapter(
+    // 新强刷替换旧普通任务的缓存写入资格，后来的普通加载共用强刷。
+    final request = _ChapterContentRequest(forceRefresh: forceRefresh);
+    _chapterRequests[key] = request;
+    request.task = _readOrFetchChapter(
       source,
       chapter,
       bookUrl,
       fingerprint,
-      forceRefresh,
+      boundary,
+      key,
+      request,
     );
-    if (!forceRefresh) _chapterRequests[key] = task;
     try {
-      return await task;
+      return await request.task;
     } finally {
-      if (identical(_chapterRequests[key], task)) {
-        _chapterRequests.remove(key)?.ignore();
+      if (identical(_chapterRequests[key], request)) {
+        _chapterRequests.remove(key);
       }
     }
   }
@@ -834,9 +899,11 @@ class BookSourceService {
     OnlineChapter chapter,
     String bookUrl,
     String fingerprint,
-    bool forceRefresh,
+    ({String url, Map<String, Object?> options})? boundary,
+    String key,
+    _ChapterContentRequest request,
   ) async {
-    if (!forceRefresh) {
+    if (!request.forceRefresh) {
       try {
         final cached = await chapterContentStore.read(
           sourceId: source.id,
@@ -849,37 +916,89 @@ class BookSourceService {
         // 缓存不可用时仍允许在线阅读。
       }
     }
-    final content = await _fetchChapterContent(source, chapter, bookUrl);
-    try {
-      await chapterContentStore.write(
-        sourceId: source.id,
-        bookUrl: bookUrl,
-        chapterUrl: chapter.url,
-        rulesFingerprint: fingerprint,
-        content: content,
-      );
-    } on Object {
-      // 正文已获取，缓存写入失败不影响本次阅读。
-    }
+    final content = await _fetchChapterContent(
+      source,
+      chapter,
+      bookUrl,
+      boundary,
+    );
+    await _writeChapterContent(
+      source,
+      chapter,
+      bookUrl,
+      fingerprint,
+      content,
+      key,
+      request,
+    );
     return content;
+  }
+
+  Future<void> _writeChapterContent(
+    BookSource source,
+    OnlineChapter chapter,
+    String bookUrl,
+    String fingerprint,
+    String content,
+    String key,
+    _ChapterContentRequest request,
+  ) async {
+    final previous = _chapterWrites[key] ?? Future<void>.value();
+    final write = previous.then((_) async {
+      if (!identical(_chapterRequests[key], request)) return;
+      try {
+        await chapterContentStore.write(
+          sourceId: source.id,
+          bookUrl: bookUrl,
+          chapterUrl: chapter.url,
+          rulesFingerprint: fingerprint,
+          content: content,
+        );
+      } on Object {
+        // 正文已获取，缓存写入失败不影响本次阅读。
+      }
+    });
+    _chapterWrites[key] = write;
+    try {
+      await write;
+    } finally {
+      if (identical(_chapterWrites[key], write)) {
+        _chapterWrites.remove(key)?.ignore();
+      }
+    }
   }
 
   Future<String> _fetchChapterContent(
     BookSource source,
     OnlineChapter chapter,
     String bookUrl,
+    ({String url, Map<String, Object?> options})? boundary,
   ) async {
     await cookieStore.load();
     final script = scriptFactory(source);
     try {
-      var currentUrl = chapter.url;
-      var currentOptions = chapter.requestOptions;
-      final pendingPages = <({String url, Map<String, Object?> options})>[];
+      final pendingPages = <({String url, Map<String, Object?> options})>[
+        (url: chapter.url, options: chapter.requestOptions),
+      ];
       final seen = <String>{};
       final htmlParts = <String>[];
-      while (currentUrl.isNotBlank) {
-        if (!seen.add(currentUrl) || seen.length > 8) break;
-        final data = _decodeDataUrl(currentUrl);
+      final boundaryId = boundary == null
+          ? null
+          : onlineRequestIdentity(boundary.url, boundary.options);
+      var pageCount = 0;
+      while (pendingPages.isNotEmpty) {
+        final current = pendingPages.removeAt(0);
+        if (!current.url.isNotBlank) continue;
+        final identity = onlineRequestIdentity(current.url, current.options);
+        if (identity == boundaryId || !seen.add(identity)) continue;
+        if (pageCount >= maxChapterContentPages) {
+          throw const BookSourceException(
+            '章节正文分页过多，已停止获取，请检查书源分页规则',
+            code: 'ONLINE_CONTENT_PAGE_LIMIT',
+          );
+        }
+        pageCount += 1;
+        final data = _decodeDataUrl(current.url);
         final Object? root;
         final String pageUrl;
         if (data != null) {
@@ -888,12 +1007,21 @@ class BookSourceService {
         } else {
           final response = await http.fetchText(
             source,
-            currentUrl,
-            options: currentOptions,
+            current.url,
+            options: current.options,
             referer: bookUrl,
           );
           root = _parseBody(response.body);
           pageUrl = response.uri.toString();
+          final responseIdentity = onlineRequestIdentity(
+            pageUrl,
+            current.options,
+          );
+          // 重定向目标可能已读取，或已经进入目录中的下一章。
+          if (responseIdentity == boundaryId ||
+              (responseIdentity != identity && !seen.add(responseIdentity))) {
+            continue;
+          }
         }
         final context = BookSourceRuleContext(
           baseUrl: source.baseUrl,
@@ -901,6 +1029,7 @@ class BookSourceService {
           variables: <String, String>{
             'bookUrl': bookUrl,
             'chapterUrl': chapter.url,
+            'nextChapterUrl': boundary?.url ?? '',
             'title': chapter.title,
           },
         );
@@ -928,10 +1057,6 @@ class BookSourceService {
             pendingPages.add((url: resolved, options: next.options));
           }
         }
-        if (pendingPages.isEmpty) break;
-        final page = pendingPages.removeAt(0);
-        currentUrl = page.url;
-        currentOptions = page.options;
       }
       final content = cleanOnlineChapterContent(htmlParts.join('\n'));
       final reason = chapterContentFailureReason(content);
@@ -1002,12 +1127,33 @@ class BookSourceService {
     );
   }
 
+  ({String url, Map<String, Object?> options})? _nextChapterRequest(
+    BookSource source,
+    OnlineChapter chapter, {
+    OnlineChapter? nextChapter,
+    String? nextChapterUrl,
+  }) {
+    final request = nextChapter == null
+        ? splitBookSourceUrlOptions(nextChapterUrl ?? '')
+        : (url: nextChapter.url, options: nextChapter.requestOptions);
+    if (!request.url.isNotBlank) return null;
+    final chapterUrl = rules.resolveUrl(source.baseUrl, chapter.url);
+    final base = chapterUrl.startsWith('data:') ? source.baseUrl : chapterUrl;
+    final resolved = rules.resolveUrl(base, request.url);
+    return (
+      url:
+          Uri.tryParse(resolved)?.removeFragment().normalizePath().toString() ??
+          resolved,
+      options: request.options,
+    );
+  }
+
   /// 影响正文的书源设置发生变化时，不复用旧章内容与章内坐标。
   String contentRulesFingerprint(BookSource source) => sha256
       .convert(
         utf8.encode(
           jsonEncode({
-            'version': 2,
+            'version': 3,
             'base': source.baseUrl,
             'headers': source.header,
             'jsLib': source.jsLib,
@@ -1020,19 +1166,33 @@ class BookSourceService {
       )
       .toString();
 
-  String chapterContentRevision(BookSource source, OnlineChapter chapter) =>
-      sha256
-          .convert(
-            utf8.encode(
-              jsonEncode([
-                contentRulesFingerprint(source),
-                chapter.title,
-                chapter.updateTime,
-                chapter.requestOptions,
-              ]),
-            ),
-          )
-          .toString();
+  String chapterContentRevision(
+    BookSource source,
+    OnlineChapter chapter, {
+    OnlineChapter? nextChapter,
+    String? nextChapterUrl,
+  }) {
+    final boundary = _nextChapterRequest(
+      source,
+      chapter,
+      nextChapter: nextChapter,
+      nextChapterUrl: nextChapterUrl,
+    );
+    return sha256
+        .convert(
+          utf8.encode(
+            jsonEncode([
+              contentRulesFingerprint(source),
+              chapter.title,
+              chapter.updateTime,
+              onlineChapterIdentity(chapter),
+              if (boundary != null)
+                onlineRequestIdentity(boundary.url, boundary.options),
+            ]),
+          ),
+        )
+        .toString();
+  }
 
   String? _decodeDataUrl(String raw) {
     final text = raw.trim();

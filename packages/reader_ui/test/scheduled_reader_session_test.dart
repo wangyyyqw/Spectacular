@@ -73,6 +73,10 @@ class _Handle implements ChapterLoadHandle {
     }
   }
 
+  void fail(Object error) {
+    if (!_result.isCompleted) _result.completeError(error);
+  }
+
   @override
   void cancel() {
     cancelled = true;
@@ -508,6 +512,75 @@ void main() {
     expect(session.progress?.spineIndex, 749);
     expect(source.percentRequests, [0.25, 0.75]);
   });
+
+  for (final directory in [false, true]) {
+    Future<bool> jump(ReaderSession session) => directory
+        ? session.jumpToTocEntry(const TocEntry(title: '目标目录', spineIndex: 950))
+        : session.seekToReadingPercent(0.75);
+
+    test('${directory ? '目录' : '百分比'}交给 CFI 后当前分页错误仍上抛且可重试', () async {
+      final source = _AnchorTocSource();
+      final session = await _open(source);
+      addTearDown(session.dispose);
+      final origin = session.page;
+      final progress = session.progress;
+      source.hold = true;
+      final pending = jump(session);
+      final failure = StateError('目标章分页暂时失败');
+      final failed = expectLater(pending, throwsA(same(failure)));
+      await Future<void>.delayed(Duration.zero);
+      expect(source.handles.last.spine, directory ? 950 : 749);
+      source.handles.last.fail(failure);
+      await failed;
+
+      expect(session.page, same(origin));
+      expect(session.progress, progress);
+      expect(session.jumpLoadingTitle, isNull);
+      source.hold = false;
+      expect(await jump(session), isTrue);
+      expect(session.page?.spineIndex, directory ? 950 : 749);
+    });
+
+    for (final disposed in [false, true]) {
+      test(
+        '${directory ? '目录' : '百分比'}准备的真实旧异常在${disposed ? '退出' : '新导航完成'}后丢弃',
+        () async {
+          final source = _AnchorTocSource();
+          final session = await _open(source);
+          if (!disposed) addTearDown(session.dispose);
+          final anchorGate = Completer<void>();
+          final percentGate = Completer<String?>();
+          if (directory) {
+            source.anchorGates[950] = anchorGate;
+          } else {
+            source.percentGate = percentGate;
+          }
+          final old = jump(session);
+          if (disposed) {
+            session.dispose();
+          } else {
+            expect(await session.jumpToChapter(25), isTrue);
+          }
+          final current = session.page;
+          final progress = session.progress;
+          final title = session.jumpLoadingTitle;
+          final failure = StateError('已过期的正文获取失败');
+          if (directory) {
+            anchorGate.completeError(failure);
+          } else {
+            percentGate.completeError(failure);
+          }
+
+          expect(await old, isFalse);
+          expect(session.page, same(current));
+          expect(session.progress, progress);
+          expect(session.error, isNull);
+          expect(session.jumpLoadingTitle, title);
+          expect(source.resolvedEntries, isEmpty);
+        },
+      );
+    }
+  }
 
   test('百分比定位准备期间不启动旧位置的章节预取', () async {
     final source = _ScheduledSource();

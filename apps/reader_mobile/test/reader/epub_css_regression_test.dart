@@ -1,8 +1,6 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/cascade.dart';
 import 'package:reader_core/css/computed_style.dart';
@@ -283,23 +281,34 @@ void main() {
     final exactBytes = const <int>[0, 1, 2, 3];
     final fallbackBytes = File('assets/fonts/SourceHanSerifCN-Regular.otf')
         .readAsBytesSync();
-    String digestOf(List<int> bytes) => sha256
-        .convert(utf8.encode('w400i0:${sha256.convert(bytes)}'))
-        .toString();
-    final source = await openCssChapter(
-      body: '<p>字体精确路径</p>',
-      css:
-          '@font-face {font-family:auditfont;src:url("Fonts/shared.otf");}'
-          'p {font-family:auditfont,serif;}',
-      binaryFiles: {
-        // 精确来源存在但字节无效：注册必须失败，不能悄悄改用另一个目录。
-        'OEBPS/Styles/Fonts/shared.otf': exactBytes,
-        'OEBPS/Other/Fonts/shared.otf': fallbackBytes,
-      },
-    );
-    addTearDown(source.close);
-    final block = (await source.loadChapter(0)).first.slices.first.block;
-    expect(block.style!.fontFamily, contains(digestOf(exactBytes)));
-    expect(block.style!.fontFamily, isNot(contains(digestOf(fallbackBytes))));
+    Future<String> familyWith(Map<String, List<int>> files) async {
+      final source = await openCssChapter(
+        body: '<p>字体精确路径</p>',
+        css:
+            '@font-face {font-family:auditfont;src:url("Fonts/shared.otf");}'
+            'p {font-family:auditfont,serif;}',
+        binaryFiles: files,
+      );
+      addTearDown(source.close);
+      final block = (await source.loadChapter(0)).first.slices.first.block;
+      final family = block.style?.fontFamily;
+      expect(family, isNotNull);
+      return family!;
+    }
+
+    final exactFamily = await familyWith({
+      'OEBPS/Styles/Fonts/shared.otf': exactBytes,
+    });
+    final fallbackFamily = await familyWith({
+      'OEBPS/Other/Fonts/shared.otf': fallbackBytes,
+    });
+    final mixedFamily = await familyWith({
+      // 精确来源的字节无效时，也不能悄悄改用其他目录的同名字体。
+      'OEBPS/Styles/Fonts/shared.otf': exactBytes,
+      'OEBPS/Other/Fonts/shared.otf': fallbackBytes,
+    });
+    expect(exactFamily, isNot(fallbackFamily));
+    expect(mixedFamily, exactFamily);
+    expect(mixedFamily, isNot(fallbackFamily));
   });
 }

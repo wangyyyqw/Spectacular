@@ -9,6 +9,8 @@ import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
 import 'online_book_detail_page.dart';
+import 'online_reading_book.dart';
+import 'online_reading_catalog_store.dart';
 
 /// 在线书源搜索页。
 class OnlineSearchPage extends StatefulWidget {
@@ -27,11 +29,100 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
   bool _searching = false;
   String? _error;
   int _searchVersion = 0;
+  int _recentVersion = 0;
+  bool _openingRecent = false;
+  List<OnlineReadingCatalog> _recent = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_sourcesChanged);
+    unawaited(_loadRecent());
+  }
+
+  @override
+  void didUpdateWidget(OnlineSearchPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    oldWidget.controller.removeListener(_sourcesChanged);
+    widget.controller.addListener(_sourcesChanged);
+    unawaited(_loadRecent());
+  }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_sourcesChanged);
     _query.dispose();
     super.dispose();
+  }
+
+  void _sourcesChanged() {
+    if (widget.controller.initialized) {
+      unawaited(_loadRecent(initialize: false));
+    }
+  }
+
+  Future<void> _loadRecent({bool initialize = true}) async {
+    final version = ++_recentVersion;
+    if (initialize) await widget.controller.initialize();
+    final recent = await widget.controller.catalogs.recent(
+      widget.controller.sources,
+    );
+    if (!mounted || version != _recentVersion) return;
+    setState(() => _recent = recent);
+  }
+
+  BookSource? _sourceFor(String id) {
+    for (final source in widget.controller.sources) {
+      if (source.id == id &&
+          source.enabled &&
+          source.loadMode == BookSourceLoadMode.chapter) {
+        return source;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _resume(OnlineReadingCatalog catalog, BookSource source) async {
+    if (_openingRecent) return;
+    final currentSource = _sourceFor(source.id);
+    if (currentSource == null) return;
+    final onRead = widget.onRead;
+    if (onRead == null) return _openBook(currentSource, catalog.book);
+    setState(() => _openingRecent = true);
+    FocusScope.of(context).unfocus();
+    try {
+      final current = await widget.controller.catalogs.read(
+        currentSource,
+        catalog.book,
+      );
+      if (!mounted) return;
+      if (current == null || !identical(_sourceFor(source.id), currentSource)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('目录或来源已更新，请重新打开详情获取目录')));
+        return;
+      }
+      await onRead(
+        context,
+        OnlineReadingBook(
+          source: currentSource,
+          book: current.book,
+          chapters: current.chapters,
+          service: widget.controller.service,
+        ),
+      );
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('无法继续阅读：$error')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _openingRecent = false);
+        await _loadRecent(initialize: false);
+      }
+    }
   }
 
   Future<void> _search() async {
@@ -95,6 +186,7 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
     }
+    if (mounted) await _loadRecent(initialize: false);
   }
 
   @override
@@ -149,7 +241,7 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
       );
     }
     if (results == null) {
-      return const _SearchHint();
+      return _recent.isEmpty ? const _SearchHint() : _buildRecent();
     }
     if (results.isEmpty) {
       return const Center(child: Text('没有已启用的书源'));
@@ -204,6 +296,48 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
               ),
         ],
       ),
+    );
+  }
+
+  Widget _buildRecent() {
+    return ListView(
+      key: const ValueKey('online-recent-readings'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+      children: [
+        Text('最近逐章阅读', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 6),
+        Text(
+          '从已保存的章节位置继续阅读，未缓存的正文仍需联网。',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
+        for (final catalog in _recent)
+          if (_sourceFor(catalog.book.sourceId) case final source?)
+            Card(
+              child: ListTile(
+                key: ValueKey('online-recent-${catalog.book.bookUrl}'),
+                title: Text(catalog.book.name),
+                subtitle: Text(
+                  '${source.name} · ${catalog.chapters.length} 章'
+                  '${catalog.book.author.isEmpty ? '' : ' · ${catalog.book.author}'}',
+                ),
+                leading: const Icon(Icons.menu_book_outlined),
+                onTap: _openingRecent ? null : () => _resume(catalog, source),
+                trailing: IconButton(
+                  tooltip: '查看详情与目录',
+                  onPressed: _openingRecent
+                      ? null
+                      : () async {
+                          final current = _sourceFor(source.id);
+                          if (current != null) {
+                            await _openBook(current, catalog.book);
+                          }
+                        },
+                  icon: const Icon(Icons.list),
+                ),
+              ),
+            ),
+      ],
     );
   }
 
@@ -320,7 +454,7 @@ class _SearchHint extends StatelessWidget {
             Text('在全部已启用书源中搜索', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 6),
             const Text(
-              '结果按来源分组。打开条目后可以查看目录并下载为 EPUB。',
+              '结果按来源分组。打开条目后可以按章阅读，或下载为 EPUB。',
               textAlign: TextAlign.center,
             ),
           ],

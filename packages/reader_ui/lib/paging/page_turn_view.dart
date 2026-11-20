@@ -34,6 +34,7 @@ class PageTurnView extends StatefulWidget {
     this.preparePageImages,
     this.paintBackground,
     this.onBookEnd,
+    this.onError,
     this.preload = true,
     this.rtl = false,
   });
@@ -46,6 +47,9 @@ class PageTurnView extends StatefulWidget {
   final ReaderPageImagesPreparer? preparePageImages;
   final ReaderPaperBackgroundPainter? paintBackground;
   final VoidCallback? onBookEnd;
+
+  /// 当前翻页加载失败时提示；未提供时沿用控制器的取消行为。
+  final void Function(Object error)? onError;
   final bool rtl;
 
   /// 重排编辑期间暂停后台准备，避免预览尚未稳定时抢跑邻章。
@@ -63,6 +67,7 @@ class PageTurnViewState extends State<PageTurnView>
     vsync: this,
     acquireImage: _acquireTurnImage,
     onBookEnd: widget.onBookEnd,
+    onError: (error) => widget.onError?.call(error),
   )..addListener(_controllerChanged);
   final _currentBoundary = GlobalKey();
   final _captureBoundary = GlobalKey();

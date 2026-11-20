@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 import '../reader_session.dart';
 import 'bessel_geometry.dart';
@@ -23,6 +24,7 @@ class PageTurnController extends ChangeNotifier {
     required TickerProvider vsync,
     required this.acquireImage,
     this.onBookEnd,
+    this.onError,
   }) {
     _settling = AnimationController(vsync: vsync)..addListener(_animateFrame);
     _targetFade = AnimationController(
@@ -36,6 +38,9 @@ class PageTurnController extends ChangeNotifier {
   final ReaderSession session;
   final Future<ui.Image?> Function(PageContent page) acquireImage;
   final VoidCallback? onBookEnd;
+
+  /// 当前翻页准备失败时通知宿主；取消和过期任务不触发。
+  final void Function(Object error)? onError;
   late final AnimationController _settling;
   late final AnimationController _targetFade;
   late final Ticker _positionCatchUp;
@@ -259,8 +264,10 @@ class PageTurnController extends ChangeNotifier {
       ], eagerError: true);
       if (!_valid(token) || ready.any((value) => !value)) return;
       _activatePreparedTurn(dragging);
-    } catch (_) {
-      if (_valid(token)) cancel();
+    } catch (error) {
+      if (!_valid(token)) return;
+      cancel();
+      if (error is! ChapterLoadCancelled) onError?.call(error);
     }
   }
 

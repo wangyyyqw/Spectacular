@@ -1024,9 +1024,11 @@ class ReaderSession extends ChangeNotifier {
     _cancelChapterWaiters();
     _jumpLoadingTitle = '全书进度';
     _notify();
+    var positionStarted = false;
     try {
       final cfi = await _preparePercentCfi(source, percent.clamp(0.0, 1.0));
       if (_disposed || token != _jumpToken || cfi == null) return false;
+      positionStarted = true;
       return await jumpToCfi(
         cfi,
         title: '全书进度',
@@ -1034,6 +1036,10 @@ class ReaderSession extends ChangeNotifier {
       );
     } on ChapterLoadCancelled {
       return false;
+    } catch (_) {
+      // 实际定位已接管 token，其当前错误仍须交给调用方处理。
+      if (_disposed || (!positionStarted && token != _jumpToken)) return false;
+      rethrow;
     } finally {
       if (token == _jumpToken) {
         _jumpLoadingTitle = null;
@@ -1070,6 +1076,7 @@ class ReaderSession extends ChangeNotifier {
     _cancelChapterWaiters();
     _jumpLoadingTitle = entry.title;
     _notify();
+    var positionStarted = false;
     try {
       if (source is ScheduledAnchorChapterSource) {
         await _awaitPositionPreparation(
@@ -1079,9 +1086,13 @@ class ReaderSession extends ChangeNotifier {
         await source.loadAnchorChapter(entry.spineIndex);
       }
       if (_disposed || token != _jumpToken) return false;
+      positionStarted = true;
       return await _jumpToPreparedTocEntry(entry, continuous);
     } on ChapterLoadCancelled {
       return false;
+    } catch (_) {
+      if (_disposed || (!positionStarted && token != _jumpToken)) return false;
+      rethrow;
     } finally {
       if (token == _jumpToken) {
         _jumpLoadingTitle = null;
@@ -1193,6 +1204,9 @@ class ReaderSession extends ChangeNotifier {
       return changed || pageIndex != 0;
     } on ChapterLoadCancelled {
       return false;
+    } catch (_) {
+      if (_disposed || token != _jumpToken) return false;
+      rethrow;
     } finally {
       trace?.stop();
       if (token == _jumpToken) {
@@ -1270,6 +1284,9 @@ class ReaderSession extends ChangeNotifier {
       return changed;
     } on ChapterLoadCancelled {
       return false;
+    } catch (_) {
+      if (_disposed || token != _jumpToken) return false;
+      rethrow;
     } finally {
       trace?.stop();
       if (token == _jumpToken) {

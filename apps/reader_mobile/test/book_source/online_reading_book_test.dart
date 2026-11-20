@@ -183,6 +183,7 @@ void main() {
       book.source,
       book.chapters[1],
       book.book.bookUrl,
+      nextChapter: book.chapters[2],
     );
     await reader.preparseNextChapter();
     expect(requested, ['/2']);
@@ -245,6 +246,59 @@ void main() {
     expect(reorderedProgress?.spineIndex, 0);
     expect(reorderedProgress?.cfi, isNull);
     expect(reorderedProgress?.approximate, isTrue);
+  });
+
+  test('同一POST地址的不同章节按请求身份续读，重排不误用旧CFI', () async {
+    final service = BookSourceService();
+    addTearDown(service.dispose);
+    final library = LibraryStore.memory();
+    final base = _book(service, [1, 2]);
+    OnlineReadingBook withChapters(List<int> bodies) => OnlineReadingBook(
+      source: base.source,
+      book: base.book,
+      service: service,
+      chapters: [
+        for (final (index, body) in bodies.indexed)
+          OnlineChapter(
+            index: index,
+            title: '第$body章',
+            url: 'https://example.test/content',
+            requestOptions: {
+              'method': 'POST',
+              'body': {'chapter': body},
+            },
+          ),
+      ],
+    );
+    final book = withChapters([1, 2]);
+    await OnlineReadingProgress(library, book).save(
+      book.id,
+      ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 3,
+        cfi: 'epubcfi(/6/4!/4/2:8)',
+        contentRevision: book.revision,
+      ),
+    );
+    final saved = await OnlineReadingProgress(library, book).load(book.id);
+    expect(saved?.spineIndex, 1);
+    expect(saved?.cfi, 'epubcfi(/6/4!/4/2:8)');
+    final reordered = withChapters([2, 1]);
+    final restored = await OnlineReadingProgress(
+      library,
+      reordered,
+    ).load(reordered.id);
+    expect(restored?.spineIndex, 0);
+    expect(restored?.cfi, isNull);
+    expect(restored?.approximate, isTrue);
+    expect(
+      (await OnlineReadingProgress(
+        library,
+        book,
+        startChapter: 99,
+      ).load(book.id))?.spineIndex,
+      1,
+    );
   });
 }
 
