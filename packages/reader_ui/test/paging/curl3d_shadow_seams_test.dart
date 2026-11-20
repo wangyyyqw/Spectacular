@@ -44,21 +44,24 @@ double? _alphaAt(List<Curl3dShadowSample> triangle, Offset point) {
 /// 检查公共边附近的像素是否只混合一次，兼顾白色漏缝与黑色重叠。
 Future<void> verifyCurlShadowSeams({
   Future<void> Function(String, ui.Image)? capture,
+  Size size = const Size(768, 830),
+  double ratio = 1.75,
 }) async {
   await DuokanCurlShader.load();
-  const size = Size(768, 830);
-  const ratio = 1.75;
   final recorder = ui.PictureRecorder();
   Canvas(recorder).drawColor(const Color(0xFFFFFFFF), BlendMode.src);
   final picture = recorder.endRecording();
-  final paper = picture.toImageSync(768, 830);
+  final paper = picture.toImageSync(size.width.ceil(), size.height.ceil());
   picture.dispose();
   try {
     for (final dx in [0.0, 0.37, 0.74]) {
       final geometry = Curl3dGeometry(
         size: size,
-        grab: const Offset(768, 800),
-        touch: Offset(470 + dx, 570 + dx),
+        grab: Offset(size.width, size.height * 800 / 830),
+        touch: Offset(
+          size.width * 470 / 768 + dx,
+          size.height * 570 / 830 + dx,
+        ),
       );
       for (final self in [false, true]) {
         final samples = self ? geometry.selfShadow : geometry.dropShadow;
@@ -135,4 +138,11 @@ Future<void> verifyCurlShadowSeams({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('高 DPI 卷页的两类阴影公共边连续且不重复混合', verifyCurlShadowSeams);
+  test(
+    '手机实际视口与 DPI 下跨阴影批次的公共边保持连续',
+    () => verifyCurlShadowSeams(
+      size: const Size(384, 853.3333333333334),
+      ratio: 2.8125,
+    ),
+  );
 }

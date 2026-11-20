@@ -8,6 +8,7 @@ class DuokanCurlShader {
   static const profileCapacity = 24;
   static const shadowPlaneOffset = profileOffset + profileCapacity * 4;
   static const shadowEdgesOffset = shadowPlaneOffset + 3;
+  static const shadowTriangleCapacity = 8;
 
   static ui.FragmentProgram? _program;
   static ui.FragmentProgram? _shadowProgram;

@@ -108,13 +108,20 @@ Future<ByteData> _readPixels(ui.PictureRecorder recorder) async {
   return bytes;
 }
 
-Future<ByteData> _renderShadow(ui.Image paper, int alphaIndex) async {
+Future<ByteData> _renderShadow(int alphaIndex) async {
   await DuokanCurlShader.load();
-  final shader = _shader(paper, [0, 0, 1, 0, 0, 1])..setFloat(16, -1);
-  shader.setFloat(
-    DuokanCurlShader.shadowPlaneOffset + 2,
-    alphaIndex / 255 * 0.5,
-  );
+  final shader = DuokanCurlShader.shadowProgram!.fragmentShader();
+  for (
+    var index = 0;
+    index < DuokanCurlShader.shadowTriangleCapacity * 16;
+    index++
+  ) {
+    shader.setFloat(index, 0);
+  }
+  shader.setFloat(2, alphaIndex / 255 * 0.5);
+  shader.setFloat(3, 1);
+  // 模拟上一批残留的透明度：未启用的槽位不能参与当前批次混合。
+  shader.setFloat(18, 0.5);
   final vertices = ui.Vertices(ui.VertexMode.triangles, const [
     Offset.zero,
     Offset(200, 0),
@@ -157,8 +164,6 @@ List<int> _pixel(ByteData bytes, int x, int y) {
 
 void main() {
   testWidgets('阴影片元写回匹配原 GLES 透明度端点和敏感色阶', (tester) async {
-    final paper = (await tester.runAsync(() => _colorPaper(Colors.white)))!;
-    addTearDown(paper.dispose);
     // 原 CurlStatic 阴影 shader 的 RGBA8 读回；包含最近取整会误加一级的位置。
     for (final swatch in {
       0: 0,
@@ -171,7 +176,7 @@ void main() {
       255: 128,
     }.entries) {
       final bytes = (await tester.runAsync(
-        () => _renderShadow(paper, swatch.key),
+        () => _renderShadow(swatch.key),
       ))!;
       expect(_pixel(bytes, 20, 20), [0, 0, 0, swatch.value]);
     }

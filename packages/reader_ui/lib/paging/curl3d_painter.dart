@@ -107,28 +107,22 @@ class Curl3dPainter {
     }
   }
 
-  void _drawShadow(
-    Canvas canvas,
-    List<Curl3dShadowSample> shadow,
-    Size size,
-  ) {
+  void _drawShadow(Canvas canvas, List<Curl3dShadowSample> shadow, Size size) {
     if (shadow.length < 3) return;
-    const capacity = 48;
+    const capacity = DuokanCurlShader.shadowTriangleCapacity;
     final shader = DuokanCurlShader.shadowProgram!.fragmentShader();
     _shadowPaint.shader = shader;
     try {
       for (var start = 2; start < shadow.length; start += capacity) {
-        // 一批最多 48 个三角形；所有片元共享坐标，一次提交整片阴影，
-        // 避免每个三角形触发含纸面采样的复杂着色器管线。
+        // 限制每批的三角形数与覆盖范围，避免移动端每个片元遍历整片阴影。
+        // 仍统一用纸面矩形插值坐标，保持 Windows 公共边互补。
         for (var slot = 0; slot < capacity; slot++) {
           final index = start + slot;
           final triangle = index < shadow.length
               ? shadow.sublist(index - 2, index + 1)
               : null;
           final plane = triangle == null ? null : _shadowAlphaPlane(triangle);
-          for (var component = 0; component < 16; component++) {
-            shader.setFloat(slot * 16 + component, 0);
-          }
+          shader.setFloat(slot * 16 + 3, plane == null ? 0 : 1);
           if (plane == null) continue;
           for (var component = 0; component < plane.length; component++) {
             shader.setFloat(slot * 16 + component, plane[component]);
@@ -136,7 +130,11 @@ class Curl3dPainter {
           _setShadowEdges(shader, triangle!, slot * 16 + 4);
         }
         canvas.save();
-        canvas.clipRect(_shadowBounds(shadow).inflate(1), doAntiAlias: false);
+        final batch = shadow.sublist(
+          start - 2,
+          math.min(start + capacity, shadow.length),
+        );
+        canvas.clipRect(_shadowBounds(batch).inflate(1), doAntiAlias: false);
         canvas.drawRect(Offset.zero & size, _shadowPaint);
         canvas.restore();
       }
