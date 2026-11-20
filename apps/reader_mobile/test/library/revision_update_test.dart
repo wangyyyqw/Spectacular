@@ -1089,7 +1089,7 @@ void main() {
       quote: revisionQuote,
       style: ReaderDecorationPreset.tag.style,
     ))!;
-    final rules = library.decorationRuleStore(old.id)!;
+    final rules = library.decorationRuleStore(old.id, images: images)!;
     final group = (await rules.listGroups()).singleWhere(
       (group) => group.bookId != null,
     );

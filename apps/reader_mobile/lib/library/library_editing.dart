@@ -6,9 +6,22 @@ extension LibraryEditingOperations on LibraryStore {
     String bookId,
     String expectedRevision,
     File file,
-    EpubEditSummary changeSummary,
-  ) => _editQueue(
-    () => _commitEditedFile(bookId, expectedRevision, file, changeSummary),
+    EpubEditSummary changeSummary, {
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
+    bool requireNoDraft = false,
+    bool Function()? isCancelled,
+  }) => _editQueue(
+    () => _commitEditedFile(
+      bookId,
+      expectedRevision,
+      file,
+      changeSummary,
+      preserveTextPositions: preserveTextPositions,
+      elementCfiMap: elementCfiMap,
+      requireNoDraft: requireNoDraft,
+      isCancelled: isCancelled,
+    ),
   );
 
   Future<BookEntry> restoreEditVersion(
@@ -35,9 +48,15 @@ extension LibraryEditingOperations on LibraryStore {
     String bookId,
     String expectedRevision,
     File input,
-    EpubEditSummary summary,
-  ) async {
+    EpubEditSummary summary, {
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
+    bool requireNoDraft = false,
+    bool Function()? isCancelled,
+  }) async {
+    _checkImportCancelled(isCancelled);
     final old = await _editableBook(bookId, expectedRevision);
+    if (requireNoDraft) await _requireNoEditDraft(old.id);
     final root = await _bookDirectory(old.uuid);
     final versions = await Directory(p.join(root.path, 'versions'))
         .create(recursive: true);
@@ -48,7 +67,15 @@ extension LibraryEditingOperations on LibraryStore {
         input,
         File(p.join(stage.path, 'source.epub')),
       );
-      committed = await _saveEditedStage(old, file, summary);
+      committed = await _saveEditedStage(
+        old,
+        file,
+        summary,
+        preserveTextPositions: preserveTextPositions,
+        elementCfiMap: elementCfiMap,
+        requireNoDraft: requireNoDraft,
+        isCancelled: isCancelled,
+      );
       if (committed) _notify();
       return _withImportOutcome(
         _entryFromRow((await _bookRowOfUuid(old.uuid))!),
@@ -64,9 +91,14 @@ extension LibraryEditingOperations on LibraryStore {
   Future<bool> _saveEditedStage(
     BookRow old,
     File file,
-    EpubEditSummary summary,
-  ) async {
+    EpubEditSummary summary, {
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
+    bool requireNoDraft = false,
+    bool Function()? isCancelled,
+  }) async {
     final analyzed = await _analyzeEdit(old, file, summary);
+    _checkImportCancelled(isCancelled);
     if (analyzed.analysis.revision == old.contentRevision) return false;
     final parsed = await openAnalyzedFile(file.path, analyzed.analysis);
     try {
@@ -81,12 +113,31 @@ extension LibraryEditingOperations on LibraryStore {
         file,
         revision: analyzed.analysis.revision,
         cssOnly: analyzed.cssOnly,
+        preserveTextPositions: preserveTextPositions,
+        elementCfiMap: elementCfiMap,
       );
       final commit = await _editCommit(parsed, file, analyzed.analysis);
-      await _commitEditedRevision(migration, commit, analyzed.cssOnly, summary);
+      await _commitEditedRevision(
+        migration,
+        commit,
+        analyzed.cssOnly,
+        summary,
+        preserveBookMetadata: preserveTextPositions,
+        requireNoDraft: requireNoDraft,
+        isCancelled: isCancelled,
+      );
       return true;
     } finally {
       parsed.document?.archive.close();
+    }
+  }
+
+  Future<void> _requireNoEditDraft(int bookId) async {
+    final draft = await (_db!.select(
+      _db.editDrafts,
+    )..where((row) => row.bookId.equals(bookId))).getSingleOrNull();
+    if (draft != null) {
+      throw const LibraryImportException('本书有未完成的编辑草稿，请先在编辑器保存或放弃草稿');
     }
   }
 
@@ -153,6 +204,8 @@ extension LibraryEditingOperations on LibraryStore {
     File file, {
     required String revision,
     required bool cssOnly,
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
   }) async {
     final data = await _editUserData(old.id);
     if (cssOnly ||
@@ -179,9 +232,27 @@ extension LibraryEditingOperations on LibraryStore {
     return _RevisionMigration(
       _RevisionBooks(old, oldBook, next),
       data,
-      _migrateRevisionAnnotations(data.annotations, oldBook, next),
-      _migrateRevisionProgress(data.progress, oldBook, next),
-      _migrateRevisionDecorations(data.decorations, oldBook, next),
+      _migrateRevisionAnnotations(
+        data.annotations,
+        oldBook,
+        next,
+        preserveTextPositions: preserveTextPositions,
+        elementCfiMap: elementCfiMap,
+      ),
+      _migrateRevisionProgress(
+        data.progress,
+        oldBook,
+        next,
+        preserveTextPositions: preserveTextPositions,
+        elementCfiMap: elementCfiMap,
+      ),
+      _migrateRevisionDecorations(
+        data.decorations,
+        oldBook,
+        next,
+        preserveTextPositions: preserveTextPositions,
+        elementCfiMap: elementCfiMap,
+      ),
     );
   }
 
@@ -203,8 +274,13 @@ extension LibraryEditingOperations on LibraryStore {
     _RevisionMigration migration,
     _RevisionCommit commit,
     bool cssOnly,
-    EpubEditSummary summary,
-  ) => _db!.transaction(() async {
+    EpubEditSummary summary, {
+    bool preserveBookMetadata = false,
+    bool requireNoDraft = false,
+    bool Function()? isCancelled,
+  }) => _db!.transaction(() async {
+    _checkImportCancelled(isCancelled);
+    if (requireNoDraft) await _requireNoEditDraft(migration.old.id);
     await _verifyRevisionSnapshot(migration);
     await _retainEditHistory(migration.old, summary);
     final document = commit.parsed.document!;
@@ -218,10 +294,18 @@ extension LibraryEditingOperations on LibraryStore {
       _db.books,
     )..where((t) => t.id.equals(migration.old.id))).write(
       BooksCompanion(
-        title: Value(document.meta.title),
-        author: Value(document.meta.author),
-        language: Value(document.meta.language),
-        coverPath: Value(commit.restoredCover),
+        title: preserveBookMetadata
+            ? const Value.absent()
+            : Value(document.meta.title),
+        author: preserveBookMetadata
+            ? const Value.absent()
+            : Value(document.meta.author),
+        language: preserveBookMetadata
+            ? const Value.absent()
+            : Value(document.meta.language),
+        coverPath: preserveBookMetadata
+            ? const Value.absent()
+            : Value(commit.restoredCover),
       ),
     );
     await _writeRevisionStructure(migration.old.id, commit);
@@ -233,6 +317,7 @@ extension LibraryEditingOperations on LibraryStore {
     await (_db.delete(
       _db.editDrafts,
     )..where((t) => t.bookId.equals(migration.old.id))).go();
+    _checkImportCancelled(isCancelled);
   });
 
   Future<void> _retainEditHistory(BookRow old, EpubEditSummary summary) async {

@@ -17,6 +17,7 @@ dependencies:
   path: ^1.9.1
   html: ^0.15.7
   csslib: ^1.0.2
+  enough_convert: 1.7.1
 
 dev_dependencies:
   flutter_test:

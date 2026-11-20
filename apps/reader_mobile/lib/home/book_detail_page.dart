@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +8,8 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../txt/txt_book_service.dart';
+import '../txt/txt_chapter_rule_page.dart';
 import 'book_cover_image.dart';
 import 'finish_book_sheet.dart';
 import 'reading_insights.dart';
@@ -96,6 +99,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   bool _loading = true;
   bool _saving = false;
   bool _changingCover = false;
+  bool _canRechapter = false;
   String? _loadError;
 
   BookReviewStore? get _reviewStore =>
@@ -176,6 +180,14 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _loading = false;
       _loadError = null;
     });
+    unawaited(_loadChapterRuleAvailability(entry));
+  }
+
+  Future<void> _loadChapterRuleAvailability(BookEntry entry) async {
+    final canRechapter = await TxtBookService(widget.library)
+        .canRechapter(entry)
+        .catchError((Object _) => false);
+    if (mounted) setState(() => _canRechapter = canRechapter);
   }
 
   bool get _hasMetadataChanges =>
@@ -424,6 +436,19 @@ class _BookDetailPageState extends State<BookDetailPage> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _openChapterRules() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) =>
+            TxtChapterRulePage(entry: _entry, library: widget.library),
+      ),
+    );
+    if (changed == true && mounted) {
+      final entry = await widget.library.bookById(_entry.id);
+      if (entry != null && mounted) setState(() => _entry = entry);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -548,6 +573,15 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 ),
                 const Divider(height: 40),
                 Text('图书信息', style: theme.textTheme.titleMedium),
+                if (_canRechapter)
+                  ListTile(
+                    key: const ValueKey('book-detail-page-chapters'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('章节正则'),
+                    subtitle: const Text('预览并重新划分当前正文的章节'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _openChapterRules,
+                  ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 20,

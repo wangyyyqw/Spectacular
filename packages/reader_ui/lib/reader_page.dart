@@ -138,6 +138,7 @@ class ReaderPage extends StatefulWidget {
     this.editMode = false,
     this.onEditTarget,
     this.onOpenEditor,
+    this.onChapterRules,
     this.imageCache,
     this.theme,
     this.pageBrightness,
@@ -166,6 +167,9 @@ class ReaderPage extends StatefulWidget {
   final bool editMode;
   final ValueChanged<ReaderEditTarget>? onEditTarget;
   final VoidCallback? onOpenEditor;
+
+  /// 仅宿主确认 TXT 来源后提供，目录面板才显示重新分章入口。
+  final VoidCallback? onChapterRules;
 
   /// 章节页来源。
   final ReaderChapterSource source;
@@ -2902,6 +2906,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           ),
                         );
                       },
+                      onChapterRules: widget.onChapterRules == null
+                          ? null
+                          : () {
+                              _dismissReaderMenu();
+                              widget.onChapterRules!();
+                            },
                       onBookmarkSelect: (bookmark) {
                         _dismissReaderMenu();
                         unawaited(_selectBookmark(bookmark));
@@ -3438,6 +3448,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onSearchStream,
     required this.onSearchSelect,
     required this.onTocSelect,
+    required this.onChapterRules,
     required this.onBookmarkSelect,
     required this.onAddBookmark,
     required this.onAnnotationSelect,
@@ -3502,6 +3513,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final Stream<SearchProgress> Function(String query)? onSearchStream;
   final ValueChanged<SearchPanelResult> onSearchSelect;
   final ValueChanged<TocEntry> onTocSelect;
+  final VoidCallback? onChapterRules;
   final ValueChanged<ReaderBookmark> onBookmarkSelect;
   final VoidCallback onAddBookmark;
   final ValueChanged<ReaderAnnotation> onAnnotationSelect;
@@ -3666,6 +3678,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               currentSpineIndex: widget.currentSpineIndex,
               currentCfi: widget.currentCfi,
               onSelect: widget.onTocSelect,
+              onChapterRules: widget.onChapterRules,
             ),
             _DrawerTab.bookmarks => FutureBuilder<List<ReaderBookmark>>(
               future: _bookmarksFuture,

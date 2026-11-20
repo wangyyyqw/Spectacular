@@ -67,7 +67,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 导入按钮存在且可被命中（若被外层布局遮挡，tap 会命中别的 widget）。
-    final importButton = find.byTooltip('导入 EPUB');
+    final importButton = find.byTooltip('导入 EPUB / TXT');
     expect(importButton, findsOneWidget);
     await tester.tap(importButton, warnIfMissed: true);
     await tester.pumpAndSettle();

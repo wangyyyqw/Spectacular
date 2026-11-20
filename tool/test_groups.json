@@ -65,6 +65,7 @@
         "apps/reader_mobile/test/library/book_edit_repository_test.dart",
         "apps/reader_mobile/test/editing/epub_export_test.dart",
         "apps/reader_mobile/test/library/revision_update_test.dart",
+        "apps/reader_mobile/test/library/txt_library_test.dart",
         "apps/reader_mobile/test/audit/import_queue_audit_test.dart",
         "apps/reader_mobile/test/audit/reading_session_audit_test.dart",
         "apps/reader_mobile/test/audit/startup_storage_audit_test.dart",
@@ -79,6 +80,7 @@
       "paths": [
         "packages/reader_core/test/epub/*_test.dart",
         "packages/reader_core/test/editing/*_test.dart",
+        "packages/reader_core/test/txt/*_test.dart",
         "packages/reader_core/test/parser/*_test.dart",
         "packages/reader_core/test/css/book_font_loader_test.dart",
         "packages/reader_core/test/css/stylesheet_loader_test.dart",
@@ -137,6 +139,7 @@
         "apps/reader_mobile/test/editing/book_editor*_test.dart",
         "apps/reader_mobile/test/editing/xhtml_chunk_analyzer_test.dart",
         "apps/reader_mobile/test/home/*_test.dart",
+        "apps/reader_mobile/test/txt/*_test.dart",
         "apps/reader_mobile/test/prototype/*_test.dart",
         "apps/reader_mobile/test/audit/*_ui_audit_test.dart",
         "apps/reader_mobile/test/audit/mobile_flow_audit_test.dart",
@@ -254,6 +257,9 @@
     }
   ],
   "source_rules": [
+    {"groups": ["resources"], "paths": ["packages/reader_core/lib/txt.dart", "packages/reader_core/lib/txt/*"]},
+    {"groups": ["resources", "position"], "paths": ["packages/reader_core/lib/editing/epub_rechapter*.dart"]},
+    {"groups": ["ui", "storage"], "paths": ["apps/reader_mobile/lib/txt/*", "apps/reader_mobile/integration_test/txt_import_rechapter_desktop_test.dart"]},
     {"groups": ["tooling"], "paths": ["tool/run_tests.py", "tool/test_groups.json", "tool/run_all.sh", "tool/build_apk.sh", "tool/generate_release_plugins.dart", "tool/css_parity/*", "tool/device_reader_perf*.py", "tool/device_engine_verify.py", "tool/build_performance_epub.py"]},
     {"groups": ["layout", "position"], "paths": ["packages/reader_core/lib/text/text_offsets.dart"]},
     {"groups": ["resources", "position"], "paths": ["packages/reader_core/lib/parser/document_parser.dart", "packages/reader_core/lib/parser/xhtml_input.dart"]},
