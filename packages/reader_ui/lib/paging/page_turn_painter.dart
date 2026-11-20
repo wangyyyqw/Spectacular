@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'bessel_painter.dart';
+import 'continuation_geometry.dart';
+import 'continuation_painter.dart';
 import 'curl3d_painter.dart';
 import 'page_turn_controller.dart';
 import 'page_turn_mode.dart';
@@ -13,6 +15,7 @@ class PageTurnPainter extends CustomPainter {
     this.controller, {
     required this.paperColor,
     this.backgroundImage,
+    this.pageInsets = EdgeInsets.zero,
   }) : _besselPainter = BesselPainter(paperColor: paperColor),
        _curl3dPainter = Curl3dPainter(
          paperColor: paperColor,
@@ -23,9 +26,14 @@ class PageTurnPainter extends CustomPainter {
   final PageTurnController controller;
   final Color paperColor;
   final ui.Image? backgroundImage;
+  final EdgeInsets pageInsets;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
   final BesselPainter _besselPainter;
   final Curl3dPainter _curl3dPainter;
+  final _continuationPainter = ContinuationPainter();
+  Object? _continuationPages;
+  ContinuationPageGeometry? _originContinuation;
+  ContinuationPageGeometry? _targetContinuation;
 
   /// 堆叠覆盖中下一页只跟随当前页移动的一小段，形成搓纸视差。
   static const _coverStackShift = 0.08;
@@ -39,6 +47,10 @@ class PageTurnPainter extends CustomPainter {
     // 目标未就绪时轻抬原页，不能因跨章加载阻断手势反馈。
     final target = controller.targetImage ?? origin;
     if (!controller.active || origin == null || target == null) return;
+    if (controller.mode == PageTurnMode.continuation) {
+      _continuation(canvas, size, origin, target);
+      return;
+    }
     final opacity = controller.targetOpacity;
     if (opacity < 1 && controller.mode == PageTurnMode.simulation3d) {
       _paintTurn(canvas, size, origin, origin);
@@ -53,6 +65,62 @@ class PageTurnPainter extends CustomPainter {
       return;
     }
     _paintTurn(canvas, size, origin, target);
+  }
+
+  void _continuation(
+    Canvas canvas,
+    Size size,
+    ui.Image origin,
+    ui.Image target,
+  ) {
+    final sheet = Offset.zero & size;
+    canvas.save();
+    canvas.clipRect(sheet);
+    canvas.drawRect(sheet, Paint()..color = paperColor);
+    if (backgroundImage case final background?) {
+      _image(canvas, background, size);
+    }
+    final progress = controller.progress;
+    // 冷目标就绪前保持原正文，不能把原文再当成下一页接入。
+    if (progress <= 0 ||
+        controller.targetImage == null ||
+        controller.targetOpacity <= 0) {
+      _image(canvas, origin, size);
+      canvas.restore();
+      return;
+    }
+    if (progress >= 1) {
+      _targetImage(canvas, size, origin, target);
+      canvas.restore();
+      return;
+    }
+    final originPage = controller.session.page;
+    final targetPage = controller.turn?.target.content;
+    final key = (originPage, targetPage, size, pageInsets);
+    if (_continuationPages != key) {
+      _continuationPages = key;
+      _originContinuation = ContinuationPageGeometry.resolve(
+        originPage,
+        size,
+        pageInsets: pageInsets,
+      );
+      _targetContinuation = ContinuationPageGeometry.resolve(
+        targetPage,
+        size,
+        pageInsets: pageInsets,
+      );
+    }
+    _continuationPainter.paint(
+      canvas,
+      size,
+      origin: origin,
+      target: target,
+      originGeometry: _originContinuation!,
+      targetGeometry: _targetContinuation!,
+      progress: progress,
+      direction: controller.next != controller.rtl ? 1 : -1,
+    );
+    canvas.restore();
   }
 
   void _paintTurn(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
@@ -237,5 +305,6 @@ class PageTurnPainter extends CustomPainter {
   bool shouldRepaint(PageTurnPainter oldDelegate) =>
       oldDelegate.controller != controller ||
       oldDelegate.paperColor != paperColor ||
-      oldDelegate.backgroundImage != backgroundImage;
+      oldDelegate.backgroundImage != backgroundImage ||
+      oldDelegate.pageInsets != pageInsets;
 }

@@ -232,6 +232,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     PageTurnMode.cover,
     PageTurnMode.simulationBessel,
     PageTurnMode.simulation3d,
+    PageTurnMode.continuation,
     PageTurnMode.scroll,
     PageTurnMode.slideHorizontal,
     PageTurnMode.none,
@@ -978,7 +979,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     return <Widget>[
       if (widget.onOpenMarkSettings != null) ...[
         Text(
-          '划线',
+          '划线设置',
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -1006,7 +1007,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
         const SizedBox(height: 12),
       ],
       Text(
-        '选择翻页方式',
+        '翻页方式',
         style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
@@ -1044,7 +1045,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
       const SizedBox(height: 10),
       Text(
-        '边角信息设置',
+        '边角信息',
         style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
@@ -1333,6 +1334,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     PageTurnMode.cover => '覆盖',
     PageTurnMode.simulationBessel => '仿真',
     PageTurnMode.simulation3d => '3D',
+    PageTurnMode.continuation => '接续',
     PageTurnMode.scroll => '滚动',
     PageTurnMode.slideHorizontal => '滑动',
     PageTurnMode.none => '无',
