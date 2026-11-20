@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -17,10 +18,11 @@ Widget _menu({
   Widget? content,
   EdgeInsets padding = EdgeInsets.zero,
   double keyboard = 0,
+  Size size = const Size(400, 800),
 }) => MaterialApp(
   home: MediaQuery(
     data: MediaQueryData(
-      size: const Size(400, 800),
+      size: size,
       disableAnimations: reduce,
       padding: padding,
       viewInsets: EdgeInsets.only(bottom: keyboard),
@@ -48,6 +50,80 @@ Widget _menu({
 );
 
 void main() {
+  testWidgets('菜单入场末帧的磨砂背景保持连续，正文不会突然由清晰变模糊', (tester) async {
+    // 真机 1080×2400、450 dpi 对应的逻辑视口。
+    const size = Size(384, 2560 / 3);
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final boundary = GlobalKey();
+    Widget scene(bool open) => MaterialApp(
+      home: RepaintBoundary(
+        key: boundary,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            CustomPaint(painter: _StripeBackground()),
+            (_menu(open: open, size: size) as MaterialApp).home!,
+          ],
+        ),
+      ),
+    );
+    Future<List<int>> backgroundSamples() async {
+      final image = tester
+          .renderObject<RenderRepaintBoundary>(find.byKey(boundary))
+          .toImageSync();
+      final bytes = (await tester.runAsync(image.toByteData))!;
+      final samples = [
+        for (final y in [8, size.height.floor() - 8])
+          for (final x in [164, 172]) bytes.getUint8((y * image.width + x) * 4),
+      ];
+      image.dispose();
+      return samples;
+    }
+
+    await tester.pumpWidget(scene(false));
+    await tester.pumpAndSettle();
+    final closed = await backgroundSamples();
+    await tester.pumpWidget(scene(true));
+    await tester.pump(const Duration(milliseconds: 260));
+    final entering = await backgroundSamples();
+    await tester.pump(const Duration(milliseconds: 20));
+    final settled = await backgroundSamples();
+    for (var i = 0; i < settled.length; i++) {
+      expect(entering[i], closeTo(settled[i], 5), reason: '入场结束时底板不得突变');
+    }
+    await tester.pumpWidget(scene(false));
+    await tester.pumpAndSettle();
+    expect(await backgroundSamples(), closed, reason: '完全收起后不残留底板或阴影');
+  });
+
+  testWidgets('菜单中途反向开关连续移动，退出期间禁用点击，收起后隐藏', (tester) async {
+    var entries = 0;
+    final surface = find.byKey(const ValueKey('reader-menu-bottom-surface'));
+    await tester.pumpWidget(_menu(open: false));
+    expect(surface, findsNothing);
+    await tester.pumpWidget(_menu(open: true));
+    await tester.pump(const Duration(milliseconds: 80));
+    final entering = tester.getRect(surface);
+    await tester.pumpWidget(_menu(open: false, onEntry: (_) => entries++));
+    expect(tester.getRect(surface), entering);
+    await tester.tap(
+      find.byKey(const ValueKey('menu-entry-settings')),
+      warnIfMissed: false,
+    );
+    expect(entries, 0);
+    await tester.pump(const Duration(milliseconds: 40));
+    final exiting = tester.getRect(surface);
+    expect(exiting.top, greaterThan(entering.top));
+    await tester.pumpWidget(_menu(open: true));
+    expect(tester.getRect(surface), exiting);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(surface).top, lessThan(entering.top));
+    await tester.pumpWidget(_menu(open: false));
+    await tester.pumpAndSettle();
+    expect(surface, findsNothing);
+  });
+
   testWidgets('阅读菜单上下栏与目录抽屉使用同一磨砂参数', (tester) async {
     await tester.pumpWidget(_menu(open: true));
     await tester.pumpAndSettle();
@@ -475,6 +551,13 @@ void main() {
       await tester.pumpWidget(_menu(open: false, reduce: !ink, ink: ink));
       await tester.pump();
       expect(find.byKey(const ValueKey('reader-drawer-surface')), findsNothing);
+      final bottom = find.byKey(const ValueKey('reader-menu-bottom-surface'));
+      await tester.pumpWidget(_menu(open: true, reduce: !ink, ink: ink));
+      await tester.pump();
+      expect(bottom.hitTestable(), findsOneWidget);
+      await tester.pumpWidget(_menu(open: false, reduce: !ink, ink: ink));
+      await tester.pump();
+      expect(bottom, findsNothing);
     });
   }
 }
@@ -492,4 +575,19 @@ class _PaintProbe extends CustomPainter {
 
   @override
   bool shouldRepaint(_PaintProbe oldDelegate) => false;
+}
+
+class _StripeBackground extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var x = 0.0; x < size.width; x += 8) {
+      canvas.drawRect(
+        Rect.fromLTWH(x, 0, 8, size.height),
+        Paint()..color = (x ~/ 8).isEven ? Colors.black : Colors.white,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StripeBackground oldDelegate) => false;
 }
