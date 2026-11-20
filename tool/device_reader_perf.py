@@ -225,11 +225,22 @@ def prepare(workspace, revision):
                     shutil.rmtree(target)
             bundle.extractall(workspace)
     manifest = workspace / "apps/reader_mobile/android/app/src/main/AndroidManifest.xml"
-    source = manifest.read_text().replace(
-        "    <application", '    <uses-permission android:name="android.permission.INTERNET"/>\n    <application')
-    manifest.write_text(source.replace(
-        'android:label="CSS 真机测试"',
-        'android:usesCleartextTraffic="true" android:label="阅读性能测试"'))
+    source = manifest.read_text()
+    if 'android:name="android.permission.INTERNET"' not in source:
+        source = source.replace(
+            "    <application",
+            '    <uses-permission android:name="android.permission.INTERNET"/>\n'
+            '    <application',
+        )
+    if 'android:usesCleartextTraffic=' not in source:
+        source = source.replace(
+            'android:label="CSS 真机测试"',
+            'android:usesCleartextTraffic="true" android:label="阅读性能测试"')
+    else:
+        source = source.replace(
+            'android:label="CSS 真机测试"',
+            'android:label="阅读性能测试"')
+    manifest.write_text(source)
     drop_plugin_dependency(workspace / "apps/reader_mobile/pubspec.yaml")
 
 
