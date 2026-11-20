@@ -78,7 +78,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
   Future<bool> _confirmDiscard() async {
     if (_confirming) return false;
     _confirming = true;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的书评？'),

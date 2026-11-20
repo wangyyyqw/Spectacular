@@ -372,7 +372,7 @@ class _PillState extends State<_Pill> {
   double _dragRemainder = 0;
 
   Future<void> _editValue() async {
-    final value = await showDialog<double>(
+    final value = await showReaderDialog<double>(
       context: context,
       builder: (_) => _MarginValueDialog(
         label: widget.label,

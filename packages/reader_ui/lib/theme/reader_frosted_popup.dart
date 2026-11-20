@@ -6,6 +6,66 @@ import 'reader_frosted_surface.dart';
 import 'reader_panel_theme.dart';
 import 'reader_theme.dart';
 
+/// 磨砂对话框只缩放，不使用会隔离背景采样的整体淡入。
+///
+/// 外部持有输入控制器时，可等待退场完成后再释放控制器。
+Future<T?> showReaderDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+  bool waitForDismissal = false,
+}) async {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final route = _ReaderDialogRoute<T>(
+    context: context,
+    builder: builder,
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    barrierDismissible: barrierDismissible,
+    reduceMotion:
+        ReaderFrostedScope.inkModeOf(context) ||
+        MediaQuery.disableAnimationsOf(context),
+  );
+  final result = await navigator.push(route);
+  if (waitForDismissal) await route.completed;
+  return result;
+}
+
+class _ReaderDialogRoute<T> extends DialogRoute<T> {
+  _ReaderDialogRoute({
+    required super.context,
+    required super.builder,
+    required super.themes,
+    required super.barrierDismissible,
+    required this.reduceMotion,
+  }) : super(
+         barrierColor: DialogTheme.of(context).barrierColor ?? Colors.black54,
+         traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
+         animationStyle: reduceMotion
+             ? AnimationStyle.noAnimation
+             : const AnimationStyle(duration: Duration(milliseconds: 180)),
+       );
+
+  final bool reduceMotion;
+  static final _scale = Tween<double>(
+    begin: 0.96,
+    end: 1,
+  ).chain(CurveTween(curve: Curves.easeOutCubic));
+
+  @override
+  Duration get reverseTransitionDuration =>
+      reduceMotion ? Duration.zero : const Duration(milliseconds: 135);
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => reduceMotion
+      ? child
+      : ScaleTransition(scale: animation.drive(_scale), child: child);
+}
+
 /// 共用目录抽屉材质，路由仍负责返回值、焦点、安全区和拖动关闭。
 Future<T?> showReaderBottomSheet<T>({
   required BuildContext context,

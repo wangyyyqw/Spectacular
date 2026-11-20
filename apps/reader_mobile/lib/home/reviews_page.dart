@@ -289,7 +289,7 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Future<T?> _showPanel<T>(WidgetBuilder builder, {bool editing = false}) {
     if (usesDesktopLayout(context)) {
-      return showDialog<T>(
+      return showReaderDialog<T>(
         context: context,
         barrierDismissible: !editing,
         builder: (context) => ReaderFrostedDialog(
@@ -1173,7 +1173,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       return false;
     }
     _discardDialogVisible = true;
-    final discard = await showDialog<bool>(
+    final discard = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('放弃未保存的书评？'),
@@ -1253,7 +1253,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   }
 
   Future<void> _delete() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('删除书评？'),

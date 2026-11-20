@@ -238,7 +238,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
   }
 
   Future<void> _saveRule() async {
-    final saved = await showDialog<ChapterRule>(
+    final saved = await showReaderDialog<ChapterRule>(
       context: context,
       builder: (_) => _SaveRuleDialog(rule: _currentRule()),
     );
@@ -262,7 +262,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
 
   Future<void> _manageRules() async {
     try {
-      await showDialog<void>(
+      await showReaderDialog<void>(
         context: context,
         builder: (_) => _RuleManager(store: _ruleStore),
       );
@@ -283,7 +283,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
 
   Future<void> _restore() async {
     if (_busy) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('恢复上一保存版本？'),

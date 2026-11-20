@@ -231,7 +231,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _createGroup({
     Set<String> initialBookIds = const <String>{},
   }) async {
-    final draft = await showDialog<({String name, Set<String> bookIds})>(
+    final draft = await showReaderDialog<({String name, Set<String> bookIds})>(
       context: context,
       builder: (_) => _NewGroupDialog(
         items: _items ?? const <_ShelfItem>[],
@@ -269,7 +269,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     required String title,
     String initial = '',
   }) {
-    return showDialog<String>(
+    return showReaderDialog<String>(
       context: context,
       builder: (_) => _GroupNameDialog(title: title, initial: initial),
     );
@@ -328,7 +328,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     if (action == 'delete') {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showReaderDialog<bool>(
         context: context,
         builder: (context) => ReaderFrostedAlertDialog(
           title: Text('删除分组「${group.name}」？'),
@@ -852,7 +852,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _confirmRemove(BookEntry entry) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除《${entry.title}》'),
@@ -888,7 +888,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (entries.isEmpty || _removing) {
       return;
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除选中的 ${entries.length} 本书？'),

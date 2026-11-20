@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_frosted_popup.dart';
 import 'annotation.dart';
 import 'annotation_style_painter.dart';
 import 'mark_settings.dart';
@@ -336,7 +337,7 @@ Future<int?> showReaderColorDialog(
   BuildContext context, {
   required int initialColor,
 }) async {
-  final result = await showDialog<String>(
+  final result = await showReaderDialog<String>(
     context: context,
     builder: (_) => ReaderTextValueDialog(
       title: '自定义颜色',

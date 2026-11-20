@@ -112,7 +112,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
         ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
 
   Future<String?> _groupName([ReaderDecorationRuleGroup? group]) =>
-      showDialog<String>(
+      showReaderDialog<String>(
         context: context,
         builder: (_) => ReaderTextValueDialog(
           title: group == null ? '新建规则分组' : '重命名分组',
@@ -201,7 +201,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
   }
 
   Future<bool> _confirm(String title, String content) async =>
-      await showDialog<bool>(
+      await showReaderDialog<bool>(
         context: context,
         builder: (context) => ReaderFrostedAlertDialog(
           title: Text(title),

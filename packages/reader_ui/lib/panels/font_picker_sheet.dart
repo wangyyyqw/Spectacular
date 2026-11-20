@@ -112,7 +112,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
   }
 
   Future<bool> _confirmRemove(ReaderFontOption font) async =>
-      await showDialog<bool>(
+      await showReaderDialog<bool>(
         context: context,
         builder: (context) => ReaderFrostedAlertDialog(
           title: Text('移除“${font.label}”？'),
@@ -270,7 +270,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
 }
 
 Future<String?> _renamePrompt(BuildContext context, String initial) =>
-    showDialog<String>(
+    showReaderDialog<String>(
       context: context,
       builder: (_) => _FontRenameDialog(initial: initial),
     );

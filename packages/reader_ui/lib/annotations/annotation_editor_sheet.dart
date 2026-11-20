@@ -176,7 +176,7 @@ class _ReaderAnnotationEditorSheetState
   }) async {
     if (_dialogVisible) return false;
     _dialogVisible = true;
-    final result = await showDialog<bool>(
+    final result = await showReaderDialog<bool>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: Text(title),

@@ -96,7 +96,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
   Future<void> _leave() async {
     if (editor.busy) return;
     if (editor.dirty) {
-      final choice = await showDialog<String>(
+      final choice = await showReaderDialog<String>(
         context: context,
         builder: (context) => ReaderFrostedAlertDialog(
           title: const Text('如何处理未保存的修改？'),
@@ -273,7 +273,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
       _message('校验通过');
       return;
     }
-    await showDialog<void>(
+    await showReaderDialog<void>(
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('校验通过，原书仍有告警'),
