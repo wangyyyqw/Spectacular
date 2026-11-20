@@ -63,7 +63,7 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester, frames: 12);
     expect(
       find.byKey(const ValueKey<String>('bookshelf-grid')),

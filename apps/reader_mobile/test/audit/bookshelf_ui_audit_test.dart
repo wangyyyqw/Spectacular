@@ -6,6 +6,7 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 import '../support/test_epub.dart';
 
@@ -265,6 +266,8 @@ void main() {
     await _scrollTo(tester, _key('book-detail-mark-finished'));
     await _tap(tester, _key('book-detail-mark-finished'));
     final sheet = tester.widget<Material>(_key('book-detail-finish-sheet'));
+    expect(find.byType(ReaderFrostedSurface), findsOneWidget);
+    expect(sheet.color, Colors.transparent);
     expect(
       sheet.borderRadius,
       const BorderRadius.vertical(top: Radius.circular(8)),

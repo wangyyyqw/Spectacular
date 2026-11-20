@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/image_cache.dart';
 
 import 'icons/app_icon.dart';
+import 'theme/reader_frosted_surface.dart';
 
 /// 阅读页注释弹窗：展示多段文字与书内图片，不进入正文排版。
 class ReaderFootnoteDialog extends StatelessWidget {
@@ -57,7 +59,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
     final label = footnote.label.trim();
     return Material(
       key: const ValueKey('reader-footnote-dialog'),
-      color: theme.colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(

@@ -60,43 +60,46 @@ class BookNotesList extends StatelessWidget {
               child: _NotesMessage('还没有笔记', hint: '阅读时划线或写下想法，就会在这里按书归集。'),
             )
           else
-            SliverPadding(
-              padding: _listInsets,
-              sliver: usesDesktopLayout(context)
-                  ? SliverGrid.builder(
-                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 560,
-                        mainAxisExtent:
-                            172 *
-                            MediaQuery.textScalerOf(context).scale(14) /
-                            14,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                      ),
-                      itemCount: noted.length,
-                      itemBuilder: (context, index) => _BookNotesCard(
-                        book: noted[index].book,
-                        counts: noted[index].counts,
-                        onTap: () => _openBook(context, noted[index].book),
-                      ),
-                    )
-                  : SliverList.separated(
-                      itemCount: noted.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final entry = noted[index];
-                        return _BookNotesCard(
-                          book: entry.book,
-                          counts: entry.counts,
-                          onTap: () => _openBook(context, entry.book),
-                        );
-                      },
-                    ),
-            ),
+            SliverPadding(padding: _listInsets, sliver: _bookRows(noted)),
         ],
       ),
     );
   }
+
+  Widget _bookRows(List<({BookEntry book, BookNoteCounts counts})> noted) =>
+      SliverLayoutBuilder(
+        builder: (context, bounds) {
+          final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+          final columns = usesDesktopLayout(context)
+              ? ((bounds.crossAxisExtent + 16) / (300 * scale + 16))
+                    .floor()
+                    .clamp(1, 3)
+              : 1;
+          return SliverList.separated(
+            itemCount: (noted.length / columns).ceil(),
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, row) => Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 16,
+              children: [
+                for (var column = 0; column < columns; column++)
+                  Expanded(
+                    child: row * columns + column < noted.length
+                        ? _BookNotesCard(
+                            book: noted[row * columns + column].book,
+                            counts: noted[row * columns + column].counts,
+                            onTap: () => _openBook(
+                              context,
+                              noted[row * columns + column].book,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
 }
 
 class _BookNotesCard extends StatelessWidget {
@@ -137,29 +140,22 @@ class _BookNotesCard extends StatelessWidget {
   );
 
   Widget _details(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(
         book.title,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontFamily: _song,
-          fontSize: 17,
-          height: 1.35,
-          fontWeight: FontWeight.w700,
-        ),
+        style: Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(height: 1.35, fontWeight: FontWeight.w600),
       ),
       const SizedBox(height: 4),
       Text(
         book.author.trim().isEmpty ? '未知作者' : book.author,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontFamily: _song,
-          fontSize: 13,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        style: Theme.of(context).textTheme.bodySmall,
       ),
       const SizedBox(height: 10),
       Wrap(
@@ -196,13 +192,7 @@ class _CountBadge extends StatelessWidget {
           AppIcon(glyph, size: 14, color: scheme.onSurfaceVariant),
           const SizedBox(width: 5),
           Flexible(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontFamily: _song,
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
+            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
           ),
         ],
       ),
@@ -292,7 +282,11 @@ class _NoteCard extends StatelessWidget {
             _heading(context, thought),
             const SizedBox(height: 10),
             if (thought && note != null && note.trim().isNotEmpty) ...[
-              Text(note, style: const TextStyle(fontSize: 16, height: 1.55)),
+              Text(
+                note,
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(height: 1.55),
+              ),
               const SizedBox(height: 10),
             ],
             Container(
@@ -311,12 +305,11 @@ class _NoteCard extends StatelessWidget {
                   : null,
               child: Text(
                 annotation.quote,
-                style: TextStyle(
-                  fontFamily: _song,
-                  fontSize: thought ? 14 : 16,
-                  height: 1.6,
-                  color: thought ? scheme.onSurfaceVariant : scheme.onSurface,
-                ),
+                style:
+                    (thought
+                            ? Theme.of(context).textTheme.bodySmall
+                            : Theme.of(context).textTheme.bodyMedium)
+                        ?.copyWith(fontFamily: _song, height: 1.6),
               ),
             ),
           ],
@@ -329,7 +322,7 @@ class _NoteCard extends StatelessWidget {
     final date = annotation.updatedAt.toLocal();
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     return DefaultTextStyle.merge(
-      style: TextStyle(fontSize: 13, color: muted),
+      style: Theme.of(context).textTheme.bodySmall!,
       child: Wrap(
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -386,7 +379,7 @@ class _NotesMessage extends StatelessWidget {
               Text(
                 hint!,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                style: theme.textTheme.bodySmall,
               ),
             ],
             if (onRetry != null) ...[

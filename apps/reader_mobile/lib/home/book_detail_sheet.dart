@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
+import '../txt/txt_book_service.dart';
 import 'book_cover_image.dart';
 
 /// 书籍详情（P4-06）：元信息 + 导入报告（修复项与告警）。
@@ -181,6 +182,17 @@ class BookDetailSheet extends StatelessWidget {
               icon: AppGlyph.refresh,
               label: '更新',
               onTap: () => Navigator.of(context).pop('update'),
+            ),
+            FutureBuilder<bool>(
+              future: TxtBookService(library).canRechapter(entry),
+              builder: (context, snapshot) => snapshot.data == true
+                  ? _DetailAction(
+                      key: const ValueKey('book-detail-chapters'),
+                      icon: AppGlyph.listBulleted,
+                      label: '章节正则',
+                      onTap: () => Navigator.of(context).pop('chapters'),
+                    )
+                  : const SizedBox.shrink(),
             ),
             _DetailAction(
               key: const ValueKey<String>('book-detail-create-group'),

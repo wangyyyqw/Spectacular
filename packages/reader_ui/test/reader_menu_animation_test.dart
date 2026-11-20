@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
@@ -47,6 +48,29 @@ Widget _menu({
 );
 
 void main() {
+  testWidgets('阅读菜单上下栏与目录抽屉使用同一磨砂参数', (tester) async {
+    await tester.pumpWidget(_menu(open: true));
+    await tester.pumpAndSettle();
+    final bars = tester.widgetList<GlassContainer>(find.byType(GlassContainer));
+    expect(bars, hasLength(2));
+    final settings = bars.first.settings!;
+    for (final bar in bars) {
+      expect(bar.quality, GlassQuality.minimal);
+      expect(bar.settings, settings);
+    }
+    await tester.pumpWidget(_menu(open: true, drawer: true));
+    await tester.pumpAndSettle();
+    final drawer = tester.widget<GlassContainer>(
+      find.descendant(
+        of: find.byKey(const ValueKey('reader-drawer-surface')),
+        matching: find.byType(GlassContainer),
+      ),
+    );
+    expect(drawer.quality, GlassQuality.minimal);
+    expect(drawer.settings, settings);
+    expect(find.byType(BackdropFilter), findsWidgets);
+  });
+
   testWidgets('阅读菜单和抽屉动画不连带重绘静止背景', (tester) async {
     var paints = 0;
     Widget scene({required bool open, bool drawer = false}) => MaterialApp(
@@ -334,7 +358,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(closes, 1);
-    expect(find.byType(ReaderFrostedSurface), findsOneWidget);
+    expect(surface, findsOneWidget);
+    expect(find.byType(ReaderFrostedSurface), findsNWidgets(2));
   });
 
   testWidgets('列表先滚动，顶部下拉才移动抽屉，短列表同样可收起', (tester) async {

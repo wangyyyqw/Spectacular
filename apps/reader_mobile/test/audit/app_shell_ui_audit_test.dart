@@ -93,7 +93,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('bookshelf-sort-setting')));
     await _pumpFrames(tester, frames: 8);
     expect(find.text('书架排序'), findsWidgets);
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((widget) => widget is AlertDialog),
+      findsOneWidget,
+    );
     final theme = buildAppTheme();
     expect(theme.useMaterial3, isFalse);
     expect(theme.colorScheme.surfaceTint, Colors.transparent);

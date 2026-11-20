@@ -75,6 +75,7 @@ import 'paging/page_turn_view.dart';
 import 'theme/reader_theme.dart';
 import 'loading_skeleton.dart';
 import 'system_ui.dart';
+import 'theme/reader_frosted_popup.dart';
 
 part 'reader_annotation_controller.dart';
 part 'reader_decoration_controller.dart';
@@ -138,6 +139,7 @@ class ReaderPage extends StatefulWidget {
     this.editMode = false,
     this.onEditTarget,
     this.onOpenEditor,
+    this.onChapterRules,
     this.imageCache,
     this.theme,
     this.pageBrightness,
@@ -167,6 +169,9 @@ class ReaderPage extends StatefulWidget {
   final bool editMode;
   final ValueChanged<ReaderEditTarget>? onEditTarget;
   final VoidCallback? onOpenEditor;
+
+  /// 仅宿主确认 TXT 来源后提供，目录面板才显示重新分章入口。
+  final VoidCallback? onChapterRules;
 
   /// 章节页来源。
   final ReaderChapterSource source;
@@ -573,29 +578,32 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     unawaited(
       showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('桌面阅读操作'),
-          content: SingleChildScrollView(
-            child: Text(
-              [
-                '↓ / Page Down / 空格：下一页',
-                '↑ / Page Up / Shift + 空格：上一页',
-                '← / →：按阅读方向翻页',
-                '滚轮：翻页；连续滚动模式滚动正文',
-                if (widget.onSearch != null) '$command + F：搜索正文',
-                '$command + C：复制已选文字',
-                'Esc：逐层关闭面板；正文中打开菜单',
-                '右键正文：打开或关闭阅读菜单',
-                'F1：查看快捷键',
-              ].join('\n\n'),
+        builder: (context) => ReaderPanelTheme(
+          theme: _effectiveTheme ?? ReaderTheme.white,
+          child: ReaderFrostedAlertDialog(
+            title: const Text('桌面阅读操作'),
+            content: SingleChildScrollView(
+              child: Text(
+                [
+                  '↓ / Page Down / 空格：下一页',
+                  '↑ / Page Up / Shift + 空格：上一页',
+                  '← / →：按阅读方向翻页',
+                  '滚轮：翻页；连续滚动模式滚动正文',
+                  if (widget.onSearch != null) '$command + F：搜索正文',
+                  '$command + C：复制已选文字',
+                  'Esc：逐层关闭面板；正文中打开菜单',
+                  '右键正文：打开或关闭阅读菜单',
+                  'F1：查看快捷键',
+                ].join('\n\n'),
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('关闭'),
-            ),
-          ],
         ),
       ),
     );
@@ -1874,37 +1882,40 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }) async =>
       await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: Text(title),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(original),
-                if (reason != null) ...[
-                  const SizedBox(height: 12),
-                  Text(reason),
+        builder: (context) => ReaderPanelTheme(
+          theme: _effectiveTheme ?? ReaderTheme.white,
+          child: ReaderFrostedAlertDialog(
+            title: Text(title),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(original),
+                  if (reason != null) ...[
+                    const SizedBox(height: 12),
+                    Text(reason),
+                  ],
+                  if (replacement != null) ...[
+                    const SizedBox(height: 16),
+                    const Text('新版位置'),
+                    Text(replacement),
+                    const SizedBox(height: 12),
+                    const Text('原引用、想法及样式将保留。'),
+                  ],
                 ],
-                if (replacement != null) ...[
-                  const SizedBox(height: 16),
-                  const Text('新版位置'),
-                  Text(replacement),
-                  const SizedBox(height: 12),
-                  const Text('原引用、想法及样式将保留。'),
-                ],
-              ],
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(replacement == null ? '重新定位' : '确认关联'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(replacement == null ? '重新定位' : '确认关联'),
-            ),
-          ],
         ),
       ) ??
       false;
@@ -2093,17 +2104,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     _clearSelection();
     unawaited(
-      showModalBottomSheet<void>(
+      showReaderBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => ReaderPanelTheme(
-          theme: _effectiveTheme ?? ReaderTheme.white,
-          child: ReaderFootnoteDialog(
-            footnote: footnote,
-            imageCache: widget.imageCache,
-          ),
+        readerTheme: _effectiveTheme ?? ReaderTheme.white,
+        builder: (context) => ReaderFootnoteDialog(
+          footnote: footnote,
+          imageCache: widget.imageCache,
         ),
       ),
     );
@@ -2285,18 +2293,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (widget.annotations == null) {
       return;
     }
-    final action = await showModalBottomSheet<AnnotationEditAction>(
+    final action = await showReaderBottomSheet<AnnotationEditAction>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => ReaderPanelTheme(
-        theme: _effectiveTheme ?? ReaderTheme.white,
-        child: ReaderAnnotationEditorSheet(
-          annotation: annotation,
-          inkMode: _inkMode,
-          markSettings: _markSettings,
-        ),
+      readerTheme: _effectiveTheme ?? ReaderTheme.white,
+      builder: (context) => ReaderAnnotationEditorSheet(
+        annotation: annotation,
+        inkMode: _inkMode,
+        markSettings: _markSettings,
       ),
     );
     if (!mounted || action == null) {
@@ -2749,6 +2754,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               // 选区菜单（P4-16）：贴在选区上方，不遮挡选区。
               if (!_hideSelectionMenu)
                 SelectionMenu(
+                  readerTheme: _effectiveTheme ?? ReaderTheme.white,
+                  inkMode: _inkMode,
                   actions: _selectionActions(
                     _effectiveTurnMode == PageTurnMode.scroll
                         ? _selectionPage ?? page
@@ -2907,6 +2914,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           ),
                         );
                       },
+                      onChapterRules: widget.onChapterRules == null
+                          ? null
+                          : () {
+                              _dismissReaderMenu();
+                              widget.onChapterRules!();
+                            },
                       onBookmarkSelect: (bookmark) {
                         _dismissReaderMenu();
                         unawaited(_selectBookmark(bookmark));
@@ -3443,6 +3456,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onSearchStream,
     required this.onSearchSelect,
     required this.onTocSelect,
+    required this.onChapterRules,
     required this.onBookmarkSelect,
     required this.onAddBookmark,
     required this.onAnnotationSelect,
@@ -3507,6 +3521,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final Stream<SearchProgress> Function(String query)? onSearchStream;
   final ValueChanged<SearchPanelResult> onSearchSelect;
   final ValueChanged<TocEntry> onTocSelect;
+  final VoidCallback? onChapterRules;
   final ValueChanged<ReaderBookmark> onBookmarkSelect;
   final VoidCallback onAddBookmark;
   final ValueChanged<ReaderAnnotation> onAnnotationSelect;
@@ -3671,6 +3686,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               currentSpineIndex: widget.currentSpineIndex,
               currentCfi: widget.currentCfi,
               onSelect: widget.onTocSelect,
+              onChapterRules: widget.onChapterRules,
             ),
             _DrawerTab.bookmarks => FutureBuilder<List<ReaderBookmark>>(
               future: _bookmarksFuture,

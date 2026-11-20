@@ -8,6 +8,7 @@ import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
 import 'decoration_image_store.dart';
 import 'decoration_highlight.dart';
+import '../theme/reader_frosted_popup.dart';
 
 /// 本书与全局作用域的自动装饰规则管理页。
 class ReaderDecorationRulePage extends StatefulWidget {
@@ -175,7 +176,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
           ),
           sortOrder: (rules.lastOrNull?.sortOrder ?? -1) + 1,
         );
-    final next = await showModalBottomSheet<ReaderDecorationRule>(
+    final next = await showReaderBottomSheet<ReaderDecorationRule>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -202,7 +203,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
   Future<bool> _confirm(String title, String content) async =>
       await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => ReaderFrostedAlertDialog(
           title: Text(title),
           content: Text(content),
           actions: [

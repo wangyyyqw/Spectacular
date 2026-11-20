@@ -4,6 +4,7 @@ import '../annotations/annotation_appearance_editor.dart';
 import '../annotations/annotation_quote_preview.dart';
 import '../annotations/mark_settings.dart';
 import '../icons/app_icon.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 阅读设置中的划线分区。
 class ReaderMarkSettingsSheet extends StatefulWidget {
@@ -28,7 +29,7 @@ class _ReaderMarkSettingsSheetState extends State<ReaderMarkSettingsSheet> {
   late ReaderMarkSettings _settings = widget.settings;
   @override
   Widget build(BuildContext context) => Material(
-    color: Theme.of(context).colorScheme.surface,
+    color: ReaderFrostedSurface.panelColorOf(context),
     borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
     child: SafeArea(
       top: false,

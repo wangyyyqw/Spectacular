@@ -317,7 +317,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
     final bytes = editor.session.readBytes(path)!;
     _showEditorDialog<void>(
       context: context,
-      builder: (context) => Dialog(
+      builder: (context) => ReaderFrostedDialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

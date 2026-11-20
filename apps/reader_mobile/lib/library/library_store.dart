@@ -17,6 +17,7 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/perf/trace.dart';
+import 'package:reader_core/txt.dart';
 import 'package:reader_core/position/revision_relocator.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
@@ -38,9 +39,12 @@ part 'library_revision.dart';
 part 'library_editing.dart';
 part 'library_edit_drafts.dart';
 part 'library_sweep_paths.dart';
+part 'library_txt.dart';
 
 /// 导入成功的实际结果，覆盖更新不会新建用户数据。
 enum BookImportOutcome { added, updated, unchanged }
+
+const txtChapterRulesSettingKey = 'txt.chapterRules.v1';
 
 typedef BookNoteCounts = ({int thoughts, int marks, DateTime updatedAt});
 

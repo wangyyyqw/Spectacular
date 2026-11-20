@@ -163,7 +163,10 @@ void main() {
           .selectedIndex,
       0,
     );
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((widget) => widget is AlertDialog),
+      findsOneWidget,
+    );
     navigator.pop();
     await dialog;
     await tester.pumpAndSettle();

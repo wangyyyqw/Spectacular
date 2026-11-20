@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -5,10 +9,18 @@ import 'package:xml/xml.dart';
 
 import 'epub_edit_session.dart';
 import 'editable_document.dart';
+import 'epub_writer.dart';
+import '../css/parser.dart';
+import '../css/selector.dart';
+import '../txt.dart';
+import '../position/cfi.dart';
 
 part 'package_references.dart';
 part 'package_navigation.dart';
 part 'package_search.dart';
+part 'epub_rechapter.dart';
+part 'epub_rechapter_dom.dart';
+part 'epub_rechapter_package.dart';
 
 /// 工作副本中的章节；路径始终相对 EPUB 根目录。
 class EditChapter {

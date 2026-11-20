@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_frosted_popup.dart';
+
 /// 由弹窗自身管理输入控制器，避免退场动画读取已释放对象。
 class ReaderTextValueDialog extends StatefulWidget {
   /// 创建带校验的单值输入弹窗。
@@ -65,7 +67,7 @@ class _ReaderTextValueDialogState extends State<ReaderTextValueDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: Text(widget.title),
     content: TextField(
       key: widget.inputKey,

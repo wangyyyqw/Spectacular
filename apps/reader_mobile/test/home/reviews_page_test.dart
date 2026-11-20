@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/reviews_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 class _FakeLibrary extends LibraryStore {
   _FakeLibrary(this.books, {Set<String>? finishedIds})
@@ -167,8 +168,33 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsOneWidget);
       expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(ReaderFrostedSurface), findsOneWidget);
+      expect(
+        tester
+            .widget<Material>(find.byKey(const ValueKey('review-detail')))
+            .color,
+        Colors.transparent,
+      );
       await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
       await tester.pumpAndSettle();
+      expect(find.byType(ReaderFrostedSurface), findsOneWidget);
+      expect(
+        tester
+            .widget<Material>(find.byKey(const ValueKey('review-editor')))
+            .color,
+        Colors.transparent,
+      );
+      final actions = find
+          .ancestor(
+            of: find.byKey(const ValueKey('review-save')),
+            matching: find.byType(DecoratedBox),
+          )
+          .first;
+      expect(
+        (tester.widget<DecoratedBox>(actions).decoration as BoxDecoration)
+            .color,
+        Colors.transparent,
+      );
       await tester.enterText(
         find.byKey(const ValueKey('review-content')),
         '修订后的桌面书评',
@@ -231,6 +257,13 @@ void main() {
     await tester.tap(find.byKey(ValueKey('review-card-${book.id}')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('review-detail')), findsOneWidget);
+    expect(find.byType(ReaderFrostedSurface), findsOneWidget);
+    expect(
+      tester
+          .widget<Material>(find.byKey(const ValueKey('review-detail')))
+          .color,
+      Colors.transparent,
+    );
     expect(find.text(review.content), findsOneWidget);
     expect(
       tester

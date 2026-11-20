@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
@@ -44,7 +45,7 @@ class BookReadingRanking extends StatelessWidget {
   }
 
   Future<void> _showAll(BuildContext context, List<_RankedBook> ranked) async {
-    final book = await showModalBottomSheet<BookEntry>(
+    final book = await showReaderBottomSheet<BookEntry>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

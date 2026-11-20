@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
 import 'package:reader_core/position/locator.dart';
@@ -22,6 +23,9 @@ import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
 import '../editing/book_edit_repository.dart';
 import '../editing/book_editor_route.dart';
+import '../txt/txt_book_service.dart';
+import '../txt/txt_chapter_rule_page.dart';
+import '../txt/txt_encoding_dialog.dart';
 import 'desktop_layout.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
@@ -41,7 +45,7 @@ const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
 const _shelfMetaHeight = 18.0;
 
-/// 书架页：书籍网格/列表、EPUB 导入、点击进入阅读、长按看详情。
+/// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
   /// 创建页面。
   const BookshelfPage({
@@ -93,7 +97,7 @@ class BookshelfPage extends StatefulWidget {
   static Future<List<String>> _pickWithFilePicker() async {
     final files = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: <String>['epub'],
+      allowedExtensions: <String>['epub', 'txt'],
     );
     return <String>[
       for (final file in files)
@@ -115,6 +119,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   final List<ImportJob> _batch = <ImportJob>[];
   int _reportedJobs = 0;
   String? _error;
+  ImportJob? _encodingJob;
   BookSortOrder _sort = BookSortOrder.recent;
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
@@ -304,7 +309,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _manageGroup(ShelfGroup group) async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showReaderBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -358,7 +363,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (action == 'delete') {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => ReaderFrostedAlertDialog(
           title: Text('删除分组「${group.name}」？'),
           content: const Text('书籍会保留在书架中，只删除分组。'),
           actions: <Widget>[
@@ -574,6 +579,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   void _showImportFailure(ImportJob failed, ScaffoldMessengerState? messenger) {
+    if (failed.encodingCandidates.isNotEmpty) {
+      setState(() {
+        _encodingJob = failed;
+        _error = failed.error ?? '请选择正文显示正确的 TXT 编码';
+      });
+      return;
+    }
     final friendly = EpubRejectionMessages.forCode(
       failed.errorCode,
       failed.error ?? '',
@@ -588,6 +600,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
     } else {
       setState(() => _error = message);
     }
+  }
+
+  Future<void> _retryEncoding() async {
+    final job = _encodingJob;
+    if (job == null) return;
+    final encoding = await chooseTxtEncoding(context, job.encodingCandidates);
+    if (encoding == null || !mounted) return;
+    setState(() {
+      _error = null;
+      _encodingJob = null;
+      _reportedJobs = 0;
+    });
+    _queue.retry(job.id, encoding: encoding);
   }
 
   Future<void> _reload() {
@@ -656,7 +681,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     return weights.percentInt(progress.spineIndex);
   }
 
-  /// 多选 EPUB 入队（P4-03）：后台串行导入，UI 不阻塞。
+  /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
     if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
     setState(() => _pickingFiles = true);
@@ -690,6 +715,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     setState(() {
       _error = null;
+      _encodingJob = null;
       _batch.clear();
       _reportedJobs = 0;
     });
@@ -716,7 +742,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 长按卡片：快捷详情面板；可继续进入完整详情页或删除。
   Future<void> _openBookDetail(BookEntry entry) async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showReaderBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -736,6 +762,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
     final local = overlay.globalToLocal(position);
+    final canRechapter = await TxtBookService(widget.library)
+        .canRechapter(entry)
+        .catchError((Object _) => false);
+    if (!mounted) return;
     final action = await showMenu<String>(
       context: context,
       requestFocus: true,
@@ -754,6 +784,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
             child: const Text('编辑 EPUB'),
           ),
         const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
+        if (canRechapter)
+          const PopupMenuItem(value: 'chapters', child: Text('章节正则')),
         const PopupMenuItem(value: 'multi-select', child: Text('选择多本书')),
         const PopupMenuItem(value: 'create-group', child: Text('新建分组')),
         if (widget.allowImport)
@@ -772,6 +804,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _applyBookAction(BookEntry entry, String? action) async {
+    if (action == 'chapters') {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) =>
+              TxtChapterRulePage(entry: entry, library: widget.library),
+        ),
+      );
+      if (mounted) await _reload();
+      return;
+    }
     if (action == 'edit') {
       await Navigator.of(context).push<bool>(
         MaterialPageRoute(
@@ -851,6 +893,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       if (paths.length != 1) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('更新时请选择一本 EPUB')));
+        return;
+      }
+      if (!paths.single.toLowerCase().endsWith('.epub')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('更新书籍请选择 EPUB；TXT 请从导入入口添加')),
+        );
         return;
       }
       setState(() {
@@ -1000,7 +1048,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _confirmRemove(BookEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除《${entry.title}》'),
         content: const Text('将删除书籍文件；阅读进度、书签、笔记和高亮会保留，重新导入同一本书后恢复。'),
         actions: [
@@ -1036,7 +1084,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除选中的 ${entries.length} 本书？'),
         content: const Text('将删除书籍文件；阅读进度、书签、笔记和高亮会保留，重新导入后恢复。'),
         actions: <Widget>[
@@ -1065,7 +1113,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (entries.isEmpty) {
       return;
     }
-    final target = await showModalBottomSheet<({String? groupId})>(
+    final target = await showReaderBottomSheet<({String? groupId})>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -1296,7 +1344,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                 ),
               IconButton(
                 key: const ValueKey<String>('bookshelf-import'),
-                tooltip: busy ? '导入中…' : '导入 EPUB',
+                tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
                 onPressed: busy || !widget.allowImport ? null : _import,
                 icon: busy
                     ? const SizedBox(
@@ -1355,7 +1403,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (_error != null) {
       return _ErrorPane(
         message: _error!,
-        onRetry: widget.allowImport ? _import : null,
+        retryLabel: _encodingJob == null ? '重试' : '选择编码并重试',
+        onRetry: !widget.allowImport
+            ? null
+            : _encodingJob == null
+            ? _import
+            : _retryEncoding,
       );
     }
     if (items == null) {
@@ -1579,7 +1632,7 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: Text(widget.title),
       content: TextField(
         key: const ValueKey<String>('bookshelf-group-name-field'),
@@ -1658,7 +1711,7 @@ class _NewGroupDialogState extends State<_NewGroupDialog> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: const Text('新建分组'),
       content: SizedBox(
         width: double.maxFinite,
@@ -2116,10 +2169,15 @@ class _NoMatchesPane extends StatelessWidget {
 }
 
 class _ErrorPane extends StatelessWidget {
-  const _ErrorPane({required this.message, required this.onRetry});
+  const _ErrorPane({
+    required this.message,
+    required this.onRetry,
+    this.retryLabel = '重试',
+  });
 
   final String message;
   final Future<void> Function()? onRetry;
+  final String retryLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -2137,7 +2195,7 @@ class _ErrorPane extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 12),
-            FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
+            FilledButton.tonal(onPressed: onRetry, child: Text(retryLabel)),
           ],
         ),
       ),

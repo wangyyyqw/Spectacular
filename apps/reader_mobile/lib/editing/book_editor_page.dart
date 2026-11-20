@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:reader_core/editing/editable_document.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:spectacular_epub_tools/local_epub_tools.dart';
 
@@ -97,7 +98,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
     if (editor.dirty) {
       final choice = await showDialog<String>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => ReaderFrostedAlertDialog(
           title: const Text('如何处理未保存的修改？'),
           content: Text(
             editor.saveDraft == null
@@ -177,7 +178,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
     try {
       editor.session.checkElement(element);
       _elementOpen = true;
-      await showModalBottomSheet<void>(
+      await showReaderBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
@@ -274,7 +275,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
     }
     await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('校验通过，原书仍有告警'),
         content: SingleChildScrollView(child: Text(warnings.join('\n\n'))),
         actions: [

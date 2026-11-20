@@ -129,8 +129,16 @@ String _rewriteDocument(
 ) {
   if (path.toLowerCase().endsWith('.css')) return _rewriteCss(text, rewrite);
   final document = XmlDocument.parse(text);
+  final changed = _rewriteElementReferences(document.rootElement, rewrite);
+  return changed ? document.toXmlString() : text;
+}
+
+bool _rewriteElementReferences(
+  XmlElement root,
+  String Function(String) rewrite,
+) {
   var changed = false;
-  for (final element in document.descendants.whereType<XmlElement>()) {
+  for (final element in [root, ...root.descendants.whereType<XmlElement>()]) {
     for (final attribute in element.attributes) {
       final before = attribute.value;
       final after = switch (attribute.name.local) {
@@ -154,7 +162,7 @@ String _rewriteDocument(
       }
     }
   }
-  return changed ? document.toXmlString() : text;
+  return changed;
 }
 
 String _rewriteSrcset(String value, String Function(String) rewrite) {

@@ -11,6 +11,8 @@ import 'decoration_image_store.dart';
 import 'decoration_painter.dart';
 import 'decoration_style.dart';
 import 'style_controls.dart';
+import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_frosted_surface.dart';
 
 class ReaderDecorationNineSliceSelection {
   const ReaderDecorationNineSliceSelection(this.nineSlice, {this.path});
@@ -55,7 +57,7 @@ class _ReaderDecorationNineSliceButtonState
       setState(() => _loading = false);
       final imageStore = widget.images;
       final next =
-          await showModalBottomSheet<ReaderDecorationNineSliceSelection>(
+          await showReaderBottomSheet<ReaderDecorationNineSliceSelection>(
             context: context,
             isScrollControlled: true,
             useSafeArea: true,
@@ -174,7 +176,7 @@ class _ReaderDecorationNineSliceEditorState
     canPop: !_saving,
     child: Material(
       key: const ValueKey('decoration-nine-slice-editor'),
-      color: Theme.of(context).colorScheme.surface,
+      color: ReaderFrostedSurface.panelColorOf(context),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(

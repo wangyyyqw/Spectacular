@@ -8,6 +8,7 @@ import 'package:reader_core/editing/epub_edit_session.dart';
 import 'package:reader_core/editing/package_editor.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_editor_controller.dart';
 
@@ -39,7 +40,7 @@ Future<String?> editorPrompt(
   final input = TextEditingController(text: initial);
   final result = await _showEditorDialog<String>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (context) => ReaderFrostedAlertDialog(
       title: Text(title),
       content: SizedBox(
         width: 560,
@@ -73,7 +74,7 @@ Future<bool> editorConfirm(
 ) async =>
     await _showEditorDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text(title),
         content: Text(message),
         actions: [
@@ -116,7 +117,7 @@ class BookEditorTools {
     };
     await _showEditorDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('书籍信息'),
         content: SizedBox(
           width: 560,
@@ -211,7 +212,7 @@ class BookEditorTools {
     await _showEditorDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setState) => ReaderFrostedAlertDialog(
           title: Text('全书 .$name'),
           content: SizedBox(
             width: 640,
@@ -234,7 +235,7 @@ class BookEditorTools {
                           .toList();
                       final path = await _showEditorDialog<String>(
                         context: context,
-                        builder: (context) => SimpleDialog(
+                        builder: (context) => ReaderFrostedSimpleDialog(
                           title: const Text('选择 CSS 文件'),
                           children: [
                             if (paths.isEmpty)
@@ -383,7 +384,7 @@ class BookEditorTools {
     List<ClassStyleConflict> conflicts,
   ) => _showEditorDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (context) => ReaderFrostedAlertDialog(
       title: const Text('存在样式优先级冲突'),
       content: SizedBox(
         width: 560,
@@ -417,7 +418,7 @@ class BookEditorTools {
   Future<void> addResource() async {
     final action = await _showEditorDialog<String>(
       context: context,
-      builder: (context) => SimpleDialog(
+      builder: (context) => ReaderFrostedSimpleDialog(
         title: const Text('新增内容'),
         children: [
           SimpleDialogOption(
@@ -581,7 +582,7 @@ class BookEditorTools {
     await _showEditorDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setState) => ReaderFrostedAlertDialog(
           title: const Text('章节顺序'),
           content: SizedBox(
             width: 640,
@@ -680,7 +681,7 @@ class BookEditorTools {
     await _showEditorDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setState) => ReaderFrostedAlertDialog(
           title: const Text('书籍目录'),
           content: SizedBox(
             width: 640,
@@ -756,7 +757,7 @@ class BookEditorTools {
     final depth = TextEditingController(text: '${entry?.depth ?? 0}');
     final result = await _showEditorDialog<EditTocEntry>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('目录项'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -816,7 +817,7 @@ class BookEditorTools {
     await _showEditorDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setState) => ReaderFrostedAlertDialog(
           title: const Text('全书源码查找替换'),
           content: SizedBox(
             width: 680,
@@ -936,7 +937,7 @@ class BookEditorTools {
   }) async {
     await _showEditorDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('编辑历史'),
         content: SizedBox(
           width: 600,

@@ -43,11 +43,7 @@ class StatsSection extends StatelessWidget {
                 header: true,
                 child: Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    height: 1.3,
-                  ),
+                  style: theme.textTheme.titleSmall?.copyWith(height: 1.3),
                 ),
               ),
               if (detail != null)

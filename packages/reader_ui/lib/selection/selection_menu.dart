@@ -2,6 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/reader_panel_theme.dart';
+import '../theme/reader_theme.dart';
+import '../theme/reader_frosted_surface.dart';
+
 /// 选区菜单动作（P4-16）：id 化预留，后续可配置（§40 / Reeden 270 号）。
 class SelectionAction {
   /// 创建动作。
@@ -29,6 +33,8 @@ class SelectionMenu extends StatelessWidget {
     required this.actions,
     required this.anchor,
     required this.bounds,
+    this.readerTheme,
+    this.inkMode = false,
   });
 
   /// 动作列表（按顺序展示）。
@@ -40,6 +46,9 @@ class SelectionMenu extends StatelessWidget {
   /// 可用区域（页内坐标，通常是页面大小）。
   final Size bounds;
 
+  final ReaderTheme? readerTheme;
+  final bool inkMode;
+
   /// 菜单与选区的间距。
   static const double _gap = 8;
 
@@ -48,7 +57,16 @@ class SelectionMenu extends StatelessWidget {
     if (anchor.bottom <= 0 || anchor.top >= bounds.height) {
       return const Positioned(left: 0, top: 0, child: SizedBox.shrink());
     }
-    final theme = Theme.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final menuTheme =
+        readerTheme ??
+        ReaderTheme(
+          id: 'selection',
+          name: '选区菜单',
+          background: scheme.surface,
+          text: scheme.onSurface,
+        );
+    final foreground = menuTheme.text;
     final available = math.max(1.0, bounds.width - 24);
     final textScaler = MediaQuery.textScalerOf(context);
     final buttonWidth = _buttonWidth(context, textScaler);
@@ -67,35 +85,46 @@ class SelectionMenu extends StatelessWidget {
       right: 0,
       top: clampedTop,
       child: Center(
-        child: Material(
-          key: const ValueKey<String>('selection-menu'),
-          elevation: 0,
-          borderRadius: BorderRadius.circular(4),
-          color: theme.colorScheme.inverseSurface,
-          child: Padding(
-            padding: const EdgeInsets.all(4),
-            child: SizedBox(
-              width: width,
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                children: [
-                  for (final action in actions)
-                    SizedBox(
-                      width: width / columns,
-                      height: buttonHeight,
-                      child: TextButton(
-                        key: ValueKey<String>('selection-action-${action.id}'),
-                        onPressed: action.onTap,
-                        style: TextButton.styleFrom(
-                          foregroundColor: theme.colorScheme.onInverseSurface,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: ReaderPanelTheme(
+          theme: menuTheme,
+          child: ReaderFrostedSurface(
+            radius: 4,
+            inkMode: inkMode,
+            child: Material(
+              key: const ValueKey<String>('selection-menu'),
+              elevation: 0,
+              borderRadius: BorderRadius.circular(4),
+              color: Colors.transparent,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: SizedBox(
+                  width: width,
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    children: [
+                      for (final action in actions)
+                        SizedBox(
+                          width: width / columns,
+                          height: buttonHeight,
+                          child: TextButton(
+                            key: ValueKey<String>(
+                              'selection-action-${action.id}',
+                            ),
+                            onPressed: action.onTap,
+                            style: TextButton.styleFrom(
+                              foregroundColor: foreground,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                            ),
+                            child: Text(action.label),
+                          ),
                         ),
-                        child: Text(action.label),
-                      ),
-                    ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

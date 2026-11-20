@@ -62,7 +62,7 @@ class _ToolOptionsDialogState extends State<_ToolOptionsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: Text(widget.tool.label),
     content: SizedBox(
       width: 620,
@@ -310,7 +310,7 @@ class _SplitDialogState extends State<_SplitDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('选择分册起始章节'),
     content: SizedBox(
       width: 650,
@@ -375,7 +375,7 @@ class _FontTargetDialogState extends State<_FontTargetDialog> {
   bool _understood = false;
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: const Text('字体加密目标'),
     content: SizedBox(
       width: 650,

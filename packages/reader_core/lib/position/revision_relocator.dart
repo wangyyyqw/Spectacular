@@ -3,13 +3,39 @@ import 'location_anchor.dart';
 /// 跨版本位置迁移。路径只提供候选，内容证据决定是否可自动关联。
 abstract final class RevisionRelocator {
   static final _indexes = Expando<_BookIndex>();
+  static final _rechapterMaps = Expando<Expando<_RechapterPositionMap>>();
 
   static AnchorRecord relocate({
     required AnchorBook oldBook,
     required AnchorBook newBook,
     required AnchorRecord record,
     bool progress = false,
+    bool preserveTextPositions = false,
+    Map<String, String> elementCfiMap = const {},
   }) {
+    if (preserveTextPositions && !record.isResolved) return record;
+    if (preserveTextPositions && record.isResolved) {
+      final source = record.effective;
+      if (_hasElementPoint(oldBook, source)) {
+        final located = _relocateElements(
+          oldBook,
+          newBook,
+          source,
+          elementCfiMap,
+        );
+        if (located != null) return _success(record, located, newBook);
+        return AnchorRecord(
+          original: record.original,
+          current: record.current,
+          status: 'pending',
+          reason: '元素位置无法可靠迁移，原记录已保留',
+        );
+      }
+      final maps = _rechapterMaps[oldBook] ??= Expando<_RechapterPositionMap>();
+      final mapping = maps[newBook] ??= _RechapterPositionMap(oldBook, newBook);
+      final located = mapping.locate(record.effective);
+      if (located != null) return _success(record, located, newBook);
+    }
     final index = _indexes[newBook] ??= _BookIndex(newBook);
     final matcher = _Matcher(oldBook, index);
     final located = matcher.find(record.effective);
@@ -35,6 +61,38 @@ abstract final class RevisionRelocator {
       status: 'pending',
       reason: matcher.ambiguous ? '原文多处出现，无法可靠消歧' : '原文已修改或删除，需重新定位',
     );
+  }
+
+  static bool _hasElementPoint(AnchorBook book, LocationAnchor source) =>
+      [source.start, if (source.end != null) source.end!].any(
+        (point) =>
+            book
+                .chapter(point.spineIndex)
+                ?.elementOffsets
+                .containsKey(point.cfi) ==
+            true,
+      );
+
+  static LocationAnchor? _relocateElements(
+    AnchorBook old,
+    AnchorBook next,
+    LocationAnchor source,
+    Map<String, String> map,
+  ) {
+    if (source.revision != old.revision || source.approximate) return null;
+    final verified = old.capture(source.start.cfi, endCfi: source.end?.cfi);
+    if (verified == null ||
+        verified.quote != source.quote ||
+        verified.start.chapterFingerprint != source.start.chapterFingerprint) {
+      return null;
+    }
+    final start = map[source.start.cfi];
+    final end = source.end == null ? null : map[source.end!.cfi];
+    if (start == null || source.end != null && end == null) return null;
+    final located = next.capture(start, endCfi: end);
+    return located != null && (!source.isRange || located.quote == source.quote)
+        ? located
+        : null;
   }
 
   static AnchorRecord _success(
@@ -155,6 +213,79 @@ abstract final class RevisionRelocator {
       }
     }
     return count;
+  }
+}
+
+/// 只在完整原文相同、顺序不变且旧 CFI 再核验成功时采用绝对文字位置。
+class _RechapterPositionMap {
+  _RechapterPositionMap(this.oldBook, this.newBook) {
+    compatible = _collect(oldBook, oldStarts) == _collect(newBook, newStarts);
+  }
+
+  final AnchorBook oldBook;
+  final AnchorBook newBook;
+  final Map<int, int> oldStarts = {};
+  final Map<int, int> newStarts = {};
+  late final bool compatible;
+
+  String _collect(AnchorBook book, Map<int, int> starts) {
+    final text = StringBuffer();
+    var offset = 0;
+    for (final chapter in book.chapters) {
+      starts[chapter.spineIndex] = offset;
+      text.write(chapter.text);
+      offset += chapter.text.length;
+    }
+    return text.toString();
+  }
+
+  LocationAnchor? locate(LocationAnchor source) {
+    if (!compatible ||
+        source.revision != oldBook.revision ||
+        source.approximate) {
+      return null;
+    }
+    final checked = oldBook.capture(source.start.cfi, endCfi: source.end?.cfi);
+    if (checked == null ||
+        checked.quote != source.quote ||
+        !_samePoint(checked.start, source.start) ||
+        source.end != null && !_samePoint(checked.end!, source.end!)) {
+      return null;
+    }
+    final start = _mapPoint(source.start);
+    final end = source.end == null ? null : _mapPoint(source.end!, end: true);
+    if (start == null || source.end != null && end == null) return null;
+    final located = end == null
+        ? newBook.anchorAt(start.spineIndex, start.charOffset)
+        : newBook.rangeAt(start, end);
+    return located != null && (!source.isRange || located.quote == source.quote)
+        ? located
+        : null;
+  }
+
+  bool _samePoint(AnchorPoint actual, AnchorPoint stored) =>
+      actual.spineIndex == stored.spineIndex &&
+      actual.charOffset == stored.charOffset &&
+      actual.chapterFingerprint == stored.chapterFingerprint;
+
+  AnchorPoint? _mapPoint(AnchorPoint point, {bool end = false}) {
+    final old = oldBook.chapter(point.spineIndex);
+    // 纯元素锚点与同位置图片不能用字符数区分，交回原有证据定位。
+    if (old == null ||
+        old.text.isEmpty ||
+        old.elementOffsets.containsKey(point.cfi)) {
+      return null;
+    }
+    final offset = oldStarts[point.spineIndex]! + point.charOffset;
+    final chapters = end ? newBook.chapters : newBook.chapters.reversed;
+    for (final chapter in chapters) {
+      if (chapter.text.isEmpty) continue;
+      final start = newStarts[chapter.spineIndex]!;
+      if (offset < start || offset > start + chapter.text.length) continue;
+      final cfi = chapter.cfiAt(offset - start, end: end);
+      return cfi == null ? null : newBook.pointForCfi(cfi);
+    }
+    return null;
   }
 }
 

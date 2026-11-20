@@ -8,6 +8,8 @@ import 'annotation.dart';
 import 'annotation_appearance_editor.dart';
 import 'annotation_quote_preview.dart';
 import 'mark_settings.dart';
+import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_frosted_surface.dart';
 
 export 'annotation_appearance_editor.dart'
     show AnnotationColorOption, AnnotationStyleOption;
@@ -176,7 +178,7 @@ class _ReaderAnnotationEditorSheetState
     _dialogVisible = true;
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text(title),
         content: Text(content),
         actions: [
@@ -271,7 +273,7 @@ class _ReaderAnnotationEditorSheetState
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Material(
         key: const ValueKey<String>('annotation-editor-sheet'),
-        color: Theme.of(context).colorScheme.surface,
+        color: ReaderFrostedSurface.panelColorOf(context),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
         clipBehavior: Clip.antiAlias,
         child: SafeArea(

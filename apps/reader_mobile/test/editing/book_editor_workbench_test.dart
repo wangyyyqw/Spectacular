@@ -158,7 +158,10 @@ void main() {
     await tester.tap(find.text('取消'));
     await pumpReaderUntilComplete(
       tester,
-      () => find.byType(AlertDialog).evaluate().isEmpty,
+      () => find
+          .byWidgetPredicate((widget) => widget is AlertDialog)
+          .evaluate()
+          .isEmpty,
     );
     await tester.tap(find.byTooltip('在文档中查找'));
     await tester.pump();
@@ -272,10 +275,13 @@ void main() {
     await tester.tap(row, buttons: kSecondaryMouseButton);
     await pumpReaderUntil(tester, find.text('在此处之前插入 HTML').hitTestable());
     await tester.tap(find.text('在此处之前插入 HTML'));
-    await pumpReaderUntil(tester, find.byType(AlertDialog));
+    await pumpReaderUntil(
+      tester,
+      find.byWidgetPredicate((widget) => widget is AlertDialog),
+    );
     await tester.enterText(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byWidgetPredicate((widget) => widget is AlertDialog),
         matching: find.byType(TextField),
       ),
       'OEBPS/新章.xhtml',
@@ -296,10 +302,13 @@ void main() {
     );
     await pumpReaderUntil(tester, find.text('重命名').hitTestable());
     await tester.tap(find.text('重命名'));
-    await pumpReaderUntil(tester, find.byType(AlertDialog));
+    await pumpReaderUntil(
+      tester,
+      find.byWidgetPredicate((widget) => widget is AlertDialog),
+    );
     await tester.enterText(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byWidgetPredicate((widget) => widget is AlertDialog),
         matching: find.byType(TextField),
       ),
       'OEBPS/改名.xhtml',
@@ -316,7 +325,10 @@ void main() {
     );
     await pumpReaderUntil(tester, find.text('删除').hitTestable());
     await tester.tap(find.text('删除'));
-    await pumpReaderUntil(tester, find.byType(AlertDialog));
+    await pumpReaderUntil(
+      tester,
+      find.byWidgetPredicate((widget) => widget is AlertDialog),
+    );
     await tester.tap(find.text('取消'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(editor.session.readBytes('OEBPS/改名.xhtml'), isNotNull);

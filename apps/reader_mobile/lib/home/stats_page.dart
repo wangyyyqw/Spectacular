@@ -763,7 +763,7 @@ class _StatsError extends StatelessWidget {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 4),
             Text('请稍后重试', style: TextStyle(fontSize: 13, color: muted)),

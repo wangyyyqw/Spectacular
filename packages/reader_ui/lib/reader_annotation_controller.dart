@@ -444,24 +444,21 @@ extension _ReaderAnnotationController on _ReaderPageState {
   Future<AnnotationEditAction?> _composeThought(
     ReaderSupportedSelection range,
     ReaderAnnotation? existing,
-  ) => showModalBottomSheet<AnnotationEditAction>(
+  ) => showReaderBottomSheet<AnnotationEditAction>(
     context: context,
     useSafeArea: true,
     isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (context) => ReaderPanelTheme(
-      theme: _effectiveTheme ?? ReaderTheme.white,
-      child: ReaderNoteComposerSheet(
-        quote: range.quote,
-        inkMode: _inkMode,
-        initialOpacity: existing?.opacity,
-        markSettings: existing == null
-            ? _markSettings
-            : _markSettings.copyWith(
-                lastColor: existing.color ?? defaultHighlightColor,
-                lastStyle: existing.style,
-              ),
-      ),
+    readerTheme: _effectiveTheme ?? ReaderTheme.white,
+    builder: (context) => ReaderNoteComposerSheet(
+      quote: range.quote,
+      inkMode: _inkMode,
+      initialOpacity: existing?.opacity,
+      markSettings: existing == null
+          ? _markSettings
+          : _markSettings.copyWith(
+              lastColor: existing.color ?? defaultHighlightColor,
+              lastStyle: existing.style,
+            ),
     ),
   );
 }

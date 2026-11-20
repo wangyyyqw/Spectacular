@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -5,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../library/library_store.dart';
+import '../txt/txt_book_service.dart';
+import '../txt/txt_chapter_rule_page.dart';
 import 'book_cover_image.dart';
 import 'finish_book_sheet.dart';
 import 'reading_insights.dart';
@@ -96,6 +100,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   bool _loading = true;
   bool _saving = false;
   bool _changingCover = false;
+  bool _canRechapter = false;
   String? _loadError;
 
   BookReviewStore? get _reviewStore =>
@@ -176,6 +181,14 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _loading = false;
       _loadError = null;
     });
+    unawaited(_loadChapterRuleAvailability(entry));
+  }
+
+  Future<void> _loadChapterRuleAvailability(BookEntry entry) async {
+    final canRechapter = await TxtBookService(widget.library)
+        .canRechapter(entry)
+        .catchError((Object _) => false);
+    if (mounted) setState(() => _canRechapter = canRechapter);
   }
 
   bool get _hasMetadataChanges =>
@@ -300,13 +313,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _showMessage('当前无法保存读完标记');
       return;
     }
-    final savedReview = await showModalBottomSheet<bool>(
+    final savedReview = await showReaderBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       isDismissible: false,
       enableDrag: false,
-      backgroundColor: Colors.transparent,
       builder: (_) => FinishBookSheet(
         book: _entry,
         review: _review,
@@ -372,7 +384,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('取消读完标记？'),
         content: const Text('书评和评分会保留，阅读进度不会改变。'),
         actions: <Widget>[
@@ -422,6 +434,19 @@ class _BookDetailPageState extends State<BookDetailPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _openChapterRules() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) =>
+            TxtChapterRulePage(entry: _entry, library: widget.library),
+      ),
+    );
+    if (changed == true && mounted) {
+      final entry = await widget.library.bookById(_entry.id);
+      if (entry != null && mounted) setState(() => _entry = entry);
+    }
   }
 
   @override
@@ -548,6 +573,15 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 ),
                 const Divider(height: 40),
                 Text('图书信息', style: theme.textTheme.titleMedium),
+                if (_canRechapter)
+                  ListTile(
+                    key: const ValueKey('book-detail-page-chapters'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('章节正则'),
+                    subtitle: const Text('预览并重新划分当前正文的章节'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _openChapterRules,
+                  ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 20,
