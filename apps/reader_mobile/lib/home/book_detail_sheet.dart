@@ -155,17 +155,26 @@ class BookDetailSheet extends StatelessWidget {
                 );
               },
             ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-open-page'),
-              icon: AppGlyph.menuBook,
-              label: '图书详情',
-              onTap: () => Navigator.of(context).pop('detail'),
-            ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-public-reading'),
-              icon: AppGlyph.share,
-              label: '关联阅微公开阅读',
-              onTap: () => Navigator.of(context).pop('reamicro-link'),
+            Row(
+              children: [
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-open-page'),
+                    icon: AppGlyph.menuBook,
+                    label: '详情',
+                    onTap: () => Navigator.of(context).pop('detail'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-public-reading'),
+                    icon: AppGlyph.share,
+                    label: '关联',
+                    onTap: () => Navigator.of(context).pop('reamicro-link'),
+                  ),
+                ),
+              ],
             ),
             FutureBuilder<bool>(
               future: TxtBookService(library).canRechapter(entry),

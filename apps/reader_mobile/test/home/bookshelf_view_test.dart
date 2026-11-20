@@ -144,7 +144,7 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB'));
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester, frames: 12);
     final entry = (await library.list()).single;
 
@@ -152,10 +152,11 @@ void main() {
       find.byKey(ValueKey<String>('book-card-${entry.id}')),
     );
     await _settle(tester);
-    expect(find.text('关联阅微公开阅读'), findsOneWidget);
+    expect(find.text('关联'), findsOneWidget);
 
-    final publicReading =
-        find.byKey(const ValueKey<String>('book-detail-public-reading'));
+    final publicReading = find.byKey(
+      const ValueKey<String>('book-detail-public-reading'),
+    );
     await tester.ensureVisible(publicReading);
     await _settle(tester);
     await tester.tap(publicReading);

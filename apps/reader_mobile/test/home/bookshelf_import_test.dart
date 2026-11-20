@@ -107,7 +107,7 @@ void main() {
 
     await tester.longPress(find.text('山海小记').first);
     await _settle(tester);
-    expect(find.text('图书详情'), findsOneWidget, reason: '长按打开快捷操作面板');
+    expect(find.text('详情'), findsOneWidget, reason: '长按打开快捷操作面板');
     expect(find.text('导入报告'), findsNothing);
     expect(find.text('已读 1 / 1 章'), findsOneWidget);
 
@@ -141,7 +141,7 @@ void main() {
 
     await tester.longPress(find.text('山海小记').first);
     await _settle(tester);
-    final detailButton = find.text('图书详情');
+    final detailButton = find.text('详情');
     await tester.ensureVisible(detailButton);
     await tester.tap(detailButton);
     await _settle(tester, frames: 8);
