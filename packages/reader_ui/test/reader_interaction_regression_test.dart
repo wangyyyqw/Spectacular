@@ -710,7 +710,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(session.page?.pageIndex, 0);
     expect(_menuOpen(tester), isFalse);
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      find.byWidgetPredicate((widget) => widget is AlertDialog),
+      findsNothing,
+    );
     expect(
       FocusManager.instance.primaryFocus?.debugLabel,
       isNot('reader-first-block'),
@@ -727,7 +730,10 @@ void main() {
     expect(session.page?.pageIndex, 0);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      find.byWidgetPredicate((widget) => widget is AlertDialog),
+      findsNothing,
+    );
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
     await tester.pumpAndSettle();
     expect(session.page?.pageIndex, 1);

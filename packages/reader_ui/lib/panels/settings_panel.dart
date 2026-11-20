@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -13,11 +14,12 @@ import '../page_furniture/corner_info.dart';
 import '../tap_zones.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_drawer_style.dart';
-import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_theme.dart';
 import 'custom_theme_dialog.dart';
 import 'corner_info_editor.dart';
 import 'font_picker_sheet.dart';
+import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_frosted_surface.dart';
 
 export 'font_picker_sheet.dart' show ReaderFontOption;
 
@@ -384,7 +386,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   Future<void> _showFontPicker() async {
     if (_busyFont) return;
     setState(() => _choosingFont = true);
-    final selection = await showModalBottomSheet<ReaderFontSelection>(
+    final selection = await showReaderBottomSheet<ReaderFontSelection>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

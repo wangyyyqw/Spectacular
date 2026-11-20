@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
 import '../page_furniture/corner_info.dart';
+import '../theme/reader_frosted_popup.dart';
 
 /// 四角位置预览；选择后即时应用，宿主负责保存。
 class CornerInfoEditor extends StatelessWidget {
@@ -15,7 +16,7 @@ class CornerInfoEditor extends StatelessWidget {
   final ValueChanged<ReaderCornerInfo>? onChanged;
 
   Future<void> _choose(BuildContext context, ReaderCornerSlot slot) async {
-    final selected = await showModalBottomSheet<ReaderCornerContent>(
+    final selected = await showReaderBottomSheet<ReaderCornerContent>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,

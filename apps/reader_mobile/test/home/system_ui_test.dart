@@ -55,7 +55,10 @@ Future<void> _selectMode(
   await tester.tap(find.widgetWithText(RadioListTile<ThemeMode>, label));
   await pumpReaderUntilComplete(
     tester,
-    () => find.byType(AlertDialog).evaluate().isEmpty,
+    () => find
+        .byWidgetPredicate((widget) => widget is AlertDialog)
+        .evaluate()
+        .isEmpty,
   );
   await pumpReaderUntilComplete(
     tester,
@@ -283,7 +286,11 @@ void main() {
             .groupValue,
         ThemeMode.system,
       );
-      Navigator.of(tester.element(find.byType(AlertDialog))).pop();
+      Navigator.of(
+        tester.element(
+          find.byWidgetPredicate((widget) => widget is AlertDialog),
+        ),
+      ).pop();
       await _pumpApp(tester);
 
       dispatcher.platformBrightnessTestValue = Brightness.light;

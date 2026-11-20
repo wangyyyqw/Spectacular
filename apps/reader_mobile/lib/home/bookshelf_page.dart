@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
 import 'package:reader_core/position/locator.dart';
@@ -275,7 +276,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _manageGroup(ShelfGroup group) async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showReaderBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -329,7 +330,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (action == 'delete') {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => ReaderFrostedAlertDialog(
           title: Text('删除分组「${group.name}」？'),
           content: const Text('书籍会保留在书架中，只删除分组。'),
           actions: <Widget>[
@@ -708,7 +709,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 长按卡片：快捷详情面板；可继续进入完整详情页或删除。
   Future<void> _openBookDetail(BookEntry entry) async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showReaderBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -853,7 +854,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _confirmRemove(BookEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除《${entry.title}》'),
         content: const Text('将删除书籍文件；阅读进度、书签、笔记和高亮会保留，重新导入同一本书后恢复。'),
         actions: [
@@ -889,7 +890,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除选中的 ${entries.length} 本书？'),
         content: const Text('将删除书籍文件；阅读进度、书签、笔记和高亮会保留，重新导入后恢复。'),
         actions: <Widget>[
@@ -918,7 +919,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (entries.isEmpty) {
       return;
     }
-    final target = await showModalBottomSheet<({String? groupId})>(
+    final target = await showReaderBottomSheet<({String? groupId})>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -1427,7 +1428,7 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: Text(widget.title),
       content: TextField(
         key: const ValueKey<String>('bookshelf-group-name-field'),
@@ -1506,7 +1507,7 @@ class _NewGroupDialogState extends State<_NewGroupDialog> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: const Text('新建分组'),
       content: SizedBox(
         width: double.maxFinite,

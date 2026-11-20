@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
 import '../page_furniture/page_furniture.dart';
-import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_margins.dart';
+import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_frosted_surface.dart';
 
 /// 边距调节器（设计稿「排版 → 边距调节器」）：全屏编辑态，正文可见，
 /// 上下各拆「外/内」两段，可一直调到 0 让正文铺进安全区。
@@ -558,7 +559,7 @@ class _MarginValueDialogState extends State<_MarginValueDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: Text('${widget.label}边距'),
     content: TextField(
       key: const ValueKey('margin-value-input'),

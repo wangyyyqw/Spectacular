@@ -6,6 +6,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:spectacular_epub_tools/local_epub_tools.dart';
 
 import 'book_editor_controller.dart';
@@ -187,7 +188,7 @@ class _ToolPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DefaultTabController(
     length: 5,
-    child: AlertDialog(
+    child: ReaderFrostedAlertDialog(
       title: const Text('本地 EPUB 工具'),
       content: SizedBox(
         width: 760,
@@ -251,7 +252,7 @@ class _ToolResultDialog extends StatelessWidget {
   final String fileName;
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
     title: Text(output.applied ? '${tool.label}已应用' : '${tool.label}完成'),
     content: SizedBox(
       width: 680,

@@ -46,7 +46,10 @@ class ReaderFrostedSurface extends StatelessWidget {
                 ),
                 useOwnLayer: true,
                 quality: GlassQuality.minimal,
-                surfaceStyle: inkMode || MediaQuery.highContrastOf(context)
+                surfaceStyle:
+                    inkMode ||
+                        ReaderFrostedScope.inkModeOf(context) ||
+                        MediaQuery.highContrastOf(context)
                     ? GlassSurfaceStyle.solid
                     : GlassSurfaceStyle.glass,
                 color: scheme.surface,
@@ -82,6 +85,31 @@ class ReaderFrostedSurface extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 随弹层路由捕获的材质偏好，墨水屏内的二级弹窗也保持实色。
+class ReaderFrostedScope extends InheritedTheme {
+  const ReaderFrostedScope({
+    super.key,
+    required this.inkMode,
+    required super.child,
+  });
+
+  final bool inkMode;
+
+  static bool inkModeOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<ReaderFrostedScope>()
+          ?.inkMode ??
+      false;
+
+  @override
+  Widget wrap(BuildContext context, Widget child) =>
+      ReaderFrostedScope(inkMode: inkMode, child: child);
+
+  @override
+  bool updateShouldNotify(ReaderFrostedScope oldWidget) =>
+      inkMode != oldWidget.inkMode;
 }
 
 class _FrostedPanelContent extends InheritedWidget {

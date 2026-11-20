@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
@@ -60,7 +61,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _chooseShelfSort() async {
     final selected = await showDialog<BookSortOrder>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('书架排序'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -91,7 +92,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _chooseTheme(ThemeMode current) async {
     final selected = await showDialog<ThemeMode>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('界面主题'),
         content: RadioGroup<ThemeMode>(
           groupValue: current,
@@ -124,7 +125,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _clearLogs() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('清理日志'),
         content: const Text('将删除本机保存的全部诊断日志（含历史会话），确定吗？'),
         actions: <Widget>[
