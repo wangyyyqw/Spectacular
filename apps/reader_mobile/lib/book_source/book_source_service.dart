@@ -713,7 +713,7 @@ class BookSourceService {
             source,
             chapter,
             info.bookUrl,
-            forceRefresh: info.loadMode == BookSourceLoadMode.book,
+            forceRefresh: source.loadMode == BookSourceLoadMode.book,
           );
           failure = null;
           break;
