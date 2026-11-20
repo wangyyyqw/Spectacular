@@ -124,12 +124,14 @@ void main() {
     expect(surface, findsNothing);
   });
 
-  testWidgets('阅读菜单上下栏与目录抽屉使用同一磨砂参数', (tester) async {
+  testWidgets('阅读菜单上下栏与目录抽屉使用同一不透明底板', (tester) async {
     await tester.pumpWidget(_menu(open: true));
     await tester.pumpAndSettle();
     final bars = tester.widgetList<GlassContainer>(find.byType(GlassContainer));
     expect(bars, hasLength(2));
     final settings = bars.first.settings!;
+    expect(settings.glassColor.a, 1);
+    expect(settings.blur, 0);
     for (final bar in bars) {
       expect(bar.quality, GlassQuality.minimal);
       expect(bar.settings, settings);
@@ -144,7 +146,7 @@ void main() {
     );
     expect(drawer.quality, GlassQuality.minimal);
     expect(drawer.settings, settings);
-    expect(find.byType(BackdropFilter), findsWidgets);
+    expect(find.byType(BackdropFilter), findsNothing);
   });
 
   testWidgets('阅读菜单和抽屉动画不连带重绘静止背景', (tester) async {
