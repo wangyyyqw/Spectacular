@@ -69,9 +69,11 @@ def prepare_workspace(destination):
         if source.exists():
             shutil.copy2(source, destination / android / name)
     app = destination / android / "app"
-    for name in ["build.gradle.kts", "src/main/AndroidManifest.xml",
-                 "src/main/kotlin/com/spectacular/reader_mobile/MainActivity.kt"]:
+    for name in ["build.gradle.kts", "src/main/AndroidManifest.xml"]:
         path = app / name
+        path.write_text(path.read_text().replace(APP_ID, TEST_ID))
+    kotlin_sources = (app / "src/main/kotlin").rglob("*.kt")
+    for path in kotlin_sources:
         path.write_text(path.read_text().replace(APP_ID, TEST_ID))
     manifest = app / "src/main/AndroidManifest.xml"
     manifest.write_text(manifest.read_text().replace(
