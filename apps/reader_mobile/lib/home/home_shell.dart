@@ -200,6 +200,7 @@ class _HomeShellState extends State<HomeShell> {
         navigationTheme.selectedItemColor ?? theme.colorScheme.onSurface;
     final navigationBackground =
         navigationTheme.backgroundColor ?? theme.canvasColor;
+    final iconOffset = Offset(0, usesDesktopLayout(context) ? 0 : 2);
     return [
       for (final (label, glyph) in [
         ('书架', AppGlyph.bookshelf),
@@ -210,13 +211,19 @@ class _HomeShellState extends State<HomeShell> {
       ])
         BottomNavigationBarItem(
           label: label,
-          icon: AppIcon(glyph, size: 24, color: unselectedColor),
-          activeIcon: AppIcon(
-            glyph,
-            size: 24,
-            color: selectedColor,
-            filled: true,
-            cutoutColor: navigationBackground,
+          icon: Transform.translate(
+            offset: iconOffset,
+            child: AppIcon(glyph, size: 24, color: unselectedColor),
+          ),
+          activeIcon: Transform.translate(
+            offset: iconOffset,
+            child: AppIcon(
+              glyph,
+              size: 24,
+              color: selectedColor,
+              filled: true,
+              cutoutColor: navigationBackground,
+            ),
           ),
         ),
     ];
