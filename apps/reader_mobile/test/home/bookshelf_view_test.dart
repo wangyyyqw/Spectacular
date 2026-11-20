@@ -70,6 +70,11 @@ void main() {
       await _settle(tester);
       final grid = find.byKey(const ValueKey('bookshelf-grid'));
       final list = find.byKey(const ValueKey('bookshelf-list'));
+      final groupLabel = tester.getRect(find.text('全部 1'));
+      final cover = tester.getRect(
+        find.byKey(const ValueKey('book-card-cover')),
+      );
+      expect(cover.top - groupLabel.bottom, lessThanOrEqualTo(11));
       final restingBounds = tester.getRect(grid);
       await tester.tap(find.byTooltip('列表视图'));
       await tester.pump();
