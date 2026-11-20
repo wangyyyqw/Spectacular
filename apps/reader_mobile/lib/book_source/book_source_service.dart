@@ -685,16 +685,20 @@ class BookSourceService {
     await cookieStore.load();
     final script = scriptFactory(source);
     try {
+      final tocUrl = book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl;
+      final tocIdentity = onlineRequestIdentity(tocUrl, book.tocOptions);
+      final bookIdentity = onlineRequestIdentity(
+        book.bookUrl,
+        book.bookOptions,
+      );
       final pendingPages = <({String url, Map<String, Object?> options})>[
-        (
-          url: book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl,
-          options: book.tocOptions,
-        ),
+        (url: tocUrl, options: book.tocOptions),
       ];
       final chapters = <OnlineChapter>[];
       final seenChapters = <String>{};
       final seenPages = <String>{};
       var pageCount = 0;
+      var volume = '';
       while (pendingPages.isNotEmpty) {
         final current = pendingPages.removeAt(0);
         if (!current.url.isNotBlank) continue;
@@ -738,10 +742,28 @@ class BookSourceService {
         for (final node in nodes) {
           var name = _field(node, source.toc.chapterName, context, script);
           var chapterUrl = _field(node, source.toc.chapterUrl, context, script);
+          final volumeFlag = _field(
+            node,
+            source.toc.isVolume,
+            context,
+            script,
+          ).toLowerCase();
+          final isVolume =
+              volumeFlag.isNotEmpty &&
+              !const {
+                'null',
+                'false',
+                'no',
+                'not',
+                '0',
+                '0.0',
+              }.contains(volumeFlag);
           if (node is Element) {
             final link = node.localName == 'a' ? node : node.querySelector('a');
             name = name.ifBlank(link?.text ?? node.text);
-            chapterUrl = chapterUrl.ifBlank(link?.attributes['href'] ?? '');
+            if (!isVolume) {
+              chapterUrl = chapterUrl.ifBlank(link?.attributes['href'] ?? '');
+            }
           } else if (node is Map) {
             name = name.ifBlank(
               _commonJsonField(node, const <String>[
@@ -750,25 +772,40 @@ class BookSourceService {
                 'name',
               ]),
             );
-            chapterUrl = chapterUrl.ifBlank(
-              _commonJsonField(node, const <String>[
-                'chapterUrl',
-                'url',
-                'link',
-              ]),
-            );
+            if (!isVolume) {
+              chapterUrl = chapterUrl.ifBlank(
+                _commonJsonField(node, const <String>[
+                  'chapterUrl',
+                  'url',
+                  'link',
+                ]),
+              );
+            }
           }
+          name = cleanOnlineChapterTitle(name);
           final chapterRequest = splitBookSourceUrlOptions(chapterUrl);
           final absolute = rules.resolveUrl(
             context.pageUrl,
             chapterRequest.url,
           );
-          name = cleanOnlineChapterTitle(name);
+          final chapterIdentity = onlineRequestIdentity(
+            absolute,
+            chapterRequest.options,
+          );
+          if (isVolume) {
+            if (name.isNotEmpty) volume = name;
+            // 卷头没有正文地址时只分组，避免补成目录页或锚点章节。
+            if (chapterRequest.url.trim().startsWith('#') ||
+                (!_isHttpUrl(absolute) && !absolute.startsWith('data:')) ||
+                chapterIdentity == responseIdentity ||
+                chapterIdentity == tocIdentity ||
+                chapterIdentity == bookIdentity) {
+              continue;
+            }
+          }
           if (name.isEmpty ||
               absolute.isEmpty ||
-              !seenChapters.add(
-                onlineRequestIdentity(absolute, chapterRequest.options),
-              )) {
+              !seenChapters.add(chapterIdentity)) {
             continue;
           }
           chapters.add(
@@ -776,6 +813,7 @@ class BookSourceService {
               index: chapters.length,
               title: name,
               url: absolute,
+              volume: volume,
               updateTime: _field(node, source.toc.updateTime, context, script),
               requestOptions: chapterRequest.options,
             ),
@@ -1084,6 +1122,7 @@ class BookSourceService {
           ? null
           : onlineRequestIdentity(boundary.url, boundary.options);
       var pageCount = 0;
+      String? contentPageUrl;
       while (pendingPages.isNotEmpty) {
         final current = pendingPages.removeAt(0);
         if (!current.url.isNotBlank) continue;
@@ -1121,6 +1160,7 @@ class BookSourceService {
             continue;
           }
         }
+        contentPageUrl ??= pageUrl;
         final context = BookSourceRuleContext(
           baseUrl: source.baseUrl,
           pageUrl: pageUrl,
@@ -1156,7 +1196,29 @@ class BookSourceService {
           }
         }
       }
-      final content = cleanOnlineChapterContent(htmlParts.join('\n'));
+      var content = cleanOnlineChapterContent(htmlParts.join('\n'));
+      if (source.content.replaceRegex.isNotBlank) {
+        final pageUrl = contentPageUrl ?? bookUrl;
+        // 全章分页合并后执行一次；磁盘缓存保存已经替换的结果。
+        content = await _evaluateContentRule(
+          source: source,
+          root: content,
+          rule: source.content.replaceRegex,
+          context: BookSourceRuleContext(
+            baseUrl: source.baseUrl,
+            pageUrl: pageUrl,
+            variables: <String, String>{
+              'bookUrl': bookUrl,
+              'chapterUrl': chapter.url,
+              'nextChapterUrl': boundary?.url ?? '',
+              'title': chapter.title,
+            },
+          ),
+          script: script,
+          referer: pageUrl,
+        );
+        content = _resolveChapterImages(content, pageUrl);
+      }
       final reason = chapterContentFailureReason(content);
       if (reason != null) {
         throw BookSourceException(
@@ -1251,7 +1313,7 @@ class BookSourceService {
       .convert(
         utf8.encode(
           jsonEncode({
-            'version': 3,
+            'version': 4,
             'base': source.baseUrl,
             'headers': source.header,
             'jsLib': source.jsLib,

@@ -199,14 +199,26 @@ class OnlineEpubBuilder {
 
   String _chapterBody(OnlineEpubChapter chapter) {
     final fragment = html_parser.parseFragment(chapter.html);
+    final isPlainText = fragment.children.isEmpty;
     _sanitizeFragment(fragment);
-    final body = _serializeNodes(fragment.nodes);
+    final body = isPlainText
+        ? _serializeParagraphs(fragment.text ?? '')
+        : _serializeNodes(fragment.nodes);
     final headingText = fragment.querySelector('h1,h2,h3')?.text.trim() ?? '';
     final heading = headingText == chapter.title.trim()
         ? ''
         : '<h1 class="chapter-title">${_escapeXml(chapter.title)}</h1>';
     return '$heading$body';
   }
+
+  String _serializeParagraphs(String text) => text
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .map((line) => '<p>${_escapeXml(line)}</p>')
+      .join();
 
   void _sanitizeFragment(DocumentFragment fragment) {
     final remove = <Element>[];
@@ -239,7 +251,13 @@ class OnlineEpubBuilder {
 
   String _serializeNodes(List<Node> nodes) {
     var html = nodes
-        .map((node) => node is Element ? node.outerHtml : node.text)
+        .map(
+          (node) => switch (node) {
+            Element() => node.outerHtml,
+            Text() => _escapeXml(node.text),
+            _ => '',
+          },
+        )
         .join();
     html = html.replaceAllMapped(
       RegExp(

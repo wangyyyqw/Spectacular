@@ -32,8 +32,8 @@ class BookSourceRuleContext {
 
 /// Legado/阅读书源规则的纯 Dart 子集。
 ///
-/// 支持 CSS、JSONPath、regex、`@text/@html/@href/@src/@属性`、`##正则##替换`
-/// 以及 `||`、`&&` 组合。`@js:`、`<js>` 与前导规则结果由 QuickJS 会话执行，
+/// 支持 CSS、默认选择链、JSONPath、regex、`@text/@html/@href/@src/@属性`、
+/// `##正则##替换` 以及 `||`、`&&`、`%%` 组合。`@js:`、`<js>` 与前导规则结果由 QuickJS 会话执行，
 /// 脚本输出可继续接 JSONPath 或模板；XPath 和网页登录流程不在本实现范围。
 class BookSourceRuleEngine {
   const BookSourceRuleEngine();
@@ -44,17 +44,37 @@ class BookSourceRuleEngine {
     String rawRule,
     BookSourceRuleContext context, {
     BookSourceScriptSession? script,
+  }) => _evaluateList(root, rawRule, context, script: script);
+
+  List<Object> _evaluateList(
+    Object? root,
+    String rawRule,
+    BookSourceRuleContext context, {
+    BookSourceScriptSession? script,
+    bool htmlContext = false,
   }) {
     final rule = rawRule.trim();
     if (rule.isEmpty) return const <Object>[];
     // 后置脚本处理整个前导规则的结果，不能被前导的 || 提前截断。
     if (_splitScriptRule(rule) != null) {
-      return _evaluateSingle(root, rule, context, script);
+      return _evaluateSingle(
+        root,
+        rule,
+        context,
+        script,
+        htmlContext: htmlContext,
+      );
     }
     final alternatives = _splitTopLevel(rule, '||');
     if (alternatives.length > 1) {
       for (final alternative in alternatives) {
-        final values = evaluateList(root, alternative, context, script: script);
+        final values = _evaluateList(
+          root,
+          alternative,
+          context,
+          script: script,
+          htmlContext: htmlContext,
+        );
         if (values.isNotEmpty) return values;
       }
       return const <Object>[];
@@ -63,10 +83,41 @@ class BookSourceRuleEngine {
     if (combined.length > 1) {
       return <Object>[
         for (final part in combined)
-          ...evaluateList(root, part, context, script: script),
+          ..._evaluateList(
+            root,
+            part,
+            context,
+            script: script,
+            htmlContext: htmlContext,
+          ),
       ];
     }
-    return _evaluateSingle(root, rule, context, script);
+    final interleaved = _splitTopLevel(rule, '%%');
+    if (interleaved.length > 1) {
+      final groups = <List<Object>>[
+        for (final part in interleaved)
+          _evaluateList(
+            root,
+            part,
+            context,
+            script: script,
+            htmlContext: htmlContext,
+          ),
+      ].where((values) => values.isNotEmpty).toList();
+      if (groups.isEmpty) return const <Object>[];
+      return <Object>[
+        for (var index = 0; index < groups.first.length; index++)
+          for (final values in groups)
+            if (index < values.length) values[index],
+      ];
+    }
+    return _evaluateSingle(
+      root,
+      rule,
+      context,
+      script,
+      htmlContext: htmlContext,
+    );
   }
 
   /// 求值为首个字符串；列表结果用换行拼接。
@@ -92,26 +143,17 @@ class BookSourceRuleEngine {
     BookSourceRuleContext context, {
     BookSourceScriptSession? script,
   }) {
-    final parsed =
-        _splitScriptRule(rawRule.trim()) == null && !_containsTemplate(rawRule)
-        ? _parseRule(rawRule)
-        : const _ParsedRule(
-            rule: '',
-            mode: null,
-            extractor: '',
-            replacements: <_Replacement>[],
-          );
-    final values = evaluateList(root, rawRule, context, script: script);
-    if (values.isEmpty) return '';
-    if (parsed.extractor == 'html' || parsed.extractor == 'outerHtml') {
-      return values.map(_valueAsString).join();
-    }
-    final direct = values.whereType<Element>().map(
-      (node) => node.innerHtml.trim(),
+    final values = _evaluateList(
+      root,
+      rawRule,
+      context,
+      script: script,
+      htmlContext: true,
     );
-    final html = direct.where((value) => value.isNotEmpty).join();
-    if (html.isNotEmpty) return html;
-    return values.map(_valueAsString).where((value) => value.isNotEmpty).join();
+    return values
+        .map(_htmlValueAsString)
+        .where((value) => value.isNotEmpty)
+        .join();
   }
 
   /// 解析相对链接。
@@ -151,8 +193,9 @@ class BookSourceRuleEngine {
     Object? root,
     String rule,
     BookSourceRuleContext context,
-    BookSourceScriptSession? script,
-  ) {
+    BookSourceScriptSession? script, {
+    bool htmlContext = false,
+  }) {
     final text = rule.trim();
     if (text.isEmpty) return const <Object>[];
     final parts = _splitScriptRule(text);
@@ -166,13 +209,19 @@ class BookSourceRuleEngine {
       final leading = parts.leading.trim();
       final inputs = leading.isEmpty
           ? <Object?>[root]
-          : evaluateList(root, leading, context, script: script);
+          : _evaluateList(
+              root,
+              leading,
+              context,
+              script: script,
+              htmlContext: htmlContext,
+            );
       final output = <Object>[];
       for (final input in inputs) {
         final evaluated = script
             .evaluate(
               parts.script,
-              result: _valueAsString(input, normalize: false),
+              result: _scriptValueAsString(input),
               variables: context.variables,
               resolveString: (path) =>
                   _evaluatePlainString(root, path, context),
@@ -182,11 +231,12 @@ class BookSourceRuleEngine {
         if (evaluated.isEmpty) continue;
         if (parts.trailing.isNotEmpty) {
           output.addAll(
-            evaluateList(
+            _evaluateList(
               _parseScriptOutput(evaluated),
               parts.trailing,
               context,
               script: script,
+              htmlContext: htmlContext,
             ),
           );
         } else {
@@ -201,14 +251,15 @@ class BookSourceRuleEngine {
           ? const <Object>[]
           : <Object>[rendered];
     }
-    return _evaluatePlain(root, text, context);
+    return _evaluatePlain(root, text, context, htmlContext: htmlContext);
   }
 
   List<Object> _evaluatePlain(
     Object? root,
     String rule,
-    BookSourceRuleContext context,
-  ) {
+    BookSourceRuleContext context, {
+    bool htmlContext = false,
+  }) {
     final text = rule.trim();
     if (text.startsWith('http://') ||
         text.startsWith('https://') ||
@@ -216,41 +267,66 @@ class BookSourceRuleEngine {
       return <Object>[text];
     }
     final parsed = _parseRule(rule);
-    if (parsed.rule.isEmpty) {
-      if (parsed.extractor.isEmpty) return const <Object>[];
-      final extracted = _extract(root, parsed.extractor);
-      return extracted == null ? const <Object>[] : <Object>[extracted];
-    }
-
     final mode =
         parsed.mode ??
         (_isJsonRoot(root) && _looksLikeJsonPath(parsed.rule)
             ? _RuleMode.json
-            : _RuleMode.css);
+            : _RuleMode.defaultHtml);
+    var extractor = parsed.extractor;
+    var selector = parsed.rule;
+    if ((mode == _RuleMode.defaultHtml || mode == _RuleMode.css) &&
+        extractor.isEmpty &&
+        _isBareHtmlExtractor(root, selector)) {
+      extractor = selector;
+      selector = '';
+    }
+    if (parsed.rule.isEmpty) {
+      if (root == null) return const <Object>[];
+      if (extractor.isEmpty && parsed.replacements.isEmpty) {
+        return const <Object>[];
+      }
+      final extracted = extractor.isEmpty
+          ? _scriptValueAsString(root)
+          : _extract(root, extractor);
+      return extracted == null
+          ? const <Object>[]
+          : _applyReplacements(<Object>[extracted], parsed.replacements);
+    }
+
     final List<Object> selected;
-    switch (mode) {
-      case _RuleMode.json:
-        selected = _jsonValues(root, parsed.rule);
-      case _RuleMode.css:
-        selected = _cssValues(root, parsed.rule);
-      case _RuleMode.regex:
-        selected = _regexValues(root, parsed.rule);
-      case _RuleMode.xpath:
-        throw const BookSourceException(
-          '该书源使用 XPath 规则，当前版本暂不支持',
-          code: 'ONLINE_RULE_XPATH',
-        );
+    if (selector.isEmpty) {
+      selected = root == null ? const <Object>[] : <Object>[root];
+    } else {
+      switch (mode) {
+        case _RuleMode.json:
+          selected = _jsonValues(root, selector);
+        case _RuleMode.defaultHtml:
+          selected = _cssValues(root, selector, defaultSyntax: true);
+        case _RuleMode.css:
+          selected = _cssValues(root, selector);
+        case _RuleMode.regex:
+          selected = _regexValues(root, selector);
+        case _RuleMode.xpath:
+          throw const BookSourceException(
+            '该书源使用 XPath 规则，当前版本暂不支持',
+            code: 'ONLINE_RULE_XPATH',
+          );
+      }
     }
 
     final extracted = <Object>[];
     for (final value in selected) {
-      final item = _extract(value, parsed.extractor);
+      final item = _extract(value, extractor);
       if (item == null) continue;
       final text = _valueAsString(item);
       if (text.isEmpty && item is! Element) continue;
       extracted.add(item);
     }
-    return _applyReplacements(extracted, parsed.replacements);
+    return _applyReplacements(
+      extracted,
+      parsed.replacements,
+      htmlContext: htmlContext && extractor.isEmpty,
+    );
   }
 
   String _evaluatePlainString(
@@ -475,21 +551,26 @@ class BookSourceRuleEngine {
 
   _ParsedRule _parseRule(String rawRule) {
     var text = rawRule.trim();
+    final lower = text.toLowerCase();
     var mode = _RuleMode.css;
     var hasMode = false;
-    if (text.startsWith('@css:')) {
+    if (lower.startsWith('@css:')) {
       mode = _RuleMode.css;
       hasMode = true;
       text = text.substring(5).trim();
-    } else if (text.startsWith('@json:')) {
+    } else if (lower.startsWith('@@')) {
+      mode = _RuleMode.defaultHtml;
+      hasMode = true;
+      text = text.substring(2).trim();
+    } else if (lower.startsWith('@json:')) {
       mode = _RuleMode.json;
       hasMode = true;
       text = text.substring(6).trim();
-    } else if (text.startsWith('@xpath:')) {
+    } else if (lower.startsWith('@xpath:')) {
       mode = _RuleMode.xpath;
       hasMode = true;
       text = text.substring(7).trim();
-    } else if (text.startsWith('@regex:')) {
+    } else if (lower.startsWith('@regex:')) {
       mode = _RuleMode.regex;
       hasMode = true;
       text = text.substring(7).trim();
@@ -500,13 +581,14 @@ class BookSourceRuleEngine {
         ? ''
         : replacementParts.first.trim();
     final replacements = <_Replacement>[];
-    for (var index = 1; index < replacementParts.length; index += 2) {
-      final pattern = replacementParts[index];
-      final replacement = index + 1 < replacementParts.length
-          ? replacementParts[index + 1]
-          : '';
-      if (pattern.isEmpty) continue;
-      replacements.add(_Replacement(pattern, replacement));
+    if (replacementParts.length > 1 && replacementParts[1].isNotEmpty) {
+      replacements.add(
+        _Replacement(
+          replacementParts[1],
+          replacementParts.length > 2 ? replacementParts[2] : '',
+          firstMatchOnly: replacementParts.length > 3,
+        ),
+      );
     }
 
     var extractor = '';
@@ -532,6 +614,7 @@ class BookSourceRuleEngine {
       if (char == '[') depth--;
       if (char != '@' || depth != 0) continue;
       final candidate = selector.substring(index + 1).trim();
+      if (_isDefaultSelectorStep(candidate)) continue;
       if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_:.-]*$').hasMatch(candidate)) {
         continue;
       }
@@ -668,36 +751,253 @@ class BookSourceRuleEngine {
     return tokens;
   }
 
-  List<Object> _cssValues(Object? root, String selector) {
+  List<Object> _cssValues(
+    Object? root,
+    String selector, {
+    bool defaultSyntax = false,
+  }) {
     final nodes = _cssRootNodes(root);
     if (nodes.isEmpty || selector.trim().isEmpty) return const <Object>[];
-    final parsed = _parseJQuerySelector(selector.trim());
-    final selected = <Element>[];
-    for (final node in nodes) {
-      if (parsed.base.isEmpty) {
-        if (node is Element) selected.add(node);
-        continue;
-      }
-      final Iterable<Element> matches;
-      try {
-        if (node is Document) {
-          matches = node.querySelectorAll(parsed.base);
-        } else if (node is Element) {
-          matches = node.querySelectorAll(parsed.base);
-        } else {
-          continue;
-        }
-      } on Object {
-        throw BookSourceException(
-          '书源选择器无法解析：${parsed.base}',
-          code: 'ONLINE_RULE_SELECTOR',
+    var text = selector.trim();
+    final reverse = defaultSyntax && text.startsWith('-');
+    if (reverse) text = text.substring(1).trim();
+    final steps = defaultSyntax ? _splitTopLevel(text, '@') : <String>[text];
+    var selected = nodes;
+    for (final step in steps) {
+      final indexed = defaultSyntax
+          ? _parseDefaultIndex(step)
+          : _DefaultIndex(step);
+      final parsed = _parseJQuerySelector(indexed.base);
+      final next = <Object>[];
+      for (final node in selected) {
+        final matches = _selectHtmlElements(
+          node,
+          parsed.base,
+          defaultSyntax: defaultSyntax,
+        );
+        next.addAll(
+          _applyDefaultIndex(_applyJQueryFilter(matches, parsed), indexed),
         );
       }
-      selected.addAll(matches);
+      selected = next;
+      if (selected.isEmpty) break;
     }
-    return <Object>[
-      for (final element in _applyJQueryFilter(selected, parsed)) element,
-    ];
+    return reverse ? selected.reversed.toList() : selected;
+  }
+
+  bool _isDefaultSelectorStep(String rule) =>
+      rule == 'children' ||
+      rule.startsWith('children[') ||
+      rule.startsWith('children.') ||
+      rule.startsWith('children!') ||
+      RegExp(r'^(class|tag|id|text)\.').hasMatch(rule);
+
+  bool _isBareHtmlExtractor(Object? root, String rule) =>
+      const <String>{
+        'text',
+        'textNodes',
+        'ownText',
+        'html',
+        'innerHtml',
+        'outerHtml',
+        'all',
+        'href',
+        'src',
+      }.contains(rule) ||
+      (root is Element && root.attributes.containsKey(rule));
+
+  List<Element> _selectHtmlElements(
+    Object root,
+    String selector, {
+    required bool defaultSyntax,
+  }) {
+    if (root is! Document && root is! Element) return const <Element>[];
+    final node = root as Node;
+    if (defaultSyntax && (selector.isEmpty || selector == 'children')) {
+      return node.children.toList();
+    }
+    if (selector.isEmpty) {
+      return root is Element ? <Element>[root] : const <Element>[];
+    }
+    if (defaultSyntax && _isDefaultSelectorStep(selector)) {
+      final separator = selector.indexOf('.');
+      final kind = selector.substring(0, separator);
+      final name = selector.substring(separator + 1);
+      final elements = <Element>[
+        if (root is Element) root,
+        if (root is Document) ...root.querySelectorAll('*'),
+        if (root is Element) ...root.querySelectorAll('*'),
+      ];
+      return elements.where((element) {
+        return switch (kind) {
+          'class' => element.classes.contains(name),
+          'tag' => element.localName == name.toLowerCase(),
+          'id' => element.id == name,
+          'text' => _normalize(
+            element.nodes.whereType<Text>().map((child) => child.text).join(),
+          ).toLowerCase().contains(name.toLowerCase()),
+          _ => false,
+        };
+      }).toList();
+    }
+    try {
+      final selected = _queryHtmlElements(node, selector);
+      if (root is Element) {
+        final parent = root.parentNode;
+        // JSOUP 的选择范围包含当前元素；Dart DOM 的查询只包含后代。
+        if (parent != null &&
+            _queryHtmlElements(parent, selector).contains(root)) {
+          return <Element>[root, ...selected];
+        }
+      }
+      return selected;
+    } on Object {
+      throw BookSourceException(
+        '书源选择器无法解析：$selector',
+        code: 'ONLINE_RULE_SELECTOR',
+      );
+    }
+  }
+
+  List<Element> _queryHtmlElements(Node root, String selector) =>
+      switch (root) {
+        Document() => root.querySelectorAll(selector),
+        Element() => root.querySelectorAll(selector),
+        DocumentFragment() => root.querySelectorAll(selector),
+        _ => const <Element>[],
+      };
+
+  _DefaultIndex _parseDefaultIndex(String selector) {
+    final bracket = RegExp(r'\[([^\[\]]+)\]\s*$').firstMatch(selector);
+    if (bracket != null) {
+      var inner = bracket.group(1)!.trim();
+      final exclude = inner.startsWith('!');
+      if (exclude) inner = inner.substring(1).trim();
+      final indexes = inner
+          .split(',')
+          .map((part) => part.replaceAll(RegExp(r'\s+'), ''))
+          .toList();
+      if (indexes.every(
+        (part) => RegExp(r'^(?:-?\d+|-?\d*:-?\d*(?::-?\d+)?)$').hasMatch(part),
+      )) {
+        return _DefaultIndex(
+          selector.substring(0, bracket.start).trim(),
+          indexes: indexes,
+          exclude: exclude,
+        );
+      }
+    }
+    final legacy = RegExp(r'([.!])\s*(-?\d+(?:\s*:\s*-?\d+)*)$')
+        .firstMatch(selector);
+    if (legacy == null) return _DefaultIndex(selector);
+    return _DefaultIndex(
+      selector.substring(0, legacy.start).trim(),
+      indexes: legacy.group(2)!.split(':').map((part) => part.trim()).toList(),
+      exclude: legacy.group(1) == '!',
+    );
+  }
+
+  List<Element> _applyDefaultIndex(List<Element> values, _DefaultIndex rule) {
+    if (rule.indexes.isEmpty || values.isEmpty) return values;
+    final length = values.length;
+    final indexes = <int>{};
+    int normalize(int index) => index < 0 ? index + length : index;
+    for (final item in rule.indexes) {
+      final parts = item.split(':');
+      if (parts.length == 1) {
+        final index = normalize(int.parse(parts.first));
+        if (index >= 0 && index < length) indexes.add(index);
+        continue;
+      }
+      var start = normalize(int.tryParse(parts[0]) ?? 0);
+      var end = normalize(int.tryParse(parts[1]) ?? length - 1);
+      if ((start < 0 && end < 0) || (start >= length && end >= length)) {
+        continue;
+      }
+      start = start.clamp(0, length - 1);
+      end = end.clamp(0, length - 1);
+      final rawStep = parts.length > 2 ? int.parse(parts[2]) : 1;
+      final step = rawStep > 0
+          ? rawStep
+          : -rawStep < length
+          ? rawStep + length
+          : 1;
+      if (end >= start) {
+        for (var index = start; index <= end; index += step) {
+          indexes.add(index);
+        }
+      } else {
+        for (var index = start; index >= end; index -= step) {
+          indexes.add(index);
+        }
+      }
+    }
+    return rule.exclude
+        ? <Element>[
+            for (var index = 0; index < length; index++)
+              if (!indexes.contains(index)) values[index],
+          ]
+        : <Element>[for (final index in indexes) values[index]];
+  }
+
+  String _scriptValueAsString(Object? value) {
+    if (value is Element) return value.outerHtml;
+    if (value is Document) return value.outerHtml;
+    return _valueAsString(value, normalize: false);
+  }
+
+  RegExp _compileRegex(String pattern) {
+    var text = pattern;
+    var caseSensitive = true;
+    var multiLine = true;
+    var dotAll = false;
+    while (true) {
+      final flags = RegExp(r'^\(\?([ims]+)\)').firstMatch(text);
+      if (flags == null) break;
+      final value = flags.group(1)!;
+      if (value.contains('i')) caseSensitive = false;
+      if (value.contains('m')) multiLine = true;
+      if (value.contains('s')) dotAll = true;
+      text = text.substring(flags.end);
+    }
+    return RegExp(
+      text,
+      caseSensitive: caseSensitive,
+      multiLine: multiLine,
+      dotAll: dotAll,
+    );
+  }
+
+  String _regexReplacement(Match match, String replacement) {
+    final result = StringBuffer();
+    for (var index = 0; index < replacement.length; index++) {
+      final char = replacement[index];
+      if (char == r'\') {
+        if (++index >= replacement.length) {
+          throw const FormatException('正则替换转义不完整');
+        }
+        result.write(replacement[index]);
+      } else if (char == r'$') {
+        if (++index >= replacement.length) {
+          throw const FormatException('正则替换捕获组不完整');
+        }
+        final firstGroup = int.tryParse(replacement[index]);
+        if (firstGroup == null || firstGroup > match.groupCount) {
+          throw const FormatException('正则替换捕获组不存在');
+        }
+        var group = firstGroup;
+        while (index + 1 < replacement.length) {
+          final digit = int.tryParse(replacement[index + 1]);
+          if (digit == null || group * 10 + digit > match.groupCount) break;
+          group = group * 10 + digit;
+          index++;
+        }
+        result.write(match.group(group) ?? '');
+      } else {
+        result.write(char);
+      }
+    }
+    return result.toString();
   }
 
   List<Object> _cssRootNodes(Object? root) {
@@ -712,7 +1012,7 @@ class BookSourceRuleEngine {
 
   _JQuerySelector _parseJQuerySelector(String selector) {
     final filter = RegExp(
-      r':(eq|gt|lt|first|last)\(\s*(\d+)?\s*\)\s*$',
+      r':(eq|gt|lt|first|last)\(\s*(-?\d+)?\s*\)\s*$',
       caseSensitive: false,
     ).firstMatch(selector);
     if (filter != null) {
@@ -722,11 +1022,16 @@ class BookSourceRuleEngine {
         int.tryParse(filter.group(2) ?? '') ?? 0,
       );
     }
-    if (selector.endsWith(':first-child')) {
-      return _JQuerySelector(selector, 'first', 0);
-    }
-    if (selector.endsWith(':last-child')) {
-      return _JQuerySelector(selector, 'last', 0);
+    final simple = RegExp(
+      r':(first|last)\s*$',
+      caseSensitive: false,
+    ).firstMatch(selector);
+    if (simple != null) {
+      return _JQuerySelector(
+        selector.substring(0, simple.start).trim(),
+        simple.group(1)!.toLowerCase(),
+        0,
+      );
     }
     return _JQuerySelector(selector, '', 0);
   }
@@ -735,16 +1040,19 @@ class BookSourceRuleEngine {
     List<Element> values,
     _JQuerySelector selector,
   ) {
+    final index = selector.index < 0
+        ? selector.index + values.length
+        : selector.index;
     return switch (selector.filter) {
       'eq' =>
         values
             .asMap()
             .entries
-            .where((entry) => entry.key == selector.index)
+            .where((entry) => entry.key == index)
             .map((entry) => entry.value)
             .toList(),
-      'gt' => values.skip(selector.index + 1).toList(),
-      'lt' => values.take(selector.index).toList(),
+      'gt' => values.skip((index + 1).clamp(0, values.length)).toList(),
+      'lt' => values.take(index.clamp(0, values.length)).toList(),
       'first' => values.isEmpty ? const <Element>[] : <Element>[values.first],
       'last' => values.isEmpty ? const <Element>[] : <Element>[values.last],
       _ => values,
@@ -755,7 +1063,7 @@ class BookSourceRuleEngine {
     final source = _valueAsString(root);
     if (source.isEmpty) return const <Object>[];
     try {
-      final match = RegExp(expression, multiLine: true).firstMatch(source);
+      final match = _compileRegex(expression).firstMatch(source);
       if (match == null) return const <Object>[];
       if (match.groupCount > 0 && match.group(1) != null) {
         return <Object>[match.group(1)!];
@@ -772,19 +1080,27 @@ class BookSourceRuleEngine {
   Object? _extract(Object? value, String extractor) {
     if (value == null) return null;
     if (extractor.isEmpty) {
-      if (value is Element) return _normalize(value.text);
-      if (value is Document) {
-        return _normalize(value.documentElement?.text ?? '');
-      }
+      if (value is Element || value is Document) return value;
       if (value is Map || value is List) return value;
       return '$value'.trim();
     }
-    if (extractor == 'text' || extractor == 'all') {
+    if (extractor == 'all') return _scriptValueAsString(value);
+    if (extractor == 'text') {
       if (value is Element) return _normalize(value.text);
       if (value is Document) {
         return _normalize(value.documentElement?.text ?? '');
       }
       return _normalize(_valueAsString(value));
+    }
+    if (extractor == 'textNodes') {
+      if (value is Element) {
+        return value.nodes
+            .whereType<Text>()
+            .map((node) => node.text.trim())
+            .where((text) => text.isNotEmpty)
+            .join('\n');
+      }
+      return _valueAsString(value, normalize: false);
     }
     if (extractor == 'ownText') {
       if (value is Element) {
@@ -796,10 +1112,12 @@ class BookSourceRuleEngine {
     }
     if (extractor == 'html' || extractor == 'innerHtml') {
       if (value is Element) return value.innerHtml.trim();
+      if (value is Document) return value.body?.innerHtml.trim() ?? '';
       return _valueAsString(value);
     }
     if (extractor == 'outerHtml') {
       if (value is Element) return value.outerHtml.trim();
+      if (value is Document) return value.outerHtml.trim();
       return _valueAsString(value);
     }
     if (value is Element) {
@@ -819,25 +1137,54 @@ class BookSourceRuleEngine {
 
   List<Object> _applyReplacements(
     List<Object> values,
-    List<_Replacement> replacements,
-  ) {
+    List<_Replacement> replacements, {
+    bool htmlContext = false,
+  }) {
     if (replacements.isEmpty) return values;
-    return <Object>[
-      for (final value in values)
-        if (value is String) _replaceAll(value, replacements) else value,
-    ];
+    final result = <Object>[];
+    for (final value in values) {
+      if (value is String || value is Element || value is Document) {
+        final replaced = _replaceAll(
+          // 正文省略提取器时先保留 HTML；文本求值与显式 @text 仍取文本。
+          htmlContext
+              ? _htmlValueAsString(value)
+              : _valueAsString(value, normalize: false),
+          replacements,
+        );
+        if (replaced.isNotEmpty) result.add(replaced);
+      } else {
+        result.add(value);
+      }
+    }
+    return result;
+  }
+
+  String _htmlValueAsString(Object value) {
+    if (value is Element) return value.innerHtml.trim();
+    if (value is Document) return value.body?.innerHtml.trim() ?? '';
+    return _valueAsString(value, normalize: false);
   }
 
   String _replaceAll(String value, List<_Replacement> replacements) {
     var text = value;
     for (final replacement in replacements) {
       try {
-        text = text.replaceAll(
-          RegExp(replacement.pattern, multiLine: true),
-          replacement.replacement,
-        );
+        final regex = _compileRegex(replacement.pattern);
+        if (replacement.firstMatchOnly) {
+          final match = regex.firstMatch(text);
+          text = match == null
+              ? ''
+              : _regexReplacement(match, replacement.replacement);
+        } else {
+          text = text.replaceAllMapped(
+            regex,
+            (match) => _regexReplacement(match, replacement.replacement),
+          );
+        }
       } on FormatException {
-        continue;
+        text = replacement.firstMatchOnly
+            ? replacement.replacement
+            : text.replaceAll(replacement.pattern, replacement.replacement);
       }
     }
     return text.trim();
@@ -925,7 +1272,7 @@ class BookSourceRuleEngine {
   }
 }
 
-enum _RuleMode { css, json, regex, xpath }
+enum _RuleMode { defaultHtml, css, json, regex, xpath }
 
 class _ParsedRule {
   const _ParsedRule({
@@ -942,10 +1289,27 @@ class _ParsedRule {
 }
 
 class _Replacement {
-  const _Replacement(this.pattern, this.replacement);
+  const _Replacement(
+    this.pattern,
+    this.replacement, {
+    this.firstMatchOnly = false,
+  });
 
   final String pattern;
   final String replacement;
+  final bool firstMatchOnly;
+}
+
+class _DefaultIndex {
+  const _DefaultIndex(
+    this.base, {
+    this.indexes = const [],
+    this.exclude = false,
+  });
+
+  final String base;
+  final List<String> indexes;
+  final bool exclude;
 }
 
 class _AttributeMarker {

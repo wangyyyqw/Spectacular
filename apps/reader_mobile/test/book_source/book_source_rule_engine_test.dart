@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/dom.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_rule_engine.dart';
 import 'package:reader_mobile/book_source/book_source_script.dart';
@@ -62,6 +63,221 @@ void main() {
       );
     });
 
+    test('列表保留 HTML 节点，供后续字段和正文继续解析', () {
+      final items = engine.evaluateList(document, '.book', context);
+      expect(items, hasLength(2));
+      expect(items.every((item) => item is Element), isTrue);
+      expect(
+        engine.evaluateString(items.first, '.title@href', context),
+        '/book/1',
+      );
+      expect(engine.evaluateString(items.last, '.author@text', context), '另一位');
+
+      final content = engine.parseHtml(
+        '<div class="content"><p>第一段</p><p>第二段</p>'
+        '<img src="/image.jpg"></div>',
+      );
+      final html = engine.evaluateHtml(content, '.content', context);
+      expect(html, '<p>第一段</p><p>第二段</p><img src="/image.jpg">');
+    });
+
+    test('默认规则逐个节点执行选择链，并支持节点本身的提取', () {
+      expect(
+        engine.evaluateString(document, 'class.book@tag.a.0@text', context),
+        '书名\n第二本',
+      );
+      expect(
+        engine.evaluateString(document, '@@class.book@tag.a@href', context),
+        '/book/1\n/book/2',
+      );
+      final link = document.querySelector('a')!;
+      expect(engine.evaluateString(link, 'text', context), '书名');
+      expect(engine.evaluateString(link, 'href', context), '/book/1');
+      expect(engine.evaluateString(link, 'tag.a@href', context), '/book/1');
+      expect(engine.evaluateString(link, '.title@href', context), '/book/1');
+    });
+
+    test('默认规则支持负数、排除和含右端点的区间索引', () {
+      final list = engine.parseHtml(
+        '<ol id="list"><li>A</li><li>B</li><li>C</li><li>D</li></ol>',
+      );
+      expect(engine.evaluateString(list, 'tag.li.-1@text', context), 'D');
+      expect(engine.evaluateString(list, 'tag.li!0:2@text', context), 'B\nD');
+      expect(
+        engine.evaluateString(list, 'tag.li[0:2]@text', context),
+        'A\nB\nC',
+      );
+      expect(
+        engine.evaluateString(list, 'tag.li[-1:0:2]@text', context),
+        'D\nB',
+      );
+      expect(
+        engine.evaluateString(list, 'tag.li[!1,-1]@text', context),
+        'A\nC',
+      );
+      expect(
+        engine.evaluateString(list, 'id.list@children[1,-1]@text', context),
+        'B\nD',
+      );
+      expect(engine.evaluateString(list, 'text.C@text', context), 'C');
+      expect(
+        engine.evaluateString(list, '@CSS:#list > li@text', context),
+        'A\nB\nC\nD',
+      );
+    });
+
+    test('CSS 属性条件与 first-child 不会被误当成列表索引', () {
+      final list = engine.parseHtml(
+        '<ul><li data-id="1">A</li><li>B</li></ul>'
+        '<ul><li data-id="1">C</li><li>D</li></ul>',
+      );
+      expect(
+        engine.evaluateString(list, 'li[data-id="1"]@text', context),
+        'A\nC',
+      );
+      expect(
+        engine.evaluateString(list, 'li:first-child@text', context),
+        'A\nC',
+      );
+      expect(engine.evaluateString(list, 'ul@li:eq(-1)@text', context), 'B\nD');
+    });
+
+    test('交错组合保持列表位置，空提取结果可继续后备规则', () {
+      expect(
+        engine.evaluateString(document, 'tag.a@href%%tag.a@text', context),
+        '/book/1\n书名\n/book/2\n第二本',
+      );
+      expect(
+        engine.evaluateString(
+          document,
+          r'class.book@tag.a@text##.+## || class.book@tag.span@text',
+          context,
+        ),
+        '作 者\n另一位',
+      );
+    });
+
+    test('textNodes 保留直属文本段，选择后的脚本读取 HTML', () {
+      final content = engine.parseHtml(
+        '<div id="content">第一段<span>子节点</span>第二段<br>第三段</div>',
+      );
+      expect(
+        engine.evaluateString(
+          content,
+          'id.content@textNodes',
+          context,
+          preserveNewlines: true,
+        ),
+        '第一段\n第二段\n第三段',
+      );
+      final script = FakeBookSourceScriptSession((
+        code,
+        result,
+        variables,
+        session,
+      ) {
+        expect(result, contains('<span>子节点</span>'));
+        return '<p>脚本正文</p>\n<p>下一段</p>';
+      });
+      expect(
+        engine.evaluateHtml(
+          content,
+          'id.content@js:result',
+          context,
+          script: script,
+        ),
+        '<p>脚本正文</p>\n<p>下一段</p>',
+      );
+    });
+
+    test('全文替换保留换行与 HTML，并展开 Java 捕获组', () {
+      const content = '<p>第一段123</p>\n<p>第二段456</p>';
+      const expected = '<p>第一段</p>\n<p>第二段</p>';
+      expect(
+        engine.evaluateHtml(content, r'##<p>(.*?)\d+</p>##<p>$1</p>', context),
+        expected,
+      );
+      expect(
+        engine.evaluateHtml(
+          content,
+          r'all##<p>(.*?)\d+</p>##<p>$1</p>',
+          context,
+        ),
+        expected,
+      );
+      expect(
+        engine.evaluateHtml('a\nB\nc', r'##(?im)^b$##已替换', context),
+        'a\n已替换\nc',
+      );
+    });
+
+    test('正文省略提取器的替换保留段落和图片，文本提取语义保持一致', () {
+      final content = engine.parseHtml(
+        '<div class="content"><p>第一段广告</p>\n<p>第二段</p>'
+        '<img src="/image.jpg"></div>'
+        '<div class="after"><p>后续段落</p></div>',
+      );
+      const expected = '<p>第一段</p>\n<p>第二段</p><img src="/image.jpg">';
+      expect(
+        engine.evaluateHtml(content, 'class.content##广告##', context),
+        expected,
+      );
+      expect(
+        engine.evaluateHtml(content, '@css:.content##广告##', context),
+        expected,
+      );
+      expect(
+        engine.evaluateString(content, 'class.content##广告##', context),
+        '第一段 第二段',
+      );
+      expect(
+        engine.evaluateHtml(content, 'class.content@text##广告##', context),
+        '第一段 第二段',
+      );
+      expect(
+        engine.evaluateString(content, 'class.content@text##广告##', context),
+        '第一段 第二段',
+      );
+      expect(
+        engine.evaluateHtml(
+          content,
+          'class.content##广告##&&class.after',
+          context,
+        ),
+        '$expected<p>后续段落</p>',
+      );
+      final script = FakeBookSourceScriptSession((
+        code,
+        result,
+        variables,
+        session,
+      ) {
+        expect(result, expected);
+        return result;
+      });
+      expect(
+        engine.evaluateHtml(
+          content,
+          'class.content##广告##@js:result',
+          context,
+          script: script,
+        ),
+        expected,
+      );
+    });
+
+    test('三个井号只返回首个匹配的替换结果，无匹配返回空', () {
+      expect(
+        engine.evaluateHtml(
+          '前缀 word=first 后缀 word=second',
+          r'##word=(\w+)##$1###',
+          context,
+        ),
+        'first',
+      );
+      expect(engine.evaluateHtml('没有匹配', r'##word=(\w+)##$1###', context), '');
+    });
+
     test('相对链接按页面地址解析', () {
       expect(
         engine.resolveUrl(context.pageUrl, '/book/1'),
@@ -92,6 +308,17 @@ void main() {
       expect(items, hasLength(2));
       expect(engine.evaluateString(items[0], r'$.name', context), 'A');
       expect(engine.evaluateString(items[1], r'$.url', context), '/b');
+    });
+
+    test('空字段不占据后备结果，数字零和 false 保留', () {
+      const values = <String, Object?>{
+        'missing': null,
+        'count': 0,
+        'valid': false,
+      };
+      expect(engine.evaluateString(values, 'missing||count', context), '0');
+      expect(engine.evaluateString(values, 'valid', context), 'false');
+      expect(engine.evaluateHtml(null, '##^##替换', context), '');
     });
 
     test('裸星号段按通配处理', () {
@@ -282,6 +509,14 @@ void main() {
       ),
       'https://example.com/book/1',
     );
+  });
+
+  test('显式正则模式不把模式内容误识别为 HTML 提取器', () {
+    expect(
+      engine.evaluateString('before all after', '@regex:all', context),
+      'all',
+    );
+    expect(engine.evaluateString('text=示例', '@regex:text=(.+)', context), '示例');
   });
 
   test('静态 java.getCookie 调用会按域名和名称取值', () {
