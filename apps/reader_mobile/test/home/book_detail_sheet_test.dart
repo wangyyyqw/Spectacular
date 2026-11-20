@@ -178,7 +178,7 @@ void main() {
     );
     await tester.tap(find.text('打开详情'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('删除本书'));
+    await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
     expect(popped, 'delete');
   });
@@ -218,7 +218,7 @@ void main() {
     expect(popped, 'detail');
   });
 
-  testWidgets('点新建分组返回 create-group', (tester) async {
+  testWidgets('点分组返回 create-group', (tester) async {
     final entry = BookEntry(
       id: 'clean-book',
       title: '干净书',
@@ -248,9 +248,7 @@ void main() {
     );
     await tester.tap(find.text('打开详情'));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('book-detail-create-group')),
-    );
+    await tester.tap(find.text('分组'));
     await tester.pumpAndSettle();
     expect(popped, 'create-group');
   });

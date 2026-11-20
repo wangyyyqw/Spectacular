@@ -104,7 +104,7 @@ void main() {
     expect(find.text('图书详情'), findsOneWidget, reason: '长按打开快捷操作面板');
     expect(find.text('导入报告'), findsNothing);
 
-    await tester.tap(find.text('删除本书'));
+    await tester.tap(find.text('删除'));
     await _settle(tester);
     expect(find.text('删除《山海小记》'), findsOneWidget, reason: '删除需要确认');
 
