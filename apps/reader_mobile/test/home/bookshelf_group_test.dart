@@ -69,6 +69,14 @@ void main() {
     await _settle(tester);
 
     expect(find.text('小说 1'), findsOneWidget);
+    final allTab = tester.getRect(
+      find.byKey(const ValueKey('bookshelf-group-all')),
+    );
+    expect(allTab.left, 16);
+    expect(
+      tester.getTopLeft(find.text('小说 1')).dx,
+      greaterThanOrEqualTo(allTab.right),
+    );
     expect(find.text('分组甲'), findsWidgets);
     expect(find.text('分组乙'), findsNothing);
     expect(find.text('分组丙'), findsNothing);

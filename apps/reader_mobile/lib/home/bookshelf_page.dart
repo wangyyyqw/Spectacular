@@ -1813,26 +1813,29 @@ class _ShelfGroupBar extends StatelessWidget {
         counts[groupId] = (counts[groupId] ?? 0) + 1;
       }
     }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Row(
-        children: <Widget>[
-          _ShelfGroupTab(
-            key: const ValueKey<String>('bookshelf-group-all'),
-            label: '全部 ${items.length}',
-            selected: activeGroupId == null,
-            onTap: onShowAll,
-          ),
-          for (final group in groups)
+    return SizedBox(
+      width: double.infinity,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Row(
+          children: <Widget>[
             _ShelfGroupTab(
-              key: ValueKey<String>('bookshelf-group-${group.id}'),
-              label: '${group.name} ${counts[group.id] ?? 0}',
-              selected: group.id == activeGroupId,
-              onTap: () => onToggle(group.id),
-              onLongPress: () => onManage(group),
+              key: const ValueKey<String>('bookshelf-group-all'),
+              label: '全部 ${items.length}',
+              selected: activeGroupId == null,
+              onTap: onShowAll,
             ),
-        ],
+            for (final group in groups)
+              _ShelfGroupTab(
+                key: ValueKey<String>('bookshelf-group-${group.id}'),
+                label: '${group.name} ${counts[group.id] ?? 0}',
+                selected: group.id == activeGroupId,
+                onTap: () => onToggle(group.id),
+                onLongPress: () => onManage(group),
+              ),
+          ],
+        ),
       ),
     );
   }
