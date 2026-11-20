@@ -43,7 +43,13 @@ abstract final class ChapterDetector {
     final warnings = <String>[];
     if (options.mode == ChapterDetectionMode.auto) {
       _removeOpeningContents(candidates, blocks);
-      _filterWeakCandidates(candidates, blocks);
+      final offsets = <int>[0];
+      for (final block in blocks) {
+        offsets.add(offsets.last + block.length);
+      }
+      final hasMainChapters = _filterChineseCandidates(candidates);
+      _filterWeakCandidates(candidates, offsets, hasMainChapters);
+      _filterUnnamedCandidates(candidates, offsets);
     }
     if (candidates.isEmpty) {
       if (options.mode == ChapterDetectionMode.custom) {
@@ -87,11 +93,21 @@ class _Candidate {
   final String title;
   final ChapterRule rule;
   final bool volume;
+  late final int? ordinal = _ordinal(title);
+  late final RegExpMatch? chinese = _chinesePrefix.firstMatch(title);
+  late final String? chapterStyle = chinese == null
+      ? null
+      : '${RegExp(r'^[0-9０-９]+$').hasMatch(chinese!.group(1)!) ? 'arabic' : 'han'}:${chinese!.group(2)}';
   bool get weak =>
       rule.id == 'builtin-numbered' ||
       rule.id == 'builtin-bracket-number' ||
       rule.id == 'builtin-number-only';
 }
+
+final _chinesePrefix = RegExp(
+  '[【\\[（(「『]?[ \\t　]*第?[ \\t　]*'
+  '([$chapterNumberCharacters]+)[ \\t　]*(章|节|節|回|话|話|幕|期|卷|部|册|冊|集|辑|輯|季)(.*)',
+);
 
 List<_Candidate> _scan(
   List<String> blocks,
@@ -192,40 +208,158 @@ void _removeOpeningContents(List<_Candidate> candidates, List<String> blocks) {
   if (seen == opening.length) candidates.removeRange(0, end);
 }
 
-void _filterWeakCandidates(List<_Candidate> candidates, List<String> blocks) {
+/// 稳定的主章序列只排除夹在连续章号之间的异类标题，保留原文错号与重置。
+bool _filterChineseCandidates(List<_Candidate> candidates) {
+  candidates.removeWhere((candidate) {
+    if (candidate.rule.id != 'builtin-chinese' || !candidate.volume) {
+      return false;
+    }
+    final suffix = candidate.chinese?.group(3) ?? '';
+    return suffix.isNotEmpty &&
+        !RegExp(r'^[ \t　:：·、—_\-]').hasMatch(suffix) &&
+        RegExp(r'[。！？!?；;]$').hasMatch(suffix);
+  });
   final groups = <String, List<_Candidate>>{};
-  for (final candidate in candidates.where((item) => item.weak)) {
-    (groups[_weakStyle(candidate)] ??= []).add(candidate);
-  }
-  final accepted = <_Candidate>{};
-  for (final group in groups.values) {
-    if (group.length < 3) continue;
-    var continuous = 0;
-    var totalGap = 0;
-    for (var i = 1; i < group.length; i++) {
-      if (_ordinal(group[i].title) ==
-              (_ordinal(group[i - 1].title) ?? -10) + 1 ||
-          _ordinal(group[i].title) == 1 &&
-              candidates.any(
-                (candidate) =>
-                    candidate.volume &&
-                    candidate.index > group[i - 1].index &&
-                    candidate.index < group[i].index,
-              )) {
-        continuous++;
-      }
-      for (var j = group[i - 1].index + 1; j < group[i].index; j++) {
-        totalGap += blocks[j].length;
-      }
-    }
-    if (continuous / (group.length - 1) >= 0.6 &&
-        totalGap / (group.length - 1) >= 100) {
-      accepted.addAll(group);
+  for (final candidate in candidates) {
+    if (candidate.rule.id == 'builtin-chinese' && !candidate.volume) {
+      (groups[candidate.chapterStyle!] ??= []).add(candidate);
     }
   }
+  if (groups.isEmpty) return false;
+  final main = groups.values.reduce((a, b) => a.length >= b.length ? a : b);
+  final chapterCount = groups.values.fold(
+    0,
+    (count, group) => count + group.length,
+  );
+  if (main.length < 3 || main.length * 2 <= chapterCount) return false;
+  var continuous = 0;
+  for (var i = 1; i < main.length; i++) {
+    final previous = main[i - 1].ordinal;
+    if (previous != null && main[i].ordinal == previous + 1) continuous++;
+  }
+  if (continuous / (main.length - 1) < .6) return false;
+  var next = 0;
+  candidates.removeWhere((candidate) {
+    while (next < main.length && main[next].index < candidate.index) {
+      next++;
+    }
+    return candidate.rule.id == 'builtin-chinese' &&
+        !candidate.volume &&
+        candidate.chapterStyle != main.first.chapterStyle &&
+        next > 0 &&
+        next < main.length &&
+        main[next - 1].ordinal != null &&
+        main[next].ordinal == main[next - 1].ordinal! + 1;
+  });
+  return true;
+}
+
+void _filterWeakCandidates(
+  List<_Candidate> candidates,
+  List<int> offsets,
+  bool hasMainChapters,
+) {
+  final groups = <(String, int), List<_Candidate>>{};
+  var volume = 0;
+  for (final candidate in candidates) {
+    if (candidate.volume) volume++;
+    if (candidate.weak && !hasMainChapters) {
+      (groups[(_weakStyle(candidate), volume)] ??= []).add(candidate);
+    }
+  }
+  final byStyle = <String, List<_Candidate>>{};
+  for (final entry in groups.entries) {
+    final chain = _weakSequence(entry.value, offsets);
+    if (chain.isEmpty) continue;
+    (byStyle[entry.key.$1] ??= []).addAll(chain);
+  }
+  final accepted = {
+    for (final group in byStyle.values)
+      if (group.length >= 3) ...group,
+  };
   candidates.removeWhere(
     (candidate) => candidate.weak && !accepted.contains(candidate),
   );
+}
+
+class _NumberSequence {
+  _NumberSequence(this.candidate, this.previous, int quality)
+    : count = (previous?.count ?? 0) + 1,
+      quality = (previous?.quality ?? 0) + quality;
+  final _Candidate candidate;
+  final _NumberSequence? previous;
+  final int count;
+  final int quality;
+
+  bool betterThan(_NumberSequence? other) =>
+      other == null ||
+      count > other.count ||
+      count == other.count && quality > other.quality;
+}
+
+/// 只采用主编号链；正文清单不能借全书平均间距获得章节资格。
+List<_Candidate> _weakSequence(List<_Candidate> group, List<int> offsets) {
+  final bestByNumber = <int, _NumberSequence>{};
+  _NumberSequence? best;
+  for (var i = 0; i < group.length; i++) {
+    final item = group[i];
+    final number = item.ordinal;
+    if (number == null) continue;
+    final adjacent = bestByNumber[number - 1];
+    final skipped = bestByNumber[number - 2];
+    final previous = adjacent == null || skipped?.betterThan(adjacent) == true
+        ? skipped
+        : adjacent;
+    final end = i + 1 < group.length ? group[i + 1].index : offsets.length - 1;
+    final after = offsets[end] - offsets[item.index + 1];
+    final before = i == 0
+        ? after
+        : offsets[item.index] - offsets[group[i - 1].index + 1];
+    final quality = (before < after ? before : after).clamp(0, 10000);
+    final sequence = _NumberSequence(item, previous, quality);
+    if (sequence.betterThan(bestByNumber[number])) {
+      bestByNumber[number] = sequence;
+    }
+    if (sequence.betterThan(best)) best = sequence;
+  }
+  final result = <_Candidate>[];
+  for (var node = best; node != null; node = node.previous) {
+    result.add(node.candidate);
+  }
+  final ordered = result.reversed.toList();
+  if (ordered.length < 2) return [];
+  var continuous = 0, totalGap = 0;
+  for (var i = 1; i < ordered.length; i++) {
+    if (ordered[i].ordinal == ordered[i - 1].ordinal! + 1) continuous++;
+    totalGap += offsets[ordered[i].index] - offsets[ordered[i - 1].index + 1];
+  }
+  return continuous / (ordered.length - 1) >= .6 &&
+          totalGap / (ordered.length - 1) >= 100
+      ? ordered
+      : [];
+}
+
+void _filterUnnamedCandidates(List<_Candidate> candidates, List<int> offsets) {
+  final rejected = <_Candidate>{};
+  for (var i = 0; i < candidates.length; i++) {
+    final candidate = candidates[i];
+    if (candidate.rule.id != 'builtin-unnamed') continue;
+    final previous = i > 0 ? candidates[i - 1] : null;
+    final next = i + 1 < candidates.length ? candidates[i + 1] : null;
+    if (previous == null ||
+        next == null ||
+        previous.ordinal == null ||
+        previous.rule.id != next.rule.id ||
+        previous.chapterStyle != next.chapterStyle ||
+        next.ordinal != previous.ordinal! + 2 ||
+        previous.volume ||
+        next.volume ||
+        offsets[candidate.index] - offsets[previous.index + 1] < 100 ||
+        offsets[next.index] - offsets[candidate.index + 1] < 100) {
+      rejected.add(candidate);
+    }
+  }
+  candidates.removeWhere(rejected.contains);
 }
 
 String _weakStyle(_Candidate candidate) {
