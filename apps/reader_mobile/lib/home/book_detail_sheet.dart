@@ -5,6 +5,7 @@ import 'package:reader_ui/reader_session.dart';
 import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
 import 'book_cover_image.dart';
+import 'reading_insights.dart';
 
 /// 长按书架卡片展示书籍元信息和快捷操作。
 ///
@@ -17,6 +18,7 @@ class BookDetailSheet extends StatelessWidget {
     required this.entry,
     required this.library,
     this.progress,
+    this.readingDuration = Duration.zero,
   });
 
   /// 书籍条目。
@@ -27,6 +29,9 @@ class BookDetailSheet extends StatelessWidget {
 
   /// 已保存的阅读位置；没有进度时显示已读 0 章。
   final ReaderProgress? progress;
+
+  /// 本书累计有效阅读时长，与图书详情的统计口径一致。
+  final Duration readingDuration;
 
   @override
   Widget build(BuildContext context) {
@@ -41,46 +46,71 @@ class BookDetailSheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                BookCoverImage(
-                  key: const ValueKey('book-detail-cover'),
-                  book: entry,
-                  width: 80,
-                  height: 108,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        entry.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        entry.author.isEmpty ? '未知作者' : entry.author,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '已读 $currentChapter / $totalChapters 章',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  BookCoverImage(
+                    key: const ValueKey('book-detail-cover'),
+                    book: entry,
+                    width: 80,
+                    height: 108,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      key: const ValueKey('book-detail-metadata'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          entry.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontSize: 18,
+                            height: 1.25,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          entry.author.isEmpty ? '未知作者' : entry.author,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 13,
+                            height: 1.3,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '已读 ${formatReadingDuration(readingDuration)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 13,
+                            height: 1.3,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '已读 $currentChapter / $totalChapters 章',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 13,
+                            height: 1.3,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             const Divider(height: 24),
             FutureBuilder<List<String>>(
