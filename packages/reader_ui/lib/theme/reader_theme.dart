@@ -1,11 +1,11 @@
 import 'dart:math' as math;
-import 'dart:ui' show Color;
+import 'dart:ui' show Brightness, Color;
 
 import 'package:reader_core/css/reader_overrides.dart';
 
 /// 阅读主题：背景色与文字色成对定义（P2-23）。
 ///
-/// 五套主题的正文对比度均 ≥ 4.5:1（WCAG AA），切换只换颜色、不触发重新分页
+/// 内置主题的正文对比度均 ≥ 4.5:1（WCAG AA），切换只换颜色、不触发重新分页
 /// （字号/行高/页边距不变）。
 class ReaderTheme {
   /// 创建主题。
@@ -27,6 +27,17 @@ class ReaderTheme {
 
   /// 正文颜色。
   final Color text;
+
+  /// 沿用阅读面板的亮度分界，自定义配色也按背景归入日间或夜间。
+  bool get isDark => background.computeLuminance() < 0.35;
+
+  /// 配色与宿主模式不符时使用该模式的默认色，未指定模式则保留配色。
+  ReaderTheme resolveForBrightness(Brightness? brightness) =>
+      brightness == null || isDark == (brightness == Brightness.dark)
+      ? this
+      : brightness == Brightness.dark
+      ? black
+      : white;
 
   /// 次要文字仍保持足够反差，页眉页脚在日夜主题下均可辨认。
   Color get sub => text.withValues(alpha: 0.76);
@@ -53,7 +64,7 @@ class ReaderTheme {
   ReaderOverrides toOverrides() =>
       ReaderOverrides(textColor: text, backgroundColor: background);
 
-  /// 五套主题：白 / 米黄 / 粉 / 浅绿 / 纯黑。
+  /// 保留原有配色及持久化标识。
   static const white = ReaderTheme(
     id: 'white',
     name: '白',
@@ -85,8 +96,71 @@ class ReaderTheme {
     text: Color(0xFFBABDB7),
   );
 
+  /// 补充色取自 Inkwell 的全局主题；正文沿用其深浅背景对应的文字色。
+  /// https://github.com/radiumCN/inkwell/blob/a750fa5c66c258a5db3f8039c6554bf740529466/app/src/main/kotlin/com/radium/inkwell/ui/theme/AppThemes.kt
+  static const paper = ReaderTheme(
+    id: 'paper',
+    name: '暖纸',
+    background: Color(0xFFFFFBEB),
+    text: Color(0xFF1C1917),
+  );
+  static const bamboo = ReaderTheme(
+    id: 'bamboo',
+    name: '青竹',
+    background: Color(0xFFF2F7EE),
+    text: Color(0xFF1C1917),
+  );
+  static const mist = ReaderTheme(
+    id: 'mist',
+    name: '晨雾',
+    background: Color(0xFFF4F6F8),
+    text: Color(0xFF1C1917),
+  );
+  static const warm = ReaderTheme(
+    id: 'warm',
+    name: '暖黑',
+    background: Color(0xFF17140F),
+    text: Color(0xFFE7E1D7),
+  );
+  static const inkblue = ReaderTheme(
+    id: 'inkblue',
+    name: '墨蓝',
+    background: Color(0xFF10151F),
+    text: Color(0xFFE7E1D7),
+  );
+  static const moss = ReaderTheme(
+    id: 'moss',
+    name: '苔绿',
+    background: Color(0xFF10170F),
+    text: Color(0xFFE7E1D7),
+  );
+  static const plum = ReaderTheme(
+    id: 'plum',
+    name: '紫檀',
+    background: Color(0xFF17111A),
+    text: Color(0xFFE7E1D7),
+  );
+
+  /// 日间主题；牛皮色与原米黄色相近，合并复用 sepia。
+  static const dayThemes = <ReaderTheme>[
+    white,
+    sepia,
+    pink,
+    green,
+    paper,
+    bamboo,
+    mist,
+  ];
+
+  /// 夜间主题；纯黑复用原配色。
+  static const nightThemes = <ReaderTheme>[black, warm, inkblue, moss, plum];
+
   /// 全部主题。
-  static const themes = <ReaderTheme>[white, sepia, pink, green, black];
+  static const themes = <ReaderTheme>[...dayThemes, ...nightThemes];
+
+  /// 色块列表仅显示当前软件模式对应的配色。
+  static List<ReaderTheme> themesFor(Brightness brightness) =>
+      brightness == Brightness.dark ? nightThemes : dayThemes;
 
   /// 按 id 取主题，未知 id 回退白色。
   ///
@@ -97,6 +171,9 @@ class ReaderTheme {
     }
     if (id == 'dark') {
       return black;
+    }
+    if (id == 'kraft') {
+      return sepia;
     }
     return customById(id) ??
         themes.firstWhere((theme) => theme.id == id, orElse: () => white);

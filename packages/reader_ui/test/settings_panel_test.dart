@@ -8,6 +8,39 @@ import 'package:reader_ui/tap_zones.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('主题面板仅显示 $brightness 对应色块且不显示主题名称', (tester) async {
+      final changes = <String>[];
+      final current = brightness == Brightness.dark
+          ? ReaderTheme.black
+          : ReaderTheme.white;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(brightness: brightness),
+          home: Scaffold(
+            body: SettingsPanel(
+              section: SettingsSection.theme,
+              overrides: ReaderSettingsDefaults.overrides,
+              themeId: current.id,
+              onOverridesChanged: (_) {},
+              onThemeChanged: changes.add,
+            ),
+          ),
+        ),
+      );
+      for (final theme in ReaderTheme.themes) {
+        expect(
+          find.byKey(ValueKey('settings-theme-${theme.id}')),
+          theme.isDark == current.isDark ? findsOneWidget : findsNothing,
+        );
+        expect(find.text(theme.name), findsNothing);
+      }
+      await tester.tap(find.byKey(ValueKey('settings-theme-${current.id}')));
+      expect(changes, [current.id]);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('设置面板：字号/行高/段距/边距滑块与主题切换（P4-21）', (tester) async {
     final changes = <ReaderOverrides>[];
     final themes = <String>[];
@@ -172,7 +205,7 @@ void main() {
           .data,
       '主题',
     );
-    for (final key in <String>['settings-theme-black', 'settings-bg-wood']) {
+    for (final key in <String>['settings-theme-sepia', 'settings-bg-wood']) {
       expect(
         tester.widget<InkWell>(find.byKey(ValueKey<String>(key))).onTap,
         isNull,

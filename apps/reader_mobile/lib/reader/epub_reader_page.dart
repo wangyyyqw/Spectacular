@@ -252,8 +252,15 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _changeSettings(_settings.copyWithTheme(themeId));
     final scope = AppThemeScope.maybeOf(context);
     if (scope == null) return;
-    final dark = ReaderTheme.byId(themeId).background.computeLuminance() < 0.35;
+    final dark = ReaderTheme.byId(themeId).isDark;
+    if (dark == (Theme.of(context).brightness == Brightness.dark)) return;
     unawaited(scope.onModeChanged(dark ? ThemeMode.dark : ThemeMode.light));
+  }
+
+  void _toggleDayNight() {
+    final scope = AppThemeScope.maybeOf(context)!;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    unawaited(scope.onModeChanged(dark ? ThemeMode.light : ThemeMode.dark));
   }
 
   @override
@@ -553,16 +560,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     );
   }
 
-  // 深浅色跟随界面主题，保留已保存的日间配色以便切回日间时恢复。
+  // 深浅色跟随软件模式，分别恢复日间和夜间配色。
   ReaderTheme get _pageTheme {
     if (AppThemeScope.maybeOf(context) == null) return _settings.theme;
-    if (Theme.of(context).brightness == Brightness.dark) {
-      return ReaderTheme.black;
-    }
-    final theme = _settings.theme;
-    return theme.background.computeLuminance() < 0.35
-        ? ReaderTheme.white
-        : theme;
+    return _settings.themeForBrightness(Theme.of(context).brightness);
   }
 
   Widget _buildBody() {
@@ -593,7 +594,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onMarkSettingsChanged: (mark) =>
           _changeSettings(_settings.copyWithMarkSettings(mark)),
       overrides: settings.overrides,
-      theme: settings.theme,
+      theme: _pageTheme,
       pageBrightness: AppThemeScope.maybeOf(context) == null
           ? null
           : Theme.of(context).brightness,
@@ -614,6 +615,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onOverridesChanged: (overrides) =>
           _changeSettings(_settings.copyWithOverrides(overrides)),
       onThemeChanged: _changeTheme,
+      onToggleDayNight: AppThemeScope.maybeOf(context) == null
+          ? null
+          : _toggleDayNight,
       onBackgroundChanged: (backgroundId) =>
           _changeSettings(_settings.copyWithBackground(backgroundId)),
       onInkModeChanged: (enabled) =>
