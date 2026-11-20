@@ -88,7 +88,7 @@ void main() {
         );
         final secondary = _style(
           tester,
-          find.byKey(ValueKey('book-row-meta-${book.id}')),
+          find.text('已读 0 分钟'),
         );
         expect(primary.fontSize, 14);
         expect(secondary.fontSize, 12);

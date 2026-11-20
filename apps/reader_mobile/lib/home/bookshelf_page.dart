@@ -10,7 +10,6 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
-import 'package:reader_core/position/locator.dart';
 
 import '../library/library_store.dart';
 import '../reader/book_opener.dart';
@@ -29,8 +28,8 @@ import 'book_cover_image.dart';
 import 'reading_insights.dart';
 import '../storage/import_queue.dart';
 
-/// 书架条目与已保存的当前正文比例；旧记录才按字符权重估算。
-typedef _ShelfItem = ({BookEntry entry, int? percentInt, bool finished});
+/// 书架条目及列表显示的阅读记录。
+typedef _ShelfItem = ({BookEntry entry, int? spineIndex, Duration duration});
 
 const _shelfMinColumns = 3;
 const _shelfTargetCardWidth = 192.0;
@@ -666,32 +665,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _reloadOnce() async {
-    // 四份数据互不依赖；并发读取后仍只对本轮完整快照调用一次 setState。
-    final (books, groups, bookGroups, progress) = await (
+    // 并发读取后一次更新书架快照。
+    final (books, groups, bookGroups, progress, durations) = await (
       widget.library.list(),
       widget.library.listGroups(),
       widget.library.groupAssignments(),
       widget.progressStore.snapshot(),
+      widget.library.bookReadingDurations(minimumCountedSessionDuration),
     ).wait;
-    final weights = await widget.library.progressWeightsForBooks(<String>[
+    final items = <_ShelfItem>[
       for (final book in books)
-        if (progress.containsKey(book.id)) book.id,
-    ]);
-    final items = <_ShelfItem>[];
-    for (final book in books) {
-      int? percent;
-      final current = progress[book.id];
-      if (current != null) {
-        percent = current.readingPercent == null
-            ? _fallbackPercent(weights[book.id], current)
-            : (current.readingPercent! * 100).round().clamp(0, 100);
-      }
-      items.add((
-        entry: book,
-        percentInt: percent,
-        finished: current?.finished ?? false,
-      ));
-    }
+        (
+          entry: book,
+          spineIndex: progress[book.id]?.spineIndex,
+          duration: durations[book.id] ?? Duration.zero,
+        ),
+    ];
     if (mounted) {
       final validIds = <String>{for (final item in items) item.entry.id};
       setState(() {
@@ -708,11 +697,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
         }
       });
     }
-  }
-
-  int? _fallbackPercent(ProgressWeights? weights, ReaderProgress progress) {
-    if (weights == null || weights.total <= 0) return null;
-    return weights.percentInt(progress.spineIndex);
   }
 
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
@@ -1456,9 +1440,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       itemBuilder: (context, index) {
         final item = books[index];
         return _BookRow(
-          entry: item.entry,
-          percentInt: item.percentInt,
-          finished: item.finished,
+          item: item,
           selectionMode: _selectionMode,
           selected: _selectedIds.contains(item.entry.id),
           onSelect: () => _toggleSelected(item.entry.id),
@@ -2151,12 +2133,10 @@ class _ImportBanner extends StatelessWidget {
   }
 }
 
-/// 列表视图的一行（P4-08）：封面缩略 + 书名。
+/// 列表中的封面、书名与阅读记录。
 class _BookRow extends StatelessWidget {
   const _BookRow({
-    required this.entry,
-    required this.percentInt,
-    required this.finished,
+    required this.item,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2165,9 +2145,7 @@ class _BookRow extends StatelessWidget {
     required this.onSecondaryTap,
   });
 
-  final BookEntry entry;
-  final int? percentInt;
-  final bool finished;
+  final _ShelfItem item;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2178,6 +2156,11 @@ class _BookRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final entry = item.entry;
+    final author = entry.author.trim();
+    final metadataStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final cover = Hero(
       tag: bookCoverHeroTag(entry.id),
       transitionOnUserGestures: true,
@@ -2242,16 +2225,18 @@ class _BookRow extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _shelfMetaLabel(entry, percentInt, finished),
-                      key: ValueKey<String>('book-row-meta-${entry.id}'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 4),
+                    for (final label in [
+                      author.isEmpty ? '未知作者' : author,
+                      '已读 ${formatReadingDuration(item.duration)}',
+                      formatReadingChapters(item.spineIndex, entry.spineCount),
+                    ])
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: metadataStyle,
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -2265,17 +2250,6 @@ class _BookRow extends StatelessWidget {
       ),
     );
   }
-}
-
-String _shelfMetaLabel(BookEntry entry, int? percentInt, bool finished) {
-  final author = entry.author.trim().isEmpty ? '未知作者' : entry.author.trim();
-  final status = switch (finished ? BookReadingStatus.finished : entry.status) {
-    BookReadingStatus.unread => percentInt == null ? '未开始' : '在读 $percentInt%',
-    BookReadingStatus.reading => percentInt == null ? '在读' : '在读 $percentInt%',
-    BookReadingStatus.finished =>
-      percentInt == null ? '已读完' : '已读完 · $percentInt%',
-  };
-  return '$status · $author';
 }
 
 class _EmptyPane extends StatelessWidget {

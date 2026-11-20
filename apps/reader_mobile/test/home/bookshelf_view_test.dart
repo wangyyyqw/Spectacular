@@ -169,7 +169,9 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-list')),
       findsOneWidget,
     );
-    expect(find.text('未开始 · 测试作者'), findsNWidgets(entries.length));
+    expect(find.text('测试作者'), findsNWidgets(entries.length));
+    expect(find.text('已读 0 分钟'), findsNWidgets(entries.length));
+    expect(find.text('已读 0 / 1 章'), findsNWidgets(entries.length));
     expect(find.textContaining('文件名与元数据不同'), findsNothing);
     expect(
       find.byWidgetPredicate(
