@@ -709,11 +709,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 长按卡片：快捷详情面板；可继续进入完整详情页或删除。
   Future<void> _openBookDetail(BookEntry entry) async {
+    final progress = await widget.progressStore.load(entry.id);
+    if (!mounted) return;
     final action = await showReaderBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => BookDetailSheet(entry: entry, library: widget.library),
+      builder: (_) => BookDetailSheet(
+        entry: entry,
+        library: widget.library,
+        progress: progress,
+      ),
     );
     if (!mounted) {
       return;

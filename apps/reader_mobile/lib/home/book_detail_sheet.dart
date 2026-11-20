@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
@@ -15,6 +16,7 @@ class BookDetailSheet extends StatelessWidget {
     super.key,
     required this.entry,
     required this.library,
+    this.progress,
   });
 
   /// 书籍条目。
@@ -23,11 +25,16 @@ class BookDetailSheet extends StatelessWidget {
   /// 书库（查询待定位记录和章节重划分能力）。
   final LibraryStore library;
 
-  static const _levelLabels = <String>['完整', '已修复', '部分降级', '结构异常', '无法阅读'];
+  /// 已保存的阅读位置；没有进度时显示已读 0 章。
+  final ReaderProgress? progress;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final totalChapters = entry.spineCount ?? 0;
+    final currentChapter = progress == null
+        ? 0
+        : (progress!.spineIndex + 1).clamp(0, totalChapters);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -65,28 +72,13 @@ class BookDetailSheet extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '内容${_levelLabels[entry.readabilityLevel.clamp(0, 4)]}',
+                        '已读 $currentChapter / $totalChapters 章',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 16,
-              runSpacing: 4,
-              children: [
-                _MetaItem(label: '章节', value: '${entry.spineCount ?? 0} 章'),
-                _MetaItem(label: '导入', value: _formatDate(entry.addedAt)),
-                _MetaItem(
-                  label: '最近阅读',
-                  value: entry.lastReadAt == null
-                      ? '未读'
-                      : _formatDate(entry.lastReadAt!),
                 ),
               ],
             ),
@@ -179,12 +171,6 @@ class BookDetailSheet extends StatelessWidget {
       ),
     );
   }
-
-  static String _formatDate(DateTime time) {
-    final local = time.toLocal();
-    String two(int value) => value.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)}';
-  }
 }
 
 class _DetailAction extends StatelessWidget {
@@ -215,30 +201,6 @@ class _DetailAction extends StatelessWidget {
         ),
         onTap: onTap,
       ),
-    );
-  }
-}
-
-class _MetaItem extends StatelessWidget {
-  const _MetaItem({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        Text(value, style: theme.textTheme.bodySmall),
-      ],
     );
   }
 }
