@@ -576,11 +576,13 @@ class StyledRun {
 
   double get leadingInset =>
       inlineLeadingInset ??
-      style.padding.left +
+      math.max(0, style.margin.left) +
+          style.padding.left +
           (style.borders.left.isVisible ? style.borders.left.width : 0);
   double get trailingInset =>
       inlineTrailingInset ??
-      style.padding.right +
+      math.max(0, style.margin.right) +
+          style.padding.right +
           (style.borders.right.isVisible ? style.borders.right.width : 0);
 }
 
@@ -2613,7 +2615,11 @@ abstract final class TextLayoutEngine {
     List<_InlineBoxMark> marks,
     List<int> offsets,
   ) => {
-    for (final mark in marks) ...[mark.index, mark.index + 1],
+    // 留白盒只占宽，不是原子内容；两侧标点仍可各自压缩。
+    // 插入的占位符仍隔开标点，不会跨作者留白应用相邻压缩。
+    for (final mark in marks)
+      if (mark.spec.payload is! InlineSpacingEdge)
+        ...[mark.index, mark.index + 1],
     for (final ruby in rubies)
       for (
         var i = _measuredOffset(offsets, ruby.start);
@@ -4242,7 +4248,7 @@ abstract final class TextLayoutEngine {
   /// 行内盒占位符（U+FFFC：object replacement character）。
   static const String _inlineBoxPlaceholder = '\uFFFC';
 
-  /// 普通行内元素的水平内边距和边框参与占宽；零高盒不撑高行盒。
+  /// 普通行内元素的正外边距、内边距和边框参与占宽；零高盒不撑高行盒。
   static Iterable<InlineBoxSpec> _inlineSpacingBoxes(
     List<StyledRun> runs,
     int length,

@@ -262,6 +262,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         navigationTheme.selectedItemColor ?? theme.colorScheme.onSurface;
     final navigationBackground =
         navigationTheme.backgroundColor ?? theme.canvasColor;
+    final iconOffset = Offset(0, usesDesktopLayout(context) ? 0 : 2);
     return [
       for (final (label, glyph) in [
         ('书架', AppGlyph.bookshelf),
@@ -272,13 +273,19 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ])
         BottomNavigationBarItem(
           label: label,
-          icon: AppIcon(glyph, size: 24, color: unselectedColor),
-          activeIcon: AppIcon(
-            glyph,
-            size: 24,
-            color: selectedColor,
-            filled: true,
-            cutoutColor: navigationBackground,
+          icon: Transform.translate(
+            offset: iconOffset,
+            child: AppIcon(glyph, size: 24, color: unselectedColor),
+          ),
+          activeIcon: Transform.translate(
+            offset: iconOffset,
+            child: AppIcon(
+              glyph,
+              size: 24,
+              color: selectedColor,
+              filled: true,
+              cutoutColor: navigationBackground,
+            ),
           ),
         ),
     ];
@@ -331,11 +338,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ),
       bottomNavigationBar: useRail
           ? null
-          : DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: theme.dividerColor)),
-              ),
+          : Material(
+              color: theme.colorScheme.surface,
+              elevation: 2,
+              shadowColor: theme.colorScheme.shadow.withValues(alpha: .12),
               child: BottomNavigationBar(
+                backgroundColor: theme.colorScheme.surface,
+                elevation: 0,
                 currentIndex: _index,
                 onTap: _selectDestination,
                 items: items,
