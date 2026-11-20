@@ -116,8 +116,13 @@ class OnlineBookController extends ChangeNotifier {
   }
 
   /// 打开书源网页登录并保存 Cookie。
-  Future<BookSourceLoginResult> login(BookSource source) async {
-    final result = await auth.login(source, cookieStore);
+  Future<BookSourceLoginResult> login(
+    BookSource source, {
+    Map<String, String>? credentials,
+  }) async {
+    final result = credentials == null
+        ? await auth.login(source, cookieStore)
+        : await auth.loginWithCredentials(source, cookieStore, credentials);
     if (result.success) {
       _loggedInSourceIds = <String>{..._loggedInSourceIds, source.id};
       notifyListeners();

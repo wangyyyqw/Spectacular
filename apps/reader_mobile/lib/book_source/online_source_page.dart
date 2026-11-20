@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_source_models.dart';
+import 'book_source_login_config.dart';
 import 'online_book_controller.dart';
 import 'online_search_page.dart';
 
@@ -190,7 +191,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
               ListTile(
                 leading: const AppIcon(AppGlyph.profile),
                 title: Text('${source.name} 已登录'),
-                subtitle: const Text('Cookie 已保存在本机，可用于书架和接口请求。'),
+                subtitle: const Text('登录信息已保存在本机，可用于书源请求。'),
               ),
               ListTile(
                 leading: const AppIcon(AppGlyph.lock),
@@ -210,7 +211,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
       if (!mounted || action == null) return;
       if (action == 'logout') {
         await widget.controller.logout(source);
-        _showError('已清除 ${source.name} 的登录 Cookie');
+        _showError('已清除 ${source.name} 的登录信息');
         return;
       }
       if (action != 'login') return;
@@ -219,14 +220,82 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
   }
 
   Future<void> _openLogin(BookSource source) async {
+    final fields = widget.controller.auth.fieldsFor(source);
+    Map<String, String>? credentials;
+    if (fields.isNotEmpty) {
+      credentials = await _enterCredentials(source, fields);
+      if (!mounted || credentials == null) return;
+    }
     setState(() => _loggingInSourceId = source.id);
     try {
-      final result = await widget.controller.login(source);
+      final result = await widget.controller.login(
+        source,
+        credentials: credentials,
+      );
       _showError(result.message);
     } on Object catch (error) {
       _showError('登录失败：$error');
     } finally {
       if (mounted) setState(() => _loggingInSourceId = null);
+    }
+  }
+
+  Future<Map<String, String>?> _enterCredentials(
+    BookSource source,
+    List<BookSourceLoginField> fields,
+  ) async {
+    final saved = widget.controller.cookieStore.loginInfo(source);
+    final inputs = {
+      for (final field in fields)
+        field.name: TextEditingController(
+          text: saved[field.name] ?? field.defaultValue,
+        ),
+    };
+    try {
+      return await showDialog<Map<String, String>>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('登录 ${source.name}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final field in fields)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextField(
+                      key: ValueKey('online-login-field-${field.name}'),
+                      controller: inputs[field.name],
+                      obscureText: field.secret,
+                      autocorrect: false,
+                      enableSuggestions: !field.secret,
+                      decoration: InputDecoration(labelText: field.name),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey('online-login-submit'),
+              onPressed: () => Navigator.pop(context, {
+                for (final entry in inputs.entries) entry.key: entry.value.text,
+              }),
+              child: const Text('登录'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      // 等待对话框出场动画结束，避免仍在布局的输入框读取已释放控制器。
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      for (final input in inputs.values) {
+        input.dispose();
+      }
     }
   }
 

@@ -114,6 +114,10 @@ class BookSourceService {
           (source) => QuickJsBookSourceScriptSession(
             jsLib: source.jsLib,
             cookieProvider: (domain, name) => store.cookieValue(domain, name),
+            sourceKey: source.sourceUrl,
+            loginInfo: store.loginInfo(source),
+            loginHeader: store.loginHeader(source),
+            sourceVariable: store.sourceVariable(source),
           ),
     );
   }

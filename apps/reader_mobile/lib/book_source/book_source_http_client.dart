@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import 'book_source_cookie_store.dart';
 import 'book_source_models.dart';
+import 'book_source_script.dart';
 
 /// 在线书源 HTTP 响应。
 class BookSourceHttpResponse {
@@ -175,6 +176,8 @@ class BookSourceHttpClient {
       'Accept': '*/*',
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
       ..._sourceHeaders(source),
+      if (options['useLoginHeader'] != false)
+        ..._decodedHeaders(cookieStore?.loginHeader(source) ?? ''),
       ..._optionHeaders(options),
       ...headers,
     };
@@ -350,6 +353,31 @@ class BookSourceHttpClient {
   Map<String, String> _sourceHeaders(BookSource source) {
     final text = source.header.trim();
     if (text.isEmpty) return const <String, String>{};
+    if (text.startsWith('@js:') ||
+        text.startsWith('<js>') ||
+        text.contains('{{')) {
+      final script = QuickJsBookSourceScriptSession(
+        jsLib: source.jsLib,
+        sourceKey: source.sourceUrl,
+        loginInfo: cookieStore?.loginInfo(source) ?? const {},
+        loginHeader: cookieStore?.loginHeader(source) ?? '',
+        sourceVariable: cookieStore?.sourceVariable(source) ?? '',
+        cookieProvider: cookieStore?.cookieValue,
+      );
+      try {
+        final headers = evaluateBookSourceHeaders(text, script, source.baseUrl);
+        if (script.takePendingRequests().isNotEmpty) {
+          throw const BookSourceException('请求头脚本需要网络响应，请先完成书源登录');
+        }
+        return headers;
+      } finally {
+        script.dispose();
+      }
+    }
+    return _decodedHeaders(text);
+  }
+
+  Map<String, String> _decodedHeaders(String text) {
     try {
       final decoded = jsonDecode(text);
       if (decoded is! Map) return const <String, String>{};
@@ -378,6 +406,11 @@ class BookSourceHttpClient {
 
   Future<void> _rememberCookies(BookSource source, Uri uri, String? raw) async {
     if (raw == null || raw.trim().isEmpty) return;
+    if (cookieStore != null) {
+      // 持久化 Cookie 只有一个来源，退出登录后不能被请求器的旧缓存复活。
+      await cookieStore!.absorbSetCookie(source, uri, raw);
+      return;
+    }
     final jar = _cookies.putIfAbsent(source.id, () => <String, String>{});
     for (final part in raw.split(RegExp(r',(?=\s*[^;,=]+=)'))) {
       final pair = part.split(';').first.trim();
@@ -392,7 +425,6 @@ class BookSourceHttpClient {
         jar[name] = value;
       }
     }
-    await cookieStore?.absorbSetCookie(source, uri, raw);
   }
 
   bool _hasHeader(Map<String, String> headers, String name) {

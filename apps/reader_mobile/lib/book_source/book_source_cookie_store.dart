@@ -19,6 +19,29 @@ class BookSourceCookieStore {
   final Map<String, Map<String, String>> _cookies =
       <String, Map<String, String>>{};
   final Set<String> _loginDomains = <String>{};
+  final Map<String, Map<String, String>> _loginInfo = {};
+  final Map<String, String> _loginHeaders = {};
+  final Map<String, String> _variables = {};
+
+  Map<String, String> loginInfo(BookSource source) =>
+      Map.of(_loginInfo[source.id] ?? const {});
+
+  String loginHeader(BookSource source) => _loginHeaders[source.id] ?? '';
+  String sourceVariable(BookSource source) => _variables[source.id] ?? '';
+
+  Future<void> saveSourceLogin(
+    BookSource source, {
+    Map<String, String>? info,
+    String? header,
+    String? variable,
+  }) async {
+    await load();
+    if (info != null) _loginInfo[source.id] = Map.of(info);
+    if (header != null) _loginHeaders[source.id] = header;
+    if (variable != null) _variables[source.id] = variable;
+    await _persist();
+  }
+
   Future<void>? _loading;
   Future<void> _writeQueue = Future<void>.value();
   bool _loaded = false;
@@ -160,6 +183,10 @@ class BookSourceCookieStore {
   /// 是否完成过网页登录并保存了该来源域名的 Cookie。
   Future<bool> hasLoginFor(BookSource source) async {
     await load();
+    if ((_loginInfo[source.id]?.isNotEmpty ?? false) ||
+        (_loginHeaders[source.id]?.isNotEmpty ?? false)) {
+      return true;
+    }
     for (final host in _sourceHosts(source)) {
       for (final domain in _loginDomains) {
         if (cookieDomainMatches(host, domain) ||
@@ -174,6 +201,9 @@ class BookSourceCookieStore {
   /// 清除某个书源域名下的登录 Cookie。
   Future<void> clearForSource(BookSource source) async {
     await load();
+    _loginInfo.remove(source.id);
+    _loginHeaders.remove(source.id);
+    _variables.remove(source.id);
     final hosts = _sourceHosts(source);
     _cookies.removeWhere((domain, _) {
       for (final host in hosts) {
@@ -235,10 +265,32 @@ class BookSourceCookieStore {
     _loaded = false;
     _cookies.clear();
     _loginDomains.clear();
+    _loginInfo.clear();
+    _loginHeaders.clear();
+    _variables.clear();
     try {
       final file = await _cookieFile();
       if (await file.exists()) {
         final decoded = jsonDecode(await file.readAsString());
+        if (decoded is Map) {
+          final info = decoded['loginInfo'];
+          if (info is Map) {
+            for (final entry in info.entries) {
+              if (entry.value is Map) {
+                _loginInfo['${entry.key}'] = {
+                  for (final item in (entry.value as Map).entries)
+                    '${item.key}': '${item.value}',
+                };
+              }
+            }
+          }
+          for (final entry in (decoded['loginHeaders'] as Map? ?? {}).entries) {
+            _loginHeaders['${entry.key}'] = '${entry.value}';
+          }
+          for (final entry in (decoded['variables'] as Map? ?? {}).entries) {
+            _variables['${entry.key}'] = '${entry.value}';
+          }
+        }
         final rawCookies = decoded is Map ? decoded['cookies'] : null;
         if (rawCookies is Map) {
           for (final domainEntry in rawCookies.entries) {
@@ -253,9 +305,7 @@ class BookSourceCookieStore {
             if (jar.isEmpty) _cookies.remove(domain);
           }
         }
-        final rawLoginDomains = decoded is Map
-            ? decoded['loginDomains']
-            : null;
+        final rawLoginDomains = decoded is Map ? decoded['loginDomains'] : null;
         if (rawLoginDomains is List) {
           for (final value in rawLoginDomains) {
             final domain = normalizeCookieDomain('$value');
@@ -268,13 +318,22 @@ class BookSourceCookieStore {
     } on FormatException {
       _cookies.clear();
       _loginDomains.clear();
+      _loginInfo.clear();
+      _loginHeaders.clear();
+      _variables.clear();
     } on FileSystemException {
       _cookies.clear();
       _loginDomains.clear();
+      _loginInfo.clear();
+      _loginHeaders.clear();
+      _variables.clear();
     } on Object {
       // Cookie 是可选增强；平台目录不可用时按空 Cookie 继续。
       _cookies.clear();
       _loginDomains.clear();
+      _loginInfo.clear();
+      _loginHeaders.clear();
+      _variables.clear();
     }
     _loaded = true;
   }
@@ -282,7 +341,12 @@ class BookSourceCookieStore {
   Future<void> _persist() {
     if (!_loaded) return Future<void>.value();
     final snapshot = <String, Object?>{
-      'version': 2,
+      'version': 3,
+      'loginInfo': {
+        for (final entry in _loginInfo.entries) entry.key: Map.of(entry.value),
+      },
+      'loginHeaders': Map.of(_loginHeaders),
+      'variables': Map.of(_variables),
       'cookies': <String, Object?>{
         for (final entry in _cookies.entries)
           entry.key: Map<String, String>.of(entry.value),

@@ -12,6 +12,37 @@ class BookSourceScriptException implements Exception {
   String toString() => message;
 }
 
+/// 求值书源请求头；兼容整段 JS 和 JSON 字段中的模板表达式。
+Map<String, String> evaluateBookSourceHeaders(
+  String raw,
+  QuickJsBookSourceScriptSession script,
+  String baseUrl,
+) {
+  String evaluate(String code) => script.evaluate(
+    code,
+    result: '',
+    variables: {'baseUrl': baseUrl},
+    resolveString: (_) => '',
+    resolveList: (_) => const [],
+  );
+  var text = raw.trim();
+  if (text.isEmpty) return {};
+  if (text.startsWith('@js:')) {
+    text = evaluate(text.substring(4));
+  } else if (text.startsWith('<js>')) {
+    text = evaluate(text.substring(4).replaceFirst(RegExp(r'</js>\s*$'), ''));
+  }
+  final decoded = jsonDecode(text);
+  if (decoded is! Map) return {};
+  return {
+    for (final entry in decoded.entries)
+      '${entry.key}': '${entry.value}'.replaceAllMapped(
+        RegExp(r'\{\{([\s\S]*?)\}\}'),
+        (match) => evaluate(match.group(1)!),
+      ),
+  };
+}
+
 /// 书源脚本发起的一次 HTTP 请求。
 ///
 /// `key` 由脚本侧生成，用于把响应写回同一个缓存位置。
@@ -64,13 +95,35 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
   factory QuickJsBookSourceScriptSession({
     required String jsLib,
     String Function(String domain, String name)? cookieProvider,
+    String sourceKey = '',
+    Map<String, String> loginInfo = const {},
+    String loginHeader = '',
+    String sourceVariable = '',
   }) {
-    return QuickJsBookSourceScriptSession._(jsLib, cookieProvider);
+    return QuickJsBookSourceScriptSession._(
+      jsLib,
+      cookieProvider,
+      sourceKey,
+      loginInfo,
+      loginHeader,
+      sourceVariable,
+    );
   }
 
-  QuickJsBookSourceScriptSession._(this._jsLib, this.cookieProvider);
+  QuickJsBookSourceScriptSession._(
+    this._jsLib,
+    this.cookieProvider,
+    this.sourceKey,
+    this.loginInfo,
+    this.loginHeader,
+    this.sourceVariable,
+  );
 
   final String _jsLib;
+  final String sourceKey;
+  Map<String, String> loginInfo;
+  String loginHeader;
+  String sourceVariable;
   final String Function(String domain, String name)? cookieProvider;
   final Map<String, String> _responses = <String, String>{};
   final List<BookSourcePendingRequest> _pending = <BookSourcePendingRequest>[];
@@ -115,6 +168,10 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
       '__legadoLists = ${jsonEncode(lists)};'
       '__legadoCookies = ${jsonEncode(cookies)};'
       '__legadoResponses = ${jsonEncode(_responses)};'
+      '__legadoLoginInfo = ${jsonEncode(loginInfo)};'
+      '__legadoLoginHeader = ${jsonEncode(loginHeader)};'
+      '__legadoSourceVariable = ${jsonEncode(sourceVariable)};'
+      '__legadoSourceKey = ${jsonEncode(sourceKey)};'
       '__legadoRequests = [];',
     );
     if (state.isError) {
@@ -166,6 +223,21 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
       // 已记录请求时交给上层拉取并重跑。
       if (_pending.isNotEmpty) return '';
       throw BookSourceScriptException('书源脚本执行失败：${evaluated.stringResult}');
+    }
+    if (_pending.isEmpty) {
+      final saved = runtime.evaluate(
+        'JSON.stringify({info:__legadoLoginInfo,header:__legadoLoginHeader,'
+        'variable:__legadoSourceVariable})',
+      );
+      if (!saved.isError) {
+        final data = jsonDecode(saved.stringResult) as Map;
+        loginInfo = {
+          for (final item in (data['info'] as Map).entries)
+            '${item.key}': '${item.value}',
+        };
+        loginHeader = '${data['header'] ?? ''}';
+        sourceVariable = '${data['variable'] ?? ''}';
+      }
     }
     final output = evaluated.stringResult;
     if (output == 'undefined' || output == 'null') return '';
@@ -399,6 +471,14 @@ function __legadoRecord(method, url, body, headers) {
 }
 var java = {
   ajax: function(url) {
+    if (typeof url === 'string') {
+      var split = url.indexOf(',{');
+      if (split >= 0) {
+        var options = JSON.parse(url.substring(split + 1));
+        return __legadoRecord(options.method || 'GET', url.substring(0, split),
+          options.body || '', options.headers || {});
+      }
+    }
     return __legadoRecord('GET', url, '', {});
   },
   post: function(url, body, headers) {
@@ -432,6 +512,36 @@ var java = {
     return __legadoTimeFormat(value, format);
   },
   log: function() {}
+};
+String.prototype.body = function() { return String(this); };
+var source = {
+  get key() { return __legadoSourceKey; },
+  getKey: function() { return __legadoSourceKey; },
+  getLoginInfo: function() { return JSON.stringify(__legadoLoginInfo); },
+  getLoginInfoMap: function() {
+    var values = JSON.parse(JSON.stringify(__legadoLoginInfo));
+    Object.defineProperty(values, 'get', {value: function(key) {
+      return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null;
+    }});
+    return values;
+  },
+  putLoginInfo: function(value) {
+    __legadoLoginInfo = typeof value === 'string' ? JSON.parse(value) : value;
+    return true;
+  },
+  getLoginHeader: function() { return __legadoLoginHeader; },
+  getLoginHeaderMap: function() {
+    var values = __legadoLoginHeader ? JSON.parse(__legadoLoginHeader) : {};
+    Object.defineProperty(values, 'get', {value: function(key) {
+      return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null;
+    }});
+    return values;
+  },
+  putLoginHeader: function(value) {
+    __legadoLoginHeader = typeof value === 'string' ? value : JSON.stringify(value);
+  },
+  getVariable: function() { return __legadoSourceVariable; },
+  setVariable: function(value) { __legadoSourceVariable = String(value || ''); }
 };
 var Packages = {
   java: {
