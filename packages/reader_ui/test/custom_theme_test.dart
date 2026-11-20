@@ -4,7 +4,12 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
-Widget _panel(List<String> changes, {ReaderTheme? custom}) => MaterialApp(
+Widget _panel(
+  List<String> changes, {
+  ReaderTheme? custom,
+  Brightness brightness = Brightness.light,
+}) => MaterialApp(
+  theme: ThemeData(brightness: brightness),
   home: Scaffold(
     body: SettingsPanel(
       section: SettingsSection.theme,
@@ -18,6 +23,26 @@ Widget _panel(List<String> changes, {ReaderTheme? custom}) => MaterialApp(
 );
 
 void main() {
+  testWidgets('自定义色块同样按日夜模式显示，另一模式保留新建入口', (tester) async {
+    final custom = ReaderTheme.custom(
+      background: Colors.black,
+      text: Colors.white,
+    );
+    final changes = <String>[];
+    await tester.pumpWidget(_panel(changes, custom: custom));
+    expect(find.byKey(const ValueKey('settings-theme-custom')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('settings-custom-theme-picker')),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(
+      _panel(changes, custom: custom, brightness: Brightness.dark),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-theme-custom')));
+    expect(changes, [custom.id]);
+  });
+
   test('自定义配色按 RGB 往返，非法值安全回退', () {
     final theme = ReaderTheme.custom(
       background: const Color(0x77EEDDBB),

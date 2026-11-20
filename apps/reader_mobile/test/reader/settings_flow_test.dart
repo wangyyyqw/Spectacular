@@ -13,6 +13,7 @@ import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/panels/tap_zone_editor.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/tap_zones.dart';
 
 import 'package:reader_mobile/library/library_store.dart';
@@ -47,6 +48,41 @@ String _layoutSettingsFingerprint(String fingerprint) => fingerprint
     .join(';');
 
 void main() {
+  test('旧主题设置兼容日夜模式，分别保存的配色在修改其它设置后仍可恢复', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+    await library.setSetting(ReaderSettingsStore.keyThemeId, 'sepia');
+    final legacy = await store.load();
+    expect(legacy.themeForBrightness(Brightness.light), ReaderTheme.sepia);
+    expect(legacy.themeForBrightness(Brightness.dark), ReaderTheme.black);
+
+    final settings = legacy.copyWithTheme('moss');
+    for (final changed in [
+      settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 22)),
+      settings.copyWithFont(ReaderSettingsDefaults.fontSans),
+      settings.copyWithBackground('paper'),
+      settings.copyWithInkMode(true),
+      settings.copyWithMargins(ReaderMargins.defaults()),
+      settings.copyWithCornerInfo(settings.cornerInfo),
+      settings.copyWithTapZones(settings.tapZones),
+      settings.copyWithPageTurnMode(PageTurnMode.none),
+      settings.copyWithKeepScreenOn(true),
+      settings.copyWithVolumeKeyPaging(true),
+      settings.copyWithMarkSettings(settings.markSettings),
+    ]) {
+      await store.save(changed);
+      final reloaded = await store.load();
+      expect(reloaded, changed);
+      expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.sepia);
+      expect(reloaded.themeForBrightness(Brightness.dark), ReaderTheme.moss);
+    }
+    final updated = settings.copyWithTheme('paper');
+    await store.save(updated);
+    final reloaded = await store.load();
+    expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.paper);
+    expect(reloaded.themeForBrightness(Brightness.dark), ReaderTheme.moss);
+  });
+
   testWidgets('菜单进设置改字号：即时重排并持久化（P4-21）', (tester) async {
     final library = LibraryStore.memory();
     final store = ReaderSettingsStore(library);

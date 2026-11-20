@@ -119,6 +119,7 @@ class ReaderPage extends StatefulWidget {
     this.onMarkSettingsChanged,
     this.onOverridesChanged,
     this.onThemeChanged,
+    this.onToggleDayNight,
     this.customTheme,
     this.backgroundImageLoader,
     this.onPickBackgroundImage,
@@ -193,6 +194,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 主题变化（P4-21）：调用方负责持久化。
   final ValueChanged<String>? onThemeChanged;
+
+  /// 宿主切换软件日夜模式，保留两种模式各自选择的阅读配色。
+  final VoidCallback? onToggleDayNight;
 
   /// 上次保存的自定义主题。
   final ReaderTheme? customTheme;
@@ -614,12 +618,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (theme == null) {
       return null;
     }
-    if (widget.pageBrightness == Brightness.dark) {
-      theme = ReaderTheme.black;
-    } else if (widget.pageBrightness == Brightness.light &&
-        theme.background.computeLuminance() < 0.35) {
-      theme = ReaderTheme.white;
-    }
+    theme = theme.resolveForBrightness(widget.pageBrightness);
     return _environment.resolveTheme(theme);
   }
 
@@ -1264,9 +1263,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 日/夜快速切换（设计稿顶部栏的日间夜间按钮）。
   void _toggleDayNight() {
-    final dark =
-        (_effectiveTheme ?? ReaderTheme.white).background.computeLuminance() <
-        0.35;
+    if (widget.onToggleDayNight != null) {
+      widget.onToggleDayNight!();
+      return;
+    }
+    final dark = (_effectiveTheme ?? ReaderTheme.white).isDark;
     _applyTheme(dark ? 'white' : 'black');
   }
 
@@ -2850,7 +2851,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       markSettings: _markSettings,
                       hasCfi: _session.currentCfi != null,
                       overrides: _overrides,
-                      themeId: (_theme ?? ReaderTheme.white).id,
+                      themeId: (_effectiveTheme ?? ReaderTheme.white).id,
                       customTheme: _customTheme,
                       customFonts: _customFonts,
                       onPickFont: widget.onPickFont == null ? null : _pickFont,

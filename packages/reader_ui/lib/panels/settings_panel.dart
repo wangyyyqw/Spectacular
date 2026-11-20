@@ -852,7 +852,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           children: <Widget>[
-            for (final item in ReaderTheme.themes) ...<Widget>[
+            for (final item in ReaderTheme.themesFor(
+              theme.brightness,
+            )) ...<Widget>[
               _themeCircle(
                 key: 'settings-theme-${item.id}',
                 color: item.background,
@@ -1212,7 +1214,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }
 
   Widget _customColorCircle() {
-    final custom = widget.customTheme;
+    final custom =
+        widget.customTheme?.isDark ==
+            (Theme.of(context).brightness == Brightness.dark)
+        ? widget.customTheme
+        : null;
     final circle = custom == null
         ? _themeCircle(
             key: 'settings-custom-theme-picker',
