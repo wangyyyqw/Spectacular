@@ -1120,20 +1120,34 @@ class _BookshelfPageState extends State<BookshelfPage> {
       titleSpacing: 16,
       title: _buildSearchField(),
       actions: [
-        IconButton(
-          key: const ValueKey<String>('bookshelf-import'),
-          tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-          onPressed: busy || !widget.allowImport ? null : _import,
-          icon: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const AppIcon(AppGlyph.add),
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: Center(child: _buildImportButton(busy)),
         ),
-        const SizedBox(width: 8),
       ],
+    );
+  }
+
+  Widget _buildImportButton(bool busy) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surface,
+      borderRadius: BorderRadius.circular(22),
+      elevation: 2,
+      shadowColor: colors.shadow.withValues(alpha: .12),
+      child: IconButton(
+        key: const ValueKey<String>('bookshelf-import'),
+        tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
+        constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+        onPressed: busy || !widget.allowImport ? null : _import,
+        icon: busy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const AppIcon(AppGlyph.add),
+      ),
     );
   }
 
