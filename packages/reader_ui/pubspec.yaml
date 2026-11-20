@@ -27,6 +27,7 @@ dev_dependencies:
 flutter:
   shaders:
     - shaders/duokan_curl.frag
+    - shaders/duokan_shadow.frag
 
   # To add assets to your package, add an assets section, like this:
   # assets:
