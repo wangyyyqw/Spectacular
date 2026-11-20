@@ -513,7 +513,8 @@ class PageTurnController extends ChangeNotifier {
     if (mode != PageTurnMode.simulation3d && !_released) {
       _startPositionCatchUp();
     }
-    _targetFade.forward(from: 0);
+    // 接续的正文保持原始不透明度，冷页就绪后只追赶同一个段落时钟。
+    if (mode != PageTurnMode.continuation) _targetFade.forward(from: 0);
     if (mode == PageTurnMode.simulation3d && !_released) _updateDragFrame();
   }
 
@@ -650,8 +651,15 @@ class PageTurnController extends ChangeNotifier {
       0.0,
       1.0,
     );
-    final maximum = pageTurnAnimationDuration.inMilliseconds;
-    var milliseconds = 120 + (maximum - 120) * remaining;
+    final continuation = mode == PageTurnMode.continuation;
+    final maximum =
+        (continuation
+                ? continuationPageTurnDuration
+                : pageTurnAnimationDuration)
+            .inMilliseconds;
+    var milliseconds = continuation
+        ? maximum * remaining
+        : 120 + (maximum - 120) * remaining;
     final sign = (next != rtl ? -1 : 1) * (_complete ? 1 : -1);
     final velocity = _releaseVelocity * sign;
     if (velocity > 0) {
@@ -667,7 +675,10 @@ class PageTurnController extends ChangeNotifier {
             3.0,
           )
         : 0.0;
-    _settlingCurve = velocity > 0
+    // 接续的各段自身已经缓入缓出，整体时钟保持线性，松手不会重播段落入场。
+    _settlingCurve = continuation
+        ? Curves.linear
+        : velocity > 0
         ? Cubic(1 / 3, slope / 3, 2 / 3, 1)
         : Curves.easeOutCubic;
     return duration;

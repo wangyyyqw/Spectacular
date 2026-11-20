@@ -304,7 +304,7 @@ void main() {
     );
   });
 
-  testWidgets('设置段可切换翻页方式', (tester) async {
+  testWidgets('设置段标题统一，接续与滚动可分别选择', (tester) async {
     final changes = <PageTurnMode>[];
     await tester.pumpWidget(
       MaterialApp(
@@ -315,6 +315,7 @@ void main() {
             themeId: 'white',
             pageTurnMode: PageTurnMode.cover,
             onPageTurnModeChanged: changes.add,
+            onOpenMarkSettings: () {},
             onOverridesChanged: (_) {},
             onThemeChanged: (_) {},
           ),
@@ -322,15 +323,24 @@ void main() {
       ),
     );
 
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey<String>('settings-page-turn-scroll')),
-      120,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.tap(
-      find.byKey(const ValueKey<String>('settings-page-turn-scroll')),
-    );
-    expect(changes, [PageTurnMode.scroll]);
+    for (final title in ['划线设置', '翻页方式', '边角信息']) {
+      expect(find.text(title), findsOneWidget);
+    }
+    final titleStyles = [
+      for (final title in ['划线设置', '翻页方式', '边角信息'])
+        tester.widget<Text>(find.text(title)).style,
+    ];
+    expect(titleStyles[1], titleStyles[0]);
+    expect(titleStyles[2], titleStyles[0]);
+    for (final mode in [PageTurnMode.continuation, PageTurnMode.scroll]) {
+      final option = find.byKey(
+        ValueKey<String>('settings-page-turn-${mode.id}'),
+      );
+      await tester.ensureVisible(option);
+      await tester.tap(option);
+    }
+    expect(changes, [PageTurnMode.continuation, PageTurnMode.scroll]);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('设置段可切换全屏点击、屏幕常亮和音量键翻页', (tester) async {

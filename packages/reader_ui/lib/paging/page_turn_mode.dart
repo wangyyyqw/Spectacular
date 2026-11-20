@@ -1,5 +1,8 @@
-/// 非 3D 点击翻页和一屏滚动的过渡时长；拖动收尾按剩余距离和速度缩短。
+/// 覆盖、滑动和一屏滚动的过渡时长；拖动收尾按剩余距离和速度缩短。
 const Duration pageTurnAnimationDuration = Duration(milliseconds: 280);
+
+/// 接续使用单一段落接力时钟；拖动与点击都沿同一进度收尾。
+const Duration continuationPageTurnDuration = Duration(milliseconds: 620);
 
 /// 阅读模式；稳定字符串用于持久化，顺序与设置面板一致。
 enum PageTurnMode {
@@ -14,6 +17,9 @@ enum PageTurnMode {
 
   /// 固定 UV 的圆柱卷曲，带纸背与明暗。
   simulation3d('simulation3d', '3D仿真'),
+
+  /// 按段落或竖排列的空间位置错峰横移，旧内容先退出、新内容随后进入。
+  continuation('continuation', '接续'),
 
   /// 按元素流纵向连续阅读。
   scroll('scroll', '连续滚动'),

@@ -31,6 +31,9 @@ class PageTurnView extends StatefulWidget {
     required this.revision,
     required this.paperBuilder,
     required this.paperColor,
+    this.continuationPaperBuilder,
+    this.continuationOverlayBuilder,
+    this.pageInsets = EdgeInsets.zero,
     this.preparePageImages,
     this.paintBackground,
     this.onBookEnd,
@@ -44,6 +47,13 @@ class PageTurnView extends StatefulWidget {
   final Object revision;
   final ReaderPaperBuilder paperBuilder;
   final Color paperColor;
+
+  /// 接续的透明正文快照；保持作者样式，只省略主题纸底与边角信息。
+  final ReaderPaperBuilder? continuationPaperBuilder;
+
+  /// 接续期间固定的页眉页脚，落页后由正式纸面接管。
+  final ReaderPaperBuilder? continuationOverlayBuilder;
+  final EdgeInsets pageInsets;
   final ReaderPageImagesPreparer? preparePageImages;
   final ReaderPaperBackgroundPainter? paintBackground;
   final VoidCallback? onBookEnd;
@@ -115,6 +125,9 @@ class PageTurnViewState extends State<PageTurnView>
   static const _busyRetryDelay = Duration(milliseconds: 50);
 
   bool get _usesWindow => widget.mode != PageTurnMode.scroll;
+  bool get _usesContinuationPaper =>
+      widget.mode == PageTurnMode.continuation &&
+      widget.continuationPaperBuilder != null;
 
   Set<PageContent> get _windowPages => _window.values.toSet();
 
@@ -134,8 +147,13 @@ class PageTurnViewState extends State<PageTurnView>
     final countsChanged =
         _pageCountRevision != widget.session.pageCountRevision;
     _pageCountRevision = widget.session.pageCountRevision;
-    if (oldWidget.revision != widget.revision ||
-        oldWidget.mode != widget.mode ||
+    if (oldWidget.mode != widget.mode ||
+        oldWidget.pageInsets != widget.pageInsets ||
+        (oldWidget.continuationPaperBuilder == null) !=
+            (widget.continuationPaperBuilder == null)) {
+      // 模式切换不能混用整纸与透明正文，也不能中途替换活动动画的捕获入口。
+      _invalidate();
+    } else if (oldWidget.revision != widget.revision ||
         oldWidget.rtl != widget.rtl) {
       if (controller.active) {
         _revisionDirty = true;
@@ -346,8 +364,9 @@ class PageTurnViewState extends State<PageTurnView>
       // 冷目标也属于这次窗口，提交后可平移并保留刚读过的原页。
       _window[controller.next ? 1 : -1] = page;
     }
-    if (widget.mode == PageTurnMode.simulation3d) {
-      await _prepareCurlBackground();
+    if (widget.mode == PageTurnMode.simulation3d ||
+        widget.mode == PageTurnMode.continuation) {
+      await _prepareTurnBackground();
       if (!mounted ||
           token != _captureToken ||
           generation != widget.session.generation) {
@@ -358,10 +377,12 @@ class PageTurnViewState extends State<PageTurnView>
     return _enqueueCapture(page);
   }
 
-  Future<void> _prepareCurlBackground() async {
+  Future<void> _prepareTurnBackground() async {
     final token = _captureToken;
     final generation = widget.session.generation;
-    await DuokanCurlShader.load();
+    if (widget.mode == PageTurnMode.simulation3d) {
+      await DuokanCurlShader.load();
+    }
     if (!mounted ||
         token != _captureToken ||
         generation != widget.session.generation ||
@@ -542,7 +563,9 @@ class PageTurnViewState extends State<PageTurnView>
   }
 
   bool _usesCurrentBoundary(PageContent page) =>
-      identical(page, widget.session.page) && (!_usesWindow || !_showAnimation);
+      !_usesContinuationPaper &&
+      identical(page, widget.session.page) &&
+      (!_usesWindow || !_showAnimation);
 
   Future<ui.Image?> _capturePaper(
     PageContent page,
@@ -662,8 +685,9 @@ class PageTurnViewState extends State<PageTurnView>
   Future<void> _warm(PageContent page, int token, int generation) async {
     final animate = widget.mode != PageTurnMode.none;
     if (!_canWarm(page, token, generation)) return;
-    if (widget.mode == PageTurnMode.simulation3d) {
-      await _prepareCurlBackground();
+    if (widget.mode == PageTurnMode.simulation3d ||
+        widget.mode == PageTurnMode.continuation) {
+      await _prepareTurnBackground();
       if (!_canWarm(page, token, generation)) return;
     }
     final current = animate
@@ -789,7 +813,9 @@ class PageTurnViewState extends State<PageTurnView>
               child: IgnorePointer(
                 child: RepaintBoundary(
                   key: _captureBoundary,
-                  child: widget.paperBuilder(_capturePage!, size),
+                  child: (_usesContinuationPaper
+                      ? widget.continuationPaperBuilder!
+                      : widget.paperBuilder)(_capturePage!, size),
                 ),
               ),
             ),
@@ -802,14 +828,32 @@ class PageTurnViewState extends State<PageTurnView>
               child: widget.paperBuilder(page, size),
             ),
           ),
-          if (!_showAnimation && identical(_staticPage, page))
+          if (!_showAnimation &&
+              identical(_staticPage, page) &&
+              (!_usesContinuationPaper || !_staticPaperReady))
             Positioned.fill(
               child: IgnorePointer(
-                child: RawImage(
-                  key: const ValueKey('page-turn-static-snapshot'),
-                  image: _staticImage,
-                  fit: BoxFit.fill,
-                  filterQuality: FilterQuality.low,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (_usesContinuationPaper)
+                      ColoredBox(
+                        color: widget.paperColor,
+                        child: RawImage(
+                          image: _backgroundImage,
+                          fit: BoxFit.fill,
+                          filterQuality: FilterQuality.low,
+                        ),
+                      ),
+                    RawImage(
+                      key: const ValueKey('page-turn-static-snapshot'),
+                      image: _staticImage,
+                      fit: BoxFit.fill,
+                      filterQuality: FilterQuality.low,
+                    ),
+                    if (_usesContinuationPaper)
+                      ?widget.continuationOverlayBuilder?.call(page, size),
+                  ],
                 ),
               ),
             ),
@@ -822,10 +866,13 @@ class PageTurnViewState extends State<PageTurnView>
                     controller,
                     paperColor: widget.paperColor,
                     backgroundImage: _backgroundImage,
+                    pageInsets: widget.pageInsets,
                   ),
                 ),
               ),
             ),
+          if (_showAnimation && _usesContinuationPaper)
+            ?widget.continuationOverlayBuilder?.call(page, size),
           // 隐在纸面下的纹理采样由同一帧预热；不会触发额外正文测量。
         ],
       );

@@ -281,12 +281,10 @@ void main() {
     final store = ReaderSettingsStore(library);
 
     expect((await store.load()).pageTurnMode, PageTurnMode.cover);
-    await store.save(
-      ReaderSettings.defaults.copyWithPageTurnMode(
-        PageTurnMode.simulationBessel,
-      ),
-    );
-    expect((await store.load()).pageTurnMode, PageTurnMode.simulationBessel);
+    for (final mode in PageTurnMode.values) {
+      await store.save(ReaderSettings.defaults.copyWithPageTurnMode(mode));
+      expect((await store.load()).pageTurnMode, mode);
+    }
 
     await library.setSetting(
       ReaderSettingsStore.keyPageTurnMode,

@@ -3243,8 +3243,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           mode: _effectiveTurnMode,
           revision: (revision, battery),
           paperBuilder: _buildPaper,
+          continuationPaperBuilder: _buildContinuationPaper,
+          continuationOverlayBuilder: _buildContinuationOverlay,
+          pageInsets: _bodyPadding(),
           paperColor: _effectiveTheme?.background ?? widget.background,
-          paintBackground: _painter.pageBackgroundImage == null
+          paintBackground:
+              _effectiveTurnMode != PageTurnMode.continuation &&
+                  _painter.pageBackgroundImage == null
               ? null
               : _paintTurnBackground,
           preparePageImages: _prepareTurnPageImages,
@@ -3260,7 +3265,20 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _paintTurnBackground(Canvas canvas, Size size) => _painter
       .paintBackground(canvas, pageSize: size, pageInsets: _bodyPadding());
 
-  Widget _buildPaper(PageContent page, Size size) => ClipRect(
+  Widget _buildContinuationPaper(PageContent page, Size size) =>
+      _buildPaper(page, size, paintPaperBackground: false, furniture: false);
+
+  Widget _buildContinuationOverlay(PageContent page, Size size) =>
+      IgnorePointer(
+        child: Stack(fit: StackFit.expand, children: _paperFurniture(page)),
+      );
+
+  Widget _buildPaper(
+    PageContent page,
+    Size size, {
+    bool paintPaperBackground = true,
+    bool furniture = true,
+  }) => ClipRect(
     key: ValueKey('reader-page-${page.spineIndex}-${page.pageIndex}'),
     child: Stack(
       fit: StackFit.expand,
@@ -3272,6 +3290,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             paintHighlights: _paintDecorationHighlights,
             imageRevision: _imageRevision,
             pageInsets: _bodyPadding(),
+            paintPaperBackground: paintPaperBackground,
             repaint: _galleryRepaint,
           ),
         ),
@@ -3288,7 +3307,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
           ),
-        ..._paperFurniture(page),
+        if (furniture) ..._paperFurniture(page),
         ..._galleryLayers(page, padding: _bodyPadding()),
       ],
     ),
@@ -3382,6 +3401,7 @@ class _ReaderPageCustomPainter extends CustomPainter {
     required this.paintHighlights,
     required this.imageRevision,
     this.pageInsets = EdgeInsets.zero,
+    this.paintPaperBackground = true,
     super.repaint,
   });
 
@@ -3392,11 +3412,18 @@ class _ReaderPageCustomPainter extends CustomPainter {
 
   /// 正文区相对整页的内缩（页边距 + 页眉页脚槽）。
   final EdgeInsets pageInsets;
+  final bool paintPaperBackground;
 
   @override
   void paint(Canvas canvas, Size size) {
     // 画布是整页；正文由 pageInsets 内缩，出血块由绘制层扩到页边。
-    painter.paint(canvas, page, pageSize: size, pageInsets: pageInsets);
+    painter.paint(
+      canvas,
+      page,
+      pageSize: size,
+      pageInsets: pageInsets,
+      paintPaperBackground: paintPaperBackground,
+    );
     canvas.save();
     canvas.translate(pageInsets.left, pageInsets.top);
     paintHighlights(canvas, page);
@@ -3408,6 +3435,7 @@ class _ReaderPageCustomPainter extends CustomPainter {
       oldDelegate.page != page ||
       oldDelegate.imageRevision != imageRevision ||
       oldDelegate.pageInsets != pageInsets ||
+      oldDelegate.paintPaperBackground != paintPaperBackground ||
       // 绘制配置包含纹理、图片及墨水屏模式，更新时必须重绘当前纸面。
       oldDelegate.painter != painter;
 }
