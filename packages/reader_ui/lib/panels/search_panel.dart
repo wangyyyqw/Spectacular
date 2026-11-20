@@ -380,13 +380,16 @@ class _SearchPanelState extends State<SearchPanel> {
 
   /// 上下文里高亮命中词（§29.4）。
   TextSpan _contextSpan(ThemeData theme, SearchPanelResult result) {
-    final context = result.context;
-    final start = _query.isEmpty ? -1 : context.indexOf(_query);
+    // 仅折叠展示空白，避免正文换行占满两行；保留结果中的原始定位信息。
+    final whitespace = RegExp(r'\s+');
+    final context = result.context.replaceAll(whitespace, ' ').trim();
+    final query = _query.replaceAll(whitespace, ' ').trim();
+    final start = query.isEmpty ? -1 : context.indexOf(query);
     final base = theme.textTheme.bodyMedium;
     if (start < 0) {
       return TextSpan(text: context, style: base);
     }
-    final end = start + _query.length;
+    final end = start + query.length;
     return TextSpan(
       style: base,
       children: [
