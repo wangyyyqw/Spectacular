@@ -5,7 +5,7 @@ import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
 import 'book_cover_image.dart';
 
-/// 书籍详情（P4-06）：元信息 + 导入报告（修复项与告警）。
+/// 长按书架卡片展示书籍元信息和快捷操作。
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
 /// `'create-group'` 新建分组，`'multi-select'` 进入多选。
@@ -20,7 +20,7 @@ class BookDetailSheet extends StatelessWidget {
   /// 书籍条目。
   final BookEntry entry;
 
-  /// 书库（读导入报告）。
+  /// 书库（查询待定位记录和章节重划分能力）。
   final LibraryStore library;
 
   static const _levelLabels = <String>['完整', '已修复', '部分降级', '结构异常', '无法阅读'];
@@ -115,50 +115,11 @@ class BookDetailSheet extends StatelessWidget {
                 );
               },
             ),
-            Text('导入报告', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            FutureBuilder<List<ImportReportEntry>>(
-              future: library.importReports(entry.id),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  );
-                }
-                final items = snapshot.data ?? const <ImportReportEntry>[];
-                if (items.isEmpty) {
-                  return Text(
-                    '无修复或告警',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  );
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [for (final item in items) _ReportRow(item: item)],
-                );
-              },
-            ),
-            const Divider(height: 32),
             _DetailAction(
               key: const ValueKey<String>('book-detail-open-page'),
               icon: AppGlyph.menuBook,
               label: '图书详情',
               onTap: () => Navigator.of(context).pop('detail'),
-            ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-update'),
-              icon: AppGlyph.refresh,
-              label: '更新',
-              onTap: () => Navigator.of(context).pop('update'),
             ),
             FutureBuilder<bool>(
               future: TxtBookService(library).canRechapter(entry),
@@ -171,31 +132,48 @@ class BookDetailSheet extends StatelessWidget {
                     )
                   : const SizedBox.shrink(),
             ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-create-group'),
-              icon: AppGlyph.folderAdd,
-              label: '新建分组',
-              onTap: () => Navigator.of(context).pop('create-group'),
+            Row(
+              children: [
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-update'),
+                    icon: AppGlyph.refresh,
+                    label: '更新',
+                    onTap: () => Navigator.of(context).pop('update'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-create-group'),
+                    icon: AppGlyph.folderAdd,
+                    label: '新建分组',
+                    onTap: () => Navigator.of(context).pop('create-group'),
+                  ),
+                ),
+              ],
             ),
-            _DetailAction(
-              key: const ValueKey<String>('book-detail-multi-select'),
-              icon: AppGlyph.checklist,
-              label: '多选',
-              onTap: () => Navigator.of(context).pop('multi-select'),
-            ),
-            _DetailAction(
-              icon: AppGlyph.delete,
-              label: '删除本书',
-              destructive: true,
-              onTap: () => Navigator.of(context).pop('delete'),
-            ),
-            const Divider(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('关闭'),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-multi-select'),
+                    icon: AppGlyph.checklist,
+                    label: '多选',
+                    onTap: () => Navigator.of(context).pop('multi-select'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _DetailAction(
+                    key: const ValueKey<String>('book-detail-delete'),
+                    icon: AppGlyph.delete,
+                    label: '删除本书',
+                    destructive: true,
+                    onTap: () => Navigator.of(context).pop('delete'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -273,60 +251,6 @@ class _MetaItem extends StatelessWidget {
         ),
         Text(value, style: theme.textTheme.bodySmall),
       ],
-    );
-  }
-}
-
-class _ReportRow extends StatelessWidget {
-  const _ReportRow({required this.item});
-
-  final ImportReportEntry item;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // 2 错误、1 警告、0 提示：颜色区分但不弹窗（§82.4 纪律 3）。
-    final (label, color) = switch (item.severity) {
-      >= 2 => ('错误', theme.colorScheme.error),
-      1 => ('警告', theme.colorScheme.tertiary),
-      _ => ('提示', theme.colorScheme.onSurfaceVariant),
-    };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              label,
-              style: theme.textTheme.labelSmall?.copyWith(color: color),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.code,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFeatures: const <FontFeature>[
-                      FontFeature.tabularFigures(),
-                    ],
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                Text(item.message, style: theme.textTheme.bodySmall),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
