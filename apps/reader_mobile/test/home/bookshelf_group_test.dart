@@ -63,6 +63,8 @@ void main() {
     expect(tester.getTopLeft(grids.first).dx, lessThan(0));
     expect(tester.getTopLeft(grids.last).dx, greaterThan(0));
     expect(grids.first.hitTestable(), findsNothing);
+    await tester.pump(const Duration(milliseconds: 125));
+    expect(grids, findsOneWidget, reason: '分组过渡应在 200ms 内完成');
     await _settle(tester, frames: 3);
     expect(find.text('滑动甲'), findsWidgets);
     expect(find.text('滑动乙'), findsNothing);
