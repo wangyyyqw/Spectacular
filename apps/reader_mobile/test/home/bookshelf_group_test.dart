@@ -140,7 +140,7 @@ void main() {
     await _settle(tester, frames: 3);
     expect(find.text('滑动甲'), findsWidgets);
     expect(find.text('滑动乙'), findsNothing);
-    expect(find.byTooltip('分组选项'), findsOneWidget);
+    expect(find.byTooltip('分组选项'), findsNothing);
   });
 
   testWidgets('书架用自定义分组替代状态标签，并支持移入与重命名', (tester) async {
@@ -210,11 +210,9 @@ void main() {
     expect(find.text('分组乙'), findsNothing);
     expect(find.text('分组丙'), findsNothing);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-group-options')),
-    );
-    await _settle(tester, frames: 4);
-    await tester.tap(find.text('退出分组'));
+    expect(find.text('退出分组'), findsNothing);
+    expect(find.text('管理当前分组'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey<String>('bookshelf-group-all')));
     await _settle(tester, frames: 4);
     expect(find.text('分组丙'), findsWidgets);
 
@@ -256,11 +254,10 @@ void main() {
     expect(find.text('分组乙'), findsNothing);
     expect(find.text('分组丙'), findsWidgets);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-group-options')),
+    expect(find.byTooltip('分组选项'), findsNothing);
+    await tester.longPress(
+      find.byKey(ValueKey<String>('bookshelf-group-${group.id}')),
     );
-    await _settle(tester, frames: 4);
-    await tester.tap(find.text('管理当前分组'));
     await _settle(tester, frames: 4);
     await tester.tap(find.text('重命名分组'));
     await _settle(tester, frames: 4);
