@@ -2420,10 +2420,11 @@ class _BookCard extends StatelessWidget {
           SizedBox(
             height: MediaQuery.textScalerOf(context).scale(_shelfTitleHeight),
             child: Align(
-              alignment: Alignment.centerLeft,
+              alignment: Alignment.center,
               child: Text(
                 entry.title,
                 key: ValueKey<String>('book-card-title-${entry.id}'),
+                textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
