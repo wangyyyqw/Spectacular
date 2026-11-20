@@ -21,8 +21,8 @@ class TextLayoutCache {
   /// 条目上限（LRU）。
   final int maxEntries;
 
-  final LinkedHashMap<String, TextLayoutResult> _entries =
-      LinkedHashMap<String, TextLayoutResult>();
+  final LinkedHashMap<_TextLayoutCacheKey, TextLayoutResult> _entries =
+      LinkedHashMap<_TextLayoutCacheKey, TextLayoutResult>();
   Expando<_ReusableMeasurement> _measurements = Expando();
   int _hits = 0;
   int _misses = 0;
@@ -206,7 +206,7 @@ class TextLayoutCache {
   }
 
   TextLayoutResult? _take(
-    String key,
+    _TextLayoutCacheKey key,
     List<StyledRun> Function(TextLayoutResult cached) currentRuns, {
     ComputedStyle? firstLineStyle,
     List<StyledRun>? firstLineRuns,
@@ -305,7 +305,7 @@ class TextLayoutCache {
     }
   }
 
-  static ({String value, String style}) _key({
+  static ({_TextLayoutCacheKey value, String style}) _key({
     required String text,
     required ComputedStyle style,
     required double maxWidth,
@@ -350,10 +350,10 @@ class TextLayoutCache {
     for (final ruby in rubies) {
       buffer.write('|ruby=${ruby.start}:${ruby.end}');
     }
-    buffer
-      ..write('|')
-      ..write(text);
-    return (value: buffer.toString(), style: styleFingerprint);
+    return (
+      value: (measurement: buffer.toString(), text: text),
+      style: styleFingerprint,
+    );
   }
 
   static void _writeRuns(
@@ -390,6 +390,8 @@ class TextLayoutCache {
     }
   }
 }
+
+typedef _TextLayoutCacheKey = ({String measurement, String text});
 
 typedef _ReusableMeasurement = ({
   String style,

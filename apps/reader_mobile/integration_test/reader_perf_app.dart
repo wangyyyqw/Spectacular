@@ -24,6 +24,7 @@ import 'package:reader_ui/reader_view.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 
 import 'reader_perf_probe.dart';
+import '../test/reader/support/layout_snapshot.dart';
 
 import 'package:reader_core/source/toc.dart';
 
@@ -36,6 +37,7 @@ final _fontSize = double.parse(
   const String.fromEnvironment('PERF_FONT_SIZE', defaultValue: '21'),
 );
 const _measureResizing = bool.fromEnvironment('PERF_RESIZE');
+const _measureFullChapter = bool.fromEnvironment('PERF_FULL_CHAPTER');
 const _title = String.fromEnvironment('PERF_TITLE', defaultValue: '诸神愚戏');
 final _uiProbe = _UiProbe();
 final _navigator = GlobalKey<NavigatorState>();
@@ -50,11 +52,14 @@ Future<void> main() async {
     'rounds': _rounds,
   };
   _results['measurement_contract'] = {
-    'schema': 3,
+    'schema': 4,
     'opening': '原书已预读；首轮为进程内初开，后续为同进程重开',
     'resizing': '首轮请求进程内首次使用的字号；后续轮可能命中跨来源缓存，不能作为新字号冷排样本',
     'fresh_gate': '前后各启动五次独立进程，每次rounds=1；分别统计首次新字号和恢复原字号',
     'complete': '正文及图片就绪、淡入结束后的Flutter帧；不代表系统呈现时间',
+    'chapter': _measureFullChapter
+        ? '每进程独立分页缓存作用域；额外等待整章完成，探针覆盖等待，内容、CFI及行几何签名在计时结束后计算'
+        : '只等待首屏完整显示',
     'ui_gap': '4ms定时器回调最大间隔，包含结束时尚未回调的间隔',
     'frames': '按原始buildStart时间归属事件；最终报告标记尾帧是否收齐',
   };
@@ -168,6 +173,15 @@ Future<File> _download(Directory root) async {
 Future<void> _seedBook(AppDatabase db, File file) async {
   // 测试准备使用固定书架记录；正文读取仍走生产惰性文件路径。
   final revision = (await sha256.bind(file.openRead()).first).toString();
+  // 整章冷排不能复用前一进程的持久页索引；只隔离测试内容版本，保留真实原书哈希。
+  final cacheRevision = _measureFullChapter
+      ? '$revision:perf:$pid:${DateTime.now().microsecondsSinceEpoch}'
+      : revision;
+  _results['pagination_scope'] = {
+    'book_sha256': revision,
+    'content_revision': cacheRevision,
+    'isolated_per_process': _measureFullChapter,
+  };
   await db
       .into(db.books)
       .insertOnConflictUpdate(
@@ -177,7 +191,7 @@ Future<void> _seedBook(AppDatabase db, File file) async {
           title: _title,
           contentDir: file.parent.path,
           sourcePath: Value(file.path),
-          contentRevision: revision,
+          contentRevision: cacheRevision,
           spineCount: Value(await _chapterCount(file)),
           createdAt: DateTime.now().millisecondsSinceEpoch,
         ),
@@ -398,17 +412,36 @@ Future<Map<String, Object>> _sample(Stopwatch watch, int spine) async {
   // 首帧可能仍处于 AnimatedSwitcher 淡入，另记录完全显示后的时间。
   await _until(() => isPerfPageFullyVisible(spine));
   await WidgetsBinding.instance.endOfFrame;
+  final completeMs = watch.elapsedMilliseconds;
   final source = _find<ReaderPage>((_) => true)?.source;
+  List<PageContent>? pages;
+  int? chapterCompleteMs;
+  if (_measureFullChapter) {
+    if (source is! EpubChapterSource) {
+      throw StateError('整章测量未取得 EpubChapterSource');
+    }
+    pages = await source.loadChapter(spine);
+    chapterCompleteMs = watch.elapsedMilliseconds;
+  }
   final sample = _uiProbe.finish();
   sample.addAll({
     'text_ms': textMs,
     'images_ms': imagesMs,
-    'complete_ms': watch.elapsedMilliseconds,
+    'complete_ms': completeMs,
     'spine': spine,
     ..._memory(),
     'environment': _sampleEnvironment(),
     if (source is EpubChapterSource) 'cache': source.cacheReport,
   });
+  if (pages != null) {
+    sample.addAll({
+      'chapter_complete_ms': chapterCompleteMs!,
+      'chapter_pages': pages.length,
+      'chapter_snapshot_sha256': sha256
+          .convert(utf8.encode(jsonEncode(snapshotPages(pages))))
+          .toString(),
+    });
+  }
   return sample;
 }
 

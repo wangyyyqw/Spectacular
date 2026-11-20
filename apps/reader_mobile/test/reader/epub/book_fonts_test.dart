@@ -129,6 +129,77 @@ void main() {
     expect(resources.isClosed, isFalse, reason: '字体服务不能关闭共享归档');
   });
 
+  test('章节字体快照连续命中仍响应注册、可用性和覆盖变化', () async {
+    final resources = BookResources(await _document());
+    addTearDown(resources.close);
+    final fonts = BookFonts(resources, onFontsChanged: (_) {});
+    addTearDown(fonts.close);
+    final faces = List<CssFontFace>.unmodifiable(_local('Snapshot', '宋体'));
+    const user = 'user_chapter_snapshot';
+    const families = {'snapshot', user};
+    final initial = fonts.freezeFor(faces);
+    expect(fonts.freezeFor(faces), same(initial));
+
+    await fonts.ensure(faces);
+    final registered = fonts.freezeFor(faces);
+    expect(
+      registered.dependency(families),
+      isNot(initial.dependency(families)),
+    );
+    expect(fonts.freezeFor(faces), same(registered));
+    expect(initial.dependency({'snapshot'}), 'snapshot=snapshot');
+
+    fonts.setUserFontAvailability(user, true);
+    final available = fonts.freezeFor(faces);
+    expect(
+      available.dependency(families),
+      isNot(registered.dependency(families)),
+    );
+    expect(fonts.freezeFor(faces), same(available));
+    _registerUserCoverage(user);
+    final covered = fonts.freezeFor(faces);
+    expect(covered.dependency(families), isNot(available.dependency(families)));
+    expect(covered.hasGlyph(user, 0xE000), isFalse);
+    expect(available.hasGlyph(user, 0xE000), isTrue);
+    expect(fonts.freezeFor(faces), same(covered));
+
+    fonts.setUserFontAvailability(user, false);
+    final failed = fonts.freezeFor(faces);
+    expect(failed.dependency(families), isNot(covered.dependency(families)));
+    expect(failed.dependency(families), contains('availability=回退'));
+    expect(fonts.freezeFor(faces), same(failed));
+  });
+
+  test('章节字体声明切换与缓存淘汰保持依赖，关闭释放最后一次快照', () async {
+    final resources = BookResources(await _document());
+    addTearDown(resources.close);
+    final fonts = BookFonts(resources, onFontsChanged: (_) {});
+    addTearDown(fonts.close);
+    final firstFaces = List<CssFontFace>.unmodifiable(_local('First', '宋体'));
+    final secondFaces = List<CssFontFace>.unmodifiable(_local('Second', '黑体'));
+    await fonts.ensure([...firstFaces, ...secondFaces]);
+    final first = fonts.freezeFor(firstFaces);
+    final second = fonts.freezeFor(secondFaces);
+    expect(
+      second.dependency({'first', 'second'}),
+      isNot(first.dependency({'first', 'second'})),
+    );
+    expect(fonts.freezeFor(firstFaces), same(first));
+    expect(fonts.freezeFor(firstFaces), same(first));
+    expect(fonts.freezeFor(secondFaces), same(second));
+    for (var index = 0; index < 10; index++) {
+      fonts.freezeFor(
+        List<CssFontFace>.unmodifiable(_local('Extra$index', '宋体')),
+      );
+    }
+    final renewed = fonts.freezeFor(firstFaces);
+    expect(renewed, isNot(same(first)));
+    expect(renewed.dependency({'first'}), first.dependency({'first'}));
+    fonts.close();
+    expect(fonts.freezeFor(firstFaces).hasBookFonts, isFalse);
+    expect(first.hasBookFonts, isTrue);
+  });
+
   test('字体声明改写保留简写语义和 important，local 别名不阻止自定义字体', () async {
     final resources = BookResources(await _document());
     addTearDown(resources.close);

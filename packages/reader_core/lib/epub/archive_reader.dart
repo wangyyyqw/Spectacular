@@ -550,6 +550,18 @@ class EpubArchive {
   /// 读取字节；不存在返回 null。
   Uint8List? readBytes(String path) => _backend.readBytes(_normalizePath(path));
 
+  /// 文件来源优先异步读取 ZIP 条目，避免打开阅读页时同步阻塞主 isolate。
+  Future<Uint8List?> readBytesAsync(String path) async {
+    final normalized = _normalizePath(path);
+    final prepared = await _backend.prepareEntryAsync(normalized);
+    if (prepared == null) return null;
+    final decoded = decodeEpubEntry(prepared.payload);
+    if (!_backend.commitEntry(normalized, prepared.identity, decoded.error)) {
+      return null;
+    }
+    return decoded.bytes;
+  }
+
   /// 准备单条完整输入，保留归档句柄与修复状态；旧后端仍在宿主解码。
   EpubEntryRead? prepareEntry(String path) {
     final normalized = _normalizePath(path);

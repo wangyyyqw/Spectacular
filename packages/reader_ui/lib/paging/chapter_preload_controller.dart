@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/source/chapter_source.dart';
 
 import '../reader_session.dart';
 
@@ -52,6 +53,7 @@ class ChapterPreloadController {
   Future<void> _prepare(PageContent page, int token) async {
     if (!_current(page, token)) return;
     _started = true;
+    var retry = false;
     try {
       await session.preparseNextChapter(
         shouldContinue: () => _current(page, token),
@@ -62,14 +64,24 @@ class ChapterPreloadController {
         idle: true,
         shouldContinue: () => _current(page, token),
       );
-      if (first != null && _current(page, token)) {
+      if (first == null || !_current(page, token)) return;
+      if (!identical(firstPage, first)) {
         firstPage = first;
         onFirstPage();
       }
+      // 首页可显示不代表长章总数已就绪；持续观察余章，抢占取消后在空闲时重试。
+      await session.completeChapterPreload(first.spineIndex);
+    } on ChapterLoadCancelled {
+      retry = true;
     } catch (_) {
       // 后台失败留给下一次空闲重试，实际翻页仍走正式加载入口。
     } finally {
-      if (token == _token) _started = firstPage != null;
+      if (token == _token) {
+        _started =
+            firstPage != null &&
+            session.isChapterComplete(firstPage!.spineIndex);
+        if (retry && _current(page, token)) update(paused: false);
+      }
     }
   }
 

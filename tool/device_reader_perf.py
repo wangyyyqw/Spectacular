@@ -28,7 +28,8 @@ BUSINESS_PATHS = ("apps/reader_mobile/lib", ":(glob)packages/*/lib/**")
 HARNESS_PATHS = ("tool/device_reader_perf.py", "tool/device_css_test.py",
                  "apps/reader_mobile/integration_test/reader_perf_app.dart",
                  "apps/reader_mobile/integration_test/page_turn_perf_app.dart",
-                 "apps/reader_mobile/integration_test/reader_perf_probe.dart")
+                 "apps/reader_mobile/integration_test/reader_perf_probe.dart",
+                 "apps/reader_mobile/test/reader/support/layout_snapshot.dart")
 
 
 def file_sha256(path):
@@ -225,11 +226,22 @@ def prepare(workspace, revision):
                     shutil.rmtree(target)
             bundle.extractall(workspace)
     manifest = workspace / "apps/reader_mobile/android/app/src/main/AndroidManifest.xml"
-    source = manifest.read_text().replace(
-        "    <application", '    <uses-permission android:name="android.permission.INTERNET"/>\n    <application')
-    manifest.write_text(source.replace(
-        'android:label="CSS 真机测试"',
-        'android:usesCleartextTraffic="true" android:label="阅读性能测试"'))
+    source = manifest.read_text()
+    if 'android:name="android.permission.INTERNET"' not in source:
+        source = source.replace(
+            "    <application",
+            '    <uses-permission android:name="android.permission.INTERNET"/>\n'
+            '    <application',
+        )
+    if 'android:usesCleartextTraffic=' not in source:
+        source = source.replace(
+            'android:label="CSS 真机测试"',
+            'android:usesCleartextTraffic="true" android:label="阅读性能测试"')
+    else:
+        source = source.replace(
+            'android:label="CSS 真机测试"',
+            'android:label="阅读性能测试"')
+    manifest.write_text(source)
     drop_plugin_dependency(workspace / "apps/reader_mobile/pubspec.yaml")
 
 
@@ -242,6 +254,7 @@ def build(workspace, url, args):
         "PERF_TITLE": args.title,
         **{name: "true" if value else "false" for name, value in {
             "PERF_RESIZE": args.resize, "PERF_IMPORT": args.measure_import,
+            "PERF_FULL_CHAPTER": args.full_chapter,
             "PERF_LONG_SCAN": args.long_scan, "PERF_FAR_JUMP": args.far_jump,
         }.items()},
     }
@@ -336,6 +349,8 @@ def main():
     parser.add_argument("--font-size", type=float, default=21, help="基准字号；字号测试往返基准和基准加一")
     parser.add_argument("--title", default="诸神愚戏", help="隔离书架测试书名")
     parser.add_argument("--resize", action="store_true", help="每轮测量真实阅读页字号更新及缓存恢复")
+    parser.add_argument("--full-chapter", action="store_true",
+                        help="开书与字号测试额外等待整章完成，记录分页内容及CFI签名")
     parser.add_argument("--long-scan", action="store_true",
                         help="连续加载全书抽样章节并记录 RSS 与缓存状态")
     parser.add_argument("--far-jump", action=argparse.BooleanOptionalAction, default=True,
@@ -347,6 +362,8 @@ def main():
     args = parser.parse_args()
     if not args.book.is_file():
         parser.error("找不到原书")
+    if args.full_chapter and args.page_turn:
+        parser.error("整章测量仅支持开书与字号测试")
     benchmark(args)
 
 
