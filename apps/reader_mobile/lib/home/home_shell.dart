@@ -269,11 +269,13 @@ class _HomeShellState extends State<HomeShell> {
       ),
       bottomNavigationBar: useRail
           ? null
-          : DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: theme.dividerColor)),
-              ),
+          : Material(
+              color: theme.colorScheme.surface,
+              elevation: 2,
+              shadowColor: theme.colorScheme.shadow.withValues(alpha: .12),
               child: BottomNavigationBar(
+                backgroundColor: theme.colorScheme.surface,
+                elevation: 0,
                 currentIndex: _index,
                 onTap: _selectDestination,
                 items: items,
