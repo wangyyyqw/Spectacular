@@ -147,7 +147,7 @@ class BookDetailSheet extends StatelessWidget {
                   child: _DetailAction(
                     key: const ValueKey<String>('book-detail-create-group'),
                     icon: AppGlyph.folderAdd,
-                    label: '新建分组',
+                    label: '分组',
                     onTap: () => Navigator.of(context).pop('create-group'),
                   ),
                 ),
@@ -168,8 +168,7 @@ class BookDetailSheet extends StatelessWidget {
                   child: _DetailAction(
                     key: const ValueKey<String>('book-detail-delete'),
                     icon: AppGlyph.delete,
-                    label: '删除本书',
-                    destructive: true,
+                    label: '删除',
                     onTap: () => Navigator.of(context).pop('delete'),
                   ),
                 ),
@@ -194,20 +193,16 @@ class _DetailAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.destructive = false,
   });
 
   final AppGlyph icon;
   final String label;
   final VoidCallback onTap;
-  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = destructive
-        ? theme.colorScheme.error
-        : theme.colorScheme.onSurface;
+    final color = theme.colorScheme.onSurface;
     return Material(
       type: MaterialType.transparency,
       child: ListTile(
@@ -218,13 +213,6 @@ class _DetailAction extends StatelessWidget {
           label,
           style: theme.textTheme.bodyMedium?.copyWith(color: color),
         ),
-        trailing: destructive
-            ? null
-            : AppIcon(
-                AppGlyph.chevronRight,
-                size: 20,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
         onTap: onTap,
       ),
     );

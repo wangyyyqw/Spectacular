@@ -54,7 +54,7 @@ void main() {
       find.byKey(ValueKey<String>('book-card-${first.id}')),
     );
     await _settle(tester, frames: 4);
-    await tester.tap(find.text('新建分组'));
+    await tester.tap(find.text('分组'));
     await _settle(tester, frames: 4);
     await tester.enterText(
       find.byKey(const ValueKey<String>('bookshelf-group-create-name')),

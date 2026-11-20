@@ -197,7 +197,7 @@ void main() {
     await _tap(tester, find.byTooltip('退出多选'));
     await tester.longPress(_key('book-card-${book.id}'));
     await tester.pumpAndSettle();
-    await _tap(tester, find.text('删除本书'));
+    await _tap(tester, find.text('删除'));
     await _tap(tester, find.widgetWithText(FilledButton, '删除'));
     expect(await library.list(), isEmpty);
     expect(find.text('书架还是空的'), findsOneWidget);
