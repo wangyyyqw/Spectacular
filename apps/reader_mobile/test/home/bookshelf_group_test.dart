@@ -56,6 +56,13 @@ void main() {
       expect(find.byTooltip('分组选项'), findsNothing);
     }
     await tester.drag(pages, const Offset(-180, 0));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    final grids = find.byKey(const ValueKey('bookshelf-grid'));
+    expect(grids, findsNWidgets(2));
+    expect(tester.getTopLeft(grids.first).dx, lessThan(0));
+    expect(tester.getTopLeft(grids.last).dx, greaterThan(0));
+    expect(grids.first.hitTestable(), findsNothing);
     await _settle(tester, frames: 3);
     expect(find.text('滑动甲'), findsWidgets);
     expect(find.text('滑动乙'), findsNothing);
@@ -92,13 +99,21 @@ void main() {
     // 空组也可向右返回；列表使用相同分组顺序。
     for (var i = 0; i < groups.length; i++) {
       await tester.drag(pages, const Offset(180, 0));
+      if (i == groups.length - 1) {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 80));
+        final grids = find.byKey(const ValueKey('bookshelf-grid'));
+        expect(grids, findsNWidgets(2));
+        expect(tester.getTopLeft(grids.first).dx, greaterThan(0));
+        expect(tester.getTopLeft(grids.last).dx, lessThan(0));
+      }
       await _settle(tester, frames: 3);
     }
     expect(find.text('滑动乙'), findsWidgets);
     await tester.tap(find.byTooltip('列表视图'));
-    await _settle(tester, frames: 3);
+    await tester.pumpAndSettle();
     await tester.drag(pages, const Offset(-180, 0));
-    await _settle(tester, frames: 3);
+    await tester.pumpAndSettle();
     expect(find.text('滑动甲'), findsWidgets);
     expect(find.text('滑动乙'), findsNothing);
     expect(find.byKey(const ValueKey('bookshelf-list')), findsOneWidget);
