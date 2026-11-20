@@ -195,11 +195,14 @@ class PagePainter {
   /// [pageInsets] 是正文区相对整页的内缩（阅读器页边距 + 页眉页脚槽）：
   /// 传非零值时画布按整页给尺寸、内容整体偏移 [pageInsets]，页面底色与
   /// 背景图铺满整页，出血块的盒子扩到页边（不再被内缩裁掉）。
+  /// [paintPaperBackground] 为假时只省略阅读主题纸底，供接续动画生成
+  /// 透明正文快照；作者背景、文字配色及滤镜仍使用真实主题底色。
   void paint(
     Canvas canvas,
     PageContent page, {
     required Size pageSize,
     EdgeInsets pageInsets = EdgeInsets.zero,
+    bool paintPaperBackground = true,
   }) {
     final contentSize = Size(
       math.max(0, pageSize.width - pageInsets.horizontal),
@@ -226,7 +229,7 @@ class PagePainter {
     canvas.save();
     canvas.translate(pageInsets.left, pageInsets.top);
     _notifyPhase(PagePaintPhase.background);
-    _paintPaperBackground(canvas, pageRect);
+    if (paintPaperBackground) _paintPaperBackground(canvas, pageRect);
 
     // 书籍整页背景图（P9-04）：平铺在背景色/纹理之上、正文之下。
     _paintBookPageBackground(canvas, page, pageRect);

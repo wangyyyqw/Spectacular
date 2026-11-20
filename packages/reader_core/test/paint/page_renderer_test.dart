@@ -273,6 +273,62 @@ void main() {
     expect(bytes.getUint8(3), 255);
   });
 
+  for (final inkMode in [false, true]) {
+    test('接续透明正文保留暗色主题文字与作者背景，墨水屏=$inkMode', () async {
+      final cardStyle = ComputedStyle(const <String, String>{
+        'font-size': '16px',
+        'line-height': '1.5',
+        'font-family': _font,
+        'background-color': '#eeeeee',
+      });
+      final page = Paginator(pageHeight: 100)
+          .measureChapter(
+            blocks: [
+              _block('ab'),
+              PageBlock(
+                layout: TextLayoutEngine.layout(
+                  text: 'cd',
+                  style: cardStyle,
+                  maxWidth: 180,
+                ),
+                style: cardStyle,
+              ),
+            ],
+          )
+          .pages
+          .single;
+      final painter = PagePainter(
+        background: const Color(0xFF181818),
+        textColor: const Color(0xFFE6E6E6),
+        inkMode: inkMode,
+      );
+      const insets = EdgeInsets.fromLTRB(7, 11, 13, 17);
+      final recorder = ui.PictureRecorder();
+      painter.paint(
+        Canvas(recorder),
+        page,
+        pageSize: _size,
+        pageInsets: insets,
+        paintPaperBackground: false,
+      );
+      final picture = recorder.endRecording();
+      final body = await picture.toImage(200, 100);
+      picture.dispose();
+      addTearDown(body.dispose);
+      final transparent = (await body.toByteData())!;
+      expect(transparent.getUint8((99 * 200 + 199) * 4 + 3), 0);
+      final full = await _render(
+        (canvas) =>
+            painter.paint(canvas, page, pageSize: _size, pageInsets: insets),
+      );
+      final composite = await _render((canvas) {
+        painter.paintBackground(canvas, pageSize: _size, pageInsets: insets);
+        canvas.drawImage(body, Offset.zero, Paint());
+      });
+      expect(_diff(full, composite), 0, reason: '透明正文铺回真实纸底后应保留文字对比度及作者卡片');
+    });
+  }
+
   test('段前/段后间距影响绘制位置', () async {
     final page = Paginator(pageHeight: 100)
         .measureChapter(

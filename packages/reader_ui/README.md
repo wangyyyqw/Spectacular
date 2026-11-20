@@ -10,7 +10,7 @@
 | `ReaderPage` | 组合正文绘制、图片资源、页眉页脚、选区、高亮与笔记、注释弹窗、书签、装饰、搜索和设置面板 |
 | `ReaderView` | 手势识别、点击区域与翻页意图；支持九宫格动作配置 |
 | `VirtualPager` / `PageCache` | 跨章页窗口与有界页面复用 |
-| `paging/` | 覆盖、堆叠覆盖、贝塞尔仿真、3D 仿真、水平滑动、无动画和连续滚动，含页面快照与图片预加载 |
+| `paging/` | 覆盖、堆叠覆盖、贝塞尔仿真、3D 仿真、接续、水平滑动、无动画和连续滚动，含页面快照与图片预加载 |
 | `theme/`、`panels/`、`annotations/`、`decorations/` | 阅读主题、字号与边距设置、标注和装饰交互及预览 |
 
 统一导出位于 `lib/reader_ui.dart`。章节与目录契约直接来自 `reader_core/source/`；`reader_session.dart` 提供会话与进度契约，不再转发章节实现。
@@ -29,6 +29,7 @@
 
 ## 阅读设置与菜单细节
 
+- “接续”参考 [Wenku8_Flutter](https://github.com/mikufoxxx/Wenku8_Flutter) 的段落接续效果，按段落在页面中的位置错峰横移，保留正式分页、跨章导航及阅读位置保存。设置中的分组标题统一为“划线设置”“翻页方式”“边角信息”。
 - 应用及阅读面板图标统一使用 `icons/app_icon.dart` 的 `AppIcon` / `AppGlyph`：沿用四底栏的 24 格坐标、1.7 线宽、圆角笔触和实心细节，尺寸、颜色及透明度跟随 `IconTheme`。底栏与评分使用 `filled` 表示选中；底栏镂空色由所在表面通过 `cutoutColor` 传入。
 - 新增按钮、下拉框和弹出菜单须显式使用同一套字形；展开列表使用 `AppExpansionTile`，勾选菜单使用 `appCheckedMenuItem`。应用通过 `ActionIconThemeData` 统一自动返回和关闭图标，保留框架的路由行为。
 - `ReaderMenuOverlay` 顶部、底部和抽屉使用滑动及淡入淡出，进入 280ms、退出 200ms，退出内容禁止点击；墨水屏或 `MediaQuery.disableAnimations` 为真时即时切换。抽屉提供标题、关闭按钮与抓手。
