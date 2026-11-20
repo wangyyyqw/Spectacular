@@ -11,6 +11,7 @@ import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../storage/reading_session_store.dart';
 import 'rea_micro_api_client.dart';
+import 'rea_micro_annotation_cfi.dart';
 import 'rea_micro_github.dart';
 import 'rea_micro_lan.dart';
 import 'rea_micro_lan_server.dart';
@@ -1945,6 +1946,13 @@ class ReaMicroController extends ChangeNotifier {
               mark,
         ];
         var localAnnotations = await _library.listBookAnnotations(localBookId);
+        final cfis = await ReaMicroAnnotationCfis.load(
+          localBook.filePath,
+          local: localAnnotations.expand(
+            (mark) => [mark.startCfi, mark.endCfi],
+          ),
+          remote: remoteForBook.expand((mark) => [mark.startCfi, mark.endCfi]),
+        );
         final localById = <String, ReaderAnnotation>{
           for (final annotation in localAnnotations) annotation.id: annotation,
         };
@@ -2042,7 +2050,7 @@ class ReaMicroController extends ChangeNotifier {
           }
           final mappedLocalId = mappedKey?.substring(prefix.length);
           var local = mappedLocalId == null ? null : localById[mappedLocalId];
-          local ??= _findMatchingLocalMark(localAnnotations, remote);
+          local ??= _findMatchingLocalMark(localAnnotations, remote, cfis);
           final localId = local?.id ?? 'mark-cloud-${remote.id}';
           final remoteIsNewer =
               local == null ||
@@ -2079,18 +2087,19 @@ class ReaMicroController extends ChangeNotifier {
           }
           if (remote != null &&
               remote.updatedAt == annotation.updatedAt.millisecondsSinceEpoch &&
-              !_markDiffers(annotation, remote)) {
+              !_markDiffers(annotation, remote, cfis)) {
             continue;
           }
           try {
             var nextId = await _api.upsertMark(
               token,
-              _markDraftFromLocal(annotation, markBookId, remote: remote),
+              _markDraftFromLocal(annotation, markBookId, cfis, remote: remote),
             );
             nextId ??= await _resolveUploadedMarkId(
               token,
               markBookId: markBookId,
               annotation: annotation,
+              cfis: cfis,
             );
             if (nextId != null && nextId > 0) {
               nextMarkIds['$prefix${annotation.id}'] = nextId;
@@ -2222,11 +2231,13 @@ class ReaMicroController extends ChangeNotifier {
   ReaderAnnotation? _findMatchingLocalMark(
     List<ReaderAnnotation> local,
     ReaMicroMark remote,
+    ReaMicroAnnotationCfis cfis,
   ) {
     for (final annotation in local) {
       if (annotation.type.storageValue != remote.kind) continue;
-      if (annotation.startCfi != remote.startCfi) continue;
-      if (remote.endCfi.isNotEmpty && annotation.endCfi != remote.endCfi) {
+      if (!cfis.matches(annotation.startCfi, remote.startCfi)) continue;
+      if (remote.endCfi.isNotEmpty &&
+          !cfis.matches(annotation.endCfi, remote.endCfi)) {
         continue;
       }
       return annotation;
@@ -2260,15 +2271,28 @@ class ReaMicroController extends ChangeNotifier {
 
   ReaMicroMarkDraft _markDraftFromLocal(
     ReaderAnnotation annotation,
-    int markBookId, {
+    int markBookId,
+    ReaMicroAnnotationCfis cfis, {
     ReaMicroMark? remote,
   }) => ReaMicroMarkDraft(
     cloudId: remote?.id ?? 0,
     bookId: markBookId.toString(),
     chapter: remote?.chapter ?? '',
     kind: annotation.type.storageValue,
-    startCfi: annotation.startCfi,
-    endCfi: annotation.endCfi,
+    startCfi: annotation.needsRelocation
+        ? remote?.startCfi ?? annotation.startCfi
+        : remote != null &&
+              !remote.startCfi.contains('!') &&
+              remote.quote == annotation.quote
+        ? remote.startCfi
+        : cfis.outgoing(annotation.startCfi),
+    endCfi: annotation.needsRelocation
+        ? remote?.endCfi ?? annotation.endCfi
+        : remote != null &&
+              !remote.endCfi.contains('!') &&
+              remote.quote == annotation.quote
+        ? remote.endCfi
+        : cfis.outgoing(annotation.endCfi),
     quote: annotation.quote,
     note: annotation.note ?? '',
     style: annotation.style.storageValue,
@@ -2281,11 +2305,12 @@ class ReaMicroController extends ChangeNotifier {
     String token, {
     required int markBookId,
     required ReaderAnnotation annotation,
+    required ReaMicroAnnotationCfis cfis,
   }) async {
     final marks = await _api.fetchMarks(token, bookId: markBookId.toString());
     for (final mark in marks) {
-      if (mark.startCfi == annotation.startCfi &&
-          mark.endCfi == annotation.endCfi &&
+      if (cfis.matches(annotation.startCfi, mark.startCfi) &&
+          cfis.matches(annotation.endCfi, mark.endCfi) &&
           mark.kind == annotation.type.storageValue) {
         return mark.id;
       }
@@ -2293,9 +2318,24 @@ class ReaMicroController extends ChangeNotifier {
     return null;
   }
 
-  bool _markDiffers(ReaderAnnotation local, ReaMicroMark remote) {
-    if (local.startCfi != remote.startCfi ||
-        local.endCfi != remote.endCfi ||
+  bool _markDiffers(
+    ReaderAnnotation local,
+    ReaMicroMark remote,
+    ReaMicroAnnotationCfis cfis,
+  ) {
+    if (!local.needsRelocation &&
+        remote.startCfi.contains('!') &&
+        (cfis.outgoing(local.startCfi) != remote.startCfi ||
+            cfis.outgoing(local.endCfi) != remote.endCfi)) {
+      return true;
+    }
+    final nativeWithVerifiedQuote =
+        !local.needsRelocation &&
+        !remote.startCfi.contains('!') &&
+        local.quote == remote.quote;
+    if ((!nativeWithVerifiedQuote &&
+            (!cfis.matches(local.startCfi, remote.startCfi) ||
+                !cfis.matches(local.endCfi, remote.endCfi))) ||
         local.type.storageValue != remote.kind ||
         local.style.storageValue != remote.style ||
         local.quote != remote.quote ||
@@ -2310,6 +2350,16 @@ class ReaMicroController extends ChangeNotifier {
   int? _colorFromRemote(String value) {
     var text = value.trim();
     if (text.isEmpty) return null;
+    final named = switch (text.toLowerCase()) {
+      'red' => 0xFFFF0000,
+      'yellow' => 0xFFFFFF00,
+      'green' => 0xFF008000,
+      'blue' => 0xFF0000FF,
+      'orange' => 0xFFFFA500,
+      'purple' => 0xFF800080,
+      _ => null,
+    };
+    if (named != null) return named;
     if (text.startsWith('#')) text = text.substring(1);
     if (text.startsWith('0x') || text.startsWith('0X')) {
       text = text.substring(2);
@@ -2989,6 +3039,12 @@ class ReaMicroController extends ChangeNotifier {
     final annotations = List<ReaderAnnotation>.of(
       await _library.listBookAnnotations(bookId),
     );
+    final book = await _library.bookById(bookId);
+    final cfis = await ReaMicroAnnotationCfis.load(
+      book?.filePath ?? '',
+      local: annotations.expand((mark) => [mark.startCfi, mark.endCfi]),
+      remote: marks.expand((mark) => [mark.startCfi, mark.endCfi]),
+    );
     var merged = 0;
     for (final remote in marks) {
       if (!remote.usable) continue;
@@ -3001,9 +3057,18 @@ class ReaMicroController extends ChangeNotifier {
       var existingIndex = -1;
       for (var index = 0; index < annotations.length; index++) {
         final annotation = annotations[index];
+        final cloudId = _markIds['$bookId|${annotation.id}'];
+        if (remote.cloudId > 0 &&
+            (cloudId == remote.cloudId ||
+                annotation.id == 'mark-lan-${remote.cloudId}' ||
+                annotation.id == 'mark-cloud-${remote.cloudId}')) {
+          existingIndex = index;
+          break;
+        }
         if (annotation.type.storageValue != remote.kind) continue;
-        if (annotation.startCfi != remote.startCfi) continue;
-        if (remote.endCfi.isNotEmpty && annotation.endCfi != remote.endCfi) {
+        if (!cfis.matches(annotation.startCfi, remote.startCfi)) continue;
+        if (remote.endCfi.isNotEmpty &&
+            !cfis.matches(annotation.endCfi, remote.endCfi)) {
           continue;
         }
         existingIndex = index;
@@ -3210,7 +3275,9 @@ class ReaMicroController extends ChangeNotifier {
         avatar: user.avatar,
         token: token,
         deviceId: _deviceId ?? 'spectacular',
-        deviceName: Platform.isWindows ? 'Windows 电脑' : 'Spectacular 设备',
+        deviceName: Platform.isWindows
+            ? '阅微Extend Windows'
+            : '阅微Extend ${Platform.operatingSystem}',
         syncBooks: _buildLanSyncBooks,
         mergeMarks: _mergeLanMarksFromPeer,
       );
@@ -3260,12 +3327,20 @@ class ReaMicroController extends ChangeNotifier {
   Future<List<ReaMicroLanMark>> _lanMarksOf(BookEntry entry) async {
     try {
       final annotations = await _library.listBookAnnotations(entry.id);
+      final cfis = await ReaMicroAnnotationCfis.load(
+        entry.filePath,
+        local: annotations.expand((mark) => [mark.startCfi, mark.endCfi]),
+      );
       return <ReaMicroLanMark>[
         for (final annotation in annotations)
           if (annotation.startCfi.trim().isNotEmpty)
             ReaMicroLanMark(
-              startCfi: annotation.startCfi,
-              endCfi: annotation.endCfi,
+              startCfi: annotation.needsRelocation
+                  ? annotation.startCfi
+                  : cfis.outgoing(annotation.startCfi),
+              endCfi: annotation.needsRelocation
+                  ? annotation.endCfi
+                  : cfis.outgoing(annotation.endCfi),
               kind: annotation.type.storageValue,
               chapter: '',
               quote: annotation.quote,

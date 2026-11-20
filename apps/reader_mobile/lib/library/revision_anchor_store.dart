@@ -4,6 +4,7 @@ import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/position/book_progress_index.dart';
+import 'package:reader_core/parser/external_annotation_cfi.dart';
 
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/epub/chapter/book_progress.dart';
@@ -270,6 +271,24 @@ Future<T?> _withElementSource<T>(
     return null;
   }
 }
+
+/// 使用当前原书 DOM 转换外部标注；可借用活跃阅读来源。
+Future<String?> localExternalAnnotationCfi(
+  AppDatabase db,
+  BookRow row,
+  String cfi, {
+  bool scope = false,
+}) => _withElementSource(db, row, (binding) async {
+  final point = epubCfiCandidates(cfi).map(EpubCfi.parse).firstOrNull;
+  final spine = point == null ? null : spineIndexOfCfi(point);
+  if (spine == null || spine < 0 || spine >= binding.source.chapterCount) {
+    return null;
+  }
+  final xhtml = binding.source.document.chapterXhtml(spine);
+  if (xhtml == null) return null;
+  final mapper = ExternalAnnotationCfi(xhtml);
+  return scope ? mapper.localScope(cfi) : mapper.toLocal(cfi);
+});
 
 /// 无字符的图片章按经核验的元素顺序计算比例，不制造正文偏移。
 Future<double?> loadElementReadingPercent(

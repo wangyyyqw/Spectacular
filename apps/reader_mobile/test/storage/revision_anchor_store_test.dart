@@ -6,6 +6,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/position/text_length.dart';
+import 'package:reader_core/parser/external_annotation_cfi.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
@@ -15,6 +16,9 @@ import 'package:reader_mobile/storage/drift_bookmark_store.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/annotations/decorations.dart';
+import 'package:reader_ui/annotations/thought_marker.dart';
+import 'package:reader_ui/annotations/relocator.dart';
 
 import '../support/test_epub.dart';
 
@@ -239,6 +243,137 @@ void main() {
     expect(await resolveBookRow(db, 'history', allowAliases: false), isNull);
     await alias('history', otherId);
     expect(await resolveBookRow(db, 'history'), isNull);
+  });
+
+  test('阅微划线与想法按原 DOM 导入后在正式阅读分页中覆盖原文', () async {
+    final source = await EpubChapterSource.openFile(File(book.sourcePath!));
+    addTearDown(source.close);
+    final mapper = ExternalAnnotationCfi(source.document.chapterXhtml(0)!);
+    final selection = index.capture(cfi(12), endCfi: cfi(20))!;
+    final start = mapper.toExternal(selection.start.cfi)!;
+    final end = mapper.toExternal(selection.end!.cfi)!;
+    final store = DriftAnnotationStore(db, 'current');
+    for (final type in ReaderAnnotationType.values) {
+      await store.importSynced(
+        ReaderAnnotation(
+          id: type.name,
+          type: type,
+          startCfi: start,
+          endCfi: end,
+          quote: selection.quote,
+          note: type == ReaderAnnotationType.thought ? '想法正文' : null,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+      );
+    }
+    final annotations = await store.list();
+    final pages = await source.loadChapter(0);
+    for (final annotation in annotations) {
+      expect(annotation.needsRelocation, isFalse);
+      final lines = pages
+          .expand((page) => AnnotationDecorations.linesFor(page, [annotation]))
+          .toList();
+      expect(lines, isNotEmpty);
+      expect(
+        lines
+            .map(
+              (line) =>
+                  line.line.text.substring(line.startOffset, line.endOffset),
+            )
+            .join(),
+        selection.quote,
+      );
+      if (annotation.type == ReaderAnnotationType.thought) {
+        expect(
+          pages.expand(
+            (page) => ThoughtMarkerGeometry.markersFor(
+              page,
+              AnnotationDecorations.linesFor(page, [annotation]),
+              contentWidth: source.contentWidth,
+            ),
+          ),
+          hasLength(1),
+        );
+      }
+    }
+    await (db.update(db.annotations)).write(
+      AnnotationsCompanion(
+        startCfi: Value(start),
+        endCfi: Value(end),
+        anchorJson: const Value(null),
+      ),
+    );
+    expect(await store.repairUnresolvedAnchors(), 2);
+    expect(await store.repairUnresolvedAnchors(), 0);
+    expect((await store.list()).every((mark) => !mark.needsRelocation), isTrue);
+  });
+
+  test('阅微路径可转换但原引用不匹配时保持待定位', () async {
+    final source = await EpubChapterSource.openFile(File(book.sourcePath!));
+    addTearDown(source.close);
+    final mapper = ExternalAnnotationCfi(source.document.chapterXhtml(0)!);
+    final store = DriftAnnotationStore(db, 'current');
+    await store.importSynced(
+      ReaderAnnotation(
+        id: 'mismatch',
+        type: ReaderAnnotationType.mark,
+        startCfi: mapper.toExternal(cfi(12))!,
+        endCfi: mapper.toExternal(cfi(20))!,
+        quote: '这段引用来自另一版书',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      ),
+    );
+    expect((await store.list()).single.needsRelocation, isTrue);
+    expect(await store.repairUnresolvedAnchors(), 0);
+  });
+
+  test('阅微内联容器的显示偏移越界时按容器内唯一引用恢复想法', () async {
+    final bytes = buildMultiChapterEpub(
+      chapters: ['<p><span>原文只出现一次。</span></p><p>其他段落。</p>'],
+      rawBody: true,
+    );
+    await File(book.sourcePath!).writeAsBytes(bytes);
+    final store = DriftAnnotationStore(db, 'current');
+    await store.importSynced(
+      ReaderAnnotation(
+        id: 'inline-thought',
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/2/4/2/1/1:0)',
+        endCfi: 'epubcfi(/6/2/4/2/1/1:11)',
+        quote: '原文只出现一次。',
+        note: '阅微想法',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      ),
+    );
+    final imported = (await store.list()).single;
+    expect(imported.needsRelocation, isFalse);
+    expect(imported.startCfi, 'epubcfi(/6/2!/4/4/2/1:0)');
+    expect(
+      AnchorRecord.decode(imported.anchorData)!.effective.quote,
+      '原文只出现一次。',
+    );
+    final source = await EpubChapterSource.openFile(File(book.sourcePath!));
+    addTearDown(source.close);
+    final chapter = await source.loadAnchorChapter(0);
+    final pages = await source.loadChapter(0);
+    final resolved = AnnotationRelocator.relocateAnchors(
+      annotations: [imported],
+      book: AnchorBook(revision: book.contentRevision, chapters: [chapter]),
+      pages: pages,
+    ).single.resolved;
+    expect(
+      pages.expand(
+        (page) => ThoughtMarkerGeometry.markersFor(
+          page,
+          AnnotationDecorations.linesFor(page, [resolved]),
+          contentWidth: source.contentWidth,
+        ),
+      ),
+      hasLength(1),
+    );
   });
 
   test('真实进度保留首次锚点、滚动偏移与近似状态，旧版本禁止回写', () async {

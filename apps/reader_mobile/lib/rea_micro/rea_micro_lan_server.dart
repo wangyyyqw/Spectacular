@@ -322,14 +322,14 @@ class ReaMicroLanLoginServer {
           },
         ),
         _MdnsAdvertisedService(
-          instanceName: 'ReaMicro-Sync-$_deviceId',
+          instanceName: reaMicroSyncServiceName(userId, _deviceId, _deviceName),
           serviceType: '_reamicro-sync._tcp.local',
           port: port!,
           txt: <String, String>{
             'userId': '$userId',
             'deviceId': _deviceId,
-            'nickname': _nickname,
-            'device': _deviceName,
+            'nickname': reaMicroTxtName(_deviceName),
+            'device': reaMicroTxtName(_deviceName),
           },
         ),
       ],
@@ -400,9 +400,7 @@ class ReaMicroLanLoginServer {
       }
       requestId = _registerRequest(socket, request.$1, request.$2);
       connectionTimeout = Timer(requestTimeout, () {
-        final pending = requestId == null
-            ? null
-            : _pending.remove(requestId);
+        final pending = requestId == null ? null : _pending.remove(requestId);
         if (pending == null) return;
         _removeRequest(pending.requestId);
         unawaited(_closeSocket(pending.socket));
@@ -799,6 +797,27 @@ class ReaMicroLanLoginServer {
   }
 }
 
+/// 阅微从服务实例名读取设备身份和展示名，TXT 仅作为后备。
+@visibleForTesting
+String reaMicroSyncServiceName(int userId, String deviceId, String name) {
+  final id = deviceId.replaceAll(RegExp('[^A-Za-z0-9]'), '');
+  final suffix = id.length <= 6 ? id : id.substring(id.length - 6);
+  final label = name
+      .replaceAll(RegExp(r'\s+'), '_')
+      .replaceAll(RegExp('[^A-Za-z0-9_+]'), '');
+  final visible = label.isEmpty ? 'ReaMicroExtend' : label;
+  final prefix = 'ReaMicroSync-$userId-${suffix.isEmpty ? 'device' : suffix}-';
+  final room = (63 - prefix.length).clamp(0, 28);
+  return '$prefix${visible.substring(0, visible.length.clamp(0, room))}';
+}
+
+/// 中文设备名沿用阅微的 Base64 TXT 编码。
+@visibleForTesting
+String reaMicroTxtName(String name) =>
+    name.codeUnits.every((value) => value >= 32 && value <= 126)
+    ? name
+    : 'b64:${base64Encode(utf8.encode(name))}';
+
 class _PendingLogin {
   _PendingLogin({
     required this.requestId,
@@ -922,10 +941,7 @@ class _MdnsAdvertisedService {
 }
 
 class _MdnsServiceAdvertiser {
-  _MdnsServiceAdvertiser({
-    required this.hostName,
-    required this.services,
-  });
+  _MdnsServiceAdvertiser({required this.hostName, required this.services});
 
   static const int _port = 5353;
   static final InternetAddress _group = InternetAddress('224.0.0.251');
@@ -1323,11 +1339,10 @@ Uint8List _buildReaMicroMdnsResponse({
           cacheFlush: true,
           data: <int>[
             for (final entry in service.txt.entries)
-              if (utf8.encode('${entry.key}=${entry.value}').length <= 255)
-                ...[
-                  utf8.encode('${entry.key}=${entry.value}').length,
-                  ...utf8.encode('${entry.key}=${entry.value}'),
-                ],
+              if (utf8.encode('${entry.key}=${entry.value}').length <= 255) ...[
+                utf8.encode('${entry.key}=${entry.value}').length,
+                ...utf8.encode('${entry.key}=${entry.value}'),
+              ],
           ],
         ),
       );

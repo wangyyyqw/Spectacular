@@ -273,11 +273,10 @@ class DriftAnnotationStore
       var resolvedStart = startCfi;
       var resolvedEnd = endCfi.isEmpty ? startCfi : endCfi;
       AnchorRecord? anchor;
-      final startCandidates = epubCfiCandidates(startCfi)
-          .toList(growable: false);
+      final startCandidates = await _annotationCandidates(book, startCfi);
       final endCandidates = resolvedEnd == startCfi
           ? startCandidates
-          : epubCfiCandidates(resolvedEnd).toList(growable: false);
+          : await _annotationCandidates(book, resolvedEnd);
       for (final candidateStart in startCandidates) {
         for (final candidateEnd in endCandidates) {
           final attempt = await _captureSelection(
@@ -295,6 +294,19 @@ class DriftAnnotationStore
           anchor ??= attempt;
         }
         if (anchor?.isResolved == true) break;
+      }
+      if (anchor?.isResolved != true) {
+        final recovered = await _recoverExternalSelection(
+          book,
+          startCfi,
+          resolvedEnd,
+          evidence.quote,
+        );
+        if (recovered != null) {
+          anchor = recovered;
+          resolvedStart = recovered.effective.start.cfi;
+          resolvedEnd = recovered.effective.end!.cfi;
+        }
       }
       // 同一设备再次同步只更新想法正文时，保留上一轮已验证的本地锚点。
       final savedAnchor = AnchorRecord.decode(existing?.anchorJson);
@@ -357,11 +369,10 @@ class DriftAnnotationStore
         before: row.contextBefore ?? '',
         after: row.contextAfter ?? '',
       );
-      final startCandidates = epubCfiCandidates(startCfi)
-          .toList(growable: false);
+      final startCandidates = await _annotationCandidates(book, startCfi);
       final endCandidates = endCfi == startCfi
           ? startCandidates
-          : epubCfiCandidates(endCfi).toList(growable: false);
+          : await _annotationCandidates(book, endCfi);
       var rowRepaired = false;
       for (final candidateStart in startCandidates) {
         for (final candidateEnd in endCandidates) {
@@ -388,6 +399,28 @@ class DriftAnnotationStore
           break;
         }
         if (rowRepaired) break;
+      }
+      if (!rowRepaired) {
+        final anchor = await _recoverExternalSelection(
+          book,
+          startCfi,
+          endCfi,
+          row.quote,
+        );
+        if (anchor != null) {
+          await (_db.update(_db.annotations)..where(
+                (table) =>
+                    table.id.equals(row.id) & table.bookId.equals(book.id),
+              ))
+              .write(
+                AnnotationsCompanion(
+                  startCfi: Value(anchor.effective.start.cfi),
+                  endCfi: Value(anchor.effective.end!.cfi),
+                  anchorJson: Value(anchor.encode()),
+                ),
+              );
+          repaired += 1;
+        }
       }
     }
     return repaired;
@@ -435,6 +468,71 @@ class DriftAnnotationStore
   }
 
   /// 无法对应原引用的合法偏移也不能标成可靠定位。
+  Future<List<String>> _annotationCandidates(BookRow book, String cfi) async {
+    final converted = await localExternalAnnotationCfi(_db, book, cfi);
+    return {?converted, ...epubCfiCandidates(cfi)}.toList(growable: false);
+  }
+
+  /// 阅微内联容器可能使用显示偏移；仅在原 DOM 范围内唯一匹配整段引用。
+  Future<AnchorRecord?> _recoverExternalSelection(
+    BookRow book,
+    String start,
+    String end,
+    String quote,
+  ) async {
+    if (quote.isEmpty) return null;
+    final scope = await localExternalAnnotationCfi(
+      _db,
+      book,
+      start,
+      scope: true,
+    );
+    final endScope = await localExternalAnnotationCfi(
+      _db,
+      book,
+      end,
+      scope: true,
+    );
+    if (scope == null || scope != endScope) return null;
+    final index = await loadBookAnchorIndex(
+      _db,
+      book,
+      startCfi: epubCfiCandidates(start).first,
+      endCfi: epubCfiCandidates(end).first,
+    );
+    if (index == null || index.chapters.length != 1) return null;
+    final chapter = index.chapters.single;
+    final prefix = scope.substring(0, scope.length - 1);
+    AnchorRecord? found;
+    var offset = chapter.text.indexOf(quote);
+    while (offset >= 0) {
+      final first = chapter.cfiAt(offset);
+      final last = chapter.cfiAt(offset + quote.length, end: true);
+      bool within(String? cfi) =>
+          cfi != null &&
+          (cfi.startsWith('$prefix/') || cfi.startsWith('$prefix:'));
+      if (within(first) && within(last)) {
+        if (found != null) return null;
+        final selection = index.capture(first!, endCfi: last!);
+        if (selection != null && selection.quote == quote) {
+          // capture 的章末边界可能规范化到下一块，标注保留已核验的结束文本端点。
+          AnchorPoint endpoint(AnchorPoint point, String cfi) =>
+              AnchorPoint.fromJson({...point.toJson(), 'cfi': cfi});
+          found = AnchorRecord(
+            original: LocationAnchor(
+              revision: selection.revision,
+              start: endpoint(selection.start, first),
+              end: endpoint(selection.end!, last),
+              quote: selection.quote,
+            ),
+          );
+        }
+      }
+      offset = chapter.text.indexOf(quote, offset + 1);
+    }
+    return found;
+  }
+
   Future<AnchorRecord?> _captureSelection(
     BookRow book,
     String startCfi,

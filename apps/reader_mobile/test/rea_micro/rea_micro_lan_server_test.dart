@@ -12,6 +12,25 @@ import 'package:reader_mobile/rea_micro/rea_micro_lan_server.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 
 void main() {
+  test('同步服务名符合阅微解析格式，多台同名设备可区分', () {
+    final first = reaMicroSyncServiceName(7, 'id-123456', '阅微Extend Windows');
+    final second = reaMicroSyncServiceName(7, 'id-654321', '阅微Extend Windows');
+    expect(first, 'ReaMicroSync-7-123456-Extend_Windows');
+    expect(second, isNot(first));
+    final parts = first.substring('ReaMicroSync-'.length).split('-');
+    expect(int.parse(parts[0]), 7);
+    expect(parts[1], '123456');
+    expect(parts.skip(2).join('-').replaceAll('_', ' '), 'Extend Windows');
+    expect(
+      reaMicroSyncServiceName(9223372036854775807, '', 'a' * 100).length,
+      lessThanOrEqualTo(63),
+    );
+    expect(reaMicroSyncServiceName(7, 'x', 'Windows.PC'), isNot(contains('.')));
+    final txt = reaMicroTxtName('阅微Extend Windows');
+    expect(utf8.decode(base64Decode(txt.substring(4))), '阅微Extend Windows');
+    expect(reaMicroTxtName('Extend Windows'), 'Extend Windows');
+  });
+
   test('授权端显示登录申请并用请求方公钥加密令牌', () async {
     final server = ReaMicroLanLoginServer(discoveryEnabled: false);
     addTearDown(server.stop);

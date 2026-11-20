@@ -173,7 +173,12 @@ abstract final class AnnotationRelocator {
       return _failed(annotation, result.reason);
     }
     final current = result.effective;
-    return _resolved(annotation, current.start.cfi, current.end!.cfi, pages);
+    final end = current.end!;
+    // 段尾字符位置与下一段开头等价；标注需保留前段结束端点以绘制想法图标。
+    final endCfi =
+        book.chapter(end.spineIndex)?.cfiAt(end.charOffset, end: true) ??
+        end.cfi;
+    return _resolved(annotation, current.start.cfi, endCfi, pages);
   }
 
   static AnnotationRelocation _resolved(

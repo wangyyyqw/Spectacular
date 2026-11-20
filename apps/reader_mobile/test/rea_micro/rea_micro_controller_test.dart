@@ -8,6 +8,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/parser/external_annotation_cfi.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
@@ -2597,7 +2598,7 @@ void main() {
           quote: '这是用于应用壳测试的段落，内容足够长以便分页。',
           note: '云端想法',
           style: 1,
-          color: '#FFFF0000',
+          color: 'red',
           synced: 1,
           createdAt: 1000,
           updatedAt: 2000,
@@ -2646,8 +2647,9 @@ void main() {
     expect(startOffset, greaterThanOrEqualTo(0));
     final startCfi = chapter.cfiAt(startOffset)!;
     final endCfi = chapter.cfiAt(startOffset + quote.length, end: true)!;
-    final brokenStartCfi = startCfi.replaceFirst('!', '');
-    final brokenEndCfi = endCfi.replaceFirst('!', '');
+    final mapper = ExternalAnnotationCfi(source.document.chapterXhtml(0)!);
+    final brokenStartCfi = mapper.toExternal(startCfi)!;
+    final brokenEndCfi = mapper.toExternal(endCfi)!;
     final api = _FakeApi()
       ..marks = <ReaMicroMark>[
         ReaMicroMark(
@@ -2755,6 +2757,68 @@ void main() {
 
     expect(second.requests, 0);
     expect(api.markUpserts, hasLength(1));
+  });
+
+  test('已验证的本地标注上传原 DOM 端点，云端和局域网往返不重复', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(
+      buildTestEpub(paragraphs: ['用于同步的真实原文。']),
+    );
+    final source = await EpubChapterSource.openFile(File(book.filePath));
+    addTearDown(source.close);
+    final chapter = await source.loadAnchorChapter(0);
+    const quote = '真实原文';
+    final offset = chapter.text.indexOf(quote);
+    final start = chapter.cfiAt(offset)!;
+    final end = chapter.cfiAt(offset + quote.length, end: true)!;
+    final mapper = ExternalAnnotationCfi(source.document.chapterXhtml(0)!);
+    final api = _FakeApi();
+    final lan = _FakeLan(
+      ReaMicroLanManifest.fromJson({
+        'userId': 1,
+        'deviceId': 'peer',
+        'books': [
+          {
+            'uuid': book.id,
+            'book': {'title': book.title, 'author': book.author},
+          },
+        ],
+      }),
+    );
+    final controller = await _createController(library, api, lan: lan);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      book.id,
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    await library
+        .annotationStore(book.id)!
+        .add(
+          type: ReaderAnnotationType.thought,
+          startCfi: start,
+          endCfi: end,
+          quote: quote,
+          note: '本地想法',
+        );
+    await controller.syncMarks();
+    expect(api.markUpserts.single.startCfi, mapper.toExternal(start));
+    expect(api.markUpserts.single.endCfi, mapper.toExternal(end));
+    await controller.syncMarks();
+    expect(api.markUpserts, hasLength(1));
+    expect(await library.listBookAnnotations(book.id), hasLength(1));
+    await controller.syncWithLanPeer(
+      const ReaMicroLanSyncPeer(
+        host: '127.0.0.1',
+        port: 1,
+        userId: 1,
+        deviceId: 'peer',
+        nickname: '测试',
+        deviceName: '测试设备',
+      ),
+    );
+    expect(lan.pushedMarks.single.$2.single.startCfi, mapper.toExternal(start));
+    expect(lan.pushedMarks.single.$2.single.note, '本地想法');
   });
 
   test('标注使用阅读记录内部书籍 ID，旧错误身份更新时纠正且不重复新建', () async {
