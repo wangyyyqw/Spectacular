@@ -126,6 +126,12 @@ void main() {
       final card = find.byKey(ValueKey('book-card-${entry.id}'));
       expect(
         tester
+            .widget<Text>(find.byKey(ValueKey('book-card-title-${entry.id}')))
+            .textAlign,
+        TextAlign.center,
+      );
+      expect(
+        tester
             .widgetList<Text>(
               find.descendant(of: card, matching: find.byType(Text)),
             )
