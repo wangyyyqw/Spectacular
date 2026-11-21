@@ -18,6 +18,33 @@ TocEntry _entry(
 );
 
 void main() {
+  testWidgets('累计阅读按整分钟更新并在一小时后显示小时', (tester) async {
+    final duration = ValueNotifier(const Duration(seconds: 59));
+    addTearDown(duration.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TocPanel(
+            entries: [_entry('第一章', 0)],
+            currentSpineIndex: 0,
+            onSelect: (_) {},
+            readingDuration: duration,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('累计阅读 0 分钟'), findsOneWidget);
+    duration.value = const Duration(minutes: 1);
+    await tester.pump();
+    expect(find.text('累计阅读 1 分钟'), findsOneWidget);
+    duration.value = const Duration(minutes: 61, seconds: 59);
+    await tester.pump();
+    expect(find.text('累计阅读 1 小时 1 分钟'), findsOneWidget);
+    expect(find.text('共 1 章'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   group('目录展开（P4-11）', () {
     test('深度优先展开并标注层级', () {
       final rows = flattenToc(<TocEntry>[
@@ -61,39 +88,42 @@ void main() {
         ),
       );
 
-      expect(find.text('目录'), findsOneWidget);
+      expect(find.text('累计阅读 0 分钟'), findsOneWidget);
       expect(find.text('共 3 章'), findsOneWidget);
       expect(find.text('第一章'), findsOneWidget);
       expect(find.text('2.1'), findsOneWidget);
 
       // 当前章高亮：第二章 selected。
       final current = tester.widget<ListTile>(
-        find.ancestor(
-          of: find.text('第二章'),
-          matching: find.byType(ListTile),
-        ),
+        find.ancestor(of: find.text('第二章'), matching: find.byType(ListTile)),
       );
       expect(current.selected, isTrue);
       final other = tester.widget<ListTile>(
-        find.ancestor(
-          of: find.text('第一章'),
-          matching: find.byType(ListTile),
-        ),
+        find.ancestor(of: find.text('第一章'), matching: find.byType(ListTile)),
       );
       expect(other.selected, isFalse);
 
       // 子级缩进比父级多 16。
       final childPadding =
-          tester.widget<ListTile>(
-            find.ancestor(of: find.text('2.1'), matching: find.byType(ListTile)),
-          ).contentPadding as EdgeInsets;
+          tester
+                  .widget<ListTile>(
+                    find.ancestor(
+                      of: find.text('2.1'),
+                      matching: find.byType(ListTile),
+                    ),
+                  )
+                  .contentPadding
+              as EdgeInsets;
       final parentPadding =
-          tester.widget<ListTile>(
-            find.ancestor(
-              of: find.text('第二章'),
-              matching: find.byType(ListTile),
-            ),
-          ).contentPadding as EdgeInsets;
+          tester
+                  .widget<ListTile>(
+                    find.ancestor(
+                      of: find.text('第二章'),
+                      matching: find.byType(ListTile),
+                    ),
+                  )
+                  .contentPadding
+              as EdgeInsets;
       expect(childPadding.left - parentPadding.left, 16);
 
       await tester.tap(find.text('2.1'));
@@ -107,18 +137,10 @@ void main() {
           '第一章',
           0,
           children: <TocEntry>[
-            _entry(
-              '1.1',
-              1,
-              children: <TocEntry>[_entry('1.1.1', 2)],
-            ),
+            _entry('1.1', 1, children: <TocEntry>[_entry('1.1.1', 2)]),
           ],
         ),
-        _entry(
-          '第二章',
-          3,
-          children: <TocEntry>[_entry('2.1', 4)],
-        ),
+        _entry('第二章', 3, children: <TocEntry>[_entry('2.1', 4)]),
       ];
       await tester.pumpWidget(
         MaterialApp(
@@ -145,29 +167,21 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('toc-toggle-0-第一章')),
-      );
+      await tester.tap(find.byKey(const ValueKey<String>('toc-toggle-0-第一章')));
       await tester.pump();
       expect(find.text('1.1'), findsNothing);
       expect(find.text('共 5 章'), findsOneWidget);
       expect(selected, isEmpty);
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('toc-toggle-0-第一章')),
-      );
+      await tester.tap(find.byKey(const ValueKey<String>('toc-toggle-0-第一章')));
       await tester.pump();
       expect(find.text('1.1'), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('toc-toggle-1-1.1')),
-      );
+      await tester.tap(find.byKey(const ValueKey<String>('toc-toggle-1-1.1')));
       await tester.pump();
       expect(find.text('1.1.1'), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('toc-collapse-all')),
-      );
+      await tester.tap(find.byKey(const ValueKey<String>('toc-collapse-all')));
       await tester.pump();
       expect(find.text('第一章'), findsOneWidget);
       expect(find.text('1.1'), findsNothing);
@@ -176,9 +190,7 @@ void main() {
       expect(find.text('2.1'), findsNothing);
       expect(find.text('共 5 章'), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('toc-expand-all')),
-      );
+      await tester.tap(find.byKey(const ValueKey<String>('toc-expand-all')));
       await tester.pump();
       expect(find.text('1.1'), findsOneWidget);
       expect(find.text('1.1.1'), findsOneWidget);
@@ -240,18 +252,10 @@ void main() {
           '第一章',
           0,
           children: <TocEntry>[
-            _entry(
-              '1.1',
-              1,
-              children: <TocEntry>[_entry('1.1.1', 2)],
-            ),
+            _entry('1.1', 1, children: <TocEntry>[_entry('1.1.1', 2)]),
           ],
         ),
-        _entry(
-          '第二章',
-          3,
-          children: <TocEntry>[_entry('2.1', 4)],
-        ),
+        _entry('第二章', 3, children: <TocEntry>[_entry('2.1', 4)]),
       ];
       await tester.pumpWidget(
         MaterialApp(
@@ -265,9 +269,7 @@ void main() {
         ),
       );
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('toc-collapse-all')),
-      );
+      await tester.tap(find.byKey(const ValueKey<String>('toc-collapse-all')));
       await tester.pump();
 
       expect(find.text('第一章'), findsOneWidget);
@@ -276,10 +278,7 @@ void main() {
       expect(find.text('第二章'), findsOneWidget);
       expect(find.text('2.1'), findsNothing);
       final current = tester.widget<ListTile>(
-        find.ancestor(
-          of: find.text('1.1.1'),
-          matching: find.byType(ListTile),
-        ),
+        find.ancestor(of: find.text('1.1.1'), matching: find.byType(ListTile)),
       );
       expect(current.selected, isTrue);
     });
@@ -290,9 +289,7 @@ void main() {
           '第一节',
           0,
           cfi: 'epubcfi(/6/2!/4/2)',
-          children: <TocEntry>[
-            _entry('第一节子目', 0, cfi: 'epubcfi(/6/2!/4/4)'),
-          ],
+          children: <TocEntry>[_entry('第一节子目', 0, cfi: 'epubcfi(/6/2!/4/4)')],
         ),
         _entry('第二节', 0, cfi: 'epubcfi(/6/2!/4/6)'),
       ];

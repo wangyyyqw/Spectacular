@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
@@ -17,6 +18,7 @@ class TocPanel extends StatefulWidget {
     required this.currentSpineIndex,
     required this.onSelect,
     this.currentCfi,
+    this.readingDuration,
     this.scrollController,
     this.onBack,
     this.onChapterRules,
@@ -31,6 +33,7 @@ class TocPanel extends StatefulWidget {
 
   /// 当前位置 CFI（用于多个目录项指向同一 spine 时定位当前项）。
   final String? currentCfi;
+  final ValueListenable<Duration>? readingDuration;
 
   /// 选择回调（点击目录项）。
   final ValueChanged<TocEntry> onSelect;
@@ -263,13 +266,30 @@ class _TocPanelState extends State<TocPanel> {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
             child: Row(
               children: [
-                Text(
-                  '目录',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    height: 18 / 13,
-                  ).copyWith(color: text),
+                Flexible(
+                  child: ValueListenableBuilder<Duration>(
+                    valueListenable:
+                        widget.readingDuration ??
+                        const AlwaysStoppedAnimation<Duration>(Duration.zero),
+                    builder: (context, duration, _) {
+                      final minutes = duration.inMinutes;
+                      final hours = minutes ~/ 60;
+                      final label = hours > 0
+                          ? '累计阅读 $hours 小时 ${minutes % 60} 分钟'
+                          : '累计阅读 $minutes 分钟';
+                      return Text(
+                        label,
+                        key: const ValueKey<String>('toc-reading-duration'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          height: 18 / 13,
+                        ).copyWith(color: text),
+                      );
+                    },
+                  ),
                 ),
                 const Spacer(),
                 Text(
