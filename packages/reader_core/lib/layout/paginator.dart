@@ -59,6 +59,7 @@ class PageFootnote {
     required this.kind,
     this.text,
     this.imageUrls = const <String>[],
+    this.actionHref,
   });
 
   /// 引用起始偏移。
@@ -78,6 +79,9 @@ class PageFootnote {
 
   /// 注释内图片。
   final List<String> imageUrls;
+
+  /// 宿主声明的正文动作；引擎只保留地址和命中几何。
+  final String? actionHref;
 
   /// 是否命中当前块文本偏移。
   bool contains(int offset) =>
@@ -1471,6 +1475,7 @@ class Paginator {
                   kind: footnote.kind,
                   text: footnote.text,
                   imageUrls: footnote.imageUrls,
+                  actionHref: footnote.actionHref,
                 ),
           ],
     // 第 2 列起脱离正常流，绘制在首列右侧（overlay 切片）。

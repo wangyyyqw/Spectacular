@@ -57,7 +57,8 @@ class InlineContentBuilder {
           attributes,
           visibleText,
         )];
-    if (anchor == null || anchor.kind == NoteKind.link) {
+    final action = attributes['data-reader-action'] == 'true';
+    if (anchor == null || (anchor.kind == NoteKind.link && !action)) {
       return null;
     }
     return PageFootnote(
@@ -67,6 +68,7 @@ class InlineContentBuilder {
       kind: anchor.kind,
       text: anchor.noteText,
       imageUrls: anchor.noteImages,
+      actionHref: action ? anchor.href : null,
     );
   }
 

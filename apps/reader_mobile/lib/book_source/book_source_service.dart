@@ -16,6 +16,7 @@ import 'book_source_script.dart';
 import 'online_epub_builder.dart';
 import 'online_chapter_content_store.dart';
 import 'online_chapter_request.dart';
+import 'online_review.dart';
 
 const List<String> _onlineWordCountFields = <String>[
   'wordCount',
@@ -196,10 +197,7 @@ class BookSourceService {
     await cookieStore.load();
     final enabled = <BookSource>[
       for (final source in sources)
-        if (source.enabled &&
-            source.searchUrl.isNotBlank &&
-            source.search.bookList.isNotBlank)
-          source,
+        if (source.canSearch) source,
     ];
     if (enabled.isEmpty) return const <OnlineSourceSearchResult>[];
     final results = List<OnlineSourceSearchResult?>.filled(
@@ -1294,12 +1292,89 @@ class BookSourceService {
           .ifBlank((image.attributes['data-original'] ?? '').trim())
           .ifBlank((image.attributes['src'] ?? '').trim());
       if (raw.isNotEmpty) {
-        image.attributes['src'] = rules.resolveUrl(pageUrl, raw);
+        final request = onlineReviewImageRequest(raw);
+        final resolved = rules.resolveUrl(pageUrl, request.url);
+        image.attributes['src'] = request.options.isEmpty
+            ? resolved
+            : '$resolved,${jsonEncode(request.options)}';
       }
       image.attributes.remove('data-src');
       image.attributes.remove('data-original');
     }
     return document.body?.innerHtml ?? html;
+  }
+
+  /// 点击时使用独立源会话和原章身份，段评请求不阻塞正文预取。
+  Future<OnlineReviewPage> openReview(
+    BookSource source,
+    OnlineBook book,
+    OnlineChapter chapter,
+    OnlineReviewAction action,
+  ) async {
+    if (action.script.startsWith('paragraphRule:') ||
+        action.script.startsWith('rule:')) {
+      throw const BookSourceException('此段评依赖独立段落规则包，请使用书源自带的 click 段评');
+    }
+    await cookieStore.load();
+    final script = scriptFactory(source);
+    try {
+      final context = BookSourceRuleContext(
+        baseUrl: source.baseUrl,
+        pageUrl: chapter.url,
+        variables: {
+          'bookUrl': book.bookUrl,
+          'bookName': book.name,
+          'author': book.author,
+          'chapterUrl': chapter.url,
+          'title': chapter.title,
+          'chapterIndex': '${chapter.index}',
+          'src': action.src,
+        },
+      );
+      final code = action.script.replaceFirst(RegExp(r'^@js:'), '');
+      final output = await _evaluateContentRule(
+        source: source,
+        root: action.src,
+        rule: '@js:$code',
+        context: context,
+        script: script,
+        referer: chapter.url,
+      );
+      final pages = script is QuickJsBookSourceScriptSession
+          ? script.reviewPages
+          : const <OnlineReviewPage>[];
+      final browsers = script is QuickJsBookSourceScriptSession
+          ? script.takeBrowserRequests()
+          : const <BookSourceBrowserRequest>[];
+      final page = pages.isNotEmpty
+          ? pages.first
+          : browsers.isNotEmpty
+          ? OnlineReviewPage(url: browsers.first.url)
+          : OnlineReviewPage(
+              url: output.trim().startsWith('<') ? chapter.url : output.trim(),
+              html: output.trim().startsWith('<') ? output : '',
+            );
+      final url = rules.resolveUrl(
+        chapter.url.startsWith('data:') ? source.baseUrl : chapter.url,
+        page.url.isEmpty && page.html.isNotEmpty ? source.baseUrl : page.url,
+      );
+      final uri = Uri.tryParse(url);
+      if (uri == null ||
+          !const {'http', 'https'}.contains(uri.scheme) ||
+          uri.host.isEmpty) {
+        throw const BookSourceException('段评脚本未返回可展示的页面');
+      }
+      return OnlineReviewPage(
+        url: url,
+        html: page.html,
+        preloadJs: page.preloadJs,
+        config: page.config,
+        headers: http.headersFor(source, referer: chapter.url),
+      );
+    } finally {
+      await _saveScriptValues(source, script);
+      script.dispose();
+    }
   }
 
   Future<String> _evaluateContentRule({
@@ -1366,7 +1441,7 @@ class BookSourceService {
       .convert(
         utf8.encode(
           jsonEncode({
-            'version': 4,
+            'version': 5,
             'base': source.baseUrl,
             'headers': source.header,
             'jsLib': source.jsLib,

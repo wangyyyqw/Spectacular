@@ -178,6 +178,7 @@ class ReaderPage extends StatefulWidget {
     this.onVolumeKeyPagingChanged,
     this.onShowSystemBarsChanged,
     this.onTts,
+    this.onContentAction,
   });
 
   /// 编辑预览中单击正文直接请求编辑；普通阅读仍保留翻页和脚注语义。
@@ -190,6 +191,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 章节页来源。
   final ReaderChapterSource source;
+
+  /// 显式正文动作优先交给宿主；返回是否已处理。
+  final bool Function(int spineIndex, String href)? onContentAction;
 
   /// 书签存储（P4-13）；为 null 时菜单不显示书签入口。
   final ReaderBookmarkStore? bookmarks;
@@ -2314,6 +2318,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final footnote = TextHitTester.footnoteAt(page, pagePosition);
     if (footnote == null) {
       return false;
+    }
+    final action = footnote.actionHref;
+    if (action != null) {
+      final handled =
+          widget.onContentAction?.call(page.spineIndex, action) ?? false;
+      if (handled) _clearSelection();
+      return handled;
     }
     _clearSelection();
     unawaited(

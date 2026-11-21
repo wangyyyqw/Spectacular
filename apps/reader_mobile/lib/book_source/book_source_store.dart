@@ -23,6 +23,7 @@ class BookSourceStore {
   final http.Client _client;
   List<BookSource>? _cache;
   Map<String, OnlineBookLink>? _links;
+  int lastImportedCount = 0;
 
   /// 读取全部书源；损坏的配置文件不会静默覆盖。
   Future<List<BookSource>> load({bool refresh = false}) async {
@@ -59,8 +60,13 @@ class BookSourceStore {
     return List<BookSource>.unmodifiable(loaded);
   }
 
-  /// 从 JSON 文本导入一个书源。
+  /// 从 JSON、书源合集或导入链接识别书源。
   Future<BookSource> importText(String rawText) async {
+    final text = rawText.trim().replaceFirst('\ufeff', '');
+    final uri = Uri.tryParse(text);
+    if (uri != null && const {'http', 'https', 'legado'}.contains(uri.scheme)) {
+      return importUrl(text);
+    }
     final bytes = Uint8List.fromList(utf8.encode(rawText));
     return importBytes(bytes);
   }
@@ -80,8 +86,10 @@ class BookSourceStore {
 
   /// 从网络地址导入一个书源。
   Future<BookSource> importUrl(String rawUrl) async {
-    final url = rawUrl.trim();
-    final uri = Uri.tryParse(url);
+    var uri = Uri.tryParse(rawUrl.trim());
+    if (uri?.scheme == 'legado' && uri?.host == 'import') {
+      uri = Uri.tryParse(uri!.queryParameters['src'] ?? '');
+    }
     if (uri == null ||
         (uri.scheme != 'http' && uri.scheme != 'https') ||
         !uri.hasAuthority) {
@@ -99,39 +107,56 @@ class BookSourceStore {
     return importBytes(response.bodyBytes);
   }
 
-  /// 从字节导入；兼容 JSON、单元素数组与内嵌 JSON 的压缩包。
+  /// 从字节导入；统一识别 JSON 对象、合集与内嵌 JSON 的压缩包。
   Future<BookSource> importBytes(Uint8List bytes) async {
     if (bytes.isEmpty) throw const BookSourceException('书源内容为空');
     if (bytes.length > maxSourceBytes) {
       throw const BookSourceException('书源文件过大');
     }
-    final json = _decodeSourceJson(bytes);
-    final parsed = BookSource.fromJson(json);
-    _validate(parsed);
+    final incomingSources = [
+      for (final json in _decodeSourceJson(bytes)) BookSource.fromJson(json),
+    ];
+    for (final source in incomingSources) {
+      _validate(source);
+    }
     final sources = await load(refresh: true);
-    final existing = sources.where(
-      (source) =>
-          source.id == parsed.id ||
-          (source.sourceUrl.isNotBlank &&
-              source.sourceUrl.toLowerCase() == parsed.sourceUrl.toLowerCase()),
+    final next = sources.toList();
+    final imported = <BookSource>[];
+    for (final parsed in incomingSources) {
+      final matches = next
+          .where(
+            (source) =>
+                source.id == parsed.id ||
+                canonicalBookSourceUrl(source.sourceUrl) ==
+                    canonicalBookSourceUrl(parsed.sourceUrl),
+          )
+          .toList();
+      if (matches.length > 1) {
+        throw const BookSourceException('书源身份存在冲突，请检查书源标识和完整站点地址');
+      }
+      final previous = matches.isEmpty ? null : matches.single;
+      final incoming = parsed.copyWith(
+        id: previous?.id,
+        enabled: previous?.enabled ?? parsed.enabled,
+        loadMode: previous?.loadMode ?? parsed.loadMode,
+      );
+      next.removeWhere((source) => source.id == incoming.id);
+      next.add(incoming);
+      imported.add(incoming);
+    }
+    next.sort(
+      (left, right) =>
+          left.name.toLowerCase().compareTo(right.name.toLowerCase()),
     );
-    final previous = existing.isEmpty ? null : existing.first;
-    final incoming = parsed.copyWith(
-      id: previous?.id,
-      enabled: previous?.enabled ?? parsed.enabled,
-    );
-    final next =
-        <BookSource>[
-          for (final source in sources)
-            if (source.id != incoming.id) source,
-          incoming,
-        ]..sort(
-          (left, right) =>
-              left.name.toLowerCase().compareTo(right.name.toLowerCase()),
-        );
     _cache = next;
-    await _writeConfig();
-    return incoming;
+    try {
+      await _writeConfig();
+    } on Object {
+      _cache = sources;
+      rethrow;
+    }
+    lastImportedCount = imported.map((source) => source.id).toSet().length;
+    return imported.first;
   }
 
   /// 启用或停用书源。
@@ -196,7 +221,7 @@ class BookSourceStore {
 
   void dispose() => _client.close();
 
-  Map<String, Object?> _decodeSourceJson(Uint8List bytes) {
+  List<Map<String, Object?>> _decodeSourceJson(Uint8List bytes) {
     if (_looksLikeZip(bytes)) {
       return _sourceFromArchive(bytes);
     }
@@ -206,36 +231,27 @@ class BookSourceStore {
         .trim();
     if (text.isEmpty) throw const BookSourceException('书源内容为空');
     try {
-      final decoded = jsonDecode(text);
-      if (decoded is List) {
-        if (decoded.isEmpty) {
-          throw const BookSourceException('书源列表为空');
-        }
-        if (decoded.length != 1) {
-          throw const BookSourceException('一次最多导入一个书源');
-        }
-        final item = _jsonObject(decoded.first);
-        if (item == null) throw const BookSourceException('书源格式不正确');
-        return item;
-      }
-      final item = _jsonObject(decoded);
-      if (item == null) throw const BookSourceException('书源格式不正确');
-      return item;
+      return _sourceObjects(jsonDecode(text));
     } on FormatException {
       throw const BookSourceException('书源不是有效的 JSON');
     }
   }
 
-  Map<String, Object?> _sourceFromArchive(Uint8List bytes) {
+  List<Map<String, Object?>> _sourceFromArchive(Uint8List bytes) {
     late final Archive archive;
     try {
       archive = ZipDecoder().decodeBytes(bytes);
     } on Object {
       throw const BookSourceException('无法读取书源压缩包');
     }
+    final sources = <Map<String, Object?>>[];
+    var expandedBytes = 0;
     for (final file in archive.files) {
       if (!file.isFile || !file.name.toLowerCase().endsWith('.json')) continue;
-      if (file.size > 512 * 1024) continue;
+      expandedBytes += file.size;
+      if (expandedBytes > maxSourceBytes) {
+        throw const BookSourceException('解压后的书源 JSON 过大');
+      }
       final content = file.content;
       final text = utf8.decode(content, allowMalformed: true).trim();
       if (!text.contains('bookSource') && !text.contains('ruleSearch')) {
@@ -243,12 +259,14 @@ class BookSourceStore {
       }
       try {
         final decoded = jsonDecode(text);
-        final object = _jsonObject(decoded);
-        if (object != null) return object;
+        sources.addAll(_sourceObjects(decoded));
       } on FormatException {
+        continue;
+      } on BookSourceException {
         continue;
       }
     }
+    if (sources.isNotEmpty) return sources;
     throw const BookSourceException('该压缩书源只包含编译代码，当前版本无法直接执行；请导入 JSON 书源');
   }
 
@@ -265,11 +283,8 @@ class BookSourceStore {
         !uri.hasAuthority) {
       throw const BookSourceException('书源站点地址无效');
     }
-    if (source.searchUrl.isBlank) {
-      throw const BookSourceException('书源缺少搜索地址');
-    }
-    if (source.search.bookList.isBlank) {
-      throw const BookSourceException('书源缺少搜索结果列表规则');
+    if (source.searchUrl.isNotBlank && source.search.bookList.isBlank) {
+      throw const BookSourceException('书源声明了搜索地址但缺少搜索结果列表规则');
     }
     if (source.toc.chapterList.isBlank) {
       throw const BookSourceException('书源缺少目录列表规则');
@@ -334,6 +349,33 @@ class BookSourceStore {
     final root = await _directoryProvider();
     return File(p.join(root.path, 'book_sources', 'sources.json'));
   }
+}
+
+List<Map<String, Object?>> _sourceObjects(Object? value) {
+  if (value is String) {
+    try {
+      return _sourceObjects(jsonDecode(value));
+    } on FormatException {
+      throw const BookSourceException('书源不是有效的 JSON');
+    }
+  }
+  final object = _jsonObject(value);
+  if (object != null) {
+    for (final key in const ['sources', 'bookSources']) {
+      if (object.containsKey(key) && !object.containsKey('ruleContent')) {
+        return _sourceObjects(object[key]);
+      }
+    }
+    if (!object.containsKey('ruleContent')) {
+      throw const BookSourceException('未识别到阅读 JSON 书源');
+    }
+    return [object];
+  }
+  if (value is List) {
+    if (value.isEmpty) throw const BookSourceException('书源列表为空');
+    return [for (final item in value) ..._sourceObjects(item)];
+  }
+  throw const BookSourceException('书源格式不正确');
 }
 
 Map<String, Object?>? _jsonObject(Object? value) {

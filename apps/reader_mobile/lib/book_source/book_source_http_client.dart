@@ -86,6 +86,15 @@ class BookSourceHttpClient {
 
   void close() => _client.close();
 
+  /// 原生段评页沿用同一套源请求头；Cookie 由宿主按目标域同步。
+  Map<String, String> headersFor(BookSource source, {String referer = ''}) {
+    final headers = _requestHeaders(source, const {}, const {});
+    if (referer.isNotEmpty && !_hasHeader(headers, 'Referer')) {
+      headers['Referer'] = referer;
+    }
+    return headers;
+  }
+
   Future<BookSourceHttpResponse> _send(
     BookSource source,
     String rawUrl, {

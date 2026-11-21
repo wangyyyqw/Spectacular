@@ -352,12 +352,15 @@ abstract final class FootnoteParser {
           _directContent(tag, attributes) ??
           (tag == 'a' ? _nestedDirectContent(element) : null);
       final directImage = _isImageNoteReference(tag, attributes);
+      final contentAction =
+          attributes['data-reader-action'] == 'true' && href.isNotEmpty;
       final directImageSource =
           _directImageSource(attributes) ??
           (tag == 'a' ? _nestedDirectImageSource(element) : null);
       if (!hasFragment &&
           directContent == null &&
           !directImage &&
+          !contentAction &&
           directImageSource == null) {
         continue;
       }
@@ -392,7 +395,9 @@ abstract final class FootnoteParser {
           referenceKey: referenceKey(tag, attributes, text),
           href: href,
           label: label,
-          kind: directText != null || directImageSource != null
+          kind: contentAction
+              ? NoteKind.link
+              : directText != null || directImageSource != null
               ? NoteKind.footnote
               : kind,
           sourceId: sourceId == null || sourceId.isEmpty ? null : sourceId,

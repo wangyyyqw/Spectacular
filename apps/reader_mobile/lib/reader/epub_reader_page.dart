@@ -50,6 +50,9 @@ import 'reader_tts_controller.dart';
 import 'reader_tts_voice_page.dart';
 import 'reader_tts_voice_store.dart';
 import '../rea_micro/rea_micro_models.dart';
+import '../book_source/online_reading_book.dart';
+import '../book_source/online_review.dart';
+import '../book_source/online_review_launcher.dart';
 
 /// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
 ///
@@ -97,6 +100,7 @@ class EpubReaderPage extends StatefulWidget {
     this.reviewStore,
     this.enableFullTextSearch = true,
     this.persistInitialPosition = false,
+    this.onlineReading,
   });
 
   final BookEditRepository? bookEditorRepository;
@@ -106,6 +110,7 @@ class EpubReaderPage extends StatefulWidget {
   /// 在线阅读不为全文搜索触发整本下载。
   final bool enableFullTextSearch;
   final bool persistInitialPosition;
+  final Future<OnlineReadingBook>? onlineReading;
 
   /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
   final Uint8List? bytes;
@@ -1151,6 +1156,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
       persistInitialPosition: widget.persistInitialPosition,
+      onContentAction: widget.onlineReading == null ? null : _openOnlineReview,
       onTts: _toggleTts,
       onBookEnd: _openFinishPage,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
@@ -1164,6 +1170,30 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   bool _editorOpen = false;
+  bool _reviewOpen = false;
+
+  bool _openOnlineReview(int spine, String href) {
+    final action = OnlineReviewAction.fromHref(href);
+    if (action == null || widget.onlineReading == null) return false;
+    if (_reviewOpen) return true;
+    _reviewOpen = true;
+    unawaited(() async {
+      try {
+        final reading = await widget.onlineReading!;
+        if (!mounted || _closing) return;
+        await const OnlineReviewLauncher().open(reading, spine, action);
+      } catch (error) {
+        if (mounted && !_closing) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('段评加载失败：$error')));
+        }
+      } finally {
+        _reviewOpen = false;
+      }
+    }());
+    return true;
+  }
+
   bool _canRechapter = false;
   bool _finishPageOpen = false;
 

@@ -176,6 +176,10 @@ flutter run --no-pub
 
 ## Android APK
 
+在线阅读支持书源正文图片中 `dp:` 数字与 `click` 动作段评，显示可点击数字入口；点击后在 Android 底部网页面板展示 `java.showBrowser(url, html, preloadJs, config)` 的结果，沿用书源请求头及登录 Cookie。关闭面板保留正文位置。`pclick` 中直接声明的脚本也可使用；`paragraphRule:`／`rule:` 引用的独立段落规则包尚未接入，点击会给出提示。书源私有 Java 桥接 API 不保证全部兼容。
+
+书源导入统一支持单个 JSON、数组合集、`sources`／`bookSources` 包装对象、含 JSON 的 ZIP，以及 HTTP(S) 和 `legado://import/bookSource?src=…` 链接。合集先验证再合并；重新导入保留已有启停状态、加载方式和书籍关联。按显式标识与完整站点地址识别来源，地址的路径与查询参与身份，搜索能力和目录正文能力分别判断。搜索 URL 后的请求选项及未识别的规则字段在保存后保留。
+
 已有依赖时的标准 Release 入口：
 
 ```bash

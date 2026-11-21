@@ -162,6 +162,7 @@ class BookOpener {
       builder: (_) {
         created = true;
         return EpubReaderPage(
+          onlineReading: prepared,
           sourceFuture: source ??= prepared.then((book) {
             if (cancelled) throw const ChapterLoadCancelled();
             final openedSource = book.open();

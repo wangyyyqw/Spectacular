@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_js/flutter_js.dart';
 
+import 'online_review.dart';
+
 /// 书源 JS 规则执行失败。
 class BookSourceScriptException implements Exception {
   const BookSourceScriptException(this.message);
@@ -146,6 +148,7 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
   final List<BookSourceBrowserRequest> _browsers = [];
   List<String> messages = [];
   bool rebuildLoginView = false;
+  List<OnlineReviewPage> reviewPages = [];
 
   List<BookSourceBrowserRequest> takeBrowserRequests() {
     final requests = List<BookSourceBrowserRequest>.of(_browsers);
@@ -195,6 +198,7 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
     _browsers.clear();
     messages = [];
     rebuildLoginView = false;
+    reviewPages = [];
     final state = runtime.evaluate(
       '__legadoStrings = ${jsonEncode(strings)};'
       '__legadoLists = ${jsonEncode(lists)};'
@@ -205,8 +209,9 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
       '__legadoSourceValues = ${jsonEncode(sourceValues)};'
       '__legadoValueChanges = {};'
       '__legadoBrowserResponses = ${jsonEncode(_browserResponses)};'
-      '__legadoBrowsers = []; __legadoMessages = []; __legadoRebuild = false;'
-      '__legadoBook = ${jsonEncode({'bookUrl': variables['bookUrl'] ?? '', 'name': variables['bookName'] ?? ''})};'
+      '__legadoBrowsers = []; __legadoReviewPages = [];'
+      '__legadoMessages = []; __legadoRebuild = false;'
+      '__legadoBook = ${jsonEncode({'bookUrl': variables['bookUrl'] ?? '', 'name': variables['bookName'] ?? '', 'author': variables['author'] ?? ''})};'
       '__legadoChapter = ${jsonEncode({'url': variables['chapterUrl'] ?? '', 'title': variables['title'] ?? '', 'index': int.tryParse(variables['chapterIndex'] ?? '') ?? 0})};'
       '__legadoSourceKey = ${jsonEncode(sourceKey)};'
       '__legadoRequests = [];',
@@ -220,7 +225,7 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
     final searchKey = variables['searchKey'] ?? key;
     final page = int.tryParse(variables['page'] ?? '') ?? 1;
     final wrapped =
-        '(function(result, baseUrl, key, page, searchKey, book, chapter, isLongClick) {'
+        '(function(result, baseUrl, key, page, searchKey, book, chapter, isLongClick, src) {'
         'if (result && typeof result === "object") {'
         'Object.defineProperty(result,"toString",{value:function(){'
         'return JSON.stringify(this);}, configurable:true});}'
@@ -228,16 +233,27 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
         'return output === undefined ? result : output;'
         '})(${variables['_resultJson'] ?? jsonEncode(result)}, ${jsonEncode(baseUrl)}, '
         '${jsonEncode(key)}, $page, ${jsonEncode(searchKey)},'
-        '__legadoBook, __legadoChapter, ${variables['isLongClick'] == 'true'});';
+        '__legadoBook, __legadoChapter, ${variables['isLongClick'] == 'true'},'
+        '${jsonEncode(variables['src'] ?? '')});';
     final evaluated = runtime.evaluate(wrapped);
     final effects = jsonDecode(
       runtime
           .evaluate(
             'JSON.stringify({browsers:__legadoBrowsers,messages:__legadoMessages,'
-            'rebuild:__legadoRebuild})',
+            'rebuild:__legadoRebuild,reviews:__legadoReviewPages})',
           )
           .stringResult,
     ) as Map;
+    reviewPages = [
+      for (final item
+          in (effects['reviews'] as List).whereType<Map<Object?, Object?>>())
+        OnlineReviewPage(
+          url: '${item['url'] ?? ''}',
+          html: '${item['html'] ?? ''}',
+          preloadJs: '${item['preloadJs'] ?? ''}',
+          config: '${item['config'] ?? ''}',
+        ),
+    ];
     for (final item
         in (effects['browsers'] as List).whereType<Map<Object?, Object?>>()) {
       _browsers.add(
@@ -622,6 +638,12 @@ var java = {
   longToast: function(value) { __legadoMessages.push(String(value)); },
   startBrowser: function(url, title) { return __legadoBrowser(url,title,false); },
   startBrowserAwait: function(url, title) { return __legadoBrowser(url,title,true); },
+  showBrowser: function(url, html, preloadJs, config) {
+    __legadoReviewPages.push({url:String(url || ''),html:String(html || ''),
+      preloadJs:String(preloadJs || ''),config:typeof config === 'object'
+        ? JSON.stringify(config) : String(config || '')});
+    return true;
+  },
   reLoginView: function() { __legadoRebuild = true; },
   upLoginData: function(values) {
     if (values) Object.keys(values).forEach(function(key) {
@@ -641,6 +663,9 @@ var cache = {
 };
 String.prototype.body = function() { return String(this); };
 var source = {
+  showBrowser: function(url, html, preloadJs, config) {
+    return java.showBrowser(url, html, preloadJs, config);
+  },
   get key() { return __legadoSourceKey; },
   get: function(key) { return __legadoSourceValues[String(key)] || ''; },
   put: __legadoPut,

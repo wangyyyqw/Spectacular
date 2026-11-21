@@ -20,6 +20,7 @@ class MainActivity : FlutterActivity() {
     private var battery: ReaderBatteryHandler? = null
     private var batteryChannel: EventChannel? = null
     private var onlineSourceLogin: OnlineSourceLoginHandler? = null
+    private var onlineReview: OnlineReviewHandler? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var showStatusBar = true
     private var showNavigationBar = true
@@ -36,6 +37,7 @@ class MainActivity : FlutterActivity() {
             this,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        onlineReview = OnlineReviewHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         readerChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/reader",
@@ -87,6 +89,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         releaseMulticastLock()
         onlineSourceLogin?.dispose()
+        onlineReview?.dispose()
         epubExport?.dispose()
         batteryChannel?.setStreamHandler(null)
         battery?.dispose()

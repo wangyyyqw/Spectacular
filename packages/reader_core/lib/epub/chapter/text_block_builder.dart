@@ -2264,6 +2264,7 @@ class _MeasuredParagraph {
           kind: note.kind,
           text: note.text,
           imageUrls: note.imageUrls,
+          actionHref: note.actionHref,
         ),
     ];
   }

@@ -49,7 +49,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
               key: const ValueKey<String>('online-source-import-file'),
               leading: const AppIcon(AppGlyph.folder),
               title: const Text('从文件导入'),
-              subtitle: const Text('支持 JSON 或 TXT，只导入单个书源'),
+              subtitle: const Text('支持 JSON、TXT 或含 JSON 的书源压缩包'),
               onTap: () => Navigator.of(context).pop('file'),
             ),
             ListTile(
@@ -88,6 +88,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
           'txt',
           'rmonline',
           'rmsource',
+          'zip',
         ],
       );
       final path = result.isEmpty ? null : result.single.path;
@@ -138,7 +139,13 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(source == null ? '书源已导入' : '已导入 ${source.name}'),
+          content: Text(
+            widget.controller.lastImportedCount > 1
+                ? '已导入 ${widget.controller.lastImportedCount} 个书源'
+                : source == null
+                ? '书源已导入'
+                : '已导入 ${source.name}',
+          ),
         ),
       );
     } on Object catch (error) {
@@ -281,7 +288,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
               IconButton(
                 key: const ValueKey<String>('online-source-search'),
                 tooltip: '搜索在线书籍',
-                onPressed: controller.enabledCount == 0 ? null : _openSearch,
+                onPressed: controller.searchableCount == 0 ? null : _openSearch,
                 icon: const AppIcon(AppGlyph.search),
               ),
               IconButton(
@@ -341,7 +348,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
               subtitle: Text(
                 <String>[
                   if (source.group.isNotEmpty) source.group,
-                  '${source.search.bookList.isEmpty ? '无搜索' : '可搜索'}'
+                  '${source.searchUrl.isEmpty || source.search.bookList.isEmpty ? '无搜索' : '可搜索'}'
                       '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? ' · 已登录' : ' · 需登录') : ''}'
                       ' · ${source.loadMode == BookSourceLoadMode.chapter ? '逐章加载' : '整本下载'}',
                 ].join('\n'),

@@ -119,6 +119,8 @@ class OnlineEpubMetadata {
         source.id,
         if (source.sourceUrl.trim().isNotEmpty)
           stableBookSourceId(source.sourceUrl),
+        if (source.sourceUrl.trim().isNotEmpty)
+          legacyBookSourceId(source.sourceUrl),
         for (final key in const [
           'reamicroSourceId',
           'reamicroPackageId',
@@ -264,9 +266,7 @@ bool _sameSourceUrl(String left, String right) {
       return null;
     }
     final normalized = uri.normalizePath();
-    return normalized
-        .replace(path: normalized.path.replaceFirst(RegExp(r'/$'), ''))
-        .toString();
+    return canonicalBookSourceUrl(normalized.toString());
   }
 
   final url = normalize(left);

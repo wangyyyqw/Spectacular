@@ -428,7 +428,12 @@ class _LayoutMemoryWork {
 
   Iterable<int> _footnote(PageFootnote note) sync* {
     bytes += 128;
-    yield* _references([note.label, note.text, note.imageUrls]);
+    yield* _references([
+      note.label,
+      note.text,
+      note.imageUrls,
+      note.actionHref,
+    ]);
   }
 
   Iterable<int> _spacing(LineSpacing spacing) sync* {

@@ -409,7 +409,7 @@ void main() {
     expect(content, contains('正常正文不会被资源嗅探正则删除'));
   });
 
-  test('正文 v4 隔离 v3 未处理缓存，重新取得正文并保留旧缓存文件', () async {
+  test('正文 v5 隔离 v4 旧图片选项缓存，重新取得正文并保留旧缓存文件', () async {
     var requests = 0;
     final service = _service(directory, (_) async {
       requests += 1;
@@ -417,7 +417,7 @@ void main() {
     });
     final source = _source(replaceRegex: r'##姓名：##作者：');
     final legacyRules = _digest({
-      'version': 3,
+      'version': 4,
       'base': source.baseUrl,
       'headers': source.header,
       'jsLib': source.jsLib,

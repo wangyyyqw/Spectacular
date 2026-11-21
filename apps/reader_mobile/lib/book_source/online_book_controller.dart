@@ -105,6 +105,9 @@ class OnlineBookController extends ChangeNotifier {
   List<String> get lastSkippedReasons =>
       List<String>.unmodifiable(_lastSkippedReasons);
   int get enabledCount => _sources.where((source) => source.enabled).length;
+  int get searchableCount =>
+      _sources.where((source) => source.canSearch).length;
+  int get lastImportedCount => _store.lastImportedCount;
   bool isLoggedIn(BookSource source) => _loggedInSourceIds.contains(source.id);
 
   /// 初次读取本地书源与书籍关联。

@@ -10,6 +10,7 @@ import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'online_chapter_request.dart';
 import 'online_epub_builder.dart';
+import 'online_review.dart';
 
 /// 一次在线阅读使用同一目录快照；身份与下载后的 EPUB 分开。
 class OnlineReadingBook {
@@ -34,7 +35,7 @@ class OnlineReadingBook {
   late final String id =
       bookshelfId ?? 'online:${_digest([source.id, book.bookUrl])}';
   late final String revision = _digest([
-    '在线正文1',
+    '在线正文2',
     id,
     for (final (index, chapter) in chapters.indexed)
       [chapter.url, chapterRevision(index)],
@@ -58,18 +59,24 @@ class OnlineReadingBook {
         nextChapter: _nextChapter(index),
       );
       return const OnlineEpubBuilder().buildChapterDocument(
-        OnlineEpubChapter(title: chapter.title, html: html),
+        OnlineEpubChapter(
+          title: chapter.title,
+          html: prepareOnlineReviewHtml(html),
+        ),
       );
     },
     loadNetworkImage: (url) =>
         service.loadCover(source, url, referer: book.bookUrl),
   );
 
-  String chapterRevision(int index) => service.chapterContentRevision(
-    source,
-    chapters[index],
-    nextChapter: _nextChapter(index),
-  );
+  String chapterRevision(int index) => _digest([
+    '在线正文2',
+    service.chapterContentRevision(
+      source,
+      chapters[index],
+      nextChapter: _nextChapter(index),
+    ),
+  ]);
 
   OnlineChapter? _nextChapter(int index) =>
       index + 1 < chapters.length ? chapters[index + 1] : null;

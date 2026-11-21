@@ -470,9 +470,14 @@ class BookSource {
   /// 是否具备最小可用搜索链路。
   bool get canSearch =>
       enabled &&
+      type == 0 &&
       searchUrl.isNotBlank &&
       sourceUrl.isNotBlank &&
       search.bookList.isNotBlank;
+
+  /// 阅读能力与搜索能力分别识别，允许通过发现页或已有书籍关联进入。
+  bool get canRead =>
+      type == 0 && toc.chapterList.isNotBlank && content.content.isNotBlank;
 
   /// 站点源地址，用于解析相对链接。
   String get baseUrl {
@@ -563,10 +568,64 @@ class BookSource {
       'enabled': enabled,
       'enabledExplore': enabledExplore,
       'enabledCookieJar': enabledCookieJar,
-      'searchUrl': searchUrl,
+      'searchUrl': searchOptions.isEmpty
+          ? searchUrl
+          : '$searchUrl,${jsonEncode(searchOptions)}',
       'exploreUrl': exploreUrl,
       'bookSourceId': id,
       'loadMode': loadMode.name,
+      'bookSourceComment': comment,
+      'header': header,
+      'loginUrl': loginUrl,
+      'loginUi': loginUi,
+      'loginCheckJs': loginCheckJs,
+      'concurrentRate': concurrentRate,
+      'respondTime': respondTime,
+      'jsLib': jsLib,
+      'ruleSearch': {
+        ..._ruleMap(raw['ruleSearch']),
+        'bookList': search.bookList,
+        'name': search.name,
+        'author': search.author,
+        'bookUrl': search.bookUrl,
+        'coverUrl': search.coverUrl,
+        'intro': search.intro,
+        'kind': search.kind,
+        'wordCount': search.wordCount,
+        'chapterCount': search.chapterCount,
+        'updateTime': search.updateTime,
+        'lastChapter': search.lastChapter,
+      },
+      'ruleBookInfo': {
+        ..._ruleMap(raw['ruleBookInfo']),
+        'name': bookInfo.name,
+        'author': bookInfo.author,
+        'kind': bookInfo.kind,
+        'wordCount': bookInfo.wordCount,
+        'chapterCount': bookInfo.chapterCount,
+        'updateTime': bookInfo.updateTime,
+        'lastChapter': bookInfo.lastChapter,
+        'intro': bookInfo.intro,
+        'coverUrl': bookInfo.coverUrl,
+        'tocUrl': bookInfo.tocUrl,
+        'init': bookInfo.init,
+      },
+      'ruleToc': {
+        ..._ruleMap(raw['ruleToc']),
+        'chapterList': toc.chapterList,
+        'chapterName': toc.chapterName,
+        'chapterUrl': toc.chapterUrl,
+        'updateTime': toc.updateTime,
+        'nextTocUrl': toc.nextTocUrl,
+        'isVolume': toc.isVolume,
+      },
+      'ruleContent': {
+        ..._ruleMap(raw['ruleContent']),
+        'content': content.content,
+        'nextContentUrl': content.nextContentUrl,
+        'replaceRegex': content.replaceRegex,
+        'sourceRegex': content.sourceRegex,
+      },
     };
   }
 }
@@ -681,9 +740,17 @@ class BookSourceException implements Exception {
 
 /// 书源稳定标识：URL 或名称的 SHA-256 前 16 位。
 String stableBookSourceId(String value) {
-  final digest = sha256.convert(utf8.encode(value.trim().toLowerCase()));
+  final uri = Uri.tryParse(value.trim());
+  final identity = uri?.hasAuthority == true
+      ? canonicalBookSourceUrl(value)
+      : value.trim().toLowerCase();
+  final digest = sha256.convert(utf8.encode(identity));
   return 'online_${digest.toString().substring(0, 16)}';
 }
+
+/// 兼容早期按整串小写生成的同步书源标识；只用于查找旧关联。
+String legacyBookSourceId(String value) =>
+    'online_${sha256.convert(utf8.encode(value.trim().toLowerCase())).toString().substring(0, 16)}';
 
 /// 读取书源对象；字符串形式的内嵌 JSON 也接受。
 Map<String, Object?> bookSourceRuleMap(Object? value) => _ruleMap(value);
@@ -768,17 +835,34 @@ BookSourceLoadMode _loadMode(Object? value) {
   String raw,
 ) {
   final text = raw.trim();
+  if (text.toLowerCase().startsWith('data:')) {
+    return (url: text, options: const <String, Object?>{});
+  }
   for (final separator in const <String>[',{', ', {']) {
     final index = text.indexOf(separator);
     if (index <= 0) continue;
     final candidate = text.substring(index + 1).trim();
     if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue;
-    return (
-      url: text.substring(0, index).trim(),
-      options: _tryDecodeObject(candidate) ?? const <String, Object?>{},
-    );
+    final options = _tryDecodeObject(candidate);
+    if (options != null) {
+      return (url: text.substring(0, index).trim(), options: options);
+    }
   }
   return (url: text, options: const <String, Object?>{});
+}
+
+/// 按完整地址识别书源；保留路径、查询与片段，避免合并同站不同规则。
+String canonicalBookSourceUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null || uri.host.isEmpty) return value.trim();
+  final normalized = uri.normalizePath();
+  return normalized
+      .replace(
+        scheme: normalized.scheme.toLowerCase(),
+        host: normalized.host.toLowerCase(),
+        path: normalized.path == '/' ? '' : normalized.path,
+      )
+      .toString();
 }
 
 extension _BlankString on String {

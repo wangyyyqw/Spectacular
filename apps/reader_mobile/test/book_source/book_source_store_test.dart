@@ -6,6 +6,9 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_store.dart';
+import 'package:reader_mobile/book_source/online_epub_metadata.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 const _sourceJson = '''
 {
@@ -65,7 +68,10 @@ void main() {
 
   test('书源可以显式选择整本加载并持久化', () async {
     final source = await store.importText(
-      _sourceJson.replaceFirst('"bookSourceName": "示例源"', '"bookSourceName": "整本源", "loadMode": "book"'),
+      _sourceJson.replaceFirst(
+        '"bookSourceName": "示例源"',
+        '"bookSourceName": "整本源", "loadMode": "book"',
+      ),
     );
     expect(source.loadMode, BookSourceLoadMode.book);
     final json = source.toJson();
@@ -75,12 +81,113 @@ void main() {
   test('重复导入保留启停状态', () async {
     final source = await store.importText(_sourceJson);
     await store.setEnabled(source.id, false);
+    await store.setLoadMode(source.id, BookSourceLoadMode.book);
 
     await store.importText(_sourceJson);
     final reader = BookSourceStore(directoryProvider: () async => directory);
     final reloaded = await reader.load(refresh: true);
     reader.dispose();
     expect(reloaded.single.enabled, isFalse);
+    expect(reloaded.single.loadMode, BookSourceLoadMode.book);
+  });
+
+  test('对象合集、字符串规则与 ZIP 数组统一识别且完整地址区分同站书源', () async {
+    final first = jsonDecode(_sourceJson) as Map<String, dynamic>;
+    first['searchUrl'] = '/search, {"method":"POST","body":"key={{key}}"}';
+    first['ruleToc'] = jsonEncode(first['ruleToc']);
+    final second = {...first, 'bookSourceUrl': 'https://example.com/other'};
+    final archive = Archive();
+    final content = utf8.encode(jsonEncode([first, second]));
+    archive.addFile(ArchiveFile('sources.json', content.length, content));
+    await store.importBytes(
+      Uint8List.fromList(ZipEncoder().encodeBytes(archive)),
+    );
+    expect(store.lastImportedCount, 2);
+    final loaded = await store.load(refresh: true);
+    expect(loaded, hasLength(2));
+    expect(loaded.first.searchOptions['method'], 'POST');
+    expect(loaded.first.toc.chapterList, 'ul li');
+    await store.importText(
+      jsonEncode({
+        'bookSources': [
+          {...first, 'bookSourceUrl': 'https://EXAMPLE.com/'},
+        ],
+      }),
+    );
+    expect(await store.load(refresh: true), hasLength(2));
+  });
+
+  test('发现和已有书籍可使用无搜索源，data 正文与无效选项不误拆', () async {
+    final json = jsonDecode(_sourceJson) as Map<String, dynamic>;
+    json.remove('searchUrl');
+    json.remove('ruleSearch');
+    final source = await store.importText(jsonEncode(json));
+    expect(source.canRead, isTrue);
+    expect(source.canSearch, isFalse);
+    const data = 'data:text/html,<p>原文,{"content":"内容"}</p>';
+    expect(splitBookSourceUrlOptions(data).url, data);
+    expect(splitBookSourceUrlOptions('/page,{broken}').url, '/page,{broken}');
+  });
+
+  test('Legado 导入链接解析远程合集，失败合集不改已有源或关联', () async {
+    final networkStore = BookSourceStore(
+      directoryProvider: () async => directory,
+      client: MockClient((request) async {
+        expect(request.url.toString(), 'https://example.test/sources.json');
+        return http.Response(
+          _sourceJson,
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    addTearDown(networkStore.dispose);
+    final source = await networkStore.importText(
+      'legado://import/bookSource?src=https%3A%2F%2Fexample.test%2Fsources.json',
+    );
+    await networkStore.saveLink(
+      'book',
+      OnlineBookLink(
+        sourceId: source.id,
+        bookUrl: 'https://example.com/book',
+        name: '测试书',
+        author: '作者',
+      ),
+    );
+    final invalid = <String, Object?>{
+      ...jsonDecode(_sourceJson) as Map<String, dynamic>,
+      'bookSourceUrl': 'https://example.test/broken',
+      'ruleContent': {},
+    };
+    await expectLater(
+      networkStore.importText(
+        jsonEncode([
+          {
+            ...jsonDecode(_sourceJson) as Map<String, dynamic>,
+            'bookSourceName': '改名',
+          },
+          invalid,
+        ]),
+      ),
+      throwsA(isA<BookSourceException>()),
+    );
+    expect((await networkStore.load(refresh: true)).single.name, source.name);
+    expect((await networkStore.loadLinks())['book']?.sourceId, source.id);
+    expect(stableBookSourceId('https://EXAMPLE.com/'), source.id);
+    expect(
+      stableBookSourceId('https://example.com/Book'),
+      isNot(stableBookSourceId('https://example.com/book')),
+    );
+    final pathSource = source.copyWith(
+      id: stableBookSourceId('https://example.com/Book'),
+      sourceUrl: 'https://example.com/Book',
+    );
+    expect(
+      OnlineEpubMetadata.findSource(
+        legacyBookSourceId(pathSource.sourceUrl), [pathSource],
+      ),
+      same(pathSource),
+    );
   });
 
   test('书籍关联随配置持久化，删除书源时清理', () async {
