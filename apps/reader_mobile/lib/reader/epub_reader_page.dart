@@ -171,6 +171,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     with WidgetsBindingObserver {
   late ReaderSettings _settings = widget.settings ?? ReaderSettings.defaults;
   final _backgroundStore = ReaderBackgroundStore();
+  final _bookmarkImages = ReaderBackgroundStore(
+    directoryName: 'bookmark_images',
+    filePrefix: 'bookmark',
+  );
   String _contentRevision = '';
   List<ReaderFontOption> _customFonts = const [];
   bool _reportedClosingProgressFailure = false;
@@ -607,6 +611,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       contentRevision: _contentRevision,
       imageCache: _imageCache,
       bookmarks: widget.bookmarks,
+      bookmarkStyle: settings.bookmarkStyle,
+      onBookmarkStyleChanged: (style) =>
+          _changeSettings(_settings.copyWithBookmarkStyle(style)),
+      onPickBookmarkImage: _bookmarkImages.pick,
+      bookmarkImageLoader: _bookmarkImages.load,
       annotations: widget.annotations,
       decorations: widget.decorations,
       decorationRules: widget.decorationRules,

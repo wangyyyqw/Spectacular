@@ -56,6 +56,8 @@ class ReaderMenuOverlay extends StatelessWidget {
     this.safeBottom = 0,
     this.onTts,
     this.onEdit,
+    this.onAddBookmark,
+    this.bookmarked = false,
     this.onShowShortcuts,
   });
 
@@ -79,6 +81,10 @@ class ReaderMenuOverlay extends StatelessWidget {
 
   /// 切换日间/夜间。
   final VoidCallback onToggleDayNight;
+
+  /// 当前页书签入口，所有阅读模式共用。
+  final VoidCallback? onAddBookmark;
+  final bool bookmarked;
 
   /// 当前是否夜间（决定图标）。
   final bool nightMode;
@@ -260,6 +266,18 @@ class ReaderMenuOverlay extends StatelessWidget {
                                   'menu-daynight',
                                 ),
                               ),
+                              if (onAddBookmark != null)
+                                _IconButton(
+                                  icon: bookmarked
+                                      ? AppGlyph.bookmark
+                                      : AppGlyph.bookmarkAdd,
+                                  color: fg,
+                                  onTap: onAddBookmark,
+                                  tooltip: bookmarked ? '当前页已有书签' : '添加书签',
+                                  buttonKey: const ValueKey(
+                                    'menu-add-bookmark',
+                                  ),
+                                ),
                               if (onEdit != null)
                                 _IconButton(
                                   icon: AppGlyph.editNote,

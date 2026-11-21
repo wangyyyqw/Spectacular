@@ -5,6 +5,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/mark_settings.dart';
+import 'package:reader_ui/bookmarks/bookmark_style.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/page_furniture/corner_info.dart';
@@ -37,6 +38,7 @@ class ReaderSettings {
     this.keepScreenOn = false,
     this.volumeKeyPaging = false,
     this.markSettings = const ReaderMarkSettings(),
+    this.bookmarkStyle = const ReaderBookmarkStyle(),
   });
 
   /// 字号。
@@ -97,6 +99,9 @@ class ReaderSettings {
   /// 划线的默认外观和自定义颜色。
   final ReaderMarkSettings markSettings;
 
+  /// 阅读页右上角书签的全局外观。
+  final ReaderBookmarkStyle bookmarkStyle;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -141,6 +146,7 @@ class ReaderSettings {
     bool keepScreenOn = false,
     bool volumeKeyPaging = false,
     ReaderMarkSettings markSettings = const ReaderMarkSettings(),
+    ReaderBookmarkStyle bookmarkStyle = const ReaderBookmarkStyle(),
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -161,6 +167,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -186,6 +193,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -209,6 +217,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换主题。
@@ -234,6 +243,7 @@ class ReaderSettings {
       keepScreenOn: keepScreenOn,
       volumeKeyPaging: volumeKeyPaging,
       markSettings: markSettings,
+      bookmarkStyle: bookmarkStyle,
     );
   }
 
@@ -258,6 +268,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换墨水屏开关。
@@ -281,6 +292,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换页边距。
@@ -304,6 +316,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 修改四角显示，保留全部阅读偏好。
@@ -327,6 +340,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -350,6 +364,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换翻页方式。
@@ -373,6 +388,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换屏幕常亮开关。
@@ -396,6 +412,7 @@ class ReaderSettings {
     keepScreenOn: enabled,
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换音量键翻页开关。
@@ -419,6 +436,7 @@ class ReaderSettings {
     keepScreenOn: keepScreenOn,
     volumeKeyPaging: enabled,
     markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 修改划线偏好，保留全部正文排版与阅读交互设置。
@@ -443,6 +461,32 @@ class ReaderSettings {
         keepScreenOn: keepScreenOn,
         volumeKeyPaging: volumeKeyPaging,
         markSettings: value,
+        bookmarkStyle: bookmarkStyle,
+      );
+
+  /// 修改书签样式，保留全部正文排版与阅读交互设置。
+  ReaderSettings copyWithBookmarkStyle(ReaderBookmarkStyle value) =>
+      ReaderSettings(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        overrideEmbeddedFonts: overrideEmbeddedFonts,
+        lineHeight: lineHeight,
+        paragraphSpacing: paragraphSpacing,
+        horizontalPadding: horizontalPadding,
+        themeId: themeId,
+        dayThemeId: dayThemeId,
+        nightThemeId: nightThemeId,
+        customThemeId: customThemeId,
+        backgroundId: backgroundId,
+        inkMode: inkMode,
+        cornerInfo: cornerInfo,
+        margins: margins,
+        tapZones: tapZones,
+        pageTurnMode: pageTurnMode,
+        keepScreenOn: keepScreenOn,
+        volumeKeyPaging: volumeKeyPaging,
+        markSettings: markSettings,
+        bookmarkStyle: value,
       );
 
   @override
@@ -466,7 +510,8 @@ class ReaderSettings {
       other.pageTurnMode == pageTurnMode &&
       other.keepScreenOn == keepScreenOn &&
       other.volumeKeyPaging == volumeKeyPaging &&
-      other.markSettings == markSettings;
+      other.markSettings == markSettings &&
+      other.bookmarkStyle == bookmarkStyle;
 
   @override
   int get hashCode => Object.hash(
@@ -489,6 +534,7 @@ class ReaderSettings {
     keepScreenOn,
     volumeKeyPaging,
     markSettings,
+    bookmarkStyle,
   );
 }
 
@@ -519,6 +565,7 @@ class ReaderSettingsStore {
   static const String keyPageTurnMode = 'reader.pageTurnMode';
   static const String keyKeepScreenOn = 'reader.keepScreenOn';
   static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
+  static const String keyBookmarkStyle = 'reader.bookmarkStyle';
   static const String keyMarkLastColor = 'reader.mark.lastColor';
   static const String keyMarkLastStyle = 'reader.mark.lastStyle';
   static const String keyMarkStrokeWidth = 'reader.mark.strokeWidth';
@@ -569,6 +616,9 @@ class ReaderSettingsStore {
       volumeKeyPaging:
           (await _library.getSetting(keyVolumeKeyPaging)) == 'true',
       markSettings: await _loadMarkSettings(),
+      bookmarkStyle: _readBookmarkStyle(
+        await _library.getSetting(keyBookmarkStyle),
+      ),
     );
   }
 
@@ -618,6 +668,14 @@ class ReaderSettingsStore {
             RegExp(r'^user_[0-9a-f]{64}$').hasMatch(raw)
         ? raw
         : null;
+  }
+
+  static ReaderBookmarkStyle _readBookmarkStyle(String? raw) {
+    try {
+      return ReaderBookmarkStyle.fromJson(jsonDecode(raw ?? '{}'));
+    } on FormatException {
+      return const ReaderBookmarkStyle();
+    }
   }
 
   Future<ReaderMarkSettings> _loadMarkSettings() async {
@@ -711,6 +769,10 @@ class ReaderSettingsStore {
     await _library.setSetting(
       keyCornerInfo,
       jsonEncode(settings.cornerInfo.toJson()),
+    );
+    await _library.setSetting(
+      keyBookmarkStyle,
+      jsonEncode(settings.bookmarkStyle.toJson()),
     );
     final mark = settings.markSettings;
     final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff
