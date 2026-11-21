@@ -366,10 +366,31 @@ class Curl3dGeometry {
 
 /// 保留原覆盖顺序的一段单调投影，最多前后两段。
 class Curl3dStrip {
-  const Curl3dStrip(this.mesh, this.profile);
+  Curl3dStrip(this.mesh, this.profile);
 
   final List<Curl3dSample> mesh;
   final List<Curl3dProjectionStop> profile;
+
+  /// 截面分段线性插值，投影极值位于网格顶点；保留像素取整及抗锯齿余量。
+  late final Rect projectedBounds = _projectedBounds();
+
+  Rect _projectedBounds() {
+    var left = double.infinity, top = double.infinity;
+    var right = double.negativeInfinity, bottom = double.negativeInfinity;
+    for (final sample in mesh) {
+      final position = sample.point.position;
+      left = math.min(left, position.dx);
+      top = math.min(top, position.dy);
+      right = math.max(right, position.dx);
+      bottom = math.max(bottom, position.dy);
+    }
+    return Rect.fromLTRB(
+      left.floorToDouble(),
+      top.floorToDouble(),
+      right.ceilToDouble(),
+      bottom.ceilToDouble(),
+    ).inflate(1);
+  }
 }
 
 /// 投影局部 x 对应的纸面 x 和完整法线，法线的 xy 分量沿卷曲方向。

@@ -124,26 +124,36 @@ def report_provenance(args, workspace, revisions, device):
 
 
 class ReportHandler(SimpleHTTPRequestHandler):
-    """流式保存样本，完成后唤醒宿主；不接受任何设备命令。"""
+    """保存样本；仅支持固定的隔离包后台恢复，不接受外部命令参数。"""
 
-    def __init__(self, *args, output, done, provenance, **kwargs):
+    def __init__(self, *args, output, done, provenance, adb=None, **kwargs):
+        self.adb = adb
         self.output = output
         self.done = done
         self.provenance = provenance
         super().__init__(*args, **kwargs)
 
     def do_POST(self):
+        if self.path == "/background" and self.adb:
+            run(self.adb + ["shell", "am", "start", "-a", "android.intent.action.MAIN",
+                            "-c", "android.intent.category.HOME"])
+            time.sleep(2)
+            run(self.adb + ["shell", "am", "start", "-n", TEST_ID + "/" + TEST_ID + ".MainActivity"])
+            self.send_response(204)
+            self.end_headers()
+            return
         if self.path not in ("/sample", "/done"):
             self.send_error(404)
             return
         size = int(self.headers.get("Content-Length", 0))
-        if not 0 < size < 1024 * 1024:
+        if not 0 < size < 32 * 1024 * 1024:
             self.send_error(400)
             return
         data = json.loads(self.rfile.read(size))
         data["provenance"] = self.provenance
         self.output.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-        print(json.dumps(data, ensure_ascii=False), flush=True)
+        print(json.dumps({"endpoint": self.path, "turns": len(data.get("turns", [])),
+                          "error": data.get("error")}, ensure_ascii=False), flush=True)
         self.send_response(204)
         self.end_headers()
         if self.path == "/done":
@@ -178,6 +188,7 @@ def sample_meminfo(adb, package, stop, samples, interval):
                         break
                     breakdown[name] = int(match.group(2).replace(",", "")) * 1024
                 samples.append({
+                    "host_epoch_ms": time.time_ns() // 1000000,
                     "t_ms": int((time.monotonic() - started) * 1000),
                     "total_pss_bytes": int(pss.group(1).replace(",", "")) * 1024,
                     "total_rss_bytes": (
@@ -225,6 +236,13 @@ def prepare(workspace, revision):
                 if target.exists():
                     shutil.rmtree(target)
             bundle.extractall(workspace)
+    # 基线与候选都启用同一现有布局埋点；仅隔离采样包定义此开关。
+    trace = workspace / "packages/reader_core/lib/perf/trace.dart"
+    if trace.exists():
+        trace.write_text(trace.read_text().replace(
+            "bool get readerTraceEnabled => kDebugMode || kProfileMode;",
+            "bool get readerTraceEnabled => kDebugMode || kProfileMode || "
+            "const bool.fromEnvironment('READER_TURN_TRACE');"))
     manifest = workspace / "apps/reader_mobile/android/app/src/main/AndroidManifest.xml"
     source = manifest.read_text()
     if 'android:name="android.permission.INTERNET"' not in source:
@@ -252,6 +270,11 @@ def build(workspace, url, args):
         "PERF_SERVER": url, "PERF_ROUNDS": str(args.rounds),
         "PERF_SPINE": str(args.target_spine), "PERF_FONT_SIZE": str(args.font_size),
         "PERF_TITLE": args.title,
+        "PERF_MODES": getattr(args, "modes", "simulation3d"),
+        "PERF_SCENES": getattr(args, "scenes", "open,continuous,cross,far,resume,drag,fling,extend"),
+        "PERF_START_PAGE": str(getattr(args, "start_page", 0)),
+        "PERF_FAR_SPINES": getattr(args, "far_spines", ""),
+        "READER_TURN_TRACE": "true",
         **{name: "true" if value else "false" for name, value in {
             "PERF_RESIZE": args.resize, "PERF_IMPORT": args.measure_import,
             "PERF_FULL_CHAPTER": args.full_chapter,
@@ -293,7 +316,7 @@ def benchmark(args):
         (inputs / "book.epub").symlink_to(args.book.resolve())
         server = ThreadingHTTPServer(("127.0.0.1", 0), partial(ReportHandler,
             directory=str(inputs), output=args.output / "report.json", done=done,
-            provenance=provenance))
+            provenance=provenance, adb=adb))
         port = str(server.server_port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -314,7 +337,7 @@ def benchmark(args):
             run(adb + ["shell", "am", "start", "-n", TEST_ID + "/" + TEST_ID + ".MainActivity"])
             if meminfo_thread is not None:
                 meminfo_thread.start()
-            if not done.wait(900):
+            if not done.wait(args.timeout):
                 raise TimeoutError("性能测试超时，已有样本保留在 report.json")
             if meminfo_thread is not None:
                 stop_meminfo.set()
@@ -344,7 +367,12 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision", help="可选基线 Git revision；当前测试入口保持不变")
     parser.add_argument("--rounds", type=int, default=5, help="每种开书及字号变化的样本轮数")
-    parser.add_argument("--page-turn", action="store_true", help="测量3D翻页准备、连续翻页及跨章；格列佛游记使用 --target-spine 10")
+    parser.add_argument("--page-turn", action="store_true", help="测量翻页与滚动的准备、连续输入、跨章和恢复")
+    parser.add_argument("--modes", default="cover,coverStack,slideHorizontal,simulationBessel,simulation3d,continuation,scroll")
+    parser.add_argument("--scenes", default="open,continuous,cross,far,resume,drag,fling,extend")
+    parser.add_argument("--start-page", type=int, default=0)
+    parser.add_argument("--far-spines", default="", help="逗号分隔的正文远跳章节；空值使用相对位置")
+    parser.add_argument("--timeout", type=int, default=2400, help="设备采样总时限秒")
     parser.add_argument("--target-spine", type=int, default=29, help="开书恢复的 spine 序号")
     parser.add_argument("--font-size", type=float, default=21, help="基准字号；字号测试往返基准和基准加一")
     parser.add_argument("--title", default="诸神愚戏", help="隔离书架测试书名")

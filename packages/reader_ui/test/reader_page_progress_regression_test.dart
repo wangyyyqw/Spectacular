@@ -227,6 +227,7 @@ Future<void> _settle(WidgetTester tester, {int frames = 8}) async {
 Future<void> _jumpScroll(WidgetTester tester, double offset) async {
   final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
   scrollable.position.jumpTo(offset);
+  await tester.pump();
   await tester.pump(const Duration(milliseconds: 160));
   await tester.pumpAndSettle();
 }

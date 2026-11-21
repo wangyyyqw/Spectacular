@@ -1,6 +1,6 @@
 import 'dart:ui' show FramePhase, FrameTiming;
 
-/// 按原始帧时间归属事件；结束后的结果仍可由延迟帧批次补齐。
+/// 回调仅收集原始时间；结束或显式 flush 后结算，延迟批次仍归属原窗口。
 class ReaderPerfProbeSamples {
   final List<_ProbeWindow> _windows = [];
   _ProbeWindow? _current;
@@ -9,26 +9,27 @@ class ReaderPerfProbeSamples {
   bool get complete =>
       _current == null && _windows.every((window) => window.complete);
 
-  /// 时间须来自 Timeline.now，与原生 FrameTiming 使用同一单调时钟。
-  void start(int rawFrameTimestampMicros) {
+  /// 与 FrameTiming 使用同一单调时钟；刷新率取当前阅读视口的 display。
+  void start(int rawFrameTimestampMicros, {double refreshRate = 60}) {
     if (_current != null) throw StateError('上一个采样事件尚未结束');
-    final window = _ProbeWindow(rawFrameTimestampMicros);
+    final window = _ProbeWindow(rawFrameTimestampMicros, refreshRate);
     _windows.add(window);
     _current = window;
   }
 
   void tick(int elapsedMicros) => _active.tick(elapsedMicros);
 
-  /// 返回原始可变结果，调用者须保留引用以接收延迟帧更新。
+  /// 保留可变结果引用，采样结束后 flush 可补齐迟到的原生批次。
   Map<String, Object> finish({
     required int elapsedMicros,
     required int rawFrameTimestampMicros,
   }) {
     final window = _active;
-    window.tick(elapsedMicros);
+    if (window._lastTick > 0) window.tick(elapsedMicros);
     window.end = rawFrameTimestampMicros;
     _current = null;
     window.updateCompletion(_latestBuildStart);
+    window.summarize();
     return window.result;
   }
 
@@ -38,7 +39,7 @@ class ReaderPerfProbeSamples {
       final latest = _latestBuildStart;
       if (latest == null || buildStart > latest) _latestBuildStart = buildStart;
       for (final window in _windows) {
-        if (window.contains(buildStart)) window.addFrame(frame);
+        if (window.contains(buildStart)) window.frames.add(frame);
       }
     }
     for (final window in _windows) {
@@ -46,31 +47,28 @@ class ReaderPerfProbeSamples {
     }
   }
 
+  /// 不在帧回调或动画中调用；仅结算已结束的窗口。
+  void flush() {
+    for (final window in _windows) {
+      if (window.end != null) window.summarize();
+    }
+  }
+
   _ProbeWindow get _active => _current ?? (throw StateError('尚未开始采样事件'));
 }
 
 class _ProbeWindow {
-  _ProbeWindow(this.start);
+  _ProbeWindow(this.start, this.refreshRate);
 
   final int start;
+  final double refreshRate;
   int? end;
   int _lastTick = 0;
   int _maximumGap = 0;
-  int _maximumBuild = 0;
-  int _maximumRaster = 0;
-  int _frameCount = 0;
-  final List<int> _rasters = [];
-  final Map<String, Object> result = {
-    'longest_ui_gap_ms': 0.0,
-    'longest_build_ms': 0.0,
-    'longest_raster_ms': 0.0,
-    'frame_count': 0,
-    'frame_timings_complete': false,
-    'raster_p95_ms': 0.0,
-    'frames_over_16_67_ms': 0,
-  };
-
-  bool get complete => result['frame_timings_complete'] == true;
+  final List<FrameTiming> frames = [];
+  bool complete = false;
+  int _summarized = -1;
+  final Map<String, Object> result = {};
 
   bool contains(int buildStart) =>
       buildStart > start && (end == null || buildStart <= end!);
@@ -79,31 +77,53 @@ class _ProbeWindow {
     final gap = elapsedMicros - _lastTick;
     if (gap > _maximumGap) _maximumGap = gap;
     _lastTick = elapsedMicros;
-    result['longest_ui_gap_ms'] = _maximumGap / 1000;
-  }
-
-  void addFrame(FrameTiming frame) {
-    final build = frame.buildDuration.inMicroseconds;
-    final raster = frame.rasterDuration.inMicroseconds;
-    if (build > _maximumBuild) _maximumBuild = build;
-    if (raster > _maximumRaster) _maximumRaster = raster;
-    result['longest_build_ms'] = _maximumBuild / 1000;
-    result['longest_raster_ms'] = _maximumRaster / 1000;
-    result['frame_count'] = ++_frameCount;
-    _rasters.add(raster);
-    final ordered = _rasters.toList()..sort();
-    result['raster_p95_ms'] = ordered[(ordered.length * .95).ceil() - 1] / 1000;
-    result['frames_over_16_67_ms'] = _rasters
-        .where((value) => value > 16667)
-        .length;
   }
 
   void updateCompletion(int? latestBuildStart) {
-    final endFrame = end;
-    result['frame_timings_complete'] =
-        endFrame != null &&
-        _frameCount > 0 &&
+    complete =
+        end != null &&
+        frames.isNotEmpty &&
         latestBuildStart != null &&
-        latestBuildStart >= endFrame;
+        latestBuildStart >= end!;
+  }
+
+  void summarize() {
+    result['frame_timings_complete'] = complete;
+    if (_summarized == frames.length) return;
+    _summarized = frames.length;
+    final builds = frames.map((f) => f.buildDuration.inMicroseconds).toList()
+      ..sort();
+    final rasters = frames.map((f) => f.rasterDuration.inMicroseconds).toList()
+      ..sort();
+    final budget = 1000000 / refreshRate;
+    double percentile(List<int> values, double p) =>
+        values.isEmpty ? 0 : values[(values.length * p).ceil() - 1] / 1000;
+    result.addAll({
+      'longest_ui_gap_ms': _maximumGap / 1000,
+      'ui_gap_sampled': _lastTick > 0,
+      'longest_build_ms': percentile(builds, 1),
+      'longest_raster_ms': percentile(rasters, 1),
+      'frame_count': frames.length,
+      'refresh_rate': refreshRate,
+      'frame_budget_ms': budget / 1000,
+      'frames_over_16_67_ms': rasters.where((v) => v > 16667).length,
+      'raw_frames': [
+        for (final frame in frames)
+          {
+            for (final phase in FramePhase.values)
+              phase.name: frame.timestampInMicroseconds(phase),
+            'build_us': frame.buildDuration.inMicroseconds,
+            'raster_us': frame.rasterDuration.inMicroseconds,
+          },
+      ],
+      for (final entry in {'build': builds, 'raster': rasters}.entries) ...{
+        for (final p in [50, 95, 99])
+          '${entry.key}_p${p}_ms': percentile(entry.value, p / 100),
+        '${entry.key}_over_budget': entry.value.where((v) => v > budget).length,
+        '${entry.key}_over_budget_ratio': entry.value.isEmpty
+            ? 0.0
+            : entry.value.where((v) => v > budget).length / entry.value.length,
+      },
+    });
   }
 }
