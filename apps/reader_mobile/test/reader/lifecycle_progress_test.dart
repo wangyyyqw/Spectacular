@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -99,13 +100,20 @@ class _ReadingDurationStore implements ReadingSessionCheckpointStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('正常退出后才拒绝保存，在书架提示旧位置保留', (tester) async {
+  testWidgets('退出后保存失败保留旧位置并记录诊断，不显示浮动提示', (tester) async {
+    final log = ReaderLog.instance;
+    log.resetForTest();
+    addTearDown(log.resetForTest);
     final store = _DelayedRejectingStore();
     addTearDown(() {
       if (!store.reject.isCompleted) store.reject.complete();
     });
     var closed = false;
     final book = buildTestEpub(paragraphs: List.filled(30, '翻页后需要保存。' * 100));
+    await store.save(
+      'late-close-progress',
+      const ReaderProgress(spineIndex: 0, pageIndex: 0),
+    );
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -130,6 +138,8 @@ void main() {
     await tester.tap(find.text('书架阅读'));
     await pumpReaderUntil(tester, find.byType(ReaderView));
     await tester.pumpAndSettle();
+    final before = Map<String, ReaderProgress>.of(store.items);
+    expect(before, isNotEmpty, reason: '先保存有效位置再模拟后续写入失败');
     store.rejectSaves = true;
     final view = tester.getRect(find.byType(ReaderView));
     await tester.tapAt(view.topRight + Offset(-4, view.height * 0.4));
@@ -149,7 +159,15 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('本次位置未保存，保留上次保存位置：书籍已更新'), findsOneWidget);
+    expect(store.items, before, reason: '失败写入不能覆盖已保存位置');
+    final diagnostic = await pumpReaderTask(tester, log.exportText());
+    expect(
+      ' | reader_progress_close_failed'.allMatches(diagnostic),
+      hasLength(1),
+      reason: '退出失败只记录一次',
+    );
+    expect(diagnostic, contains('error_type=ReaderProgressSaveException'));
+    expect(find.byType(SnackBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/locator.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/home/book_duration_chart.dart';
 import 'package:reader_mobile/home/reading_calendar.dart';
 import 'package:reader_mobile/home/stats_page.dart';
@@ -191,6 +192,9 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
 
 void main() {
   testWidgets('切入等待和切出复用统计图表，刷新成功更新且失败保留旧内容', (tester) async {
+    final log = ReaderLog.instance;
+    log.resetForTest();
+    addTearDown(log.resetForTest);
     tester.view
       ..physicalSize = const Size(1280, 900)
       ..devicePixelRatio = 1;
@@ -271,7 +275,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(rebuilt, isEmpty);
     expect(_valueOf(tester, 'stats-book-duration-total'), '10 分钟');
-    expect(find.text('统计刷新失败，请稍后重试'), findsOneWidget);
+    expect(
+      await pumpReaderTask(tester, log.exportText()),
+      contains(' | stats_reload_failed'),
+    );
+    expect(find.byType(SnackBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
