@@ -86,6 +86,41 @@ List<ReadingSession> _longAndShortSpans() => [
 ];
 
 void main() {
+  test('日历隐藏未达标书名，月汇总和单日合计保留所有短时阅读', () {
+    final day = DateTime(2026, 11, 20, 8);
+    final insights = ReadingInsights(
+      [
+        ReadingSession(
+          bookId: 'shown',
+          startedAt: day,
+          endedAt: day.add(const Duration(seconds: 3)),
+          duration: const Duration(seconds: 3),
+        ),
+        _session('shown', DateTime(2026, 11, 21, 8), 6),
+        ReadingSession(
+          bookId: 'hidden',
+          startedAt: day.add(const Duration(hours: 1)),
+          endedAt: day.add(const Duration(hours: 1, seconds: 7)),
+          duration: const Duration(seconds: 7),
+        ),
+      ],
+      now: DateTime(2026, 11, 21),
+      minimumBookDayDuration: minimumDisplayedBookDayDuration,
+    );
+    final month = ReadingCalendarMonth(insights, date: day);
+    expect(month.bookCount, 1);
+    expect(month.total, const Duration(minutes: 6, seconds: 10));
+    expect(
+      month.dayDurations[DateTime(2026, 11, 20)],
+      const Duration(seconds: 10),
+    );
+    expect(month.days[DateTime(2026, 11, 20)]!.single.bookId, 'shown');
+    expect(
+      month.days[DateTime(2026, 11, 20)]!.single.duration,
+      const Duration(seconds: 3),
+    );
+  });
+
   test('周内条带按跨日长度从上到下排列，不按书名长度或单日时长排列', () {
     final month = _month(_longAndShortSpans(), _now);
     final spans = month.spansForWeek(2);

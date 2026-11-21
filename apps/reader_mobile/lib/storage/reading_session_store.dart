@@ -53,6 +53,13 @@ abstract interface class ReadingSessionStore {
   Future<List<ReadingSession>> list();
 }
 
+/// 原位更新同一前台片段，定时落盘不增加阅读次数。
+abstract interface class ReadingSessionCheckpointStore
+    implements ReadingSessionStore {
+  /// 首次返回记录主键，后续用该主键更新完整时长和累计计数。
+  Future<int> save(ReadingSession session, {int? sessionId});
+}
+
 /// 时段无法保存的身份原因，供生命周期诊断使用。
 enum ReadingSessionSaveFailure { bookMissing, mismatchedBinding }
 
@@ -70,7 +77,7 @@ class ReadingSessionSaveException implements Exception {
 }
 
 /// drift 阅读会话存储。
-class DriftReadingSessionStore implements ReadingSessionStore {
+class DriftReadingSessionStore implements ReadingSessionCheckpointStore {
   /// 创建存储。
   DriftReadingSessionStore(this._db);
 
@@ -98,21 +105,34 @@ class DriftReadingSessionStore implements ReadingSessionStore {
         ReadingSessionSaveFailure.bookMissing,
       );
     }
-    await _addForBook(
+    await _writeForBook(
       book.id,
-      startedAt: startedAt,
-      endedAt: endedAt,
-      pageTurns: pageTurns,
-      charactersRead: charactersRead,
+      ReadingSession(
+        bookId: bookId,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        duration: duration,
+        pageTurns: pageTurns,
+        charactersRead: charactersRead,
+      ),
     );
   }
 
-  Future<void> _addForBook(
-    int bookId, {
-    required DateTime startedAt,
-    required DateTime endedAt,
-    required int pageTurns,
-    required int charactersRead,
+  @override
+  Future<int> save(ReadingSession session, {int? sessionId}) async {
+    final book = await resolveBookRow(_db, session.bookId);
+    if (book == null) {
+      throw const ReadingSessionSaveException(
+        ReadingSessionSaveFailure.bookMissing,
+      );
+    }
+    return _writeForBook(book.id, session, sessionId: sessionId);
+  }
+
+  Future<int> _writeForBook(
+    int bookId,
+    ReadingSession session, {
+    int? sessionId,
   }) => _db.transaction(() async {
     final book = await (_db.select(
       _db.books,
@@ -122,18 +142,27 @@ class DriftReadingSessionStore implements ReadingSessionStore {
         ReadingSessionSaveFailure.bookMissing,
       );
     }
-    await _db
-        .into(_db.readingSessions)
-        .insert(
-          ReadingSessionsCompanion.insert(
-            bookId: bookId,
-            startedAt: startedAt.millisecondsSinceEpoch,
-            endedAt: endedAt.millisecondsSinceEpoch,
-            durationMs: endedAt.difference(startedAt).inMilliseconds,
-            pageTurns: Value<int>(pageTurns < 0 ? 0 : pageTurns),
-            charactersRead: Value<int>(charactersRead < 0 ? 0 : charactersRead),
-          ),
-        );
+    final values = ReadingSessionsCompanion.insert(
+      bookId: bookId,
+      startedAt: session.startedAt.millisecondsSinceEpoch,
+      endedAt: session.endedAt.millisecondsSinceEpoch,
+      durationMs: session.duration.inMilliseconds,
+      pageTurns: Value<int>(session.pageTurns < 0 ? 0 : session.pageTurns),
+      charactersRead: Value<int>(
+        session.charactersRead < 0 ? 0 : session.charactersRead,
+      ),
+    );
+    if (sessionId == null) {
+      return _db.into(_db.readingSessions).insert(values);
+    }
+    final updated =
+        await (_db.update(_db.readingSessions)..where(
+              (table) =>
+                  table.id.equals(sessionId) & table.bookId.equals(bookId),
+            ))
+            .write(values);
+    if (updated != 1) throw StateError('阅读片段已不存在，无法更新时长');
+    return sessionId;
   });
 
   @override
@@ -166,7 +195,7 @@ class DriftReadingSessionStore implements ReadingSessionStore {
       );
 }
 
-class _BoundReadingSessionStore implements ReadingSessionStore {
+class _BoundReadingSessionStore implements ReadingSessionCheckpointStore {
   _BoundReadingSessionStore(this._store, this._bookId)
     : _initialBookId = resolveBookRow(
         _store._db,
@@ -188,7 +217,21 @@ class _BoundReadingSessionStore implements ReadingSessionStore {
     int charactersRead = 0,
   }) async {
     if (endedAt.difference(startedAt) <= Duration.zero) return;
-    if (bookId != _bookId) {
+    await save(
+      ReadingSession(
+        bookId: bookId,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        duration: endedAt.difference(startedAt),
+        pageTurns: pageTurns,
+        charactersRead: charactersRead,
+      ),
+    );
+  }
+
+  @override
+  Future<int> save(ReadingSession session, {int? sessionId}) async {
+    if (session.bookId != _bookId) {
       throw const ReadingSessionSaveException(
         ReadingSessionSaveFailure.mismatchedBinding,
       );
@@ -199,13 +242,7 @@ class _BoundReadingSessionStore implements ReadingSessionStore {
         ReadingSessionSaveFailure.bookMissing,
       );
     }
-    await _store._addForBook(
-      internalId,
-      startedAt: startedAt,
-      endedAt: endedAt,
-      pageTurns: pageTurns,
-      charactersRead: charactersRead,
-    );
+    return _store._writeForBook(internalId, session, sessionId: sessionId);
   }
 
   @override

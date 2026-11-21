@@ -1,8 +1,7 @@
 import '../storage/reading_session_store.dart';
 
-/// 书架、书籍详情与书评时长只计入不少于该时长的阅读会话。
-const minimumCountedSessionDuration = Duration(minutes: 5);
-const minimumCountedDayDuration = Duration(minutes: 5);
+/// 单本书在任一自然日超过该时长后展示书目，累计时长始终保留全部记录。
+const minimumDisplayedBookDayDuration = Duration(minutes: 5);
 
 /// 一次会话在某个自然日内的有效部分。
 class ReadingDayPortion {
@@ -53,34 +52,31 @@ class ReadingInsights {
   ReadingInsights(
     Iterable<ReadingSession> input, {
     required DateTime now,
-    Duration minimumDayDuration = Duration.zero,
+    Duration minimumBookDayDuration = Duration.zero,
   }) {
-    final validSessions = input
+    sessions = input
         .where(
           (session) =>
               session.duration > Duration.zero &&
               session.endedAt.isAfter(session.startedAt),
         )
         .toList(growable: false);
-    final allPortions = validSessions.expand(_splitByDay).toList();
-    for (final portion in allPortions) {
-      byDay[portion.date] =
-          (byDay[portion.date] ?? Duration.zero) + portion.duration;
+    portions = sessions.expand(_splitByDay).toList(growable: false);
+    final bookDays = <(String, DateTime), Duration>{};
+    for (final portion in portions) {
+      _addPortion(portion, bookDays);
     }
-    byDay.removeWhere((_, duration) => duration < minimumDayDuration);
-    portions = allPortions
-        .where((portion) => byDay.containsKey(portion.date))
-        .toList(growable: false);
-    sessions = _sessionsForPortions(portions);
+    for (final entry in bookDays.entries) {
+      if (entry.value > minimumBookDayDuration) {
+        visibleBookIds.add(entry.key.$1);
+      }
+    }
     for (final session in sessions) {
       totalReading += session.duration;
       if (session.duration > longestSession) longestSession = session.duration;
       byBook.putIfAbsent(session.bookId, BookReadingTotals.new).add(session);
       final title = session.bookTitle?.trim();
       if (title != null && title.isNotEmpty) bookTitles[session.bookId] = title;
-    }
-    for (final portion in portions) {
-      _addReadingPeriods(portion);
     }
     final today = DateTime(now.year, now.month, now.day);
     todayReading = byDay[today] ?? Duration.zero;
@@ -93,6 +89,7 @@ class ReadingInsights {
   late final List<ReadingDayPortion> portions;
   final Map<DateTime, Duration> byDay = {};
   final Map<String, BookReadingTotals> byBook = {};
+  final Set<String> visibleBookIds = {};
   final Map<String, String> bookTitles = {};
   final List<Duration> readingPeriods = List.filled(4, Duration.zero);
   Duration totalReading = Duration.zero;
@@ -121,6 +118,17 @@ class ReadingInsights {
     return best;
   }
 
+  void _addPortion(
+    ReadingDayPortion portion,
+    Map<(String, DateTime), Duration> bookDays,
+  ) {
+    byDay[portion.date] =
+        (byDay[portion.date] ?? Duration.zero) + portion.duration;
+    final key = (portion.bookId, portion.date);
+    bookDays[key] = (bookDays[key] ?? Duration.zero) + portion.duration;
+    _addReadingPeriods(portion);
+  }
+
   void _addReadingPeriods(ReadingDayPortion portion) {
     var cursor = portion.startedAt;
     final end = portion.endedAt;
@@ -140,36 +148,6 @@ class ReadingInsights {
       cursor = next;
     }
   }
-}
-
-List<ReadingSession> _sessionsForPortions(List<ReadingDayPortion> portions) {
-  final bySession = <ReadingSession, List<ReadingDayPortion>>{};
-  for (final portion in portions) {
-    bySession.putIfAbsent(portion.session, () => []).add(portion);
-  }
-  return bySession.entries
-      .map((entry) {
-        final session = entry.key;
-        final kept = entry.value;
-        final duration = kept.fold(
-          Duration.zero,
-          (sum, part) => sum + part.duration,
-        );
-        if (duration == session.duration) return session;
-        return ReadingSession(
-          bookId: session.bookId,
-          bookTitle: session.bookTitle,
-          startedAt: kept.first.startedAt,
-          endedAt: kept.last.endedAt,
-          duration: duration,
-          pageTurns: kept.fold(0, (sum, part) => sum + part.pageTurns),
-          charactersRead: kept.fold(
-            0,
-            (sum, part) => sum + part.charactersRead,
-          ),
-        );
-      })
-      .toList(growable: false);
 }
 
 Duration _average(Duration total, int count) => count == 0

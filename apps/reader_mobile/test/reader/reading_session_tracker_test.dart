@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
@@ -10,8 +11,9 @@ import 'package:reader_mobile/storage/reading_session_store.dart';
 
 import '../support/test_epub.dart';
 
-class _MemorySessionStore implements ReadingSessionStore {
+class _MemorySessionStore implements ReadingSessionCheckpointStore {
   final List<ReadingSession> items = <ReadingSession>[];
+  bool failNext = false;
 
   @override
   Future<void> add({
@@ -35,6 +37,34 @@ class _MemorySessionStore implements ReadingSessionStore {
 
   @override
   Future<List<ReadingSession>> list() async => List.of(items);
+
+  @override
+  Future<int> save(ReadingSession session, {int? sessionId}) async {
+    if (failNext) {
+      failNext = false;
+      throw StateError('模拟片段更新失败');
+    }
+    if (sessionId == null) {
+      items.add(session);
+      return items.length - 1;
+    }
+    items[sessionId] = session;
+    return sessionId;
+  }
+}
+
+class _DelayedSessionStore extends _MemorySessionStore {
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<int> save(ReadingSession session, {int? sessionId}) async {
+    if (!started.isCompleted) {
+      started.complete();
+      await release.future;
+    }
+    return super.save(session, sessionId: sessionId);
+  }
 }
 
 void main() {
@@ -95,20 +125,101 @@ void main() {
     );
   });
 
-  test('短于最小记录时长的片段不落库', () async {
+  test('不到一秒的前台片段全部保存，后台间隔不计入', () async {
     final store = _MemorySessionStore();
     var now = DateTime(2026, 11, 3, 8);
     final tracker = ReadingSessionTracker(
       store: store,
       bookId: 'book-a',
       now: () => now,
-      minimumDuration: const Duration(seconds: 2),
     )..start();
 
-    now = now.add(const Duration(seconds: 1));
+    now = now.add(const Duration(milliseconds: 250));
+    await tracker.pause();
+    now = now.add(const Duration(minutes: 10));
+    tracker.start();
+    now = now.add(const Duration(milliseconds: 750));
     await tracker.finish();
 
-    expect(store.items, isEmpty);
+    expect(store.items.map((session) => session.duration), [
+      const Duration(milliseconds: 250),
+      const Duration(milliseconds: 750),
+    ]);
+    expect(tracker.elapsed, const Duration(seconds: 1));
+  });
+
+  test('零时长和重复暂停不产生记录，几秒阅读退出后完整保存', () async {
+    final store = _MemorySessionStore();
+    var now = DateTime(2026, 11, 21, 8);
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: 'book-a',
+      now: () => now,
+    )..start();
+    await tracker.pause();
+    await tracker.pause();
+    tracker.start();
+    now = now.add(const Duration(seconds: 3, milliseconds: 125));
+    await tracker.finish();
+    await tracker.finish();
+
+    expect(store.items, hasLength(1));
+    expect(store.items.single.duration, const Duration(milliseconds: 3125));
+  });
+
+  test('定时快照、慢写入和退出尾段使用同一记录，计数与时长不重不漏', () async {
+    final store = _DelayedSessionStore();
+    addTearDown(() {
+      if (!store.release.isCompleted) store.release.complete();
+    });
+    var now = DateTime(2026, 11, 21, 8);
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: 'book-a',
+      now: () => now,
+    )..start();
+    now = now.add(const Duration(seconds: 2));
+    tracker.recordPageTurn(characters: 30);
+    final first = tracker.checkpoint();
+    await store.started.future;
+    now = now.add(const Duration(seconds: 3));
+    tracker.recordPageTurn(characters: 20);
+    final second = tracker.checkpoint();
+    now = now.add(const Duration(milliseconds: 375));
+    final closing = tracker.finish();
+    store.release.complete();
+    await Future.wait([first, second, closing, tracker.finish()]);
+
+    expect(store.items, hasLength(1));
+    expect(store.items.single.duration, const Duration(milliseconds: 5375));
+    expect(store.items.single.pageTurns, 2);
+    expect(store.items.single.charactersRead, 50);
+    expect(tracker.elapsed, const Duration(milliseconds: 5375));
+  });
+
+  test('已落盘片段的暂停更新失败，恢复后重试原记录并保存新片段', () async {
+    final store = _MemorySessionStore();
+    var now = DateTime(2026, 11, 21, 8);
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: 'book-a',
+      now: () => now,
+    )..start();
+    now = now.add(const Duration(seconds: 1));
+    await tracker.checkpoint();
+    store.failNext = true;
+    now = now.add(const Duration(seconds: 1));
+    await tracker.pause();
+    now = now.add(const Duration(hours: 1));
+    tracker.start();
+    now = now.add(const Duration(seconds: 3));
+    await tracker.finish();
+
+    expect(store.items.map((session) => session.duration), [
+      const Duration(seconds: 2),
+      const Duration(seconds: 3),
+    ]);
+    expect(tracker.elapsed, const Duration(seconds: 5));
   });
 
   test('翻页次数与阅读字数随片段落库，暂停后重新累计', () async {
@@ -159,6 +270,8 @@ void main() {
       bookId: original.id,
       now: () => now,
     )..start();
+    now = now.add(const Duration(seconds: 1));
+    await tracker.checkpoint();
     final updated = await library.updateBytes(
       original.id,
       buildTestEpub(identifier: 'session-updated'),

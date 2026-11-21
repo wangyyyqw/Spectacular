@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/reading_insights.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/reader/reading_session_tracker.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
@@ -119,6 +120,63 @@ void main() {
     expect(items.single.duration, const Duration(minutes: 12));
     expect(items.single.pageTurns, 9);
     expect(items.single.charactersRead, 1680);
+  });
+
+  test('阅读中多次落盘原位更新，退出尾段保留毫秒且不增加次数', () async {
+    await _insertSessionBook(db, 'short-book');
+    var now = DateTime(2026, 11, 21, 8);
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: 'short-book',
+      now: () => now,
+    )..start();
+    now = now.add(const Duration(seconds: 1));
+    tracker.recordPageTurn(characters: 20);
+    await tracker.checkpoint();
+    final first = (await db.select(db.readingSessions).get()).single;
+    now = now.add(const Duration(seconds: 2));
+    tracker.recordPageTurn(characters: 30);
+    await tracker.checkpoint();
+    final second = (await db.select(db.readingSessions).get()).single;
+    expect(second.id, first.id);
+    expect(second.durationMs, 3000);
+    now = now.add(const Duration(milliseconds: 375));
+    await tracker.finish();
+
+    final saved = (await store.list()).single;
+    expect(tracker.ownsSession(saved), isTrue, reason: '数据库毫秒时间仍能识别本次片段');
+    expect(saved.duration, const Duration(milliseconds: 3375));
+    expect(saved.pageTurns, 2);
+    expect(saved.charactersRead, 50);
+    final insights = ReadingInsights([saved], now: now);
+    expect(insights.byBook['short-book']!.sessions, 1);
+  });
+
+  test('未执行退出回调时，已落盘的几秒阅读在数据库重开后仍可统计', () async {
+    await db.close();
+    persistedDirectory = Directory.systemTemp.createTempSync(
+      'reading-checkpoint',
+    );
+    final file = File('${persistedDirectory!.path}/reader.sqlite');
+    db = AppDatabase(NativeDatabase(file));
+    await _insertSessionBook(db, 'interrupted');
+    var now = DateTime(2026, 11, 21, 8);
+    final tracker = ReadingSessionTracker(
+      store: DriftReadingSessionStore(db),
+      bookId: 'interrupted',
+      now: () => now,
+    )..start();
+    now = now.add(const Duration(seconds: 3));
+    await tracker.checkpoint();
+    await db.close();
+
+    db = AppDatabase(NativeDatabase(file));
+    final saved = await DriftReadingSessionStore(db).list();
+    expect(saved.single.duration, const Duration(seconds: 3));
+    expect(
+      ReadingInsights(saved, now: now).totalReading,
+      const Duration(seconds: 3),
+    );
   });
 
   test('移出书架的历史会话仍参与统计，保留原时长和计数并按时间排序', () async {

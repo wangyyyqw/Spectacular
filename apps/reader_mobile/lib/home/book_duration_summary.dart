@@ -81,14 +81,15 @@ class BookDurationSummary {
     entries = List.unmodifiable(
       <BookDurationEntry>[
         for (final entry in durations.entries)
-          BookDurationEntry(
-            bookId: entry.key,
-            title:
-                bookTitles[entry.key] ??
-                insights.bookTitles[entry.key] ??
-                '已移出书架的书籍',
-            duration: entry.value,
-          ),
+          if (insights.visibleBookIds.contains(entry.key))
+            BookDurationEntry(
+              bookId: entry.key,
+              title:
+                  bookTitles[entry.key] ??
+                  insights.bookTitles[entry.key] ??
+                  '已移出书架的书籍',
+              duration: entry.value,
+            ),
       ]..sort(_compareEntries),
     );
     total = durations.values.fold(Duration.zero, (sum, value) => sum + value);

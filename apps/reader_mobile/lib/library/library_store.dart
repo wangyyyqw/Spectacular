@@ -788,9 +788,7 @@ class LibraryStore {
     };
   }
 
-  Future<Map<String, Duration>> bookReadingDurations(
-    Duration minimumSession,
-  ) async {
+  Future<Map<String, Duration>> bookReadingDurations() async {
     final db = _db;
     if (db == null) return {};
     final sessions = db.readingSessions;
@@ -808,9 +806,7 @@ class LibraryStore {
       ..where(
         books.deletedAt.isNull() &
             sessions.endedAt.isBiggerThan(sessions.startedAt) &
-            sessions.durationMs.isBiggerOrEqualValue(
-              minimumSession.inMilliseconds,
-            ),
+            sessions.durationMs.isBiggerThanValue(0),
       )
       ..groupBy([books.uuid]);
     return {

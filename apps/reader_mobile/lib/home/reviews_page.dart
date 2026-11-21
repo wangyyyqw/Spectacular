@@ -12,7 +12,6 @@ import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 import 'book_notes_list.dart';
 import 'desktop_layout.dart';
-import 'reading_insights.dart';
 import 'review_ticket.dart';
 import '../diagnostics/reader_log.dart';
 
@@ -189,7 +188,7 @@ class _ReviewsPageState extends State<ReviewsPage>
           : await _store?.snapshot() ?? const <String, BookReview>{};
       final durations = notes
           ? _durations
-          : await library.bookReadingDurations(minimumCountedSessionDuration);
+          : await library.bookReadingDurations();
       if (mounted && widget.active && token == _reloadToken) {
         setState(() {
           _books = books;

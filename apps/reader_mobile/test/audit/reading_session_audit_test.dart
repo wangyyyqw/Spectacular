@@ -35,7 +35,7 @@ class _MemorySessionStore implements ReadingSessionStore {
 }
 
 void main() {
-  test('片段保存失败不抛出后台异常，也不跳过下一段有效记录', () async {
+  test('片段保存失败保留重试，恢复后两段时长均完整落库', () async {
     final store = _MemorySessionStore()..failNext = true;
     var now = DateTime(2026, 11, 4, 8);
     final tracker = ReadingSessionTracker(
@@ -50,9 +50,29 @@ void main() {
     tracker.recordPageTurn(characters: 25);
     now = now.add(const Duration(minutes: 2));
     await tracker.finish();
+    expect(store.items, hasLength(2));
+    expect(store.items.map((item) => item.duration), [
+      const Duration(minutes: 1),
+      const Duration(minutes: 2),
+    ]);
+    expect(store.items.last.charactersRead, 25);
+    expect(tracker.elapsed, const Duration(minutes: 3));
+  });
+
+  test('退出时首次写入失败会重试，几秒阅读不会被吞掉', () async {
+    final store = _MemorySessionStore()..failNext = true;
+    var now = DateTime(2026, 11, 21, 8);
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: 'book-a',
+      now: () => now,
+    )..start();
+    now = now.add(const Duration(seconds: 3));
+    await tracker.finish();
+    await tracker.finish();
+
     expect(store.items, hasLength(1));
-    expect(store.items.single.duration, const Duration(minutes: 2));
-    expect(store.items.single.charactersRead, 25);
+    expect(store.items.single.duration, const Duration(seconds: 3));
   });
 
   test('后台间隔不计时，重复启动和结束不会重复记录翻页与字数', () async {

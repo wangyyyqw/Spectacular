@@ -17,7 +17,8 @@ const _tagDurationStyle = TextStyle(
   height: 1.4,
   fontFeatures: [FontFeature.tabularFigures()],
 );
-final _countingHint = '当天累计阅读满 ${minimumCountedDayDuration.inMinutes} 分钟计入';
+final _countingHint =
+    '单书单日超过 ${minimumDisplayedBookDayDuration.inMinutes} 分钟后展示，累计时长包含短时阅读';
 
 /// 图书时长：按自然周期查看各书投入和占比，保留已移出书架的记录。
 class BookDurationChart extends StatefulWidget {
@@ -144,7 +145,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         _periodSelector(),
         _navigation(summary),
         if (summary.entries.isEmpty)
-          _emptyState(context)
+          _emptyState(context, summary)
         else ...[
           _breakdown(context, summary),
           _selectionDetail(summary),
@@ -309,24 +310,34 @@ class _BookDurationChartState extends State<BookDurationChart>
     ),
   );
 
-  Widget _emptyState(BuildContext context) => Padding(
-    key: const ValueKey('stats-book-duration-empty'),
-    padding: const EdgeInsets.symmetric(vertical: 48),
-    child: Column(
-      children: [
-        const Text('该时段没有阅读记录'),
-        const SizedBox(height: 8),
-        Text(
-          _countingHint,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+  Widget _emptyState(BuildContext context, BookDurationSummary summary) =>
+      Padding(
+        key: const ValueKey('stats-book-duration-empty'),
+        padding: const EdgeInsets.symmetric(vertical: 48),
+        child: Column(
+          children: [
+            if (summary.total > Duration.zero) ...[
+              Text(
+                formatReadingDuration(summary.total),
+                key: const ValueKey('stats-book-duration-total'),
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              const Text('该时段暂无符合展示条件的书目'),
+            ] else
+              const Text('该时段没有阅读记录'),
+            const SizedBox(height: 8),
+            Text(
+              _countingHint,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
   Widget _breakdown(BuildContext context, BookDurationSummary summary) {
     final slices = _slices(
@@ -738,6 +749,10 @@ List<Color> _chartColors(ColorScheme scheme) => [
 
 List<_DurationSlice> _slices(BookDurationSummary summary, List<Color> colors) {
   final count = math.min(4, summary.entries.length);
+  final displayed = summary.entries.fold(
+    Duration.zero,
+    (sum, entry) => sum + entry.duration,
+  );
   return [
     for (var index = 0; index < count; index++)
       (
@@ -753,6 +768,13 @@ List<_DurationSlice> _slices(BookDurationSummary summary, List<Color> colors) {
         duration: summary.entries
             .skip(4)
             .fold(Duration.zero, (sum, entry) => sum + entry.duration),
+        color: colors.last,
+      ),
+    if (summary.total > displayed)
+      (
+        id: null,
+        title: '短时阅读',
+        duration: summary.total - displayed,
         color: colors.last,
       ),
   ];

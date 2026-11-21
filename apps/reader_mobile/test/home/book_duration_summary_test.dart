@@ -13,6 +13,44 @@ ReadingSession _session(String id, DateTime start, int minutes) =>
     );
 
 void main() {
+  test('书目按任一单日超过五分钟展示，历史秒级阅读和隐藏书目时长均不丢失', () {
+    final now = DateTime(2026, 11, 21, 12);
+    final shortStart = DateTime(2026, 11, 20, 8);
+    final insights = ReadingInsights(
+      [
+        ReadingSession(
+          bookId: 'shown',
+          startedAt: shortStart,
+          endedAt: shortStart.add(const Duration(seconds: 3)),
+          duration: const Duration(seconds: 3),
+        ),
+        _session('shown', DateTime(2026, 11, 21, 8), 6),
+        _session('hidden', DateTime(2026, 11, 20, 9), 4),
+        _session('hidden', DateTime(2026, 11, 21, 9), 4),
+      ],
+      now: now,
+      minimumBookDayDuration: minimumDisplayedBookDayDuration,
+    );
+    final month = BookDurationSummary(
+      insights,
+      period: BookDurationPeriod.month,
+      date: now,
+    );
+    expect(month.entries.single.bookId, 'shown');
+    expect(
+      month.entries.single.duration,
+      const Duration(minutes: 6, seconds: 3),
+    );
+    expect(month.total, const Duration(minutes: 14, seconds: 3));
+    final yesterday = BookDurationSummary(
+      insights,
+      period: BookDurationPeriod.day,
+      date: shortStart,
+    );
+    expect(yesterday.entries.single.duration, const Duration(seconds: 3));
+    expect(yesterday.total, const Duration(minutes: 4, seconds: 3));
+  });
+
   test('五种周期只计入各自自然边界内的阅读时长', () {
     final now = DateTime(2026, 11, 15, 20);
     final insights = ReadingInsights([
