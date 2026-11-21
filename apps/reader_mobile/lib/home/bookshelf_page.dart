@@ -112,7 +112,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
   String? _activeGroupId;
-  double _groupDragDistance = 0;
   bool _grid = true;
   bool _searching = false;
   bool _selectionMode = false;
@@ -230,33 +229,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (mounted) setState(() => _pinnedIds = pinned);
   }
 
-  ShelfGroup? get _activeGroup {
-    for (final group in _groups) {
-      if (group.id == _activeGroupId) {
-        return group;
-      }
-    }
-    return null;
-  }
-
   void _toggleGroup(String id) {
     setState(() {
       _activeGroupId = _activeGroupId == id ? null : id;
     });
-  }
-
-  void _finishGroupSwipe(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    final distance = _groupDragDistance;
-    if (distance.abs() < 48 && (distance.abs() < 20 || velocity.abs() < 400)) {
-      return;
-    }
-    final ids = <String?>[null, for (final group in _groups) group.id];
-    final index = ids.indexOf(_activeGroupId);
-    final next = index + (distance < 0 ? 1 : -1);
-    if (next >= 0 && next < ids.length) {
-      setState(() => _activeGroupId = ids[next]);
-    }
   }
 
   int _groupBookCount(ShelfGroup group) => (_items ?? const <_ShelfItem>[])
@@ -502,10 +478,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   /// 先按关键词与当前分组过滤，再沿用书架排序。
-  List<_ShelfItem> _visible(List<_ShelfItem> items) {
+  List<_ShelfItem> _visible(List<_ShelfItem> items, {String? groupId}) {
     final query = _query.trim().toLowerCase();
     final filtered = items.where((item) {
-      final groupId = _activeGroupId;
       if (groupId != null && _bookGroups[item.entry.id] != groupId) {
         return false;
       }
@@ -1046,7 +1021,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget build(BuildContext context) {
     final items = _items;
     final busy = _queue.isBusy;
-    final visible = items == null ? null : _visible(items);
+    final visible = items == null
+        ? null
+        : _visible(items, groupId: _activeGroupId);
     return ExcludeFocus(
       excluding: !widget.active,
       child: Focus(
@@ -1218,23 +1195,25 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
         if (_error == null && items != null) _buildShelfControls(items),
         Expanded(
-          child: GestureDetector(
-            key: const ValueKey('bookshelf-group-pages'),
-            behavior: HitTestBehavior.opaque,
-            onHorizontalDragStart: canSwipe
-                ? (_) => _groupDragDistance = 0
-                : null,
-            onHorizontalDragUpdate: canSwipe
-                ? (details) => _groupDragDistance += details.primaryDelta ?? 0
-                : null,
-            onHorizontalDragEnd: canSwipe ? _finishGroupSwipe : null,
-            child: _ShelfBodyTransition(
-              groupId: _activeGroupId,
-              groupIndex:
-                  _groups.indexWhere((group) => group.id == _activeGroupId) + 1,
+          child: _ShelfGroupPages(
+            groupIds: [null, for (final group in _groups) group.id],
+            groupId: _activeGroupId,
+            enabled: canSwipe,
+            onChanged: (id) => setState(() => _activeGroupId = id),
+            builder: (id) => _ShelfBodyTransition(
+              groupId: id,
+              groupIndex: 0,
               grid: _grid,
               animate: !_selectionMode && _error == null && items != null,
-              child: _buildLibraryBody(items, visible),
+              child: _buildLibraryBody(
+                items,
+                id == _activeGroupId
+                    ? visible
+                    : items == null
+                    ? null
+                    : _visible(items, groupId: id),
+                groupId: id,
+              ),
             ),
           ),
         ),
@@ -1242,7 +1221,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  Widget _buildLibraryBody(List<_ShelfItem>? items, List<_ShelfItem>? visible) {
+  Widget _buildLibraryBody(
+    List<_ShelfItem>? items,
+    List<_ShelfItem>? visible, {
+    String? groupId,
+  }) {
     if (_error != null) {
       return _ErrorPane(
         message: _error!,
@@ -1264,7 +1247,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (books.isEmpty) {
       return _NoMatchesPane(
         query: _query.trim(),
-        groupName: _query.trim().isEmpty ? _activeGroup?.name : null,
+        groupName: _query.trim().isEmpty && groupId != null
+            ? _groups.where((group) => group.id == groupId).firstOrNull?.name
+            : null,
         onReset: _resetFilters,
       );
     }
@@ -1442,7 +1427,187 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 }
 
-/// 视图切换轻微纵移淡入，分组切换沿分组顺序滑入。
+/// 分组整页随手势平移，松手后补完切换或回到原位。
+class _ShelfGroupPages extends StatefulWidget {
+  const _ShelfGroupPages({
+    required this.groupIds,
+    required this.groupId,
+    required this.enabled,
+    required this.onChanged,
+    required this.builder,
+  });
+
+  final List<String?> groupIds;
+  final String? groupId;
+  final bool enabled;
+  final ValueChanged<String?> onChanged;
+  final Widget Function(String?) builder;
+
+  @override
+  State<_ShelfGroupPages> createState() => _ShelfGroupPagesState();
+}
+
+class _ShelfGroupPagesState extends State<_ShelfGroupPages>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late String? _displayId;
+  double _offset = 0;
+  double _from = 0;
+  double _to = 0;
+  double _distance = 0;
+  double _width = 1;
+  int _direction = 0;
+  int? _targetIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayId = widget.groupId;
+    _controller =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 200),
+        )..addListener(() {
+          setState(() {
+            final t = Curves.easeOutCubic.transform(_controller.value);
+            _offset = _from + (_to - _from) * t;
+          });
+        });
+  }
+
+  @override
+  void didUpdateWidget(_ShelfGroupPages oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled || !widget.groupIds.contains(_displayId)) {
+      _controller.stop();
+      _displayId = widget.groupId;
+      _offset = 0;
+      _direction = 0;
+    } else if (oldWidget.groupId != widget.groupId &&
+        _displayId != widget.groupId) {
+      _controller.stop();
+      final previous = widget.groupIds.indexOf(_displayId);
+      final next = widget.groupIds.indexOf(widget.groupId);
+      _direction = (next - previous).sign;
+      _offset = 0;
+      _settle(true, targetIndex: next);
+    }
+  }
+
+  int get _neighborIndex => widget.groupIds.indexOf(_displayId) + _direction;
+
+  void _dragUpdate(DragUpdateDetails details) {
+    if (_controller.isAnimating) return;
+    _distance += details.primaryDelta ?? 0;
+    final direction = _distance < 0 ? 1 : -1;
+    final next = widget.groupIds.indexOf(_displayId) + direction;
+    setState(() {
+      _direction = next >= 0 && next < widget.groupIds.length ? direction : 0;
+      _offset = _direction == 0 ? 0 : (_distance / _width).clamp(-1.0, 1.0);
+    });
+  }
+
+  void _dragEnd(DragEndDetails details) {
+    if (_controller.isAnimating) return;
+    final velocity = details.primaryVelocity ?? 0;
+    final commit =
+        _direction != 0 &&
+        (_distance.abs() >= 48 ||
+            (_distance.abs() >= 20 && velocity.abs() >= 400));
+    _settle(commit);
+  }
+
+  Future<void> _settle(bool commit, {int? targetIndex}) async {
+    _targetIndex = targetIndex;
+    final target = commit
+        ? widget.groupIds[targetIndex ?? _neighborIndex]
+        : _displayId;
+    _from = _offset;
+    _to = commit ? -_direction.toDouble() : 0;
+    if (!MediaQuery.disableAnimationsOf(context) && _from != _to) {
+      try {
+        await _controller.forward(from: 0).orCancel;
+      } on TickerCanceled {
+        return;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _displayId = target;
+      _offset = 0;
+      _direction = 0;
+    });
+    if (commit && widget.groupId != target) widget.onChanged(target);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      _width = constraints.maxWidth;
+      Widget page(String? id, double offset, {required bool active}) =>
+          FractionalTranslation(
+            translation: Offset(offset, 0),
+            child: ExcludeFocus(
+              excluding: !active,
+              child: ExcludeSemantics(
+                excluding: !active,
+                child: IgnorePointer(
+                  ignoring: !active,
+                  child: HeroMode(
+                    enabled: active,
+                    child: KeyedSubtree(
+                      key: ValueKey(('bookshelf-group-page', id)),
+                      child: widget.builder(id),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+      return GestureDetector(
+        key: const ValueKey('bookshelf-group-pages'),
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: widget.enabled
+            ? (_) {
+                if (!_controller.isAnimating) {
+                  _distance = 0;
+                  _targetIndex = null;
+                }
+              }
+            : null,
+        onHorizontalDragUpdate: widget.enabled ? _dragUpdate : null,
+        onHorizontalDragEnd: widget.enabled ? _dragEnd : null,
+        onHorizontalDragCancel: widget.enabled
+            ? () {
+                if (!_controller.isAnimating) _settle(false);
+              }
+            : null,
+        child: ClipRect(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              page(_displayId, _offset, active: _direction == 0),
+              if (_direction != 0)
+                page(
+                  widget.groupIds[_targetIndex ?? _neighborIndex],
+                  _offset + _direction,
+                  active: false,
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// 网格与列表视图切换保持轻微纵移淡入。
 class _ShelfBodyTransition extends StatefulWidget {
   const _ShelfBodyTransition({
     required this.groupId,
