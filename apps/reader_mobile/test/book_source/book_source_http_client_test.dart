@@ -73,6 +73,108 @@ void main() {
     );
   });
 
+  test('图片请求保留书源显式引用页，403 不触发自动引用页重试', () async {
+    const source = BookSource(
+      id: 'explicit-referer',
+      name: '显式引用页',
+      sourceUrl: 'https://example.com',
+      searchUrl: 'https://example.com/search',
+      header: '{"referer":"https://images.example.net/"}',
+      search: BookListRule(),
+      bookInfo: BookInfoRule(),
+      toc: TocRule(),
+      content: ContentRule(),
+    );
+    final referers = <String?>[];
+    final client = BookSourceHttpClient(
+      client: MockClient((request) async {
+        referers.add(request.headers['Referer'] ?? request.headers['referer']);
+        return http.Response('Forbidden', 403);
+      }),
+    );
+    addTearDown(client.close);
+
+    await expectLater(
+      client.fetchBytes(
+        source,
+        'https://images.example.net/cover.jpg',
+        referer: 'https://example.com/book/1',
+      ),
+      throwsA(
+        isA<BookSourceException>().having(
+          (error) => error.statusCode,
+          'statusCode',
+          403,
+        ),
+      ),
+    );
+
+    expect(referers, <String?>['https://images.example.net/']);
+  });
+
+  test('图片引用页重试不扩展到文本、同站图片或非 403 响应', () async {
+    final requests = <Uri>[];
+    final client = BookSourceHttpClient(
+      client: MockClient((request) async {
+        requests.add(request.url);
+        return http.Response(
+          'Unavailable',
+          request.url.path == '/missing.jpg' ? 404 : 403,
+        );
+      }),
+    );
+    addTearDown(client.close);
+
+    final operations = <Future<BookSourceHttpResponse> Function()>[
+      () => client.fetchText(
+        _source,
+        'https://other.example.net/book/1',
+        referer: 'https://example.com/search',
+      ),
+      () => client.fetchBytes(
+        _source,
+        'https://example.com/cover.jpg',
+        referer: 'https://example.com/book/1',
+      ),
+      () => client.fetchBytes(
+        _source,
+        'https://other.example.net/missing.jpg',
+        referer: 'https://example.com/book/1',
+      ),
+    ];
+    for (final operation in operations) {
+      await expectLater(operation(), throwsA(isA<BookSourceException>()));
+    }
+
+    expect(requests, <Uri>[
+      Uri.parse('https://other.example.net/book/1'),
+      Uri.parse('https://example.com/cover.jpg'),
+      Uri.parse('https://other.example.net/missing.jpg'),
+    ]);
+  });
+
+  test('跨站图片移除自动引用页后仍失败时只重试一次', () async {
+    final referers = <String?>[];
+    final client = BookSourceHttpClient(
+      client: MockClient((request) async {
+        referers.add(request.headers['Referer'] ?? request.headers['referer']);
+        return http.Response('Forbidden', 403);
+      }),
+    );
+    addTearDown(client.close);
+
+    await expectLater(
+      client.fetchBytes(
+        _source,
+        'https://other.example.net/cover.jpg',
+        referer: 'https://example.com/book/1',
+      ),
+      throwsA(isA<BookSourceException>()),
+    );
+
+    expect(referers, <String?>['https://example.com/book/1', null]);
+  });
+
   test('404 不标记为临时错误，内网地址在发请求前拒绝', () async {
     final client = BookSourceHttpClient(
       client: MockClient((_) async => http.Response('missing', 404)),

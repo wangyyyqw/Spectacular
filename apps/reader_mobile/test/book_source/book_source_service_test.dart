@@ -309,6 +309,38 @@ void main() {
     expect(referer, 'https://example.com/book/1');
   });
 
+  test('跨站封面拒绝自动引用页时重试并缓存成功图片', () async {
+    final referers = <String?>[];
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          final referer =
+              request.headers['Referer'] ?? request.headers['referer'];
+          referers.add(referer);
+          return referer == null
+              ? http.Response.bytes(_png, 200)
+              : http.Response('Forbidden', 403);
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+
+    final first = await service.loadCover(
+      _source,
+      'https://cdn.example.net/cover.jpg',
+      referer: 'https://example.com/book/1',
+    );
+    final second = await service.loadCover(
+      _source,
+      'https://cdn.example.net/cover.jpg',
+      referer: 'https://example.com/book/1',
+    );
+
+    expect(first, _png);
+    expect(second, _png);
+    expect(referers, <String?>['https://example.com/book/1', null]);
+  });
+
   test('base64 封面不发起网络请求，无图数据返回空', () async {
     final service = BookSourceService(
       httpClient: BookSourceHttpClient(

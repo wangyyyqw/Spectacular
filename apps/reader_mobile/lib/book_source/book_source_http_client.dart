@@ -80,6 +80,7 @@ class BookSourceHttpClient {
       headers: headers,
       options: const <String, Object?>{},
       referer: referer,
+      retryWithoutCrossHostReferer: true,
     );
   }
 
@@ -91,6 +92,7 @@ class BookSourceHttpClient {
     required Map<String, String> headers,
     required Map<String, Object?> options,
     required String referer,
+    bool retryWithoutCrossHostReferer = false,
   }) async {
     var uri = _validateUrl(rawUrl);
     await cookieStore?.load();
@@ -103,16 +105,22 @@ class BookSourceHttpClient {
     }
     var body = _stringOption(options, 'body');
     var currentReferer = referer;
+    var omitAutomaticReferer = false;
+    var redirects = 0;
 
-    for (var redirects = 0; ; redirects++) {
+    for (;;) {
       await _waitTurn(source);
+      final requestHeaders = _requestHeaders(source, headers, options);
+      final usesAutomaticReferer =
+          !omitAutomaticReferer &&
+          currentReferer.isNotBlank &&
+          !_hasHeader(requestHeaders, 'Referer');
+      if (usesAutomaticReferer) requestHeaders['Referer'] = currentReferer;
       final response = await _sendOnce(
         source,
         uri,
         method: method,
-        headers: headers,
-        options: options,
-        referer: currentReferer,
+        headers: requestHeaders,
         body: body,
       );
       final status = response.statusCode;
@@ -140,6 +148,15 @@ class BookSourceHttpClient {
         }
         currentReferer = uri.toString();
         uri = next;
+        redirects++;
+        continue;
+      }
+      if (status == 403 &&
+          retryWithoutCrossHostReferer &&
+          usesAutomaticReferer &&
+          _isCrossHostReferer(uri, currentReferer)) {
+        // 跨站图片可能拒绝自动引用页，重试仍保留书源和登录声明的请求头。
+        omitAutomaticReferer = true;
         continue;
       }
       if (status == 429 || status == 503) {
@@ -162,33 +179,18 @@ class BookSourceHttpClient {
     Uri uri, {
     required String method,
     required Map<String, String> headers,
-    required Map<String, Object?> options,
-    required String referer,
     required String body,
   }) async {
     final persistentCookies = cookieStore == null || !source.enabledCookieJar
         ? const <String, String>{}
         : await cookieStore!.cookiesFor(source, uri);
-    final requestHeaders = <String, String>{
-      'User-Agent':
-          'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36',
-      'Accept': '*/*',
-      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
-      ..._sourceHeaders(source),
-      if (options['useLoginHeader'] != false)
-        ..._decodedHeaders(cookieStore?.loginHeader(source) ?? ''),
-      ..._optionHeaders(options),
-      ...headers,
-    };
-    if (referer.isNotBlank) requestHeaders['Referer'] = referer;
-    if (source.enabledCookieJar && !_hasHeader(requestHeaders, 'Cookie')) {
+    if (source.enabledCookieJar && !_hasHeader(headers, 'Cookie')) {
       final cookies = <String, String>{
         ...persistentCookies,
         ...?_cookies[source.id],
       };
       if (cookies.isNotEmpty) {
-        requestHeaders['Cookie'] = cookies.entries
+        headers['Cookie'] = cookies.entries
             .map((entry) => '${entry.key}=${entry.value}')
             .join('; ');
       }
@@ -198,7 +200,7 @@ class BookSourceHttpClient {
         ? Duration(milliseconds: source.respondTime.clamp(3000, 180000))
         : defaultTimeout;
     try {
-      final request = http.Request(method, uri)..headers.addAll(requestHeaders);
+      final request = http.Request(method, uri)..headers.addAll(headers);
       if (method == 'POST' && body.isNotEmpty) request.body = body;
       final streamed = await _client.send(request).timeout(timeout);
       final responseHeaders = <String, String>{
@@ -265,6 +267,14 @@ class BookSourceHttpClient {
       status == 303 ||
       status == 307 ||
       status == 308;
+
+  bool _isCrossHostReferer(Uri uri, String referer) {
+    final reference = Uri.tryParse(referer.trim());
+    return reference != null &&
+        (reference.scheme == 'http' || reference.scheme == 'https') &&
+        reference.hasAuthority &&
+        reference.host.toLowerCase() != uri.host.toLowerCase();
+  }
 
   void _recordCooldown(BookSource source, Map<String, String> headers) {
     final raw = headers['retry-after']?.trim() ?? '';
@@ -349,6 +359,23 @@ class BookSourceHttpClient {
         (octets[0] == 169 && octets[1] == 254) ||
         octets[0] == 0;
   }
+
+  Map<String, String> _requestHeaders(
+    BookSource source,
+    Map<String, String> headers,
+    Map<String, Object?> options,
+  ) => <String, String>{
+    'User-Agent':
+        'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36',
+    'Accept': '*/*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
+    ..._sourceHeaders(source),
+    if (options['useLoginHeader'] != false)
+      ..._decodedHeaders(cookieStore?.loginHeader(source) ?? ''),
+    ..._optionHeaders(options),
+    ...headers,
+  };
 
   Map<String, String> _sourceHeaders(BookSource source) {
     final text = source.header.trim();
