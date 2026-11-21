@@ -175,7 +175,7 @@ void main() {
       final expectedWidth = parentWidth * percent / 100;
       expect(block.style!.width!.value, closeTo(expectedWidth, .01));
       expect(block.height, closeTo(expectedWidth * 631 / 1024, .01));
-      expect(block.spaceBefore, 32, reason: '父子上边距按原书字号折叠为2em');
+      expect(block.spaceBefore, 36, reason: '图片2em上边距跟随18阅读字号，父盒边距仍只消费一次');
       expect(block.startCfi, isNotNull);
       final bounds = _imageBounds(await _render(page, image));
       expect(
@@ -185,7 +185,7 @@ void main() {
       );
       expect(bounds.height, closeTo(expectedWidth * 631 / 1024, 2));
       expect(bounds.center.dx, closeTo(_pageInsets.left + parentWidth, 1));
-      expect(bounds.top, closeTo(_pageInsets.top + 32, 1));
+      expect(bounds.top, closeTo(_pageInsets.top + 36, 1));
       expect(page.slices.last.block.layout.text, '后续正文');
     });
   }
