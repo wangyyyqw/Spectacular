@@ -178,30 +178,61 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
     },
   );
 
-  Widget _filterField() => Padding(
-    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-    child: TextField(
-      controller: _filter,
-      style: Theme.of(context).textTheme.bodyMedium,
-      onChanged: (_) => _filterChanged(),
-      decoration: InputDecoration(
-        hintText: '文件名或路径',
-        isDense: true,
-        prefixIcon: const AppIcon(AppGlyph.search, size: 16),
-        prefixIconConstraints: const BoxConstraints(minWidth: 32),
-        suffixIcon: _filter.text.isEmpty
-            ? null
-            : IconButton(
-                tooltip: '清除筛选',
-                icon: const AppIcon(AppGlyph.close, size: 16),
-                onPressed: () {
-                  _filter.clear();
-                  _filterChanged();
-                },
-              ),
+  Widget _filterField() {
+    final theme = Theme.of(context);
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(20),
+      borderSide: BorderSide.none,
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      child: Material(
+        color: ReaderDrawerStyle.searchSurfaceOf(theme),
+        borderRadius: border.borderRadius,
+        elevation: 3,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
+        child: TextField(
+          controller: _filter,
+          style: theme.textTheme.bodyMedium,
+          onChanged: (_) => _filterChanged(),
+          decoration: InputDecoration(
+            hintText: '文件名或路径',
+            isDense: true,
+            filled: true,
+            fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            border: border,
+            enabledBorder: border,
+            focusedBorder: border,
+            prefixIconConstraints: const BoxConstraints.tightFor(
+              width: 40,
+              height: 40,
+            ),
+            suffixIconConstraints: const BoxConstraints.tightFor(
+              width: 40,
+              height: 40,
+            ),
+            prefixIcon: AppIcon(
+              AppGlyph.search,
+              size: 20,
+              color: ReaderDrawerStyle.mutedOf(theme),
+            ),
+            suffixIcon: _filter.text.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: '清除筛选',
+                    icon: const AppIcon(AppGlyph.close, size: 16),
+                    onPressed: () {
+                      _filter.clear();
+                      _filterChanged();
+                    },
+                  ),
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _fileList() {
     if (_visible.isEmpty) return const Center(child: Text('没有匹配的文件'));

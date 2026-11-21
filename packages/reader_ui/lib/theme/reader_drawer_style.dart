@@ -5,13 +5,13 @@ abstract final class ReaderDrawerStyle {
   /// 搜索框使用较高的暗色表面，配合阴影保持夜间层次。
   static Color searchSurfaceOf(ThemeData theme) =>
       theme.brightness == Brightness.dark
-      ? theme.colorScheme.surfaceContainerHigh
+      ? theme.colorScheme.surfaceContainerHighest
       : theme.colorScheme.surface;
 
   /// 搜索框投影。
-  static Color searchShadowOf(ThemeData theme) => Colors.black.withValues(
-    alpha: theme.brightness == Brightness.dark ? .55 : .22,
-  );
+  static Color searchShadowOf(ThemeData theme) =>
+      (theme.brightness == Brightness.dark ? Colors.white : Colors.black)
+          .withValues(alpha: theme.brightness == Brightness.dark ? .24 : .28);
 
   /// 面板底色。
   static const Color surface = Color(0xFFFFFFFF);
