@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/panels/annotation_panel.dart';
+import 'package:reader_ui/panels/search_panel.dart';
 
 ReaderAnnotation _annotation({
   required String id,
@@ -26,6 +27,69 @@ ReaderAnnotation _annotation({
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('标注搜索框与搜索页一致且排序同行：${brightness.name}', (tester) async {
+      final theme = ThemeData(brightness: brightness);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: SearchPanel(
+              onSearch: (_) async => const [],
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      );
+      final reference = tester.widget<TextField>(
+        find.byKey(const ValueKey('search-input')),
+      );
+      final referenceSurface = tester.widget<Material>(
+        find.byKey(const ValueKey('search-input-surface')),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: AnnotationPanel(
+              annotations: const [],
+              onSelect: (_) {},
+              onEdit: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final input = find.byKey(const ValueKey('annotation-search-input'));
+      final field = tester.widget<TextField>(input);
+      final surface = tester.widget<Material>(
+        find.byKey(const ValueKey('annotation-search-surface')),
+      );
+      final sort = find.byKey(const ValueKey('annotation-sort'));
+      expect(find.text('标注'), findsNothing);
+      expect(tester.getCenter(sort).dy, closeTo(tester.getCenter(input).dy, 1));
+      expect(
+        tester.getTopLeft(sort).dx,
+        greaterThanOrEqualTo(tester.getTopRight(input).dx),
+      );
+      expect(field.style, reference.style);
+      expect(field.decoration?.border, reference.decoration?.border);
+      expect(
+        field.decoration?.focusedBorder,
+        reference.decoration?.focusedBorder,
+      );
+      expect(field.decoration?.fillColor, reference.decoration?.fillColor);
+      expect(
+        field.decoration?.contentPadding,
+        reference.decoration?.contentPadding,
+      );
+      expect(surface.elevation, referenceSurface.elevation);
+      expect(surface.borderRadius, referenceSurface.borderRadius);
+      expect(surface.shadowColor, referenceSurface.shadowColor);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('标注面板：按类型筛选、点击跳转和编辑', (tester) async {
     final selected = <ReaderAnnotation>[];
     final edited = <ReaderAnnotation>[];
@@ -62,7 +126,7 @@ void main() {
       ),
     );
 
-    expect(find.text('标注'), findsOneWidget);
+    expect(find.text('标注'), findsNothing);
     expect(find.text('共 3 条'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('最新的笔记原文')).dy,
@@ -348,7 +412,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(deleted.single.single.id, 'note-batch');
-    expect(find.text('标注'), findsOneWidget);
+    expect(find.text('标注'), findsNothing);
   });
 
   testWidgets('标注面板：窄屏批量更换标注颜色', (tester) async {
