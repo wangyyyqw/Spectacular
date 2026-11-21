@@ -3557,11 +3557,52 @@ class _ReaderDrawerContent extends StatefulWidget {
 
 class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
   Future<List<ReaderBookmark>>? _bookmarksFuture;
+  late final PageController _tabPageController;
+
+  List<_DrawerTab> get _tabs => <_DrawerTab>[
+    _DrawerTab.content,
+    if (widget.bookmarks != null) _DrawerTab.bookmarks,
+    if (widget.annotations != null) _DrawerTab.annotations,
+    if (widget.decorations != null) _DrawerTab.decorations,
+    if (widget.onSearch != null) _DrawerTab.search,
+  ];
 
   @override
   void initState() {
     super.initState();
+    final index = _tabs.indexOf(widget.tab);
+    _tabPageController = PageController(initialPage: index < 0 ? 0 : index);
     _reloadBookmarks();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReaderDrawerContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tab != widget.tab && _tabPageController.hasClients) {
+      final index = _tabs.indexOf(widget.tab);
+      if (index >= 0 && _tabPageController.page?.round() != index) {
+        _tabPageController.jumpToPage(index);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabPageController.dispose();
+    super.dispose();
+  }
+
+  void _onTabPageChanged(int index) {
+    final tab = _tabs[index];
+    if (tab == _DrawerTab.bookmarks) {
+      setState(_reloadBookmarks);
+    }
+    if (tab != _DrawerTab.search) {
+      widget.searchFocus.unfocus();
+    }
+    if (tab != widget.tab) {
+      widget.onTabChanged(tab);
+    }
   }
 
   void _reloadBookmarks() {
@@ -3695,60 +3736,66 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           ),
         ),
         Expanded(
-          child: switch (widget.tab) {
-            _DrawerTab.content => TocPanel(
-              entries: widget.entries,
-              currentSpineIndex: widget.currentSpineIndex,
-              currentCfi: widget.currentCfi,
-              onSelect: widget.onTocSelect,
-              onChapterRules: widget.onChapterRules,
-            ),
-            _DrawerTab.bookmarks => FutureBuilder<List<ReaderBookmark>>(
-              future: _bookmarksFuture,
-              builder: (context, snapshot) {
-                final items = snapshot.data ?? const <ReaderBookmark>[];
-                return BookmarkPanel(
-                  bookmarks: items,
-                  onAdd: widget.hasCfi ? widget.onAddBookmark : null,
-                  onSelect: widget.onBookmarkSelect,
-                  onDelete: (bookmark) async {
-                    await widget.bookmarks?.remove(bookmark.id);
-                    if (mounted) {
-                      setState(_reloadBookmarks);
-                    }
-                  },
-                );
-              },
-            ),
-            _DrawerTab.annotations => AnnotationPanel(
-              annotations: widget.annotationItems,
-              chapterTitleOf: _annotationChapterTitle,
-              inkMode: widget.inkMode,
-              onSelect: widget.onAnnotationSelect,
-              onEdit: widget.onAnnotationEdit,
-              onDelete: widget.onAnnotationDelete,
-              onRecolor: widget.onAnnotationRecolor,
-            ),
-            _DrawerTab.decorations => ReaderDecorationPanel(
-              decorations: widget.decorationItems,
-              toc: widget.entries,
-              onSelect: widget.onDecorationSelect,
-              onEdit: widget.onDecorationEdit,
-              onRemove: widget.onDecorationRemove,
-              onRules: widget.onDecorationRules,
-              ruleCount: widget.decorationRuleCount,
-              rulesEnabled: widget.decorationRulesEnabled,
-            ),
-            _DrawerTab.search =>
-              widget.onSearch == null
-                  ? const SizedBox.shrink()
-                  : SearchPanel(
-                      focusNode: widget.searchFocus,
-                      onSearch: widget.onSearch!,
-                      onSearchStream: widget.onSearchStream,
-                      onSelect: widget.onSearchSelect,
-                    ),
-          },
+          child: PageView.builder(
+            key: const ValueKey<String>('drawer-tab-pages'),
+            controller: _tabPageController,
+            itemCount: _tabs.length,
+            onPageChanged: _onTabPageChanged,
+            itemBuilder: (context, index) => switch (_tabs[index]) {
+              _DrawerTab.content => TocPanel(
+                entries: widget.entries,
+                currentSpineIndex: widget.currentSpineIndex,
+                currentCfi: widget.currentCfi,
+                onSelect: widget.onTocSelect,
+                onChapterRules: widget.onChapterRules,
+              ),
+              _DrawerTab.bookmarks => FutureBuilder<List<ReaderBookmark>>(
+                future: _bookmarksFuture,
+                builder: (context, snapshot) {
+                  final items = snapshot.data ?? const <ReaderBookmark>[];
+                  return BookmarkPanel(
+                    bookmarks: items,
+                    onAdd: widget.hasCfi ? widget.onAddBookmark : null,
+                    onSelect: widget.onBookmarkSelect,
+                    onDelete: (bookmark) async {
+                      await widget.bookmarks?.remove(bookmark.id);
+                      if (mounted) {
+                        setState(_reloadBookmarks);
+                      }
+                    },
+                  );
+                },
+              ),
+              _DrawerTab.annotations => AnnotationPanel(
+                annotations: widget.annotationItems,
+                chapterTitleOf: _annotationChapterTitle,
+                inkMode: widget.inkMode,
+                onSelect: widget.onAnnotationSelect,
+                onEdit: widget.onAnnotationEdit,
+                onDelete: widget.onAnnotationDelete,
+                onRecolor: widget.onAnnotationRecolor,
+              ),
+              _DrawerTab.decorations => ReaderDecorationPanel(
+                decorations: widget.decorationItems,
+                toc: widget.entries,
+                onSelect: widget.onDecorationSelect,
+                onEdit: widget.onDecorationEdit,
+                onRemove: widget.onDecorationRemove,
+                onRules: widget.onDecorationRules,
+                ruleCount: widget.decorationRuleCount,
+                rulesEnabled: widget.decorationRulesEnabled,
+              ),
+              _DrawerTab.search =>
+                widget.onSearch == null
+                    ? const SizedBox.shrink()
+                    : SearchPanel(
+                        focusNode: widget.searchFocus,
+                        onSearch: widget.onSearch!,
+                        onSearchStream: widget.onSearchStream,
+                        onSelect: widget.onSearchSelect,
+                      ),
+            },
+          ),
         ),
         if (widget.tab == _DrawerTab.search &&
             MediaQuery.maybeViewInsetsOf(context)?.bottom == 0)
