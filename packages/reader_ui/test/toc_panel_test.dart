@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/panels/toc_panel.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 TocEntry _entry(
   String title,
@@ -18,6 +20,52 @@ TocEntry _entry(
 );
 
 void main() {
+  for (final (width, scale) in [(360.0, 1.0), (320.0, 1.5)]) {
+    testWidgets('目录页头在宽度$width、字号倍率$scale下完整显示时间并统一颜色', (tester) async {
+      tester.view.physicalSize = Size(width, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: TocPanel(
+              entries: [
+                for (var index = 0; index < 1515; index++)
+                  _entry('第$index章', index),
+              ],
+              currentSpineIndex: 0,
+              readingDuration: const AlwaysStoppedAnimation(
+                Duration(hours: 2, minutes: 3),
+              ),
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      );
+      final time = find.byKey(const ValueKey('toc-reading-duration'));
+      final count = find.text('共 1515 章');
+      expect(
+        tester.renderObject<RenderParagraph>(time).didExceedMaxLines,
+        isFalse,
+      );
+      expect(tester.widget<Text>(time).style, tester.widget<Text>(count).style);
+      for (final key in [
+        'toc-expand-all',
+        'toc-collapse-all',
+        'toc-locate-current',
+      ]) {
+        expect(tester.getSize(find.byKey(ValueKey(key))), const Size(44, 44));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('累计阅读按整分钟更新并在一小时后显示小时', (tester) async {
     final duration = ValueNotifier(const Duration(seconds: 59));
     addTearDown(duration.dispose);
@@ -98,6 +146,13 @@ void main() {
         find.ancestor(of: find.text('第二章'), matching: find.byType(ListTile)),
       );
       expect(current.selected, isTrue);
+      final theme = Theme.of(tester.element(find.byType(TocPanel)));
+      expect(current.selectedTileColor, ReaderDrawerStyle.selectedRowOf(theme));
+      expect(current.selectedTileColor, isNot(current.tileColor));
+      expect(
+        tester.widget<Text>(find.text('第二章')).style?.fontWeight,
+        FontWeight.w600,
+      );
       final other = tester.widget<ListTile>(
         find.ancestor(of: find.text('第一章'), matching: find.byType(ListTile)),
       );
@@ -174,8 +229,12 @@ void main() {
       expect(find.text('2.1'), findsNothing);
       expect(find.text('共 5 章'), findsOneWidget);
       expect(
-        find.byWidgetPredicate(
-          (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronDown,
+        find.descendant(
+          of: find.byType(ListView),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is AppIcon && widget.glyph == AppGlyph.chevronDown,
+          ),
         ),
         findsOneWidget,
       );
@@ -259,7 +318,7 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('收起全部时保留当前子项的父级路径', (tester) async {
+    testWidgets('收起全部会收起当前卷，回到当前章再展开父级路径并高亮子章', (tester) async {
       final entries = <TocEntry>[
         _entry(
           '第一章',
@@ -286,14 +345,24 @@ void main() {
       await tester.pump();
 
       expect(find.text('第一章'), findsOneWidget);
-      expect(find.text('1.1'), findsOneWidget);
-      expect(find.text('1.1.1'), findsOneWidget);
+      expect(find.text('1.1'), findsNothing);
+      expect(find.text('1.1.1'), findsNothing);
       expect(find.text('第二章'), findsOneWidget);
       expect(find.text('2.1'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('toc-locate-current')));
+      await tester.pumpAndSettle();
+      expect(find.text('1.1'), findsOneWidget);
+      expect(find.text('1.1.1'), findsOneWidget);
       final current = tester.widget<ListTile>(
         find.ancestor(of: find.text('1.1.1'), matching: find.byType(ListTile)),
       );
       expect(current.selected, isTrue);
+      expect(
+        current.selectedTileColor,
+        ReaderDrawerStyle.selectedRowOf(
+          Theme.of(tester.element(find.byType(TocPanel))),
+        ),
+      );
     });
 
     testWidgets('同一 spine 按 CFI 定位当前顶层目录项', (tester) async {

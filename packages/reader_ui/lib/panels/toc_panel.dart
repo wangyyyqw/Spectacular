@@ -157,17 +157,7 @@ class _TocPanelState extends State<TocPanel> {
   }
 
   void _collapseAll() {
-    setState(() {
-      _expanded.clear();
-      final active = _activeEntry(flattenToc(widget.entries));
-      if (active != null) {
-        final path = _pathToEntry(widget.entries, active);
-        if (path.length > 1) {
-          _expanded.addAll(path.take(path.length - 1));
-        }
-      }
-    });
-    _scheduleCenterCurrentRow();
+    setState(_expanded.clear);
   }
 
   void _locateCurrent() {
@@ -252,6 +242,10 @@ class _TocPanelState extends State<TocPanel> {
     final text = ReaderDrawerStyle.textOf(theme);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final faint = ReaderDrawerStyle.faintOf(theme);
+    final metaStyle = theme.textTheme.bodySmall!.copyWith(
+      fontSize: 12,
+      color: muted,
+    );
     final allRows = flattenToc(widget.entries);
     final rows = _visibleRows();
     final active = _activeEntry(allRows);
@@ -262,46 +256,42 @@ class _TocPanelState extends State<TocPanel> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-            child: Row(
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
               children: [
-                Flexible(
-                  child: ValueListenableBuilder<Duration>(
-                    valueListenable:
-                        widget.readingDuration ??
-                        const AlwaysStoppedAnimation<Duration>(Duration.zero),
-                    builder: (context, duration, _) {
-                      final minutes = duration.inMinutes;
-                      final hours = minutes ~/ 60;
-                      final label = hours > 0
-                          ? '累计阅读 $hours 小时 ${minutes % 60} 分钟'
-                          : '累计阅读 $minutes 分钟';
-                      return Text(
-                        label,
-                        key: const ValueKey<String>('toc-reading-duration'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          height: 18 / 13,
-                        ).copyWith(color: text),
-                      );
-                    },
-                  ),
+                ValueListenableBuilder<Duration>(
+                  valueListenable:
+                      widget.readingDuration ??
+                      const AlwaysStoppedAnimation<Duration>(Duration.zero),
+                  builder: (context, duration, _) {
+                    final minutes = duration.inMinutes;
+                    final hours = minutes ~/ 60;
+                    final label = hours > 0
+                        ? '累计阅读 $hours 小时 ${minutes % 60} 分钟'
+                        : '累计阅读 $minutes 分钟';
+                    return Text(
+                      label,
+                      key: const ValueKey<String>('toc-reading-duration'),
+                      style: metaStyle,
+                    );
+                  },
                 ),
-                const Spacer(),
-                Text(
-                  '共 ${allRows.length} 章',
-                  style: TextStyle(fontSize: 12, color: muted),
-                ),
-                const SizedBox(width: 12),
-                _TocArrows(onExpand: _expandAll, onCollapse: _collapseAll),
-                const SizedBox(width: 12),
-                _TocToolButton(
-                  buttonKey: const ValueKey<String>('toc-locate-current'),
-                  tooltip: '回到当前章',
-                  icon: AppGlyph.listBulleted,
-                  onTap: active == null ? null : _locateCurrent,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('共 ${allRows.length} 章', style: metaStyle),
+                    const SizedBox(width: 8),
+                    _TocArrows(onExpand: _expandAll, onCollapse: _collapseAll),
+                    _TocToolButton(
+                      buttonKey: const ValueKey<String>('toc-locate-current'),
+                      tooltip: '回到当前章',
+                      icon: AppGlyph.listBulleted,
+                      onTap: active == null ? null : _locateCurrent,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -353,7 +343,9 @@ class _TocPanelState extends State<TocPanel> {
                           selected: current && !missing,
                           selectedColor: text,
                           tileColor: Colors.transparent,
-                          selectedTileColor: Colors.transparent,
+                          selectedTileColor: ReaderDrawerStyle.selectedRowOf(
+                            theme,
+                          ),
                           contentPadding: EdgeInsets.only(
                             left: row.depth == 1
                                 ? 22
@@ -388,7 +380,9 @@ class _TocPanelState extends State<TocPanel> {
                                         : theme.brightness == Brightness.dark
                                         ? text
                                         : const Color(0xFF555B64),
-                                    fontWeight: FontWeight.w400,
+                                    fontWeight: current && !missing
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
                                   ),
                                 ),
                               ),
@@ -453,13 +447,15 @@ class _TocToolButton extends StatelessWidget {
         onTap: onTap,
         customBorder: const CircleBorder(),
         child: SizedBox.square(
-          dimension: 16,
-          child: AppIcon(
-            icon,
-            size: 16,
-            color: onTap == null
-                ? ReaderDrawerStyle.faintOf(theme)
-                : ReaderDrawerStyle.mutedOf(theme),
+          dimension: 44,
+          child: Center(
+            child: AppIcon(
+              icon,
+              size: 16,
+              color: onTap == null
+                  ? ReaderDrawerStyle.faintOf(theme)
+                  : ReaderDrawerStyle.mutedOf(theme),
+            ),
           ),
         ),
       ),
@@ -467,7 +463,7 @@ class _TocToolButton extends StatelessWidget {
   }
 }
 
-/// 参考稿的上下箭头组合：上半展开，下半收起。
+/// 展开与收起使用独立触控区，避免小箭头互相挤占点击范围。
 class _TocArrows extends StatelessWidget {
   const _TocArrows({required this.onExpand, required this.onCollapse});
 
@@ -475,83 +471,21 @@ class _TocArrows extends StatelessWidget {
   final VoidCallback onCollapse;
 
   @override
-  Widget build(BuildContext context) {
-    final color = ReaderDrawerStyle.mutedOf(Theme.of(context));
-    return SizedBox(
-      width: 16,
-      height: 16,
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 8,
-            child: Semantics(
-              button: true,
-              label: '展开全部',
-              child: InkWell(
-                key: const ValueKey<String>('toc-expand-all'),
-                onTap: onExpand,
-                child: CustomPaint(
-                  painter: _TocArrowPainter(upper: true, color: color),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 8,
-            child: Semantics(
-              button: true,
-              label: '收起全部',
-              child: InkWell(
-                key: const ValueKey<String>('toc-collapse-all'),
-                onTap: onCollapse,
-                child: CustomPaint(
-                  painter: _TocArrowPainter(upper: false, color: color),
-                ),
-              ),
-            ),
-          ),
-        ],
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _TocToolButton(
+        buttonKey: const ValueKey<String>('toc-expand-all'),
+        tooltip: '展开全部',
+        icon: AppGlyph.chevronUp,
+        onTap: onExpand,
       ),
-    );
-  }
-}
-
-class _TocArrowPainter extends CustomPainter {
-  const _TocArrowPainter({required this.upper, required this.color});
-
-  final bool upper;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    final path = Path();
-    if (upper) {
-      path
-        ..moveTo(4.7, 6.4)
-        ..lineTo(8, 3.1)
-        ..lineTo(11.3, 6.4);
-    } else {
-      path
-        ..moveTo(4.7, 1.6)
-        ..lineTo(8, 4.9)
-        ..lineTo(11.3, 1.6);
-    }
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _TocArrowPainter oldDelegate) =>
-      oldDelegate.upper != upper || oldDelegate.color != color;
+      _TocToolButton(
+        buttonKey: const ValueKey<String>('toc-collapse-all'),
+        tooltip: '收起全部',
+        icon: AppGlyph.chevronDown,
+        onTap: onCollapse,
+      ),
+    ],
+  );
 }
