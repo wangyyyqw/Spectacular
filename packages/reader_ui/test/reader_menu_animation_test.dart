@@ -364,10 +364,12 @@ void main() {
     }
   });
 
-  testWidgets('抽屉三边贴屏，底部导航避让手势区和键盘并固定在内容之外', (tester) async {
+  testWidgets('抽屉三边贴屏，键盘覆盖底栏时导航与面板保持原位', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    for (final keyboard in [0.0, 320.0]) {
+    Rect? originalSurface;
+    Rect? originalNavigation;
+    for (final keyboard in [0.0, 160.0, 320.0, 0.0]) {
       await tester.pumpWidget(
         _menu(
           open: true,
@@ -385,9 +387,16 @@ void main() {
       );
       expect(surface.left, 0);
       expect(surface.right, 400);
-      expect(surface.bottom, 800 - keyboard);
+      expect(surface.bottom, 800);
       final nav = find.byKey(const ValueKey('reader-drawer-navigation'));
       final navRect = tester.getRect(nav);
+      originalSurface ??= surface;
+      originalNavigation ??= navRect;
+      expect(surface, originalSurface);
+      expect(navRect, originalNavigation);
+      if (keyboard > 0) {
+        expect(navRect.top, greaterThan(800 - keyboard));
+      }
       for (final entry in ReaderMenuEntry.values) {
         final button = find.byKey(ValueKey('drawer-entry-${entry.name}'));
         expect(button.hitTestable(), findsOneWidget);
