@@ -6039,13 +6039,13 @@ class _SliceGeometry {
     );
   }
 
-  /// 替换图片保留测量盒和正文流位置；章首头图可贴页顶，
+  /// 替换图片保留测量盒和正文流位置；章首头图从页顶加自身上边距，
   /// 覆盖切片沿用显式出血定位，不把图像定位区域撑成整页。
   Rect _replacedBorderBox(Rect box) {
     final block = slice.block;
     final left = box.left - (block.bleedLeft ? pageInsets.left : 0);
     final top = block.bleedTop && (chapterLeading || slice.overlay)
-        ? -pageInsets.top
+        ? -pageInsets.top + (slice.overlay ? 0 : style.margin.top)
         : block.bleedBottom
         ? pageHeight + pageInsets.bottom - box.height
         : box.top;
