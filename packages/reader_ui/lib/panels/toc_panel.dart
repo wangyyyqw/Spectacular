@@ -308,77 +308,86 @@ class _TocPanelState extends State<TocPanel> {
                       style: TextStyle(fontSize: 14, color: muted),
                     ),
                   )
-                : ListView.builder(
+                : RawScrollbar(
                     controller: _scrollController,
-                    padding: const EdgeInsets.only(bottom: _listBottomPadding),
-                    itemExtent: _rowExtent,
-                    itemCount: rows.length,
-                    itemBuilder: (context, index) {
-                      final row = rows[index];
-                      final current = identical(row.entry, active);
-                      final missing = row.entry.missing;
-                      final expanded = _expanded.contains(row.entry);
-                      final hasChildren = row.entry.children.isNotEmpty;
-                      return ListTile(
-                        key: ValueKey<String>(
-                          'toc-row-${row.entry.spineIndex}-${row.entry.title}',
-                        ),
-                        dense: true,
-                        selected: current && !missing,
-                        selectedColor: text,
-                        tileColor: current && !missing
-                            ? selectedRow
-                            : Colors.transparent,
-                        selectedTileColor: missing
-                            ? Colors.transparent
-                            : selectedRow,
-                        contentPadding: EdgeInsets.only(
-                          left: 16 + (row.depth - 1) * 16,
-                          right: 16,
-                        ),
-                        title: Text(
-                          missing
-                              ? '${row.entry.title}（章节缺失）'
-                              : row.entry.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: missing ? muted : text,
-                            fontWeight: current && !missing
-                                ? FontWeight.w600
-                                : FontWeight.w400,
+                    thumbVisibility: true,
+                    thumbColor: const Color(0xFFCCCCCC),
+                    thickness: 4,
+                    radius: const Radius.circular(2),
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.only(
+                        bottom: _listBottomPadding,
+                      ),
+                      itemExtent: _rowExtent,
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final row = rows[index];
+                        final current = identical(row.entry, active);
+                        final missing = row.entry.missing;
+                        final expanded = _expanded.contains(row.entry);
+                        final hasChildren = row.entry.children.isNotEmpty;
+                        return ListTile(
+                          key: ValueKey<String>(
+                            'toc-row-${row.entry.spineIndex}-${row.entry.title}',
                           ),
-                        ),
-                        trailing: SizedBox.square(
-                          dimension: 16,
-                          child: hasChildren
-                              ? InkWell(
-                                  key: ValueKey<String>(
-                                    'toc-toggle-${row.entry.spineIndex}-'
-                                    '${row.entry.title}',
-                                  ),
-                                  customBorder: const CircleBorder(),
-                                  onTap: () => _toggleEntry(row.entry),
-                                  child: AppIcon(
-                                    expanded
-                                        ? AppGlyph.chevronUp
-                                        : AppGlyph.chevronDown,
+                          dense: true,
+                          selected: current && !missing,
+                          selectedColor: text,
+                          tileColor: current && !missing
+                              ? selectedRow
+                              : Colors.transparent,
+                          selectedTileColor: missing
+                              ? Colors.transparent
+                              : selectedRow,
+                          contentPadding: EdgeInsets.only(
+                            left: 16 + (row.depth - 1) * 16,
+                            right: 16,
+                          ),
+                          title: Text(
+                            missing
+                                ? '${row.entry.title}（章节缺失）'
+                                : row.entry.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: missing ? muted : text,
+                              fontWeight: current && !missing
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                          trailing: SizedBox.square(
+                            dimension: 16,
+                            child: hasChildren
+                                ? InkWell(
+                                    key: ValueKey<String>(
+                                      'toc-toggle-${row.entry.spineIndex}-'
+                                      '${row.entry.title}',
+                                    ),
+                                    customBorder: const CircleBorder(),
+                                    onTap: () => _toggleEntry(row.entry),
+                                    child: AppIcon(
+                                      expanded
+                                          ? AppGlyph.chevronUp
+                                          : AppGlyph.chevronDown,
+                                      size: 16,
+                                      color: faint,
+                                    ),
+                                  )
+                                : AppIcon(
+                                    AppGlyph.chevronDown,
                                     size: 16,
                                     color: faint,
                                   ),
-                                )
-                              : AppIcon(
-                                  AppGlyph.chevronDown,
-                                  size: 16,
-                                  color: faint,
-                                ),
-                        ),
-                        onTap: missing
-                            ? null
-                            : () => widget.onSelect(row.entry),
-                      );
-                    },
+                          ),
+                          onTap: missing
+                              ? null
+                              : () => widget.onSelect(row.entry),
+                        );
+                      },
+                    ),
                   ),
           ),
         ],
