@@ -9,6 +9,8 @@ import 'package:reader_core/api.dart';
 import 'package:xml/xml.dart';
 
 import 'book_source_models.dart';
+import 'online_chapter_request.dart';
+import 'online_epub_metadata.dart';
 
 /// 对现有在线 EPUB 只追加新章，原章节文件、样式、资源和标识保持原值。
 class OnlineEpubUpdate {
@@ -18,7 +20,10 @@ class OnlineEpubUpdate {
   final String opfPath;
   final List<Map<String, String>> chapters;
 
-  static Future<OnlineEpubUpdate> open(String path) async {
+  static Future<OnlineEpubUpdate> open(
+    String path, {
+    OnlineEpubMetadata? sourceMetadata,
+  }) async {
     final bytes = await File(path).readAsBytes();
     final opened = await openEpub(bytes, verifyCrc: false);
     final document = opened.document;
@@ -33,6 +38,17 @@ class OnlineEpubUpdate {
             in (json['chapters'] as List).whereType<Map<Object?, Object?>>()) {
           rows.add({
             for (final item in row.entries) '${item.key}': '${item.value}',
+          });
+        }
+      } else if (sourceMetadata != null) {
+        for (final (index, chapter) in sourceMetadata.chapters.indexed) {
+          final request = chapter.toChapter(index, sourceMetadata.detailUrl);
+          rows.add({
+            'href': p.posix.relative(chapter.href, from: dir),
+            'title': chapter.title,
+            'url': request.url,
+            'volume': chapter.volume,
+            'requestOptions': jsonEncode(request.requestOptions),
           });
         }
       } else {
@@ -79,7 +95,13 @@ class OnlineEpubUpdate {
       final latest = remote[index];
       final url = stored['url'] ?? '';
       final matches = url.isNotEmpty
-          ? _chapterKey(url) == _chapterKey(latest.url)
+          ? stored.containsKey('requestOptions')
+                ? onlineRequestIdentity(
+                        url,
+                        bookSourceRuleMap(stored['requestOptions']),
+                      ) ==
+                      onlineChapterIdentity(latest)
+                : _chapterKey(url) == _chapterKey(latest.url)
           : (stored['title'] ?? '').trim() == latest.title.trim();
       if (!matches) {
         throw const BookSourceException('目录身份或顺序发生变化，已停止更新以保留原有正文');
@@ -208,10 +230,21 @@ class OnlineEpubUpdate {
           ...chapters[index],
           'url': remote[index].url,
           'volume': remote[index].volume,
+          'requestOptions': jsonEncode(remote[index].requestOptions),
         },
-      for (final item
-          in (nextIndex['chapters'] as List).whereType<Map<Object?, Object?>>())
-        {...item, 'href': '$prefix/${item['href']}'},
+      for (final (offset, item)
+          in (nextIndex['chapters'] as List)
+              .whereType<Map<Object?, Object?>>()
+              .indexed)
+        {
+          ...item,
+          'href': '$prefix/${item['href']}',
+          'url': remote[chapters.length + offset].url,
+          'volume': remote[chapters.length + offset].volume,
+          'requestOptions': jsonEncode(
+            remote[chapters.length + offset].requestOptions,
+          ),
+        },
     ];
     replacements['$dir/online_chapters.json'] = jsonEncode({
       'version': 1,

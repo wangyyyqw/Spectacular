@@ -2,14 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:reader_ui/reader_session.dart';
 
+import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import 'book_source_auth.dart';
 import 'book_source_cookie_store.dart';
 import 'book_source_models.dart';
 import 'book_source_service.dart';
 import 'book_source_store.dart';
+import 'online_chapter_request.dart';
 import 'online_epub_update.dart';
+import 'online_epub_metadata.dart';
+import 'online_reading_book.dart';
 import 'online_reading_catalog_store.dart';
 
 /// 缓存先显示，快速刷新完成后使用新目录，慢请求继续在后台更新快照。
@@ -36,6 +41,13 @@ class OnlineCatalogLoad {
   }
 }
 
+/// 书架身份已确定，目录请求交给阅读页的加载状态继续等待。
+class ImportedOnlineReading {
+  const ImportedOnlineReading(this.book);
+
+  final Future<OnlineReadingBook> book;
+}
+
 /// 在线书源状态与下载入库入口。
 class OnlineBookController extends ChangeNotifier {
   OnlineBookController({
@@ -50,6 +62,7 @@ class OnlineBookController extends ChangeNotifier {
        catalogs = readingCatalogStore ?? OnlineReadingCatalogStore(library),
        auth = authService ?? BookSourceAuthService() {
     this.service = service ?? BookSourceService(cookieStore: this.cookieStore);
+    library.addListener(_libraryChanged);
   }
 
   final LibraryStore library;
@@ -66,8 +79,18 @@ class OnlineBookController extends ChangeNotifier {
   String? _error;
   int _lastSkippedChapters = 0;
   int _lastAddedChapters = 0;
+  bool _lastUpdateWasCatalogOnly = false;
   List<String> _lastSkippedReasons = const <String>[];
   final Map<String, Future<OnlineReadingCatalog>> _catalogRefreshes = {};
+  final Map<
+    String,
+    ({String path, String? revision, OnlineEpubMetadata? metadata})
+  >
+  _importedMetadata = {};
+  final Map<String, Future<OnlineEpubMetadata?>> _metadataReads = {};
+  Future<void>? _initializing;
+  Future<void>? _registration;
+  Future<void> _configurationWork = Future.value();
   bool _disposed = false;
 
   List<BookSource> get sources => List<BookSource>.unmodifiable(_sources);
@@ -78,32 +101,50 @@ class OnlineBookController extends ChangeNotifier {
   String? get error => _error;
   int get lastSkippedChapters => _lastSkippedChapters;
   int get lastAddedChapters => _lastAddedChapters;
+  bool get lastUpdateWasCatalogOnly => _lastUpdateWasCatalogOnly;
   List<String> get lastSkippedReasons =>
       List<String>.unmodifiable(_lastSkippedReasons);
   int get enabledCount => _sources.where((source) => source.enabled).length;
   bool isLoggedIn(BookSource source) => _loggedInSourceIds.contains(source.id);
 
   /// 初次读取本地书源与书籍关联。
-  Future<void> initialize({bool refresh = false}) async {
-    if (_loading || (_initialized && !refresh)) return;
+  Future<void> initialize({bool refresh = false}) {
+    if (_disposed) return Future.value();
+    final pending = _initializing;
+    if (pending != null) {
+      return refresh ? pending.then((_) => initialize(refresh: true)) : pending;
+    }
+    if (_initialized && !refresh) return Future.value();
+    final task = _initialize(refresh: refresh);
+    _initializing = task;
+    task.whenComplete(() {
+      if (identical(_initializing, task)) _initializing = null;
+    }).ignore();
+    return task;
+  }
+
+  Future<void> _initialize({required bool refresh}) async {
     _loading = true;
     _error = null;
     notifyListeners();
     try {
       await cookieStore.load();
-      _sources = await _store.load(refresh: refresh);
-      _links = await _store.loadLinks();
+      await _withConfiguration(() async {
+        _sources = await _store.load(refresh: refresh);
+        _links = await _store.loadLinks();
+      });
       final loggedIn = <String>{};
       for (final source in _sources) {
         if (await cookieStore.hasLoginFor(source)) loggedIn.add(source.id);
       }
       _loggedInSourceIds = loggedIn;
       _initialized = true;
+      await registerImportedBooks();
     } on Object catch (error) {
       _error = '$error';
     } finally {
       _loading = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -134,12 +175,12 @@ class OnlineBookController extends ChangeNotifier {
 
   /// 启用或停用来源。
   Future<void> setSourceEnabled(String id, bool enabled) async {
-    await _store.setEnabled(id, enabled);
+    await _withConfiguration(() => _store.setEnabled(id, enabled));
     await initialize(refresh: true);
   }
 
   Future<void> setSourceLoadMode(String id, BookSourceLoadMode mode) async {
-    await _store.setLoadMode(id, mode);
+    await _withConfiguration(() => _store.setLoadMode(id, mode));
     await initialize(refresh: true);
   }
 
@@ -151,7 +192,7 @@ class OnlineBookController extends ChangeNotifier {
         break;
       }
     }
-    await _store.remove(id);
+    await _withConfiguration(() => _store.remove(id));
     await initialize(refresh: true);
   }
 
@@ -273,12 +314,198 @@ class OnlineBookController extends ChangeNotifier {
 
   /// 按书架条目查找关联来源。
   BookSource? sourceForBook(String bookId) {
+    final metadata = _importedMetadata[bookId]?.metadata;
+    if (metadata != null) return metadata.sourceIn(_sources);
     final link = _links[bookId];
     if (link == null) return null;
-    for (final source in _sources) {
-      if (source.id == link.sourceId) return source;
+    return OnlineEpubMetadata.findSource(link.sourceId, _sources);
+  }
+
+  /// 同步和本地导入共用书库通知，已有文件只按内容版本读一次源元数据。
+  void _libraryChanged() {
+    if (!_initialized || _loading || _disposed) return;
+    registerImportedBooks().catchError((Object error, StackTrace stack) {
+      recordAppError('online_import_link_failed', error, stackTrace: stack);
+    }).ignore();
+  }
+
+  Future<void> registerImportedBooks() {
+    if (_disposed) return Future.value();
+    final pending = _registration;
+    if (pending != null) return pending;
+    final task = _registerImportedBooks();
+    _registration = task;
+    task.whenComplete(() {
+      if (identical(_registration, task)) _registration = null;
+    }).ignore();
+    return task;
+  }
+
+  Future<void> _registerImportedBooks() async {
+    if (_sources.isEmpty) return;
+    var changed = false;
+    final entries = await library.list();
+    for (final entry in entries) {
+      if (_disposed) return;
+      try {
+        changed = await _linkImportedBook(entry) || changed;
+      } on Object catch (error, stack) {
+        recordAppError('online_import_link_failed', error, stackTrace: stack);
+      }
     }
-    return null;
+    if (changed && !_loading && !_disposed) notifyListeners();
+  }
+
+  Future<OnlineEpubMetadata?> _metadataFor(BookEntry entry) {
+    final cached = _importedMetadata[entry.id];
+    if (cached != null &&
+        cached.path == entry.filePath &&
+        cached.revision == entry.contentRevision) {
+      return Future.value(cached.metadata);
+    }
+    final key = '${entry.id}:${entry.contentRevision}:${entry.filePath}';
+    final pending = _metadataReads[key];
+    if (pending != null) return pending;
+    final task = OnlineEpubMetadata.read(library, entry).then((metadata) {
+      if (!_disposed) {
+        _importedMetadata[entry.id] = (
+          path: entry.filePath,
+          revision: entry.contentRevision,
+          metadata: metadata,
+        );
+      }
+      return metadata;
+    });
+    _metadataReads[key] = task;
+    task.whenComplete(() {
+      if (identical(_metadataReads[key], task)) _metadataReads.remove(key);
+    }).ignore();
+    return task;
+  }
+
+  Future<bool> _linkImportedBook(
+    BookEntry entry, {
+    OnlineEpubMetadata? metadata,
+  }) async {
+    metadata ??= await _metadataFor(entry);
+    if (metadata == null || _disposed) return false;
+    final indexed = metadata;
+    final source = metadata.sourceIn(_sources);
+    if (source == null) return false;
+    if (_linkMatchesMetadata(_links[entry.id], source, metadata, entry)) {
+      return false;
+    }
+    return _withConfiguration(() async {
+      if (_disposed) return false;
+      final currentEntry = await library.bookById(entry.id);
+      if (currentEntry == null ||
+          currentEntry.filePath != entry.filePath ||
+          currentEntry.contentRevision != entry.contentRevision) {
+        return false;
+      }
+      final currentSource = indexed.sourceIn(await _store.load());
+      if (currentSource == null) return false;
+      final currentLinks = await _store.loadLinks();
+      if (_linkMatchesMetadata(
+        currentLinks[entry.id],
+        currentSource,
+        indexed,
+        entry,
+      )) {
+        _links = currentLinks;
+        return false;
+      }
+      await _store.saveLink(entry.id, indexed.linkFor(currentSource, entry));
+      _links = await _store.loadLinks();
+      return true;
+    });
+  }
+
+  /// 同步替换后的显式源和详情请求优先，原生离线书的关联不受影响。
+  bool _linkMatchesMetadata(
+    OnlineBookLink? link,
+    BookSource source,
+    OnlineEpubMetadata metadata,
+    BookEntry entry,
+  ) {
+    if (link == null || link.sourceId != source.id) return false;
+    final current = link.bookFor(source);
+    final indexed = metadata.linkFor(source, entry).bookFor(source);
+    return onlineRequestIdentity(current.bookUrl, current.bookOptions) ==
+        onlineRequestIdentity(indexed.bookUrl, indexed.bookOptions);
+  }
+
+  /// 完整离线 EPUB 使用原阅读页；在线占位书打开时自动更新目录并按章加载。
+  Future<ImportedOnlineReading?> prepareImportedReading(
+    BookEntry entry,
+    ReaderProgressStore progressStore,
+  ) async {
+    await initialize();
+    await _registration;
+    final OnlineEpubMetadata? metadata;
+    try {
+      metadata = await _metadataFor(entry);
+    } on Object {
+      // 本地归档无法读取时由原阅读页展示文件错误，不阻断常规打开路径。
+      return null;
+    }
+    if (metadata == null) return null;
+    if (await _linkImportedBook(entry, metadata: metadata) && !_disposed) {
+      notifyListeners();
+    }
+    if (!metadata.requiresOnlineReading) return null;
+    final source = metadata.sourceIn(_sources);
+    final link = _links[entry.id];
+    if (source == null ||
+        !_linkMatchesMetadata(link, source, metadata, entry)) {
+      throw const BookSourceException('未找到在线图书对应的书源，请先导入对应书源');
+    }
+    if (!source.enabled) {
+      throw const BookSourceException('在线图书对应的书源已停用，请在书源管理中启用');
+    }
+    final task = _loadImportedReading(
+      entry,
+      metadata,
+      source,
+      link!.bookFor(source),
+      progressStore,
+    );
+    task.ignore();
+    return ImportedOnlineReading(task);
+  }
+
+  Future<OnlineReadingBook> _loadImportedReading(
+    BookEntry entry,
+    OnlineEpubMetadata metadata,
+    BookSource source,
+    OnlineBook book,
+    ReaderProgressStore progressStore,
+  ) async {
+    final load = loadCatalog(source, book);
+    final prior = await progressStore.load(entry.id);
+    final chapterIdentity = prior == null
+        ? null
+        : await metadata.chapterIdentityForSpine(
+            library,
+            entry,
+            prior.spineIndex,
+          );
+    final catalog = await load.forReading();
+    final currentEntry = await library.bookById(entry.id);
+    if (!_matchesCurrentSource(source, book) ||
+        currentEntry == null ||
+        currentEntry.contentRevision != entry.contentRevision ||
+        currentEntry.filePath != entry.filePath) {
+      throw const BookSourceException('来源已更新，请重新打开图书');
+    }
+    return OnlineReadingBook(
+      source: source,
+      book: catalog.book,
+      chapters: catalog.chapters,
+      service: service,
+      bookshelfId: entry.id,
+      initialChapterIdentity: chapterIdentity,
+    );
   }
 
   /// 下载在线书籍并加入书架。
@@ -301,16 +528,21 @@ class OnlineBookController extends ChangeNotifier {
       result.bytes,
       fallbackTitle: result.book.name,
     );
-    await _store.saveLink(
-      entry.id,
-      OnlineBookLink(
-        sourceId: source.id,
-        bookUrl: result.book.bookUrl,
-        name: result.book.name,
-        author: result.book.author,
-      ),
-    );
-    _links = await _store.loadLinks();
+    await _withConfiguration(() async {
+      await _store.saveLink(
+        entry.id,
+        OnlineBookLink(
+          sourceId: source.id,
+          bookUrl: result.book.bookUrl,
+          name: result.book.name,
+          author: result.book.author,
+          tocUrl: result.book.tocUrl,
+          bookOptions: result.book.bookOptions,
+          tocOptions: result.book.tocOptions,
+        ),
+      );
+      _links = await _store.loadLinks();
+    });
     _lastSkippedChapters = result.skippedChapters;
     _lastSkippedReasons = List<String>.unmodifiable(result.skippedReasons);
     notifyListeners();
@@ -325,22 +557,42 @@ class OnlineBookController extends ChangeNotifier {
   }) async {
     _lastSkippedChapters = 0;
     _lastAddedChapters = 0;
+    _lastUpdateWasCatalogOnly = false;
     _lastSkippedReasons = const <String>[];
+    await initialize();
+    await _registration;
+    final metadata = await _metadataFor(entry);
+    await _linkImportedBook(entry, metadata: metadata);
     final link = _links[entry.id];
-    final source = sourceForBook(entry.id);
-    if (link == null || source == null) {
+    final source = metadata == null
+        ? sourceForBook(entry.id)
+        : metadata.sourceIn(_sources);
+    if (link == null ||
+        source == null ||
+        (metadata != null &&
+            !_linkMatchesMetadata(link, source, metadata, entry))) {
       throw const BookSourceException('未找到这本书的在线来源');
     }
-    final book = OnlineBook(
-      sourceId: source.id,
-      sourceName: source.name,
-      name: link.name,
-      author: link.author,
-      bookUrl: link.bookUrl,
-      tocUrl: link.bookUrl,
-    );
+    final book = link.bookFor(source);
     onProgress?.call(0, 0, '正在获取最新目录');
-    final original = await OnlineEpubUpdate.open(entry.filePath);
+    if (metadata?.requiresOnlineReading == true) {
+      final previous = await catalogs.read(source, book);
+      final catalog = await refreshCatalog(source, book);
+      if (isCancelled?.call() ?? false) {
+        throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
+      }
+      final oldCount = previous?.chapters.length ?? metadata!.chapters.length;
+      _lastAddedChapters = (catalog.chapters.length - oldCount)
+          .clamp(0, catalog.chapters.length)
+          .toInt();
+      _lastUpdateWasCatalogOnly = true;
+      onProgress?.call(0, 0, '目录已更新，正文将在阅读时按章获取');
+      return entry;
+    }
+    final original = await OnlineEpubUpdate.open(
+      entry.filePath,
+      sourceMetadata: metadata,
+    );
     final info = await service.loadBookInfo(source, book);
     final toc = await service.fetchToc(source, info);
     if (isCancelled?.call() ?? false) {
@@ -375,16 +627,21 @@ class OnlineBookController extends ChangeNotifier {
       isCancelled: isCancelled,
     );
     _lastAddedChapters = added.length;
-    await _store.saveLink(
-      entry.id,
-      OnlineBookLink(
-        sourceId: source.id,
-        bookUrl: result.book.bookUrl,
-        name: result.book.name,
-        author: result.book.author,
-      ),
-    );
-    _links = await _store.loadLinks();
+    await _withConfiguration(() async {
+      await _store.saveLink(
+        entry.id,
+        OnlineBookLink(
+          sourceId: source.id,
+          bookUrl: result.book.bookUrl,
+          name: result.book.name,
+          author: result.book.author,
+          tocUrl: result.book.tocUrl,
+          bookOptions: result.book.bookOptions,
+          tocOptions: result.book.tocOptions,
+        ),
+      );
+      _links = await _store.loadLinks();
+    });
     _lastSkippedChapters = result.skippedChapters;
     _lastSkippedReasons = List<String>.unmodifiable(result.skippedReasons);
     notifyListeners();
@@ -393,7 +650,7 @@ class OnlineBookController extends ChangeNotifier {
 
   Future<BookSource> _import(Future<BookSource> Function() operation) async {
     try {
-      final source = await operation();
+      final source = await _withConfiguration(operation);
       await initialize(refresh: true);
       return source;
     } on BookSourceException {
@@ -403,9 +660,20 @@ class OnlineBookController extends ChangeNotifier {
     }
   }
 
+  /// 自动关联与书源导入共用配置文件，串行读改写避免临时文件互相覆盖。
+  Future<T> _withConfiguration<T>(Future<T> Function() operation) {
+    final task = _configurationWork.then((_) => operation());
+    _configurationWork = task.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    return task;
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    library.removeListener(_libraryChanged);
     _store.dispose();
     service.dispose();
     super.dispose();

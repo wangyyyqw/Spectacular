@@ -1365,7 +1365,7 @@ class BookSourceService {
       if (meta.endsWith(';base64')) {
         return utf8.decode(base64.decode(payload), allowMalformed: true);
       }
-      return Uri.decodeComponent(payload);
+      return UriData.parse(text).contentAsString(encoding: utf8);
     } on FormatException {
       throw const BookSourceException(
         '章节地址中的 data URL 无法解码',

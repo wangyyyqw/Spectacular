@@ -578,6 +578,9 @@ class OnlineBookLink {
     required this.bookUrl,
     required this.name,
     required this.author,
+    this.tocUrl = '',
+    this.bookOptions = const <String, Object?>{},
+    this.tocOptions = const <String, Object?>{},
     this.updatedAt,
   });
 
@@ -587,6 +590,9 @@ class OnlineBookLink {
       bookUrl: _string(json, 'bookUrl'),
       name: _string(json, 'name'),
       author: _string(json, 'author'),
+      tocUrl: _string(json, 'tocUrl'),
+      bookOptions: _ruleMap(json['bookOptions']),
+      tocOptions: _ruleMap(json['tocOptions']),
       updatedAt: DateTime.tryParse(_string(json, 'updatedAt')),
     );
   }
@@ -595,13 +601,42 @@ class OnlineBookLink {
   final String bookUrl;
   final String name;
   final String author;
+  final String tocUrl;
+  final Map<String, Object?> bookOptions;
+  final Map<String, Object?> tocOptions;
   final DateTime? updatedAt;
+
+  /// 旧关联兼容 URL 后的请求选项，POST 详情和目录身份持久化后不丢失。
+  OnlineBook bookFor(BookSource source) {
+    final detail = splitBookSourceUrlOptions(bookUrl);
+    final catalog = splitBookSourceUrlOptions(
+      tocUrl.isEmpty ? detail.url : tocUrl,
+    );
+    final detailOptions = {...detail.options, ...bookOptions};
+    return OnlineBook(
+      sourceId: source.id,
+      sourceName: source.name,
+      name: name,
+      author: author,
+      bookUrl: detail.url,
+      tocUrl: catalog.url,
+      bookOptions: detailOptions,
+      tocOptions: {
+        if (tocUrl.isEmpty) ...detailOptions,
+        ...catalog.options,
+        ...tocOptions,
+      },
+    );
+  }
 
   Map<String, Object?> toJson() => <String, Object?>{
     'sourceId': sourceId,
     'bookUrl': bookUrl,
     'name': name,
     'author': author,
+    'tocUrl': tocUrl,
+    'bookOptions': bookOptions,
+    'tocOptions': tocOptions,
     'updatedAt': updatedAt?.toUtc().toIso8601String(),
   };
 
@@ -610,6 +645,9 @@ class OnlineBookLink {
     bookUrl: bookUrl,
     name: name,
     author: author,
+    tocUrl: tocUrl,
+    bookOptions: bookOptions,
+    tocOptions: tocOptions,
     updatedAt: updatedAt ?? this.updatedAt,
   );
 }

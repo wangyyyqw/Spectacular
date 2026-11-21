@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
+import 'package:reader_mobile/book_source/online_epub_metadata.dart';
 import 'package:reader_mobile/book_source/online_epub_update.dart';
 import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
@@ -115,6 +116,77 @@ void main() {
       () => updater.newChapters(changed),
       throwsA(isA<BookSourceException>()),
     );
+  });
+
+  test('阅微完整索引使用 URL 和 POST 参数核对身份，不退回同名章节匹配', () async {
+    final archive = ZipDecoder().decodeBytes(_book([1, 2]));
+    final original = Archive();
+    for (final file in archive.files) {
+      if (!file.name.endsWith('online_chapters.json')) original.addFile(file);
+    }
+    final metadata = OnlineEpubMetadata.fromJson({
+      'version': 2,
+      'sourceId': 'module-source',
+      'detailUrl': 'https://example.test/book/1',
+      'bookName': '在线测试书',
+      'mode': 'FULL',
+      'chapters': [
+        for (var index = 1; index <= 2; index++)
+          {
+            'sourceChapterId': '$index',
+            'url':
+                'https://example.test/content,{"method":"POST","body":"chapter=$index"}',
+            'title': '同名章节',
+            'volumeTitle': '',
+            'href': 'text/chapter_${index.toString().padLeft(4, '0')}.xhtml',
+            'state': 'READY',
+          },
+      ],
+    })!;
+    final file = File('${dir.path}/reamicro.epub');
+    await file.writeAsBytes(ZipEncoder().encodeBytes(original));
+    final updater = await OnlineEpubUpdate.open(
+      file.path,
+      sourceMetadata: metadata,
+    );
+    final chapters = [
+      for (var index = 1; index <= 3; index++)
+        OnlineChapter(
+          index: index - 1,
+          title: '同名章节',
+          url: 'https://example.test/content',
+          requestOptions: {'method': 'POST', 'body': 'chapter=$index'},
+        ),
+    ];
+    expect(updater.newChapters(chapters).single.index, 2);
+    expect(
+      () => updater.newChapters([chapters[1], chapters[0], chapters[2]]),
+      throwsA(isA<BookSourceException>()),
+    );
+    expect(
+      () => updater.newChapters([
+        chapters[0],
+        const OnlineChapter(
+          index: 1,
+          title: '同名章节',
+          url: 'https://example.test/content',
+          requestOptions: {'method': 'POST', 'body': 'chapter=其他章'},
+        ),
+        chapters[2],
+      ]),
+      throwsA(isA<BookSourceException>()),
+    );
+    final bytes = updater.append(_book([3]), chapters);
+    final updated = await openEpub(bytes);
+    expect(updated.document!.spine, hasLength(3));
+    expect(updated.document!.chapterXhtml(2), contains('第3章原有正文'));
+    updated.document!.archive.close();
+    await file.writeAsBytes(bytes);
+    final reopened = await OnlineEpubUpdate.open(
+      file.path,
+      sourceMetadata: metadata,
+    );
+    expect(reopened.newChapters(chapters), isEmpty);
   });
 
   test('追加章节中的相对图片和样式路径可通过正式 EPUB 资源入口读取', () async {

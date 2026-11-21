@@ -4,8 +4,12 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/source/chapter_source.dart'
+    show ChapterLoadCancelled;
 import 'package:reader_ui/reader_session.dart';
 
+import '../book_source/book_source_models.dart';
+import '../book_source/online_book_controller.dart';
 import '../book_source/online_reading_book.dart';
 import '../book_source/online_reading_catalog_store.dart';
 import '../diagnostics/reader_log.dart';
@@ -25,6 +29,7 @@ class BookOpener {
   BookOpener({
     required this.library,
     required this.progressStore,
+    this.onlineBooks,
     this.onReadingFinished,
     this.loadTtsVoices,
   });
@@ -34,6 +39,9 @@ class BookOpener {
 
   /// 阅读进度存储。
   final ReaderProgressStore progressStore;
+
+  /// 已同步或导入的按需 EPUB 通过原书架身份进入在线阅读。
+  final OnlineBookController? onlineBooks;
 
   /// 阅读会话落盘并关闭阅读页后通知宿主，供后台同步使用。
   final VoidCallback? onReadingFinished;
@@ -54,45 +62,14 @@ class BookOpener {
     if (_opening) return;
     _opening = true;
     try {
-      final closed = Completer<void>();
-      var created = false;
-      final store = OnlineReadingProgress(
-        library,
-        book,
+      if (!context.mounted) return;
+      await _openOnlineReader(
+        Navigator.of(context),
+        Future.value(book),
+        bookId: book.id,
+        title: book.book.name,
         startChapter: startChapter,
       );
-      final fontStore = ReaderFontStore(library);
-      Future<EpubChapterSource>? source;
-      final settings = _loadSettings()..ignore();
-      await OnlineReadingCatalogStore(library).remember(
-        book.source,
-        book.book,
-        book.chapters,
-        preserveSavedCatalog: true,
-      );
-      if (!context.mounted) return;
-      final route = MaterialPageRoute<void>(
-        builder: (_) {
-          created = true;
-          return EpubReaderPage(
-            sourceFuture: source ??= Future.sync(book.open),
-            bookId: book.id,
-            bookTitle: book.book.name,
-            contentRevision: book.revision,
-            store: store,
-            settingsFuture: settings,
-            fontStore: fontStore,
-            onSettingsChanged: _saveSettings,
-            loadTtsVoices: loadTtsVoices,
-            enableFullTextSearch: false,
-            persistInitialPosition: startChapter != null,
-            onClosed: () => closed.complete(),
-          );
-        },
-      );
-      await Navigator.of(context).push(route);
-      await route.completed;
-      if (created) await closed.future;
     } finally {
       _opening = false;
     }
@@ -108,6 +85,21 @@ class BookOpener {
     try {
       var current = entry;
       while (context.mounted) {
+        final controller = onlineBooks;
+        final online = controller == null
+            ? null
+            : await controller.prepareImportedReading(current, progressStore);
+        if (!context.mounted) break;
+        if (online != null) {
+          await _openOnlineReader(
+            navigator,
+            online.book,
+            bookId: current.id,
+            title: current.title,
+            entry: current,
+          );
+          break;
+        }
         final result = await _openReader(navigator, current);
         if (result != EpubReaderExit.contentUpdated || !context.mounted) break;
         final updated = await library.bookById(current.id);
@@ -116,8 +108,102 @@ class BookOpener {
       }
     } catch (error, stackTrace) {
       recordAppError('book_open_failed', error, stackTrace: stackTrace);
+      if (error is BookSourceException && context.mounted) {
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text(error.message)));
+      }
     } finally {
       _opening = false;
+    }
+  }
+
+  Future<void> _openOnlineReader(
+    NavigatorState navigator,
+    Future<OnlineReadingBook> reading, {
+    required String bookId,
+    required String title,
+    BookEntry? entry,
+    int? startChapter,
+  }) async {
+    final closed = Completer<void>();
+    var created = false;
+    var ready = false;
+    var cancelled = false;
+    var sourceCreated = false;
+    final cancellation = entry == null ? null : Completer<OnlineReadingBook>();
+    final remembered = reading.then((book) async {
+      if (cancelled) throw const ChapterLoadCancelled();
+      await OnlineReadingCatalogStore(library).remember(
+        book.source,
+        book.book,
+        book.chapters,
+        preserveSavedCatalog: true,
+      );
+      if (cancelled) throw const ChapterLoadCancelled();
+      return book;
+    });
+    remembered.ignore();
+    final prepared = cancellation == null
+        ? remembered
+        : Future.any<OnlineReadingBook>([remembered, cancellation.future]);
+    prepared.ignore();
+    final progressReady = prepared.then<ReaderProgressStore>(
+      (book) =>
+          OnlineReadingProgress(library, book, startChapter: startChapter),
+    );
+    // 目录失败时尚未创建 ReaderSession，派生存储也需立即接住异常。
+    progressReady.ignore();
+    final store = _DeferredOnlineProgress(progressReady);
+    final fontStore = ReaderFontStore(library);
+    final settings = _loadSettings()..ignore();
+    final revision = prepared.then((book) => book.revision)..ignore();
+    Future<EpubChapterSource>? source;
+    final route = MaterialPageRoute<void>(
+      builder: (_) {
+        created = true;
+        return EpubReaderPage(
+          sourceFuture: source ??= prepared.then((book) {
+            if (cancelled) throw const ChapterLoadCancelled();
+            final openedSource = book.open();
+            sourceCreated = true;
+            return openedSource;
+          })..ignore(),
+          bookId: bookId,
+          bookTitle: title,
+          book: entry,
+          contentRevisionFuture: revision,
+          store: store,
+          readingSessions: entry == null ? null : library.readingSessionStore(),
+          reviewStore: entry == null ? null : library.reviewStore(),
+          settingsFuture: settings,
+          fontStore: fontStore,
+          onSettingsChanged: _saveSettings,
+          loadTtsVoices: loadTtsVoices,
+          enableFullTextSearch: false,
+          persistInitialPosition: startChapter != null,
+          onReady: () => ready = !cancelled && sourceCreated,
+          onClosed: () {
+            if (!closed.isCompleted) closed.complete();
+          },
+        );
+      },
+    );
+    try {
+      await navigator.push(route);
+    } finally {
+      if (cancellation != null) {
+        // 先结束页面的目录等待，再按原关闭链路保存数据并释放源。
+        cancelled = true;
+        if (!cancellation.isCompleted) {
+          cancellation.completeError(const ChapterLoadCancelled());
+        }
+      }
+    }
+    await route.completed;
+    if (created) await closed.future;
+    if (entry != null) {
+      if (created) onReadingFinished?.call();
+      if (ready) await library.touchLastRead(entry.id);
     }
   }
 
@@ -292,6 +378,28 @@ class BookOpener {
       reviewStore: reviews,
     );
   }
+}
+
+/// 目录仍在加载时先显示常规阅读页，位置读写等待同一份在线目录快照。
+class _DeferredOnlineProgress implements ReaderProgressStore {
+  const _DeferredOnlineProgress(this.store);
+
+  final Future<ReaderProgressStore> store;
+
+  @override
+  Future<ReaderProgress?> load(String bookId) async =>
+      (await store).load(bookId);
+
+  @override
+  Future<void> save(String bookId, ReaderProgress progress) async =>
+      (await store).save(bookId, progress);
+
+  @override
+  Future<void> clear(String bookId) async => (await store).clear(bookId);
+
+  @override
+  Future<Map<String, ReaderProgress>> snapshot() async =>
+      (await store).snapshot();
 }
 
 class _OpeningPreparation {

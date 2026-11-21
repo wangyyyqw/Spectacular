@@ -74,6 +74,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _bookOpener = BookOpener(
       library: widget.library,
       progressStore: _progressStore,
+      onlineBooks: _onlineBooks,
       onReadingFinished: _onReadingFinished,
       loadTtsVoices: _loadTtsVoices,
     );

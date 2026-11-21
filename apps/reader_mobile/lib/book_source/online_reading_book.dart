@@ -18,14 +18,21 @@ class OnlineReadingBook {
     required this.book,
     required List<OnlineChapter> chapters,
     required this.service,
+    this.bookshelfId,
+    this.initialChapterIdentity,
   }) : chapters = List.unmodifiable(chapters);
 
   final BookSource source;
   final OnlineBook book;
   final List<OnlineChapter> chapters;
   final BookSourceService service;
+  final String? bookshelfId;
 
-  late final String id = 'online:${_digest([source.id, book.bookUrl])}';
+  /// 只用于首次从原 EPUB 进入在线阅读，原章内坐标不套到生成的正文。
+  final String? initialChapterIdentity;
+
+  late final String id =
+      bookshelfId ?? 'online:${_digest([source.id, book.bookUrl])}';
   late final String revision = _digest([
     '在线正文1',
     id,
@@ -100,7 +107,21 @@ class OnlineReadingProgress implements ReaderProgressStore {
 
   Future<ReaderProgress?> _load() async {
     final value = await library.getSetting(_key);
-    if (value == null || value.isEmpty) return null;
+    if (value == null || value.isEmpty) {
+      final identity = book.initialChapterIdentity;
+      if (identity == null) return null;
+      final matches = [
+        for (final (index, chapter) in book.chapters.indexed)
+          if (onlineChapterIdentity(chapter) == identity) index,
+      ];
+      if (matches.length != 1) return null;
+      return ReaderProgress(
+        spineIndex: matches.single,
+        pageIndex: 0,
+        approximate: true,
+        contentRevision: book.revision,
+      );
+    }
     try {
       final json = jsonDecode(value);
       if (json is! Map<String, dynamic>) return null;
@@ -127,6 +148,10 @@ class OnlineReadingProgress implements ReaderProgressStore {
         layoutFingerprint: samePosition ? json['layout'] as String? : null,
         approximate: !samePosition || json['approximate'] == true,
         contentRevision: book.revision,
+        readingPercent: sameRevision
+            ? (json['percent'] as num?)?.toDouble()
+            : null,
+        chapterTitle: book.chapters[index].title,
       );
     } on FormatException {
       return null;
@@ -167,6 +192,8 @@ class OnlineReadingProgress implements ReaderProgressStore {
         'layout': progress.layoutFingerprint,
         'approximate': progress.approximate,
         'finished': progress.finished,
+        'percent': progress.readingPercent,
+        'title': progress.chapterTitle,
       }),
     );
   }

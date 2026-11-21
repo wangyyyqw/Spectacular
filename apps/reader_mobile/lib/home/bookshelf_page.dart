@@ -164,6 +164,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         BookOpener(
           library: widget.library,
           progressStore: widget.progressStore,
+          onlineBooks: widget.onlineBooks,
           onReadingFinished: widget.onReadingFinished,
           loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
         );
@@ -1064,6 +1065,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       final added = controller.lastAddedChapters;
       final message = added == 0
           ? '《${updated.title}》已是最新章节'
+          : controller.lastUpdateWasCatalogOnly
+          ? '《${updated.title}》目录已更新，新增 $added 章'
           : skipped > 0
           ? '《${updated.title}》已更新，跳过 $skipped 章'
           : '《${updated.title}》已获取 $added 章最新章节';
