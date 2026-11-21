@@ -1040,6 +1040,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   ReaderAnnotation? _relocatingAnnotation;
   ReaderBookmark? _relocatingBookmark;
   List<ReaderBookmark> _bookmarks = const [];
+  final Map<int, List<ReaderBookmark>> _bookmarksByChapter = {};
+  Expando<bool> _bookmarkPageHits = Expando<bool>();
   bool _addingBookmark = false;
   late ReaderBookmarkStyle _bookmarkStyle = widget.bookmarkStyle;
   bool _relocationBusy = false;
@@ -1093,7 +1095,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _bookmarkStyle = widget.bookmarkStyle;
     }
     if (oldWidget.bookmarks != widget.bookmarks) {
-      _bookmarks = const [];
+      _setBookmarks(const []);
       unawaited(_reloadBookmarks());
     }
     if (oldWidget.customFonts != widget.customFonts) {
@@ -1365,20 +1367,36 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     try {
       final items = await store?.list() ?? <ReaderBookmark>[];
       if (mounted && store == widget.bookmarks) {
-        setState(() => _bookmarks = items);
+        setState(() => _setBookmarks(items));
       }
     } catch (_) {
       if (mounted) _showBookmarkMessage('书签读取失败，请重新打开阅读页');
     }
   }
 
-  bool _hasBookmarkOn(PageContent page) => _bookmarks.any(
-    (item) =>
-        !item.needsRelocation &&
-        item.spineIndex == page.spineIndex &&
-        (item.cfi == _session.cfiAtPageOffset(page, null) ||
-            ReaderTextRangeGeometry.containsPoint(page, item.cfi)),
-  );
+  void _setBookmarks(List<ReaderBookmark> items) {
+    _bookmarks = items;
+    _bookmarksByChapter.clear();
+    for (final item in items) {
+      if (!item.needsRelocation) {
+        (_bookmarksByChapter[item.spineIndex] ??= []).add(item);
+      }
+    }
+    _bookmarkPageHits = Expando<bool>();
+  }
+
+  bool _hasBookmarkOn(PageContent page) {
+    final cached = _bookmarkPageHits[page];
+    if (cached != null) return cached;
+    final bookmarks = _bookmarksByChapter[page.spineIndex];
+    if (bookmarks == null) return _bookmarkPageHits[page] = false;
+    final startCfi = _session.cfiAtPageOffset(page, null);
+    return _bookmarkPageHits[page] = bookmarks.any(
+      (item) =>
+          item.cfi == startCfi ||
+          ReaderTextRangeGeometry.containsPoint(page, item.cfi),
+    );
+  }
 
   Future<void> _deleteBookmark(ReaderBookmark bookmark) async {
     try {

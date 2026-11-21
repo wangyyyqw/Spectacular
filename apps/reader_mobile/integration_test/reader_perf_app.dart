@@ -366,9 +366,11 @@ class _UiProbe {
       await WidgetsBinding.instance.endOfFrame;
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
+    _samples.flush();
   }
 
   void close() {
+    _samples.flush();
     _timer?.cancel();
     if (_listening) {
       WidgetsBinding.instance.removeTimingsCallback(_samples.addFrames);

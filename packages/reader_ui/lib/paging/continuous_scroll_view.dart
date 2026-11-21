@@ -52,10 +52,17 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   final ScrollController _controller = ScrollController();
   final List<ScrollChapterLayout> _chapters = <ScrollChapterLayout>[];
   final List<_ScrollEntry> _entries = <_ScrollEntry>[];
+  final Map<(int, int), _ScrollEntry> _entriesByPage = {};
   final Map<(int, int), GlobalKey> _pageKeys = <(int, int), GlobalKey>{};
   Timer? _syncTimer;
+  bool _viewportUpdateScheduled = false;
+  bool _viewportDirty = false;
   PageContent? _visibleContent;
   double _visiblePageOffset = 0;
+  double _visibleScrollOffset = 0;
+  PageContent? _cfiPage;
+  final List<double> _cfiLineEnds = [];
+  final Map<int, String?> _cfiByLine = {};
   bool _loading = true;
   bool _extendingBefore = false;
   bool _insertingBefore = false;
@@ -209,10 +216,13 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   void _rebuildEntries() {
     _entries.clear();
+    _entriesByPage.clear();
     var top = 0.0;
     for (final chapter in _chapters) {
       for (final segment in chapter.segments) {
-        _entries.add(_ScrollEntry(chapter, segment, top));
+        final entry = _ScrollEntry(chapter, segment, top);
+        _entries.add(entry);
+        _entriesByPage[(chapter.spineIndex, segment.pageIndex)] = entry;
         top += segment.extent;
       }
     }
@@ -309,15 +319,8 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
   }
 
-  _ScrollEntry? _entryForPage(int spine, int page) {
-    for (final entry in _entries) {
-      if (entry.chapter.spineIndex == spine &&
-          entry.segment.pageIndex == page) {
-        return entry;
-      }
-    }
-    return null;
-  }
+  _ScrollEntry? _entryForPage(int spine, int page) =>
+      _entriesByPage[(spine, page)];
 
   RenderBox? _boxOf(_ScrollEntry entry) {
     final key = _pageKeys[(entry.chapter.spineIndex, entry.segment.pageIndex)];
@@ -370,26 +373,56 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
 
   void _handleScroll() {
     if (!_controller.hasClients) return;
-    _captureVisiblePage();
-    if (!_restoring) {
-      _maybeExtendWindow();
-      _trimWindow();
+    if (_programmaticJump) {
+      _captureVisiblePage(commit: false, stage: false);
+      return;
     }
+    _scheduleViewportUpdate();
+  }
+
+  void _scheduleViewportUpdate() {
+    _syncTimer?.cancel();
+    _viewportDirty = true;
+    if (_viewportUpdateScheduled) return;
+    _viewportUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _viewportUpdateScheduled = false;
+      if (!mounted || !_viewportDirty || !_controller.hasClients) return;
+      _captureVisiblePage();
+      if (!_restoring) {
+        _maybeExtendWindow();
+        _trimWindow();
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _captureVisiblePage({bool commit = true, bool stage = true}) {
+    // 同步退出/保存会先消费本帧最后的像素位置，后续回调无需重复捕获。
+    _viewportDirty = false;
     if (_entries.isEmpty || !_controller.hasClients) return;
     final actual = _entryAtActualOffset();
+    final visible = _visibleContent;
+    final transitioning =
+        (_insertingBefore || _trimmingWindow) && visible != null
+        ? _entryForPage(visible.spineIndex, visible.pageIndex)
+        : null;
     final _ScrollEntry page;
     final double pageOffset;
     if (actual != null) {
       page = actual.entry;
       pageOffset = actual.offset;
     } else {
-      final relative = (_controller.offset - widget.padding.top).clamp(
-        0.0,
-        _contentExtent,
-      );
+      // 停用时渲染盒可能已摘除；前插/裁窗期间以最后真实纸面加未捕获的
+      // 像素增量换算新原点，不能把旧控制器偏移当成新累计高度。
+      final relative =
+          (transitioning == null
+                  ? _controller.offset - widget.padding.top
+                  : transitioning.top +
+                        _visiblePageOffset +
+                        _controller.offset -
+                        _visibleScrollOffset)
+              .clamp(0.0, _contentExtent);
       final estimated = _pageAtOffset(relative);
       if (estimated == null) return;
       page = estimated;
@@ -399,6 +432,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     }
     final content = page.segment.content;
     _visiblePageOffset = pageOffset;
+    _visibleScrollOffset = _controller.offset;
     if (!identical(content, _visibleContent)) {
       _visibleContent = content;
       widget.onPageVisible?.call(content);
@@ -419,7 +453,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
           pageIndex: page.segment.pageIndex,
           scrollOffset: pageOffset,
           generation: generation,
-          cfi: widget.session.cfiAtPageOffset(content, pageOffset),
+          cfi: _cfiAtVisibleOffset(content, pageOffset),
         ),
       );
     }
@@ -439,11 +473,46 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
           page.chapter.spineIndex,
           page.segment.pageIndex,
           pageOffset,
-          cfi: widget.session.cfiAtPageOffset(content, pageOffset),
+          cfi: _cfiAtVisibleOffset(content, pageOffset),
           generation: generation,
         ),
       );
     });
+  }
+
+  String? _cfiAtVisibleOffset(PageContent page, double offset) {
+    if (!identical(page, _cfiPage)) {
+      _cfiPage = page;
+      _cfiLineEnds.clear();
+      _cfiByLine.clear();
+      var flowY = page.topPadding;
+      for (final slice in page.slices) {
+        if (slice.overlay) continue;
+        var lineY = flowY + slice.leadingExtent;
+        for (var i = slice.startLine; i < slice.endLine; i++) {
+          lineY += slice.block.layout.lines[i].height;
+          // 负段间距可能使后续行终点回退；前缀最大值保留首个命中行语义。
+          _cfiLineEnds.add(math.max(_cfiLineEnds.lastOrNull ?? lineY, lineY));
+        }
+        flowY += slice.height;
+      }
+    }
+    final y = math.max(page.topPadding, offset + 0.01);
+    var low = 0;
+    var high = _cfiLineEnds.length;
+    while (low < high) {
+      final middle = (low + high) >> 1;
+      if (y < _cfiLineEnds[middle]) {
+        high = middle;
+      } else {
+        low = middle + 1;
+      }
+    }
+    // 只缓存行命中结果，CFI 与书尾留白仍由会话的正式定位入口解析。
+    return _cfiByLine.putIfAbsent(
+      low,
+      () => widget.session.cfiAtPageOffset(page, offset),
+    );
   }
 
   ReaderViewportSnapshot? _snapshotForSession() {
@@ -464,7 +533,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       pageIndex: content.pageIndex,
       scrollOffset: _visiblePageOffset,
       generation: _layoutGeneration,
-      cfi: widget.session.cfiAtPageOffset(content, _visiblePageOffset),
+      cfi: _cfiAtVisibleOffset(content, _visiblePageOffset),
     );
   }
 
@@ -488,30 +557,49 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
       page.spineIndex,
       page.pageIndex,
       _visiblePageOffset,
-      cfi: widget.session.cfiAtPageOffset(page, _visiblePageOffset),
+      cfi: _cfiAtVisibleOffset(page, _visiblePageOffset),
       generation: _layoutGeneration,
     );
   }
 
   /// 用已构建页的实际顶部位置反推当前可见页与页内偏移。
   ///
-  /// ListView 只对已构建子项有精确几何；用估算的 `entry.top` 记录页内
-  /// 偏移，会在前方插入章节或跳转后被放大成整页误差。
+  /// 先按准确累计高度二分定位，再核对渲染盒；前插/裁窗的布局原点暂未
+  /// 稳定时，用实际位置修正候选，避免每次滚动扫描整章切片。
   ({_ScrollEntry entry, double offset})? _entryAtActualOffset([
     double viewportOffset = 0,
   ]) {
     final top = _controller.offset + viewportOffset;
-    for (final entry in _entries) {
+    var entry = _pageAtOffset(top - widget.padding.top + 0.5);
+    for (var attempt = 0; attempt < 2 && entry != null; attempt++) {
       final box = _boxOf(entry);
-      if (box == null) continue;
-      final reveal = _revealOffset(box);
-      if (reveal == null) continue;
+      final reveal = box == null ? null : _revealOffset(box);
+      if (reveal == null) break;
       final extent = entry.segment.extent;
       if (top >= reveal - 0.5 && top < reveal + extent - 0.5) {
         return (
           entry: entry,
           offset: (top - reveal).clamp(0.0, extent).toDouble(),
         );
+      }
+      final corrected = _pageAtOffset(entry.top + top - reveal + 0.5);
+      if (identical(corrected, entry)) break;
+      entry = corrected;
+    }
+    // 前插/裁窗会先更新累计高度，下一帧才移动渲染盒。同步退出或切后台
+    // 可能正好落在此间隙，只在这个过渡期用仍挂载的纸面核对真实位置。
+    if (_insertingBefore || _trimmingWindow) {
+      for (final entry in _entries) {
+        final box = _boxOf(entry);
+        final reveal = box == null ? null : _revealOffset(box);
+        if (reveal == null) continue;
+        final extent = entry.segment.extent;
+        if (top >= reveal - 0.5 && top < reveal + extent - 0.5) {
+          return (
+            entry: entry,
+            offset: (top - reveal).clamp(0.0, extent).toDouble(),
+          );
+        }
       }
     }
     return null;
@@ -886,14 +974,11 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     if (!_controller.hasClients) {
       return null;
     }
-    for (final entry in _entries) {
-      if (identical(entry.segment.content, page)) {
-        final box = _boxOf(entry);
-        final top = box == null ? null : _revealOffset(box);
-        return top == null ? null : top - _controller.offset;
-      }
-    }
-    return null;
+    final entry = _entryForPage(page.spineIndex, page.pageIndex);
+    if (entry == null || !identical(entry.segment.content, page)) return null;
+    final box = _boxOf(entry);
+    final top = box == null ? null : _revealOffset(box);
+    return top == null ? null : top - _controller.offset;
   }
 
   /// 当前保留的章节序号；测试用于确认连续滚动窗口不会无界增长。
@@ -963,14 +1048,14 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
               _userDragging = true;
               _hasUserScrollSinceRestore = true;
               widget.onUserScroll?.call();
-              _captureVisiblePage();
+              _scheduleViewportUpdate();
             }
             if (notification is ScrollEndNotification) {
               // 程序恢复/窗口前插产生的滚动结束不是用户阅读导航，不能把
               // 书尾被 maxScrollExtent 钳制后的可见页反写为保存位置。
               if (_userDragging) {
                 _userDragging = false;
-                _captureVisiblePage();
+                _scheduleViewportUpdate();
               }
             }
             if (canNavigate && _windowAtBookEnd && widget.onBookEnd != null) {
@@ -1020,6 +1105,13 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _windowAtBookEnd) widget.onBookEnd?.call();
     });
+  }
+
+  @override
+  void deactivate() {
+    // 子滚动控件会先于本 State.dispose 解绑；在停用时保留尚未合并的一帧。
+    captureLatestPosition();
+    super.deactivate();
   }
 
   @override

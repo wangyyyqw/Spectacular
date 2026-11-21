@@ -267,5 +267,8 @@ class ReaderTraceHandle {
   int get elapsedMicroseconds => _watch.elapsedMicroseconds;
 }
 
-/// 调试开关：默认只在 debug/profile 记录，release 不收集（§44.2）。
-bool get readerTraceEnabled => kDebugMode || kProfileMode;
+/// 默认只在 debug/profile 记录；隔离 Release 性能包可显式开启采样。
+bool get readerTraceEnabled =>
+    kDebugMode ||
+    kProfileMode ||
+    const bool.fromEnvironment('READER_TURN_TRACE');

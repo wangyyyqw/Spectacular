@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/paging/page_turn_painter.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_ui_diagnostics.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
 class _Source implements ReaderChapterSource {
@@ -81,6 +83,56 @@ Future<List<int>> _firstPixel(ui.Image image) async {
 }
 
 void main() {
+  testWidgets('3D 视口复用资源，缓存失效和退出释放对应着色器', (tester) async {
+    final session = await _open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    await tester.pumpWidget(
+      _view(session, key, (_) async {}, PageTurnMode.simulation3d),
+    );
+    await tester.pumpAndSettle();
+    final controller = key.currentState!.controller;
+    Future<PageTurnPainter> begin() async {
+      controller.pointerDown(const Offset(790, 300));
+      controller.beginDrag(
+        DragStartDetails(localPosition: const Offset(790, 300)),
+      );
+      controller.updateDrag(
+        DragUpdateDetails(
+          globalPosition: const Offset(500, 300),
+          localPosition: const Offset(500, 300),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return tester
+              .widget<CustomPaint>(
+                find.byKey(const ValueKey('page-turn-animation')),
+              )
+              .painter!
+          as PageTurnPainter;
+    }
+
+    final resources = (await begin()).curl3dResources!;
+    final sheet = resources.debugSheetShader!;
+    final shadow = resources.debugShadowShader!;
+    controller.cancel();
+    await tester.pumpAndSettle();
+    expect(sheet.debugDisposed, isFalse, reason: '普通收尾仍保留当前窗口的绘制资源');
+    key.currentState!.releaseCachedBitmaps();
+    await tester.pump();
+    expect(sheet.debugDisposed, isTrue);
+    expect(resources.debugSheetShader, isNull);
+    expect(shadow.debugDisposed, isFalse);
+    key.currentState!.resumeWarmup();
+    await tester.pumpAndSettle();
+    expect((await begin()).curl3dResources, same(resources));
+    final replacement = resources.debugSheetShader!;
+    expect(replacement, isNot(same(sheet)));
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(replacement.debugDisposed, isTrue);
+    expect(shadow.debugDisposed, isTrue);
+  });
+
   testWidgets('3D 冷目标提交后立即回翻复用刚读过的原页', (tester) async {
     final session = await _open();
     addTearDown(session.dispose);
@@ -340,6 +392,12 @@ void main() {
       if (!gate.isCompleted) gate.complete();
     });
     final prepared = <int>[];
+    final cacheEvents = <Map<String, Object?>>[];
+    final previous = ReaderUiDiagnostics.onEvent;
+    ReaderUiDiagnostics.onEvent = (event, fields) {
+      if (event == 'turn.cache') cacheEvents.add(fields);
+    };
+    addTearDown(() => ReaderUiDiagnostics.onEvent = previous);
     final key = GlobalKey<PageTurnViewState>();
     await tester.pumpWidget(
       _view(session, key, (page) {
@@ -363,9 +421,24 @@ void main() {
     await tester.pump();
     expect(controller.phase, PageTurnPhase.preparing);
     expect(prepared.where((index) => index == 4).length, 1);
+    expect(
+      cacheEvents.any(
+        (event) =>
+            event['page'] == 4 &&
+            event['shared'] == true &&
+            event['urgent'] == true,
+      ),
+      isTrue,
+      reason: '前台目标升级同一后台准备任务',
+    );
     gate.complete();
     await tester.pumpAndSettle();
     expect(controller.phase, PageTurnPhase.dragging);
+    expect(
+      key.currentState!.isPresentingSnapshot(controller.turn!.target.content),
+      isTrue,
+      reason: '迟到目标图片仍触发状态维护并接住收尾纸面',
+    );
     expect(session.page!.pageIndex, 3);
     expect(key.currentState!.snapshotCount, 2);
     expect(prepared, [3, 4], reason: '手势期间不启动后方页面的后台图片准备');

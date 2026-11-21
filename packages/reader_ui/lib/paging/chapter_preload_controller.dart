@@ -16,13 +16,17 @@ class ChapterPreloadController {
   int _generation = -1;
   int _token = 0;
   bool _paused = true;
+  bool? _reportedPause;
   bool _started = false;
   bool _closed = false;
   PageContent? firstPage;
 
   void update({required bool paused}) {
     if (_closed) return;
-    session.setBackgroundLayoutPaused(paused);
+    if (_reportedPause != paused) {
+      session.setBackgroundLayoutPaused(paused);
+      _reportedPause = paused;
+    }
     _paused = paused;
     final page = session.page;
     if (!identical(page, _page) || _generation != session.generation) {

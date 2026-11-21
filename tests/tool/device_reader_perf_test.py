@@ -229,6 +229,21 @@ class ProvenanceTest(unittest.TestCase):
         self.assertIn("wm_density", data["errors"])
         self.assertEqual(data["errors"]["font_scale"]["exit_code"], 1)
 
+    def test_background_only_switches_fixed_test_app_and_never_executes_payload(self):
+        handler = object.__new__(perf.ReportHandler)
+        handler.path = "/background"
+        handler.adb = ["adb", "-s", "serial"]
+        handler.send_response = Mock()
+        handler.end_headers = Mock()
+        with patch.object(perf, "run") as command, patch.object(perf.time, "sleep") as wait:
+            handler.do_POST()
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual(command.call_args_list[0].args[0][-1], "android.intent.category.HOME")
+        self.assertEqual(command.call_args_list[1].args[0][-1],
+                         perf.TEST_ID + "/" + perf.TEST_ID + ".MainActivity")
+        wait.assert_called_once_with(2)
+        handler.send_response.assert_called_once_with(204)
+
     def test_partial_and_final_reports_keep_host_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             for endpoint in ("/sample", "/done"):

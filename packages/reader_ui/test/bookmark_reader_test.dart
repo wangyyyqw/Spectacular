@@ -132,6 +132,71 @@ Future<void> _move(WidgetTester tester, Future<Object?> action) async {
 }
 
 void main() {
+  testWidgets('替换书签存储立即清除旧命中，并按章节和重定位状态更新标记', (tester) async {
+    ReaderBookmark bookmark(String id, int spine, {String? status}) =>
+        ReaderBookmark(
+          id: id,
+          cfi: 'epubcfi(/6/2!/4/2/1:0)',
+          spineIndex: spine,
+          label: '缓存回归',
+          createdAt: DateTime(2026),
+          relocationStatus: status,
+        );
+    final marked = _Bookmarks()..items.add(bookmark('当前章', 0));
+    final unrelated = _Bookmarks()
+      ..items.add(bookmark('其它章', 1))
+      ..items.add(bookmark('待重定位', 0, status: 'pending'));
+    final store = ValueNotifier<_Bookmarks>(marked);
+    final source = _Book();
+    final progress = MemoryReaderProgressStore();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ValueListenableBuilder<_Bookmarks>(
+            valueListenable: store,
+            builder: (_, bookmarks, _) => ReaderPage(
+              source: source,
+              store: progress,
+              bookId: '书签缓存替换',
+              bookmarks: bookmarks,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
+    expect(ribbon, findsOneWidget);
+    await _openMenu(tester);
+    expect(
+      tester
+          .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+          .bookmarked,
+      isTrue,
+    );
+
+    store.value = unrelated;
+    await tester.pumpAndSettle();
+    expect(ribbon, findsNothing);
+    expect(
+      tester
+          .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+          .bookmarked,
+      isFalse,
+    );
+    store.value = marked;
+    await tester.pumpAndSettle();
+    expect(ribbon, findsOneWidget);
+    expect(
+      tester
+          .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+          .bookmarked,
+      isTrue,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    store.dispose();
+  });
+
   for (final mode in PageTurnMode.values.where(
     (value) => value != PageTurnMode.scroll,
   )) {
