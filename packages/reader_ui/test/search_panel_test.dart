@@ -48,7 +48,27 @@ void main() {
     await tester.enterText(find.byKey(const ValueKey('search-input')), '沈河');
     await tester.pumpAndSettle();
     final chapter = find.byKey(const ValueKey('search-chapter-0'));
+    final hit = find.byKey(const ValueKey('search-hit-0-3'));
+    expect(tester.getSize(chapter).height, 40);
+    expect(tester.getSize(hit).height, 40);
+    expect(
+      tester.getTopLeft(hit).dy - tester.getBottomLeft(chapter).dy,
+      closeTo(2, 1),
+    );
+    final lineFinder = find.byKey(const ValueKey('search-chapter-line-0'));
+    final expandedLine = tester.widget<AnimatedContainer>(lineFinder);
+    expect(expandedLine.duration, const Duration(milliseconds: 180));
+    final expandedBorder =
+        (expandedLine.decoration! as BoxDecoration).border! as Border;
+    expect(expandedBorder.bottom.color, isNot(Colors.transparent));
     await tester.tap(chapter);
+    await tester.pump();
+    final collapsedLine = tester.widget<AnimatedContainer>(lineFinder);
+    final collapsedBorder =
+        (collapsedLine.decoration! as BoxDecoration).border! as Border;
+    expect(collapsedBorder.bottom.color, Colors.transparent);
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.hasRunningAnimations, isTrue);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('search-hit-0-3')), findsNothing);
     expect(find.byKey(const ValueKey('search-hit-0-20')), findsNothing);
@@ -98,7 +118,7 @@ void main() {
       find.byKey(const ValueKey('search-hit-1-80')).hitTestable(),
       findsOneWidget,
     );
-    await tester.drag(list, const Offset(0, -520));
+    await tester.drag(list, const Offset(0, -360));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('search-hit-1-150')).hitTestable(),
@@ -205,7 +225,17 @@ void main() {
       final hit = tester.widget<ListTile>(
         find.byKey(const ValueKey<String>('search-hit-0-3')),
       );
-      expect(hit.contentPadding, const EdgeInsets.only(left: 58, right: 24));
+      expect(hit.contentPadding, EdgeInsets.zero);
+      final hitSurface = tester.widget<Container>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('search-hit-0-3')),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      expect(hitSurface.margin, const EdgeInsets.only(left: 58, right: 24));
+      expect((hitSurface.decoration! as BoxDecoration).border, isA<Border>());
       final span = (hit.title! as Text).textSpan! as TextSpan;
       expect(span.style?.height, 1.5);
       final highlighted = span.children![1] as TextSpan;
