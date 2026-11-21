@@ -1338,7 +1338,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final page = progress?.pageIndex ?? 0;
     final chapterTitle = _chapterTitleOf(spine);
     final line = _session.currentLineText;
-    final created = await store.add(
+    await store.add(
       cfi: cfi,
       spineIndex: spine,
       label:
@@ -1349,8 +1349,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     await _reloadBookmarks();
-    if (!mounted) return;
-    _showBookmarkMessage(created == null ? '该位置已有书签' : '已添加书签');
   }
 
   void _showBookmarkMessage(String message) {
@@ -1419,7 +1417,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         await widget.bookmarks?.remove(bookmark.id);
       }
       await _reloadBookmarks();
-      if (mounted) _showBookmarkMessage('已移除书签');
     } catch (_) {
       if (mounted) _showBookmarkMessage('书签删除失败，请重试');
     } finally {
