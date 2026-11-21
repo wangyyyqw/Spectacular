@@ -3798,6 +3798,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                 widget.onSearch == null
                     ? const SizedBox.shrink()
                     : SearchPanel(
+                        currentSpineIndex: widget.currentSpineIndex,
+                        currentCfi: widget.currentCfi,
                         focusNode: widget.searchFocus,
                         onSearch: widget.onSearch!,
                         onSearchStream: widget.onSearchStream,
