@@ -18,6 +18,22 @@ const _source = BookSource(
 );
 
 void main() {
+  test('后台快照合并仅修改实际变动键，保留前台新设置', () async {
+    final directory = await Directory.systemTemp.createTemp('cookie-worker-');
+    addTearDown(() => directory.delete(recursive: true));
+    final store = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    await store.load();
+    await store.saveSourceValues(_source, {'甲': '旧', '乙': '旧'});
+    final before = store.detachedSnapshot;
+    final worker = BookSourceCookieStore.detached(before);
+    await worker.saveSourceValues(_source, {'甲': '后台', '乙': '后台', '丙': '新'});
+    await store.saveSourceValues(_source, {'甲': '前台'});
+    await store.mergeDetachedChanges(before, worker.detachedSnapshot);
+    expect(store.sourceValues(_source), {'甲': '前台', '乙': '后台', '丙': '新'});
+    expect(worker.sourceValues(_source)['甲'], '后台');
+  });
   test('旧版登录文件升级保留凭据与 Cookie，源设置合并并可重新读取', () async {
     final directory = await Directory.systemTemp.createTemp('cookie-upgrade-');
     addTearDown(() => directory.delete(recursive: true));

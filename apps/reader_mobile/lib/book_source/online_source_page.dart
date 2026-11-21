@@ -343,14 +343,12 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
               key: ValueKey<String>('online-source-${source.id}'),
-              leading: CircleAvatar(child: Text(_initial(source.name))),
               title: Text(source.name, maxLines: 1),
               subtitle: Text(
                 <String>[
                   if (source.group.isNotEmpty) source.group,
                   '${source.searchUrl.isEmpty || source.search.bookList.isEmpty ? '无搜索' : '可搜索'}'
-                      '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? ' · 已登录' : ' · 需登录') : ''}'
-                      ' · ${source.loadMode == BookSourceLoadMode.chapter ? '逐章加载' : '整本下载'}',
+                      '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? ' · 已登录' : ' · 需登录') : ''}',
                 ].join('\n'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -391,33 +389,31 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
                   ),
                   PopupMenuButton<String>(
                     tooltip: '书源选项',
+                    position: PopupMenuPosition.under,
                     onSelected: (value) async {
                       if (value == 'remove') {
                         await _confirmRemove(source);
-                      } else {
-                        try {
-                          await controller.setSourceLoadMode(
-                            source.id,
-                            BookSourceLoadMode.values.byName(value),
-                          );
-                        } on Object catch (error) {
-                          _showError('保存失败：$error');
-                        }
                       }
                     },
                     itemBuilder: (_) => [
-                      CheckedPopupMenuItem(
-                        value: 'chapter',
-                        checked: source.loadMode == BookSourceLoadMode.chapter,
-                        child: const Text('逐章加载'),
+                      PopupMenuItem(
+                        value: 'remove',
+                        child: Row(
+                          children: [
+                            AppIcon(
+                              AppGlyph.delete,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              '删除书源',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      CheckedPopupMenuItem(
-                        value: 'book',
-                        checked: source.loadMode == BookSourceLoadMode.book,
-                        child: const Text('整本下载'),
-                      ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(value: 'remove', child: Text('删除书源')),
                     ],
                   ),
                 ],
@@ -426,11 +422,6 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
           ),
       ],
     );
-  }
-
-  String _initial(String name) {
-    final trimmed = name.trim();
-    return trimmed.isEmpty ? '源' : trimmed.characters.first;
   }
 }
 

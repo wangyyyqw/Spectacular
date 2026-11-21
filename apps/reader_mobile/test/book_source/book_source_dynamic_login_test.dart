@@ -79,8 +79,8 @@ void main() {
         client: MockClient(
           (request) async => http.Response(
             jsonEncode({'title': '玄幻', 'url': '/fantasy'}),
-                200,
-                headers: {'content-type': 'application/json; charset=utf-8'},
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
           ),
         ),
       ),
@@ -191,6 +191,41 @@ void main() {
     );
     expect(evaluate('一', '书一'), '书一:一:1库');
     expect(evaluate('二', '书二'), '书二:二:2库');
+  });
+
+  test('合并脚本读取保留待处理请求、错误重放及源设置变化', () {
+    final script = QuickJsBookSourceScriptSession(jsLib: '');
+    addTearDown(script.dispose);
+    String evaluate(String code) => script.evaluate(
+      code,
+      result: '',
+      variables: const {},
+      resolveString: (_) => '',
+      resolveList: (_) => [],
+    );
+    expect(
+      evaluate('JSON.parse(java.ajax("https://example.test/data")).title'),
+      '',
+    );
+    final request = script.takePendingRequests().single;
+    script.rememberResponse(request.key, '{"title":"重放成功"}');
+    expect(
+      evaluate('JSON.parse(java.ajax("https://example.test/data")).title'),
+      '重放成功',
+    );
+    expect(evaluate('source.put("mode","chapter");"已保存"'), '已保存');
+    expect(script.sourceValueChanges['mode'], 'chapter');
+    expect(evaluate('source.get("mode")'), 'chapter');
+    expect(
+      () => evaluate('throw new Error("确切错误")'),
+      throwsA(
+        isA<BookSourceScriptException>().having(
+          (error) => error.message,
+          '错误',
+          contains('确切错误'),
+        ),
+      ),
+    );
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();

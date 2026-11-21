@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_source_models.dart';
+import 'book_source_discovery.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
 import 'online_book_toc_page.dart';
@@ -394,6 +395,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   }
 
   Widget _header(OnlineBook info) {
+    final kind = onlineBookPlatformAndTags(info.kind);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -406,6 +408,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
               source: widget.source,
               service: widget.controller.service,
               url: info.coverUrl,
+              fallbackUrl: widget.book.coverUrl,
               referer: info.bookUrl,
             ),
           ),
@@ -415,29 +418,44 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(info.name, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 6),
-              Text(info.author.isEmpty ? '未知作者' : info.author),
+              Text(
+                info.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 6),
               Text(
-                info.sourceName,
+                [
+                  info.author.isEmpty ? '未知作者' : info.author,
+                  if (info.status.isNotEmpty) info.status,
+                  if (info.wordCount.isNotEmpty) info.wordCount,
+                  if (kind.platform.isNotEmpty) kind.platform,
+                ].join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              if (info.kind.isNotEmpty || info.wordCount.isNotEmpty) ...[
-                const SizedBox(height: 8),
+              if (info.lastChapter.isNotEmpty || info.chapterCount > 0) ...[
+                const SizedBox(height: 6),
                 Text(
-                  <String>[
-                    if (info.kind.isNotEmpty) info.kind,
-                    if (info.wordCount.isNotEmpty) info.wordCount,
+                  [
+                    if (info.chapterCount > 0) '${info.chapterCount}章',
+                    if (info.lastChapter.isNotEmpty) '最新：${info.lastChapter}',
                   ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
-              if (info.lastChapter.isNotEmpty) ...[
+              if (kind.tags.isNotEmpty || info.updateTime.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
-                  '最新：${info.lastChapter}',
-                  maxLines: 2,
+                  [
+                    if (info.updateTime.isNotEmpty) info.updateTime,
+                    if (kind.tags.isNotEmpty) kind.tags,
+                  ].join(' · '),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
@@ -522,12 +540,14 @@ class _BookCover extends StatefulWidget {
     required this.service,
     required this.url,
     required this.referer,
+    this.fallbackUrl = '',
   });
 
   final BookSource source;
   final BookSourceService service;
   final String url;
   final String referer;
+  final String fallbackUrl;
 
   @override
   State<_BookCover> createState() => _BookCoverState();
@@ -535,6 +555,7 @@ class _BookCover extends StatefulWidget {
 
 class _BookCoverState extends State<_BookCover> {
   Future<Uint8List?>? _cover;
+  Uint8List? _lastCover;
 
   @override
   void initState() {
@@ -553,10 +574,23 @@ class _BookCoverState extends State<_BookCover> {
   }
 
   void _loadCover() {
-    final url = widget.url.trim();
-    _cover = url.isEmpty
-        ? null
-        : widget.service.loadCover(widget.source, url, referer: widget.referer);
+    final source = widget.source;
+    final urls = {widget.url.trim(), widget.fallbackUrl.trim()}..remove('');
+    final referer = widget.referer;
+    _cover = () async {
+      for (final url in urls) {
+        final bytes = await widget.service.loadCover(
+          source,
+          url,
+          referer: referer,
+        );
+        if (bytes != null && bytes.isNotEmpty) {
+          _lastCover = bytes;
+          return bytes;
+        }
+      }
+      return _lastCover;
+    }();
   }
 
   @override
@@ -574,7 +608,7 @@ class _BookCoverState extends State<_BookCover> {
     return FutureBuilder<Uint8List?>(
       future: cover,
       builder: (context, snapshot) {
-        final bytes = snapshot.data;
+        final bytes = snapshot.data ?? _lastCover;
         if (bytes == null || bytes.isEmpty) return broken;
         return Image.memory(
           bytes,

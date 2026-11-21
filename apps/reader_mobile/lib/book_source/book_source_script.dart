@@ -162,6 +162,7 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
   final List<BookSourcePendingRequest> _pending = <BookSourcePendingRequest>[];
   JavascriptRuntime? _runtime;
   bool _libraryLoaded = false;
+  final Map<String, ({Set<String> strings, Set<String> lists})> _rulePaths = {};
 
   /// 阅读和段评使用独立运行时，共享同一书源的临时缓存。
   void restoreMemory(Map<String, Object?> memory) {
@@ -203,36 +204,37 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
     _pending.clear();
     final strings = <String, String>{};
     final lists = <String, List<String>>{};
-    for (final path in _stringPaths(code)) {
+    final paths = _rulePaths.putIfAbsent(
+      code,
+      () => (strings: _stringPaths(code), lists: _listPaths(code)),
+    );
+    if (_rulePaths.length > 64) _rulePaths.remove(_rulePaths.keys.first);
+    for (final path in paths.strings) {
       strings[path] = resolveString(path);
     }
-    for (final path in _listPaths(code)) {
+    for (final path in paths.lists) {
       lists[path] = resolveList(path);
     }
     _browsers.clear();
     messages = [];
     rebuildLoginView = false;
     reviewPages = [];
-    final state = runtime.evaluate(
-      '__legadoStrings = ${jsonEncode(strings)};'
-      '__legadoLists = ${jsonEncode(lists)};'
-      '__legadoResponses = ${jsonEncode(_responses)};'
-      '__legadoLoginInfo = ${jsonEncode(loginInfo)};'
-      '__legadoLoginHeader = ${jsonEncode(loginHeader)};'
-      '__legadoSourceVariable = ${jsonEncode(sourceVariable)};'
-      '__legadoSourceValues = ${jsonEncode(sourceValues)};'
-      '__legadoValueChanges = {};'
-      '__legadoBrowserResponses = ${jsonEncode(_browserResponses)};'
-      '__legadoBrowsers = []; __legadoReviewPages = [];'
-      '__legadoMessages = []; __legadoRebuild = false;'
-      '__legadoBook = ${jsonEncode({'bookUrl': variables['bookUrl'] ?? '', 'name': variables['bookName'] ?? '', 'author': variables['author'] ?? ''})};'
-      '__legadoChapter = ${jsonEncode({'url': variables['chapterUrl'] ?? '', 'title': variables['title'] ?? '', 'index': int.tryParse(variables['chapterIndex'] ?? '') ?? 0})};'
-      '__legadoSourceKey = ${jsonEncode(sourceKey)};'
-      '__legadoRequests = [];',
-    );
-    if (state.isError) {
-      throw BookSourceScriptException('书源脚本初始化失败：${state.stringResult}');
-    }
+    final state =
+        '__legadoStrings = ${jsonEncode(strings)};'
+        '__legadoLists = ${jsonEncode(lists)};'
+        '__legadoResponses = ${jsonEncode(_responses)};'
+        '__legadoLoginInfo = ${jsonEncode(loginInfo)};'
+        '__legadoLoginHeader = ${jsonEncode(loginHeader)};'
+        '__legadoSourceVariable = ${jsonEncode(sourceVariable)};'
+        '__legadoSourceValues = ${jsonEncode(sourceValues)};'
+        '__legadoValueChanges = {};'
+        '__legadoBrowserResponses = ${jsonEncode(_browserResponses)};'
+        '__legadoBrowsers = []; __legadoReviewPages = [];'
+        '__legadoMessages = []; __legadoRebuild = false;'
+        '__legadoBook = ${jsonEncode({'bookUrl': variables['bookUrl'] ?? '', 'name': variables['bookName'] ?? '', 'author': variables['author'] ?? ''})};'
+        '__legadoChapter = ${jsonEncode({'url': variables['chapterUrl'] ?? '', 'title': variables['title'] ?? '', 'index': int.tryParse(variables['chapterIndex'] ?? '') ?? 0})};'
+        '__legadoSourceKey = ${jsonEncode(sourceKey)};'
+        '__legadoRequests = [];';
     final baseUrl = variables['baseUrl'] ?? '';
     final key = variables['key'] ?? variables['keyword'] ?? '';
     final searchKey = variables['searchKey'] ?? key;
@@ -245,7 +247,7 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
     if (!_libraryLoaded) {
       // 脚本库在会话内只解析一次；保留其词法作用域，每条规则更新上下文。
       final library = runtime.evaluate(
-        '__legadoEvaluate = (function(result, baseUrl, key, page, searchKey, book, chapter, isLongClick, src) {'
+        '${state}__legadoEvaluate = (function(result, baseUrl, key, page, searchKey, book, chapter, isLongClick, src) {'
         '$_jsLib\n'
         'return function(nextResult, nextBaseUrl, nextKey, nextPage, nextSearchKey, nextBook, nextChapter, nextLongClick, nextSrc, code) {'
         'result=nextResult; baseUrl=nextBaseUrl; key=nextKey; page=nextPage;'
@@ -264,17 +266,22 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
       _libraryLoaded = true;
     }
     final wrapped =
-        '(function(){var value=__legadoEvaluate($arguments, ${jsonEncode(code)});'
-        'return value && typeof value==="object"?JSON.stringify(value):value;})()';
-    final evaluated = runtime.evaluate(wrapped);
-    final effects = jsonDecode(
-      runtime
-          .evaluate(
-            'JSON.stringify({browsers:__legadoBrowsers,messages:__legadoMessages,'
-            'rebuild:__legadoRebuild,reviews:__legadoReviewPages})',
-          )
-          .stringResult,
-    ) as Map;
+        '(function(){var output="",error="";'
+        'try{var value=__legadoEvaluate($arguments, ${jsonEncode(code)});'
+        'output=value==null?"":typeof value==="object"?JSON.stringify(value):String(value);}'
+        'catch(e){error=String(e);}'
+        'return JSON.stringify({output:output,error:error,'
+        'browsers:__legadoBrowsers,messages:__legadoMessages,'
+        'rebuild:__legadoRebuild,reviews:__legadoReviewPages,'
+        'requests:__legadoRequests,info:__legadoLoginInfo,'
+        'header:__legadoLoginHeader,variable:__legadoSourceVariable,'
+        'values:__legadoSourceValues,changes:__legadoValueChanges});})()';
+    // 结果、请求和副作用一次跨运行时读取，避免长目录每字段重复桥接。
+    final evaluated = runtime.evaluate(state + wrapped);
+    if (evaluated.isError) {
+      throw BookSourceScriptException('书源脚本执行失败：${evaluated.stringResult}');
+    }
+    final effects = jsonDecode(evaluated.stringResult) as Map;
     reviewPages = [
       for (final item
           in (effects['reviews'] as List).whereType<Map<Object?, Object?>>())
@@ -298,67 +305,55 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
     }
     messages = (effects['messages'] as List).map((item) => '$item').toList();
     rebuildLoginView = effects['rebuild'] == true;
-    final pending = runtime.evaluate('JSON.stringify(__legadoRequests)');
-    if (!pending.isError && pending.stringResult.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(pending.stringResult);
-        if (decoded is List) {
-          for (final item in decoded) {
-            if (item is! Map) continue;
-            final url = '${item['url'] ?? ''}'.trim();
-            if (url.isEmpty) continue;
-            _pending.add(
-              BookSourcePendingRequest(
-                key: '${item['key'] ?? url}',
-                method: '${item['method'] ?? 'GET'}',
-                url: url,
-                body: '${item['body'] ?? ''}',
-                headers: <String, String>{
-                  for (final entry
-                      in (item['headers'] is Map
-                          ? (item['headers'] as Map).entries
-                          : const <MapEntry<Object?, Object?>>[]))
-                    '${entry.key}': '${entry.value}',
-                },
-              ),
-            );
-          }
+    {
+      final decoded = effects['requests'];
+      if (decoded is List) {
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          final url = '${item['url'] ?? ''}'.trim();
+          if (url.isEmpty) continue;
+          _pending.add(
+            BookSourcePendingRequest(
+              key: '${item['key'] ?? url}',
+              method: '${item['method'] ?? 'GET'}',
+              url: url,
+              body: '${item['body'] ?? ''}',
+              headers: <String, String>{
+                for (final entry
+                    in (item['headers'] is Map
+                        ? (item['headers'] as Map).entries
+                        : const <MapEntry<Object?, Object?>>[]))
+                  '${entry.key}': '${entry.value}',
+              },
+            ),
+          );
         }
-      } on FormatException {
-        // 请求列表解析失败时不阻断脚本结果，交由上层正文校验兜底。
       }
     }
-    if (evaluated.isError) {
+    if ((effects['error'] as String).isNotEmpty) {
       // 首轮脚本需要远程数据时会先失败（例如 JSON.parse 空响应）；
       // 已记录请求时交给上层拉取并重跑。
       if (_pending.isNotEmpty || _browsers.any((item) => item.wait)) return '';
-      throw BookSourceScriptException('书源脚本执行失败：${evaluated.stringResult}');
+      throw BookSourceScriptException('书源脚本执行失败：${effects['error']}');
     }
     if (_pending.isEmpty && !_browsers.any((item) => item.wait)) {
-      final saved = runtime.evaluate(
-        'JSON.stringify({info:__legadoLoginInfo,header:__legadoLoginHeader,'
-        'variable:__legadoSourceVariable,values:__legadoSourceValues,'
-        'changes:__legadoValueChanges})',
-      );
-      if (!saved.isError) {
-        final data = jsonDecode(saved.stringResult) as Map;
-        loginInfo = {
-          for (final item in (data['info'] as Map).entries)
-            '${item.key}': '${item.value}',
-        };
-        loginHeader = '${data['header'] ?? ''}';
-        sourceVariable = '${data['variable'] ?? ''}';
-        sourceValues = {
-          for (final item in (data['values'] as Map).entries)
-            '${item.key}': '${item.value}',
-        };
-        sourceValueChanges.addAll({
-          for (final item in (data['changes'] as Map).entries)
-            '${item.key}': '${item.value}',
-        });
-      }
+      final data = effects;
+      loginInfo = {
+        for (final item in (data['info'] as Map).entries)
+          '${item.key}': '${item.value}',
+      };
+      loginHeader = '${data['header'] ?? ''}';
+      sourceVariable = '${data['variable'] ?? ''}';
+      sourceValues = {
+        for (final item in (data['values'] as Map).entries)
+          '${item.key}': '${item.value}',
+      };
+      sourceValueChanges.addAll({
+        for (final item in (data['changes'] as Map).entries)
+          '${item.key}': '${item.value}',
+      });
     }
-    final output = evaluated.stringResult;
+    final output = effects['output'] as String;
     if (output == 'undefined' || output == 'null') return '';
     return output;
   }
@@ -366,7 +361,8 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
   JavascriptRuntime _ensureRuntime() {
     final existing = _runtime;
     if (existing != null) return existing;
-    final runtime = getJavascriptRuntime();
+    // 书源联网由 java.ajax 调度，不加载依赖主线程资源通道的网页 fetch polyfill。
+    final runtime = getJavascriptRuntime(xhr: false);
     runtime.onMessage('BookSourceCookie', (dynamic arguments) {
       final args = arguments as List;
       final domain = '${args[0]}';

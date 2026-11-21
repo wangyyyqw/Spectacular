@@ -75,7 +75,9 @@ void main() {
         ),
       ),
       scriptFactory: fakeScriptFactory(
-        FakeBookSourceScriptSession((code, result, variables, current) => result),
+        FakeBookSourceScriptSession(
+          (code, result, variables, current) => result,
+        ),
       ),
     );
     addTearDown(service.dispose);
@@ -436,7 +438,7 @@ void main() {
       httpClient: BookSourceHttpClient(
         client: MockClient((request) async {
           return http.Response(
-            '{"data":{"book_name":"详情名","author":"详情作者"}}',
+            '{"data":{"book_name":"详情名","author":"详情作者","cover":"https://example.com/expired.jpg"}}',
             200,
             headers: <String, String>{
               'content-type': 'application/json; charset=utf-8',
@@ -455,7 +457,12 @@ void main() {
       sourceUrl: 'https://example.com',
       searchUrl: 'https://example.com/search',
       search: BookListRule(),
-      bookInfo: BookInfoRule(init: 'data', name: 'book_name', author: 'author'),
+      bookInfo: BookInfoRule(
+        init: 'data',
+        name: 'book_name',
+        author: 'author',
+        coverUrl: 'cover',
+      ),
       toc: TocRule(),
       content: ContentRule(),
     );
@@ -468,11 +475,13 @@ void main() {
         name: '搜索名',
         author: '',
         bookUrl: 'https://example.com/book/1',
+        coverUrl: 'https://example.com/working-signed-cover.jpg',
       ),
     );
 
     expect(info.name, '详情名');
     expect(info.author, '详情作者');
+    expect(info.coverUrl, 'https://example.com/working-signed-cover.jpg');
   });
 
   test('详情简介保留换行并按原段落归一化', () async {

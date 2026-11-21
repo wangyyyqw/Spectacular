@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -16,6 +17,7 @@ import 'package:reader_mobile/home/discover_choice_dialog.dart';
 import 'package:reader_mobile/home/discover_filter_dialog.dart';
 import 'package:reader_mobile/home/discover_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 
 import '../support/reader_pump.dart';
 
@@ -48,6 +50,13 @@ void main() {
                   'name': name,
                   'author': '作者',
                   'status': '连载',
+                  'wordCount': '25万字',
+                  'lastChapter': '第十章',
+                  'chapterCount': 10,
+                  'updateTime': '今天',
+                  'kind': request.url.host == 'second.example.com'
+                      ? 'fanqie 都市脑洞'
+                      : '玄幻',
                   'url': '/book/$name',
                 },
               ],
@@ -87,12 +96,22 @@ void main() {
             'name': 'name',
             'author': 'author',
             'bookUrl': 'url',
+            'wordCount': 'wordCount',
+            'lastChapter': 'lastChapter',
+            'chapterCount': 'chapterCount',
+            'updateTime': 'updateTime',
+            'kind': 'kind',
           },
           'ruleExplore': {
             'bookList': r'$.books',
             'name': 'name',
             'author': 'author',
             'bookUrl': 'url',
+            'wordCount': 'wordCount',
+            'lastChapter': 'lastChapter',
+            'chapterCount': 'chapterCount',
+            'updateTime': 'updateTime',
+            'kind': 'kind',
           },
         }),
       );
@@ -120,6 +139,11 @@ void main() {
             'name': 'name',
             'author': 'author',
             'bookUrl': 'url',
+            'wordCount': 'wordCount',
+            'lastChapter': 'lastChapter',
+            'chapterCount': 'chapterCount',
+            'updateTime': 'updateTime',
+            'kind': 'kind',
           },
         }),
       );
@@ -131,7 +155,23 @@ void main() {
     await pumpReaderUntil(tester, find.text('更新书'));
     await tester.pumpAndSettle();
     expect(find.text('更新书'), findsWidgets);
-    expect(find.textContaining('作者 · 连载 / '), findsOneWidget);
+    expect(find.text('作者 · 连载 / 25万字'), findsOneWidget);
+    final details = find
+        .ancestor(
+          of: find.text('作者 · 连载 / 25万字'),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Column && widget.mainAxisSize == MainAxisSize.min,
+          ),
+        )
+        .first;
+    expect(
+      find.descendant(of: details, matching: find.byType(Text)),
+      findsNWidgets(4),
+    );
+    expect(find.text('10章 · 最新：第十章'), findsOneWidget);
+    expect(find.text('今天 · 玄幻'), findsOneWidget);
+    expect(find.textContaining('/ 测试平台'), findsNothing);
     final categoryText = tester.widget<Text>(find.text('最近更新'));
     final categoryTheme = Theme.of(tester.element(find.text('最近更新')));
     expect(
@@ -166,11 +206,11 @@ void main() {
     await tester.pumpAndSettle();
     final firstChoice = find.byKey(const ValueKey('discover-choice-最近更新'));
     final nextChoice = find.byKey(const ValueKey('discover-choice-人气最高'));
-    expect(tester.getRect(firstChoice).top, tester.getRect(nextChoice).top);
     expect(
-      tester.getRect(nextChoice).left,
-      greaterThan(tester.getRect(firstChoice).left),
+      tester.getRect(nextChoice).top,
+      greaterThan(tester.getRect(firstChoice).top),
     );
+    expect(tester.getRect(nextChoice).left, tester.getRect(firstChoice).left);
     await tester.tap(nextChoice);
     await pumpReaderUntil(tester, find.text('人气书'));
     await tester.pumpAndSettle();
@@ -239,6 +279,11 @@ void main() {
     await pumpReaderUntil(tester, find.text('第二来源书'));
     await tester.pumpAndSettle();
     expect(find.text('推荐'), findsOneWidget);
+    await tester.tap(find.byTooltip('列表视图'));
+    await tester.pumpAndSettle();
+    expect(find.text('作者 · 连载 / 25万字 / 番茄小说'), findsOneWidget);
+    expect(find.text('10章 · 最新：第十章'), findsOneWidget);
+    expect(find.text('今天 · 都市脑洞'), findsOneWidget);
     expect(find.byTooltip('分类分组'), findsNothing);
     expect(requested.last.host, 'second.example.com');
     final selected = controller.selectedDiscoverSourceId;
@@ -279,6 +324,7 @@ void main() {
     DiscoverFilterResult? result;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildAppTheme(),
         home: Builder(
           builder: (context) => TextButton(
             onPressed: () async {
@@ -299,6 +345,16 @@ void main() {
     );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
+    final dialogContext = tester.element(find.byType(DiscoverFilterDialog));
+    final theme = Theme.of(dialogContext);
+    expect(
+      (theme.dialogTheme.shape as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(24),
+    );
+    expect(
+      (theme.popupMenuTheme.shape as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(16),
+    );
     final sourceName = find.byKey(
       ValueKey('discover-source-name-${source.id}'),
     );
@@ -316,15 +372,15 @@ void main() {
     await tester.pumpAndSettle();
     final all = find.byKey(const ValueKey('discover-choice-全部'));
     final fanren = find.byKey(const ValueKey('discover-choice-凡人流'));
-    expect(tester.getRect(all).top, tester.getRect(fanren).top);
-    expect(tester.getRect(all).right, lessThan(tester.getRect(fanren).left));
+    expect(tester.getRect(fanren).top, greaterThan(tester.getRect(all).top));
+    expect(tester.getRect(all).left, tester.getRect(fanren).left);
     expect(
       tester
           .getSize(
             find.byKey(const ValueKey('discover-choice-这个标签名称比较长需要完整换行显示')),
           )
           .height,
-      greaterThan(tester.getSize(all).height),
+      greaterThanOrEqualTo(tester.getSize(all).height),
     );
     await tester.tap(fanren);
     await tester.pumpAndSettle();
@@ -333,6 +389,62 @@ void main() {
     expect(result?.selection['标签'], '凡人流');
     expect(Uri.parse(result!.category!.url).queryParameters['tag'], '凡人流');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切源分类异步加载且不在重建时重复解析，旧结果不能覆盖新源', (tester) async {
+    final first = BookSource.fromJson({
+      'bookSourceName': '第一来源',
+      'bookSourceUrl': 'https://first.example.com',
+    });
+    final second = BookSource.fromJson({
+      'bookSourceName': '第二来源',
+      'bookSourceUrl': 'https://second.example.com',
+    });
+    final pending = {
+      first.id: Completer<BookDiscoverFilter?>(),
+      second.id: Completer<BookDiscoverFilter?>(),
+    };
+    final calls = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DiscoverFilterDialog(
+          sources: [first, second],
+          source: first,
+          filterFor: (source) {
+            calls.add(source.id);
+            return pending[source.id]!.future;
+          },
+          selections: const {},
+        ),
+      ),
+    );
+    expect(find.text('正在加载分类…'), findsOneWidget);
+    await tester.pump();
+    expect(calls, [first.id]);
+    await tester.tap(find.byTooltip('切换书源'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('第二来源'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(ValueKey('discover-source-name-${second.id}')),
+      findsOneWidget,
+    );
+    expect(find.text('正在加载分类…'), findsOneWidget);
+    expect(calls, [first.id, second.id]);
+    pending[second.id]!.complete(null);
+    await tester.pump();
+    expect(find.text('当前书源不支持组合筛选'), findsOneWidget);
+    pending[first.id]!.complete(
+      const BookDiscoverFilter(BookDiscoverCategory('旧分类', '/old'), [
+        BookDiscoverFilterGroup('旧源选项', [BookDiscoverFilterOption('全部', {})]),
+      ]),
+    );
+    await tester.pump();
+    expect(find.text('旧源选项'), findsNothing);
+    expect(find.text('当前书源不支持组合筛选'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('发现网格按批次跨页补齐并复用分类缓存', (tester) async {
@@ -457,6 +569,33 @@ void main() {
     );
     expect(find.text('这个分类分组名称比较长需要完整换行显示'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('少量选项单列显示，单列溢出时自动多列', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    Future<void> show(int count) => tester.pumpWidget(
+      MaterialApp(
+        home: DiscoverChoiceDialog<String>(
+          title: '选择',
+          options: [for (var i = 0; i < count; i++) '选项$i'],
+          labelFor: _label,
+        ),
+      ),
+    );
+    await show(3);
+    final first = find.byKey(const ValueKey('discover-choice-选项0'));
+    final second = find.byKey(const ValueKey('discover-choice-选项1'));
+    expect(tester.getRect(second).top, greaterThan(tester.getRect(first).top));
+    expect(tester.getRect(second).left, tester.getRect(first).left);
+    await show(20);
+    expect(tester.getRect(second).top, tester.getRect(first).top);
+    expect(
+      tester.getRect(second).left,
+      greaterThan(tester.getRect(first).left),
+    );
   });
 }
 

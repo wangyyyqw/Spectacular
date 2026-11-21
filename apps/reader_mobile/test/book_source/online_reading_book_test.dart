@@ -96,6 +96,8 @@ void main() {
     final download = find.byKey(const ValueKey('online-book-download'));
     await pumpReaderUntil(tester, online);
     expect(download, findsOneWidget);
+    expect(find.text(book.source.name), findsNothing);
+    expect(find.text('测试作者'), findsOneWidget);
     expect(requested, ['/book', '/toc']);
     await tester.tap(find.text('2. 第2章'));
     await pumpReaderUntil(tester, find.byKey(const ValueKey('reader-content')));

@@ -11,6 +11,14 @@ import 'package:reader_mobile/book_source/book_source_service.dart';
 import 'book_source_test_helpers.dart';
 
 void main() {
+  test('平台识别保留标签，未知平台和空标签不显示书源名称', () {
+    expect(onlineBookPlatformAndTags('fanqie 都市 脑洞'), (
+      platform: '番茄小说',
+      tags: '都市 脑洞',
+    ));
+    expect(onlineBookPlatformAndTags('玄幻 修仙'), (platform: '', tags: '玄幻 修仙'));
+    expect(onlineBookPlatformAndTags(''), (platform: '', tags: ''));
+  });
   test('旧分类声明按排序、平台、分类与标签组合，分页模板保留', () {
     final categories = parseDiscoverCategories(
       '最近更新::/list?sort=updated_desc&page={{page}}&limit=20\n'
@@ -107,6 +115,57 @@ function search(params){var parts=[];parts.push('cache_min=1');parts.push('page=
       parseDiscoverCategories('最近更新::/latest\n人气最高::/popular'),
       hasLength(2),
     );
+  });
+
+  test('异步分类缓存复用并发和完成结果，源设置变更后重新求值', () async {
+    var evaluations = 0;
+    final service = BookSourceService(
+      scriptFactory: fakeScriptFactory(
+        FakeBookSourceScriptSession((code, result, variables, session) {
+          evaluations++;
+          return '[{"title":"推荐","url":"/recommended"}]';
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    final source = BookSource.fromJson({
+      'bookSourceName': '异步分类',
+      'bookSourceUrl': 'https://example.com',
+      'exploreUrl': '@js:[{title:"推荐",url:"/recommended"}]',
+    });
+    final first = service.loadDiscoverCategories(source);
+    expect(evaluations, 0);
+    expect(identical(first, service.loadDiscoverCategories(source)), isTrue);
+    expect((await first).single.title, '推荐');
+    expect(
+      (await service.loadDiscoverCategories(source)).single.url,
+      '/recommended',
+    );
+    expect(evaluations, 1);
+    service.invalidateSourceSettings();
+    await service.loadDiscoverCategories(source);
+    expect(evaluations, 2);
+  });
+
+  test('分类加载失败不缓存失败结果，下一次可以重试', () async {
+    var evaluations = 0;
+    final service = BookSourceService(
+      scriptFactory: fakeScriptFactory(
+        FakeBookSourceScriptSession((code, result, variables, session) {
+          if (++evaluations == 1) throw StateError('首次失败');
+          return '[{"title":"恢复","url":"/restored"}]';
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    final source = BookSource.fromJson({
+      'bookSourceName': '重试分类',
+      'bookSourceUrl': 'https://example.com',
+      'exploreUrl': '@js:categories()',
+    });
+    await expectLater(service.loadDiscoverCategories(source), throwsStateError);
+    expect((await service.loadDiscoverCategories(source)).single.title, '恢复');
+    expect(evaluations, 2);
   });
 
   test('发现正式入口使用独立列表规则、分类请求参数和分页，搜索规则继续有效', () async {

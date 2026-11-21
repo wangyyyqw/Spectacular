@@ -53,6 +53,21 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
             val cookieEnabled = args["enabledCookieJar"] != false
             val cookies = CookieManager.getInstance()
             val previousAcceptCookie = cookies.acceptCookie()
+            var bottomInset = 0
+            var pageReady = false
+            fun applyScrollInset(view: WebView) {
+                if (!pageReady) return
+                val cssBottom = bottomInset / activity.resources.displayMetrics.density
+                // 末尾留白参与网页滚动，视口本身仍延伸到透明导航栏下。
+                view.evaluateJavascript("""
+                    (function(){
+                      var style=document.getElementById('reader-review-insets');
+                      if(!style){style=document.createElement('style');
+                        style.id='reader-review-insets';document.head.appendChild(style);}
+                      style.textContent='body::after{content:"";display:block;clear:both;height:${cssBottom}px;}html{scroll-padding-bottom:${cssBottom}px;}';
+                    })();
+                """.trimIndent(), null)
+            }
             cookies.setAcceptCookie(cookieEnabled)
             val cookie = args["cookie"] as? String ?: ""
             val sheet = Dialog(activity, R.style.OnlineReviewTheme)
@@ -82,6 +97,8 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
                         OnlineReviewImageLoader.load(request)
 
                     override fun onPageFinished(view: WebView?, pageUrl: String?) {
+                        pageReady = true
+                        view?.let { applyScrollInset(it) }
                         if (html.isBlank() && preload.isNotBlank()) {
                             view?.evaluateJavascript(preload, null)
                         }
@@ -100,17 +117,6 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
                 addView(web, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f,
                 ))
-                // 内容避开手势热区，面板背景延伸至屏幕底部。
-                setOnApplyWindowInsetsListener { view, insets ->
-                    val bottom = if (Build.VERSION.SDK_INT >= 30) {
-                        insets.getInsets(WindowInsets.Type.navigationBars()).bottom
-                    } else {
-                        @Suppress("DEPRECATION")
-                        insets.systemWindowInsetBottom
-                    }
-                    view.setPadding(0, 0, 0, bottom)
-                    insets
-                }
             }
             // 全屏透明容器负责遮罩，底部面板在容器内定位，避免系统给浮动窗预留底栏。
             val container = FrameLayout(activity).apply {
@@ -181,6 +187,13 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
                     ViewGroup.LayoutParams.MATCH_PARENT)
             }
             container.setOnApplyWindowInsetsListener { _, insets ->
+                bottomInset = if (Build.VERSION.SDK_INT >= 30) {
+                    insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                } else {
+                    @Suppress("DEPRECATION")
+                    insets.systemWindowInsetBottom
+                }
+                applyScrollInset(web)
                 val top = if (Build.VERSION.SDK_INT >= 30) {
                     insets.getInsets(WindowInsets.Type.statusBars()).top
                 } else {

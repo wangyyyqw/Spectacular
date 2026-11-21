@@ -30,8 +30,51 @@ class DiscoverChoiceDialog<T> extends StatelessWidget {
           child: SingleChildScrollView(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 480 ? 3 : 2;
                 const gap = 8.0;
+                double columnHeight(int columns) {
+                  final width =
+                      (constraints.maxWidth - gap * (columns - 1)) / columns;
+                  var height = 0.0;
+                  for (
+                    var start = 0;
+                    start < options.length;
+                    start += columns
+                  ) {
+                    var rowHeight = 44.0;
+                    for (final option in options.skip(start).take(columns)) {
+                      final painter =
+                          TextPainter(
+                            text: TextSpan(
+                              text: labelFor(option),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: option == selected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            textDirection: Directionality.of(context),
+                            textScaler: MediaQuery.textScalerOf(context),
+                          )..layout(
+                            maxWidth:
+                                (width - 20 - (option == selected ? 20 : 0))
+                                    .clamp(1, double.infinity),
+                          );
+                      final itemHeight = painter.height + 20;
+                      if (itemHeight > rowHeight) rowHeight = itemHeight;
+                      painter.dispose();
+                    }
+                    height += rowHeight + (start == 0 ? 0 : gap);
+                  }
+                  return height;
+                }
+
+                final maxHeight = MediaQuery.sizeOf(context).height * .6;
+                var columns = 1;
+                final maxColumns = constraints.maxWidth >= 480 ? 3 : 2;
+                while (columns < maxColumns &&
+                    columnHeight(columns) > maxHeight) {
+                  columns++;
+                }
                 final width =
                     (constraints.maxWidth - gap * (columns - 1)) / columns;
                 return Wrap(

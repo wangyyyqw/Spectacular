@@ -189,13 +189,17 @@ ThemeData _withSurfaces(ThemeData base, ColorScheme colors) => base.copyWith(
     backgroundColor: colors.surface,
     surfaceTintColor: Colors.transparent,
     elevation: 0,
-    shape: _shape,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(24)),
+    ),
   ),
   popupMenuTheme: PopupMenuThemeData(
     color: colors.surface,
     surfaceTintColor: Colors.transparent,
     elevation: 2,
-    shape: _shape,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(16)),
+    ),
   ),
   floatingActionButtonTheme: FloatingActionButtonThemeData(
     backgroundColor: colors.primary,

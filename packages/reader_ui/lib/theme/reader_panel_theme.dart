@@ -121,7 +121,9 @@ ThemeData _panelSurfaces(
   dialogTheme: base.dialogTheme.copyWith(
     backgroundColor: theme.background,
     surfaceTintColor: Colors.transparent,
-    shape: _shape,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(24)),
+    ),
   ),
   bottomSheetTheme: base.bottomSheetTheme.copyWith(
     backgroundColor: theme.background,
@@ -133,7 +135,9 @@ ThemeData _panelSurfaces(
   popupMenuTheme: base.popupMenuTheme.copyWith(
     color: theme.background,
     surfaceTintColor: Colors.transparent,
-    shape: _shape,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(16)),
+    ),
   ),
 );
 

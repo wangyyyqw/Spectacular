@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
@@ -22,7 +24,7 @@ class DiscoverFilterDialog extends StatefulWidget {
   });
   final List<BookSource> sources;
   final BookSource? source;
-  final BookDiscoverFilter? Function(BookSource) filterFor;
+  final FutureOr<BookDiscoverFilter?> Function(BookSource) filterFor;
   final Map<String, Map<String, String>> selections;
   @override
   State<DiscoverFilterDialog> createState() => _DiscoverFilterDialogState();
@@ -31,13 +33,39 @@ class DiscoverFilterDialog extends StatefulWidget {
 class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
   late BookSource? _source = widget.source ?? widget.sources.firstOrNull;
   final Map<String, Map<String, String>> _drafts = {};
-  BookDiscoverFilter? get _filter =>
-      _source == null ? null : _safeFilter(_source!);
-  BookDiscoverFilter? _safeFilter(BookSource source) {
+  BookDiscoverFilter? _filter;
+  bool _loading = false;
+  String? _error;
+  int _version = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadFilter());
+  }
+
+  Future<void> _loadFilter() async {
+    final source = _source;
+    if (source == null) return;
+    final version = ++_version;
+    setState(() {
+      _filter = null;
+      _loading = true;
+      _error = null;
+    });
     try {
-      return widget.filterFor(source);
+      final filter = await widget.filterFor(source);
+      if (!mounted || version != _version) return;
+      setState(() {
+        _filter = filter;
+        _loading = false;
+      });
     } on Object {
-      return null;
+      if (!mounted || version != _version) return;
+      setState(() {
+        _loading = false;
+        _error = '分类加载失败，点击重试';
+      });
     }
   }
 
@@ -63,13 +91,26 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
     }
   }
 
+  Future<void> _pickSource() async {
+    final source = await showDialog<BookSource>(
+      context: context,
+      builder: (_) => DiscoverChoiceDialog<BookSource>(
+        title: '切换书源',
+        options: widget.sources,
+        labelFor: (source) => source.name,
+      ),
+    );
+    if (!mounted || source == null || source.id == _source?.id) return;
+    setState(() => _source = source);
+    unawaited(_loadFilter());
+  }
+
   @override
   Widget build(BuildContext context) {
     final filter = _filter;
     final theme = Theme.of(context);
     return AlertDialog(
       key: const ValueKey('discover-filter-dialog'),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
       contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
       title: Row(
@@ -79,40 +120,34 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
             Flexible(
               child: Align(
                 alignment: Alignment.centerRight,
-                child: PopupMenuButton<String>(
-                  tooltip: '切换书源',
-                  initialValue: _source!.id,
-                  itemBuilder: (context) => [
-                    for (final source in widget.sources)
-                      PopupMenuItem(value: source.id, child: Text(source.name)),
-                  ],
-                  onSelected: (id) => setState(
-                    () => _source = widget.sources.firstWhere(
-                      (source) => source.id == id,
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            _source!.name,
-                            key: ValueKey(
-                              'discover-source-name-${_source!.id}',
+                child: Tooltip(
+                  message: '切换书源',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: _pickSource,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _source!.name,
+                              key: ValueKey(
+                                'discover-source-name-${_source!.id}',
+                              ),
+                              style: theme.textTheme.bodyMedium,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            style: theme.textTheme.bodyMedium,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        const AppIcon(
-                          AppGlyph.chevronDown,
-                          key: ValueKey('discover-source-arrow'),
-                          size: 18,
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          const AppIcon(
+                            AppGlyph.chevronDown,
+                            key: ValueKey('discover-source-arrow'),
+                            size: 18,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -134,7 +169,24 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
                 ),
               ),
               const SizedBox(height: 6),
-              if (filter == null)
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text('正在加载分类…'),
+                    ],
+                  ),
+                )
+              else if (_error != null)
+                TextButton(onPressed: _loadFilter, child: Text(_error!))
+              else if (filter == null)
                 const Text('当前书源不支持组合筛选')
               else
                 for (final group in filter.groups)

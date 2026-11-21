@@ -27,6 +27,14 @@ void main() {
     expect(captured.colorScheme.surface, ReaderTheme.black.background);
     expect(captured.colorScheme.onSurface, ReaderTheme.black.text);
     expect(captured.iconTheme.color, ReaderTheme.black.text);
+    expect(
+      (captured.dialogTheme.shape as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(24),
+    );
+    expect(
+      (captured.popupMenuTheme.shape as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(16),
+    );
   });
 
   testWidgets('设置面板在深色主题下使用深色背景', (tester) async {
@@ -74,7 +82,7 @@ void main() {
     );
 
     expect(find.text('排版'), findsNothing);
-    expect(find.text('选择翻页方式'), findsOneWidget);
+    expect(find.text('翻页方式'), findsOneWidget);
   });
 
   testWidgets('抽屉内容共用凝光底板，设置面板不叠加实色背景', (tester) async {

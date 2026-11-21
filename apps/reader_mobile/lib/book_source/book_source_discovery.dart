@@ -2,6 +2,28 @@ import 'dart:convert';
 
 import 'book_source_models.dart';
 
+/// 平台只显示可识别的来源标记，未知时保留标签而不以书源名称代替。
+({String platform, String tags}) onlineBookPlatformAndTags(String kind) {
+  final parts = kind.trim().split(RegExp(r'\s+'));
+  const platforms = {
+    'qidian': '起点中文网',
+    'fanqie': '番茄小说',
+    'jjwxc': '晋江文学城',
+    'po18': 'PO18',
+    'popo': 'POPO',
+    'hbooker': '刺猬猫阅读',
+    'haitang': '海棠',
+    'myrics': '米国度',
+    'hotpub': '河图文化',
+    'zongheng': '纵横中文网',
+  };
+  final platform = platforms[parts.first.toLowerCase()];
+  return (
+    platform: platform ?? '',
+    tags: platform == null ? kind.trim() : parts.skip(1).join(' '),
+  );
+}
+
 /// 书源声明的一个发现分类。
 class BookDiscoverCategory {
   const BookDiscoverCategory(this.title, this.url, {this.options = const {}});

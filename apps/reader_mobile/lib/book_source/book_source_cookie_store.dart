@@ -15,6 +15,74 @@ class BookSourceCookieStore {
   BookSourceCookieStore({Future<Directory> Function()? directoryProvider})
     : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory;
 
+  /// 后台目录任务使用内存快照，不访问平台目录或写入主存储。
+  BookSourceCookieStore.detached(Map<String, Object?> snapshot)
+    : _directoryProvider = getApplicationSupportDirectory,
+      _detached = true {
+    void copyMaps(String key, Map<String, Map<String, String>> target) {
+      for (final entry in (snapshot[key] as Map).entries) {
+        target['${entry.key}'] = Map<String, String>.from(entry.value as Map);
+      }
+    }
+
+    copyMaps('cookies', _cookies);
+    copyMaps('loginInfo', _loginInfo);
+    copyMaps('sourceValues', _sourceValues);
+    _loginHeaders.addAll(
+      Map<String, String>.from(snapshot['loginHeaders'] as Map),
+    );
+    _variables.addAll(Map<String, String>.from(snapshot['variables'] as Map));
+    _loaded = true;
+  }
+
+  bool _detached = false;
+
+  Map<String, Object?> get detachedSnapshot => {
+    'cookies': {
+      for (final entry in _cookies.entries) entry.key: Map.of(entry.value),
+    },
+    'loginInfo': {
+      for (final entry in _loginInfo.entries) entry.key: Map.of(entry.value),
+    },
+    'loginHeaders': Map.of(_loginHeaders),
+    'variables': Map.of(_variables),
+    'sourceValues': {
+      for (final entry in _sourceValues.entries) entry.key: Map.of(entry.value),
+    },
+  };
+
+  /// 只合并后台任务实际更改的键，避免覆盖前台新登录或预取状态。
+  Future<void> mergeDetachedChanges(
+    Map<String, Object?> before,
+    Map<String, Object?> after,
+  ) async {
+    var changed = false;
+    void merge(String key, Map<String, Map<String, String>> target) {
+      final oldGroups = before[key] as Map;
+      final newGroups = after[key] as Map;
+      for (final group in {...oldGroups.keys, ...newGroups.keys}) {
+        final oldValues = (oldGroups[group] as Map?) ?? {};
+        final newValues = (newGroups[group] as Map?) ?? {};
+        for (final name in {...oldValues.keys, ...newValues.keys}) {
+          if (oldValues[name] == newValues[name]) continue;
+          final current = target.putIfAbsent('$group', () => {});
+          // 前台已改写的同一键优先保留。
+          if (current['$name'] != oldValues[name]) continue;
+          if (newValues.containsKey(name)) {
+            current['$name'] = '${newValues[name]}';
+          } else {
+            current.remove('$name');
+          }
+          changed = true;
+        }
+      }
+    }
+
+    merge('cookies', _cookies);
+    merge('sourceValues', _sourceValues);
+    if (changed) await _persist();
+  }
+
   final Future<Directory> Function() _directoryProvider;
   final Map<String, Map<String, String>> _cookies =
       <String, Map<String, String>>{};
@@ -403,6 +471,7 @@ class BookSourceCookieStore {
   }
 
   Future<void> _persist() {
+    if (_detached) return Future<void>.value();
     if (!_loaded) return Future<void>.value();
     final snapshot = <String, Object?>{
       'version': 4,

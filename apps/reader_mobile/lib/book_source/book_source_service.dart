@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -99,6 +100,51 @@ typedef BookSourceScriptFactory = BookSourceScriptSession Function(
   BookSource source,
 );
 
+Future<
+  ({
+    List<OnlineChapter> chapters,
+    Map<String, Object?> cookies,
+    Map<String, Object?> memory,
+  })
+>
+_runBackgroundToc(
+  BookSource source,
+  OnlineBook book,
+  Map<String, Object?> cookies,
+  Map<String, Object?> memory,
+) => Isolate.run(() => _fetchBackgroundToc(source, book, cookies, memory));
+
+Future<
+  ({
+    List<OnlineChapter> chapters,
+    Map<String, Object?> cookies,
+    Map<String, Object?> memory,
+  })
+>
+_fetchBackgroundToc(
+  BookSource source,
+  OnlineBook book,
+  Map<String, Object?> snapshot,
+  Map<String, Object?> memory,
+) async {
+  final cookies = BookSourceCookieStore.detached(snapshot);
+  final service = BookSourceService(
+    cookieStore: cookies,
+    httpClient: BookSourceHttpClient(cookieStore: cookies),
+  );
+  service._scriptMemory[source.id] = memory;
+  try {
+    final chapters = await service.fetchToc(source, book);
+    return (
+      chapters: chapters,
+      cookies: cookies.detachedSnapshot,
+      memory: service._scriptMemory[source.id] ?? {},
+    );
+  } finally {
+    service.dispose();
+  }
+}
+
 class _ChapterContentRequest {
   _ChapterContentRequest({required this.forceRefresh});
 
@@ -123,6 +169,7 @@ class BookSourceService {
       rules: ruleEngine,
       epubBuilder: epubBuilder,
       chapterContentStore: chapterContentStore ?? OnlineChapterContentStore(),
+      backgroundToc: httpClient == null && scriptFactory == null,
       scriptFactory:
           scriptFactory ??
           (source) => QuickJsBookSourceScriptSession(
@@ -145,6 +192,7 @@ class BookSourceService {
     required this.epubBuilder,
     required this.chapterContentStore,
     required this.scriptFactory,
+    required this.backgroundToc,
   });
 
   final BookSourceCookieStore cookieStore;
@@ -152,6 +200,7 @@ class BookSourceService {
   final BookSourceRuleEngine rules;
   final OnlineEpubBuilder epubBuilder;
   final BookSourceScriptFactory scriptFactory;
+  final bool backgroundToc;
   final Map<String, Map<String, Object?>> _scriptMemory = {};
   final Set<String> _memoryChapters = {};
 
@@ -170,6 +219,8 @@ class BookSourceService {
       <String, Future<Uint8List?>>{};
   final Map<String, List<BookDiscoverCategory>> _discoverCategoryCache =
       <String, List<BookDiscoverCategory>>{};
+  final Map<String, Future<List<BookDiscoverCategory>>> _discoverCategoryTasks =
+      {};
 
   static const int maxChapterContentPages = 100;
 
@@ -187,6 +238,7 @@ class BookSourceService {
 
   void invalidateSourceSettings() {
     _discoverCategoryCache.clear();
+    _discoverCategoryTasks.clear();
     _scriptMemory.clear();
     _memoryChapters.clear();
   }
@@ -318,7 +370,30 @@ class BookSourceService {
   }
 
   /// 发现分类脚本中的联网请求异步重放，避免同步求值只生成降级榜单。
-  Future<List<BookDiscoverCategory>> loadDiscoverCategories(
+  Future<List<BookDiscoverCategory>> loadDiscoverCategories(BookSource source) {
+    final key = '${source.id}|${source.exploreUrl}|${source.jsLib}';
+    final cached = _discoverCategoryTasks[key];
+    if (cached != null) return cached;
+    // 延后到事件队列，弹窗和切源状态可以先完成一帧绘制。
+    final task = Future(() => _readDiscoverCategories(source));
+    _discoverCategoryTasks[key] = task;
+    while (_discoverCategoryTasks.length > 64) {
+      _discoverCategoryTasks.remove(_discoverCategoryTasks.keys.first);
+    }
+    unawaited(
+      task.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {
+          if (identical(_discoverCategoryTasks[key], task)) {
+            _discoverCategoryTasks.remove(key);
+          }
+        },
+      ),
+    );
+    return task;
+  }
+
+  Future<List<BookDiscoverCategory>> _readDiscoverCategories(
     BookSource source,
   ) async {
     final raw = source.exploreUrl.trim();
@@ -760,9 +835,10 @@ class BookSourceService {
         tocOptions: tocRequest.url.isEmpty
             ? book.tocOptions
             : tocRequest.options,
-        coverUrl: rules
-            .resolveUrl(response.uri.toString(), coverRequest.url)
-            .ifBlank(book.coverUrl),
+        // 发现页的签名缩略图已经可用，详情的旧封面规则不应将其替换掉。
+        coverUrl: book.coverUrl.ifBlank(
+          rules.resolveUrl(response.uri.toString(), coverRequest.url),
+        ),
         intro: normalizeOnlineIntro(
           _field(
             root,
@@ -795,7 +871,19 @@ class BookSourceService {
     OnlineBook book,
   ) async {
     await cookieStore.load();
-    final script = scriptFactory(source);
+    if (backgroundToc) {
+      final snapshot = cookieStore.detachedSnapshot;
+      final result = await _runBackgroundToc(
+        source,
+        book,
+        snapshot,
+        Map.of(_scriptMemory[source.id] ?? {}),
+      );
+      await cookieStore.mergeDetachedChanges(snapshot, result.cookies);
+      _scriptMemory.putIfAbsent(source.id, () => {}).addAll(result.memory);
+      return result.chapters;
+    }
+    final script = _scriptFor(source);
     try {
       final tocUrl = book.tocUrl.isNotBlank ? book.tocUrl : book.bookUrl;
       final tocIdentity = onlineRequestIdentity(tocUrl, book.tocOptions);
@@ -851,10 +939,12 @@ class BookSourceService {
           context,
           script: script,
         );
+        final batchWatch = Stopwatch()..start();
         for (final node in nodes) {
-          // 大目录逐批让出 UI 线程，脚本求值期间仍可响应滚动和返回。
-          if (chapters.length % 16 == 0) {
+          // 按实际解析耗时让出线程，避免快速字段也每 16 章等待一次计时器。
+          if (batchWatch.elapsedMilliseconds >= 8) {
             await Future<void>.delayed(Duration.zero);
+            batchWatch.reset();
           }
           var name = _field(node, source.toc.chapterName, context, script);
           var chapterUrl = _field(node, source.toc.chapterUrl, context, script);

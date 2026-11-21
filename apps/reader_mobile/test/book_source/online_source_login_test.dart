@@ -158,6 +158,20 @@ void main() {
       MaterialApp(home: OnlineSourcePage(controller: controller)),
     );
     await tester.pumpAndSettle();
+    expect(find.byType(CircleAvatar), findsNothing);
+    expect(
+      tester
+          .widget<ListTile>(find.byKey(ValueKey('online-source-${source.id}')))
+          .leading,
+      isNull,
+    );
+    await tester.tap(find.byTooltip('书源选项'));
+    await tester.pumpAndSettle();
+    expect(find.text('删除书源'), findsOneWidget);
+    expect(find.text('逐章加载'), findsNothing);
+    expect(find.text('整本下载'), findsNothing);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('online-source-login-${source.id}')));
     await tester.pumpAndSettle();
     final account = find.byKey(const ValueKey('online-login-field-账号'));

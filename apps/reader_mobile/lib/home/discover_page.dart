@@ -123,33 +123,38 @@ class _DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
-  Future<void> _selectSource(BookSource source) async {
+  Future<void> _selectSource(
+    BookSource source, {
+    BookDiscoverCategory? category,
+  }) async {
+    final version = ++_version;
+    setState(() {
+      _source = source;
+      _categories = const [];
+      _category = null;
+      _books = const [];
+      _loading = true;
+      _error = null;
+      _searchMode = false;
+      _filteredCategory = null;
+      _query.clear();
+    });
     try {
+      await widget.controller.selectDiscoverSource(source.id);
       final categories = await widget.controller.service.loadDiscoverCategories(
         source,
       );
-      if (!mounted) return;
+      if (!mounted || version != _version) return;
       setState(() {
-        _source = source;
         _categories = categories;
-        _category = categories.firstOrNull;
-        ++_version;
-        _books = const [];
+        _category = category ?? categories.firstOrNull;
+        _filteredCategory = category;
         _loading = false;
-        _error = null;
-        _searchMode = false;
-        _filteredCategory = null;
-        _query.clear();
       });
-      await widget.controller.selectDiscoverSource(source.id);
       await _load(reset: true);
     } on Object catch (error) {
-      ++_version;
+      if (!mounted || version != _version) return;
       setState(() {
-        _source = source;
-        _categories = const [];
-        _category = null;
-        _books = const [];
         _loading = false;
         _error = '无法读取发现分类：$error';
       });
@@ -408,10 +413,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
     if (mounted) _sourcesChanged();
   }
 
-  BookDiscoverFilter? _filterFor(BookSource source) {
-    final categories = source.id == _source?.id
+  Future<BookDiscoverFilter?> _filterFor(BookSource source) async {
+    final categories = source.id == _source?.id && _categories.isNotEmpty
         ? _categories
-        : widget.controller.service.discoverCategories(source);
+        : await widget.controller.service.loadDiscoverCategories(source);
     return parseDiscoverFilter(
       source.exploreUrl,
       categories,
@@ -433,11 +438,11 @@ class _DiscoverPageState extends State<DiscoverPage> {
       ),
     );
     if (!mounted || result == null) return;
-    if (_source?.id != result.source.id) {
-      await _selectSource(result.source);
-      if (!mounted) return;
-    }
     _filterSelections[result.source.id] = result.selection;
+    if (_source?.id != result.source.id) {
+      await _selectSource(result.source, category: result.category);
+      return;
+    }
     if (result.category != null) {
       setState(() {
         _filteredCategory = result.category;
@@ -777,6 +782,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   Widget _bookTile(BookSource source, OnlineBook book, {bool grid = false}) {
     final theme = Theme.of(context);
+    final kind = onlineBookPlatformAndTags(book.kind);
     final cover = _DiscoverCover(
       controller: widget.controller,
       source: source,
@@ -787,21 +793,32 @@ class _DiscoverPageState extends State<DiscoverPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          book.name,
-          maxLines: grid ? 2 : 1,
-          overflow: TextOverflow.ellipsis,
-          style:
-              (grid ? theme.textTheme.bodyMedium : theme.textTheme.titleMedium)
-                  ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        if (widget.controller.shelfEntryFor(source, book) != null)
-          Text(
-            '已在书架',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.primary,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                book.name,
+                maxLines: grid ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    (grid
+                            ? theme.textTheme.bodyMedium
+                            : theme.textTheme.titleMedium)
+                        ?.copyWith(fontWeight: FontWeight.w600),
+              ),
             ),
-          ),
+            if (widget.controller.shelfEntryFor(source, book) != null) ...[
+              const SizedBox(width: 6),
+              Text(
+                '已在书架',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ],
+        ),
         if (!grid) ...[
           const SizedBox(height: 3),
           Text(
@@ -811,7 +828,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 if (book.status.isNotEmpty) book.status,
               ].join(' · '),
               if (book.wordCount.isNotEmpty) book.wordCount,
-              _platformAndTags(book, source).$1,
+              if (kind.platform.isNotEmpty) kind.platform,
             ].join(' / '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -820,31 +837,26 @@ class _DiscoverPageState extends State<DiscoverPage> {
             ),
           ),
         ],
-        if (!grid && book.lastChapter.isNotEmpty) ...[
-          const SizedBox(height: 3),
-          Text(
-            '最新：${book.lastChapter}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall,
-          ),
-        ],
-        if (!grid && (book.updateTime.isNotEmpty || book.chapterCount > 0)) ...[
+        if (!grid &&
+            (book.lastChapter.isNotEmpty || book.chapterCount > 0)) ...[
           const SizedBox(height: 3),
           Text(
             [
               if (book.chapterCount > 0) '${book.chapterCount}章',
-              if (book.updateTime.isNotEmpty) book.updateTime,
+              if (book.lastChapter.isNotEmpty) '最新：${book.lastChapter}',
             ].join(' · '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall,
           ),
         ],
-        if (!grid && book.kind.isNotEmpty) ...[
+        if (!grid && (book.updateTime.isNotEmpty || kind.tags.isNotEmpty)) ...[
           const SizedBox(height: 3),
           Text(
-            _platformAndTags(book, source).$2,
+            [
+              if (book.updateTime.isNotEmpty) book.updateTime,
+              if (kind.tags.isNotEmpty) kind.tags,
+            ].join(' · '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall,
@@ -875,27 +887,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 ],
               ),
       ),
-    );
-  }
-
-  (String, String) _platformAndTags(OnlineBook book, BookSource source) {
-    final parts = book.kind.trim().split(RegExp(r'\s+'));
-    const platforms = {
-      'qidian': '起点中文网',
-      'fanqie': '番茄小说',
-      'jjwxc': '晋江文学城',
-      'po18': 'PO18',
-      'popo': 'POPO',
-      'hbooker': '刺猬猫阅读',
-      'haitang': '海棠',
-      'myrics': '米国度',
-      'hotpub': '河图文化',
-      'zongheng': '纵横中文网',
-    };
-    final platform = platforms[parts.first.toLowerCase()];
-    return (
-      platform ?? source.name,
-      platform == null ? book.kind : parts.skip(1).join(' '),
     );
   }
 }
