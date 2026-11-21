@@ -60,7 +60,11 @@ Future<double> chapterTopPadding(
       !hasBackground) {
     return 0;
   }
-  return -topInset - (first.isReplaced ? first.spaceBefore : 0);
+  // 出血抵消祖先外边距和阅读内缩，图片自身的上边距仍占据正文流。
+  return -topInset -
+      (first.isReplaced
+          ? first.spaceBefore - (first.style?.margin.top ?? 0)
+          : 0);
 }
 
 /// 从 body 的级联结果取整页背景；书籍未声明背景色、图像或渐变时返回 null。
