@@ -225,7 +225,6 @@ class _SearchPanelState extends State<SearchPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = ReaderDrawerStyle.mutedOf(theme);
-    final colors = theme.colorScheme;
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(20),
       borderSide: BorderSide.none,
@@ -249,10 +248,11 @@ class _SearchPanelState extends State<SearchPanel> {
                 Expanded(
                   child: Material(
                     key: const ValueKey('search-input-surface'),
-                    color: colors.surface,
+                    color: ReaderDrawerStyle.searchSurfaceOf(theme),
                     borderRadius: border.borderRadius,
-                    elevation: 2,
-                    shadowColor: colors.shadow.withValues(alpha: .12),
+                    elevation: 4,
+                    surfaceTintColor: Colors.transparent,
+                    shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
                     child: TextField(
                       key: const ValueKey<String>('search-input'),
                       controller: _controller,
@@ -267,7 +267,7 @@ class _SearchPanelState extends State<SearchPanel> {
                         hintStyle: _textStyle(theme).copyWith(color: muted),
                         isDense: true,
                         filled: true,
-                        fillColor: colors.surface,
+                        fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
                         contentPadding: const EdgeInsets.symmetric(vertical: 8),
                         border: border,
                         enabledBorder: border,
@@ -305,13 +305,6 @@ class _SearchPanelState extends State<SearchPanel> {
                 ),
               ],
             ),
-          ),
-          Divider(
-            height: 1,
-            thickness: 1,
-            indent: 18,
-            endIndent: 18,
-            color: ReaderDrawerStyle.optionBorderOf(theme),
           ),
           Expanded(child: _buildBody(theme)),
         ],
@@ -459,21 +452,8 @@ class _SearchPanelState extends State<SearchPanel> {
             ? '第 ${row + 1} 章'
             : hits.first.chapterTitle;
         final collapsed = _collapsedChapters.contains(row);
-        return AnimatedContainer(
-          key: ValueKey('search-chapter-line-$row'),
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeInOut,
-          margin: const EdgeInsets.only(left: 22, right: 24),
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
-              bottom: BorderSide(
-                color: collapsed
-                    ? Colors.transparent
-                    : ReaderDrawerStyle.optionBorderOf(theme),
-              ),
-            ),
-          ),
+        return Padding(
+          padding: const EdgeInsets.only(left: 22, right: 24),
           child: ListTile(
             key: ValueKey('search-chapter-$row'),
             minTileHeight: 40,
@@ -502,13 +482,8 @@ class _SearchPanelState extends State<SearchPanel> {
         );
       }
       final result = row as SearchPanelResult;
-      return Container(
-        margin: const EdgeInsets.only(left: 58, right: 24),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
-          ),
-        ),
+      return Padding(
+        padding: const EdgeInsets.only(left: 58, right: 24),
         child: ListTile(
           key: ValueKey<String>(
             'search-hit-${result.spineIndex}-${result.charOffset}',

@@ -52,7 +52,7 @@ class TocPanel extends StatefulWidget {
 }
 
 class _TocPanelState extends State<TocPanel> {
-  static const double _rowExtent = 56;
+  static const double _rowExtent = 40;
   static const double _listBottomPadding = 16;
 
   final ScrollController _fallbackController = ScrollController();
