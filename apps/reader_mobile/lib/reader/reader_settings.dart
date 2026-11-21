@@ -5,6 +5,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/mark_settings.dart';
+import 'package:reader_ui/bookmarks/bookmark_style.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/page_furniture/corner_info.dart';
@@ -234,6 +235,7 @@ class ReaderSettings {
     this.showSystemBars = false,
     this.markSettings = const ReaderMarkSettings(),
     this.tts = ReaderTtsSettings.defaults,
+    this.bookmarkStyle = const ReaderBookmarkStyle(),
   });
 
   /// 字号。
@@ -300,6 +302,9 @@ class ReaderSettings {
   /// 听书偏好。
   final ReaderTtsSettings tts;
 
+  /// 阅读页右上角书签的全局外观。
+  final ReaderBookmarkStyle bookmarkStyle;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -346,6 +351,7 @@ class ReaderSettings {
     bool showSystemBars = false,
     ReaderMarkSettings markSettings = const ReaderMarkSettings(),
     ReaderTtsSettings tts = ReaderTtsSettings.defaults,
+    ReaderBookmarkStyle bookmarkStyle = const ReaderBookmarkStyle(),
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -368,6 +374,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -395,6 +402,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -420,6 +428,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换主题。
@@ -447,6 +456,7 @@ class ReaderSettings {
       showSystemBars: showSystemBars,
       markSettings: markSettings,
       tts: tts,
+      bookmarkStyle: bookmarkStyle,
     );
   }
 
@@ -473,6 +483,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换墨水屏开关。
@@ -498,6 +509,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换页边距。
@@ -523,6 +535,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 修改四角显示，保留全部阅读偏好。
@@ -548,6 +561,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -573,6 +587,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换翻页方式。
@@ -598,6 +613,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换屏幕常亮开关。
@@ -623,6 +639,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换音量键翻页开关。
@@ -648,6 +665,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 复制并替换系统栏显示开关。
@@ -673,6 +691,7 @@ class ReaderSettings {
     showSystemBars: enabled,
     markSettings: markSettings,
     tts: tts,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 修改听书偏好，保留正文排版和阅读交互设置。
@@ -698,6 +717,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     tts: value,
+    bookmarkStyle: bookmarkStyle,
   );
 
   /// 修改划线偏好，保留全部正文排版与阅读交互设置。
@@ -724,6 +744,34 @@ class ReaderSettings {
         showSystemBars: showSystemBars,
         markSettings: value,
         tts: tts,
+        bookmarkStyle: bookmarkStyle,
+      );
+
+  /// 修改书签样式，保留全部正文排版与阅读交互设置。
+  ReaderSettings copyWithBookmarkStyle(ReaderBookmarkStyle value) =>
+      ReaderSettings(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        overrideEmbeddedFonts: overrideEmbeddedFonts,
+        lineHeight: lineHeight,
+        paragraphSpacing: paragraphSpacing,
+        horizontalPadding: horizontalPadding,
+        themeId: themeId,
+        dayThemeId: dayThemeId,
+        nightThemeId: nightThemeId,
+        customThemeId: customThemeId,
+        backgroundId: backgroundId,
+        inkMode: inkMode,
+        cornerInfo: cornerInfo,
+        margins: margins,
+        tapZones: tapZones,
+        pageTurnMode: pageTurnMode,
+        keepScreenOn: keepScreenOn,
+        volumeKeyPaging: volumeKeyPaging,
+        showSystemBars: showSystemBars,
+        markSettings: markSettings,
+        tts: tts,
+        bookmarkStyle: value,
       );
 
   @override
@@ -749,7 +797,8 @@ class ReaderSettings {
       other.volumeKeyPaging == volumeKeyPaging &&
       other.showSystemBars == showSystemBars &&
       other.markSettings == markSettings &&
-      other.tts == tts;
+      other.tts == tts &&
+      other.bookmarkStyle == bookmarkStyle;
 
   @override
   int get hashCode => Object.hashAll([
@@ -774,6 +823,7 @@ class ReaderSettings {
     showSystemBars,
     markSettings,
     tts,
+    bookmarkStyle,
   ]);
 }
 
@@ -806,6 +856,7 @@ class ReaderSettingsStore {
   static const String keyShowSystemBars = 'reader.showSystemBars';
 
   static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
+  static const String keyBookmarkStyle = 'reader.bookmarkStyle';
   static const String keyMarkLastColor = 'reader.mark.lastColor';
   static const String keyMarkLastStyle = 'reader.mark.lastStyle';
   static const String keyMarkStrokeWidth = 'reader.mark.strokeWidth';
@@ -859,6 +910,9 @@ class ReaderSettingsStore {
       showSystemBars: (await _library.getSetting(keyShowSystemBars)) == 'true',
       markSettings: await _loadMarkSettings(),
       tts: _readTts(await _library.getSetting(keyTts)),
+      bookmarkStyle: _readBookmarkStyle(
+        await _library.getSetting(keyBookmarkStyle),
+      ),
     );
   }
 
@@ -920,6 +974,14 @@ class ReaderSettingsStore {
             RegExp(r'^user_[0-9a-f]{64}$').hasMatch(raw)
         ? raw
         : null;
+  }
+
+  static ReaderBookmarkStyle _readBookmarkStyle(String? raw) {
+    try {
+      return ReaderBookmarkStyle.fromJson(jsonDecode(raw ?? '{}'));
+    } on FormatException {
+      return const ReaderBookmarkStyle();
+    }
   }
 
   Future<ReaderMarkSettings> _loadMarkSettings() async {
@@ -1017,6 +1079,10 @@ class ReaderSettingsStore {
     await _library.setSetting(
       keyCornerInfo,
       jsonEncode(settings.cornerInfo.toJson()),
+    );
+    await _library.setSetting(
+      keyBookmarkStyle,
+      jsonEncode(settings.bookmarkStyle.toJson()),
     );
     final mark = settings.markSettings;
     final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff
