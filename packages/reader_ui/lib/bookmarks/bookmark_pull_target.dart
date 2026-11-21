@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 
 import '../icons/app_icon.dart';
 import 'bookmark_ribbon.dart';
+import 'bookmark_style.dart';
 
 /// 仅在分页阅读时启用；纵向手势与正文横向翻页参与同一手势竞争。
 class BookmarkPullTarget extends StatefulWidget {
@@ -104,7 +105,7 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
         if (widget.ribbon != null && offset > 0)
           Positioned(
             top: 0,
-            right: 12 + widget.rightInset,
+            right: ReaderBookmarkStyle.rightInset + widget.rightInset,
             child: IgnorePointer(
               child: Semantics(
                 label: widget.bookmarked ? '当前页已有书签' : '添加书签',
@@ -121,7 +122,11 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
     return Positioned(
       top: widget.topInset + 28,
       left: 16,
-      right: 28 + widget.rightInset + (widget.ribbon?.style.width ?? 0),
+      right:
+          ReaderBookmarkStyle.rightInset +
+          16 +
+          widget.rightInset +
+          (widget.ribbon?.style.width ?? 0),
       child: IgnorePointer(
         child: Row(
           mainAxisAlignment: MainAxisAlignment.end,

@@ -3455,7 +3455,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         if (!widget.editMode && !_pullingBookmark && _hasBookmarkOn(page))
           Positioned(
             top: 0,
-            right: 12 + MediaQuery.paddingOf(context).right,
+            right: ReaderBookmarkStyle.rightInset +
+                MediaQuery.paddingOf(context).right,
             child: IgnorePointer(
               child: Semantics(
                 label: '当前页已有书签',

@@ -6,6 +6,9 @@ class ReaderBookmarkStyle {
   final double length;
   final String? imageId;
 
+  /// 从原右边距 12 向左移 25；纸面与下拉提示共用同一位置。
+  static const rightInset = 37.0;
+
   static const minWidth = 12.0;
   static const maxWidth = 96.0;
   static const minLength = 24.0;

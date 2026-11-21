@@ -165,6 +165,7 @@ Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
   final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
   expect(ribbon, findsOneWidget, reason: '下拉提示与纸面不能重复绘制书签');
   expect(tester.getTopRight(ribbon).dy, original.top);
+  expect(tester.getTopRight(ribbon).dx, original.right - 37);
   await gesture.up();
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 60));
@@ -208,7 +209,7 @@ Future<void> _expectSnapshotBookmark(
   required bool marked,
 }) async {
   final data = (await tester.runAsync(image.toByteData))!;
-  final x = (image.width * 330 / 360).floor();
+  final x = (image.width * 311 / 360).floor();
   final y = (image.height * 8 / 520).floor();
   final offset = (y * image.width + x) * 4;
   final channels = [for (var i = 0; i < 3; i++) data.getUint8(offset + i)];
@@ -261,7 +262,7 @@ void main() {
     final data = (await tester.runAsync(image.toByteData))!;
     final offset =
         ((image.height * 8 / 520).floor() * image.width +
-            (image.width * 330 / 360).floor()) *
+            (image.width * 311 / 360).floor()) *
         4;
     expect(
       [for (var i = 0; i < 4; i++) data.getUint8(offset + i)],
@@ -655,7 +656,7 @@ void main() {
     expect(ribbon, findsOneWidget);
     expect(tester.getSize(ribbon), const Size(32, 90));
     final readerRect = tester.getRect(find.byType(ReaderView));
-    expect(tester.getTopRight(ribbon).dx, readerRect.right - 12);
+    expect(tester.getTopRight(ribbon).dx, readerRect.right - 37);
     expect(tester.getTopRight(ribbon).dy, readerRect.top);
     await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
     await tester.pumpAndSettle();
