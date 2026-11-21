@@ -1,7 +1,7 @@
 import '../storage/reading_session_store.dart';
 
-/// 书架、书籍详情与书评时长只计入不少于该时长的阅读会话。
-const minimumCountedSessionDuration = Duration(minutes: 5);
+/// 书架、书籍详情与书评累计已保存的有效片段，与阅读跟踪器的门槛一致。
+const minimumCountedSessionDuration = Duration(seconds: 1);
 const minimumCountedDayDuration = Duration(minutes: 5);
 
 /// 一次会话在某个自然日内的有效部分。

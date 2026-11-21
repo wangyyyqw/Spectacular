@@ -62,7 +62,7 @@ void main() {
     expect(counts, isEmpty);
   });
 
-  test('票根时长使用与统计页相同的满五分钟会话口径', () async {
+  test('票根时长累计短于五分钟的有效阅读片段', () async {
     final sessions = library.readingSessionStore()!;
     final start = DateTime(2026, 11, 18, 9);
     await sessions.add(
@@ -89,6 +89,9 @@ void main() {
     final durations = await library.bookReadingDurations(
       minimumCountedSessionDuration,
     );
-    expect(durations, {noted.id: const Duration(minutes: 15)});
+    expect(durations, {
+      noted.id: const Duration(minutes: 19, seconds: 59),
+      untouched.id: const Duration(minutes: 2),
+    });
   });
 }

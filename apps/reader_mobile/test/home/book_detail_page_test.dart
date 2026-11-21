@@ -397,7 +397,7 @@ void main() {
     );
   });
 
-  testWidgets('详情页阅读记录不汇总低于五分钟的会话', (tester) async {
+  testWidgets('详情页阅读记录累计短于五分钟的有效片段', (tester) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     late BookEntry entry;
@@ -438,10 +438,10 @@ void main() {
     String valueOf(String key) =>
         tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
 
-    expect(valueOf('book-detail-total-duration'), '5 分钟');
-    expect(valueOf('book-detail-session-count'), '1');
-    expect(valueOf('book-detail-page-turns'), '1');
-    expect(valueOf('book-detail-characters-read'), '10');
+    expect(valueOf('book-detail-total-duration'), '10 分钟');
+    expect(valueOf('book-detail-session-count'), '2');
+    expect(valueOf('book-detail-page-turns'), '10');
+    expect(valueOf('book-detail-characters-read'), '910');
   });
 
   testWidgets('详情页可标记读完并保存评分与书评', (tester) async {

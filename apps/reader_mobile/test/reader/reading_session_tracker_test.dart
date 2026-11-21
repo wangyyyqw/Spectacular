@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/diagnostics/reader_log.dart';
+import 'package:reader_mobile/home/reading_insights.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reading_session_tracker.dart';
 import 'package:reader_mobile/storage/db.dart';
@@ -107,6 +108,51 @@ void main() {
     expect(store.items[0].charactersRead, 20);
     expect(store.items[1].pageTurns, 1);
     expect(store.items[1].charactersRead, 20);
+  });
+
+  test('多次短前台片段累计超过两小时，书架汇总不因暂停少计', () async {
+    final root = await Directory.systemTemp.createTemp('session-short-total-');
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(() async {
+      await db.close();
+      await root.delete(recursive: true);
+    });
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => root,
+    );
+    final book = await library.importBytes(
+      buildTestEpub(identifier: 'session-short-total'),
+    );
+    var now = DateTime(2026, 11, 21, 8);
+    final store = library.readingSessionStore()!;
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: book.id,
+      now: () => now,
+    )..start();
+    now = now.add(const Duration(minutes: 65));
+    await tracker.pause();
+    for (var index = 0; index < 21; index++) {
+      now = now.add(const Duration(minutes: 2));
+      tracker.start();
+      now = now.add(const Duration(minutes: 3));
+      await tracker.pause();
+    }
+    await tracker.finish();
+
+    const total = Duration(hours: 2, minutes: 8);
+    final sessions = await store.list();
+    expect(sessions, hasLength(22));
+    expect(
+      sessions.fold(Duration.zero, (sum, session) => sum + session.duration),
+      total,
+    );
+    final durations = await library.bookReadingDurations(
+      minimumCountedSessionDuration,
+    );
+    expect(durations[book.id], total);
+    expect(formatReadingDuration(durations[book.id]!), '2 小时 8 分');
   });
 
   test('跟踪器在计时前绑定原书，真实改版重键和原标识重导入不改变时段归属', () async {
