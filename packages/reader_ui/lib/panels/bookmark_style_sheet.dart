@@ -7,7 +7,7 @@ import '../bookmarks/bookmark_style.dart';
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
 
-/// 编辑全局书签样式，保存前只更新预览。
+/// 编辑全局书签样式与下拉开关，保存前只更新预览。
 class ReaderBookmarkStyleSheet extends StatefulWidget {
   const ReaderBookmarkStyleSheet({
     super.key,
@@ -76,13 +76,23 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
                     ],
                   ),
                   const Text('应用于所有书籍，显示在有书签的阅读页右上角。'),
+                  SwitchListTile.adaptive(
+                    key: const ValueKey('bookmark-pull-enabled'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('下拉书签'),
+                    subtitle: const Text('分页阅读时，下拉添加或移除当前页书签'),
+                    value: _style.pullEnabled,
+                    onChanged: (value) => setState(
+                      () => _style = _style.copyWith(pullEnabled: value),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   SizedBox(
                     height: ReaderBookmarkStyle.maxLength + 12,
                     child: ColoredBox(
                       color: Theme.of(context).colorScheme.surfaceContainerLow,
                       child: Padding(
-                        padding: const EdgeInsets.only(right: 16),
+                        padding: EdgeInsets.only(right: _style.rightInset),
                         child: Align(
                           alignment: Alignment.topRight,
                           child: ReaderBookmarkRibbon(
@@ -140,6 +150,15 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
                     ReaderBookmarkStyle.maxLength,
                     (value) =>
                         setState(() => _style = _style.copyWith(length: value)),
+                  ),
+                  _dimension(
+                    '距右侧',
+                    _style.rightInset,
+                    ReaderBookmarkStyle.minRightInset,
+                    ReaderBookmarkStyle.maxRightInset,
+                    (value) => setState(
+                      () => _style = _style.copyWith(rightInset: value),
+                    ),
                   ),
                 ],
               ),

@@ -16,14 +16,16 @@ import 'package:reader_ui/theme/reader_margins.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('书签样式保存恢复，全部设置复制路径保留自定义外观', () async {
+  test('书签样式和下拉开关保存恢复，全部设置复制路径保留', () async {
     final library = LibraryStore.memory();
     final store = ReaderSettingsStore(library);
     expect((await store.load()).bookmarkStyle, const ReaderBookmarkStyle());
     const style = ReaderBookmarkStyle(
       width: 40,
       length: 120,
+      rightInset: 72,
       imageId: 'image:/bookmark.png',
+      pullEnabled: false,
     );
     const tts = ReaderTtsSettings(
       mode: ReaderTtsMode.offline,
@@ -67,6 +69,17 @@ void main() {
       bookmarkStyle: settings.bookmarkStyle,
     );
     expect(restored, settings);
+    for (final changed in [
+      style.copyWith(width: 48),
+      style.withImage('image:other'),
+      style.withImage(null),
+    ]) {
+      expect(changed.pullEnabled, isFalse);
+    }
+    final enabled = style.copyWith(pullEnabled: true);
+    expect(enabled, isNot(style));
+    await store.save(settings.copyWithBookmarkStyle(enabled));
+    expect((await store.load()).bookmarkStyle, enabled);
   });
 
   test('旧设置和损坏数据回默认，超范围尺寸在读取边界限制', () async {
@@ -82,6 +95,26 @@ void main() {
       (await store.load()).bookmarkStyle,
       const ReaderBookmarkStyle(width: 12, length: 200),
     );
+    for (final (value, expected) in [(-20, 0.0), (9999, 160.0)]) {
+      await library.setSetting(
+        ReaderSettingsStore.keyBookmarkStyle,
+        '{"rightInset":$value}',
+      );
+      expect((await store.load()).bookmarkStyle.rightInset, expected);
+    }
+    expect(
+      const ReaderBookmarkStyle(rightInset: 72)
+          .withImage('image:test')
+          .rightInset,
+      72,
+    );
+    for (final value in ['null', '0', '"false"']) {
+      await library.setSetting(
+        ReaderSettingsStore.keyBookmarkStyle,
+        '{"pullEnabled":$value}',
+      );
+      expect((await store.load()).bookmarkStyle.pullEnabled, isTrue);
+    }
   });
 
   test('书签图片复制到独立目录，原文件移走后可恢复透明图片', () async {

@@ -68,8 +68,8 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
     final origin = _origin;
     if (origin == null) return;
     final offset = position - origin;
-    // 明显横移或先上滑的手势整次取消，避免翻页和往返拖动误触。
-    if (offset.dx.abs() > 48 || offset.dy < -kTouchSlop) {
+    // 只容忍触摸抖动范围内的横移，斜拉或先上滑整次取消。
+    if (offset.dx.abs() > kTouchSlop || offset.dy < -kTouchSlop) {
       _reset();
       return;
     }
@@ -102,10 +102,12 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
           offset: Offset(0, offset),
           child: ColoredBox(color: widget.background, child: child),
         ),
-        if (widget.ribbon != null && offset > 0)
+        // 归位结束先保留已添加的标记，下一帧与纸面同时交接。
+        if (widget.ribbon != null &&
+            (offset > 0 || (_pulling && widget.bookmarked)))
           Positioned(
             top: 0,
-            right: ReaderBookmarkStyle.rightInset + widget.rightInset,
+            right: widget.ribbon!.style.rightInset + widget.rightInset,
             child: IgnorePointer(
               child: Semantics(
                 label: widget.bookmarked ? '当前页已有书签' : '添加书签',
@@ -123,7 +125,8 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
       top: widget.topInset + 28,
       left: 16,
       right:
-          ReaderBookmarkStyle.rightInset +
+          (widget.ribbon?.style.rightInset ??
+              const ReaderBookmarkStyle().rightInset) +
           16 +
           widget.rightInset +
           (widget.ribbon?.style.width ?? 0),

@@ -143,12 +143,52 @@ Future<void> _openMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _openBookmarkStyle(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('样式'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _expectBookmarkPullDisabled(WidgetTester tester) async {
+  final view = find.byType(ReaderView);
+  final original = tester.getRect(view);
+  final gesture = await tester.startGesture(tester.getCenter(view));
+  await gesture.moveBy(const Offset(0, 25));
+  await tester.pump();
+  await gesture.moveBy(const Offset(0, 145));
+  await tester.pump();
+  expect(tester.getRect(view), original);
+  expect(find.text('松手确认添加'), findsNothing);
+  expect(find.text('松手确认移除'), findsNothing);
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
 Future<void> _move(WidgetTester tester, Future<Object?> action) async {
   unawaited(action);
   await tester.pumpAndSettle();
 }
 
-Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
+Future<void> _dragBookmark(WidgetTester tester, List<Offset> deltas) async {
+  final gesture = await tester.startGesture(
+    tester.getCenter(find.byType(ReaderView)),
+  );
+  for (final delta in deltas) {
+    await gesture.moveBy(delta);
+    await tester.pump();
+  }
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pullBookmark(
+  WidgetTester tester, {
+  bool remove = false,
+  double rightInset = 37,
+}) async {
   final view = find.byType(ReaderView);
   final original = tester.getRect(view);
   final gesture = await tester.startGesture(tester.getCenter(view));
@@ -165,7 +205,7 @@ Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
   final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
   expect(ribbon, findsOneWidget, reason: '下拉提示与纸面不能重复绘制书签');
   expect(tester.getTopRight(ribbon).dy, original.top);
-  expect(tester.getTopRight(ribbon).dx, original.right - 37);
+  expect(tester.getTopRight(ribbon).dx, original.right - rightInset);
   await gesture.up();
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 60));
@@ -176,6 +216,21 @@ Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
   expect(tester.getRect(view), original);
   expect(hint, findsNothing);
 }
+
+Future<Uint8List> _redPng(WidgetTester tester) async =>
+    (await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawColor(const Color(0xFFFF0000), BlendMode.src);
+      final picture = recorder.endRecording();
+      final image = picture.toImageSync(1, 1);
+      try {
+        return (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer
+            .asUint8List();
+      } finally {
+        image.dispose();
+        picture.dispose();
+      }
+    }))!;
 
 Future<void> _prepareTurn(WidgetTester tester, {required bool next}) async {
   final controller = tester
@@ -240,19 +295,7 @@ void main() {
       },
     );
     await _pullBookmark(tester);
-    final png = (await tester.runAsync(() async {
-      final recorder = ui.PictureRecorder();
-      Canvas(recorder).drawColor(const Color(0xFFFF0000), BlendMode.src);
-      final picture = recorder.endRecording();
-      final image = picture.toImageSync(1, 1);
-      try {
-        return (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer
-            .asUint8List();
-      } finally {
-        image.dispose();
-        picture.dispose();
-      }
-    }))!;
+    final png = await _redPng(tester);
     bytes.complete(png);
     await _prepareTurn(tester, next: true);
     final controller = tester
@@ -271,6 +314,95 @@ void main() {
     expect(loads, 1);
     controller.cancel();
     await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('图片书签下拉交接逐帧复用解码图，短拉保留翻页缓存', (tester) async {
+    final png = await _redPng(tester);
+    var loads = 0;
+    final bookmarks = _Bookmarks();
+    await _open(
+      tester,
+      bookmarks,
+      mode: PageTurnMode.simulation3d,
+      style: const ReaderBookmarkStyle(imageId: 'image:书签', rightInset: 64),
+      imageLoader: (_) async {
+        loads++;
+        return png;
+      },
+    );
+    await _pullBookmark(tester, rightInset: 64);
+    await _prepareTurn(tester, next: true);
+    final turn = tester.state<PageTurnViewState>(find.byType(PageTurnView));
+    turn.controller.cancel();
+    await tester.pumpAndSettle();
+    final ribbon = find.byType(ReaderBookmarkRibbon);
+    final decoded = tester
+        .widget<RawImage>(
+          find.descendant(of: ribbon, matching: find.byType(RawImage)),
+        )
+        .image;
+    expect(decoded, isNotNull);
+    final cached = turn.snapshotCount;
+    expect(cached, greaterThan(0));
+
+    // 反复在提示层与静态纸面间交接，不能短暂绘制黑色默认图标。
+    for (final distance in [80.0, 145.0, 145.0]) {
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(ReaderView)),
+      );
+      await gesture.moveBy(const Offset(0, 25));
+      await tester.pump();
+      await gesture.moveBy(Offset(0, distance));
+      await tester.pump();
+      if (distance == 80) expect(turn.snapshotCount, cached);
+      await gesture.up();
+      for (var frame = 0; frame < 16; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (bookmarks.items.isNotEmpty) {
+          expect(ribbon, findsWidgets, reason: '归位交接不能出现书签消失的一帧');
+        }
+        expect(
+          find.descendant(of: ribbon, matching: find.byType(ClipPath)),
+          findsNothing,
+        );
+        for (final image in tester.widgetList<RawImage>(
+          find.descendant(of: ribbon, matching: find.byType(RawImage)),
+        )) {
+          expect(image.image, same(decoded), reason: '重新挂载的每一帧直接使用同一解码图');
+        }
+      }
+      await tester.pumpAndSettle();
+    }
+    expect(bookmarks.items, hasLength(1));
+    expect(loads, 1);
+    await _prepareTurn(tester, next: true);
+    turn.controller.endDrag(
+      DragEndDetails(
+        velocity: const Velocity(pixelsPerSecond: Offset(-1000, 0)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _prepareTurn(tester, next: false);
+    turn.controller.endDrag(
+      DragEndDetails(
+        velocity: const Velocity(pixelsPerSecond: Offset(1000, 0)),
+      ),
+    );
+    for (var frame = 0; frame < 50; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        find.descendant(of: ribbon, matching: find.byType(ClipPath)),
+        findsNothing,
+      );
+      for (final image in tester.widgetList<RawImage>(
+        find.descendant(of: ribbon, matching: find.byType(RawImage)),
+      )) {
+        expect(image.image, same(decoded));
+      }
+    }
+    expect(loads, 1);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -450,6 +582,56 @@ void main() {
   for (final mode in PageTurnMode.values.where(
     (value) => value != PageTurnMode.scroll,
   )) {
+    testWidgets('${mode.label}左右斜拉不增删书签，取消后回正不触发，轻微手抖仍可下拉', (tester) async {
+      final bookmarks = _Bookmarks();
+      await _open(tester, bookmarks, mode: mode);
+      for (final bookmarked in [false, true]) {
+        final before = List.of(bookmarks.items);
+        for (final direction in [-1.0, 1.0]) {
+          for (final diagonalStart in [false, true]) {
+            await _dragBookmark(tester, [
+              Offset(diagonalStart ? 12 * direction : 0, 25),
+              Offset(diagonalStart ? 20 * direction : 32 * direction, 145),
+              Offset(-32 * direction, 30),
+            ]);
+            expect(bookmarks.items, before, reason: '斜拉取消后，回正继续下拉也不能触发');
+            expect(find.textContaining('松手确认'), findsNothing);
+          }
+        }
+        await _dragBookmark(tester, [
+          const Offset(4, 25),
+          const Offset(6, 145),
+        ]);
+        expect(bookmarks.items, hasLength(bookmarked ? 0 : 1));
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('${mode.label}关闭下拉书签后不增删，菜单添加和已有标记仍正常', (tester) async {
+      final bookmarks = _Bookmarks();
+      await _open(
+        tester,
+        bookmarks,
+        mode: mode,
+        style: const ReaderBookmarkStyle(pullEnabled: false),
+      );
+      await _expectBookmarkPullDisabled(tester);
+      expect(bookmarks.items, isEmpty);
+      await _openMenu(tester);
+      await tester.tap(find.byKey(const ValueKey('menu-add-bookmark')));
+      await tester.pumpAndSettle();
+      expect(bookmarks.items, hasLength(1));
+      final bookmark = bookmarks.items.single;
+      await _openMenu(tester);
+      await _expectBookmarkPullDisabled(tester);
+      expect(bookmarks.items.single, same(bookmark));
+      expect(
+        find.byKey(const ValueKey('reader-bookmark-ribbon')),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('${mode.label}下拉添加与移除，短拖和上滑不触发，横滑仍翻页', (tester) async {
       final bookmarks = _Bookmarks();
       final session = await _open(tester, bookmarks, mode: mode);
@@ -496,6 +678,35 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  testWidgets('书签面板保存开关后立即禁用或恢复下拉手势', (tester) async {
+    final bookmarks = _Bookmarks();
+    ReaderBookmarkStyle? saved;
+    await _open(tester, bookmarks, onStyle: (style) => saved = style);
+    for (final enabled in [false, true]) {
+      await _openMenu(tester);
+      await _openBookmarkStyle(tester);
+      final toggle = find.byKey(const ValueKey('bookmark-pull-enabled'));
+      expect(tester.widget<SwitchListTile>(toggle).value, !enabled);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('bookmark-style-save')));
+      await tester.pumpAndSettle();
+      expect(saved!.pullEnabled, enabled);
+      final mask = find.byKey(const ValueKey('menu-drawer-mask'));
+      await tester.tapAt(tester.getTopLeft(mask) + const Offset(10, 10));
+      await tester.pumpAndSettle();
+      await _openMenu(tester);
+      if (enabled) {
+        await _pullBookmark(tester);
+        expect(bookmarks.items, hasLength(1));
+      } else {
+        await _expectBookmarkPullDisabled(tester);
+        expect(bookmarks.items, isEmpty);
+      }
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   for (final mode in [PageTurnMode.cover, PageTurnMode.scroll]) {
     testWidgets('${mode.label}工具栏添加、重复去重、列表同步与删除标记', (tester) async {
@@ -639,7 +850,7 @@ void main() {
     final session = await _open(
       tester,
       bookmarks,
-      style: const ReaderBookmarkStyle(width: 32, length: 90),
+      style: const ReaderBookmarkStyle(width: 32, length: 90, rightInset: 64),
       onStyle: (style) => saved = style,
     );
     await _move(tester, session.next());
@@ -656,23 +867,26 @@ void main() {
     expect(ribbon, findsOneWidget);
     expect(tester.getSize(ribbon), const Size(32, 90));
     final readerRect = tester.getRect(find.byType(ReaderView));
-    expect(tester.getTopRight(ribbon).dx, readerRect.right - 37);
+    expect(tester.getTopRight(ribbon).dx, readerRect.right - 64);
     expect(tester.getTopRight(ribbon).dy, readerRect.top);
-    await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('样式'));
-    await tester.pumpAndSettle();
+    await _openBookmarkStyle(tester);
     final slider = find.byKey(const ValueKey('bookmark-宽度'));
     await tester.ensureVisible(slider);
     await tester.tapAt(tester.getCenter(slider));
     await tester.pumpAndSettle();
+    final inset = find.byKey(const ValueKey('bookmark-距右侧'));
+    await tester.ensureVisible(inset);
+    await tester.tapAt(tester.getCenter(inset));
+    await tester.pumpAndSettle();
+    final preview = find.byType(ReaderBookmarkRibbon).last;
+    expect(tester.widget<ReaderBookmarkRibbon>(preview).style.rightInset, 80);
     await tester.tap(find.byKey(const ValueKey('bookmark-style-save')));
     await tester.pumpAndSettle();
     expect(saved, isNotNull);
     expect(saved!.width, isNot(32));
+    expect(saved!.rightInset, 80);
     expect(tester.widget<ReaderBookmarkRibbon>(ribbon).style, saved);
+    expect(tester.getTopRight(ribbon).dx, readerRect.right - 80);
     expect(
       tester
           .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))

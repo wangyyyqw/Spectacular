@@ -1,33 +1,53 @@
-/// 全局书签外观；尺寸为逻辑像素，不参与正文排版。
+/// 全局书签外观与下拉开关；尺寸为逻辑像素，不参与正文排版。
 class ReaderBookmarkStyle {
-  const ReaderBookmarkStyle({this.width = 24, this.length = 60, this.imageId});
+  const ReaderBookmarkStyle({
+    this.width = 24,
+    this.length = 60,
+    this.rightInset = 37,
+    this.imageId,
+    this.pullEnabled = true,
+  });
 
   final double width;
   final double length;
+  final double rightInset;
   final String? imageId;
-
-  /// 从原右边距 12 向左移 25；纸面与下拉提示共用同一位置。
-  static const rightInset = 37.0;
+  final bool pullEnabled;
 
   static const minWidth = 12.0;
   static const maxWidth = 96.0;
   static const minLength = 24.0;
   static const maxLength = 200.0;
+  static const minRightInset = 0.0;
+  static const maxRightInset = 160.0;
 
-  ReaderBookmarkStyle copyWith({double? width, double? length}) =>
-      ReaderBookmarkStyle(
-        width: width ?? this.width,
-        length: length ?? this.length,
-        imageId: imageId,
-      );
+  ReaderBookmarkStyle copyWith({
+    double? width,
+    double? length,
+    double? rightInset,
+    bool? pullEnabled,
+  }) => ReaderBookmarkStyle(
+    width: width ?? this.width,
+    length: length ?? this.length,
+    rightInset: rightInset ?? this.rightInset,
+    imageId: imageId,
+    pullEnabled: pullEnabled ?? this.pullEnabled,
+  );
 
-  ReaderBookmarkStyle withImage(String? id) =>
-      ReaderBookmarkStyle(width: width, length: length, imageId: id);
+  ReaderBookmarkStyle withImage(String? id) => ReaderBookmarkStyle(
+    width: width,
+    length: length,
+    rightInset: rightInset,
+    imageId: id,
+    pullEnabled: pullEnabled,
+  );
 
   Map<String, Object?> toJson() => {
     'width': width,
     'length': length,
+    'rightInset': rightInset,
     'imageId': imageId,
+    'pullEnabled': pullEnabled,
   };
 
   factory ReaderBookmarkStyle.fromJson(Object? json) {
@@ -40,10 +60,13 @@ class ReaderBookmarkStyle {
     }
 
     final image = json['imageId'];
+    final pullEnabled = json['pullEnabled'];
     return ReaderBookmarkStyle(
       width: dimension('width', 24, minWidth, maxWidth),
       length: dimension('length', 60, minLength, maxLength),
+      rightInset: dimension('rightInset', 37, minRightInset, maxRightInset),
       imageId: image is String && image.startsWith('image:') ? image : null,
+      pullEnabled: pullEnabled is bool ? pullEnabled : true,
     );
   }
 
@@ -52,8 +75,11 @@ class ReaderBookmarkStyle {
       other is ReaderBookmarkStyle &&
       other.width == width &&
       other.length == length &&
-      other.imageId == imageId;
+      other.rightInset == rightInset &&
+      other.imageId == imageId &&
+      other.pullEnabled == pullEnabled;
 
   @override
-  int get hashCode => Object.hash(width, length, imageId);
+  int get hashCode =>
+      Object.hash(width, length, rightInset, imageId, pullEnabled);
 }
