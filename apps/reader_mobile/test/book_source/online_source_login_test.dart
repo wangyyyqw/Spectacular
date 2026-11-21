@@ -7,6 +7,8 @@ import 'package:reader_mobile/book_source/book_source_auth.dart';
 import 'package:reader_mobile/book_source/book_source_cookie_store.dart';
 import 'package:reader_mobile/book_source/book_source_http_client.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
+import 'package:reader_mobile/book_source/book_source_login_dialog.dart';
+import 'package:reader_mobile/book_source/book_source_login_config.dart';
 import 'package:reader_mobile/book_source/book_source_store.dart';
 import 'package:reader_mobile/book_source/online_book_controller.dart';
 import 'package:reader_mobile/book_source/online_source_page.dart';
@@ -14,6 +16,20 @@ import 'package:reader_mobile/library/library_store.dart';
 
 class _Auth extends BookSourceAuthService {
   Map<String, String>? received;
+  String? receivedAction;
+
+  @override
+  Future<BookSourceLoginResult> runAction(
+    BookSource source,
+    BookSourceCookieStore store,
+    Map<String, String> values,
+    String action, {
+    BookSourceHttpClient? httpClient,
+  }) async {
+    received = values;
+    receivedAction = action;
+    return const BookSourceLoginResult(success: true, message: '操作完成');
+  }
 
   @override
   Future<BookSourceLoginResult> loginWithCredentials(
@@ -36,16 +52,75 @@ class _Auth extends BookSourceAuthService {
 }
 
 void main() {
+  testWidgets('动态表单显示选择项和按钮，动作携带尚未提交的输入', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('source-controls-');
+    final auth = _Auth();
+    late OnlineBookController controller;
+    await tester.runAsync(() async {
+      controller = OnlineBookController(
+        library: LibraryStore.memory(),
+        cookieStore: BookSourceCookieStore(directoryProvider: () async => dir),
+        authService: auth,
+      );
+    });
+    addTearDown(() {
+      controller.dispose();
+      dir.deleteSync(recursive: true);
+    });
+    final source = BookSource.fromJson({
+      'bookSourceName': '动态源',
+      'bookSourceUrl': 'https://example.test',
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BookSourceLoginDialog(
+            source: source,
+            controller: controller,
+            rows: const [
+              BookSourceLoginField('密钥', 'password', ''),
+              BookSourceLoginField(
+                '接口',
+                'select',
+                '甲',
+                options: ['甲', '乙'],
+                action: 'switchInterface(result["接口"])',
+              ),
+              BookSourceLoginField('设置', 'button', '', action: 'configure()'),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('online-login-field-密钥')),
+      ' key== ',
+    );
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('乙').last);
+    await tester.pumpAndSettle();
+    expect(auth.received, {'密钥': ' key== ', '接口': '乙'});
+    expect(auth.receivedAction, 'switchInterface(result["接口"])');
+    await tester.tap(find.byKey(const ValueKey('online-login-action-设置')));
+    await tester.pumpAndSettle();
+    expect(auth.receivedAction, 'configure()');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('登录面板保留空网关，密码和 key 隐藏并原样交给登录入口', (tester) async {
     final dir = Directory.systemTemp.createTempSync('source-login-ui-');
     final sourceStore = BookSourceStore(directoryProvider: () async => dir);
     final auth = _Auth();
-    final controller = OnlineBookController(
-      library: LibraryStore.memory(),
-      store: sourceStore,
-      cookieStore: BookSourceCookieStore(directoryProvider: () async => dir),
-      authService: auth,
-    );
+    late OnlineBookController controller;
+    await tester.runAsync(() async {
+      controller = OnlineBookController(
+        library: LibraryStore.memory(),
+        store: sourceStore,
+        cookieStore: BookSourceCookieStore(directoryProvider: () async => dir),
+        authService: auth,
+      );
+    });
     addTearDown(() {
       controller.dispose();
       dir.deleteSync(recursive: true);

@@ -13,10 +13,12 @@ class BookSourceLoginPageResult {
   const BookSourceLoginPageResult({
     required this.cookieHeader,
     required this.url,
+    this.cookiesByDomain = const {},
   });
 
   final String cookieHeader;
   final String url;
+  final Map<String, String> cookiesByDomain;
 }
 
 /// 打开书源网页登录页。
@@ -48,16 +50,25 @@ class AndroidBookSourceLoginLauncher implements BookSourceLoginLauncher {
     return BookSourceLoginPageResult(
       cookieHeader: '${result['cookie'] ?? ''}',
       url: '${result['url'] ?? url}',
+      cookiesByDomain: {
+        for (final entry in (result['cookiesByDomain'] as Map? ?? {}).entries)
+          '${entry.key}': '${entry.value}',
+      },
     );
   }
 }
 
 /// 书源登录结果。
 class BookSourceLoginResult {
-  const BookSourceLoginResult({required this.success, required this.message});
+  const BookSourceLoginResult({
+    required this.success,
+    required this.message,
+    this.rebuildView = false,
+  });
 
   final bool success;
   final String message;
+  final bool rebuildView;
 }
 
 /// 管理书源输入登录、网页登录与登录信息。
@@ -66,6 +77,145 @@ class BookSourceAuthService {
     : launcher = launcher ?? const AndroidBookSourceLoginLauncher();
 
   final BookSourceLoginLauncher launcher;
+
+  QuickJsBookSourceScriptSession createScript(
+    BookSource source,
+    BookSourceCookieStore store, {
+    Map<String, String>? info,
+  }) => QuickJsBookSourceScriptSession(
+    jsLib: source.jsLib,
+    sourceKey: source.sourceUrl,
+    loginInfo: info ?? store.loginInfo(source),
+    loginHeader: store.loginHeader(source),
+    sourceVariable: store.sourceVariable(source),
+    sourceValues: store.sourceValues(source),
+    cookieProvider: store.cookieValue,
+    cookieHeaderProvider: store.cookieHeader,
+  );
+
+  Future<List<BookSourceLoginField>> rowsFor(
+    BookSource source,
+    BookSourceCookieStore store,
+  ) async {
+    await store.load();
+    final script = createScript(source, store);
+    try {
+      final rows = bookSourceLoginRows(source, script: script);
+      await store.saveSourceValues(source, script.sourceValueChanges);
+      return rows.isEmpty ? fieldsFor(source) : rows;
+    } finally {
+      script.dispose();
+    }
+  }
+
+  /// 执行源声明的按钮或选择动作，成功后立即保存设置。
+  Future<BookSourceLoginResult> runAction(
+    BookSource source,
+    BookSourceCookieStore store,
+    Map<String, String> values,
+    String action, {
+    BookSourceHttpClient? httpClient,
+  }) async {
+    await store.load();
+    final script = createScript(source, store, info: values);
+    final client = httpClient ?? BookSourceHttpClient(cookieStore: store);
+    try {
+      final uri = Uri.tryParse(action);
+      final code =
+          uri != null &&
+              const {'http', 'https'}.contains(uri.scheme) &&
+              uri.host.isNotEmpty
+          ? 'java.startBrowser(${jsonEncode(action)}, ${jsonEncode(source.name)})'
+          : '${bookSourceLoginScript(source)}\n${unwrapBookSourceScript(action)}';
+      await _execute(source, store, script, client, code, '');
+      await store.saveSourceValues(source, script.sourceValueChanges);
+      await store.saveSourceLogin(
+        source,
+        info: script.loginInfo,
+        header: script.loginHeader,
+        variable: script.sourceVariable,
+        invalidateContent: true,
+      );
+      return BookSourceLoginResult(
+        success: true,
+        message: script.messages.join('\n').trim(),
+        rebuildView: script.rebuildLoginView,
+      );
+    } on Object {
+      return const BookSourceLoginResult(
+        success: false,
+        message: '书源操作失败，请检查网络和书源配置',
+      );
+    } finally {
+      script.dispose();
+      if (httpClient == null) client.close();
+    }
+  }
+
+  Future<({String value, String body})> _execute(
+    BookSource source,
+    BookSourceCookieStore store,
+    QuickJsBookSourceScriptSession script,
+    BookSourceHttpClient client,
+    String code,
+    String result, {
+    bool formResult = true,
+  }) async {
+    var body = result;
+    for (var pass = 0; pass < 8; pass++) {
+      final value = script.evaluate(
+        code,
+        result: result,
+        variables: {
+          'baseUrl': source.baseUrl,
+          if (formResult) '_resultJson': jsonEncode(script.loginInfo),
+        },
+        resolveString: (_) => '',
+        resolveList: (_) => const [],
+      );
+      final requests = script.takePendingRequests();
+      final browsers = script.takeBrowserRequests();
+      for (final browser in browsers) {
+        final url = Uri.parse(source.baseUrl).resolve(browser.url);
+        if (!const {'http', 'https'}.contains(url.scheme) || url.host.isEmpty) {
+          throw const BookSourceException('网页登录地址无效');
+        }
+        final page = await launcher.open(
+          url: url.toString(),
+          title: browser.title.isEmpty ? source.name : browser.title,
+        );
+        if (page == null && browser.wait) {
+          throw const BookSourceException('已取消网页登录');
+        }
+        if (page != null) {
+          await _savePageCookies(source, page, store);
+        }
+        script.rememberBrowser(browser.key, page?.url ?? '');
+      }
+      if (requests.isEmpty && !browsers.any((browser) => browser.wait)) {
+        return (value: value, body: body);
+      }
+      for (final request in requests) {
+        final response = await client.fetchText(
+          source.copyWith(header: ''),
+          Uri.parse(source.baseUrl).resolve(request.url).toString(),
+          headers: {
+            ...evaluateBookSourceHeaders(source.header, script, source.baseUrl),
+            ...request.headers,
+          },
+          options: {
+            'method': request.method,
+            'body': request.body,
+            'useLoginHeader': false,
+          },
+        );
+        _requireSuccessfulLoginResponse(response.body);
+        body = response.body;
+        script.rememberResponse(request.key, body);
+      }
+    }
+    throw const BookSourceException('登录脚本请求未完成');
+  }
 
   List<BookSourceLoginField> fieldsFor(BookSource source) {
     final fields = bookSourceLoginFields(source);
@@ -86,18 +236,26 @@ class BookSourceAuthService {
     BookSourceHttpClient? httpClient,
   }) async {
     await store.load();
-    final configuredFields = bookSourceLoginFields(source);
+    final configuredFields = (await rowsFor(
+      source,
+      store,
+    )).where((row) => row.input).toList();
     final fields = configuredFields.isNotEmpty
         ? configuredFields
         : fieldsFor(source);
     if (fields.isEmpty) {
       return const BookSourceLoginResult(success: false, message: '书源没有登录输入配置');
     }
-    final info = {...store.loginInfo(source)};
+    final info = {
+      ...store.loginInfo(source),
+      if (source.loginUi.trim().startsWith('@js:') ||
+          source.loginUi.trim().startsWith('<js>'))
+        ...values,
+    };
     for (final field in fields) {
       final value = values[field.name] ?? field.defaultValue;
       // 自定义字段的空值交给源脚本处理，仅自动补出的账号密码必填。
-      if (configuredFields.isEmpty && value.trim().isEmpty) {
+      if (source.loginUi.trim().isEmpty && value.trim().isEmpty) {
         return BookSourceLoginResult(
           success: false,
           message: '请输入${field.name}',
@@ -116,18 +274,15 @@ class BookSourceAuthService {
       // 部分 key 源只声明 loginUi，脚本请求头直接读取输入值。
       if ((raw.isEmpty || raw.startsWith('http')) &&
           source.loginCheckJs.trim().isEmpty) {
-        await store.saveSourceLogin(source, info: info);
+        await store.saveSourceLogin(
+          source,
+          info: info,
+          invalidateContent: true,
+        );
         committed = true;
         return const BookSourceLoginResult(success: true, message: '登录信息已保存');
       }
-      script = QuickJsBookSourceScriptSession(
-        jsLib: source.jsLib,
-        sourceKey: source.sourceUrl,
-        loginInfo: info,
-        loginHeader: '',
-        sourceVariable: store.sourceVariable(source),
-        cookieProvider: store.cookieValue,
-      );
+      script = createScript(source, store, info: info)..loginHeader = '';
       var code = raw.startsWith('@js:') ? raw.substring(4) : raw;
       if (raw.startsWith('http')) code = '';
       if (code.startsWith('<js>')) {
@@ -147,34 +302,22 @@ class BookSourceAuthService {
         );
       }
 
-      Future<String> execute(String code, String result) async {
-        for (var pass = 0; pass < 8; pass++) {
-          final value = script!.evaluate(
-            code,
-            result: result,
-            variables: {'baseUrl': source.baseUrl},
-            resolveString: (_) => '',
-            resolveList: (_) => const [],
-          );
-          final requests = script.takePendingRequests();
-          if (requests.isEmpty) return value;
-          for (final request in requests) {
-            final response = await client.fetchText(
-              loginSource,
-              Uri.parse(source.baseUrl).resolve(request.url).toString(),
-              headers: {...requestHeaders(), ...request.headers},
-              options: {
-                'method': request.method,
-                'body': request.body,
-                'useLoginHeader': false,
-              },
-            );
-            _requireSuccessfulLoginResponse(response.body);
-            responseBody = response.body;
-            script!.rememberResponse(request.key, response.body);
-          }
-        }
-        throw const BookSourceException('登录脚本请求未完成');
+      Future<String> execute(
+        String code,
+        String result, {
+        bool formResult = true,
+      }) async {
+        final evaluated = await _execute(
+          source,
+          store,
+          script!,
+          client,
+          code,
+          result,
+          formResult: formResult,
+        );
+        responseBody = evaluated.body;
+        return evaluated.value;
       }
 
       // 旧源只暴露晚风账号接口时，沿用参考项目的 JSON 请求协议。
@@ -214,7 +357,8 @@ class BookSourceAuthService {
         if (check.startsWith('<js>')) {
           check = check.substring(4).replaceFirst(RegExp(r'</js>\s*$'), '');
         }
-        final checked = await execute(check, responseBody);
+        // 状态核验的 result 是响应文本，按钮和 login() 的 result 才是表单。
+        final checked = await execute(check, responseBody, formResult: false);
         if (checked == 'false') {
           throw const BookSourceException('登录状态核验未通过');
         }
@@ -229,7 +373,9 @@ class BookSourceAuthService {
         info: script.loginInfo,
         header: script.loginHeader,
         variable: script.sourceVariable,
+        invalidateContent: true,
       );
+      await store.saveSourceValues(source, script.sourceValueChanges);
       committed = true;
       final cookies = store.cookieHeader(source.baseUrl);
       if (cookies.isNotEmpty) {
@@ -277,6 +423,23 @@ class BookSourceAuthService {
     }
   }
 
+  Future<void> _savePageCookies(
+    BookSource source,
+    BookSourceLoginPageResult page,
+    BookSourceCookieStore store,
+  ) async {
+    final headers = page.cookiesByDomain.isEmpty
+        ? {Uri.parse(page.url).host: page.cookieHeader}
+        : page.cookiesByDomain;
+    for (final entry in headers.entries) {
+      await store.saveLoginCookies(
+        entry.key,
+        parseLoginCookies(entry.value),
+        source: source,
+      );
+    }
+  }
+
   Future<BookSourceLoginResult> login(
     BookSource source,
     BookSourceCookieStore store,
@@ -299,9 +462,7 @@ class BookSourceAuthService {
         message: '登录页未返回 Cookie，请确认已完成登录',
       );
     }
-    final domain =
-        Uri.tryParse(page.url)?.host ?? Uri.tryParse(loginUrl)?.host ?? '';
-    await store.saveLoginCookies(domain, cookies);
+    await _savePageCookies(source, page, store);
     return BookSourceLoginResult(
       success: true,
       message: '登录成功，已保存 ${cookies.length} 项 Cookie',

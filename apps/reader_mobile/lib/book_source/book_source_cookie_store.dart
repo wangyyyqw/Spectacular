@@ -19,26 +19,47 @@ class BookSourceCookieStore {
   final Map<String, Map<String, String>> _cookies =
       <String, Map<String, String>>{};
   final Set<String> _loginDomains = <String>{};
+  final Map<String, Set<String>> _sourceLoginDomains = {};
   final Map<String, Map<String, String>> _loginInfo = {};
   final Map<String, String> _loginHeaders = {};
   final Map<String, String> _variables = {};
+  final Map<String, Map<String, String>> _sourceValues = {};
+  final Map<String, int> _settingsRevisions = {};
 
   Map<String, String> loginInfo(BookSource source) =>
       Map.of(_loginInfo[source.id] ?? const {});
 
   String loginHeader(BookSource source) => _loginHeaders[source.id] ?? '';
   String sourceVariable(BookSource source) => _variables[source.id] ?? '';
+  Map<String, String> sourceValues(BookSource source) =>
+      Map.of(_sourceValues[source.id] ?? const {});
+  int settingsRevision(BookSource source) => _settingsRevisions[source.id] ?? 0;
+
+  /// 只合并本次脚本修改的键，避免并发章节覆盖彼此的状态。
+  Future<void> saveSourceValues(
+    BookSource source,
+    Map<String, String> changes,
+  ) async {
+    if (changes.isEmpty) return;
+    await load();
+    _sourceValues.putIfAbsent(source.id, () => {}).addAll(changes);
+    await _persist();
+  }
 
   Future<void> saveSourceLogin(
     BookSource source, {
     Map<String, String>? info,
     String? header,
     String? variable,
+    bool invalidateContent = false,
   }) async {
     await load();
     if (info != null) _loginInfo[source.id] = Map.of(info);
     if (header != null) _loginHeaders[source.id] = header;
     if (variable != null) _variables[source.id] = variable;
+    if (invalidateContent) {
+      _settingsRevisions[source.id] = settingsRevision(source) + 1;
+    }
     await _persist();
   }
 
@@ -95,8 +116,9 @@ class BookSourceCookieStore {
   /// 保存网页登录返回的 Cookie。
   Future<void> saveLoginCookies(
     String domain,
-    Map<String, String> cookies,
-  ) async {
+    Map<String, String> cookies, {
+    BookSource? source,
+  }) async {
     await load();
     final target = normalizeCookieDomain(domain);
     if (target.isEmpty) return;
@@ -116,6 +138,9 @@ class BookSourceCookieStore {
       _loginDomains.remove(target);
     } else {
       _loginDomains.add(target);
+      if (source != null) {
+        _sourceLoginDomains.putIfAbsent(source.id, () => {}).add(target);
+      }
     }
     await _persist();
   }
@@ -204,7 +229,12 @@ class BookSourceCookieStore {
     _loginInfo.remove(source.id);
     _loginHeaders.remove(source.id);
     _variables.remove(source.id);
-    final hosts = _sourceHosts(source);
+    _sourceValues.remove(source.id);
+    _settingsRevisions[source.id] = settingsRevision(source) + 1;
+    final hosts = [
+      ..._sourceHosts(source),
+      ...?_sourceLoginDomains.remove(source.id),
+    ];
     _cookies.removeWhere((domain, _) {
       for (final host in hosts) {
         if (cookieDomainMatches(host, domain) ||
@@ -239,7 +269,7 @@ class BookSourceCookieStore {
   }
 
   List<String> _sourceHosts(BookSource source) {
-    final hosts = <String>{};
+    final hosts = <String>{...?_sourceLoginDomains[source.id]};
     for (final value in <String>[source.sourceUrl, source.loginUrl]) {
       final uri = Uri.tryParse(value.trim());
       if (uri != null && uri.host.isNotEmpty) {
@@ -265,14 +295,31 @@ class BookSourceCookieStore {
     _loaded = false;
     _cookies.clear();
     _loginDomains.clear();
+    _sourceLoginDomains.clear();
     _loginInfo.clear();
     _loginHeaders.clear();
     _variables.clear();
+    _sourceValues.clear();
+    _settingsRevisions.clear();
     try {
       final file = await _cookieFile();
       if (await file.exists()) {
         final decoded = jsonDecode(await file.readAsString());
         if (decoded is Map) {
+          for (final entry
+              in (decoded['settingsRevisions'] as Map? ?? {}).entries) {
+            _settingsRevisions['${entry.key}'] =
+                int.tryParse('${entry.value}') ?? 0;
+          }
+          for (final entry
+              in (decoded['sourceLoginDomains'] as Map? ?? {}).entries) {
+            if (entry.value is List) {
+              _sourceLoginDomains['${entry.key}'] = {
+                for (final value in entry.value as List)
+                  normalizeCookieDomain('$value'),
+              };
+            }
+          }
           final info = decoded['loginInfo'];
           if (info is Map) {
             for (final entry in info.entries) {
@@ -289,6 +336,14 @@ class BookSourceCookieStore {
           }
           for (final entry in (decoded['variables'] as Map? ?? {}).entries) {
             _variables['${entry.key}'] = '${entry.value}';
+          }
+          for (final entry in (decoded['sourceValues'] as Map? ?? {}).entries) {
+            if (entry.value is Map) {
+              _sourceValues['${entry.key}'] = {
+                for (final item in (entry.value as Map).entries)
+                  '${item.key}': '${item.value}',
+              };
+            }
           }
         }
         final rawCookies = decoded is Map ? decoded['cookies'] : null;
@@ -318,22 +373,31 @@ class BookSourceCookieStore {
     } on FormatException {
       _cookies.clear();
       _loginDomains.clear();
+      _sourceLoginDomains.clear();
       _loginInfo.clear();
       _loginHeaders.clear();
       _variables.clear();
+      _sourceValues.clear();
+      _settingsRevisions.clear();
     } on FileSystemException {
       _cookies.clear();
       _loginDomains.clear();
+      _sourceLoginDomains.clear();
       _loginInfo.clear();
       _loginHeaders.clear();
       _variables.clear();
+      _sourceValues.clear();
+      _settingsRevisions.clear();
     } on Object {
       // Cookie 是可选增强；平台目录不可用时按空 Cookie 继续。
       _cookies.clear();
       _loginDomains.clear();
+      _sourceLoginDomains.clear();
       _loginInfo.clear();
       _loginHeaders.clear();
       _variables.clear();
+      _sourceValues.clear();
+      _settingsRevisions.clear();
     }
     _loaded = true;
   }
@@ -341,17 +405,26 @@ class BookSourceCookieStore {
   Future<void> _persist() {
     if (!_loaded) return Future<void>.value();
     final snapshot = <String, Object?>{
-      'version': 3,
+      'version': 4,
       'loginInfo': {
         for (final entry in _loginInfo.entries) entry.key: Map.of(entry.value),
       },
       'loginHeaders': Map.of(_loginHeaders),
       'variables': Map.of(_variables),
+      'settingsRevisions': Map.of(_settingsRevisions),
+      'sourceValues': {
+        for (final entry in _sourceValues.entries)
+          entry.key: Map.of(entry.value),
+      },
       'cookies': <String, Object?>{
         for (final entry in _cookies.entries)
           entry.key: Map<String, String>.of(entry.value),
       },
       'loginDomains': _loginDomains.toList()..sort(),
+      'sourceLoginDomains': {
+        for (final entry in _sourceLoginDomains.entries)
+          entry.key: entry.value.toList()..sort(),
+      },
     };
     _writeQueue = _writeQueue
         .catchError((Object _) {})

@@ -13,6 +13,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import org.json.JSONObject
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -135,6 +136,7 @@ class OnlineSourceLoginActivity : Activity() {
         val manager = CookieManager.getInstance()
         manager.flush()
         val cookies = linkedMapOf<String, String>()
+        val cookiesByDomain = linkedMapOf<String, String>()
         val urls = linkedSetOf<String>()
         webView.url?.takeIf { it.isNotBlank() }?.let(urls::add)
         urls.add(startUrl)
@@ -145,6 +147,10 @@ class OnlineSourceLoginActivity : Activity() {
         }
         for (url in urls) {
             val header = manager.getCookie(url).orEmpty()
+            val host = Uri.parse(url).host.orEmpty()
+            if (host.isNotEmpty() && header.isNotEmpty()) {
+                cookiesByDomain[host] = header
+            }
             for (part in header.split(';')) {
                 val text = part.trim()
                 val index = text.indexOf('=')
@@ -161,6 +167,7 @@ class OnlineSourceLoginActivity : Activity() {
                 "${it.key}=${it.value}"
             })
             putExtra(EXTRA_FINAL_URL, webView.url ?: startUrl)
+            putExtra(EXTRA_COOKIES_BY_DOMAIN, JSONObject(cookiesByDomain).toString())
         }
         setResult(RESULT_OK, data)
         finish()
@@ -171,5 +178,6 @@ class OnlineSourceLoginActivity : Activity() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_COOKIE = "cookie"
         const val EXTRA_FINAL_URL = "finalUrl"
+        const val EXTRA_COOKIES_BY_DOMAIN = "cookiesByDomain"
     }
 }

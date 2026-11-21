@@ -222,7 +222,14 @@ class BookSourceRuleEngine {
             .evaluate(
               parts.script,
               result: _scriptValueAsString(input),
-              variables: context.variables,
+              variables: {
+                ...context.variables,
+                'baseUrl': context.pageUrl.isEmpty
+                    ? context.baseUrl
+                    : context.pageUrl,
+                if (input is Map || input is List)
+                  '_resultJson': jsonEncode(input),
+              },
               resolveString: (path) =>
                   _evaluatePlainString(root, path, context),
               resolveList: (path) => _evaluatePlainList(root, path, context),

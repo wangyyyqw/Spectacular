@@ -209,7 +209,22 @@ class OnlineBookController extends ChangeNotifier {
         ? await auth.login(source, cookieStore)
         : await auth.loginWithCredentials(source, cookieStore, credentials);
     if (result.success) {
+      service.invalidateSourceSettings();
       _loggedInSourceIds = <String>{..._loggedInSourceIds, source.id};
+      notifyListeners();
+    }
+    return result;
+  }
+
+  Future<BookSourceLoginResult> runLoginAction(
+    BookSource source,
+    Map<String, String> values,
+    String action,
+  ) async {
+    final result = await auth.runAction(source, cookieStore, values, action);
+    if (result.success) {
+      service.invalidateSourceSettings();
+      _loggedInSourceIds = {..._loggedInSourceIds, source.id};
       notifyListeners();
     }
     return result;

@@ -131,6 +131,8 @@ class BookSourceService {
             loginInfo: store.loginInfo(source),
             loginHeader: store.loginHeader(source),
             sourceVariable: store.sourceVariable(source),
+            sourceValues: store.sourceValues(source),
+            cookieHeaderProvider: store.cookieHeader,
           ),
     );
   }
@@ -160,6 +162,17 @@ class BookSourceService {
   static const int maxChapterContentPages = 100;
 
   void dispose() => http.close();
+
+  Future<void> _saveScriptValues(
+    BookSource source,
+    BookSourceScriptSession script,
+  ) async {
+    if (script is QuickJsBookSourceScriptSession) {
+      await cookieStore.saveSourceValues(source, script.sourceValueChanges);
+    }
+  }
+
+  void invalidateSourceSettings() => _discoverCategoryCache.clear();
 
   /// 来源停止产生请求后，等待已有章节读取与缓存写入释放资源。
   /// 阅读页退出仍可立即取消布局；清理缓存目录时再等待这些独立任务。
@@ -264,7 +277,8 @@ class BookSourceService {
             ? raw.substring(4).replaceFirst(RegExp(r'</js>\s*$'), '')
             : '($raw)';
         raw = script.evaluate(
-          'JSON.stringify(eval(${jsonEncode(body)}))',
+          '(function(){var value=eval(${jsonEncode(body)});'
+          'return typeof value==="string"?value:JSON.stringify(value);})()',
           result: '',
           variables: {'baseUrl': source.baseUrl},
           resolveString: (_) => '',
@@ -521,6 +535,7 @@ class BookSourceService {
       }
       return books;
     } finally {
+      await _saveScriptValues(source, script);
       script.dispose();
     }
   }
@@ -706,6 +721,7 @@ class BookSourceService {
         lastChapter: lastChapter,
       );
     } finally {
+      await _saveScriptValues(source, script);
       script.dispose();
     }
   }
@@ -873,6 +889,7 @@ class BookSourceService {
       }
       return chapters;
     } finally {
+      await _saveScriptValues(source, script);
       script.dispose();
     }
   }
@@ -1202,6 +1219,7 @@ class BookSourceService {
             'chapterUrl': chapter.url,
             'nextChapterUrl': boundary?.url ?? '',
             'title': chapter.title,
+            'chapterIndex': '${chapter.index}',
           },
         );
         final html = await _evaluateContentRule(
@@ -1245,6 +1263,7 @@ class BookSourceService {
               'chapterUrl': chapter.url,
               'nextChapterUrl': boundary?.url ?? '',
               'title': chapter.title,
+              'chapterIndex': '${chapter.index}',
             },
           ),
           script: script,
@@ -1261,6 +1280,7 @@ class BookSourceService {
       }
       return content;
     } finally {
+      await _saveScriptValues(source, script);
       script.dispose();
     }
   }
@@ -1376,6 +1396,8 @@ class BookSourceService {
           utf8.encode(
             jsonEncode([
               contentRulesFingerprint(source),
+              if (cookieStore.settingsRevision(source) > 0)
+                cookieStore.settingsRevision(source),
               chapter.title,
               chapter.updateTime,
               onlineChapterIdentity(chapter),

@@ -5,6 +5,7 @@ import android.content.Intent
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 
 class OnlineSourceLoginHandler(
     private val activity: Activity,
@@ -49,10 +50,16 @@ class OnlineSourceLoginHandler(
             result.success(null)
             return true
         }
+        val cookiesByDomain = JSONObject(
+            data?.getStringExtra(OnlineSourceLoginActivity.EXTRA_COOKIES_BY_DOMAIN) ?: "{}",
+        )
         result.success(
             mapOf(
                 "cookie" to data?.getStringExtra(OnlineSourceLoginActivity.EXTRA_COOKIE).orEmpty(),
                 "url" to data?.getStringExtra(OnlineSourceLoginActivity.EXTRA_FINAL_URL).orEmpty(),
+                "cookiesByDomain" to cookiesByDomain.keys().asSequence().associateWith {
+                    cookiesByDomain.getString(it)
+                },
             ),
         )
         return true

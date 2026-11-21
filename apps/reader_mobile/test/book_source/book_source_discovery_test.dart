@@ -74,7 +74,7 @@ function search(params){var parts=[];parts.push('cache_min=1');parts.push('page=
       variables,
       session,
     ) {
-      expect(code, contains('JSON.stringify(eval('));
+      expect(code, contains('JSON.stringify(value)'));
       expect(variables['baseUrl'], 'https://example.com');
       return '[{"title":"人气最高","url":"/popular"}]';
     });

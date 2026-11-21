@@ -154,7 +154,9 @@ flutter test --no-pub test/editing/epub_edit_stress_test.dart \
 
 正文缓存规则版本为 4，旧版本独有的在线正文首次需要联网重新获取，旧缓存文件保留；旧续读记录按章节地址和请求参数恢复，旧版章内坐标保守重置到原章章首。本地 EPUB 的缓存和续读版本保持原有规则。
 
-规则兼容限于已实现的子集：XPath、WebView 资源嗅探和完整 Legado `book/chapter` 脚本对象尚未实现；部分 CSS `nth-child` 行为受现有 DOM 库限制。`sourceRegex` 保留资源嗅探声明，不作为 HTTP 正文正则执行。全文替换脚本中的 `java.getString` 基于合章正文解析。
+书源登录支持静态 JSON 与 `@js:`／`<js>` 动态 `loginUi`，输入、按钮、选择项和切换项按源声明显示。按钮动作带入当前表单值，`java.reLoginView()` 可切换设置菜单；`source.put/get` 与 `java.put/get` 的源级设置保存到本机，并用于后续搜索、目录和正文。提交登录设置后，旧正文缓存与章内坐标不再复用，下一次获取正文需要联网；原缓存文件保留。Android 支持 `startBrowser` 与 `startBrowserAwait` 打开登录页，完成后按域名保存 Cookie，脚本可用 `cookie.getCookie/getKey` 或 `java.getCookie` 读取。服务端 API 密钥与网站 Cookie 分别遵循源声明，保存输入不代表服务端已经核验密钥。
+
+规则兼容限于已实现的子集：XPath、WebView 资源嗅探和完整 Legado `book/chapter` 脚本对象尚未实现，目前只传递书籍地址及章节地址、标题和序号；部分 CSS `nth-child` 行为受现有 DOM 库限制。JSON 脚本结果可按对象访问字段，也可转成 JSON 文本供 `JSON.parse(result)` 使用。`sourceRegex` 保留资源嗅探声明，不作为 HTTP 正文正则执行。全文替换脚本中的 `java.getString` 基于合章正文解析。Windows 当前可保存密钥和设置，原生网页登录入口尚未实现；书源中的短剧、听书播放器、段评弹窗和事件脚本仍需各自对应的宿主能力。发现分类脚本目前同步求值，脚本中联网补取的分类尚未调度；不依赖网络的榜单和频道入口可正常生成。
 
 ## 本地运行
 

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/book_source/book_source_cookie_store.dart';
@@ -17,6 +18,42 @@ const _source = BookSource(
 );
 
 void main() {
+  test('旧版登录文件升级保留凭据与 Cookie，源设置合并并可重新读取', () async {
+    final directory = await Directory.systemTemp.createTemp('cookie-upgrade-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/book_sources/cookies.json');
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      jsonEncode({
+        'version': 3,
+        'loginInfo': {
+          'fanqie': {'密钥': '原密钥'},
+        },
+        'loginHeaders': {'fanqie': '{"X-Key":"原密钥"}'},
+        'variables': {'fanqie': '原变量'},
+        'cookies': {
+          'fanqienovel.com': {'sessionid': '原会话'},
+        },
+        'loginDomains': ['fanqienovel.com'],
+      }),
+    );
+    final store = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    await store.saveSourceValues(_source, {'接口': '甲'});
+    await store.saveSourceValues(_source, {'频道': '女频'});
+    final restored = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    await restored.load();
+    expect(restored.loginInfo(_source), {'密钥': '原密钥'});
+    expect(restored.loginHeader(_source), '{"X-Key":"原密钥"}');
+    expect(restored.sourceVariable(_source), '原变量');
+    expect(restored.cookieHeader('fanqienovel.com'), 'sessionid=原会话');
+    expect(restored.sourceValues(_source), {'接口': '甲', '频道': '女频'});
+    expect(restored.settingsRevision(_source), 0);
+  });
+
   test('Set-Cookie 持久化并在新实例中按域名复用', () async {
     final directory = await Directory.systemTemp.createTemp('cookie-store-');
     addTearDown(() => directory.delete(recursive: true));

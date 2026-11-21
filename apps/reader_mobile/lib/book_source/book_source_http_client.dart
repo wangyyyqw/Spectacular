@@ -389,6 +389,8 @@ class BookSourceHttpClient {
         loginInfo: cookieStore?.loginInfo(source) ?? const {},
         loginHeader: cookieStore?.loginHeader(source) ?? '',
         sourceVariable: cookieStore?.sourceVariable(source) ?? '',
+        sourceValues: cookieStore?.sourceValues(source) ?? const {},
+        cookieHeaderProvider: cookieStore?.cookieHeader,
         cookieProvider: cookieStore?.cookieValue,
       );
       try {
