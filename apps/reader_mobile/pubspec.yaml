@@ -100,6 +100,7 @@ flutter:
   assets:
     - assets/textures/
     - assets/ye_she/
+    - assets/ye_she/items/
     - integration_test/m0_page_sequence.json
 
   # 内置正文宋体与黑体（OFL），字体别名表把宋体/serif、黑体/sans-serif

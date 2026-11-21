@@ -12,6 +12,8 @@ http.Response _json(Object? body, {int status = 200}) => http.Response(
 );
 
 void main() {
+  setUp(YeSheApiClient.clearCache);
+
   test('野社请求使用 Bearer 令牌、平台头和 JSON 请求体', () async {
     late http.Request request;
     final api = YeSheApiClient(
@@ -218,5 +220,56 @@ void main() {
       '/rest/rank/get-collection-value-rank',
       '/rest/rank/get-community-title-rank',
     ]);
+  });
+
+  test('重复读请求在短时间内复用缓存，写操作会清空缓存', () async {
+    var requests = 0;
+    final api = YeSheApiClient(
+      tokenProvider: () => 'token',
+      baseUrl: 'https://example.test/',
+      retryDelay: Duration.zero,
+      client: MockClient((request) async {
+        requests += 1;
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{'requests': requests},
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    await api.fetchCommunityStatus();
+    final cached = await api.fetchCommunityStatus();
+    expect(requests, 1);
+    expect(cached['requests'], 1);
+
+    await api.makeWish(1);
+    await api.fetchCommunityStatus();
+    expect(requests, 3);
+  });
+
+  test('读请求遇到服务端临时错误会重试一次', () async {
+    var requests = 0;
+    final api = YeSheApiClient(
+      tokenProvider: () => 'token',
+      baseUrl: 'https://example.test/',
+      retryDelay: Duration.zero,
+      client: MockClient((request) async {
+        requests += 1;
+        if (requests == 1) {
+          return _json(<String, Object?>{'message': 'busy'}, status: 503);
+        }
+        return _json(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{'ok': true},
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    final data = await api.fetchCommunityStatus();
+
+    expect(requests, 2);
+    expect(data['ok'], isTrue);
   });
 }

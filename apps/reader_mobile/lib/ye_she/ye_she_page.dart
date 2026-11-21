@@ -49,6 +49,7 @@ class _YeShePageState extends State<YeShePage>
   late final bool _ownsController;
   late final TabController _tabController;
   YeSheRankKind _rankKind = YeSheRankKind.readDuration;
+  String _lastPawnMessage = '';
 
   @override
   void initState() {
@@ -366,7 +367,6 @@ class _YeShePageState extends State<YeShePage>
 
   Future<void> _refreshStudyTab() async {
     await _controller.refreshStudy();
-    if (mounted) unawaited(_controller.refreshRanks());
   }
 
   Widget _buildStudy() {
@@ -460,6 +460,10 @@ class _YeShePageState extends State<YeShePage>
         ),
       ),
     );
+  }
+
+  Widget _loadingOrEmpty(bool loading, String emptyText) {
+    return loading ? const _PendingHint('正在读取…') : _EmptyHint(emptyText);
   }
 
   Widget _metricWrap(List<Widget> children) {
@@ -591,7 +595,7 @@ class _YeShePageState extends State<YeShePage>
           ),
           const SizedBox(height: 12),
           if (status == null)
-            const _EmptyHint('账户状态暂不可用')
+            _loadingOrEmpty(!_controller.loadedStudy, '账户状态暂不可用')
           else ...<Widget>[
             _metricWrap(<Widget>[
               _MetricChip('铜钱', status.coin, glyph: AppGlyph.star),
@@ -621,9 +625,13 @@ class _YeShePageState extends State<YeShePage>
       key: const ValueKey<String>('ye-she-title'),
       icon: AppGlyph.star,
       title: '名帖',
-      subtitle: title == null ? '名帖尚未读取' : title.displayName,
+      subtitle: title == null
+          ? _controller.loadingStudy
+                ? '名帖读取中'
+                : '名帖尚未读取'
+          : title.displayName,
       child: title == null
-          ? const _EmptyHint('名帖信息暂不可用')
+          ? _loadingOrEmpty(_controller.loadingStudy, '名帖信息暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -693,7 +701,11 @@ class _YeShePageState extends State<YeShePage>
                   ),
                 ),
                 const SizedBox(height: 8),
-                _TitleCostPanel(materials: _controller.materials),
+                _TitleCostPanel(
+                  materials: _controller.materials,
+                  loading: _controller.loadingStudy,
+                  loaded: _controller.materialsLoaded,
+                ),
                 const SizedBox(height: 8),
                 _InfoLine('当前等级', '${title.level} 级'),
                 _InfoLine('升级保底', '${title.upgradePityCount} 次'),
@@ -779,7 +791,7 @@ class _YeShePageState extends State<YeShePage>
             ),
           const SizedBox(height: 8),
           if (board == null)
-            const _EmptyHint('排行榜暂不可用')
+            _loadingOrEmpty(_controller.loadingRanks, '排行榜暂不可用')
           else if (board.entries.isEmpty)
             const _EmptyHint('榜单暂时没有记录')
           else
@@ -832,13 +844,30 @@ class _YeShePageState extends State<YeShePage>
     final notelets = _controller.notelets;
     final medals = _controller.medals;
     final cards = _controller.callingCards;
+    final loading = _controller.loadingStudy;
+    String countText(int? count, String unit) => count == null
+        ? loading
+              ? '读取中'
+              : '0 $unit'
+        : '$count $unit';
+    final total =
+        (seals?.items.length ?? 0) +
+        (notelets?.items.length ?? 0) +
+        (medals?.items.length ?? 0) +
+        (cards?.items.length ?? 0);
     return _YeCard(
       key: const ValueKey<String>('ye-she-inventory'),
       icon: AppGlyph.bookmark,
       title: '清玩 · 鉴赏',
       subtitle: '藏印、花笺、徽章与名片',
       trailing: YeSheTag(
-        '${(seals?.items.length ?? 0) + (notelets?.items.length ?? 0) + (medals?.items.length ?? 0) + (cards?.items.length ?? 0)} 件',
+        loading &&
+                (seals == null ||
+                    notelets == null ||
+                    medals == null ||
+                    cards == null)
+            ? '读取中'
+            : '$total 件',
         color: YeSheTokens.gold(context),
       ),
       child: Column(
@@ -847,7 +876,7 @@ class _YeShePageState extends State<YeShePage>
           _metricWrap(<Widget>[
             _InventoryButton(
               label: '藏印',
-              value: '${seals?.items.length ?? 0} 张',
+              value: countText(seals?.items.length, '张'),
               onPressed: () => _openSignedItems(
                 title: '藏印',
                 kind: _SignedItemKind.seal,
@@ -859,7 +888,7 @@ class _YeShePageState extends State<YeShePage>
             ),
             _InventoryButton(
               label: '花笺',
-              value: '${notelets?.items.length ?? 0} 张',
+              value: countText(notelets?.items.length, '张'),
               onPressed: () => _openSignedItems(
                 title: '花笺',
                 kind: _SignedItemKind.notelet,
@@ -873,7 +902,7 @@ class _YeShePageState extends State<YeShePage>
             ),
             _InventoryButton(
               label: '徽章',
-              value: '${medals?.items.length ?? 0} 枚',
+              value: countText(medals?.items.length, '枚'),
               onPressed: () => _openSignedItems(
                 title: '徽章',
                 kind: _SignedItemKind.medal,
@@ -882,7 +911,7 @@ class _YeShePageState extends State<YeShePage>
             ),
             _InventoryButton(
               label: '名片',
-              value: '${cards?.items.length ?? 0} 张',
+              value: countText(cards?.items.length, '张'),
               onPressed: () => _openSignedItems(
                 title: '名片',
                 kind: _SignedItemKind.callingCard,
@@ -923,30 +952,34 @@ class _YeShePageState extends State<YeShePage>
       showHeader: society == null,
       banner: society == null ? null : _SocietyBanner(society: society),
       child: society == null
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const _EmptyHint('创建或加入一个文会，与同好共读。'),
-                _actionWrap(<Widget>[
-                  _primaryActionButton(
-                    '创建文会',
-                    onPressed: _controller.actionBusy ? null : _createSociety,
-                  ),
-                  _secondaryActionButton(
-                    '邀请码加入',
-                    onPressed: _controller.actionBusy
-                        ? null
-                        : _joinSocietyByCode,
-                  ),
-                  _secondaryActionButton(
-                    '公开文会',
-                    onPressed: _controller.actionBusy
-                        ? null
-                        : _browsePublicSocieties,
-                  ),
-                ]),
-              ],
-            )
+          ? !_controller.loadedStudy
+                ? const _PendingHint('文会信息读取中…')
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const _EmptyHint('创建或加入一个文会，与同好共读。'),
+                      _actionWrap(<Widget>[
+                        _primaryActionButton(
+                          '创建文会',
+                          onPressed: _controller.actionBusy
+                              ? null
+                              : _createSociety,
+                        ),
+                        _secondaryActionButton(
+                          '邀请码加入',
+                          onPressed: _controller.actionBusy
+                              ? null
+                              : _joinSocietyByCode,
+                        ),
+                        _secondaryActionButton(
+                          '公开文会',
+                          onPressed: _controller.actionBusy
+                              ? null
+                              : _browsePublicSocieties,
+                        ),
+                      ]),
+                    ],
+                  )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -986,7 +1019,10 @@ class _YeShePageState extends State<YeShePage>
                     ),
                   ),
                 ] else
-                  Text('本周声望尚未读取', style: theme.textTheme.bodySmall),
+                  Text(
+                    _controller.loadingStudy ? '本周声望读取中…' : '本周声望尚未读取',
+                    style: theme.textTheme.bodySmall,
+                  ),
                 if (society.members.isNotEmpty) ...[
                   const SizedBox(height: 9),
                   _MemberAvatarRow(members: society.members.take(8)),
@@ -1099,7 +1135,9 @@ class _YeShePageState extends State<YeShePage>
       subtitle: joined
           ? '${current?.name ?? '已加入商会'} · 贡献 ${membership!.contribution}'
           : guilds == null
-          ? '商会信息尚未读取'
+          ? _controller.loadingStudy || _controller.loadingPlay
+                ? '商会信息读取中'
+                : '商会信息尚未读取'
           : '加入费用 ${guilds.joinCost} 铜',
       banner: YeSheBanner(
         asset: YeSheTokens.guildBanner(current?.code ?? ''),
@@ -1114,7 +1152,10 @@ class _YeShePageState extends State<YeShePage>
             )
           : null,
       child: guilds == null
-          ? const _EmptyHint('商会信息暂不可用')
+          ? _loadingOrEmpty(
+              _controller.loadingStudy || _controller.loadingPlay,
+              '商会信息暂不可用',
+            )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1297,7 +1338,9 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.menuBook,
       title: lore?.title.isNotEmpty == true ? lore!.title : '每日轶闻',
       subtitle: lore == null
-          ? '今日暂无轶闻'
+          ? _controller.loadingDiscover
+                ? '每日轶闻读取中'
+                : '今日暂无轶闻'
           : '${lore.category} · ${lore.quality} · ${lore.exp} 阅历',
       trailing: lore == null
           ? null
@@ -1306,7 +1349,7 @@ class _YeShePageState extends State<YeShePage>
               color: YeSheTokens.gold(context),
             ),
       child: lore == null
-          ? const _EmptyHint('今日轶闻暂不可用')
+          ? _loadingOrEmpty(_controller.loadingDiscover, '今日轶闻暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1360,7 +1403,9 @@ class _YeShePageState extends State<YeShePage>
       title: '行商',
       subtitle: trip == null
           ? merchant == null
-                ? '行商状态尚未读取'
+                ? _controller.loadingStudy || _controller.loadingPlay
+                      ? '行商状态读取中'
+                      : '行商状态尚未读取'
                 : '${merchant.cities.length} 条商路 · ${merchant.transports.where((item) => item.owned).length} 艘船'
           : '$cityName · $tripStage',
       banner: YeSheBanner(
@@ -1382,7 +1427,10 @@ class _YeShePageState extends State<YeShePage>
                   : YeSheTokens.jade(context),
             ),
       child: merchant == null
-          ? const _EmptyHint('行商信息暂不可用')
+          ? _loadingOrEmpty(
+              _controller.loadingStudy || _controller.loadingPlay,
+              '行商信息暂不可用',
+            )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1486,7 +1534,9 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.profile,
       title: '黄金台 · 门客',
       subtitle: retainers == null
-          ? '门客名册尚未读取'
+          ? _controller.loadingStudy || _controller.loadingPlay
+                ? '门客名册读取中'
+                : '门客名册尚未读取'
           : '${retainers.owned.length} 位门客 · 清贵 ${retainers.qinggui} · '
                 '保底 ${retainers.pityCount}',
       trailing: retainers == null
@@ -1496,7 +1546,10 @@ class _YeShePageState extends State<YeShePage>
               color: YeSheTokens.gold(context),
             ),
       child: retainers == null
-          ? const _EmptyHint('门客信息暂不可用')
+          ? _loadingOrEmpty(
+              _controller.loadingStudy || _controller.loadingPlay,
+              '门客信息暂不可用',
+            )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1558,7 +1611,7 @@ class _YeShePageState extends State<YeShePage>
               ),
       ),
       child: auction == null
-          ? const _EmptyHint('聚宝楼暂不可用')
+          ? _loadingOrEmpty(_controller.loadingPlay, '聚宝楼暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1652,7 +1705,9 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.play,
       title: gambling?.name.isNotEmpty == true ? gambling!.name : '樗蒲',
       subtitle: gambling == null
-          ? '今日暂未开局'
+          ? _controller.loadingPlay
+                ? '樗蒲读取中'
+                : '今日暂未开局'
           : '${gambling.people} 人参与 · 剩余 ${gambling.remainingCount} 次',
       banner: YeSheBanner(
         asset: 'shrine_chupu.webp',
@@ -1669,7 +1724,7 @@ class _YeShePageState extends State<YeShePage>
               ),
       ),
       child: gambling == null
-          ? const _EmptyHint('樗蒲暂不可用')
+          ? _loadingOrEmpty(_controller.loadingPlay, '樗蒲暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1762,7 +1817,11 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.star,
       title:
           '祈愿 · ${wish?.propName.isNotEmpty == true ? wish!.propName : '本周提升'}',
-      subtitle: wish == null ? '祈愿信息尚未读取' : '本周 ${wish.weekStart}',
+      subtitle: wish == null
+          ? _controller.loadingDiscover
+                ? '祈愿信息读取中'
+                : '祈愿信息尚未读取'
+          : '本周 ${wish.weekStart}',
       banner: YeSheBanner(
         asset: 'shrine_sunrise.webp',
         height: 100,
@@ -1778,7 +1837,7 @@ class _YeShePageState extends State<YeShePage>
               color: YeSheTokens.jade(context),
             ),
       child: wish == null
-          ? const _EmptyHint('祈愿信息暂不可用')
+          ? _loadingOrEmpty(_controller.loadingDiscover, '祈愿信息暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1822,11 +1881,13 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.lightMode,
       title: '道观',
       subtitle: blessing == null
-          ? '祈福状态尚未读取'
+          ? _controller.loadingPlay
+                ? '祈福状态读取中'
+                : '祈福状态尚未读取'
           : '今日祈福 ${blessing.todayPrayCount} 次'
                 '${blessing.freePrayAvailable ? ' · 免费祈福可用' : ''}',
       child: blessing == null
-          ? const _EmptyHint('道观暂不可用')
+          ? _loadingOrEmpty(_controller.loadingPlay, '道观暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1867,7 +1928,9 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.folder,
       title: '期物司',
       subtitle: count == null
-          ? '典当次数尚未读取'
+          ? _controller.loadingDiscover
+                ? '典当次数读取中'
+                : '典当次数尚未读取'
           : '今日 ${count.usedToday}/${count.maxPerDay} 次 · 剩余 ${count.remaining} 次',
       trailing: count == null
           ? null
@@ -1878,7 +1941,7 @@ class _YeShePageState extends State<YeShePage>
                   : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
       child: count == null
-          ? const _EmptyHint('期物司暂不可用')
+          ? _loadingOrEmpty(_controller.loadingDiscover, '期物司暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1900,10 +1963,11 @@ class _YeShePageState extends State<YeShePage>
                     ),
                     child: Row(
                       children: <Widget>[
-                        AppIcon(
-                          AppGlyph.star,
-                          size: 16,
-                          color: YeSheTokens.gold(context),
+                        YeSheItemIcon(
+                          propId: yeSheInt(count.specialPropId),
+                          size: 20,
+                          fallbackGlyph: AppGlyph.star,
+                          fallbackColor: YeSheTokens.gold(context),
                         ),
                         const SizedBox(width: 7),
                         Text(
@@ -1924,6 +1988,43 @@ class _YeShePageState extends State<YeShePage>
                       ],
                     ),
                   ),
+                if (_lastPawnMessage.trim().isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: YeSheTokens.jade(context).withValues(alpha: 0.09),
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: YeSheTokens.jade(context)
+                            .withValues(alpha: 0.22),
+                      ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        AppIcon(
+                          AppGlyph.checkCircle,
+                          size: 15,
+                          color: YeSheTokens.jade(context),
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            _lastPawnMessage,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: YeSheTokens.jade(context),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (materials.isEmpty)
                   const _EmptyHint('暂无可典当材料')
                 else
@@ -1933,6 +2034,9 @@ class _YeShePageState extends State<YeShePage>
                     children: <Widget>[
                       for (final item in materials.take(8))
                         _MaterialTile(
+                          key: ValueKey<String>(
+                            'ye-she-material-${item.userPropId}',
+                          ),
                           material: item,
                           onPressed: count.remaining <= 0
                               ? null
@@ -1952,10 +2056,12 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.folder,
       title: '百杂铺',
       subtitle: shop == null
-          ? '百杂铺尚未读取'
+          ? _controller.loadingDiscover
+                ? '百杂铺读取中'
+                : '百杂铺尚未读取'
           : '铜钱 ${shop.coin} · 刷新 ${shop.refreshCount} 次',
       child: shop == null
-          ? const _EmptyHint('百杂铺暂不可用')
+          ? _loadingOrEmpty(_controller.loadingDiscover, '百杂铺暂不可用')
           : shop.items.isEmpty
           ? const _EmptyHint('今日货架已空')
           : Column(
@@ -1965,6 +2071,7 @@ class _YeShePageState extends State<YeShePage>
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     leading: _ItemGlyph(
+                      propId: item.propId,
                       glyph: _itemGlyph(item.name, item.type),
                       color: YeSheTokens.jade(context),
                     ),
@@ -1995,7 +2102,7 @@ class _YeShePageState extends State<YeShePage>
       title: '玉机阁',
       subtitle: '玉券兑换',
       child: shop == null
-          ? const _EmptyHint('玉机阁暂不可用')
+          ? _loadingOrEmpty(_controller.loadingDiscover, '玉机阁暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2007,6 +2114,7 @@ class _YeShePageState extends State<YeShePage>
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       leading: _ItemGlyph(
+                        propId: item.propId,
                         glyph: _itemGlyph(item.name, item.type),
                         color: YeSheTokens.gold(context),
                       ),
@@ -2042,7 +2150,9 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.sort,
       title: '互市坊',
       subtitle: market == null
-          ? '互市坊尚未读取'
+          ? _controller.loadingDiscover
+                ? '互市坊读取中'
+                : '互市坊尚未读取'
           : '铜钱 ${market.coin} · ${market.listings.length} 条挂单',
       trailing: market == null
           ? null
@@ -2051,7 +2161,7 @@ class _YeShePageState extends State<YeShePage>
               color: YeSheTokens.jade(context),
             ),
       child: market == null
-          ? const _EmptyHint('互市坊暂不可用')
+          ? _loadingOrEmpty(_controller.loadingDiscover, '互市坊暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -2064,6 +2174,12 @@ class _YeShePageState extends State<YeShePage>
                     children: <Widget>[
                       for (final prop in market.props.take(8))
                         ActionChip(
+                          avatar: YeSheItemIcon(
+                            propId: prop.propId,
+                            size: 20,
+                            fallbackGlyph: AppGlyph.folder,
+                            fallbackColor: YeSheTokens.jade(context),
+                          ),
                           label: Text('${prop.name} ×${prop.ownedQuantity}'),
                           onPressed: prop.ownedQuantity <= 0
                               ? null
@@ -2080,6 +2196,7 @@ class _YeShePageState extends State<YeShePage>
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       leading: _ItemGlyph(
+                        propId: listing.propId,
                         glyph: _itemGlyph(
                           listing.propName,
                           listing.propQuality,
@@ -2108,6 +2225,7 @@ class _YeShePageState extends State<YeShePage>
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       leading: _ItemGlyph(
+                        propId: listing.propId,
                         glyph: _itemGlyph(
                           listing.propName,
                           listing.propQuality,
@@ -2144,9 +2262,11 @@ class _YeShePageState extends State<YeShePage>
       key: const ValueKey<String>('ye-she-rumors'),
       icon: AppGlyph.article,
       title: '唱经楼',
-      subtitle: '${rumors.length} 条传闻',
+      subtitle: _controller.loadingDiscover && rumors.isEmpty
+          ? '传闻读取中'
+          : '${rumors.length} 条传闻',
       child: rumors.isEmpty
-          ? const _EmptyHint('暂无社区传闻')
+          ? _loadingOrEmpty(_controller.loadingDiscover, '暂无社区传闻')
           : Column(
               children: <Widget>[
                 for (final rumor in rumors.take(8))
@@ -2763,6 +2883,9 @@ class _YeShePageState extends State<YeShePage>
     );
     if (!confirmed) return;
     final result = await _controller.pawnMaterial(material.userPropId);
+    if (mounted && result.success) {
+      setState(() => _lastPawnMessage = result.message);
+    }
     _showResult(result);
   }
 
@@ -3387,7 +3510,11 @@ class _RetainerTile extends StatelessWidget {
 }
 
 class _MaterialTile extends StatelessWidget {
-  const _MaterialTile({required this.material, required this.onPressed});
+  const _MaterialTile({
+    super.key,
+    required this.material,
+    required this.onPressed,
+  });
 
   final YeSheMaterial material;
   final VoidCallback? onPressed;
@@ -3416,7 +3543,12 @@ class _MaterialTile extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              AppIcon(glyph, size: 15, color: YeSheTokens.jade(context)),
+              YeSheItemIcon(
+                propId: material.propId,
+                size: 20,
+                fallbackGlyph: glyph,
+                fallbackColor: YeSheTokens.jade(context),
+              ),
               const SizedBox(width: 5),
               Text(
                 material.name,
@@ -3443,10 +3575,11 @@ class _MaterialTile extends StatelessWidget {
 }
 
 class _ItemGlyph extends StatelessWidget {
-  const _ItemGlyph({required this.glyph, required this.color});
+  const _ItemGlyph({required this.glyph, required this.color, this.propId = 0});
 
   final AppGlyph glyph;
   final Color color;
+  final int propId;
 
   @override
   Widget build(BuildContext context) {
@@ -3458,7 +3591,12 @@ class _ItemGlyph extends StatelessWidget {
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: AppIcon(glyph, size: 18, color: color),
+      child: YeSheItemIcon(
+        propId: propId,
+        size: 23,
+        fallbackGlyph: glyph,
+        fallbackColor: color,
+      ),
     );
   }
 }
@@ -3548,6 +3686,16 @@ class _EmptyHint extends StatelessWidget {
   Widget build(BuildContext context) => YeSheEmpty(text);
 }
 
+class _PendingHint extends StatelessWidget {
+  const _PendingHint(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) =>
+      YeSheEmpty(text, icon: AppGlyph.refresh);
+}
+
 class _CostStatusRow {
   const _CostStatusRow(this.name, this.required, this.owned);
 
@@ -3624,7 +3772,11 @@ class _TitleCostSpec {
 }
 
 class _TitleCostPanel extends StatelessWidget {
-  const _TitleCostPanel({required this.materials});
+  const _TitleCostPanel({
+    required this.materials,
+    required this.loading,
+    required this.loaded,
+  });
 
   static const List<_TitleCostSpec> costs = <_TitleCostSpec>[
     _TitleCostSpec(propId: 11, name: '清酒'),
@@ -3633,6 +3785,8 @@ class _TitleCostPanel extends StatelessWidget {
   ];
 
   final List<YeSheMaterial> materials;
+  final bool loading;
+  final bool loaded;
 
   static bool allOwned(List<YeSheMaterial> materials) {
     if (materials.isEmpty) return false;
@@ -3673,11 +3827,25 @@ class _TitleCostPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 7),
-          if (materials.isEmpty)
+          if (loading && materials.isEmpty)
+            Text(
+              '材料读取中…',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          else if (!loaded && materials.isEmpty)
             Text(
               '材料信息暂不可用',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.error,
+              ),
+            )
+          else if (materials.isEmpty)
+            Text(
+              '暂无可消耗材料',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             )
           else
@@ -3701,7 +3869,14 @@ class _TitleCostPanel extends StatelessWidget {
             size: 15,
             color: color,
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 5),
+          YeSheItemIcon(
+            propId: cost.propId,
+            size: 18,
+            fallbackGlyph: AppGlyph.folder,
+            fallbackColor: color,
+          ),
+          const SizedBox(width: 5),
           Expanded(child: Text(cost.name)),
           Text(
             '需要 1 · 拥有 $owned',

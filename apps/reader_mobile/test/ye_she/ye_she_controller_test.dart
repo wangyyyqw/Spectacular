@@ -80,6 +80,34 @@ void main() {
     expect(api.startTravelRequests, 0);
     expect(api.settleTravelRequests, 0);
   });
+
+  test('文房首屏同时读取行商与门客', () async {
+    final api = _FakeYeSheApi();
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
+    addTearDown(controller.dispose);
+
+    await controller.refreshStudy();
+
+    expect(controller.travelingMerchant?.activeTrip?.id, 88);
+    expect(controller.retainers?.owned, isNotEmpty);
+    expect(api.travelRequests, 1);
+    expect(api.retainerRequests, 1);
+  });
+
+  test('典当返回铜钱并刷新期物司与材料', () async {
+    final api = _FakeYeSheApi();
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
+    addTearDown(controller.dispose);
+
+    final result = await controller.pawnMaterial(11);
+
+    expect(result.success, isTrue);
+    expect(result.coin, 12);
+    expect(result.message, '典当成功 · 获得铜钱 12 文');
+    expect(api.pawnRequests, 1);
+    expect(api.pawnCountRequests, 1);
+    expect(api.materialsRequests, 1);
+  });
 }
 
 class _FakeYeSheApi implements YeSheApi {
@@ -91,6 +119,11 @@ class _FakeYeSheApi implements YeSheApi {
   int lastGuildBid = 0;
   int startTravelRequests = 0;
   int settleTravelRequests = 0;
+  int travelRequests = 0;
+  int retainerRequests = 0;
+  int pawnRequests = 0;
+  int pawnCountRequests = 0;
+  int materialsRequests = 0;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {
@@ -151,6 +184,7 @@ class _FakeYeSheApi implements YeSheApi {
       return Future<YeSheJson>.value(<String, dynamic>{'message': '出价成功'});
     }
     if (invocation.memberName == #fetchTravelingMerchant) {
+      travelRequests += 1;
       final now = DateTime.now();
       return Future<YeSheJson>.value(<String, dynamic>{
         'activeTrip': <String, dynamic>{
@@ -164,6 +198,47 @@ class _FakeYeSheApi implements YeSheApi {
               .millisecondsSinceEpoch,
         },
       });
+    }
+    if (invocation.memberName == #fetchTravelingMerchantRetainers) {
+      retainerRequests += 1;
+      return Future<YeSheJson>.value(<String, dynamic>{
+        'retainers': <Object?>[
+          <String, dynamic>{
+            'id': 2,
+            'surname': '沈',
+            'givenName': '七',
+            'quality': '上品',
+            'owned': true,
+          },
+        ],
+        'qinggui': '3',
+        'pityCount': '40',
+      });
+    }
+    if (invocation.memberName == #fetchPawnCount) {
+      pawnCountRequests += 1;
+      return Future<YeSheJson>.value(<String, dynamic>{
+        'usedToday': 1,
+        'maxPerDay': 3,
+        'remaining': 2,
+      });
+    }
+    if (invocation.memberName == #fetchUserMaterials) {
+      materialsRequests += 1;
+      return Future<YeSheJson>.value(<String, dynamic>{
+        'materials': <Object?>[
+          <String, dynamic>{
+            'userPropId': '11',
+            'propId': '11',
+            'name': '清酒',
+            'quantity': '1',
+          },
+        ],
+      });
+    }
+    if (invocation.memberName == #pawn) {
+      pawnRequests += 1;
+      return Future<YeSheJson>.value(<String, dynamic>{'coin': '12'});
     }
     if (invocation.memberName == #startTravelingMerchant) {
       startTravelRequests += 1;

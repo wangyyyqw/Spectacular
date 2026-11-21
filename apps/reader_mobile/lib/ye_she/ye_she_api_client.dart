@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -315,7 +316,8 @@ class YeSheApiClient implements YeSheApi {
     required this.tokenProvider,
     http.Client? client,
     this.baseUrl = defaultBaseUrl,
-    this.timeout = const Duration(seconds: 20),
+    this.timeout = const Duration(seconds: 12),
+    this.retryDelay = const Duration(milliseconds: 300),
   }) : _client = client ?? http.Client();
 
   /// 阅微开放接口根地址。
@@ -331,6 +333,57 @@ class YeSheApiClient implements YeSheApi {
 
   /// 单次请求超时。
   final Duration timeout;
+
+  /// 读请求失败后的重试间隔。
+  final Duration retryDelay;
+
+  /// 会改变服务端数据的接口；这些请求不缓存也不自动重试。
+  static const Set<String> _mutationEndpoints = <String>{
+    'rest/community/complete-daily-lore',
+    'rest/community/bid-auction',
+    'rest/community/bet-gambling',
+    'rest/community/get-gambling-reward',
+    'rest/community/upgrade-community-title',
+    'rest/community/heritage-community-title',
+    'rest/community/abandon-community-title',
+    'rest/community/wish',
+    'rest/community/wangyan-wish',
+    'rest/community/pray-taoist-blessing',
+    'rest/community/pawn',
+    'rest/community/start-traveling-merchant',
+    'rest/community/settle-traveling-merchant',
+    'rest/community/recruit-traveling-merchant-retainer',
+    'rest/community/bid-guild-auction',
+    'rest/community/join-merchant-guild',
+    'rest/community/leave-merchant-guild',
+    'rest/community/buy-daily-shop',
+    'rest/community/buy-voucher-box',
+    'rest/community/create-mutual-market-listing',
+    'rest/community/buy-mutual-market-listing',
+    'rest/community/cancel-mutual-market-listing',
+    'rest/community/stamp-seal',
+    'rest/community/stamp-notelet',
+    'rest/community/use-calling-card',
+    'rest/community/create-literary-society',
+    'rest/community/join-literary-society',
+    'rest/community/join-public-literary-society',
+    'rest/community/quit-literary-society',
+    'rest/community/dissolve-literary-society',
+    'rest/community/kick-literary-society-member',
+    'rest/community/update-literary-society-cover',
+    'rest/community/claim-literary-society-weekly-reward',
+    'rest/community/join-medal-treasure',
+    'rest/community/collect-mark',
+    'rest/community/uncollect-mark',
+  };
+
+  static const Duration _cacheTtl = Duration(seconds: 30);
+  static const int _maxCacheEntries = 96;
+  static final LinkedHashMap<String, _YeSheCacheEntry> _responseCache =
+      LinkedHashMap<String, _YeSheCacheEntry>();
+
+  /// 清理进程内读缓存；测试和切换账号时可主动调用。
+  static void clearCache() => _responseCache.clear();
 
   @override
   Future<YeSheJson> fetchCommunityStatus() =>
@@ -770,22 +823,23 @@ class YeSheApiClient implements YeSheApi {
       'platform': Platform.isIOS || Platform.isMacOS ? 'ios' : 'android',
       'Authorization': 'Bearer $token',
     };
-    late final http.Response response;
-    try {
-      response = await _client
-          .post(
-            Uri.parse('$baseUrl$endpoint'),
-            headers: headers,
-            body: jsonEncode(body),
-          )
-          .timeout(timeout);
-    } on TimeoutException {
-      throw const YeSheException('阅微野社接口请求超时，请稍后重试');
-    } on SocketException {
-      throw const YeSheException('无法连接阅微服务器，请检查网络');
-    } on http.ClientException catch (error) {
-      throw YeSheException('阅微野社接口请求失败：${error.message}');
+    final mutation = _mutationEndpoints.contains(endpoint);
+    final cacheKey = '$token|$endpoint|${jsonEncode(body)}';
+    if (!mutation) {
+      final cached = _responseCache.remove(cacheKey);
+      if (cached != null) {
+        if (DateTime.now().difference(cached.storedAt) <= _cacheTtl) {
+          _responseCache[cacheKey] = cached;
+          return cached.data;
+        }
+      }
     }
+    final response = await _sendWithRetry(
+      Uri.parse('$baseUrl$endpoint'),
+      headers,
+      jsonEncode(body),
+      retryable: !mutation,
+    );
 
     final raw = utf8.decode(response.bodyBytes, allowMalformed: true);
     Object? decoded;
@@ -834,19 +888,89 @@ class YeSheApiClient implements YeSheApi {
       );
     }
     final data = map['data'];
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return _mapValue(data);
-    if (data is List) {
-      return <String, dynamic>{
+    final YeSheJson result;
+    if (data is Map<String, dynamic>) {
+      result = data;
+    } else if (data is Map) {
+      result = _mapValue(data);
+    } else if (data is List) {
+      result = <String, dynamic>{
         'items': List<Object?>.from(data),
         'message': message ?? '',
       };
+    } else {
+      result = <String, dynamic>{'value': ?data, 'message': message ?? ''};
     }
-    return <String, dynamic>{'value': ?data, 'message': message ?? ''};
+    if (mutation) {
+      _responseCache.clear();
+    } else {
+      _remember(cacheKey, result);
+    }
+    return result;
+  }
+
+  Future<http.Response> _sendWithRetry(
+    Uri uri,
+    Map<String, String> headers,
+    String body, {
+    required bool retryable,
+  }) async {
+    final attempts = retryable ? 2 : 1;
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      try {
+        final response = await _client
+            .post(uri, headers: headers, body: body)
+            .timeout(timeout);
+        if (retryable &&
+            attempt + 1 < attempts &&
+            _retryableStatus(response.statusCode)) {
+          await Future<void>.delayed(retryDelay);
+          continue;
+        }
+        return response;
+      } on TimeoutException {
+        if (retryable && attempt + 1 < attempts) {
+          await Future<void>.delayed(retryDelay);
+          continue;
+        }
+        throw const YeSheException('阅微野社接口请求超时，请稍后重试');
+      } on SocketException {
+        if (retryable && attempt + 1 < attempts) {
+          await Future<void>.delayed(retryDelay);
+          continue;
+        }
+        throw const YeSheException('无法连接阅微服务器，请检查网络');
+      } on http.ClientException catch (error) {
+        if (retryable && attempt + 1 < attempts) {
+          await Future<void>.delayed(retryDelay);
+          continue;
+        }
+        throw YeSheException('阅微野社接口请求失败：${error.message}');
+      }
+    }
+    throw const YeSheException('阅微野社接口请求失败，请稍后重试');
+  }
+
+  static bool _retryableStatus(int statusCode) =>
+      statusCode == 408 || statusCode == 429 || statusCode >= 500;
+
+  static void _remember(String key, YeSheJson data) {
+    _responseCache.remove(key);
+    _responseCache[key] = _YeSheCacheEntry(data, DateTime.now());
+    while (_responseCache.length > _maxCacheEntries) {
+      _responseCache.remove(_responseCache.keys.first);
+    }
   }
 
   @override
   void close() => _client.close();
+}
+
+class _YeSheCacheEntry {
+  const _YeSheCacheEntry(this.data, this.storedAt);
+
+  final YeSheJson data;
+  final DateTime storedAt;
 }
 
 Map<String, dynamic> _mapValue(Map<dynamic, dynamic> value) {

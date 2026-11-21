@@ -1923,9 +1923,13 @@ class YeSheActionResult {
     required this.success,
     required this.message,
     this.unauthorized = false,
+    this.coin = 0,
   });
 
   final bool success;
   final String message;
   final bool unauthorized;
+
+  /// 操作成功时服务端返回的铜钱数量，例如典当所得。
+  final int coin;
 }

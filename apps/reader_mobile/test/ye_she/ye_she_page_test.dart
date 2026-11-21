@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/ye_she/community_page.dart';
 import 'package:reader_mobile/ye_she/ye_she_api_client.dart';
 import 'package:reader_mobile/ye_she/ye_she_controller.dart';
+import 'package:reader_mobile/ye_she/ye_she_models.dart';
 import 'package:reader_mobile/ye_she/ye_she_page.dart';
 
 void main() {
@@ -89,6 +92,88 @@ void main() {
     expect(api.calls, isNot(contains(#fetchPublicThoughts)));
     expect(api.calls, isNot(contains(#fetchMyCollections)));
     expect(api.calls, isNot(contains(#fetchMedalTreasure)));
+  });
+
+  testWidgets('文房首屏直接显示行商与门客，不再提示尚未读取', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = _DemoYeSheApi();
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: YeShePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.calls, contains(#fetchTravelingMerchant));
+    expect(api.calls, contains(#fetchTravelingMerchantRetainers));
+    expect(find.text('行商状态尚未读取'), findsNothing);
+    expect(find.text('门客名册尚未读取'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('ye-she-merchant')),
+      360,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('行程进行中'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('ye-she-retainers')),
+      360,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('黄金台 · 门客'), findsOneWidget);
+    expect(find.text('沈七'), findsOneWidget);
+  });
+
+  testWidgets('首帧读取中不显示暂不可用', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = YeSheController(
+      tokenProvider: () => 'token',
+      api: _HangingYeSheApi(),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: YeShePage(controller: controller)),
+    );
+    await tester.pump();
+
+    expect(find.text('正在读取…'), findsWidgets);
+    expect(find.text('账户状态暂不可用'), findsNothing);
+    expect(find.text('名帖信息暂不可用'), findsNothing);
+  });
+
+  testWidgets('典当成功后展示获得的铜钱', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = _DemoYeSheApi(pawnCoin: 12);
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: YeShePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('ye-she-tab-discover')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('ye-she-pawn')),
+      320,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('ye-she-material-11')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('典当成功 · 获得铜钱 12 文'), findsWidgets);
   });
 
   testWidgets('野社在窄屏下不产生布局溢出', (tester) async {
@@ -274,7 +359,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('本次消耗'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('ye-she-title')),
+        matching: find.text('本次消耗'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('清酒'), findsOneWidget);
     expect(find.text('檀香'), findsOneWidget);
     expect(find.text('欹器'), findsOneWidget);
@@ -378,12 +469,28 @@ class _DemoYeSheApi implements YeSheApi {
     this.memberUserId = 11,
     this.rewardStatus = 'CLAIMABLE',
     this.claimedRewardName = '',
+    this.pawnCoin = 12,
   }) : materials =
            materials ??
            <Map<String, dynamic>>[
-             <String, dynamic>{'propId': 11, 'name': '清酒', 'quantity': 1},
-             <String, dynamic>{'propId': 13, 'name': '檀香', 'quantity': 1},
-             <String, dynamic>{'propId': 18, 'name': '欹器', 'quantity': 1},
+             <String, dynamic>{
+               'userPropId': 11,
+               'propId': 11,
+               'name': '清酒',
+               'quantity': 1,
+             },
+             <String, dynamic>{
+               'userPropId': 13,
+               'propId': 13,
+               'name': '檀香',
+               'quantity': 1,
+             },
+             <String, dynamic>{
+               'userPropId': 18,
+               'propId': 18,
+               'name': '欹器',
+               'quantity': 1,
+             },
            ];
 
   final Set<Symbol> calls = <Symbol>{};
@@ -392,6 +499,7 @@ class _DemoYeSheApi implements YeSheApi {
   final int memberUserId;
   final String rewardStatus;
   final String claimedRewardName;
+  final int pawnCoin;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {
@@ -607,6 +715,16 @@ class _DemoYeSheApi implements YeSheApi {
     if (invocation.memberName == #fetchUserMaterials) {
       return _value(<String, dynamic>{'materials': materials});
     }
+    if (invocation.memberName == #pawn) {
+      final userPropId = invocation.positionalArguments.first as int;
+      for (final item in materials) {
+        if (yeSheInt(item['userPropId']) == userPropId) {
+          final quantity = yeSheInt(item['quantity']);
+          item['quantity'] = quantity > 0 ? quantity - 1 : 0;
+        }
+      }
+      return _value(<String, dynamic>{'coin': pawnCoin});
+    }
     if (invocation.memberName == #fetchDailyShop) {
       return _value(<String, dynamic>{
         'items': <Object?>[
@@ -665,4 +783,9 @@ class _DemoYeSheApi implements YeSheApi {
 
   @override
   void close() {}
+}
+
+class _HangingYeSheApi implements YeSheApi {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => Completer<YeSheJson>().future;
 }

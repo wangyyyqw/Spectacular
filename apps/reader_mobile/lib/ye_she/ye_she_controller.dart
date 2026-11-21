@@ -67,6 +67,7 @@ class YeSheController extends ChangeNotifier {
   YeSheTaoistBlessing? _taoistBlessing;
   YeShePawnCount? _pawnCount;
   List<YeSheMaterial> _materials = const <YeSheMaterial>[];
+  bool _materialsLoaded = false;
   YeSheDailyShop? _dailyShop;
   YeSheVoucherShop? _voucherShop;
   YeSheMutualMarket? _mutualMarket;
@@ -156,6 +157,9 @@ class YeSheController extends ChangeNotifier {
   YeSheTaoistBlessing? get taoistBlessing => _taoistBlessing;
   YeShePawnCount? get pawnCount => _pawnCount;
   List<YeSheMaterial> get materials => _materials;
+
+  /// 材料是否已完成一次读取；用于区分加载中与空列表。
+  bool get materialsLoaded => _materialsLoaded;
   YeSheDailyShop? get dailyShop => _dailyShop;
   YeSheVoucherShop? get voucherShop => _voucherShop;
   YeSheMutualMarket? get mutualMarket => _mutualMarket;
@@ -169,7 +173,6 @@ class YeSheController extends ChangeNotifier {
     if (_loaded || !signedIn || _disposed) return;
     _loaded = true;
     await refreshStudy();
-    if (!_disposed) unawaited(refreshRanks());
   }
 
   /// 全部刷新。
@@ -253,16 +256,15 @@ class YeSheController extends ChangeNotifier {
 
   /// 刷新文房。
   ///
-  /// 首屏先等待账户、文会与商会三项核心数据并立即通知页面，其余藏印、
-  /// 花笺、徽章、名片、材料与文会排行在后台并行补齐，避免次要请求拖慢
-  /// 文会卡片和顶部账户的首次显示。
+  /// 首屏先等待账户、文会、商会、行商与门客这些文房直接可见的数据并立即
+  /// 通知页面；排行榜、藏印、花笺、徽章、名片、材料与文会明细再并行补齐，
+  /// 避免次要请求拖慢文房首屏，也避免行商和门客长期停留在“尚未读取”。
   Future<void> refreshStudy() async {
     if (!_canLoad()) return;
-    while (_loadingStudy) {
-      final pending = _studyTask;
-      if (pending == null) return;
+    final pending = _studyTask;
+    if (pending != null) {
       await pending;
-      if (!_canLoad()) return;
+      return;
     }
     final task = _loadStudy();
     _studyTask = task;
@@ -298,12 +300,29 @@ class YeSheController extends ChangeNotifier {
         YeSheMerchantGuilds.fromJson,
         failures,
       ),
+      _attempt(
+        '行商',
+        _api.fetchTravelingMerchant(),
+        YeSheTravelingMerchant.fromJson,
+        failures,
+      ),
+      _attempt(
+        '门客',
+        _api.fetchTravelingMerchantRetainers(),
+        YeSheRetainers.fromJson,
+        failures,
+      ),
     ]);
     if (_disposed) return;
     _account = core[0] as YeSheAccountStatus?;
     _mySociety = core[1] as YeSheLiterarySociety?;
     _guilds = core[2] as YeSheMerchantGuilds?;
+    _travelingMerchant = core[3] as YeSheTravelingMerchant?;
+    _retainers = core[4] as YeSheRetainers?;
+    _loadedStudy = true;
+    _studyError = _failureText(failures);
     _notify();
+    unawaited(refreshRanks());
 
     final details = await Future.wait<Object?>(<Future<Object?>>[
       _attempt('名帖', _api.fetchCommunityTitle(), YeSheTitle.fromJson, failures),
@@ -322,6 +341,12 @@ class YeSheController extends ChangeNotifier {
         failures,
       ),
       _attempt('材料', _api.fetchUserMaterials(), _materialsFromJson, failures),
+      _attempt(
+        '行商记录',
+        _api.fetchTravelingMerchantHistory(),
+        _tripsFromJson,
+        failures,
+      ),
       if (_mySociety != null)
         _attempt(
           '文会声望',
@@ -347,10 +372,15 @@ class YeSheController extends ChangeNotifier {
     _notelets = details[2] as YeSheNotelets?;
     _medals = details[3] as YeSheMedals?;
     _callingCards = details[4] as YeSheCallingCards?;
-    _materials = details[5] as List<YeSheMaterial>? ?? const <YeSheMaterial>[];
-    _societyScores = details[6] as YeSheLiterarySocietyScores?;
-    _guildAuction = details[7] as YeSheGuildAuction?;
-    _loadedStudy = true;
+    final materials = details[5] as List<YeSheMaterial>?;
+    if (materials != null) {
+      _materials = materials;
+      _materialsLoaded = true;
+    }
+    _travelHistory =
+        details[6] as List<YeSheTravelTrip>? ?? const <YeSheTravelTrip>[];
+    _societyScores = details[7] as YeSheLiterarySocietyScores?;
+    _guildAuction = details[8] as YeSheGuildAuction?;
     _loadingStudy = false;
     _studyError = _failureText(failures);
     _notify();
@@ -400,6 +430,12 @@ class YeSheController extends ChangeNotifier {
         YeSheRetainers.fromJson,
         failures,
       ),
+      _attempt(
+        '商会',
+        _api.fetchMerchantGuilds(),
+        YeSheMerchantGuilds.fromJson,
+        failures,
+      ),
     ]);
     if (_disposed) return;
     _dailyLore = results[0] as YeSheDailyLore?;
@@ -409,6 +445,7 @@ class YeSheController extends ChangeNotifier {
     _travelHistory =
         results[4] as List<YeSheTravelTrip>? ?? const <YeSheTravelTrip>[];
     _retainers = results[5] as YeSheRetainers?;
+    _guilds = results[6] as YeSheMerchantGuilds? ?? _guilds;
     _loadedPlay = true;
     _loadingPlay = false;
     _playError = _failureText(failures);
@@ -456,7 +493,11 @@ class YeSheController extends ChangeNotifier {
     _wishUp = results[0] as YeSheWishUp?;
     _taoistBlessing = results[1] as YeSheTaoistBlessing?;
     _pawnCount = results[2] as YeShePawnCount?;
-    _materials = results[3] as List<YeSheMaterial>? ?? const <YeSheMaterial>[];
+    final materials = results[3] as List<YeSheMaterial>?;
+    if (materials != null) {
+      _materials = materials;
+      _materialsLoaded = true;
+    }
     _dailyShop = results[4] as YeSheDailyShop?;
     _voucherShop = results[5] as YeSheVoucherShop?;
     _mutualMarket = results[6] as YeSheMutualMarket?;
@@ -824,8 +865,41 @@ class YeSheController extends ChangeNotifier {
   );
 
   /// 典当材料。
-  Future<YeSheActionResult> pawnMaterial(int userPropId) =>
-      _perform('典当材料', '材料已典当', () => _api.pawn(userPropId), refreshDiscover);
+  Future<YeSheActionResult> pawnMaterial(int userPropId) => _perform(
+    '典当材料',
+    '材料已典当',
+    () => _api.pawn(userPropId),
+    refreshPawn,
+    messageBuilder: (result) {
+      final coin = yeSheInt(result['coin']);
+      return coin > 0 ? '典当成功 · 获得铜钱 $coin 文' : '材料已典当';
+    },
+    coinOf: (result) => yeSheInt(result['coin']),
+  );
+
+  /// 只刷新典当相关的次数与材料，避免整页见闻重复请求。
+  Future<void> refreshPawn() async {
+    if (!_canLoad()) return;
+    final failures = <String>[];
+    final results = await Future.wait<Object?>(<Future<Object?>>[
+      _attempt('期物司', _api.fetchPawnCount(), YeShePawnCount.fromJson, failures),
+      _attempt(
+        '可典当材料',
+        _api.fetchUserMaterials(),
+        _materialsFromJson,
+        failures,
+      ),
+    ]);
+    if (_disposed) return;
+    _pawnCount = results[0] as YeShePawnCount?;
+    final materials = results[1] as List<YeSheMaterial>?;
+    if (materials != null) {
+      _materials = materials;
+      _materialsLoaded = true;
+    }
+    if (failures.isNotEmpty) _discoverError = _failureText(failures);
+    _notify();
+  }
 
   /// 购买百杂铺物品。
   Future<YeSheActionResult> buyDailyItem({
@@ -941,8 +1015,10 @@ class YeSheController extends ChangeNotifier {
     String actionName,
     String successMessage,
     Future<YeSheJson> Function() action,
-    Future<void> Function() refresh,
-  ) async {
+    Future<void> Function() refresh, {
+    String Function(YeSheJson result)? messageBuilder,
+    int Function(YeSheJson result)? coinOf,
+  }) async {
     if (!signedIn) {
       return const YeSheActionResult(
         success: false,
@@ -963,9 +1039,15 @@ class YeSheController extends ChangeNotifier {
       final result = await action();
       await refresh();
       final remoteMessage = yeSheText(result['message']).trim();
+      final builtMessage = messageBuilder?.call(result).trim() ?? '';
       return YeSheActionResult(
         success: true,
-        message: remoteMessage.isEmpty ? successMessage : remoteMessage,
+        message: builtMessage.isNotEmpty
+            ? builtMessage
+            : remoteMessage.isEmpty
+            ? successMessage
+            : remoteMessage,
+        coin: coinOf?.call(result) ?? 0,
       );
     } catch (error) {
       _recordAuth(error);
