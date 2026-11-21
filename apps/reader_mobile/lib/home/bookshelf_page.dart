@@ -1772,7 +1772,7 @@ class _ShelfGroupBar extends StatelessWidget {
       width: double.infinity,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: <Widget>[
             _ShelfGroupTab(
@@ -1846,8 +1846,7 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
         child: Container(
           margin: const EdgeInsets.only(right: 20),
           height: 44,
-          alignment: Alignment.bottomCenter,
-          padding: const EdgeInsets.only(bottom: 4),
+          alignment: Alignment.center,
           child: Text(
             widget.label,
             style: theme.textTheme.bodyMedium?.copyWith(
