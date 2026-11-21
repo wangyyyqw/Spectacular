@@ -103,6 +103,10 @@ void main() {
     expect(requested.take(3), ['/book', '/toc', '/2']);
     Navigator.of(tester.element(find.byType(ReaderPage))).pop();
     await pumpReaderTask(tester, opened!);
+    await pumpReaderUntil(tester, find.text('暂不加入'));
+    expect(find.textContaining('是否将'), findsOneWidget);
+    await tester.tap(find.text('暂不加入'));
+    await tester.pumpAndSettle();
     expect(
       (await pumpReaderTask(
         tester,

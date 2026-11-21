@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:html/parser.dart' as html_parser;
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -27,6 +28,35 @@ import '../support/reader_pump.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('热度与最新排序切换服务端参数并重置分页，不改不支持排序的页面', () {
+    const page =
+        '<script>var offset="0",pageSize=30;'
+        'function apiUrl(){return "https://example.test?offset="+offset+"&sort=1&api_key="+key;}'
+        'async function load(){}more.onclick=load;</script>';
+    final sorted = prepareOnlineReviewPage(page);
+    expect(sorted, contains('"&sort="+reviewSort+"&api_key="'));
+    expect(sorted, contains('段评排序'));
+    expect(
+      sorted,
+      contains(
+        'reviewSort=Number(button.dataset.sort);offset="0";ended=false;loaded=0;total=0;',
+      ),
+    );
+    expect(prepareOnlineReviewPage('<p>普通网页</p>'), '<p>普通网页</p>');
+  });
+
+  test('源直接拼接 JSON 引号的段评图片保留脚本大小写和 SVG 数量', () {
+    final svg = base64Encode(utf8.encode('<svg><text x="0">123</text></svg>'));
+    final raw =
+        '第一章\n第一段<img src="data:image/svg+xml;base64,$svg,'
+        '{"style":"TEXT","click":"showCmt(1,2,0)","extra":"<p>内层 HTML</p>"}" alt="段评">\n第二段';
+    final prepared = prepareOnlineReviewHtml(raw);
+    expect(prepared, contains('〔123〕'));
+    final fragment = html_parser.parseFragment(prepared);
+    final href = fragment.querySelector('a')!.attributes['href']!;
+    expect(OnlineReviewAction.fromHref(href)!.script, 'showCmt(1,2,0)');
+    expect(prepared, contains('\n第二段'));
+  });
   late Directory directory;
   late BookSourceService service;
   late BookSource source;
@@ -116,6 +146,41 @@ java.showBrowser('https://example.test/comment',
     expect(page.preloadJs, 'window.loaded=true');
     expect(page.headers['X-Source'], 'review');
     expect(page.headers['Referer'], 'https://example.test/chapter');
+  });
+
+  test('段评独立会话读取正文保存的内存原文，重开缓存正文后也可恢复', () async {
+    final memorySource = BookSource.fromJson({
+      ...source.toJson(),
+      'jsLib':
+          'function show(){java.showBrowser("https://example.test/comment",'
+          '"<p>"+cache.getFromMemory("paragraph")+"</p>","","{}");}',
+      'ruleContent': {
+        'content': r'$.content@js:cache.putMemory("paragraph",result);result;',
+      },
+    });
+    const action = OnlineReviewAction(src: 'dp:12', script: 'show()');
+    await service.fetchChapterContent(
+      memorySource,
+      book.chapters.single,
+      book.book.bookUrl,
+    );
+    final page = await service.openReview(
+      memorySource,
+      book.book,
+      book.chapters.single,
+      action,
+    );
+    expect(page.html, contains('保留原文与段落位置'));
+    service.invalidateSourceSettings();
+    requests.clear();
+    final reopened = await service.openReview(
+      memorySource,
+      book.book,
+      book.chapters.single,
+      action,
+    );
+    expect(reopened.html, contains('保留原文与段落位置'));
+    expect(requests, contains('/chapter'));
   });
 
   testWidgets('正式引擎生成可命中段评，点击交给宿主且不翻页、不打开脚注', (tester) async {

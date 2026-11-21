@@ -1408,12 +1408,38 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _scheduleReady();
   }
 
+  int? _onlinePrefetchSpine;
+
+  void _prefetchOnlineChapters(ReaderSession session) {
+    if (widget.onlineReading == null || session.loading || !session.hasContent) {
+      return;
+    }
+    final index = session.page?.spineIndex;
+    if (index == null || index == _onlinePrefetchSpine) return;
+    _onlinePrefetchSpine = index;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _closing) return;
+      unawaited(
+        widget.onlineReading!
+            .then(
+              (book) => book.prefetchAfter(
+                index,
+                isActive: () =>
+                    mounted && !_closing && _onlinePrefetchSpine == index,
+              ),
+            )
+            .catchError((Object _) {}),
+      );
+    });
+  }
+
   void _syncReadingStats() {
     final session = _readerSession;
     if (session == null) {
       return;
     }
     _scheduleReady();
+    _prefetchOnlineChapters(session);
     if (_readyNotified && !_readable && _hasPreparedFrame(session)) {
       _readable = true;
       _syncReadingActivity();

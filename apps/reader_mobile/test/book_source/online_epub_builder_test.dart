@@ -8,6 +8,52 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
 
 void main() {
+  test('章节编号与标题另起一行，特殊标题和无编号标题保留文本', () async {
+    final source = await _openChapter(
+      const OnlineEpubChapter(title: '第1章 穿越？（魔法，异能等）', html: '<p>正文</p>'),
+    );
+    final chapter = await source.loadAnchorChapter(0);
+    expect(
+      chapter.blocks.first.text.replaceAll(RegExp(r'\s+'), ''),
+      '第1章穿越？（魔法，异能等）',
+    );
+    final builder = const OnlineEpubBuilder();
+    expect(
+      builder.buildChapterDocument(
+        const OnlineEpubChapter(title: '第1章 穿越？（魔法，异能等）', html: '正文'),
+      ),
+      contains('第1章<br/>穿越？（魔法，异能等）'),
+    );
+    expect(
+      builder.buildChapterDocument(
+        const OnlineEpubChapter(title: '番外：尾声', html: '正文'),
+      ),
+      contains('番外<br/>尾声'),
+    );
+    expect(
+      builder.buildChapterDocument(
+        const OnlineEpubChapter(title: '新书感言', html: '正文'),
+      ),
+      contains('class="chapter-title">新书感言</h1>'),
+    );
+  });
+
+  test('纯文本附行内段评保持独立段落，仅删除开头重复标题', () async {
+    final source = await _openChapter(
+      const OnlineEpubChapter(
+        title: '第1章 测试',
+        html: '第1章 测试\n第一段<a href="reader-review:test" data-reader-action="true">〔12〕</a>\n第二段\n第1章 测试',
+      ),
+    );
+    final chapter = await source.loadAnchorChapter(0);
+    expect(chapter.blocks.map((block) => block.text).toList(), [
+      '第1章\n测试',
+      '第一段〔12〕',
+      '第二段',
+      '第1章 测试',
+    ]);
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('生成 EPUB 3 目录、章节、封面与图片', () {

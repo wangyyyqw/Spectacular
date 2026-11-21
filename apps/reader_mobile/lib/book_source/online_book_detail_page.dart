@@ -125,6 +125,16 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       _progressMessage = '准备下载';
     });
     try {
+      final source = _currentSource ?? widget.source;
+      if (source.loadMode == BookSourceLoadMode.chapter &&
+          _chapters?.isNotEmpty == true) {
+        await widget.controller.addToShelf(source, info, _chapters!);
+        if (!mounted) return;
+        setState(() => _downloading = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('已加入书架')));
+        return;
+      }
       await widget.controller.downloadAndImport(
         _currentSource ?? widget.source,
         info,
@@ -206,9 +216,41 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
           book: catalog.book,
           chapters: catalog.chapters,
           service: widget.controller.service,
+          bookshelfId: widget.controller
+              .shelfEntryFor(currentSource, catalog.book)
+              ?.id,
         ),
         startChapter: start,
       );
+      if (mounted &&
+          widget.controller.shelfEntryFor(currentSource, catalog.book) ==
+              null) {
+        final add = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('加入书架'),
+            content: Text('是否将《${catalog.book.name}》加入书架，保留阅读位置？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('暂不加入'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('加入书架'),
+              ),
+            ],
+          ),
+        );
+        if (add == true && mounted) {
+          await widget.controller.addToShelf(
+            currentSource,
+            catalog.book,
+            catalog.chapters,
+          );
+          if (mounted) setState(() {});
+        }
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -270,76 +312,76 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                 )
               : null,
         ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
-                children: <Widget>[
-                  _header(info),
-                  if (_error != null) ...<Widget>[
-                    const SizedBox(height: 16),
-                    Card(
-                      color: Theme.of(context).colorScheme.errorContainer,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          _chapters == null
-                              ? '详情加载不完整：$_error'
-                              : '目录更新失败，已保留现有目录：$_error',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (info.intro.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 20),
-                    Text('简介', style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 6),
-                    SelectableText(info.intro),
-                  ],
-                  const SizedBox(height: 22),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          '目录',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                      ),
-                      if (_chapters != null)
-                        Text(
-                          '${_chapters!.length} 章'
-                          '${_usingCachedCatalog ? ' · 缓存目录' : ''}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                    ],
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+          children: <Widget>[
+            _header(info),
+            if (_error != null) ...<Widget>[
+              const SizedBox(height: 16),
+              Card(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    _chapters == null
+                        ? '详情加载不完整：$_error'
+                        : '目录更新失败，已保留现有目录：$_error',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  const SizedBox(height: 8),
-                  if (_chapters == null)
-                    TextButton(onPressed: _load, child: const Text('重新读取目录'))
-                  else
-                    for (final (index, chapter) in _chapters!.take(40).indexed)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        onTap: _canRead && !_downloading && !_opening
-                            ? () => _read(chapter)
-                            : null,
-                        title: Text(
-                          '${index + 1}. ${chapter.title}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  if (_chapters != null && _chapters!.length > 40)
-                    TextButton.icon(
-                      key: const ValueKey('online-book-full-toc'),
-                      onPressed: _downloading || _opening ? null : _showToc,
-                      icon: const Icon(Icons.list),
-                      label: Text('查看全部 ${_chapters!.length} 章'),
-                    ),
-                ],
+                ),
               ),
+            ],
+            if (info.intro.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 20),
+              Text('简介', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 6),
+              SelectableText(info.intro),
+            ],
+            const SizedBox(height: 22),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    '目录',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                if (_chapters != null)
+                  Text(
+                    '${_chapters!.length} 章'
+                    '${_usingCachedCatalog ? ' · 缓存目录' : ''}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_loading)
+              const LinearProgressIndicator()
+            else if (_chapters == null)
+              TextButton(onPressed: _load, child: const Text('重新读取目录'))
+            else
+              for (final (index, chapter) in _chapters!.take(40).indexed)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  onTap: _canRead && !_downloading && !_opening
+                      ? () => _read(chapter)
+                      : null,
+                  title: Text(
+                    '${index + 1}. ${chapter.title}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            if (_chapters != null && _chapters!.length > 40)
+              TextButton.icon(
+                key: const ValueKey('online-book-full-toc'),
+                onPressed: _downloading || _opening ? null : _showToc,
+                icon: const Icon(Icons.list),
+                label: Text('查看全部 ${_chapters!.length} 章'),
+              ),
+          ],
+        ),
         bottomNavigationBar: SafeArea(
           top: false,
           child: Padding(
@@ -436,6 +478,14 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
 
   Widget _buildDownloadButton() {
     final ready = (_chapters?.isNotEmpty ?? false) && !_opening;
+    final source = _currentSource ?? widget.source;
+    final inShelf =
+        widget.controller.shelfEntryFor(source, _info ?? widget.book) != null;
+    final label = inShelf
+        ? '已在书架'
+        : source.loadMode == BookSourceLoadMode.chapter
+        ? '加入书架'
+        : '下载并加入书架';
     if (_canRead) {
       return Wrap(
         alignment: WrapAlignment.center,
@@ -450,18 +500,18 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
           ),
           OutlinedButton.icon(
             key: const ValueKey<String>('online-book-download'),
-            onPressed: ready ? _download : null,
-            icon: const Icon(Icons.download_outlined),
-            label: const Text('下载并加入书架'),
+            onPressed: ready && !inShelf ? _download : null,
+            icon: Icon(inShelf ? Icons.check : Icons.library_add_outlined),
+            label: Text(label),
           ),
         ],
       );
     }
     return FilledButton.icon(
       key: const ValueKey<String>('online-book-download'),
-      onPressed: ready ? _download : null,
+      onPressed: ready && !inShelf ? _download : null,
       icon: const AppIcon(AppGlyph.upload),
-      label: Text(ready ? '下载并加入书架' : '目录不可用'),
+      label: Text(ready ? label : '目录不可用'),
     );
   }
 }

@@ -146,7 +146,7 @@ void main() {
     expect(coverSize, const Size(80, 108));
   });
 
-  testWidgets('在线书长按菜单显示获取最新章节并返回更新动作', (tester) async {
+  testWidgets('在线书长按菜单统一显示更新并返回更新动作', (tester) async {
     final entry = BookEntry(
       id: 'online-book',
       title: '在线书',
@@ -183,9 +183,9 @@ void main() {
     expect(find.text('在线来源：测试源'), findsOneWidget);
     expect(find.text('已读 2 小时 15 分 · 4 / 15 章'), findsOneWidget);
     expect(find.textContaining('已读 2 小时 15 分'), findsOneWidget);
-    expect(find.text('更新获取最新章节'), findsOneWidget);
-    await tester.ensureVisible(find.text('更新获取最新章节'));
-    await tester.tap(find.text('更新获取最新章节'));
+    expect(find.text('更新'), findsOneWidget);
+    await tester.ensureVisible(find.text('更新'));
+    await tester.tap(find.text('更新'));
     await tester.pumpAndSettle();
     expect(popped, 'update');
   });

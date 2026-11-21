@@ -228,9 +228,7 @@ class BookDetailSheet extends StatelessWidget {
                   child: _DetailAction(
                     key: const ValueKey<String>('book-detail-update'),
                     icon: AppGlyph.refresh,
-                    label: onlineSourceName?.isNotEmpty ?? false
-                        ? '更新获取最新章节'
-                        : '更新',
+                    label: '更新',
                     onTap: () => Navigator.of(context).pop('update'),
                   ),
                 ),

@@ -12,6 +12,7 @@ import 'package:reader_mobile/book_source/book_source_script.dart';
 import 'package:reader_mobile/book_source/book_source_service.dart';
 import 'package:reader_mobile/book_source/book_source_rule_engine.dart';
 import 'package:reader_mobile/book_source/online_chapter_content_store.dart';
+import 'package:reader_mobile/book_source/book_source_discovery.dart';
 
 class _Browser implements BookSourceLoginLauncher {
   String? openedUrl;
@@ -68,6 +69,130 @@ function submenu() { source.put('menu','extra'); java.reLoginView(); }
 );
 
 void main() {
+  test('发现分类脚本异步补取频道分类，不仅返回降级榜单', () async {
+    final dir = await Directory.systemTemp.createTemp('discover-category-');
+    addTearDown(() => dir.delete(recursive: true));
+    final cookies = BookSourceCookieStore(directoryProvider: () async => dir);
+    final service = BookSourceService(
+      cookieStore: cookies,
+      httpClient: BookSourceHttpClient(
+        client: MockClient(
+          (request) async => http.Response(
+            jsonEncode({'title': '玄幻', 'url': '/fantasy'}),
+                200,
+                headers: {'content-type': 'application/json; charset=utf-8'},
+          ),
+        ),
+      ),
+    );
+    addTearDown(service.dispose);
+    final source = BookSource.fromJson({
+      'bookSourceName': '分类测试',
+      'bookSourceUrl': 'https://example.test',
+      'exploreUrl':
+          '@js:var category=JSON.parse(java.ajax("https://example.test/front")||"{}");'
+          'JSON.stringify([{title:"榜单",url:"/rank"},category]);',
+    });
+    final categories = await service.loadDiscoverCategories(source);
+    expect(categories.map((category) => category.title), ['榜单', '玄幻']);
+    expect(service.discoverCategories(source).last.url, '/fantasy');
+  });
+
+  test('发现列表脚本中的二次请求完成后重新解析图书', () async {
+    final dir = await Directory.systemTemp.createTemp('discover-script-');
+    addTearDown(() => dir.delete(recursive: true));
+    final cookies = BookSourceCookieStore(directoryProvider: () async => dir);
+    final requests = <String>[];
+    final service = BookSourceService(
+      cookieStore: cookies,
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          requests.add(request.url.path);
+          return http.Response(
+            jsonEncode(
+              request.url.path == '/shelf'
+                  ? {
+                      'data': {
+                        'ids': ['42'],
+                      },
+                    }
+                  : {
+                      'data': {
+                        'books': [
+                          {'name': '书架图书', 'url': '/book/42'},
+                        ],
+                      },
+                    },
+            ),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    final source = BookSource.fromJson({
+      'bookSourceName': '发现测试',
+      'bookSourceUrl': 'https://example.test',
+      'ruleExplore': {
+        'bookList':
+            '<js>java.ajax("https://example.test/detail");</js>'
+            r'$.data.books[*]',
+        'name': 'name',
+        'bookUrl': 'url',
+      },
+    });
+    final books = await service.discover(
+      source,
+      const BookDiscoverCategory('书架', 'https://example.test/shelf'),
+    );
+    expect(books.single.name, '书架图书');
+    expect(requests, ['/shelf', '/detail']);
+  });
+
+  test('脚本返回原始 JSON 对象时保持标准 JSON，后续发现规则可读取数组', () {
+    final script = QuickJsBookSourceScriptSession(jsLib: '');
+    addTearDown(script.dispose);
+    final root = {
+      'data': {
+        'cell_view': {
+          'book_data': [
+            {'book_name': '推荐书', 'book_id': '42'},
+          ],
+        },
+      },
+    };
+    final nodes = const BookSourceRuleEngine().evaluateList(
+      root,
+      '<js>if(baseUrl.includes("bookshelf")) result=[]; else result;</js>'
+      r'$.data.detail_list[*]||$.data.cell_view.book_data',
+      const BookSourceRuleContext(
+        baseUrl: 'https://example.test',
+        pageUrl: 'https://example.test/recommend',
+      ),
+      script: script,
+    );
+    expect(nodes.single, [
+      {'book_name': '推荐书', 'book_id': '42'},
+    ]);
+  });
+
+  test('同一会话的脚本库只初始化一次，下一条规则读取新上下文', () {
+    final script = QuickJsBookSourceScriptSession(
+      jsLib: 'var calls=0; const suffix="库"; function read(){calls++; return book.name+":"+result+":"+calls+suffix;}',
+    );
+    addTearDown(script.dispose);
+    String evaluate(String value, String name) => script.evaluate(
+      'read()',
+      result: value,
+      variables: {'bookName': name},
+      resolveString: (_) => '',
+      resolveList: (_) => [],
+    );
+    expect(evaluate('一', '书一'), '书一:一:1库');
+    expect(evaluate('二', '书二'), '书二:二:2库');
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('正式脚本入口兼容对象和 JSON 文本、条件赋值及章节编号', () {

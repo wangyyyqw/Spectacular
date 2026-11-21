@@ -161,6 +161,20 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
   final Map<String, String> _responses = <String, String>{};
   final List<BookSourcePendingRequest> _pending = <BookSourcePendingRequest>[];
   JavascriptRuntime? _runtime;
+  bool _libraryLoaded = false;
+
+  /// 阅读和段评使用独立运行时，共享同一书源的临时缓存。
+  void restoreMemory(Map<String, Object?> memory) {
+    _ensureRuntime().evaluate('__legadoMemory=${jsonEncode(memory)};');
+  }
+
+  Map<String, Object?> get memory {
+    final runtime = _runtime;
+    if (runtime == null) return {};
+    final value = runtime.evaluate('JSON.stringify(__legadoMemory)');
+    if (value.isError) return {};
+    return (jsonDecode(value.stringResult) as Map).cast<String, Object?>();
+  }
 
   @override
   Map<String, String> get responses => _responses;
@@ -219,22 +233,39 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
     if (state.isError) {
       throw BookSourceScriptException('书源脚本初始化失败：${state.stringResult}');
     }
-    final source = '$_jsLib\n$code';
     final baseUrl = variables['baseUrl'] ?? '';
     final key = variables['key'] ?? variables['keyword'] ?? '';
     final searchKey = variables['searchKey'] ?? key;
     final page = int.tryParse(variables['page'] ?? '') ?? 1;
-    final wrapped =
-        '(function(result, baseUrl, key, page, searchKey, book, chapter, isLongClick, src) {'
+    final arguments =
+        '${variables['_resultJson'] ?? jsonEncode(result)}, ${jsonEncode(baseUrl)}, '
+        '${jsonEncode(key)}, $page, ${jsonEncode(searchKey)},'
+        '__legadoBook, __legadoChapter, ${variables['isLongClick'] == 'true'},'
+        '${jsonEncode(variables['src'] ?? '')}';
+    if (!_libraryLoaded) {
+      // 脚本库在会话内只解析一次；保留其词法作用域，每条规则更新上下文。
+      final library = runtime.evaluate(
+        '__legadoEvaluate = (function(result, baseUrl, key, page, searchKey, book, chapter, isLongClick, src) {'
+        '$_jsLib\n'
+        'return function(nextResult, nextBaseUrl, nextKey, nextPage, nextSearchKey, nextBook, nextChapter, nextLongClick, nextSrc, code) {'
+        'result=nextResult; baseUrl=nextBaseUrl; key=nextKey; page=nextPage;'
+        'searchKey=nextSearchKey; book=nextBook; chapter=nextChapter;'
+        'isLongClick=nextLongClick; src=nextSrc;'
         'if (result && typeof result === "object") {'
         'Object.defineProperty(result,"toString",{value:function(){'
         'return JSON.stringify(this);}, configurable:true});}'
-        'var output = eval(${jsonEncode(source)});'
+        'var output = eval(code);'
         'return output === undefined ? result : output;'
-        '})(${variables['_resultJson'] ?? jsonEncode(result)}, ${jsonEncode(baseUrl)}, '
-        '${jsonEncode(key)}, $page, ${jsonEncode(searchKey)},'
-        '__legadoBook, __legadoChapter, ${variables['isLongClick'] == 'true'},'
-        '${jsonEncode(variables['src'] ?? '')});';
+        '};})($arguments);',
+      );
+      if (library.isError) {
+        throw BookSourceScriptException('书源脚本库初始化失败：${library.stringResult}');
+      }
+      _libraryLoaded = true;
+    }
+    final wrapped =
+        '(function(){var value=__legadoEvaluate($arguments, ${jsonEncode(code)});'
+        'return value && typeof value==="object"?JSON.stringify(value):value;})()';
     final evaluated = runtime.evaluate(wrapped);
     final effects = jsonDecode(
       runtime
@@ -357,6 +388,7 @@ class QuickJsBookSourceScriptSession implements BookSourceScriptSession {
   void dispose() {
     _runtime?.dispose();
     _runtime = null;
+    _libraryLoaded = false;
   }
 }
 

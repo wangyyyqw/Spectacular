@@ -21,6 +21,7 @@ class MainActivity : FlutterActivity() {
     private var batteryChannel: EventChannel? = null
     private var onlineSourceLogin: OnlineSourceLoginHandler? = null
     private var onlineReview: OnlineReviewHandler? = null
+    private var onlineDownload: OnlineDownloadHandler? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var showStatusBar = true
     private var showNavigationBar = true
@@ -38,6 +39,7 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         onlineReview = OnlineReviewHandler(this, flutterEngine.dartExecutor.binaryMessenger)
+        onlineDownload = OnlineDownloadHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         readerChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/reader",
@@ -90,6 +92,7 @@ class MainActivity : FlutterActivity() {
         releaseMulticastLock()
         onlineSourceLogin?.dispose()
         onlineReview?.dispose()
+        onlineDownload?.dispose()
         epubExport?.dispose()
         batteryChannel?.setStreamHandler(null)
         battery?.dispose()

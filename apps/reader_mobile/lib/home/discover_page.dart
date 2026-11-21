@@ -97,9 +97,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
     final sources = _sources;
     final previous = _source;
     final current = sources
-        .where((item) => item.id == previous?.id)
+        .where(
+          (item) =>
+              item.id ==
+              (previous?.id ?? widget.controller.selectedDiscoverSourceId),
+        )
         .firstOrNull;
-    if (current != null && identical(current, previous)) return;
+    if (current != null && identical(current, previous)) {
+      setState(() {});
+      return;
+    }
     if (previous != null && current != null) _cache.clear();
     if (sources.isEmpty) {
       ++_version;
@@ -118,7 +125,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   Future<void> _selectSource(BookSource source) async {
     try {
-      final categories = widget.controller.service.discoverCategories(source);
+      final categories = await widget.controller.service.loadDiscoverCategories(
+        source,
+      );
+      if (!mounted) return;
       setState(() {
         _source = source;
         _categories = categories;
@@ -131,6 +141,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
         _filteredCategory = null;
         _query.clear();
       });
+      await widget.controller.selectDiscoverSource(source.id);
       await _load(reset: true);
     } on Object catch (error) {
       ++_version;
@@ -256,6 +267,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
       });
       if (addedAny) {
         _storePage(cacheKey, _books, nextPage, hasMore);
+        unawaited(_enrichVisibleMetadata(source, version, cacheKey));
       }
     } on Object catch (error) {
       if (mounted && version == _version) {
@@ -270,6 +282,38 @@ class _DiscoverPageState extends State<DiscoverPage> {
       }
     } finally {
       if (mounted && version == _version) setState(() => _loading = false);
+    }
+  }
+
+  /// 榜单接口可能只给书名和封面，列表先显示，详情元信息分批后台补齐。
+  Future<void> _enrichVisibleMetadata(
+    BookSource source,
+    int version,
+    String cacheKey,
+  ) async {
+    if (source.bookInfo.wordCount.isEmpty &&
+        source.bookInfo.lastChapter.isEmpty &&
+        source.bookInfo.chapterCount.isEmpty &&
+        source.bookInfo.updateTime.isEmpty) {
+      return;
+    }
+    final snapshot = List.of(_books);
+    for (var start = 0; start < snapshot.length; start += 8) {
+      if (!mounted || version != _version) return;
+      final batch = snapshot.skip(start).take(8).toList();
+      final enriched = await widget.controller.service.enrichSearchResults(
+        source,
+        batch.map((item) => item.book).toList(),
+      );
+      if (!mounted || version != _version) return;
+      final byUrl = {for (final book in enriched) book.bookUrl: book};
+      setState(() {
+        _books = [
+          for (final item in _books)
+            (source: item.source, book: byUrl[item.book.bookUrl] ?? item.book),
+        ];
+      });
+      _storePage(cacheKey, _books, _page, _hasMore);
     }
   }
 
@@ -751,6 +795,13 @@ class _DiscoverPageState extends State<DiscoverPage> {
               (grid ? theme.textTheme.bodyMedium : theme.textTheme.titleMedium)
                   ?.copyWith(fontWeight: FontWeight.w600),
         ),
+        if (widget.controller.shelfEntryFor(source, book) != null)
+          Text(
+            '已在书架',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
         if (!grid) ...[
           const SizedBox(height: 3),
           Text(
@@ -773,6 +824,18 @@ class _DiscoverPageState extends State<DiscoverPage> {
           const SizedBox(height: 3),
           Text(
             '最新：${book.lastChapter}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+        if (!grid && (book.updateTime.isNotEmpty || book.chapterCount > 0)) ...[
+          const SizedBox(height: 3),
+          Text(
+            [
+              if (book.chapterCount > 0) '${book.chapterCount}章',
+              if (book.updateTime.isNotEmpty) book.updateTime,
+            ].join(' · '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall,

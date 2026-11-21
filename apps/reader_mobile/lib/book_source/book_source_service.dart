@@ -152,6 +152,17 @@ class BookSourceService {
   final BookSourceRuleEngine rules;
   final OnlineEpubBuilder epubBuilder;
   final BookSourceScriptFactory scriptFactory;
+  final Map<String, Map<String, Object?>> _scriptMemory = {};
+  final Set<String> _memoryChapters = {};
+
+  BookSourceScriptSession _scriptFor(BookSource source) {
+    final script = scriptFactory(source);
+    if (script is QuickJsBookSourceScriptSession) {
+      script.restoreMemory(_scriptMemory[source.id] ?? {});
+    }
+    return script;
+  }
+
   final OnlineChapterContentStore chapterContentStore;
   final Map<String, _ChapterContentRequest> _chapterRequests = {};
   final Map<String, Future<void>> _chapterWrites = {};
@@ -169,11 +180,16 @@ class BookSourceService {
     BookSourceScriptSession script,
   ) async {
     if (script is QuickJsBookSourceScriptSession) {
+      _scriptMemory.putIfAbsent(source.id, () => {}).addAll(script.memory);
       await cookieStore.saveSourceValues(source, script.sourceValueChanges);
     }
   }
 
-  void invalidateSourceSettings() => _discoverCategoryCache.clear();
+  void invalidateSourceSettings() {
+    _discoverCategoryCache.clear();
+    _scriptMemory.clear();
+    _memoryChapters.clear();
+  }
 
   /// 来源停止产生请求后，等待已有章节读取与缓存写入释放资源。
   /// 阅读页退出仍可立即取消布局；清理缓存目录时再等待这些独立任务。
@@ -301,6 +317,46 @@ class BookSourceService {
     return result;
   }
 
+  /// 发现分类脚本中的联网请求异步重放，避免同步求值只生成降级榜单。
+  Future<List<BookDiscoverCategory>> loadDiscoverCategories(
+    BookSource source,
+  ) async {
+    final raw = source.exploreUrl.trim();
+    if (!raw.startsWith('@js:') && !raw.startsWith('<js>')) {
+      return discoverCategories(source);
+    }
+    if (parseDiscoverFilter(raw, const []) != null) {
+      return discoverCategories(source);
+    }
+    await cookieStore.load();
+    final script = _scriptFor(source);
+    try {
+      final body = raw.substring(4).replaceFirst(RegExp(r'</js>\s*$'), '');
+      for (var pass = 0; pass < 5; pass++) {
+        final value = script.evaluate(
+          '(function(){var value=eval(${jsonEncode(body)});'
+          'return typeof value==="string"?value:JSON.stringify(value);})()',
+          result: '',
+          variables: {'baseUrl': source.baseUrl},
+          resolveString: (_) => '',
+          resolveList: (_) => [],
+        );
+        final pending = script.takePendingRequests();
+        if (pending.isEmpty) {
+          return _cacheDiscoverCategories(
+            '${source.id}|${source.exploreUrl}',
+            parseDiscoverCategories(value),
+          );
+        }
+        await _resolveScriptRequests(source, script, pending, source.baseUrl);
+      }
+      throw const BookSourceException('发现分类脚本请求次数过多');
+    } finally {
+      await _saveScriptValues(source, script);
+      script.dispose();
+    }
+  }
+
   /// 发现列表与搜索列表共用请求、规则和字段解析，只替换地址及列表声明。
   Future<List<OnlineBook>> discover(
     BookSource source,
@@ -365,12 +421,21 @@ class BookSourceService {
           'searchPage': '$page',
         },
       );
-      var nodes = rules.evaluateList(
-        root,
-        fields.bookList,
-        context,
-        script: script,
-      );
+      var nodes = <Object>[];
+      for (var pass = 0; pass < 5; pass++) {
+        nodes = rules.evaluateList(
+          root,
+          fields.bookList,
+          context,
+          script: script,
+        );
+        final pending = script.takePendingRequests();
+        if (pending.isEmpty) break;
+        if (pass == 4) {
+          throw const BookSourceException('图书列表脚本请求次数过多，已停止');
+        }
+        await _resolveScriptRequests(source, script, pending, source.baseUrl);
+      }
       if (nodes.isEmpty && root is Map) {
         final data = root['data'];
         if (data is Map) {
@@ -787,6 +852,10 @@ class BookSourceService {
           script: script,
         );
         for (final node in nodes) {
+          // 大目录逐批让出 UI 线程，脚本求值期间仍可响应滚动和返回。
+          if (chapters.length % 16 == 0) {
+            await Future<void>.delayed(Duration.zero);
+          }
           var name = _field(node, source.toc.chapterName, context, script);
           var chapterUrl = _field(node, source.toc.chapterUrl, context, script);
           final volumeFlag = _field(
@@ -928,7 +997,7 @@ class BookSourceService {
     final images = <String, OnlineEpubImage>{};
     var imageBytes = 0;
     final cover = selectedChapters == null
-        ? await _downloadCover(source, info)
+        ? await downloadCover(source, info)
         : null;
     final chapters = <OnlineEpubChapter>[];
     final skippedReasons = <String>[];
@@ -985,7 +1054,9 @@ class BookSourceService {
             OnlineEpubChapter(
               title: chapter.title,
               html: prepared.html,
-              sourceUrl: chapter.url,
+              sourceUrl: chapter.requestOptions.isEmpty
+                  ? chapter.url
+                  : '${chapter.url},${jsonEncode(chapter.requestOptions)}',
               volume: chapter.volume,
             ),
           );
@@ -1016,6 +1087,7 @@ class BookSourceService {
         author: info.author,
         intro: info.intro,
         sourceName: info.sourceName,
+        sourceId: source.id,
         bookUrl: info.bookUrl,
         cover: cover,
         images: images.values.toList(),
@@ -1285,6 +1357,7 @@ class BookSourceService {
           code: 'ONLINE_CONTENT_INVALID',
         );
       }
+      _memoryChapters.add('${source.id}|${onlineChapterIdentity(chapter)}');
       return content;
     } finally {
       await _saveScriptValues(source, script);
@@ -1294,7 +1367,7 @@ class BookSourceService {
 
   String _resolveChapterImages(String html, String pageUrl) {
     if (!html.toLowerCase().contains('<img')) return html;
-    final document = rules.parseHtml(html);
+    final document = rules.parseHtml(normalizeOnlineImageOptions(html));
     for (final image in document.querySelectorAll('img')) {
       final raw = (image.attributes['data-src'] ?? '')
           .trim()
@@ -1325,7 +1398,19 @@ class BookSourceService {
       throw const BookSourceException('此段评依赖独立段落规则包，请使用书源自带的 click 段评');
     }
     await cookieStore.load();
-    final script = scriptFactory(source);
+    // 磁盘正文缓存不带脚本运行时，首次点击重放本章以恢复源缓存的段落原文。
+    if (source.jsLib.contains('getFromMemory') &&
+        !_memoryChapters.contains(
+          '${source.id}|${onlineChapterIdentity(chapter)}',
+        )) {
+      await fetchChapterContent(
+        source,
+        chapter,
+        book.bookUrl,
+        forceRefresh: true,
+      );
+    }
+    final script = _scriptFor(source);
     try {
       final context = BookSourceRuleContext(
         baseUrl: source.baseUrl,
@@ -1375,7 +1460,7 @@ class BookSourceService {
       }
       return OnlineReviewPage(
         url: url,
-        html: page.html,
+        html: prepareOnlineReviewPage(page.html),
         preloadJs: page.preloadJs,
         config: page.config,
         headers: http.headersFor(source, referer: chapter.url),
@@ -1399,33 +1484,39 @@ class BookSourceService {
       final html = rules.evaluateHtml(root, rule, context, script: script);
       final pending = script.takePendingRequests();
       if (pending.isEmpty) return html;
-      for (final request in pending) {
-        final urlRequest = splitBookSourceUrlOptions(request.url);
-        final data = _decodeDataUrl(
-          urlRequest.url,
-          options: urlRequest.options,
-        );
-        if (data != null) {
-          script.rememberResponse(request.key, data);
-          continue;
-        }
-        final isPost = request.method.toUpperCase() == 'POST';
-        final response = await http.fetchText(
-          source,
-          request.url,
-          headers: request.headers,
-          options: isPost
-              ? <String, Object?>{'method': 'POST', 'body': request.body}
-              : const <String, Object?>{},
-          referer: referer,
-        );
-        script.rememberResponse(request.key, response.body);
-      }
+      await _resolveScriptRequests(source, script, pending, referer);
     }
     throw const BookSourceException(
       '正文脚本请求次数过多，已停止',
       code: 'ONLINE_CONTENT_SCRIPT_LOOP',
     );
+  }
+
+  Future<void> _resolveScriptRequests(
+    BookSource source,
+    BookSourceScriptSession script,
+    List<BookSourcePendingRequest> pending,
+    String referer,
+  ) async {
+    for (final request in pending) {
+      final urlRequest = splitBookSourceUrlOptions(request.url);
+      final data = _decodeDataUrl(urlRequest.url, options: urlRequest.options);
+      if (data != null) {
+        script.rememberResponse(request.key, data);
+        continue;
+      }
+      final isPost = request.method.toUpperCase() == 'POST';
+      final response = await http.fetchText(
+        source,
+        request.url,
+        headers: request.headers,
+        options: isPost
+            ? <String, Object?>{'method': 'POST', 'body': request.body}
+            : const <String, Object?>{},
+        referer: referer,
+      );
+      script.rememberResponse(request.key, response.body);
+    }
   }
 
   ({String url, Map<String, Object?> options})? _nextChapterRequest(
@@ -1458,7 +1549,7 @@ class BookSourceService {
       .convert(
         utf8.encode(
           jsonEncode({
-            'version': 6,
+            'version': 7,
             'base': source.baseUrl,
             'headers': source.header,
             'jsLib': source.jsLib,
@@ -1579,7 +1670,8 @@ class BookSourceService {
     }
   }
 
-  Future<OnlineEpubImage?> _downloadCover(
+  /// 目录入架与整本下载共用封面缓存和格式识别，不请求章节正文。
+  Future<OnlineEpubImage?> downloadCover(
     BookSource source,
     OnlineBook book,
   ) async {

@@ -21,11 +21,13 @@ import 'package:reader_mobile/book_source/online_book_controller.dart';
 import 'package:reader_mobile/book_source/online_chapter_content_store.dart';
 import 'package:reader_mobile/book_source/online_chapter_request.dart';
 import 'package:reader_mobile/book_source/online_epub_metadata.dart';
+import 'package:reader_mobile/book_source/online_epub_builder.dart';
 import 'package:reader_mobile/book_source/online_reading_book.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -34,6 +36,140 @@ import '../support/test_epub.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('目录入架下载封面且不请求正文，旧目录书可补封面而不替换书籍', () async {
+    final f = await _Fixture.create();
+    addTearDown(f.dispose);
+    final book = OnlineBook(
+      sourceId: f.source.id,
+      sourceName: f.source.name,
+      name: '封面测试',
+      author: '作者',
+      bookUrl: 'https://example.test/book',
+      coverUrl: 'https://example.test/cover.png',
+    );
+    final catalog = await f.controller.refreshCatalog(f.source, book);
+    final entry = await f.controller.addToShelf(
+      f.source,
+      catalog.book,
+      catalog.chapters,
+    );
+    expect(entry.coverPath, isNotNull);
+    expect(await File(entry.coverPath!).exists(), isTrue);
+    expect(
+      f.requested.where((url) => RegExp(r'^/\d+$').hasMatch(url)),
+      isEmpty,
+    );
+    final plain = OnlineBook(
+      sourceId: f.source.id,
+      sourceName: f.source.name,
+      name: '旧目录书',
+      author: '作者',
+      bookUrl: 'https://example.test/old-book',
+    );
+    final old = await f.controller.addToShelf(
+      f.source,
+      plain,
+      catalog.chapters,
+    );
+    expect(old.coverPath, isNull);
+    final patched = await f.controller.addToShelf(
+      f.source,
+      plain.copyWith(coverUrl: book.coverUrl),
+      catalog.chapters,
+    );
+    expect(patched.id, old.id);
+    expect(patched.contentRevision, old.contentRevision);
+    expect(patched.coverPath, isNotNull);
+  });
+
+  test('逐章书手动下载全本后保留书架身份并按正文迁移在线续读', () async {
+    final f = await _Fixture.create();
+    addTearDown(f.dispose);
+    final entry = await f.controller.downloadAndImport(
+      f.source,
+      OnlineBook(
+        sourceId: f.source.id,
+        sourceName: f.source.name,
+        name: '逐章书',
+        author: '作者',
+        bookUrl: 'https://example.test/book',
+      ),
+    );
+    final reading = await (await f.controller.prepareImportedReading(
+      entry,
+      f.progress,
+    ))!.book;
+    final online = reading.open();
+    final chapter = await online.loadAnchorChapter(1);
+    final cfi = chapter.cfiAt(chapter.text.indexOf('按需读取'))!;
+    await OnlineReadingProgress(f.library, reading).save(
+      entry.id,
+      ReaderProgress(
+        spineIndex: 1,
+        pageIndex: 0,
+        cfi: cfi,
+        contentRevision: reading.revision,
+      ),
+    );
+    online.close();
+    await online.preparationsStopped;
+    final progress = DriftProgressStore(f.db);
+    final updated = await f.controller.updateBook(
+      entry,
+      progressStore: progress,
+    );
+    expect(updated.id, entry.id);
+    expect(
+      (await OnlineEpubMetadata.read(
+        f.library,
+        updated,
+      ))!.requiresOnlineReading,
+      isFalse,
+    );
+    final saved = (await progress.load(updated.id))!;
+    expect(saved.spineIndex, 1);
+    final offline = await EpubChapterSource.openFile(File(updated.filePath));
+    try {
+      final next = await offline.loadAnchorChapter(saved.spineIndex);
+      final offset = next.offsetFor(saved.cfi!)!;
+      expect(next.text.substring(offset), startsWith('按需读取'));
+    } finally {
+      offline.close();
+      await offline.preparationsStopped;
+    }
+  });
+
+  test('逐章加入书架不下载正文，重复加入保持身份，书架打开自动刷新目录', () async {
+    final f = await _Fixture.create();
+    addTearDown(f.dispose);
+    final book = OnlineBook(
+      sourceId: f.source.id,
+      sourceName: f.source.name,
+      name: '逐章书',
+      author: '作者',
+      bookUrl: 'https://example.test/book',
+    );
+    final entry = await f.controller.downloadAndImport(f.source, book);
+    expect(f.requested, ['/book', '/toc']);
+    expect(
+      (await OnlineEpubMetadata.read(f.library, entry))!.requiresOnlineReading,
+      isTrue,
+    );
+    expect(f.controller.shelfEntryFor(f.source, book)?.id, entry.id);
+    f.requested.clear();
+    final duplicate = await f.controller.addToShelf(f.source, book, const [
+      OnlineChapter(index: 0, title: '第一章', url: 'https://example.test/1'),
+    ]);
+    expect(duplicate.id, entry.id);
+    expect(await f.library.list(), hasLength(1));
+    expect(f.requested, isEmpty);
+    final reading = await (await f.controller.prepareImportedReading(
+      entry,
+      f.progress,
+    ))!.book;
+    expect(reading.bookshelfId, entry.id);
+    expect(f.requested, ['/book', '/toc']);
+  });
 
   test('阅微旧完整索引、按需索引和仅进度标记按真实格式识别', () {
     final legacy = OnlineEpubMetadata.fromJson(
@@ -447,11 +583,18 @@ void main() {
     f.requested.clear();
     final updated = await f.controller.updateBook(entry);
     expect(updated.id, entry.id);
-    expect(updated.contentRevision, entry.contentRevision);
-    expect(f.controller.lastUpdateWasCatalogOnly, isTrue);
-    expect(f.controller.lastAddedChapters, 1);
-    expect(f.requested, ['/book', '/toc']);
-    expect(await f.progress.load(entry.id), prior);
+    expect(updated.contentRevision, isNot(entry.contentRevision));
+    expect(f.controller.lastUpdateWasCatalogOnly, isFalse);
+    expect(f.controller.lastAddedChapters, 5);
+    // 第 2 章已阅读并缓存，手动全本更新复用缓存，其余章仍完整获取。
+    expect(f.requested, ['/book', '/toc', '/1', '/3', '/4', '/5']);
+    expect(
+      (await OnlineEpubMetadata.read(
+        f.library,
+        updated,
+      ))!.requiresOnlineReading,
+      isFalse,
+    );
   });
 
   test('仅进度在线 EPUB 可获取新目录，不把占位 CFI 套到在线正文', () async {
@@ -692,6 +835,7 @@ void main() {
     await pumpReaderTask(tester, opened!);
     expect(tester.takeException(), isNull);
     expect(await pumpReaderTask(tester, f.library.list()), hasLength(1));
+    await pumpReaderTask(tester, f.service.waitForIdle());
     await tester.pumpWidget(const SizedBox());
   }, timeout: const Timeout(Duration(seconds: 45)));
 }
@@ -859,6 +1003,15 @@ class _Fixture {
           fixture.requested.add(path);
           fixture.requestUrls.add(request.url);
           fixture.requestBodies.add('${request.method} $path ${request.body}');
+          if (path == '/cover.png') {
+            return http.Response.bytes(
+              base64Decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+              ),
+              200,
+              headers: {'content-type': 'image/png'},
+            );
+          }
           if (path == '/book') {
             await fixture.catalogGate?.future;
             final failure = fixture.catalogFailure;
@@ -907,6 +1060,7 @@ class _Fixture {
       catalogGate!.complete();
     }
     await controller.registerImportedBooks();
+    await service.waitForIdle();
     controller.dispose();
     await db.close();
     await directory.delete(recursive: true);
@@ -919,6 +1073,25 @@ class _TrackedBookSourceService implements BookSourceService {
 
   final BookSourceService _delegate;
   final _pendingContent = <Future<String>>{};
+
+  @override
+  Future<OnlineBookDownloadResult> download(
+    BookSource source,
+    OnlineBook book, {
+    OnlineDownloadProgress? onProgress,
+    bool Function()? isCancelled,
+    OnlineBook? preparedBook,
+    List<OnlineChapter>? selectedChapters,
+    List<OnlineChapter>? chapterDirectory,
+  }) => _delegate.download(
+    source,
+    book,
+    onProgress: onProgress,
+    isCancelled: isCancelled,
+    preparedBook: preparedBook,
+    selectedChapters: selectedChapters,
+    chapterDirectory: chapterDirectory,
+  );
 
   Future<void> waitForIdle() async {
     while (_pendingContent.isNotEmpty) {
@@ -972,6 +1145,10 @@ class _TrackedBookSourceService implements BookSourceService {
     nextChapter: nextChapter,
     nextChapterUrl: nextChapterUrl,
   );
+
+  @override
+  Future<OnlineEpubImage?> downloadCover(BookSource source, OnlineBook book) =>
+      _delegate.downloadCover(source, book);
 
   @override
   Future<Uint8List?> loadCover(

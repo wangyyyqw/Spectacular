@@ -241,6 +241,14 @@ void main() {
     expect(find.text('推荐'), findsOneWidget);
     expect(find.byTooltip('分类分组'), findsNothing);
     expect(requested.last.host, 'second.example.com');
+    final selected = controller.selectedDiscoverSourceId;
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(
+      MaterialApp(home: DiscoverPage(controller: controller)),
+    );
+    await pumpReaderUntil(tester, find.text('第二来源书'));
+    expect(controller.selectedDiscoverSourceId, selected);
+    expect(await controller.library.getSetting('discover.sourceId'), selected);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

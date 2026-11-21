@@ -801,7 +801,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             value: 'update',
             child: Text(
               widget.onlineBooks?.sourceForBook(entry.id) != null
-                  ? '更新获取最新章节'
+                  ? '更新'
                   : '更新 EPUB',
             ),
           ),
@@ -964,7 +964,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('从 ${source.name} 获取最新章节'),
-        content: Text('将检查《${entry.title}》的最新目录并获取新增章节，保留已有正文、阅读进度、书签与笔记。'),
+        content: Text(
+          '将检查《${entry.title}》的最新目录；逐章书会下载全本正文，已下载的书只获取新增章节。已有阅读进度、书签与笔记会保留。',
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1027,6 +1029,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     try {
       final updated = await controller.updateBook(
         entry,
+        progressStore: widget.progressStore,
         onProgress: (completed, total, message) {
           progress.value = (
             completed: completed,

@@ -3,14 +3,23 @@ package com.spectacular.reader_mobile
 import android.app.Activity
 import android.app.Dialog
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
+import android.view.Window
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.widget.LinearLayout
+import android.widget.FrameLayout
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
@@ -46,6 +55,9 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
             val previousAcceptCookie = cookies.acceptCookie()
             cookies.setAcceptCookie(cookieEnabled)
             val cookie = args["cookie"] as? String ?: ""
+            val sheet = Dialog(activity, R.style.OnlineReviewTheme)
+            sheet.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            sheet.setCanceledOnTouchOutside(true)
             if (cookieEnabled) {
                 cookie.split(';').map(String::trim).filter(String::isNotEmpty).forEach {
                     cookies.setCookie(url, it)
@@ -53,13 +65,22 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
                 cookies.flush()
             }
             val web = WebView(activity).apply {
+                setBackgroundColor(Color.rgb(247, 247, 248))
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 headers.entries.firstOrNull { it.key.equals("User-Agent", true) }
                     ?.value?.let { settings.userAgentString = it }
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
+                webChromeClient = object : WebChromeClient() {
+                    override fun onCloseWindow(window: WebView?) {
+                        sheet.dismiss()
+                    }
+                }
                 webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? =
+                        OnlineReviewImageLoader.load(request)
+
                     override fun onPageFinished(view: WebView?, pageUrl: String?) {
                         if (html.isBlank() && preload.isNotBlank()) {
                             view?.evaluateJavascript(preload, null)
@@ -68,19 +89,38 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
                 }
             }
             cookies.setAcceptThirdPartyCookies(web, cookieEnabled)
-            val sheet = Dialog(activity)
             val root = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
-                setBackgroundColor(Color.WHITE)
-                addView(Button(activity).apply {
-                    text = "关闭段评"
-                    setOnClickListener { sheet.dismiss() }
-                })
+                val radius = 16f * resources.displayMetrics.density
+                background = GradientDrawable().apply {
+                    setColor(Color.rgb(247, 247, 248))
+                    cornerRadii = floatArrayOf(radius, radius, radius, radius, 0f, 0f, 0f, 0f)
+                }
+                clipToOutline = true
                 addView(web, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f,
                 ))
+                // 内容避开手势热区，面板背景延伸至屏幕底部。
+                setOnApplyWindowInsetsListener { view, insets ->
+                    val bottom = if (Build.VERSION.SDK_INT >= 30) {
+                        insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                    } else {
+                        @Suppress("DEPRECATION")
+                        insets.systemWindowInsetBottom
+                    }
+                    view.setPadding(0, 0, 0, bottom)
+                    insets
+                }
             }
-            sheet.setContentView(root)
+            // 全屏透明容器负责遮罩，底部面板在容器内定位，避免系统给浮动窗预留底栏。
+            val container = FrameLayout(activity).apply {
+                setOnClickListener { sheet.dismiss() }
+                addView(root, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.BOTTOM,
+                ))
+            }
+            root.isClickable = true
+            sheet.setContentView(container)
             sheet.setOnDismissListener {
                 cookies.flush()
                 result.success(mapOf(
@@ -96,15 +136,73 @@ class OnlineReviewHandler(private val activity: Activity, messenger: BinaryMesse
             dialog = sheet
             sheet.show()
             val config = runCatching { JSONObject(args["config"] as? String ?: "{}") }.getOrNull()
-            val percent = config?.optDouble("height", 0.7)?.let {
+            val percent = config?.optDouble("heightPercentage",
+                config.optDouble("height", 0.8))?.let {
                 if (it > 1) it / 100 else it
-            }?.takeIf { it.isFinite() }?.coerceIn(0.3, 1.0) ?: 0.7
+            }?.takeIf { it.isFinite() }?.coerceIn(0.3, 0.95) ?: 0.8
             sheet.window?.apply {
-                setGravity(Gravity.BOTTOM)
+                setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+                decorView.setPadding(0, 0, 0, 0)
+                addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+                clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                    WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
+                attributes = attributes.apply {
+                    dimAmount = 0.32f
+                    if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
+                }
+                if (Build.VERSION.SDK_INT >= 30) {
+                    setDecorFitsSystemWindows(false)
+                    insetsController?.setSystemBarsAppearance(
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
+                            android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS or
+                            android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    decorView.systemUiVisibility =
+                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                        View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                }
+                @Suppress("DEPRECATION")
+                navigationBarColor = Color.TRANSPARENT
+                @Suppress("DEPRECATION")
+                statusBarColor = Color.TRANSPARENT
+                if (Build.VERSION.SDK_INT >= 29) {
+                    isNavigationBarContrastEnforced = false
+                    isStatusBarContrastEnforced = false
+                }
+                setGravity(Gravity.FILL)
                 setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
                 setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
-                    (activity.resources.displayMetrics.heightPixels * percent).toInt())
+                    ViewGroup.LayoutParams.MATCH_PARENT)
             }
+            container.setOnApplyWindowInsetsListener { _, insets ->
+                val top = if (Build.VERSION.SDK_INT >= 30) {
+                    insets.getInsets(WindowInsets.Type.statusBars()).top
+                } else {
+                    @Suppress("DEPRECATION")
+                    insets.systemWindowInsetTop
+                }
+                val height = (container.height * percent).toInt()
+                    .coerceAtMost((container.height - top).coerceAtLeast(0))
+                root.layoutParams = (root.layoutParams as FrameLayout.LayoutParams).apply {
+                    this.height = height
+                }
+                insets
+            }
+            container.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                val height = (container.height * percent).toInt()
+                if (root.layoutParams.height != height) {
+                    root.layoutParams = (root.layoutParams as FrameLayout.LayoutParams).apply {
+                        this.height = height
+                    }
+                }
+            }
+            root.requestApplyInsets()
             if (html.isNotBlank()) {
                 val injection = if (preload.isBlank()) "" else {
                     "<script>${preload.replace("</script", "<\\/script", ignoreCase = true)}</script>"

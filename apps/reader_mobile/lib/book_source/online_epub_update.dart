@@ -14,6 +14,47 @@ import 'online_epub_metadata.dart';
 
 /// 对现有在线 EPUB 只追加新章，原章节文件、样式、资源和标识保持原值。
 class OnlineEpubUpdate {
+  /// 按需书转为完整 EPUB 时保留原 OPF 身份，避免更换书架主键。
+  static Future<Uint8List> preserveBookIdentity(
+    String path,
+    Uint8List bytes,
+  ) async {
+    final opened = await openEpub(
+      await File(path).readAsBytes(),
+      verifyCrc: false,
+    );
+    final document = opened.document;
+    if (document == null) throw const BookSourceException('原书身份无法读取');
+    try {
+      final oldOpf = XmlDocument.parse(
+        document.archive.readString(document.opfPath)!,
+      );
+      final incoming = ZipDecoder().decodeBytes(bytes);
+      final opfFile = incoming.findFile('OEBPS/content.opf')!;
+      final newOpf = XmlDocument.parse(utf8.decode(opfFile.content));
+      for (final name in const ['identifier', 'title', 'creator']) {
+        final old = oldOpf.descendants
+            .whereType<XmlElement>()
+            .where((element) => element.name.local == name)
+            .firstOrNull;
+        final target = newOpf.descendants
+            .whereType<XmlElement>()
+            .where((element) => element.name.local == name)
+            .firstOrNull;
+        if (old != null && target != null) {
+          target.children
+            ..clear()
+            ..add(XmlText(old.innerText));
+        }
+      }
+      final text = utf8.encode(newOpf.toXmlString());
+      incoming.addFile(ArchiveFile('OEBPS/content.opf', text.length, text));
+      return Uint8List.fromList(ZipEncoder().encodeBytes(incoming));
+    } finally {
+      document.archive.close();
+    }
+  }
+
   OnlineEpubUpdate._(this.bytes, this.opfPath, this.chapters);
 
   final Uint8List bytes;

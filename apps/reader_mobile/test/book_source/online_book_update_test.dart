@@ -20,6 +20,7 @@ import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test('正式更新入口只请求新增正文，再次更新无下载且失败保留原书', () async {
     final dir = await Directory.systemTemp.createTemp('online-controller-');
     final db = AppDatabase(NativeDatabase.memory());

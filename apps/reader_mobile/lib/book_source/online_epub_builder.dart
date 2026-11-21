@@ -46,6 +46,8 @@ class OnlineEpubInput {
     this.bookUrl = '',
     this.cover,
     this.images = const <OnlineEpubImage>[],
+    this.sourceId = '',
+    this.onDemand = false,
   });
 
   final String title;
@@ -56,6 +58,8 @@ class OnlineEpubInput {
   final List<OnlineEpubChapter> chapters;
   final OnlineEpubImage? cover;
   final List<OnlineEpubImage> images;
+  final String sourceId;
+  final bool onDemand;
 }
 
 /// 将在线书源结果打包成当前阅读引擎可导入的 EPUB。
@@ -187,6 +191,29 @@ class OnlineEpubBuilder {
         ],
       }),
     );
+    if (input.sourceId.isNotEmpty) {
+      addText(
+        'OEBPS/reamicro-online-chapters.json',
+        jsonEncode({
+          'version': 1,
+          'sourceId': input.sourceId,
+          'detailUrl': input.bookUrl,
+          'bookName': input.title,
+          'mode': input.onDemand ? 'ON_DEMAND' : 'FULL',
+          'chapters': [
+            for (final (index, chapter) in input.chapters.indexed)
+              {
+                'href':
+                    'OEBPS/text/chapter_${(index + 1).toString().padLeft(4, '0')}.xhtml',
+                'url': chapter.sourceUrl,
+                'title': chapter.title,
+                'volumeTitle': chapter.volume,
+                'state': input.onDemand ? 'PENDING' : 'READY',
+              },
+          ],
+        }),
+      );
+    }
     return Uint8List.fromList(ZipEncoder().encodeBytes(archive));
   }
 
@@ -198,17 +225,77 @@ class OnlineEpubBuilder {
   );
 
   String _chapterBody(OnlineEpubChapter chapter) {
-    final fragment = html_parser.parseFragment(chapter.html);
+    var html = chapter.html;
+    // 纯文本追加行内段评后仍按换行分段，不能因出现 img/a 就丢掉段落。
+    if (!RegExp(
+          r'<(?:p|div|h[1-6]|section|article|table|ul|ol|blockquote|pre|br)\b',
+          caseSensitive: false,
+        ).hasMatch(html) &&
+        RegExp(
+          r'<(?:a|img|span|em|strong)\b',
+          caseSensitive: false,
+        ).hasMatch(html)) {
+      html = html
+          .replaceAll('\r\n', '\n')
+          .replaceAll('\r', '\n')
+          .split('\n')
+          .where((line) => line.trim().isNotEmpty)
+          .map((line) => '<p>${line.trim()}</p>')
+          .join();
+    }
+    final fragment = html_parser.parseFragment(html);
     final isPlainText = fragment.children.isEmpty;
     _sanitizeFragment(fragment);
+    _removeLeadingTitle(fragment, chapter.title);
     final body = isPlainText
         ? _serializeParagraphs(fragment.text ?? '')
         : _serializeNodes(fragment.nodes);
     final headingText = fragment.querySelector('h1,h2,h3')?.text.trim() ?? '';
     final heading = headingText == chapter.title.trim()
         ? ''
-        : '<h1 class="chapter-title">${_escapeXml(chapter.title)}</h1>';
+        : _chapterHeading(chapter.title);
     return '$heading$body';
+  }
+
+  /// 参考阅微：章节编号和名称分别一行，保留目录中的完整标题。
+  String _chapterHeading(String title) {
+    final clean = title.trim();
+    final match = RegExp(
+      r'^(第\s*[0-9０-９一二三四五六七八九十百千万〇零两]+\s*[章节卷回集部篇]|chapter\s*\d+|番外|后日谈|后记|序章|楔子|终章)\s*[:：/／、，,。.!！?？\-—_；;]*\s*(.+)$',
+      caseSensitive: false,
+    ).firstMatch(clean);
+    final content = match == null
+        ? _escapeXml(clean)
+        : '${_escapeXml(match.group(1)!.trim())}<br/>'
+              '${_escapeXml(match.group(2)!.trim())}';
+    return '<h1 class="chapter-title">$content</h1>';
+  }
+
+  /// 只去掉正文开头与目录标题完全相同的一行，保留正文后面的同名引用。
+  void _removeLeadingTitle(DocumentFragment fragment, String title) {
+    String normalized(String value) =>
+        value.replaceAll(RegExp(r'\s+'), '').trim();
+    final expected = normalized(title);
+    if (expected.isEmpty) return;
+    for (final node in List<Node>.of(fragment.nodes)) {
+      if (node is Text) {
+        final text = node.text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+        if (text.trim().isEmpty) continue;
+        final lines = text.split('\n');
+        final first = lines.indexWhere((line) => line.trim().isNotEmpty);
+        if (first >= 0 && normalized(lines[first]) == expected) {
+          node.text = lines.skip(first + 1).join('\n');
+        }
+      } else if (node is Element) {
+        if (const {'h1', 'h2', 'h3'}.contains(node.localName)) return;
+        if (const {'p', 'div'}.contains(node.localName) &&
+            node.querySelector('img,a,br,p,div') == null &&
+            normalized(node.text) == expected) {
+          node.remove();
+        }
+      }
+      return;
+    }
   }
 
   String _serializeParagraphs(String text) => text
@@ -377,7 +464,7 @@ class OnlineEpubBuilder {
       'body { margin: 0; line-height: 1.75; word-wrap: break-word; }\n'
       'p { margin: 0 0 .8em; text-indent: 2em; }\n'
       'h1, h2, h3 { text-indent: 0; font-weight: bold; }\n'
-      '.chapter-title { margin: 0 0 1.2em; text-align: center; }\n'
+      '.chapter-title { font-size: 1.5em; margin: 0 0 1.2em; text-align: center; }\n'
       'img { max-width: 100%; height: auto; }\n'
       '.cover { margin: 0; padding: 0; text-align: center; }\n'
       '.cover img { max-height: 100%; }\n';

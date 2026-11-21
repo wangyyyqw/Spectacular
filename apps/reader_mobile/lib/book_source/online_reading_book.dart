@@ -35,7 +35,7 @@ class OnlineReadingBook {
   late final String id =
       bookshelfId ?? 'online:${_digest([source.id, book.bookUrl])}';
   late final String revision = _digest([
-    '在线正文2',
+    '在线正文5',
     id,
     for (final (index, chapter) in chapters.indexed)
       [chapter.url, chapterRevision(index)],
@@ -70,7 +70,7 @@ class OnlineReadingBook {
   );
 
   String chapterRevision(int index) => _digest([
-    '在线正文2',
+    '在线正文5',
     service.chapterContentRevision(
       source,
       chapters[index],
@@ -80,6 +80,30 @@ class OnlineReadingBook {
 
   OnlineChapter? _nextChapter(int index) =>
       index + 1 < chapters.length ? chapters[index + 1] : null;
+
+  /// 首屏准备完成后顺序缓存后两章，离开或跳章时停止后续请求。
+  Future<void> prefetchAfter(
+    int index, {
+    required bool Function() isActive,
+  }) async {
+    for (
+      var next = index + 1;
+      next <= index + 2 && next < chapters.length;
+      next++
+    ) {
+      if (!isActive()) return;
+      try {
+        await service.fetchChapterContent(
+          source,
+          chapters[next],
+          book.bookUrl,
+          nextChapter: _nextChapter(next),
+        );
+      } on Object {
+        // 邻章失败不遮蔽当前正文，正式进入章节时仍可重试。
+      }
+    }
+  }
 
   static String _digest(Object value) =>
       sha256.convert(utf8.encode(jsonEncode(value))).toString();
