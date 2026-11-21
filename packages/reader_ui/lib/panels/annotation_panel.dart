@@ -8,6 +8,7 @@ import '../annotations/annotation.dart';
 import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
 import '../icons/app_icon.dart';
+import '../theme/reader_drawer_style.dart';
 import '../theme/reader_frosted_popup.dart';
 import '../theme/reader_frosted_surface.dart';
 
@@ -301,6 +302,20 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final searchBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(20),
+      borderSide: BorderSide.none,
+    );
+    final searchStyle = TextStyle(
+      fontFamily: 'serif',
+      fontSize: 14,
+      height: 1.5,
+      fontWeight: FontWeight.w400,
+      color: theme.brightness == Brightness.dark
+          ? ReaderDrawerStyle.textOf(theme)
+          : const Color(0xFF555B64),
+    );
+    final muted = ReaderDrawerStyle.mutedOf(theme);
     final busy = _deleting || _recoloring;
     final searched = _searched;
     final items = _filtered(searched);
@@ -318,134 +333,165 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
-            child: Row(
-              children: [
-                if (_selecting)
+          if (_selecting)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
+              child: Row(
+                children: [
                   IconButton(
                     key: const ValueKey<String>('annotation-batch-exit'),
                     icon: const AppIcon(AppGlyph.close, size: 20),
                     onPressed: busy ? null : _exitSelection,
                     tooltip: '退出选择',
-                  )
-                else if (widget.onBack != null)
-                  IconButton(
-                    icon: const AppIcon(AppGlyph.arrowBack, size: 20),
-                    onPressed: widget.onBack,
-                    tooltip: '返回',
                   ),
-                Expanded(
-                  child: Text(
-                    _selecting ? '已选 ${_selectedIds.length} 条' : '标注',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium,
+                  Expanded(
+                    child: Text(
+                      '已选 ${_selectedIds.length} 条',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium,
+                    ),
                   ),
-                ),
-                if (_selecting) ...[
-                  TextButton(
-                    key: const ValueKey<String>('annotation-batch-select-all'),
-                    onPressed: busy || items.isEmpty
-                        ? null
-                        : () => _toggleSelectAll(items),
-                    child: Text(allVisibleSelected ? '取消全选' : '全选'),
-                  ),
-                  if (widget.onRecolor != null && !widget.inkMode)
+                  if (_selecting) ...[
+                    TextButton(
+                      key: const ValueKey<String>(
+                        'annotation-batch-select-all',
+                      ),
+                      onPressed: busy || items.isEmpty
+                          ? null
+                          : () => _toggleSelectAll(items),
+                      child: Text(allVisibleSelected ? '取消全选' : '全选'),
+                    ),
+                    if (widget.onRecolor != null && !widget.inkMode)
+                      IconButton(
+                        key: const ValueKey<String>('annotation-batch-recolor'),
+                        tooltip: '更换颜色',
+                        onPressed: busy || _selectedIds.isEmpty
+                            ? null
+                            : _recolorSelected,
+                        icon: _recoloring
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const AppIcon(AppGlyph.palette, size: 20),
+                      ),
                     IconButton(
-                      key: const ValueKey<String>('annotation-batch-recolor'),
-                      tooltip: '更换颜色',
+                      key: const ValueKey<String>('annotation-batch-delete'),
+                      tooltip: '删除选中标注',
                       onPressed: busy || _selectedIds.isEmpty
                           ? null
-                          : _recolorSelected,
-                      icon: _recoloring
+                          : _deleteSelected,
+                      icon: _deleting
                           ? const SizedBox.square(
                               dimension: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const AppIcon(AppGlyph.palette, size: 20),
+                          : const AppIcon(AppGlyph.delete, size: 20),
                     ),
-                  IconButton(
-                    key: const ValueKey<String>('annotation-batch-delete'),
-                    tooltip: '删除选中标注',
-                    onPressed: busy || _selectedIds.isEmpty
-                        ? null
-                        : _deleteSelected,
-                    icon: _deleting
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const AppIcon(AppGlyph.delete, size: 20),
-                  ),
-                ] else ...[
-                  Text(
-                    filtering
-                        ? '显示 ${items.length} / ${widget.annotations.length} 条'
-                        : '共 ${widget.annotations.length} 条',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                  PopupMenuButton<_AnnotationSort>(
-                    key: const ValueKey<String>('annotation-sort'),
-                    tooltip: '标注排序',
-                    initialValue: _sort,
-                    onSelected: (value) => setState(() => _sort = value),
-                    icon: const AppIcon(AppGlyph.sort, size: 20),
-                    itemBuilder: (_) => <PopupMenuEntry<_AnnotationSort>>[
-                      for (final sort in _AnnotationSort.values)
-                        appCheckedMenuItem<_AnnotationSort>(
-                          key: ValueKey<String>('annotation-sort-${sort.name}'),
-                          value: sort,
-                          checked: sort == _sort,
-                          child: Text(sort.label),
-                        ),
-                    ],
-                  ),
-                  if (widget.onDelete != null && items.isNotEmpty)
-                    IconButton(
-                      key: const ValueKey<String>('annotation-batch-manage'),
-                      tooltip: '批量管理',
-                      onPressed: _enterSelection,
-                      icon: const AppIcon(AppGlyph.checklist, size: 20),
-                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
           ...<Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: TextField(
-                key: const ValueKey<String>('annotation-search-input'),
-                controller: _searchController,
-                onChanged: _setQuery,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: '搜索原文、想法或章节',
-                  prefixIcon: const AppIcon(AppGlyph.search, size: 20),
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : IconButton(
-                          key: const ValueKey<String>(
-                            'annotation-search-clear',
+              padding: const EdgeInsets.fromLTRB(22, 10, 12, 12),
+              child: Row(
+                children: [
+                  if (!_selecting && widget.onBack != null)
+                    IconButton(
+                      icon: const AppIcon(AppGlyph.arrowBack, size: 20),
+                      onPressed: widget.onBack,
+                      tooltip: '返回',
+                    ),
+                  Expanded(
+                    child: Material(
+                      key: const ValueKey('annotation-search-surface'),
+                      color: theme.colorScheme.surface,
+                      borderRadius: searchBorder.borderRadius,
+                      elevation: 2,
+                      shadowColor: theme.colorScheme.shadow.withValues(
+                        alpha: .12,
+                      ),
+                      child: TextField(
+                        key: const ValueKey<String>('annotation-search-input'),
+                        controller: _searchController,
+                        onChanged: _setQuery,
+                        textInputAction: TextInputAction.search,
+                        style: searchStyle,
+                        cursorColor: ReaderDrawerStyle.textOf(theme),
+                        decoration: InputDecoration(
+                          hintStyle: searchStyle.copyWith(color: muted),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 8,
                           ),
-                          onPressed: () {
-                            _searchController.clear();
-                            _setQuery('');
-                          },
-                          tooltip: '清除搜索',
-                          icon: const AppIcon(AppGlyph.close, size: 18),
+                          prefixIconConstraints: const BoxConstraints.tightFor(
+                            width: 40,
+                            height: 40,
+                          ),
+                          suffixIconConstraints: const BoxConstraints.tightFor(
+                            width: 40,
+                            height: 40,
+                          ),
+                          hintText: '搜索原文、想法或章节',
+                          prefixIcon: AppIcon(
+                            AppGlyph.search,
+                            size: 20,
+                            color: muted,
+                          ),
+                          suffixIcon: _query.isEmpty
+                              ? null
+                              : IconButton(
+                                  key: const ValueKey<String>(
+                                    'annotation-search-clear',
+                                  ),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _setQuery('');
+                                  },
+                                  tooltip: '清除搜索',
+                                  icon: const AppIcon(AppGlyph.close, size: 18),
+                                ),
+                          isDense: true,
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                          border: searchBorder,
+                          enabledBorder: searchBorder,
+                          focusedBorder: searchBorder,
                         ),
-                  isDense: true,
-                  filled: true,
-                  fillColor: theme.colorScheme.surfaceContainerLow,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide.none,
+                      ),
+                    ),
                   ),
-                ),
+                  if (!_selecting) ...[
+                    PopupMenuButton<_AnnotationSort>(
+                      key: const ValueKey<String>('annotation-sort'),
+                      tooltip: '标注排序',
+                      initialValue: _sort,
+                      onSelected: (value) => setState(() => _sort = value),
+                      icon: const AppIcon(AppGlyph.sort, size: 20),
+                      itemBuilder: (_) => <PopupMenuEntry<_AnnotationSort>>[
+                        for (final sort in _AnnotationSort.values)
+                          appCheckedMenuItem<_AnnotationSort>(
+                            key: ValueKey<String>(
+                              'annotation-sort-${sort.name}',
+                            ),
+                            value: sort,
+                            checked: sort == _sort,
+                            child: Text(sort.label),
+                          ),
+                      ],
+                    ),
+                    if (widget.onDelete != null && items.isNotEmpty)
+                      IconButton(
+                        key: const ValueKey<String>('annotation-batch-manage'),
+                        tooltip: '批量管理',
+                        onPressed: _enterSelection,
+                        icon: const AppIcon(AppGlyph.checklist, size: 20),
+                      ),
+                  ],
+                ],
               ),
             ),
             SingleChildScrollView(
@@ -478,6 +524,15 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                     selected: _filter == _AnnotationFilter.note,
                     onSelected: () => _setFilter(_AnnotationFilter.note),
                   ),
+                  if (!_selecting) ...[
+                    const SizedBox(width: 12),
+                    Text(
+                      filtering
+                          ? '显示 ${items.length} / ${widget.annotations.length} 条'
+                          : '共 ${widget.annotations.length} 条',
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                  ],
                 ],
               ),
             ),
