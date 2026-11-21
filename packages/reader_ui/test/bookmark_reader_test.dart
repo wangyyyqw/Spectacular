@@ -95,13 +95,16 @@ Future<ReaderSession> _open(
   ReaderBookmarkStyle style = const ReaderBookmarkStyle(),
   ValueChanged<ReaderBookmarkStyle>? onStyle,
   bool disableAnimations = false,
+  double topInset = 0,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
     MaterialApp(
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(disableAnimations: disableAnimations),
+        data: MediaQuery.of(context).copyWith(
+          disableAnimations: disableAnimations,
+          padding: EdgeInsets.only(top: topInset),
+        ),
         child: child!,
       ),
       home: Scaffold(
@@ -168,6 +171,23 @@ Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
 }
 
 void main() {
+  testWidgets('书签在有状态栏留白时仍贴紧页面顶边，添加与移除不弹底部提示', (tester) async {
+    final bookmarks = _Bookmarks();
+    await _open(tester, bookmarks, topInset: 32);
+    await _pullBookmark(tester);
+    final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
+    expect(
+      tester.getTopRight(ribbon).dy,
+      tester.getTopLeft(find.byType(ReaderView)).dy,
+    );
+    expect(bookmarks.items, hasLength(1));
+    expect(find.byType(SnackBar), findsNothing);
+    await _pullBookmark(tester, remove: true);
+    expect(bookmarks.items, isEmpty);
+    expect(ribbon, findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
   testWidgets('未到阈值松手回位不添加，减少动画设置直接归位', (tester) async {
     final bookmarks = _Bookmarks();
     await _open(tester, bookmarks, disableAnimations: true);
@@ -280,7 +300,7 @@ void main() {
         find.byKey(const ValueKey('reader-bookmark-ribbon')),
         findsNothing,
       );
-      expect(find.text('已移除书签'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       await _pullBookmark(tester);
       // 用多次采样兼容仿真模式的原生起拖规则。
       final horizontal = await tester.startGesture(
@@ -327,6 +347,7 @@ void main() {
       await tester.tap(button);
       await tester.pumpAndSettle();
       expect(bookmarks.items.single.cfi, expected);
+      expect(find.byType(SnackBar), findsNothing);
       expect(
         find.byKey(const ValueKey('reader-bookmark-ribbon')),
         mode == PageTurnMode.scroll ? findsNothing : findsOneWidget,
@@ -334,7 +355,7 @@ void main() {
       await tester.tap(button);
       await tester.pumpAndSettle();
       expect(bookmarks.items, hasLength(1));
-      expect(find.text('该位置已有书签'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
@@ -343,6 +364,7 @@ void main() {
       await tester.tap(find.byTooltip('删除书签'));
       await tester.pumpAndSettle();
       expect(find.text('共 0 条'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       expect(
         find.byKey(const ValueKey('reader-bookmark-ribbon')),
         findsNothing,

@@ -93,7 +93,7 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
         ),
         if (widget.ribbon != null && (offset > 0 || widget.bookmarked))
           Positioned(
-            top: widget.topInset,
+            top: 0,
             right: 12 + widget.rightInset,
             child: IgnorePointer(
               child: Semantics(
