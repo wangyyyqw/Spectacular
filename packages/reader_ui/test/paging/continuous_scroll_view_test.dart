@@ -237,6 +237,50 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
 }
 
 void main() {
+  for (final pageIndex in [0, 34]) {
+    testWidgets('进入滚动模式补入变高邻章后仍显示原章第 $pageIndex 页', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(384, 853));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final store = MemoryReaderProgressStore();
+      await store.save(
+        'scroll-mode-anchor-$pageIndex',
+        ReaderProgress(spineIndex: 1, pageIndex: pageIndex),
+      );
+      final session = ReaderSession(
+        source: _UnevenLongSource(),
+        store: store,
+        bookId: 'scroll-mode-anchor-$pageIndex',
+      );
+      await session.open();
+      final key = GlobalKey<ContinuousScrollViewState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ContinuousScrollView(
+            key: key,
+            session: session,
+            revision: 1,
+            padding: const EdgeInsets.fromLTRB(8.8, 56.075, 8.53, 24.08),
+            paperBuilder: (page, _) => ColoredBox(
+              key: ValueKey('mode-${page.spineIndex}-${page.pageIndex}'),
+              color: Colors.white,
+            ),
+          ),
+        ),
+      );
+      for (var frame = 0; frame < 30; frame++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      final visible = key.currentState!.pageAt(const Offset(100, 1));
+      expect(visible?.page.spineIndex, 1);
+      expect(visible?.page.pageIndex, pageIndex);
+      expect(visible?.localPosition.dy, closeTo(1, 1));
+      expect(session.progress?.spineIndex, 1);
+      expect(session.progress?.pageIndex, pageIndex);
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+    });
+  }
+
   for (final reducedMotion in [false, true]) {
     testWidgets('连续滚动${reducedMotion ? '减少动画时直接定位' : '短距离翻屏及时收尾'}', (
       tester,

@@ -983,6 +983,8 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
             controller: _controller,
             padding: scrollPadding,
             itemCount: _entries.length,
+            // 引擎已给出每个切片的准确高度，恢复与前插章节时无需估算屏外页。
+            itemExtentBuilder: (index, _) => _entries[index].segment.extent,
             itemBuilder: (context, index) {
               final entry = _entries[index];
               final pageKey = _pageKeys.putIfAbsent((
