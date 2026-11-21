@@ -310,7 +310,15 @@ void main() {
     );
     expect(find.byKey(const ValueKey<String>('reader-page')), findsOneWidget);
 
+    final route = ModalRoute.of(tester.element(find.byType(EpubReaderPage)))!;
+    expect(
+      route.reverseTransitionDuration,
+      Duration.zero,
+      reason: '返回书架不播放退出动画',
+    );
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pump();
+    expect(find.byType(EpubReaderPage), findsNothing, reason: '退出首帧直接显示书架');
     await _pumpFrames(tester);
     await pumpReaderTask(tester, openFuture);
   });

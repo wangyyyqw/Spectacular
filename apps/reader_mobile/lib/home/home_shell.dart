@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -51,6 +53,8 @@ class _HomeShellState extends State<HomeShell> {
   bool _exportingDiagnostics = false;
   bool _desktop = false;
   List<Widget> _pages = [];
+  MediaQueryData? _homeMedia;
+  bool _restoringSystemPadding = false;
 
   @override
   void didUpdateWidget(HomeShell oldWidget) {
@@ -246,36 +250,71 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  /// 阅读页隐藏系统栏时保留首页安全区，返回后不随系统栏恢复动画挪动布局。
+  MediaQueryData _homeLayoutMedia() {
+    final media = MediaQuery.of(context);
+    final previous = _homeMedia;
+    if (previous == null || previous.size != media.size) {
+      _restoringSystemPadding = false;
+      return _homeMedia = media;
+    }
+    if (ModalRoute.isCurrentOf(context) == false) {
+      _restoringSystemPadding = true;
+    }
+    final padding = previous.viewPadding;
+    final pending =
+        _restoringSystemPadding &&
+        (media.viewPadding.top < padding.top ||
+            media.viewPadding.bottom < padding.bottom);
+    if (!pending) {
+      _restoringSystemPadding = false;
+      return _homeMedia = media;
+    }
+    return media.copyWith(
+      viewPadding: media.viewPadding.copyWith(
+        top: padding.top,
+        bottom: padding.bottom,
+      ),
+      padding: media.padding.copyWith(
+        top: math.max(0, padding.top - media.viewInsets.top),
+        bottom: math.max(0, padding.bottom - media.viewInsets.bottom),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final items = _navigationItems(theme);
     final useRail = usesDesktopLayout(context);
     final pages = Expanded(child: _buildBody(useRail));
-    final scaffold = Scaffold(
-      body: Row(
-        children: [
-          if (useRail) ...[
-            _buildRail(theme, items),
-            VerticalDivider(width: 1, color: theme.dividerColor),
+    final scaffold = MediaQuery(
+      data: _homeLayoutMedia(),
+      child: Scaffold(
+        body: Row(
+          children: [
+            if (useRail) ...[
+              _buildRail(theme, items),
+              VerticalDivider(width: 1, color: theme.dividerColor),
+            ],
+            pages,
           ],
-          pages,
-        ],
-      ),
-      bottomNavigationBar: useRail
-          ? null
-          : Material(
-              color: theme.colorScheme.surface,
-              elevation: 2,
-              shadowColor: theme.colorScheme.shadow.withValues(alpha: .12),
-              child: BottomNavigationBar(
-                backgroundColor: theme.colorScheme.surface,
-                elevation: 0,
-                currentIndex: _index,
-                onTap: _selectDestination,
-                items: items,
+        ),
+        bottomNavigationBar: useRail
+            ? null
+            : Material(
+                color: theme.colorScheme.surface,
+                elevation: 2,
+                shadowColor: theme.colorScheme.shadow.withValues(alpha: .12),
+                child: BottomNavigationBar(
+                  backgroundColor: theme.colorScheme.surface,
+                  elevation: 0,
+                  currentIndex: _index,
+                  onTap: _selectDestination,
+                  items: items,
+                ),
               ),
-            ),
+      ),
     );
     if (!useRail) return scaffold;
     final macOS = theme.platform == TargetPlatform.macOS;
