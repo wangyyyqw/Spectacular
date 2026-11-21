@@ -48,6 +48,9 @@ void main() {
       matches(RegExp(r'shrine_npc_\d+\.webp$')),
     );
     expect(YeSheTokens.auctionAsset('青瓷笔洗'), endsWith('shrine_auction_5.webp'));
+    expect(YeSheTokens.medalAsset(33), endsWith('medal_33.png'));
+    expect(YeSheTokens.medalAsset(45), endsWith('medal_45.png'));
+    expect(YeSheTokens.medalAsset(99), endsWith('medal_fallback.png'));
   });
 
   testWidgets('头像空地址显示默认资源', (tester) async {

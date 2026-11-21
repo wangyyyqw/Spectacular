@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/ye_she/community_page.dart';
 import 'package:reader_mobile/ye_she/ye_she_api_client.dart';
 import 'package:reader_mobile/ye_she/ye_she_controller.dart';
 import 'package:reader_mobile/ye_she/ye_she_page.dart';
 
 void main() {
-  testWidgets('野社展示三个页签与关键卡片', (tester) async {
+  testWidgets('野社首屏只加载文房，切换页签后再加载对应内容', (tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final controller = YeSheController(
-      tokenProvider: () => 'token',
-      api: _DemoYeSheApi(),
-    );
+    final api = _DemoYeSheApi();
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
@@ -28,8 +27,16 @@ void main() {
     expect(find.text('青士'), findsWidgets);
     expect(find.text('名帖'), findsWidgets);
     expect(find.text('本周文会声望 71/120'), findsOneWidget);
-    expect(find.text('我的收藏'), findsOneWidget);
-    expect(find.text('清玩 · 鉴赏'), findsOneWidget);
+    expect(find.text('我的收藏'), findsNothing);
+    expect(find.text('社区想法'), findsNothing);
+    expect(find.text('黄金台 · 徽章征集'), findsNothing);
+    expect(api.calls, contains(#fetchCommunityStatus));
+    expect(api.calls, contains(#fetchMyLiterarySociety));
+    expect(api.calls, isNot(contains(#fetchTodayGambling)));
+    expect(api.calls, isNot(contains(#fetchWishUp)));
+    expect(api.calls, isNot(contains(#fetchPublicThoughts)));
+    expect(api.calls, isNot(contains(#fetchMyCollections)));
+    expect(api.calls, isNot(contains(#fetchMedalTreasure)));
 
     await tester.tap(find.text('游艺'));
     await tester.pumpAndSettle();
@@ -44,12 +51,10 @@ void main() {
       scrollable: find.byType(Scrollable).last,
     );
     expect(find.text('道观'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('黄金台 · 鹿鸣印'),
-      360,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('黄金台 · 鹿鸣印'), findsOneWidget);
+    expect(api.calls, contains(#fetchTodayGambling));
+    expect(api.calls, contains(#fetchMerchantGuilds));
+    expect(api.calls, isNot(contains(#fetchWishUp)));
+    expect(api.calls, isNot(contains(#fetchPublicThoughts)));
 
     await tester.tap(find.text('见闻'));
     await tester.pumpAndSettle();
@@ -75,17 +80,15 @@ void main() {
     );
     expect(find.text('互市坊'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('社区想法'),
-      320,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('社区想法'), findsOneWidget);
-    await tester.scrollUntilVisible(
       find.text('唱经楼'),
       320,
       scrollable: find.byType(Scrollable).last,
     );
     expect(find.text('唱经楼'), findsOneWidget);
+    expect(api.calls, contains(#fetchWishUp));
+    expect(api.calls, isNot(contains(#fetchPublicThoughts)));
+    expect(api.calls, isNot(contains(#fetchMyCollections)));
+    expect(api.calls, isNot(contains(#fetchMedalTreasure)));
   });
 
   testWidgets('野社在窄屏下不产生布局溢出', (tester) async {
@@ -150,11 +153,192 @@ void main() {
       expect(title.style?.color, theme.colorScheme.onSurface);
     }
   });
+
+  testWidgets('会长显示文会管理按钮，普通成员只能退出文会', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    Future<void> pumpSociety({
+      required int currentUserId,
+      required _DemoYeSheApi api,
+    }) async {
+      final controller = YeSheController(
+        tokenProvider: () => 'token',
+        api: api,
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: YeShePage(controller: controller, currentUserId: currentUserId),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await pumpSociety(
+      currentUserId: 11,
+      api: _DemoYeSheApi(presidentUserId: 11, memberUserId: 11),
+    );
+    expect(find.text('修改封面'), findsOneWidget);
+    expect(find.text('移出成员'), findsOneWidget);
+    expect(find.text('解散文会'), findsOneWidget);
+    expect(find.text('退出文会'), findsNothing);
+
+    await pumpSociety(
+      currentUserId: 12,
+      api: _DemoYeSheApi(presidentUserId: 11, memberUserId: 12),
+    );
+    expect(find.text('修改封面'), findsNothing);
+    expect(find.text('移出成员'), findsNothing);
+    expect(find.text('解散文会'), findsNothing);
+    expect(find.text('退出文会'), findsOneWidget);
+
+    await pumpSociety(
+      currentUserId: 0,
+      api: _DemoYeSheApi(presidentUserId: 11, memberUserId: 11),
+    );
+    expect(find.text('修改封面'), findsNothing);
+    expect(find.text('移出成员'), findsNothing);
+    expect(find.text('解散文会'), findsNothing);
+    expect(find.text('退出文会'), findsNothing);
+  });
+
+  testWidgets('名帖显示升级与传承所需材料及持有数量', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final controller = YeSheController(
+      tokenProvider: () => 'token',
+      api: _DemoYeSheApi(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: YeShePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('本次消耗'), findsOneWidget);
+    expect(find.text('清酒'), findsOneWidget);
+    expect(find.text('檀香'), findsOneWidget);
+    expect(find.text('欹器'), findsOneWidget);
+    expect(find.text('需要 1 · 拥有 1'), findsNWidgets(3));
+    final upgrade = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '升级'),
+    );
+    final heritage = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '传承'),
+    );
+    expect(upgrade.onPressed, isNotNull);
+    expect(heritage.onPressed, isNotNull);
+  });
+
+  testWidgets('材料不足时名帖升级与传承按钮不可用', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final controller = YeSheController(
+      tokenProvider: () => 'token',
+      api: _DemoYeSheApi(
+        materials: <Map<String, dynamic>>[
+          <String, dynamic>{'propId': 11, 'name': '清酒', 'quantity': 1},
+          <String, dynamic>{'propId': 13, 'name': '檀香', 'quantity': 1},
+        ],
+      ),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: YeShePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('需要 1 · 拥有 0'), findsOneWidget);
+    final upgrade = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '升级'),
+    );
+    final heritage = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '传承'),
+    );
+    expect(upgrade.onPressed, isNull);
+    expect(heritage.onPressed, isNull);
+  });
+
+  testWidgets('社区页展示我的收藏与公开想法', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = _DemoYeSheApi();
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: CommunityPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('community-page')),
+      findsOneWidget,
+    );
+    expect(find.text('我的收藏'), findsOneWidget);
+    expect(find.text('社区想法'), findsOneWidget);
+    expect(find.text('原文摘录'), findsOneWidget);
+    expect(find.textContaining('读书想法'), findsWidgets);
+    expect(find.text('这段考据很有意思'), findsOneWidget);
+    expect(find.textContaining('北寺浮图灾'), findsWidgets);
+    expect(find.text('阅微读者'), findsWidgets);
+    expect(controller.loadedCommunity, isTrue);
+    expect(api.calls, contains(#fetchMyCollections));
+    expect(api.calls, contains(#fetchPublicThoughts));
+  });
+
+  testWidgets('社区页未登录时显示登录提示', (tester) async {
+    final controller = YeSheController(
+      tokenProvider: () => '',
+      api: _DemoYeSheApi(),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: CommunityPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('community-signed-out')),
+      findsOneWidget,
+    );
+    expect(find.text('登录阅微后查看社区'), findsOneWidget);
+  });
 }
 
 class _DemoYeSheApi implements YeSheApi {
+  _DemoYeSheApi({
+    List<Map<String, dynamic>>? materials,
+    this.presidentUserId = 11,
+    this.memberUserId = 11,
+  }) : materials =
+           materials ??
+           <Map<String, dynamic>>[
+             <String, dynamic>{'propId': 11, 'name': '清酒', 'quantity': 1},
+             <String, dynamic>{'propId': 13, 'name': '檀香', 'quantity': 1},
+             <String, dynamic>{'propId': 18, 'name': '欹器', 'quantity': 1},
+           ];
+
+  final Set<Symbol> calls = <Symbol>{};
+  final List<Map<String, dynamic>> materials;
+  final int presidentUserId;
+  final int memberUserId;
+
   @override
   dynamic noSuchMethod(Invocation invocation) {
+    calls.add(invocation.memberName);
     if (invocation.memberName == #fetchCommunityStatus) {
       return _value(<String, dynamic>{
         'exp': '120',
@@ -177,7 +361,7 @@ class _DemoYeSheApi implements YeSheApi {
     if (invocation.memberName == #fetchUserSeals) {
       return _value(<String, dynamic>{
         'seals': <Object?>[
-          <String, dynamic>{'id': 1, 'name': '麒麟印'},
+          <String, dynamic>{'id': 1, 'propId': 20, 'name': '麒麟印'},
         ],
         'inkPasteQuantity': '42',
       });
@@ -193,7 +377,7 @@ class _DemoYeSheApi implements YeSheApi {
     if (invocation.memberName == #fetchUserMedals) {
       return _value(<String, dynamic>{
         'medals': <Object?>[
-          <String, dynamic>{'propId': 3, 'name': '徽章'},
+          <String, dynamic>{'propId': 33, 'name': '鹿鸣印'},
         ],
       });
     }
@@ -214,12 +398,13 @@ class _DemoYeSheApi implements YeSheApi {
           'memberCount': 6,
           'memberLimit': 6,
           'weekScore': 71,
+          'presidentUserId': presidentUserId,
           'members': <Object?>[
             <String, dynamic>{
-              'userId': 11,
-              'nickName': '社长',
+              'userId': memberUserId,
+              'nickName': memberUserId == presidentUserId ? '社长' : '成员',
               'weekScore': 21,
-              'isPresident': true,
+              'isPresident': memberUserId == presidentUserId,
             },
           ],
         },
@@ -361,11 +546,7 @@ class _DemoYeSheApi implements YeSheApi {
       });
     }
     if (invocation.memberName == #fetchUserMaterials) {
-      return _value(<String, dynamic>{
-        'materials': <Object?>[
-          <String, dynamic>{'userPropId': 1, 'name': '兔毫', 'quantity': 2},
-        ],
-      });
+      return _value(<String, dynamic>{'materials': materials});
     }
     if (invocation.memberName == #fetchDailyShop) {
       return _value(<String, dynamic>{

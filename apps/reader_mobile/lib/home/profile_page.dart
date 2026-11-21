@@ -12,6 +12,7 @@ import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_page.dart';
+import '../ye_she/community_page.dart';
 import '../ye_she/ye_she_page.dart';
 import 'bookshelf_sort.dart';
 
@@ -244,6 +245,7 @@ class _ProfilePageState extends State<ProfilePage> {
             _section(context, '账号与同步', [
               _ReaMicroEntry(controller: widget.reaMicro!),
               _YeSheEntry(controller: widget.reaMicro!),
+              _CommunityEntry(controller: widget.reaMicro!),
             ]),
           ],
           const SizedBox(height: 24),
@@ -411,8 +413,38 @@ class _YeSheEntry extends StatelessWidget {
             builder: (context) => YeShePage(
               tokenProvider: () => controller.token,
               currentUserName: controller.user?.nickName ?? '',
+              currentUserId: controller.user?.id ?? 0,
               currentUserAvatar: controller.user?.avatar ?? '',
               currentUserTitle: controller.user?.userTitle ?? '',
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CommunityEntry extends StatelessWidget {
+  const _CommunityEntry({required this.controller});
+
+  final ReaMicroController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) => ListTile(
+        key: const ValueKey<String>('community-entry'),
+        leading: const AppIcon(AppGlyph.highlighter),
+        title: const Text('社区'),
+        subtitle: Text(controller.signedIn ? '收藏与阅微读者的公开想法' : '登录阅微后查看收藏与公开想法'),
+        trailing: const AppIcon(AppGlyph.chevronRight),
+        onTap: () => Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (context) => CommunityPage(
+              tokenProvider: () => controller.token,
+              currentUserName: controller.user?.nickName ?? '',
+              currentUserAvatar: controller.user?.avatar ?? '',
             ),
           ),
         ),

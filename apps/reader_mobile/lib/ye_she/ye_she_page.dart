@@ -16,6 +16,7 @@ class YeShePage extends StatefulWidget {
     this.controller,
     this.tokenProvider,
     this.currentUserName = '',
+    this.currentUserId = 0,
     this.currentUserAvatar = '',
     this.currentUserTitle = '',
   }) : assert(controller != null || tokenProvider != null);
@@ -28,6 +29,9 @@ class YeShePage extends StatefulWidget {
 
   /// 当前阅微账号昵称。
   final String currentUserName;
+
+  /// 当前阅微账号编号，用于判断文会管理权限。
+  final int currentUserId;
 
   /// 当前阅微账号头像。
   final String currentUserAvatar;
@@ -54,14 +58,30 @@ class _YeShePageState extends State<YeShePage>
         widget.controller ??
         YeSheController(tokenProvider: widget.tokenProvider!);
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_loadSelectedTab);
     unawaited(_controller.loadAll());
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_loadSelectedTab);
     _tabController.dispose();
     if (_ownsController) _controller.dispose();
     super.dispose();
+  }
+
+  void _loadSelectedTab() {
+    if (_tabController.indexIsChanging) return;
+    switch (_tabController.index) {
+      case 1:
+        if (!_controller.loadedPlay) unawaited(_controller.refreshPlay());
+        break;
+      case 2:
+        if (!_controller.loadedDiscover) {
+          unawaited(_controller.refreshDiscover());
+        }
+        break;
+    }
   }
 
   @override
@@ -203,13 +223,9 @@ class _YeShePageState extends State<YeShePage>
                   builder: (context, child) => IconButton(
                     key: const ValueKey<String>('ye-she-refresh'),
                     tooltip: '刷新野社',
-                    onPressed:
-                        _controller.loadingStudy ||
-                            _controller.loadingPlay ||
-                            _controller.loadingDiscover ||
-                            _controller.loadingRanks
+                    onPressed: _currentTabLoading
                         ? null
-                        : () => unawaited(_controller.refreshAll()),
+                        : () => unawaited(_refreshCurrentTab()),
                     icon: const AppIcon(AppGlyph.refresh),
                   ),
                 ),
@@ -318,20 +334,39 @@ class _YeShePageState extends State<YeShePage>
     return TabBarView(
       controller: _tabController,
       children: <Widget>[
-        _refreshable(_buildStudy),
-        _refreshable(_buildPlay),
-        _refreshable(_buildDiscover),
+        _refreshable(_refreshStudyTab, _buildStudy),
+        _refreshable(_controller.refreshPlay, _buildPlay),
+        _refreshable(_controller.refreshDiscover, _buildDiscover),
       ],
     );
   }
 
-  Widget _refreshable(Widget Function() builder) {
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _controller.refreshAll();
-      },
-      child: builder(),
-    );
+  Widget _refreshable(
+    Future<void> Function() refresh,
+    Widget Function() builder,
+  ) {
+    return RefreshIndicator(onRefresh: refresh, child: builder());
+  }
+
+  bool get _currentTabLoading {
+    return switch (_tabController.index) {
+      0 => _controller.loadingStudy || _controller.loadingRanks,
+      1 => _controller.loadingPlay,
+      _ => _controller.loadingDiscover,
+    };
+  }
+
+  Future<void> _refreshCurrentTab() {
+    return switch (_tabController.index) {
+      0 => _refreshStudyTab(),
+      1 => _controller.refreshPlay(),
+      _ => _controller.refreshDiscover(),
+    };
+  }
+
+  Future<void> _refreshStudyTab() async {
+    await _controller.refreshStudy();
+    if (mounted) unawaited(_controller.refreshRanks());
   }
 
   Widget _buildStudy() {
@@ -344,7 +379,6 @@ class _YeShePageState extends State<YeShePage>
         _errorCard(_controller.studyError),
         _accountCard(),
         _societyCard(),
-        _collectionsCard(),
         _inventoryCard(),
         _titleCard(),
         _rankCard(),
@@ -366,7 +400,6 @@ class _YeShePageState extends State<YeShePage>
         _auctionCard(),
         _gamblingCard(),
         _taoistCard(),
-        _medalTreasureCard(),
       ],
     );
   }
@@ -385,7 +418,6 @@ class _YeShePageState extends State<YeShePage>
         _dailyShopCard(),
         _voucherShopCard(),
         _marketCard(),
-        _thoughtsCard(),
         _rumorsCard(),
       ],
     );
@@ -421,7 +453,7 @@ class _YeShePageState extends State<YeShePage>
               ),
             ),
             TextButton(
-              onPressed: () => unawaited(_controller.refreshAll()),
+              onPressed: () => unawaited(_refreshCurrentTab()),
               child: const Text('重试'),
             ),
           ],
@@ -583,6 +615,8 @@ class _YeShePageState extends State<YeShePage>
   Widget _titleCard() {
     final title = _controller.title;
     final theme = Theme.of(context);
+    final hasTitle = title?.title.trim().isNotEmpty == true;
+    final hasTitleCost = _TitleCostPanel.allOwned(_controller.materials);
     return _YeCard(
       key: const ValueKey<String>('ye-she-title'),
       icon: AppGlyph.star,
@@ -659,39 +693,42 @@ class _YeShePageState extends State<YeShePage>
                   ),
                 ),
                 const SizedBox(height: 8),
+                _TitleCostPanel(materials: _controller.materials),
+                const SizedBox(height: 8),
                 _InfoLine('当前等级', '${title.level} 级'),
                 _InfoLine('升级保底', '${title.upgradePityCount} 次'),
                 _InfoLine('传承保底', '${title.heritagePityCount} 次'),
                 _actionWrap(<Widget>[
-                  TextButton(
-                    onPressed: _controller.actionBusy
+                  _primaryActionButton(
+                    '升级',
+                    onPressed: _controller.actionBusy || !hasTitleCost
                         ? null
                         : () => _confirmedAction(
                             title: '升级名帖',
-                            message: '升级会消耗社区资源，确定继续吗？',
+                            message: '升级消耗清酒、檀香、欹器各 1 件，确定继续吗？',
                             action: _controller.upgradeTitle,
                           ),
-                    child: const Text('升级'),
                   ),
-                  TextButton(
-                    onPressed: _controller.actionBusy
+                  _secondaryActionButton(
+                    '传承',
+                    onPressed: _controller.actionBusy || !hasTitleCost
                         ? null
                         : () => _confirmedAction(
                             title: '传承名帖',
-                            message: '传承会消耗社区资源，确定继续吗？',
+                            message: '传承消耗清酒、檀香、欹器各 1 件，确定继续吗？',
                             action: _controller.heritageTitle,
                           ),
-                    child: const Text('传承'),
                   ),
-                  TextButton(
-                    onPressed: _controller.actionBusy
+                  _dangerActionButton(
+                    context,
+                    '弃置',
+                    onPressed: _controller.actionBusy || !hasTitle
                         ? null
                         : () => _confirmedAction(
                             title: '弃置名帖',
                             message: '弃置当前名帖可能失去已获得的雅号，确定继续吗？',
                             action: _controller.abandonTitle,
                           ),
-                    child: const Text('弃置'),
                   ),
                 ]),
               ],
@@ -867,6 +904,14 @@ class _YeShePageState extends State<YeShePage>
     final society = _controller.mySociety;
     final scores = _controller.societyScores;
     final theme = Theme.of(context);
+    final isPresident =
+        society != null &&
+        widget.currentUserId > 0 &&
+        (society.presidentUserId == widget.currentUserId ||
+            society.members.any(
+              (member) =>
+                  member.userId == widget.currentUserId && member.isPresident,
+            ));
     return _YeCard(
       key: const ValueKey<String>('ye-she-society'),
       icon: AppGlyph.review,
@@ -875,12 +920,6 @@ class _YeShePageState extends State<YeShePage>
           ? '尚未加入文会'
           : '${society.level} 级 · ${society.memberCount}/${society.memberLimit} 人 · '
                 '本周 ${society.weekScore} 声望',
-      banner: YeSheBanner(
-        asset: 'shrine_camp_0_banner.webp',
-        height: 92,
-        label: society?.name.isNotEmpty == true ? society!.name : '文会',
-        caption: society == null ? '与同好共读，赢取每周奖励' : '文社 · 本周共读',
-      ),
       trailing: society == null
           ? null
           : YeSheTag(
@@ -893,21 +932,21 @@ class _YeShePageState extends State<YeShePage>
               children: <Widget>[
                 const _EmptyHint('创建或加入一个文会，与同好共读。'),
                 _actionWrap(<Widget>[
-                  TextButton(
+                  _primaryActionButton(
+                    '创建文会',
                     onPressed: _controller.actionBusy ? null : _createSociety,
-                    child: const Text('创建文会'),
                   ),
-                  TextButton(
+                  _secondaryActionButton(
+                    '邀请码加入',
                     onPressed: _controller.actionBusy
                         ? null
                         : _joinSocietyByCode,
-                    child: const Text('邀请码加入'),
                   ),
-                  TextButton(
+                  _secondaryActionButton(
+                    '公开文会',
                     onPressed: _controller.actionBusy
                         ? null
                         : _browsePublicSocieties,
-                    child: const Text('公开文会'),
                   ),
                 ]),
               ],
@@ -915,71 +954,67 @@ class _YeShePageState extends State<YeShePage>
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                YeSheCover(
+                  key: const ValueKey<String>('ye-she-society-cover'),
+                  url: society.coverUrl,
+                  width: double.infinity,
+                  height: 150,
+                  borderRadius: 11,
+                  semanticsLabel: '${society.name}的封面',
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: <Widget>[
-                    YeSheCover(
-                      url: society.coverUrl,
-                      width: 62,
-                      height: 82,
-                      semanticsLabel: '${society.name}的封面',
+                    YeSheTag(
+                      '${society.level} 级',
+                      color: YeSheTokens.gold(context),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Row(
-                            children: <Widget>[
-                              YeSheTag(
-                                '${society.level} 级',
-                                color: YeSheTokens.gold(context),
-                              ),
-                              const SizedBox(width: 6),
-                              YeSheTag(
-                                '${society.memberCount}/${society.memberLimit} 人',
-                              ),
-                              if (society.inviteCode.trim().isNotEmpty) ...[
-                                const SizedBox(width: 6),
-                                Flexible(
-                                  child: YeSheTag(
-                                    '邀请码 ${society.inviteCode}',
-                                    color: YeSheTokens.jade(context),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 7),
-                          if (scores != null) ...<Widget>[
-                            Text(
-                              '本周文会声望 ${scores.totalScore}/${scores.maxScore}',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(999),
-                              child: LinearProgressIndicator(
-                                value: scores.ratio,
-                                minHeight: 5,
-                                color: YeSheTokens.jade(context),
-                                backgroundColor:
-                                    theme.colorScheme.surfaceContainerHighest,
-                              ),
-                            ),
-                          ] else
-                            Text('本周声望尚未读取', style: theme.textTheme.bodySmall),
-                          if (society.members.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            _MemberAvatarRow(members: society.members.take(8)),
-                          ],
-                        ],
+                    YeSheTag('${society.memberCount}/${society.memberLimit} 人'),
+                    if (isPresident)
+                      YeSheTag('会长', color: YeSheTokens.vermilion(context)),
+                    if (society.inviteCode.trim().isNotEmpty)
+                      YeSheTag(
+                        '邀请码 ${society.inviteCode}',
+                        color: YeSheTokens.jade(context),
                       ),
-                    ),
                   ],
                 ),
+                const SizedBox(height: 9),
+                if (scores != null) ...<Widget>[
+                  Text(
+                    '本周文会声望 ${scores.totalScore}/${scores.maxScore}',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: scores.ratio,
+                      minHeight: 5,
+                      color: YeSheTokens.jade(context),
+                      backgroundColor:
+                          theme.colorScheme.surfaceContainerHighest,
+                    ),
+                  ),
+                ] else
+                  Text('本周声望尚未读取', style: theme.textTheme.bodySmall),
+                if (society.members.isNotEmpty) ...[
+                  const SizedBox(height: 9),
+                  _MemberAvatarRow(members: society.members.take(8)),
+                ],
+                if (society.members.isNotEmpty ||
+                    society.memberCount > society.members.length) ...[
+                  const SizedBox(height: 8),
+                  _secondaryActionButton(
+                    '成员 ${society.memberCount}',
+                    onPressed: _showSocietyMembers,
+                  ),
+                ],
                 const SizedBox(height: 8),
                 _InfoLine(
                   '奖励状态',
@@ -1013,7 +1048,8 @@ class _YeShePageState extends State<YeShePage>
                   ],
                 ],
                 _actionWrap(<Widget>[
-                  TextButton(
+                  _primaryActionButton(
+                    '领取周奖励',
                     onPressed: _controller.actionBusy
                         ? null
                         : () => _confirmedAction(
@@ -1021,40 +1057,43 @@ class _YeShePageState extends State<YeShePage>
                             message: '领取本周文会声望奖励？',
                             action: _controller.claimSocietyReward,
                           ),
-                    child: const Text('领取周奖励'),
                   ),
-                  TextButton(
-                    onPressed: _controller.actionBusy
-                        ? null
-                        : _updateSocietyCover,
-                    child: const Text('修改封面'),
-                  ),
-                  TextButton(
-                    onPressed: _controller.actionBusy
-                        ? null
-                        : _kickSocietyMember,
-                    child: const Text('移出成员'),
-                  ),
-                  TextButton(
-                    onPressed: _controller.actionBusy
-                        ? null
-                        : () => _confirmedAction(
-                            title: '退出文会',
-                            message: '退出后将失去当前文会身份，确定继续吗？',
-                            action: _controller.quitSociety,
-                          ),
-                    child: const Text('退出'),
-                  ),
-                  TextButton(
-                    onPressed: _controller.actionBusy
-                        ? null
-                        : () => _confirmedAction(
-                            title: '解散文会',
-                            message: '解散文会不可恢复，确定继续吗？',
-                            action: _controller.dissolveSociety,
-                          ),
-                    child: const Text('解散'),
-                  ),
+                  if (isPresident) ...<Widget>[
+                    _secondaryActionButton(
+                      '修改封面',
+                      onPressed: _controller.actionBusy
+                          ? null
+                          : _updateSocietyCover,
+                    ),
+                    _secondaryActionButton(
+                      '移出成员',
+                      onPressed: _controller.actionBusy
+                          ? null
+                          : _kickSocietyMember,
+                    ),
+                    _dangerActionButton(
+                      context,
+                      '解散文会',
+                      onPressed: _controller.actionBusy
+                          ? null
+                          : () => _confirmedAction(
+                              title: '解散文会',
+                              message: '解散文会不可恢复，确定继续吗？',
+                              action: _controller.dissolveSociety,
+                            ),
+                    ),
+                  ] else if (widget.currentUserId > 0)
+                    _dangerActionButton(
+                      context,
+                      '退出文会',
+                      onPressed: _controller.actionBusy
+                          ? null
+                          : () => _confirmedAction(
+                              title: '退出文会',
+                              message: '退出后将失去当前文会身份，确定继续吗？',
+                              action: _controller.quitSociety,
+                            ),
+                    ),
                 ]),
               ],
             ),
@@ -1146,19 +1185,37 @@ class _YeShePageState extends State<YeShePage>
                 else if (guilds.guilds.isEmpty)
                   const _EmptyHint('暂无可加入的商会')
                 else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      for (final guild in guilds.guilds)
-                        ActionChip(
-                          label: Text('${guild.name} · ${guild.memberCount} 人'),
-                          onPressed: () => _confirmedAction(
-                            title: '加入 ${guild.name}',
-                            message: '加入需要 ${guilds.joinCost} 铜，确定继续吗？',
-                            action: () => _controller.joinGuild(guild.id),
-                          ),
+                      if (guilds.joinCost > 0)
+                        _CostStatusPanel(
+                          rows: <_CostStatusRow>[
+                            _CostStatusRow(
+                              '加入商会 · 铜钱',
+                              guilds.joinCost,
+                              _controller.account?.coin ?? 0,
+                            ),
+                          ],
                         ),
+                      if (guilds.joinCost > 0) const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: <Widget>[
+                          for (final guild in guilds.guilds)
+                            ActionChip(
+                              label: Text(
+                                '${guild.name} · ${guild.memberCount} 人',
+                              ),
+                              onPressed: () => _confirmedAction(
+                                title: '加入 ${guild.name}',
+                                message: '加入需要 ${guilds.joinCost} 铜，确定继续吗？',
+                                action: () => _controller.joinGuild(guild.id),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 if (joined) ...[
@@ -1251,66 +1308,6 @@ class _YeShePageState extends State<YeShePage>
           ]),
         ],
       ),
-    );
-  }
-
-  Widget _collectionsCard() {
-    final collections = _controller.collections;
-    return _YeCard(
-      key: const ValueKey<String>('ye-she-collections'),
-      icon: AppGlyph.article,
-      title: '我的收藏',
-      subtitle: '${collections.length} 条',
-      child: collections.isEmpty
-          ? const _EmptyHint('还没有收藏社区想法')
-          : Column(
-              children: <Widget>[
-                for (final item in collections.take(6))
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: SizedBox(
-                      width: 48,
-                      height: 52,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: <Widget>[
-                          YeSheCover(
-                            url: item.bookCover,
-                            width: 38,
-                            height: 52,
-                            borderRadius: 6,
-                            semanticsLabel: '收藏书封',
-                          ),
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: YeSheAvatar(
-                              url: item.userAvatar,
-                              size: 20,
-                              ringColor: YeSheTokens.paper(context),
-                              semanticsLabel: '${item.userName}的头像',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    title: Text(
-                      item.summary,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      <String>[
-                        if (item.bookName.trim().isNotEmpty) item.bookName,
-                        if (item.userName.trim().isNotEmpty) item.userName,
-                        if (item.collectionName.trim().isNotEmpty)
-                          item.collectionName,
-                      ].join(' · '),
-                    ),
-                  ),
-              ],
-            ),
     );
   }
 
@@ -1471,6 +1468,7 @@ class _YeShePageState extends State<YeShePage>
 
   Widget _retainerCard() {
     final retainers = _controller.retainers;
+    final hasRecruitCost = retainers != null && retainers.qinggui >= 1;
     return _YeCard(
       key: const ValueKey<String>('ye-she-retainers'),
       icon: AppGlyph.profile,
@@ -1501,16 +1499,22 @@ class _YeShePageState extends State<YeShePage>
                         _RetainerTile(retainer: item),
                     ],
                   ),
+                const SizedBox(height: 8),
+                _CostStatusPanel(
+                  rows: <_CostStatusRow>[
+                    _CostStatusRow('招募门客 · 清贵', 1, retainers.qinggui),
+                  ],
+                ),
                 _actionWrap(<Widget>[
-                  TextButton(
-                    onPressed: _controller.actionBusy
+                  _primaryActionButton(
+                    '招募门客',
+                    onPressed: _controller.actionBusy || !hasRecruitCost
                         ? null
                         : () => _confirmedAction(
                             title: '招募门客',
-                            message: '招募会消耗黄金台资源，确定继续吗？',
+                            message: '招募消耗清贵 1，确定继续吗？',
                             action: _controller.recruitRetainer,
                           ),
-                    child: const Text('招募门客'),
                   ),
                 ]),
               ],
@@ -1738,6 +1742,9 @@ class _YeShePageState extends State<YeShePage>
 
   Widget _wishCard() {
     final wish = _controller.wishUp;
+    final gem = _controller.account?.gem ?? 0;
+    final canWishOnce = _controller.account != null && gem >= 1;
+    final canWishTen = _controller.account != null && gem >= 10;
     return _YeCard(
       key: const ValueKey<String>('ye-she-wish'),
       icon: AppGlyph.star,
@@ -1764,20 +1771,31 @@ class _YeShePageState extends State<YeShePage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 if (wish.description.trim().isNotEmpty) Text(wish.description),
+                const SizedBox(height: 8),
+                _CostStatusPanel(
+                  rows: <_CostStatusRow>[
+                    _CostStatusRow('祈愿 1 次 · 彩筹', 1, gem),
+                    _CostStatusRow('祈愿 10 次 · 彩筹', 10, gem),
+                  ],
+                ),
                 _actionWrap(<Widget>[
-                  TextButton(
-                    onPressed: _controller.actionBusy ? null : () => _wish(1),
-                    child: const Text('祈愿 1 次'),
+                  _primaryActionButton(
+                    '祈愿 1 次',
+                    onPressed: _controller.actionBusy || !canWishOnce
+                        ? null
+                        : () => _wish(1),
                   ),
-                  TextButton(
-                    onPressed: _controller.actionBusy ? null : () => _wish(10),
-                    child: const Text('祈愿 10 次'),
+                  _secondaryActionButton(
+                    '祈愿 10 次',
+                    onPressed: _controller.actionBusy || !canWishTen
+                        ? null
+                        : () => _wish(10),
                   ),
-                  TextButton(
+                  _secondaryActionButton(
+                    '望言祈愿',
                     onPressed: _controller.actionBusy
                         ? null
                         : () => _runAction(_controller.wangyanWish),
-                    child: const Text('望言祈愿'),
                   ),
                 ]),
               ],
@@ -2108,132 +2126,6 @@ class _YeShePageState extends State<YeShePage>
     );
   }
 
-  Widget _medalTreasureCard() {
-    final treasure = _controller.medalTreasure;
-    return _YeCard(
-      key: const ValueKey<String>('ye-she-medal-treasure'),
-      icon: AppGlyph.star,
-      title: treasure?.medalName.isNotEmpty == true
-          ? '黄金台 · ${treasure!.medalName}'
-          : '黄金台 · 徽章征集',
-      subtitle: treasure == null
-          ? '徽章征集尚未读取'
-          : '${treasure.currentCount}/${treasure.totalCount} · ${treasure.userCount} 人参与',
-      trailing: treasure == null
-          ? null
-          : YeSheTag(
-              treasure.status.isEmpty ? '征集中' : treasure.status,
-              color: YeSheTokens.vermilion(context),
-            ),
-      child: treasure == null
-          ? const _EmptyHint('徽章征集暂不可用')
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    YeSheAssetImage(
-                      asset:
-                          treasure.medalPropId >= 20 &&
-                              treasure.medalPropId <= 28
-                          ? YeSheTokens.sealAsset(treasure.medalPropId)
-                          : YeSheTokens.medalFallback,
-                      width: 54,
-                      height: 72,
-                      borderRadius: 8,
-                      semanticsLabel: '${treasure.medalName}的徽章图',
-                      fallbackGlyph: AppGlyph.star,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(999),
-                            child: LinearProgressIndicator(
-                              value: treasure.totalCount <= 0
-                                  ? 0
-                                  : (treasure.currentCount /
-                                            treasure.totalCount)
-                                        .clamp(0.0, 1.0),
-                              minHeight: 6,
-                              color: YeSheTokens.vermilion(context),
-                              backgroundColor: YeSheTokens.wash(context),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          if (treasure.previousWinnerNickName.trim().isNotEmpty)
-                            Row(
-                              children: <Widget>[
-                                YeSheAvatar(
-                                  url: treasure.previousWinnerAvatar,
-                                  size: 26,
-                                  semanticsLabel: '上期得主头像',
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    '上期得主 ${treasure.previousWinnerNickName}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                ),
-                              ],
-                            )
-                          else
-                            const _EmptyHint('上期暂无得主'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                _actionWrap(<Widget>[
-                  TextButton(
-                    onPressed: _controller.actionBusy
-                        ? null
-                        : _joinMedalTreasure,
-                    child: const Text('投入征集'),
-                  ),
-                ]),
-              ],
-            ),
-    );
-  }
-
-  Widget _thoughtsCard() {
-    final thoughts = _controller.thoughts;
-    return _YeCard(
-      key: const ValueKey<String>('ye-she-thoughts'),
-      icon: AppGlyph.highlighter,
-      title: '社区想法',
-      subtitle: '${thoughts.length} 条公开笔记',
-      trailing: thoughts.isEmpty
-          ? null
-          : YeSheTag('${thoughts.length} 条', color: YeSheTokens.jade(context)),
-      child: thoughts.isEmpty
-          ? const _EmptyHint('暂无公开读书想法')
-          : Column(
-              children: <Widget>[
-                for (final thought in thoughts.take(6))
-                  _ThoughtTile(
-                    thought: thought,
-                    collected: _collectionTypeOf(thought.id, 1) != null,
-                    appreciated: _collectionTypeOf(thought.id, 2) != null,
-                    busy: _controller.actionBusy,
-                    onCollect: () => _toggleThought(thought, 1),
-                    onAppreciate: () => _toggleThought(thought, 2),
-                    onCollectors: () => _showCollectors(thought),
-                  ),
-              ],
-            ),
-    );
-  }
-
   Widget _rumorsCard() {
     final rumors = _controller.rumors;
     return _YeCard(
@@ -2489,6 +2381,53 @@ class _YeShePageState extends State<YeShePage>
                 child: const Text('加入'),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showSocietyMembers() async {
+    final members =
+        _controller.mySociety?.members ?? const <YeSheSocietyMember>[];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        children: <Widget>[
+          Text('文会成员', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          if (members.isEmpty)
+            const _EmptyHint('暂无成员信息')
+          else
+            for (final member in members)
+              ListTile(
+                leading: YeSheAvatar(
+                  url: member.avatar,
+                  size: 38,
+                  semanticsLabel: '${member.nickName}的头像',
+                ),
+                title: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        member.nickName.isEmpty ? '阅微用户' : member.nickName,
+                      ),
+                    ),
+                    if (member.isPresident)
+                      YeSheTag('会长', color: YeSheTokens.vermilion(context)),
+                  ],
+                ),
+                subtitle: Text(
+                  <String>[
+                    if (member.title.trim().isNotEmpty) member.title,
+                    '${member.weekScore} 声望',
+                    if (member.recentBookName.trim().isNotEmpty)
+                      '读《${member.recentBookName}》',
+                  ].join(' · '),
+                ),
+              ),
         ],
       ),
     );
@@ -2881,83 +2820,6 @@ class _YeShePageState extends State<YeShePage>
     _showResult(result);
   }
 
-  Future<void> _joinMedalTreasure() async {
-    final count = await _promptInt(
-      title: '投入徽章征集',
-      label: '投入数量',
-      initialValue: 1,
-    );
-    if (count == null) return;
-    final result = await _controller.joinMedalTreasure(count);
-    _showResult(result);
-  }
-
-  int? _collectionTypeOf(int markId, int collectionType) {
-    for (final entry in _controller.collections) {
-      if (entry.markId == markId && entry.collectionType == collectionType) {
-        return entry.collectionType;
-      }
-    }
-    return null;
-  }
-
-  Future<void> _toggleThought(YeSheThought thought, int collectionType) async {
-    final existing = _collectionTypeOf(thought.id, collectionType);
-    final result = existing == null
-        ? await _controller.collectThought(
-            markId: thought.id,
-            collectionType: collectionType,
-          )
-        : await _controller.uncollectThought(
-            markId: thought.id,
-            collectionType: existing,
-          );
-    _showResult(result);
-  }
-
-  Future<void> _showCollectors(YeSheThought thought) async {
-    final collectors = await _controller.loadMarkCollectors(thought.id);
-    if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        children: <Widget>[
-          Text('收藏者', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          if (collectors.isEmpty)
-            const _EmptyHint('暂无人收藏')
-          else
-            for (final collector in collectors)
-              ListTile(
-                leading: YeSheAvatar(
-                  url: yeSheText(
-                    collector['avatar'] ??
-                        collector['userAvatar'] ??
-                        collector['avatarUrl'],
-                  ),
-                  size: 34,
-                  semanticsLabel: '收藏者头像',
-                ),
-                title: Text(_collectorName(collector)),
-                subtitle: Text(
-                  yeSheText(collector['title'] ?? collector['levelName']),
-                ),
-              ),
-        ],
-      ),
-    );
-  }
-
-  String _collectorName(Map<String, dynamic> collector) {
-    final name = yeSheText(
-      collector['nickName'] ?? collector['userName'] ?? collector['name'],
-    );
-    return name.trim().isEmpty ? '阅微用户' : name;
-  }
-
   Future<void> _openSignedItems({
     required String title,
     required _SignedItemKind kind,
@@ -2991,7 +2853,9 @@ class _YeShePageState extends State<YeShePage>
                       seed: '${item.identity}-${item.name}',
                     ),
                     _SignedItemKind.notelet => YeSheTokens.noteletFallback,
-                    _SignedItemKind.medal => YeSheTokens.medalFallback,
+                    _SignedItemKind.medal => YeSheTokens.medalAsset(
+                      item.propId,
+                    ),
                     _SignedItemKind.callingCard => YeSheTokens.callingCardAsset(
                       item.name,
                     ),
@@ -3550,140 +3414,167 @@ class _EmptyHint extends StatelessWidget {
   Widget build(BuildContext context) => YeSheEmpty(text);
 }
 
-class _ThoughtTile extends StatelessWidget {
-  const _ThoughtTile({
-    required this.thought,
-    required this.collected,
-    required this.appreciated,
-    required this.busy,
-    required this.onCollect,
-    required this.onAppreciate,
-    required this.onCollectors,
-  });
+class _CostStatusRow {
+  const _CostStatusRow(this.name, this.required, this.owned);
 
-  final YeSheThought thought;
-  final bool collected;
-  final bool appreciated;
-  final bool busy;
-  final VoidCallback onCollect;
-  final VoidCallback onAppreciate;
-  final VoidCallback onCollectors;
+  final String name;
+  final int required;
+  final int owned;
+}
+
+class _CostStatusPanel extends StatelessWidget {
+  const _CostStatusPanel({required this.rows});
+
+  final List<_CostStatusRow> rows;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
       decoration: BoxDecoration(
-        color: YeSheTokens.paper(context),
-        borderRadius: BorderRadius.circular(11),
+        color: YeSheTokens.wash(context),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: YeSheTokens.line(context)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              YeSheAvatar(
-                url: thought.userAvatar,
-                size: 30,
-                semanticsLabel: '${thought.userName}的头像',
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      thought.userName.isEmpty ? '阅微读者' : thought.userName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (thought.title.trim().isNotEmpty ||
-                        thought.userLevel > 0)
-                      Text(
-                        <String>[
-                          if (thought.title.trim().isNotEmpty) thought.title,
-                          if (thought.userLevel > 0) '${thought.userLevel} 级',
-                        ].join(' · '),
-                        style: theme.textTheme.labelSmall,
-                      ),
-                  ],
-                ),
-              ),
-              if (thought.createdAt != null)
-                Text(
-                  _formatDateTime(thought.createdAt!),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
           Text(
-            thought.text,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
-          ),
-          if (thought.bookName.trim().isNotEmpty) ...<Widget>[
-            const SizedBox(height: 8),
-            Row(
-              children: <Widget>[
-                YeSheCover(
-                  url: thought.bookCover,
-                  width: 32,
-                  height: 43,
-                  borderRadius: 5,
-                  semanticsLabel: '想法书封',
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    <String>[
-                      thought.bookName,
-                      if (thought.chapter.trim().isNotEmpty) thought.chapter,
-                    ].join(' · '),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ),
-              ],
+            '本次消耗',
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-          ],
-          Wrap(
-            alignment: WrapAlignment.end,
-            spacing: 2,
-            children: <Widget>[
-              TextButton.icon(
-                onPressed: onCollectors,
-                icon: const AppIcon(AppGlyph.profile, size: 15),
-                label: const Text('收藏者'),
+          ),
+          const SizedBox(height: 7),
+          for (final row in rows) _row(context, row),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, _CostStatusRow row) {
+    final theme = Theme.of(context);
+    final enough = row.owned >= row.required;
+    final color = enough ? YeSheTokens.jade(context) : theme.colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: <Widget>[
+          AppIcon(
+            enough ? AppGlyph.checkCircle : AppGlyph.warning,
+            size: 15,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Expanded(child: Text(row.name)),
+          Text(
+            '需要 ${row.required} · 拥有 ${row.owned}',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: enough ? theme.colorScheme.onSurfaceVariant : color,
+              fontWeight: enough ? FontWeight.w400 : FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TitleCostSpec {
+  const _TitleCostSpec({required this.propId, required this.name});
+
+  final int propId;
+  final String name;
+}
+
+class _TitleCostPanel extends StatelessWidget {
+  const _TitleCostPanel({required this.materials});
+
+  static const List<_TitleCostSpec> costs = <_TitleCostSpec>[
+    _TitleCostSpec(propId: 11, name: '清酒'),
+    _TitleCostSpec(propId: 13, name: '檀香'),
+    _TitleCostSpec(propId: 18, name: '欹器'),
+  ];
+
+  final List<YeSheMaterial> materials;
+
+  static bool allOwned(List<YeSheMaterial> materials) {
+    if (materials.isEmpty) return false;
+    return costs.every((cost) => _ownedQuantity(materials, cost) >= 1);
+  }
+
+  static int _ownedQuantity(
+    List<YeSheMaterial> materials,
+    _TitleCostSpec cost,
+  ) {
+    var quantity = 0;
+    for (final item in materials) {
+      if (item.propId == cost.propId || item.name.trim().contains(cost.name)) {
+        quantity += item.quantity;
+      }
+    }
+    return quantity;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
+      decoration: BoxDecoration(
+        color: YeSheTokens.wash(context),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: YeSheTokens.line(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '本次消耗',
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 7),
+          if (materials.isEmpty)
+            Text(
+              '材料信息暂不可用',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
               ),
-              TextButton.icon(
-                onPressed: busy ? null : onCollect,
-                icon: AppIcon(
-                  collected ? AppGlyph.bookmark : AppGlyph.bookmarkAdd,
-                  size: 15,
-                ),
-                label: Text(collected ? '取消收藏' : '收藏'),
-              ),
-              TextButton.icon(
-                onPressed: busy ? null : onAppreciate,
-                icon: AppIcon(
-                  appreciated ? AppGlyph.checkCircle : AppGlyph.star,
-                  size: 15,
-                ),
-                label: Text(appreciated ? '取消赞赏' : '赞赏'),
-              ),
-            ],
+            )
+          else
+            for (final cost in costs)
+              _row(context, cost, _ownedQuantity(materials, cost)),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, _TitleCostSpec cost, int owned) {
+    final theme = Theme.of(context);
+    final enough = owned >= 1;
+    final color = enough ? YeSheTokens.jade(context) : theme.colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: <Widget>[
+          AppIcon(
+            enough ? AppGlyph.checkCircle : AppGlyph.warning,
+            size: 15,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Expanded(child: Text(cost.name)),
+          Text(
+            '需要 1 · 拥有 $owned',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: enough ? theme.colorScheme.onSurfaceVariant : color,
+              fontWeight: enough ? FontWeight.w400 : FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -3743,12 +3634,70 @@ class _SignedOutView extends StatelessWidget {
 
 enum _SignedItemKind { seal, notelet, medal, callingCard }
 
+Widget _primaryActionButton(
+  String label, {
+  required VoidCallback? onPressed,
+  Key? key,
+}) {
+  return FilledButton.tonal(
+    key: key,
+    onPressed: onPressed,
+    style: FilledButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      minimumSize: const Size(0, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+    ),
+    child: Text(label),
+  );
+}
+
+Widget _secondaryActionButton(
+  String label, {
+  required VoidCallback? onPressed,
+  Key? key,
+}) {
+  return OutlinedButton(
+    key: key,
+    onPressed: onPressed,
+    style: OutlinedButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      minimumSize: const Size(0, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+    ),
+    child: Text(label),
+  );
+}
+
+Widget _dangerActionButton(
+  BuildContext context,
+  String label, {
+  required VoidCallback? onPressed,
+  Key? key,
+}) {
+  final error = Theme.of(context).colorScheme.error;
+  return OutlinedButton(
+    key: key,
+    onPressed: onPressed,
+    style: OutlinedButton.styleFrom(
+      foregroundColor: error,
+      side: BorderSide(color: error.withValues(alpha: 0.5)),
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      minimumSize: const Size(0, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+    ),
+    child: Text(label),
+  );
+}
+
 Widget _actionWrap(List<Widget> children) {
   return Padding(
     padding: const EdgeInsets.only(top: 8),
     child: Wrap(
-      spacing: 4,
-      runSpacing: 4,
+      spacing: 8,
+      runSpacing: 8,
       alignment: WrapAlignment.end,
       children: children,
     ),

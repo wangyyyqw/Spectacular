@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'ye_she_api_client.dart';
@@ -21,10 +23,15 @@ class YeSheController extends ChangeNotifier {
 
   bool _disposed = false;
   bool _loaded = false;
+  bool _loadedStudy = false;
+  bool _loadedPlay = false;
+  bool _loadedDiscover = false;
+  bool _loadedCommunity = false;
   bool _loadingStudy = false;
   bool _loadingPlay = false;
   bool _loadingDiscover = false;
   bool _loadingRanks = false;
+  bool _loadingCommunity = false;
   bool _authExpired = false;
   bool _actionBusy = false;
   String _actionName = '';
@@ -32,6 +39,7 @@ class YeSheController extends ChangeNotifier {
   String? _playError;
   String? _discoverError;
   String? _ranksError;
+  String? _communityError;
 
   YeSheAccountStatus? _account;
   YeSheTitle? _title;
@@ -73,6 +81,18 @@ class YeSheController extends ChangeNotifier {
   /// 是否已经执行过一次加载。
   bool get loaded => _loaded;
 
+  /// 文房是否已经加载过。
+  bool get loadedStudy => _loadedStudy;
+
+  /// 游艺是否已经加载过。
+  bool get loadedPlay => _loadedPlay;
+
+  /// 见闻是否已经加载过。
+  bool get loadedDiscover => _loadedDiscover;
+
+  /// 社区是否已经加载过。
+  bool get loadedCommunity => _loadedCommunity;
+
   /// 文房是否正在加载。
   bool get loadingStudy => _loadingStudy;
 
@@ -84,6 +104,9 @@ class YeSheController extends ChangeNotifier {
 
   /// 排行榜是否正在加载。
   bool get loadingRanks => _loadingRanks;
+
+  /// 社区是否正在加载。
+  bool get loadingCommunity => _loadingCommunity;
 
   /// 登录是否已在请求过程中失效。
   bool get authExpired => _authExpired;
@@ -105,6 +128,9 @@ class YeSheController extends ChangeNotifier {
 
   /// 排行榜局部错误。
   String? get ranksError => _ranksError;
+
+  /// 社区局部错误。
+  String? get communityError => _communityError;
 
   YeSheAccountStatus? get account => _account;
   YeSheTitle? get title => _title;
@@ -137,16 +163,12 @@ class YeSheController extends ChangeNotifier {
   YeSheMedalTreasure? get medalTreasure => _medalTreasure;
   Map<YeSheRankKind, YeSheRankBoard> get ranks => _ranks;
 
-  /// 首次加载三个页签。
+  /// 首次进入野社时只加载文房，游艺与见闻在切换页签后按需加载。
   Future<void> loadAll() async {
     if (_loaded || !signedIn || _disposed) return;
     _loaded = true;
-    await Future.wait<void>(<Future<void>>[
-      refreshStudy(),
-      refreshPlay(),
-      refreshDiscover(),
-      refreshRanks(),
-    ]);
+    await refreshStudy();
+    if (!_disposed) unawaited(refreshRanks());
   }
 
   /// 全部刷新。
@@ -269,12 +291,7 @@ class YeSheController extends ChangeNotifier {
         YeSheMerchantGuilds.fromJson,
         failures,
       ),
-      _attempt(
-        '我的收藏',
-        _api.fetchMyCollections(),
-        _collectionsFromJson,
-        failures,
-      ),
+      _attempt('材料', _api.fetchUserMaterials(), _materialsFromJson, failures),
     ]);
     if (_disposed) return;
     _account = results[0] as YeSheAccountStatus?;
@@ -285,29 +302,30 @@ class YeSheController extends ChangeNotifier {
     _callingCards = results[5] as YeSheCallingCards?;
     _mySociety = results[6] as YeSheLiterarySociety?;
     _guilds = results[7] as YeSheMerchantGuilds?;
-    _collections =
-        results[8] as List<YeSheCollectionEntry>? ??
-        const <YeSheCollectionEntry>[];
-    _societyScores = null;
-    if (_mySociety != null) {
-      try {
-        _societyScores = YeSheLiterarySocietyScores.fromJson(
-          await _api.fetchLiterarySocietyScores(),
-        );
-      } catch (error) {
-        _recordAuth(error);
-        failures.add('文会声望：${_messageOf(error)}');
-      }
-    }
-    _guildAuction = null;
-    if (_guilds?.membership?.joined == true) {
-      try {
-        _guildAuction = _guildAuctionFromJson(await _api.fetchGuildAuction());
-      } catch (error) {
-        _recordAuth(error);
-        failures.add('商会拍卖：${_messageOf(error)}');
-      }
-    }
+    _materials = results[8] as List<YeSheMaterial>? ?? const <YeSheMaterial>[];
+    final extras = await Future.wait<Object?>(<Future<Object?>>[
+      if (_mySociety != null)
+        _attempt(
+          '文会声望',
+          _api.fetchLiterarySocietyScores(),
+          YeSheLiterarySocietyScores.fromJson,
+          failures,
+        )
+      else
+        Future<Object?>.value(),
+      if (_guilds?.membership?.joined == true)
+        _attempt<YeSheGuildAuction?>(
+          '商会拍卖',
+          _api.fetchGuildAuction(),
+          _guildAuctionFromJson,
+          failures,
+        )
+      else
+        Future<Object?>.value(),
+    ]);
+    _societyScores = extras[0] as YeSheLiterarySocietyScores?;
+    _guildAuction = extras[1] as YeSheGuildAuction?;
+    _loadedStudy = true;
     _loadingStudy = false;
     _studyError = _failureText(failures);
     _notify();
@@ -366,6 +384,7 @@ class YeSheController extends ChangeNotifier {
     _travelHistory =
         results[4] as List<YeSheTravelTrip>? ?? const <YeSheTravelTrip>[];
     _retainers = results[5] as YeSheRetainers?;
+    _loadedPlay = true;
     _loadingPlay = false;
     _playError = _failureText(failures);
     _notify();
@@ -407,13 +426,6 @@ class YeSheController extends ChangeNotifier {
         failures,
       ),
       _attempt('唱经楼', _api.fetchRumors(), _rumorsFromJson, failures),
-      _attempt('社区想法', _api.fetchPublicThoughts(), _thoughtsFromJson, failures),
-      _attempt(
-        '徽章征集',
-        _api.fetchMedalTreasure(),
-        YeSheMedalTreasure.fromJson,
-        failures,
-      ),
     ]);
     if (_disposed) return;
     _wishUp = results[0] as YeSheWishUp?;
@@ -424,10 +436,42 @@ class YeSheController extends ChangeNotifier {
     _voucherShop = results[5] as YeSheVoucherShop?;
     _mutualMarket = results[6] as YeSheMutualMarket?;
     _rumors = results[7] as List<YeSheRumor>? ?? const <YeSheRumor>[];
-    _thoughts = results[8] as List<YeSheThought>? ?? const <YeSheThought>[];
-    _medalTreasure = results[9] as YeSheMedalTreasure?;
+    _loadedDiscover = true;
     _loadingDiscover = false;
     _discoverError = _failureText(failures);
+    _notify();
+  }
+
+  /// 首次进入社区页时加载想法与收藏。
+  Future<void> loadCommunity() async {
+    if (_loadedCommunity || !_canLoad() || _disposed) return;
+    await refreshCommunity();
+  }
+
+  /// 刷新社区想法与我的收藏。
+  Future<void> refreshCommunity() async {
+    if (!_canLoad() || _loadingCommunity) return;
+    _loadingCommunity = true;
+    _communityError = null;
+    _notify();
+    final failures = <String>[];
+    final results = await Future.wait<Object?>(<Future<Object?>>[
+      _attempt(
+        '我的收藏',
+        _api.fetchMyCollections(),
+        _collectionsFromJson,
+        failures,
+      ),
+      _attempt('社区想法', _api.fetchPublicThoughts(), _thoughtsFromJson, failures),
+    ]);
+    if (_disposed) return;
+    _collections =
+        results[0] as List<YeSheCollectionEntry>? ??
+        const <YeSheCollectionEntry>[];
+    _thoughts = results[1] as List<YeSheThought>? ?? const <YeSheThought>[];
+    _loadedCommunity = true;
+    _loadingCommunity = false;
+    _communityError = _failureText(failures);
     _notify();
   }
 
@@ -825,7 +869,7 @@ class YeSheController extends ChangeNotifier {
     '收藏想法',
     '已收藏',
     () => _api.collectMark(markId: markId, collectionType: collectionType),
-    refreshDiscover,
+    refreshCommunity,
   );
 
   /// 取消收藏。
@@ -836,7 +880,7 @@ class YeSheController extends ChangeNotifier {
     '取消收藏',
     '已取消收藏',
     () => _api.uncollectMark(markId: markId, collectionType: collectionType),
-    refreshDiscover,
+    refreshCommunity,
   );
 
   Future<T?> _attempt<T>(

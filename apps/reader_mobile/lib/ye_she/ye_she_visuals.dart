@@ -87,7 +87,7 @@ class YeSheTokens {
   static const String noteletFallback = '${assetRoot}mark_paper.webp';
 
   /// 徽章通用图。
-  static const String medalFallback = '${assetRoot}shrine_trinkets.webp';
+  static const String medalFallback = '${assetRoot}medal_fallback.png';
 
   /// 名片通用图。
   static const String callingCardFallback = '${assetRoot}calling_card_cat.webp';
@@ -148,6 +148,25 @@ class YeSheTokens {
       _ => 'calling_card_cat.webp',
     };
     return '$assetRoot$file';
+  }
+
+  /// 按徽章发行编号挑选阅微原图。
+  static String medalAsset(int propId) {
+    return switch (propId) {
+      33 => '${assetRoot}medal_33.png',
+      34 => '${assetRoot}medal_34.png',
+      35 => '${assetRoot}medal_35.png',
+      36 => '${assetRoot}medal_36.png',
+      37 => '${assetRoot}medal_37.png',
+      38 => '${assetRoot}medal_38.png',
+      39 => '${assetRoot}medal_39.png',
+      40 => '${assetRoot}medal_40.png',
+      41 => '${assetRoot}medal_41.png',
+      42 => '${assetRoot}medal_42.png',
+      44 => '${assetRoot}medal_44.png',
+      45 => '${assetRoot}medal_45.png',
+      _ => medalFallback,
+    };
   }
 
   /// 商会旗帜；没有商会编号时使用默认旗帜。
@@ -384,10 +403,10 @@ class YeSheCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(borderRadius);
-    final provider = yeSheImageProvider(
-      url,
-      cacheWidth: (width * MediaQuery.devicePixelRatioOf(context)).round(),
-    );
+    final cacheWidth = width.isFinite
+        ? (width * MediaQuery.devicePixelRatioOf(context)).round()
+        : null;
+    final provider = yeSheImageProvider(url, cacheWidth: cacheWidth);
     return Semantics(
       image: true,
       label: semanticsLabel,
