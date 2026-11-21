@@ -1042,7 +1042,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   List<ReaderBookmark> _bookmarks = const [];
   final Map<int, List<ReaderBookmark>> _bookmarksByChapter = {};
   Expando<bool> _bookmarkPageHits = Expando<bool>();
-  bool _addingBookmark = false;
+  bool _changingBookmark = false;
   late ReaderBookmarkStyle _bookmarkStyle = widget.bookmarkStyle;
   bool _relocationBusy = false;
 
@@ -1314,15 +1314,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 添加当前页书签（P4-13）。
   Future<void> _addBookmark() async {
-    if (_addingBookmark) return;
-    _addingBookmark = true;
+    if (_changingBookmark) return;
+    _changingBookmark = true;
     try {
       await _scrollKey.currentState?.flushVisiblePosition();
       if (mounted) await _saveCurrentBookmark();
     } catch (_) {
       if (mounted) _showBookmarkMessage('书签保存失败，请重试');
     } finally {
-      _addingBookmark = false;
+      _changingBookmark = false;
     }
   }
 
@@ -1388,22 +1388,42 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool _hasBookmarkOn(PageContent page) {
     final cached = _bookmarkPageHits[page];
     if (cached != null) return cached;
+    return _bookmarkPageHits[page] = _bookmarksOn(page).isNotEmpty;
+  }
+
+  Iterable<ReaderBookmark> _bookmarksOn(PageContent page) {
     final bookmarks = _bookmarksByChapter[page.spineIndex];
-    if (bookmarks == null) return _bookmarkPageHits[page] = false;
+    if (bookmarks == null) return const [];
     final startCfi = _session.cfiAtPageOffset(page, null);
-    return _bookmarkPageHits[page] = bookmarks.any(
+    return bookmarks.where(
       (item) =>
           item.cfi == startCfi ||
           ReaderTextRangeGeometry.containsPoint(page, item.cfi),
     );
   }
 
-  Future<void> _deleteBookmark(ReaderBookmark bookmark) async {
+  Future<void> _toggleBookmark(PageContent page) async {
+    final bookmarks = _bookmarksOn(page).toList();
+    if (bookmarks.isEmpty) {
+      await _addBookmark();
+    } else {
+      await _deleteBookmarks(bookmarks);
+    }
+  }
+
+  Future<void> _deleteBookmarks(List<ReaderBookmark> bookmarks) async {
+    if (_changingBookmark) return;
+    _changingBookmark = true;
     try {
-      await widget.bookmarks?.remove(bookmark.id);
+      for (final bookmark in bookmarks) {
+        await widget.bookmarks?.remove(bookmark.id);
+      }
       await _reloadBookmarks();
+      if (mounted) _showBookmarkMessage('已移除书签');
     } catch (_) {
       if (mounted) _showBookmarkMessage('书签删除失败，请重试');
+    } finally {
+      _changingBookmark = false;
     }
   }
 
@@ -2809,20 +2829,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           fit: StackFit.expand,
           children: [
             BookmarkPullTarget(
-              onAdd:
+              bookmarked: _hasBookmarkOn(page),
+              onToggle:
                   widget.bookmarks != null &&
                       !widget.editMode &&
                       !_hasOverlayOpen &&
                       !_session.loading &&
                       _effectiveTurnMode != PageTurnMode.scroll
-                  ? () => unawaited(_addBookmark())
+                  ? () => unawaited(_toggleBookmark(page))
                   : null,
               color: (_effectiveTheme ?? ReaderTheme.white).text,
               background: (_effectiveTheme ?? ReaderTheme.white).background,
               topInset: MediaQuery.paddingOf(context).top,
               child: _buildReadingView(size),
             ),
-            if (!widget.editMode && _hasBookmarkOn(page))
+            if (!widget.editMode &&
+                _effectiveTurnMode != PageTurnMode.scroll &&
+                _hasBookmarkOn(page))
               Positioned(
                 top: MediaQuery.paddingOf(context).top,
                 right: 12 + MediaQuery.paddingOf(context).right,
@@ -2996,7 +3019,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       bookmarks: widget.bookmarks,
                       bookmarkItems: _bookmarks,
                       onDeleteBookmark: (bookmark) =>
-                          unawaited(_deleteBookmark(bookmark)),
+                          unawaited(_deleteBookmarks([bookmark])),
                       onBookmarkStyle: () => unawaited(_openBookmarkStyle()),
                       annotations: widget.annotations,
                       annotationItems: _annotations,
