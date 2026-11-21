@@ -68,8 +68,8 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
     final origin = _origin;
     if (origin == null) return;
     final offset = position - origin;
-    // 明显横移或先上滑的手势整次取消，避免翻页和往返拖动误触。
-    if (offset.dx.abs() > 48 || offset.dy < -kTouchSlop) {
+    // 只容忍触摸抖动范围内的横移，斜拉或先上滑整次取消。
+    if (offset.dx.abs() > kTouchSlop || offset.dy < -kTouchSlop) {
       _reset();
       return;
     }

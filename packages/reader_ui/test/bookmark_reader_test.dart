@@ -172,6 +172,18 @@ Future<void> _move(WidgetTester tester, Future<Object?> action) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _dragBookmark(WidgetTester tester, List<Offset> deltas) async {
+  final gesture = await tester.startGesture(
+    tester.getCenter(find.byType(ReaderView)),
+  );
+  for (final delta in deltas) {
+    await gesture.moveBy(delta);
+    await tester.pump();
+  }
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
 Future<void> _pullBookmark(
   WidgetTester tester, {
   bool remove = false,
@@ -570,6 +582,31 @@ void main() {
   for (final mode in PageTurnMode.values.where(
     (value) => value != PageTurnMode.scroll,
   )) {
+    testWidgets('${mode.label}左右斜拉不增删书签，取消后回正不触发，轻微手抖仍可下拉', (tester) async {
+      final bookmarks = _Bookmarks();
+      await _open(tester, bookmarks, mode: mode);
+      for (final bookmarked in [false, true]) {
+        final before = List.of(bookmarks.items);
+        for (final direction in [-1.0, 1.0]) {
+          for (final diagonalStart in [false, true]) {
+            await _dragBookmark(tester, [
+              Offset(diagonalStart ? 12 * direction : 0, 25),
+              Offset(diagonalStart ? 20 * direction : 32 * direction, 145),
+              Offset(-32 * direction, 30),
+            ]);
+            expect(bookmarks.items, before, reason: '斜拉取消后，回正继续下拉也不能触发');
+            expect(find.textContaining('松手确认'), findsNothing);
+          }
+        }
+        await _dragBookmark(tester, [
+          const Offset(4, 25),
+          const Offset(6, 145),
+        ]);
+        expect(bookmarks.items, hasLength(bookmarked ? 0 : 1));
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('${mode.label}关闭下拉书签后不增删，菜单添加和已有标记仍正常', (tester) async {
       final bookmarks = _Bookmarks();
       await _open(
