@@ -82,7 +82,7 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
                     child: ColoredBox(
                       color: Theme.of(context).colorScheme.surfaceContainerLow,
                       child: Padding(
-                        padding: const EdgeInsets.only(right: 16),
+                        padding: EdgeInsets.only(right: _style.rightInset),
                         child: Align(
                           alignment: Alignment.topRight,
                           child: ReaderBookmarkRibbon(
@@ -140,6 +140,15 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
                     ReaderBookmarkStyle.maxLength,
                     (value) =>
                         setState(() => _style = _style.copyWith(length: value)),
+                  ),
+                  _dimension(
+                    '距右侧',
+                    _style.rightInset,
+                    ReaderBookmarkStyle.minRightInset,
+                    ReaderBookmarkStyle.maxRightInset,
+                    (value) => setState(
+                      () => _style = _style.copyWith(rightInset: value),
+                    ),
                   ),
                 ],
               ),

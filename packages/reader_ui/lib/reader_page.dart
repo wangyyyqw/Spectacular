@@ -28,6 +28,7 @@ import 'annotations/annotation_layer.dart';
 import 'annotations/decorations.dart';
 import 'annotations/note_composer_sheet.dart';
 import 'annotations/mark_settings.dart';
+import 'bookmarks/bookmark_image.dart';
 import 'bookmarks/bookmark_style.dart';
 import 'bookmarks/bookmark_ribbon.dart';
 import 'bookmarks/bookmark_pull_target.dart';
@@ -888,17 +889,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 翻页快照前准备目标页图片；不触发版本失效，避免取消当前手势。
   Future<void> _prepareTurnPageImages(PageContent page) async {
-    final bookmarkImageId = _bookmarkStyle.imageId;
-    if (bookmarkImageId != null &&
-        widget.bookmarkImageLoader != null &&
-        _hasBookmarkOn(page)) {
-      try {
-        final bytes = await _loadBookmarkImage(bookmarkImageId);
-        if (!mounted) return;
-        await precacheImage(MemoryImage(bytes), context, onError: (_, _) {});
-      } catch (_) {
-        // 自定义图读取失败时，静态纸面和翻页快照均沿用默认书签。
-      }
+    if (_hasBookmarkOn(page)) {
+      await _bookmarkImage.load(
+        _bookmarkStyle.imageId,
+        widget.bookmarkImageLoader,
+      );
+      if (!mounted) return;
     }
     final width = _lastContentSize?.width ?? 0;
     if (width <= 0) {
@@ -1056,18 +1052,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Expando<bool> _bookmarkPageHits = Expando<bool>();
   bool _changingBookmark = false;
   bool _pullingBookmark = false;
-  String? _bookmarkImageId;
-  Future<Uint8List>? _bookmarkImageBytes;
+  final _bookmarkImage = ReaderBookmarkImage();
   late ReaderBookmarkStyle _bookmarkStyle = widget.bookmarkStyle;
   bool _relocationBusy = false;
-
-  Future<Uint8List> _loadBookmarkImage(String id) {
-    if (_bookmarkImageId != id || _bookmarkImageBytes == null) {
-      _bookmarkImageId = id;
-      _bookmarkImageBytes = widget.bookmarkImageLoader!(id);
-    }
-    return _bookmarkImageBytes!;
-  }
 
   /// 可绘制的标注（P4-20：重定位后；失效标注保留数据但不绘制）。
   List<ReaderAnnotation> _resolvedAnnotations = const <ReaderAnnotation>[];
@@ -1084,6 +1071,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    unawaited(
+      _bookmarkImage.load(_bookmarkStyle.imageId, widget.bookmarkImageLoader),
+    );
     WidgetsBinding.instance.addObserver(this);
     _savedMargins = widget.margins;
     _overrides = widget.overrides ?? ReaderSettingsDefaults.overrides;
@@ -1114,11 +1104,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.bookmarkImageLoader != widget.bookmarkImageLoader) {
-      _bookmarkImageBytes = null;
-    }
     if (oldWidget.bookmarkStyle != widget.bookmarkStyle) {
       _bookmarkStyle = widget.bookmarkStyle;
+    }
+    if (oldWidget.bookmarkImageLoader != widget.bookmarkImageLoader ||
+        oldWidget.bookmarkStyle != widget.bookmarkStyle) {
+      unawaited(
+        _bookmarkImage.load(_bookmarkStyle.imageId, widget.bookmarkImageLoader),
+      );
     }
     if (oldWidget.bookmarks != widget.bookmarks) {
       _setBookmarks(const []);
@@ -1463,7 +1456,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       ),
     );
     if (!mounted || style == null) return;
-    setState(() => _bookmarkStyle = style);
+    setState(() {
+      _bookmarkStyle = style;
+      unawaited(_bookmarkImage.load(style.imageId, widget.bookmarkImageLoader));
+    });
     widget.onBookmarkStyleChanged?.call(style);
   }
 
@@ -2659,6 +2655,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _searchFocus.dispose();
     _backgroundRequest++;
     _backgroundImage?.dispose();
+    _bookmarkImage.dispose();
     widget.imageCache?.protectedUrls = const {};
     _decorationGeneration++;
     _annotationGeneration++;
@@ -2868,15 +2865,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               animateReturn: !_inkMode,
               onPullingChanged: (pulling) =>
                   setState(() => _pullingBookmark = pulling),
-              ribbon: !widget.editMode &&
-                      _effectiveTurnMode != PageTurnMode.scroll
+              ribbon:
+                  !widget.editMode && _effectiveTurnMode != PageTurnMode.scroll
                   ? ReaderBookmarkRibbon(
                       key: const ValueKey('reader-bookmark-ribbon'),
                       style: _bookmarkStyle,
                       color: (_effectiveTheme ?? ReaderTheme.white).text,
-                      imageLoader: widget.bookmarkImageLoader == null
-                          ? null
-                          : _loadBookmarkImage,
+                      image: _bookmarkImage,
                     )
                   : null,
               child: Stack(
@@ -3307,7 +3302,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _bookmarks,
       _bookmarkStyle,
       widget.bookmarkImageLoader,
-      _pullingBookmark,
     );
     if (_effectiveTurnMode == PageTurnMode.scroll) {
       final padding = _bodyPadding();
@@ -3455,8 +3449,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         if (!widget.editMode && !_pullingBookmark && _hasBookmarkOn(page))
           Positioned(
             top: 0,
-            right: ReaderBookmarkStyle.rightInset +
-                MediaQuery.paddingOf(context).right,
+            right:
+                _bookmarkStyle.rightInset + MediaQuery.paddingOf(context).right,
             child: IgnorePointer(
               child: Semantics(
                 label: '当前页已有书签',
@@ -3464,9 +3458,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   key: const ValueKey('reader-bookmark-ribbon'),
                   style: _bookmarkStyle,
                   color: (_effectiveTheme ?? ReaderTheme.white).text,
-                  imageLoader: widget.bookmarkImageLoader == null
-                      ? null
-                      : _loadBookmarkImage,
+                  image: _bookmarkImage,
                 ),
               ),
             ),

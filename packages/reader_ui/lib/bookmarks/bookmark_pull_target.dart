@@ -102,10 +102,12 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
           offset: Offset(0, offset),
           child: ColoredBox(color: widget.background, child: child),
         ),
-        if (widget.ribbon != null && offset > 0)
+        // 归位结束先保留已添加的标记，下一帧与纸面同时交接。
+        if (widget.ribbon != null &&
+            (offset > 0 || (_pulling && widget.bookmarked)))
           Positioned(
             top: 0,
-            right: ReaderBookmarkStyle.rightInset + widget.rightInset,
+            right: widget.ribbon!.style.rightInset + widget.rightInset,
             child: IgnorePointer(
               child: Semantics(
                 label: widget.bookmarked ? '当前页已有书签' : '添加书签',
@@ -123,7 +125,8 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
       top: widget.topInset + 28,
       left: 16,
       right:
-          ReaderBookmarkStyle.rightInset +
+          (widget.ribbon?.style.rightInset ??
+              const ReaderBookmarkStyle().rightInset) +
           16 +
           widget.rightInset +
           (widget.ribbon?.style.width ?? 0),
