@@ -52,7 +52,11 @@ Uint8List _book(String body, String css) => auditZip({
   'picture.png': _imageBytes,
 });
 
-Future<PageContent> _page(String body, String css) async {
+Future<PageContent> _page(
+  String body,
+  String css, {
+  double? fontSize = 18,
+}) async {
   final source = await const EpubFormatOpener().openBytes(
     _book(body, css),
     options: ReaderOpenOptions(
@@ -62,7 +66,7 @@ Future<PageContent> _page(String body, String css) async {
   );
   addTearDown(source.close);
   await source.applyOverrides(
-    const ReaderOverrides(fontSize: 18, lineHeight: 1.6, paragraphSpacing: 10),
+    ReaderOverrides(fontSize: fontSize, lineHeight: 1.6, paragraphSpacing: 10),
   );
   await source.applyContentSize(
     width: _pageSize.width - _insets.horizontal,
@@ -128,7 +132,7 @@ void main() {
   tearDownAll(() => _image.dispose());
 
   for (final (margin, expectedTop) in [
-    ('2em', 32.0),
+    ('2em', 36.0),
     ('12px', 12.0),
     ('0', 0.0),
     ('-8px', -8.0),
@@ -165,6 +169,59 @@ body { font-size:16px; }
       expect(hit?.slice.block, same(image), reason: '恢复留白后仍命中头图');
     });
   }
+
+  for (final (fontSize, width, left) in [
+    (18.0, 326.4, 27.0),
+    (50 / 2.8125, 326.4, 75 / 2.8125),
+    (56 / 2.8125, (1080 - 56 * 3.05) / 2.8125, 84 / 2.8125),
+    (24.0, 310.8, 36.0),
+    (null, 326.4, 24.0),
+  ]) {
+    test('阅读字号$fontSize传到出血头图em边距，超宽时等比缩小', () async {
+      final page = await _page('$_picture<h2>标题</h2><p>相邻正文</p>', '''
+body { margin:0 1%; }
+.picture { margin:0; text-align:left; duokan-bleed:lefttopright; }
+.picture img { width:85%; height:auto; margin:2em 1.55em 0 1.5em; }
+h2 { margin:1em 0; font-size:1em; }
+''', fontSize: fontSize);
+      final image = page.slices.first.block;
+      expect(image.style!.width!.value, closeTo(width, .001));
+      expect(image.layout.height, closeTo(width / 2, .001));
+      expect(image.style!.margin.left, closeTo(left, .001));
+      expect(_tops(page).first, closeTo(2 * (fontSize ?? 16), .001));
+      final pixels = await _paint(page);
+      final y = (_tops(page).first + image.layout.height / 2).round();
+      final columns = [
+        for (var x = 0; x < 384; x++)
+          if (pixels.getUint32((y * 384 + x) * 4) == 0x008800ff) x,
+      ];
+      expect(columns.first, closeTo(left, 1));
+      expect(columns.last + 1, closeTo(left + width, 1));
+      final hit = page.hitTest(Offset(left + width / 2 - 9, y - 56.0));
+      expect(hit?.slice.block, same(image));
+      expect(image.startCfi, isNotNull);
+      expect(page.slices.last.block.layout.text, '相邻正文');
+    });
+  }
+
+  test('图片em、rem及calc各按对应字号求解，像素边距和父盒尺寸不变', () async {
+    final page = await _page(
+      '<div class="picture"><img src="picture.png"/><p>图注</p></div>'
+          '<p>相邻正文</p>',
+      '''
+.picture { width:200px; padding:4px; margin:0; font-size:.5em; }
+.picture img { margin:calc(1em + 3px) 10px 1rem 2em; }
+''',
+      fontSize: 24,
+    );
+    final image = page.slices.first.block;
+    expect(image.style!.fontSize, 12);
+    expect(image.style!.margin.top, 15);
+    expect(image.style!.margin.bottom, 24);
+    expect(image.style!.width!.value, 40);
+    expect(image.layout.height, 20);
+    expect(image.containers.single.container.contentWidth, 200);
+  });
 
   for (final (top, bottom) in [(32, 24), (-32, -24), (0, 32)]) {
     test('保留容器边距 $top/$bottom 只移动整体，不在内部图片重复消费', () async {

@@ -205,6 +205,9 @@ class _ImageSizing {
       blockWidth = math.min(blockWidth, columnWidth);
       size = _fitWidth(size, blockWidth);
     }
+    if (side == null && !input.style.isOutOfFlow) {
+      size = _fitAvailableWidth(size, containingWidth);
+    }
     return (
       width: size.$1,
       height: size.$2,
@@ -213,6 +216,16 @@ class _ImageSizing {
       side: side,
       floatBox: ownSide == null ? chainFloat.box : null,
       group: _imageGroup(input.position, chainFloat.side),
+    );
+  }
+
+  _ImageSize _fitAvailableWidth(_ImageSize size, double width) {
+    final own = _ownImageStyle(input, width);
+    final model = BoxModel.fromStyle(own, containingWidth: width);
+    // 图片百分比仍取父宽；排入普通流时，为自身边距、边框和内边距留位。
+    return _fitWidth(
+      size,
+      math.max(0, width - own.margin.horizontal - model.horizontalInset),
     );
   }
 
@@ -324,12 +337,35 @@ int _imageGroup(BlockPosition position, FloatSide? chainFloat) =>
 
 ComputedStyle _ownImageStyle(_ImageDescription input, double width) {
   final base = input.styles.chainStyle(input.imageChain);
-  return ComputedStyle(
-    base.values,
+  final own = ComputedStyle(
+    {...base.values, 'font-size': '${base.fontSize}px'},
     parent: base,
     explicitProperties: base.explicitProperties,
     containingWidth: width,
+    rootFontSize: base.cssRootFontSize,
   );
+  final readerSize = input.styles.snapshot.overrides.fontSize;
+  if (readerSize == null || input.style.isOutOfFlow) return own;
+  final fontSize = own.fontSize * readerSize / input.styles.style.fontSize;
+  // 只重算图片自身的字体相对外边距；父盒、图片尺寸和百分比基准保持原值。
+  double margin(String side, double fallback) =>
+      resolveCssNumericLength(
+        own.values['margin-$side'] ?? '',
+        fontSize: fontSize,
+        rootFontSize: readerSize,
+        percentBase: width,
+      ) ??
+      fallback;
+  return own
+      .withMargins(
+        CssEdges(
+          top: margin('top', own.margin.top),
+          right: margin('right', own.margin.right),
+          bottom: margin('bottom', own.margin.bottom),
+          left: margin('left', own.margin.left),
+        ),
+      )
+      .withTypography(fontSize: fontSize);
 }
 
 double _usedMarginLeft(_ImageDescription input, _ImageGeometry geometry) {
@@ -384,6 +420,7 @@ ComputedStyle _imagePaintStyle(
     boxHeight: geometry.height,
   );
   final bleed = input.style.bleed;
+  final own = _ownImageStyle(input, geometry.containingWidth);
   return ComputedStyle({
     ...input.style.values,
     'width': '${geometry.width}px',
@@ -395,13 +432,30 @@ ComputedStyle _imagePaintStyle(
     'height': '${geometry.height}px',
     'margin-left':
         '${input.style.isOutOfFlow ? input.style.margin.left : _usedMarginLeft(input, geometry)}px',
+    ..._projectedImageMargins(input, own),
     'background-image': 'url("${input.url}")',
     'background-size': fit.size,
     'background-position': bleed.top
         ? 'center top'
         : (bleed.bottom ? 'center bottom' : fit.position),
     'background-repeat': 'no-repeat',
-  });
+  }).withTypography(fontSize: own.fontSize);
+}
+
+Map<String, String> _projectedImageMargins(
+  _ImageDescription input,
+  ComputedStyle own,
+) {
+  final projected = input.style.margin;
+  final authored = input.styles.chainStyle(input.imageChain).margin;
+  return {
+    for (final (side, before, original, scaled) in [
+      ('top', projected.top, authored.top, own.margin.top),
+      ('right', projected.right, authored.right, own.margin.right),
+      ('bottom', projected.bottom, authored.bottom, own.margin.bottom),
+    ])
+      'margin-$side': '${before + scaled - original}px',
+  };
 }
 
 TextLayoutResult _imageLayout(_ImageGeometry geometry) => TextLayoutResult(
