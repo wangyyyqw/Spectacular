@@ -143,6 +143,30 @@ Future<void> _openMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _openBookmarkStyle(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('样式'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _expectBookmarkPullDisabled(WidgetTester tester) async {
+  final view = find.byType(ReaderView);
+  final original = tester.getRect(view);
+  final gesture = await tester.startGesture(tester.getCenter(view));
+  await gesture.moveBy(const Offset(0, 25));
+  await tester.pump();
+  await gesture.moveBy(const Offset(0, 145));
+  await tester.pump();
+  expect(tester.getRect(view), original);
+  expect(find.text('松手确认添加'), findsNothing);
+  expect(find.text('松手确认移除'), findsNothing);
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
 Future<void> _move(WidgetTester tester, Future<Object?> action) async {
   unawaited(action);
   await tester.pumpAndSettle();
@@ -546,6 +570,31 @@ void main() {
   for (final mode in PageTurnMode.values.where(
     (value) => value != PageTurnMode.scroll,
   )) {
+    testWidgets('${mode.label}关闭下拉书签后不增删，菜单添加和已有标记仍正常', (tester) async {
+      final bookmarks = _Bookmarks();
+      await _open(
+        tester,
+        bookmarks,
+        mode: mode,
+        style: const ReaderBookmarkStyle(pullEnabled: false),
+      );
+      await _expectBookmarkPullDisabled(tester);
+      expect(bookmarks.items, isEmpty);
+      await _openMenu(tester);
+      await tester.tap(find.byKey(const ValueKey('menu-add-bookmark')));
+      await tester.pumpAndSettle();
+      expect(bookmarks.items, hasLength(1));
+      final bookmark = bookmarks.items.single;
+      await _openMenu(tester);
+      await _expectBookmarkPullDisabled(tester);
+      expect(bookmarks.items.single, same(bookmark));
+      expect(
+        find.byKey(const ValueKey('reader-bookmark-ribbon')),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('${mode.label}下拉添加与移除，短拖和上滑不触发，横滑仍翻页', (tester) async {
       final bookmarks = _Bookmarks();
       final session = await _open(tester, bookmarks, mode: mode);
@@ -592,6 +641,35 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  testWidgets('书签面板保存开关后立即禁用或恢复下拉手势', (tester) async {
+    final bookmarks = _Bookmarks();
+    ReaderBookmarkStyle? saved;
+    await _open(tester, bookmarks, onStyle: (style) => saved = style);
+    for (final enabled in [false, true]) {
+      await _openMenu(tester);
+      await _openBookmarkStyle(tester);
+      final toggle = find.byKey(const ValueKey('bookmark-pull-enabled'));
+      expect(tester.widget<SwitchListTile>(toggle).value, !enabled);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('bookmark-style-save')));
+      await tester.pumpAndSettle();
+      expect(saved!.pullEnabled, enabled);
+      final mask = find.byKey(const ValueKey('menu-drawer-mask'));
+      await tester.tapAt(tester.getTopLeft(mask) + const Offset(10, 10));
+      await tester.pumpAndSettle();
+      await _openMenu(tester);
+      if (enabled) {
+        await _pullBookmark(tester);
+        expect(bookmarks.items, hasLength(1));
+      } else {
+        await _expectBookmarkPullDisabled(tester);
+        expect(bookmarks.items, isEmpty);
+      }
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   for (final mode in [PageTurnMode.cover, PageTurnMode.scroll]) {
     testWidgets('${mode.label}工具栏添加、重复去重、列表同步与删除标记', (tester) async {
@@ -754,12 +832,7 @@ void main() {
     final readerRect = tester.getRect(find.byType(ReaderView));
     expect(tester.getTopRight(ribbon).dx, readerRect.right - 64);
     expect(tester.getTopRight(ribbon).dy, readerRect.top);
-    await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('样式'));
-    await tester.pumpAndSettle();
+    await _openBookmarkStyle(tester);
     final slider = find.byKey(const ValueKey('bookmark-宽度'));
     await tester.ensureVisible(slider);
     await tester.tapAt(tester.getCenter(slider));

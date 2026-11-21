@@ -2852,6 +2852,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               bookmarked: _hasBookmarkOn(page),
               onToggle:
                   widget.bookmarks != null &&
+                      _bookmarkStyle.pullEnabled &&
                       !widget.editMode &&
                       !_hasOverlayOpen &&
                       !_session.loading &&
