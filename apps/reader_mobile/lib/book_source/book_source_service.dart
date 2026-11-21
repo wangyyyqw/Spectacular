@@ -159,6 +159,19 @@ class BookSourceService {
 
   void dispose() => http.close();
 
+  /// 来源停止产生请求后，等待已有章节读取与缓存写入释放资源。
+  /// 阅读页退出仍可立即取消布局；清理缓存目录时再等待这些独立任务。
+  Future<void> get chapterRequestsStopped async {
+    while (_chapterRequests.isNotEmpty || _chapterWrites.isNotEmpty) {
+      await Future.wait<void>([
+        for (final request in _chapterRequests.values.toList())
+          request.task.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        for (final write in _chapterWrites.values.toList())
+          write.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      ]);
+    }
+  }
+
   /// 并发搜索多个来源；单个失败不影响其他来源。
   Future<List<OnlineSourceSearchResult>> searchMany(
     List<BookSource> sources,

@@ -392,6 +392,7 @@ void main() {
     expect(await pumpReaderTask(tester, f.library.list()), isEmpty);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
+    await pumpReaderTask(tester, f.service.chapterRequestsStopped);
   });
 
   testWidgets('最近阅读目录请求缓慢时先读缓存，后台更新保持会话目录不变', (tester) async {
@@ -870,6 +871,7 @@ class _ReadingFixture {
       catalogGate!.complete();
     }
     controller.dispose();
+    await service.chapterRequestsStopped;
     await db.close();
     await directory.delete(recursive: true);
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -8,6 +9,7 @@ import 'package:reader_mobile/book_source/book_source_http_client.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_script.dart';
 import 'package:reader_mobile/book_source/book_source_service.dart';
+import 'package:reader_mobile/book_source/online_chapter_content_store.dart';
 
 import 'book_source_test_helpers.dart';
 
@@ -33,7 +35,79 @@ final _png = Uint8List.fromList(<int>[
   0x0a,
 ]);
 
+class _DelayedChapterCache extends OnlineChapterContentStore {
+  final started = Completer<void>();
+  final completeWrite = Completer<void>();
+
+  @override
+  Future<String?> read({
+    required String sourceId,
+    required String bookUrl,
+    required String chapterUrl,
+    required String rulesFingerprint,
+  }) async => null;
+
+  @override
+  Future<void> write({
+    required String sourceId,
+    required String bookUrl,
+    required String chapterUrl,
+    required String rulesFingerprint,
+    required String content,
+  }) async {
+    started.complete();
+    await completeWrite.future;
+  }
+}
+
 void main() {
+  test('清理章节缓存前等待完整写入，不因布局取消提前释放', () async {
+    final cache = _DelayedChapterCache();
+    final service = BookSourceService(
+      chapterContentStore: cache,
+      httpClient: BookSourceHttpClient(
+        client: MockClient(
+          (_) async => http.Response(
+            '<p>缓存正文</p>',
+            200,
+            headers: {'content-type': 'text/html; charset=utf-8'},
+          ),
+        ),
+      ),
+      scriptFactory: fakeScriptFactory(
+        FakeBookSourceScriptSession((code, result, variables, current) => result),
+      ),
+    );
+    addTearDown(service.dispose);
+    addTearDown(() {
+      if (!cache.completeWrite.isCompleted) cache.completeWrite.complete();
+    });
+    final reading = service.fetchChapterContent(
+      const BookSource(
+        id: 'delayed-cache',
+        name: '慢写入测试源',
+        sourceUrl: 'https://example.com',
+        searchUrl: '/search',
+        search: BookListRule(),
+        bookInfo: BookInfoRule(),
+        toc: TocRule(),
+        content: ContentRule(content: 'p'),
+      ),
+      const OnlineChapter(index: 0, title: '第一章', url: 'https://example.com/1'),
+      'https://example.com/book',
+    );
+    await cache.started.future;
+    var stopped = false;
+    final pending = service.chapterRequestsStopped.then((_) => stopped = true);
+    await Future<void>.value();
+    expect(stopped, isFalse, reason: '正文已返回但文件还未写完');
+    cache.completeWrite.complete();
+    await pending;
+    await reading;
+    expect(stopped, isTrue);
+    await service.chapterRequestsStopped;
+  });
+
   test('搜索地址支持常用 Legado 模板变量', () async {
     late Uri requested;
     final service = BookSourceService(
