@@ -94,10 +94,16 @@ Future<ReaderSession> _open(
   PageTurnMode mode = PageTurnMode.cover,
   ReaderBookmarkStyle style = const ReaderBookmarkStyle(),
   ValueChanged<ReaderBookmarkStyle>? onStyle,
+  bool disableAnimations = false,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(disableAnimations: disableAnimations),
+        child: child!,
+      ),
       home: Scaffold(
         body: Center(
           child: SizedBox(
@@ -135,19 +141,52 @@ Future<void> _move(WidgetTester tester, Future<Object?> action) async {
 }
 
 Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
-  final gesture = await tester.startGesture(
-    tester.getCenter(find.byType(ReaderView)),
-  );
+  final view = find.byType(ReaderView);
+  final original = tester.getRect(view);
+  final gesture = await tester.startGesture(tester.getCenter(view));
   await gesture.moveBy(const Offset(0, 25));
   await tester.pump();
   await gesture.moveBy(const Offset(0, 145));
   await tester.pump();
-  expect(find.text(remove ? '松手移除书签' : '松手添加书签'), findsOneWidget);
+  final hint = find.text(remove ? '松手确认移除' : '松手确认添加');
+  expect(hint, findsOneWidget);
+  final pulled = tester.getRect(view);
+  expect(pulled.size, original.size, reason: '整页移动不压缩正文或重新分页');
+  expect(pulled.top, greaterThan(original.top + 140));
+  expect(tester.getRect(hint).bottom, lessThan(pulled.top));
+  final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
+  expect(tester.getTopRight(ribbon).dy, original.top);
   await gesture.up();
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 60));
+  final returning = tester.getTopLeft(view).dy;
+  expect(returning, greaterThan(original.top));
+  expect(returning, lessThan(pulled.top));
   await tester.pumpAndSettle();
+  expect(tester.getRect(view), original);
+  expect(hint, findsNothing);
 }
 
 void main() {
+  testWidgets('未到阈值松手回位不添加，减少动画设置直接归位', (tester) async {
+    final bookmarks = _Bookmarks();
+    await _open(tester, bookmarks, disableAnimations: true);
+    final view = find.byType(ReaderView);
+    final original = tester.getRect(view);
+    final gesture = await tester.startGesture(original.center);
+    await gesture.moveBy(const Offset(0, 25));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 80));
+    await tester.pump();
+    expect(tester.getTopLeft(view).dy, original.top + 105);
+    expect(find.text('下拉添加书签'), findsOneWidget);
+    await gesture.up();
+    await tester.pump();
+    expect(tester.getRect(view), original);
+    expect(bookmarks.items, isEmpty);
+    expect(find.byKey(const ValueKey('reader-bookmark-ribbon')), findsNothing);
+  });
+
   testWidgets('替换书签存储立即清除旧命中，并按章节和重定位状态更新标记', (tester) async {
     ReaderBookmark bookmark(String id, int spine, {String? status}) =>
         ReaderBookmark(
