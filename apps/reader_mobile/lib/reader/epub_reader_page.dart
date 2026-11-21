@@ -271,6 +271,31 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   ScanSearchService? _search;
   DecodedImageCache? _imageCache;
   ReadingSessionTracker? _readingTracker;
+  final ValueNotifier<Duration> _readingDuration = ValueNotifier(Duration.zero);
+  Duration _savedReadingDuration = Duration.zero;
+  Timer? _readingDurationTimer;
+
+  Future<void> _loadReadingDuration(ReadingSessionStore store) async {
+    try {
+      final sessions = await store.list();
+      if (!mounted) return;
+      _savedReadingDuration = sessions
+          .where((session) => session.bookId == widget.bookId)
+          .fold(Duration.zero, (total, session) => total + session.duration);
+      _updateReadingDuration();
+    } catch (error) {
+      await ReaderLog.instance.log(
+        'reading_duration_load_error',
+        fields: {'error': error},
+      );
+    }
+  }
+
+  void _updateReadingDuration() {
+    _readingDuration.value =
+        _savedReadingDuration + (_readingTracker?.elapsed ?? Duration.zero);
+  }
+
   ReaderSession? _readerSession;
   late final Future<EpubChapterSource> _sourceTask;
   Future<void Function()>? _anchorBinding;
@@ -305,6 +330,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       _readingTracker = ReadingSessionTracker(
         store: sessionStore,
         bookId: widget.bookId,
+      );
+      unawaited(_loadReadingDuration(sessionStore));
+      _readingDurationTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _updateReadingDuration(),
       );
     }
     WidgetsBinding.instance.addObserver(this);
@@ -483,6 +513,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   void dispose() {
     _closing = true;
     _openTrace?.stop();
+    _readingDurationTimer?.cancel();
+    _readingDuration.dispose();
     final session = _readerSession;
     final onClosed = widget.onClosed;
     session?.removeListener(_syncReadingStats);
@@ -563,6 +595,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final settings = _settings;
     return ReaderPage(
       key: const ValueKey<String>('reader-page'),
+      readingDuration: _readingDuration,
       source: _source!,
       store: widget.store,
       bookId: widget.bookId,

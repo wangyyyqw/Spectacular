@@ -29,6 +29,16 @@ class ReadingSessionTracker {
   bool _finished = false;
   int _pageTurns = 0;
   int _charactersRead = 0;
+  Duration _completedDuration = Duration.zero;
+
+  /// 本次打开期间的有效前台时长，包含已暂停片段和正在计时的片段。
+  Duration get elapsed {
+    final startedAt = _startedAt;
+    final active = startedAt == null
+        ? Duration.zero
+        : _now().difference(startedAt);
+    return _completedDuration + (active.isNegative ? Duration.zero : active);
+  }
 
   /// 开始或继续计时；重复调用不会重置起点。
   void start() {
@@ -64,6 +74,7 @@ class ReadingSessionTracker {
     if (endedAt.difference(startedAt) < minimumDuration) {
       return _pending;
     }
+    _completedDuration += endedAt.difference(startedAt);
     _pending = _pending.then<void>((_) async {
       try {
         await store.add(

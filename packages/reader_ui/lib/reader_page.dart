@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import 'dart:ui' as ui;
@@ -109,6 +110,7 @@ class ReaderPage extends StatefulWidget {
     required this.source,
     required this.store,
     required this.bookId,
+    this.readingDuration,
     this.contentRevision,
     this.background = const Color(0xFFFFFFFF),
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -245,6 +247,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 书籍标识。
   final String bookId;
+
+  /// 本书历史累计与当前有效阅读时长。
+  final ValueListenable<Duration>? readingDuration;
 
   /// 原 EPUB 文件摘要；当前内容锚点的解释版本。
   final String? contentRevision;
@@ -2834,6 +2839,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               drawerChild: _drawer == null
                   ? null
                   : _ReaderDrawerContent(
+                      readingDuration: widget.readingDuration,
                       entry: _drawer!,
                       tab: _drawerTab,
                       onTabChanged: (tab) => setState(() => _drawerTab = tab),
@@ -3423,6 +3429,7 @@ enum _DrawerTab {
 /// 参数较多是因为它同时是四类面板的适配层（各面板回调不同），拆分收益不大。
 class _ReaderDrawerContent extends StatefulWidget {
   const _ReaderDrawerContent({
+    this.readingDuration,
     required this.entry,
     required this.tab,
     required this.onTabChanged,
@@ -3488,6 +3495,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   });
 
   final ReaderMenuEntry entry;
+  final ValueListenable<Duration>? readingDuration;
   final _DrawerTab tab;
   final ValueChanged<_DrawerTab> onTabChanged;
   final FocusNode searchFocus;
@@ -3743,6 +3751,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
             onPageChanged: _onTabPageChanged,
             itemBuilder: (context, index) => switch (_tabs[index]) {
               _DrawerTab.content => TocPanel(
+                readingDuration: widget.readingDuration,
                 entries: widget.entries,
                 currentSpineIndex: widget.currentSpineIndex,
                 currentCfi: widget.currentCfi,
