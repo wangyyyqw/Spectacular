@@ -1,0 +1,93 @@
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_ui/bookmarks/bookmark_ribbon.dart';
+import 'package:reader_ui/bookmarks/bookmark_style.dart';
+import 'package:reader_ui/panels/bookmark_style_sheet.dart';
+
+import 'support/decoration_test_images.dart';
+
+void main() {
+  testWidgets('选本地图片、取消选择、恢复默认图标；窄屏大字无溢出', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    late Uint8List image;
+    await tester.runAsync(() async => image = await ninePatchTestBytes());
+    String? next = 'image:local';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+          child: Scaffold(
+            body: ReaderBookmarkStyleSheet(
+              style: const ReaderBookmarkStyle(),
+              onPickImage: () async => next,
+              imageLoader: (_) async => image,
+            ),
+          ),
+        ),
+      ),
+    );
+    final pick = find.byKey(const ValueKey('bookmark-pick-image'));
+    await tester.ensureVisible(pick);
+    await tester.tap(pick);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderBookmarkRibbon>(find.byType(ReaderBookmarkRibbon))
+          .style
+          .imageId,
+      'image:local',
+    );
+    next = null;
+    await tester.tap(pick);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderBookmarkRibbon>(find.byType(ReaderBookmarkRibbon))
+          .style
+          .imageId,
+      'image:local',
+    );
+    await tester.tap(find.text('使用默认图标'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderBookmarkRibbon>(find.byType(ReaderBookmarkRibbon))
+          .style
+          .imageId,
+      isNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('图片导入失败保留原样式；图片缺失时回退默认丝带', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderBookmarkStyleSheet(
+            style: const ReaderBookmarkStyle(imageId: 'image:missing'),
+            imageLoader: (_) async => throw StateError('文件已不存在'),
+            onPickImage: () async => throw const FormatException('文件无效'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ClipPath), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('bookmark-pick-image')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('图片导入失败'), findsOneWidget);
+    expect(
+      tester
+          .widget<ReaderBookmarkRibbon>(find.byType(ReaderBookmarkRibbon))
+          .style
+          .imageId,
+      'image:missing',
+    );
+    expect(tester.takeException(), isNull);
+  });
+}

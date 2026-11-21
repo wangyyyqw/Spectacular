@@ -14,6 +14,7 @@ class BookmarkPanel extends StatelessWidget {
     required this.onDelete,
     this.onAdd,
     this.onBack,
+    this.onStyle,
     this.emptyHint = '还没有书签',
   });
 
@@ -31,6 +32,9 @@ class BookmarkPanel extends StatelessWidget {
 
   /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
   final VoidCallback? onBack;
+
+  /// 自定义右上角书签外观。
+  final VoidCallback? onStyle;
 
   /// 空态提示。
   final String emptyHint;
@@ -69,6 +73,8 @@ class BookmarkPanel extends StatelessWidget {
                     icon: const AppIcon(AppGlyph.bookmarkAdd, size: 18),
                     visualDensity: VisualDensity.compact,
                   ),
+                if (onStyle != null)
+                  TextButton(onPressed: onStyle, child: const Text('样式')),
               ],
             ),
           ),
