@@ -202,7 +202,9 @@ void main() {
 
   test('祖先出血仍传给横幅图片，图片铺到页顶及两侧', () async {
     final result = await _render();
-    final image = result.page.slices.first.block;
+    final image = result.page.slices
+        .singleWhere((slice) => slice.block.isReplaced)
+        .block;
     expect(image.bleedLeft, isTrue);
     expect(image.bleedRight, isTrue);
     expect(image.bleedTop, isTrue);

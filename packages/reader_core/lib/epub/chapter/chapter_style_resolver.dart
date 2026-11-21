@@ -640,6 +640,11 @@ class ChapterStyleResolver {
     final ancestorStyle = chainStyle(chain.sublist(0, index + 1));
     final retained = retainedContainers[chain[index]];
     if (retained != null) {
+      // 保留祖先盒只替代盒模型投影，图片仍需继承出血兼容声明。
+      for (final property in const {'duokan-bleed', '-duokan-bleed'}) {
+        final value = ancestorStyle.values[property];
+        if (value != null) projection.declarations[property] = value;
+      }
       projection.hasIntrinsicContainer |= retained.style.hasIntrinsicWidth;
       projection.left = retained.contentLeft;
       projection.right =
