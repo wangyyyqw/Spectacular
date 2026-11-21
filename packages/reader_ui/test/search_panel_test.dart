@@ -33,6 +33,219 @@ List<SearchPanelResult> _results() => <SearchPanelResult>[
 ];
 
 void main() {
+  testWidgets('每章结果支持独立折叠与展开', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SearchPanel(
+            debounce: Duration.zero,
+            onSearch: (_) async => _results(),
+            onSelect: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(find.byKey(const ValueKey('search-input')), '沈河');
+    await tester.pumpAndSettle();
+    final chapter = find.byKey(const ValueKey('search-chapter-0'));
+    final hit = find.byKey(const ValueKey('search-hit-0-3'));
+    expect(tester.getSize(chapter).height, 40);
+    expect(tester.getSize(hit).height, 40);
+    expect(tester.getTopLeft(hit).dy - tester.getBottomLeft(chapter).dy, 0);
+    expect(find.byType(Divider), findsNothing);
+    await tester.tap(chapter);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('search-hit-0-3')), findsNothing);
+    expect(find.byKey(const ValueKey('search-hit-0-20')), findsNothing);
+    expect(find.byKey(const ValueKey('search-hit-1-5')), findsOneWidget);
+    await tester.tap(chapter);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('search-hit-0-3')), findsOneWidget);
+    expect(find.byKey(const ValueKey('search-hit-0-20')), findsOneWidget);
+  });
+
+  testWidgets('结果从章内阅读位置开始，下拉看之前，上滑看之后', (tester) async {
+    final hits = List.generate(
+      60,
+      (i) => SearchPanelResult(
+        spineIndex: i ~/ 20,
+        charOffset: i % 20 * 10,
+        chapterTitle: '章节 ${i ~/ 20}',
+        context: '命中 $i',
+        matchLength: 2,
+        cfi: 'epubcfi(/6/${4 + i ~/ 20 * 2}!/4/2/1:${i % 20 * 10})',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            height: 360,
+            child: SearchPanel(
+              currentSpineIndex: 1,
+              currentCfi: 'epubcfi(/6/6!/4/2/1:95)',
+              debounce: Duration.zero,
+              onSearch: (_) async => hits,
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(find.byKey(const ValueKey('search-input')), '命中');
+    await tester.pumpAndSettle();
+    final list = find.byKey(const ValueKey('search-results'));
+    final next = find.byKey(const ValueKey('search-hit-1-100'));
+    expect(tester.getTopLeft(next).dy, closeTo(tester.getTopLeft(list).dy, 1));
+    await tester.drag(list, const Offset(0, 220));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('search-hit-1-80')).hitTestable(),
+      findsOneWidget,
+    );
+    await tester.drag(list, const Offset(0, -360));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('search-hit-1-150')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('流式跨章追加后仍以当前阅读位置为起点', (tester) async {
+    final batches = StreamController<SearchProgress>();
+    addTearDown(batches.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SearchPanel(
+            currentSpineIndex: 1,
+            currentCfi: 'epubcfi(/6/6!/4/2/1:3)',
+            debounce: Duration.zero,
+            onSearch: (_) async => const [],
+            onSearchStream: (_) => batches.stream,
+            onSelect: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(find.byKey(const ValueKey('search-input')), '沈河');
+    await tester.pump();
+    batches.add(
+      SearchProgress(
+        results: _results().take(2).toList(),
+        scanned: 1,
+        total: 3,
+      ),
+    );
+    await tester.pump();
+    batches.add(SearchProgress(results: _results(), scanned: 2, total: 3));
+    await tester.pump();
+    batches.add(SearchProgress(results: _results(), scanned: 3, total: 3));
+    await tester.pumpAndSettle();
+    final list = find.byKey(const ValueKey('search-results'));
+    final header = find.byKey(const ValueKey('search-chapter-1'));
+    expect(
+      tester.getTopLeft(header).dy,
+      closeTo(tester.getTopLeft(list).dy, 1),
+    );
+    await tester.drag(list, const Offset(0, 250));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('search-hit-0-20')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('搜索页与目录统一排版并适配 ${brightness.name} 主题', (tester) async {
+      final theme = ThemeData(brightness: brightness);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: SearchPanel(
+              debounce: Duration.zero,
+              onSearch: (_) async => _results(),
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      );
+      final panel = find.byType(SearchPanel);
+      final material = tester.widget<Material>(
+        find.descendant(of: panel, matching: find.byType(Material)).first,
+      );
+      expect(
+        material.color,
+        brightness == Brightness.dark
+            ? theme.colorScheme.surface
+            : Colors.white,
+      );
+      final input = find.byKey(const ValueKey<String>('search-input'));
+      final field = tester.widget<TextField>(input);
+      expect(field.style?.fontFamily, 'serif');
+      expect(field.style?.fontSize, 14);
+      final border = field.decoration!.enabledBorder! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(20));
+      expect(border.borderSide, BorderSide.none);
+      expect(field.decoration?.focusedBorder, border);
+      expect(field.decoration?.filled, isTrue);
+      expect(
+        field.decoration?.fillColor,
+        brightness == Brightness.dark
+            ? theme.colorScheme.surfaceContainerHigh
+            : theme.colorScheme.surface,
+      );
+      expect(
+        field.decoration?.contentPadding,
+        const EdgeInsets.symmetric(vertical: 8),
+      );
+      final inputSurface = tester.widget<Material>(
+        find.byKey(const ValueKey('search-input-surface')),
+      );
+      expect(inputSurface.elevation, 4);
+      expect(
+        inputSurface.shadowColor,
+        Colors.black.withValues(
+          alpha: brightness == Brightness.dark ? .55 : .22,
+        ),
+      );
+      expect(inputSurface.surfaceTintColor, Colors.transparent);
+      expect(inputSurface.borderRadius, BorderRadius.circular(20));
+      await tester.enterText(input, '沈河');
+      await tester.pumpAndSettle();
+      final title = tester.widget<Text>(find.text('第一章 简单正文 · 2 处'));
+      expect(title.style?.fontFamily, 'serif');
+      expect(title.style?.fontSize, 14);
+      final hit = tester.widget<ListTile>(
+        find.byKey(const ValueKey<String>('search-hit-0-3')),
+      );
+      expect(hit.contentPadding, EdgeInsets.zero);
+      expect(find.byKey(const ValueKey('search-chapter-line-0')), findsNothing);
+      expect(find.byType(Divider), findsNothing);
+      final span = (hit.title! as Text).textSpan! as TextSpan;
+      expect(span.style?.height, 1.5);
+      final highlighted = span.children![1] as TextSpan;
+      expect(highlighted.style?.fontWeight, FontWeight.w600);
+      expect(
+        highlighted.style?.color,
+        brightness == Brightness.dark
+            ? theme.colorScheme.onSurface
+            : const Color(0xFF333333),
+      );
+      await tester.tap(find.byKey(const ValueKey<String>('search-clear')));
+      await tester.pumpAndSettle();
+      expect(find.text('输入关键词搜索全书'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('search-results')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('输入防抖：300ms 内只查一次，出结果后按章分组（P4-26）', (tester) async {
     var calls = 0;
     final selected = <SearchPanelResult>[];
@@ -43,9 +256,7 @@ void main() {
             debounce: const Duration(milliseconds: 300),
             onSearch: (query) async {
               calls++;
-              return query == '沈河'
-                  ? _results()
-                  : const <SearchPanelResult>[];
+              return query == '沈河' ? _results() : const <SearchPanelResult>[];
             },
             onSelect: selected.add,
           ),
@@ -58,9 +269,15 @@ void main() {
     expect(find.text('输入关键词搜索全书'), findsOneWidget);
 
     // 连续输入：只有最后一次在防抖后触发查询。
-    await tester.enterText(find.byKey(const ValueKey<String>('search-input')), '沈');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('search-input')),
+      '沈',
+    );
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.enterText(find.byKey(const ValueKey<String>('search-input')), '沈河');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('search-input')),
+      '沈河',
+    );
     await tester.pump(const Duration(milliseconds: 100));
     expect(calls, 0, reason: '防抖期间不查');
 
@@ -69,7 +286,10 @@ void main() {
     expect(calls, 1, reason: '300ms 内只触发一次');
 
     // 分组：两个章标题 + 三条命中。
-    expect(find.byKey(const ValueKey<String>('search-results')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('search-results')),
+      findsOneWidget,
+    );
     expect(find.textContaining('第一章 简单正文'), findsOneWidget);
     expect(find.textContaining('第二章'), findsOneWidget);
     expect(
@@ -205,7 +425,10 @@ void main() {
 
     expect(queries, ['旧词']);
     expect(find.byKey(const ValueKey<String>('search-results')), findsNothing);
-    expect(find.byKey(const ValueKey<String>('search-loading')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('search-loading')),
+      findsOneWidget,
+    );
     await tester.pump(const Duration(milliseconds: 250));
     newQuery.complete(const []);
     await tester.pumpAndSettle();
@@ -240,7 +463,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.byKey(const ValueKey<String>('search-results')), findsNothing);
-    expect(find.byKey(const ValueKey<String>('search-loading')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('search-loading')),
+      findsOneWidget,
+    );
     await tester.pump(const Duration(milliseconds: 250));
     newQuery.add(const SearchProgress(results: [], scanned: 1, total: 1));
     await tester.pumpAndSettle();
@@ -270,15 +496,23 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byKey(const ValueKey<String>('search-input')), '沈河');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('search-input')),
+      '沈河',
+    );
     await tester.pump(const Duration(milliseconds: 20));
     await tester.pumpAndSettle();
 
     // 只构建可视范围内的项（10 章标题 + 若干命中，远少于 100+10）。
     final rendered = find.byKey(const ValueKey<String>('search-results'));
     expect(rendered, findsOneWidget);
-    final listView = tester.widget<ListView>(rendered);
-    expect(listView.childrenDelegate, isA<SliverChildBuilderDelegate>());
+    final scrollView = tester.widget<CustomScrollView>(rendered);
+    expect(
+      scrollView.slivers.whereType<SliverList>().every(
+        (sliver) => sliver.delegate is SliverChildBuilderDelegate,
+      ),
+      isTrue,
+    );
 
     await tester.drag(rendered, const Offset(0, -600));
     await tester.pumpAndSettle();

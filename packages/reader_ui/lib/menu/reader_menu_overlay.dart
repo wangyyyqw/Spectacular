@@ -786,8 +786,9 @@ class _DrawerLayerState extends State<_DrawerLayer>
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final media = MediaQuery.of(context);
-      final bottom = media.viewInsets.bottom;
-      _height = (constraints.maxHeight - media.padding.top - bottom) * 0.75;
+      // 抽屉固定在屏幕底部，输入法覆盖底栏而不抬升整块面板。
+      const bottom = 0.0;
+      _height = (constraints.maxHeight - media.padding.top) * 0.75;
       final bottomInset = media.padding.bottom.clamp(
         widget.safeBottom,
         double.infinity,

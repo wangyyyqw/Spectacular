@@ -397,7 +397,7 @@ void main() {
     );
   });
 
-  testWidgets('详情页阅读记录累计短于五分钟的有效片段', (tester) async {
+  testWidgets('详情页累计全部短会话的时长、次数、翻页和字数', (tester) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     late BookEntry entry;

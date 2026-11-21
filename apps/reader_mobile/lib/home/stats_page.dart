@@ -195,14 +195,11 @@ class _StatsPageState extends State<StatsPage> {
       final insights = ReadingInsights(
         storedSessions,
         now: now,
-        minimumDayDuration: minimumCountedDayDuration,
+        minimumBookDayDuration: minimumDisplayedBookDayDuration,
       );
       final sessions = insights.sessions;
       final readingByDay = insights.byDay;
       final rows = <_BookReadingStat>[];
-      final sessionBookIds = {
-        for (final session in storedSessions) session.bookId,
-      };
       var started = 0;
       var finished = 0;
       var totalCharacters = 0;
@@ -235,9 +232,9 @@ class _StatsPageState extends State<StatsPage> {
             book: book,
             progress: current,
             percent: percent,
-            recentReadAt: sessionBookIds.contains(book.id)
+            recentReadAt: insights.visibleBookIds.contains(book.id)
                 ? insights.byBook[book.id]?.lastEndedAt
-                : book.lastReadAt,
+                : null,
           ),
         );
       }
@@ -566,7 +563,11 @@ class _StatsContent extends StatelessWidget {
         showDivider: !desktop,
         child: BookReadingRanking(
           books: [for (final row in stats.rows) row.book],
-          totals: stats.insights.byBook,
+          totals: {
+            for (final entry in stats.insights.byBook.entries)
+              if (stats.insights.visibleBookIds.contains(entry.key))
+                entry.key: entry.value,
+          },
           bookTitles: stats.insights.bookTitles,
           onOpen: onOpenBook,
         ),
@@ -682,7 +683,7 @@ class _BookReadingStat {
   final ReaderProgress? progress;
   final int? percent;
 
-  /// 最近阅读时间：取达标日期内的会话结束时间，无会话的历史书沿用最后阅读时间。
+  /// 达到单书单日展示条件后，取全部有效会话的最后结束时间。
   final DateTime? recentReadAt;
 }
 

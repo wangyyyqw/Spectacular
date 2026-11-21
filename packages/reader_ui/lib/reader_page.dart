@@ -3875,6 +3875,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
                 widget.onSearch == null
                     ? const SizedBox.shrink()
                     : SearchPanel(
+                        currentSpineIndex: widget.currentSpineIndex,
+                        currentCfi: widget.currentCfi,
                         focusNode: widget.searchFocus,
                         onSearch: widget.onSearch!,
                         onSearchStream: widget.onSearchStream,
@@ -3883,15 +3885,6 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
             },
           ),
         ),
-        if (widget.tab == _DrawerTab.search &&
-            MediaQuery.maybeViewInsetsOf(context)?.bottom == 0)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              '输入关键词后点结果跳转',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF999999)),
-            ),
-          ),
       ],
     );
   }

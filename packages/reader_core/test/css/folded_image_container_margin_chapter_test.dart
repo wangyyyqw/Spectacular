@@ -12,12 +12,7 @@ import 'package:reader_core/source/format_opener.dart';
 import '../audit/audit_epub_fixture.dart';
 
 const _pageSize = Size(384, 853.3333333333333);
-const _insets = EdgeInsets.fromLTRB(
-  8.8,
-  56.075,
-  8.53333333333336,
-  24.08888888888893,
-);
+const _insets = EdgeInsets.fromLTRB(9, 56, 9, 30);
 const _green = Color(0xFF008800);
 late ui.Image _image;
 late Uint8List _imageBytes;
@@ -131,6 +126,45 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_prepareImage);
   tearDownAll(() => _image.dispose());
+
+  for (final (margin, expectedTop) in [
+    ('2em', 32.0),
+    ('12px', 12.0),
+    ('0', 0.0),
+    ('-8px', -8.0),
+  ]) {
+    test('章首出血容器保留图片自身 $margin 上边距，绘制与正文流同步', () async {
+      final page = await _page(
+        '$_picture<h2 class="heading">标题</h2><p>相邻正文</p>',
+        '''
+body { font-size:16px; }
+.picture { margin:0; text-align:left; duokan-bleed:lefttopright; }
+.picture img { width:85%; height:auto; margin:$margin 1.55em 0 1.5em; }
+.heading { margin:1em 0 2.7em; font-size:1em; }
+''',
+      );
+      final image = page.slices.first.block;
+      final tops = _tops(page);
+      expect(tops.first, closeTo(expectedTop, .001));
+      expect(image.layout.height, closeTo(_pageSize.width * .85 / 2, .001));
+      expect(
+        tops[1],
+        closeTo(expectedTop + image.layout.height + 18, .001),
+        reason: '图片、标题和相邻正文共享同一正式分页位置',
+      );
+      final pixels = await _paint(page);
+      final rows = [
+        for (var y = 0; y < 854; y++)
+          if (pixels.getUint32((y * 384 + 192) * 4) == 0x008800ff) y,
+      ];
+      expect(rows.first, closeTo(expectedTop < 0 ? 0 : expectedTop, 1));
+      expect(rows.last + 1, closeTo(expectedTop + image.layout.height, 1));
+      final hit = page.hitTest(
+        Offset(192 - _insets.left, rows[rows.length ~/ 2] - _insets.top),
+      );
+      expect(hit?.slice.block, same(image), reason: '恢复留白后仍命中头图');
+    });
+  }
 
   for (final (top, bottom) in [(32, 24), (-32, -24), (0, 32)]) {
     test('保留容器边距 $top/$bottom 只移动整体，不在内部图片重复消费', () async {

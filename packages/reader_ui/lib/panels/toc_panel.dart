@@ -5,7 +5,6 @@ import 'package:reader_core/position/cfi.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
-import '../theme/reader_frosted_surface.dart';
 
 /// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。
 ///
@@ -53,7 +52,7 @@ class TocPanel extends StatefulWidget {
 }
 
 class _TocPanelState extends State<TocPanel> {
-  static const double _rowExtent = 44;
+  static const double _rowExtent = 40;
   static const double _listBottomPadding = 16;
 
   final ScrollController _fallbackController = ScrollController();
@@ -253,12 +252,11 @@ class _TocPanelState extends State<TocPanel> {
     final text = ReaderDrawerStyle.textOf(theme);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final faint = ReaderDrawerStyle.faintOf(theme);
-    final selectedRow = ReaderDrawerStyle.selectedRowOf(theme);
     final allRows = flattenToc(widget.entries);
     final rows = _visibleRows();
     final active = _activeEntry(allRows);
     return Material(
-      color: ReaderFrostedSurface.panelColorOf(context, fallback: surface),
+      color: surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -354,34 +352,52 @@ class _TocPanelState extends State<TocPanel> {
                           dense: true,
                           selected: current && !missing,
                           selectedColor: text,
-                          tileColor: current && !missing
-                              ? selectedRow
-                              : Colors.transparent,
-                          selectedTileColor: missing
-                              ? Colors.transparent
-                              : selectedRow,
+                          tileColor: Colors.transparent,
+                          selectedTileColor: Colors.transparent,
                           contentPadding: EdgeInsets.only(
-                            left: 16 + (row.depth - 1) * 16,
-                            right: 16,
+                            left: row.depth == 1
+                                ? 22
+                                : 58 + (row.depth - 2) * 18,
+                            right: 24,
                           ),
-                          title: Text(
-                            missing
-                                ? '${row.entry.title}（章节缺失）'
-                                : row.entry.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: missing ? muted : text,
-                              fontWeight: current && !missing
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
+                          title: Row(
+                            children: [
+                              if (row.depth == 1 && hasChildren) ...[
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFE5E9EF),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  missing
+                                      ? '${row.entry.title}（章节缺失）'
+                                      : row.entry.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'serif',
+                                    fontSize: 14,
+                                    color: missing
+                                        ? muted
+                                        : theme.brightness == Brightness.dark
+                                        ? text
+                                        : const Color(0xFF555B64),
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          trailing: SizedBox.square(
-                            dimension: 16,
-                            child: hasChildren
-                                ? InkWell(
+                          trailing: hasChildren
+                              ? SizedBox.square(
+                                  dimension: 24,
+                                  child: InkWell(
                                     key: ValueKey<String>(
                                       'toc-toggle-${row.entry.spineIndex}-'
                                       '${row.entry.title}',
@@ -390,18 +406,16 @@ class _TocPanelState extends State<TocPanel> {
                                     onTap: () => _toggleEntry(row.entry),
                                     child: AppIcon(
                                       expanded
-                                          ? AppGlyph.chevronUp
-                                          : AppGlyph.chevronDown,
-                                      size: 16,
-                                      color: faint,
+                                          ? AppGlyph.chevronDown
+                                          : AppGlyph.chevronUp,
+                                      size: 14,
+                                      color: theme.brightness == Brightness.dark
+                                          ? faint
+                                          : const Color(0xFF171A1F),
                                     ),
-                                  )
-                                : AppIcon(
-                                    AppGlyph.chevronDown,
-                                    size: 16,
-                                    color: faint,
                                   ),
-                          ),
+                                )
+                              : null,
                           onTap: missing
                               ? null
                               : () => widget.onSelect(row.entry),

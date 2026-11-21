@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
+import 'package:reader_mobile/storage/reading_session_store.dart';
+import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 
@@ -59,6 +61,38 @@ class _DelayedRejectingStore extends _CountingStore {
     if (!started.isCompleted) started.complete();
     await reject.future;
     throw const ReaderProgressSaveException(ReaderProgressSaveResult.stale);
+  }
+}
+
+class _ReadingDurationStore implements ReadingSessionCheckpointStore {
+  final items = <ReadingSession>[];
+  int saves = 0;
+  Completer<void>? historyReady;
+
+  @override
+  Future<void> add({
+    required String bookId,
+    required DateTime startedAt,
+    required DateTime endedAt,
+    int pageTurns = 0,
+    int charactersRead = 0,
+  }) async {}
+
+  @override
+  Future<List<ReadingSession>> list() async {
+    await historyReady?.future;
+    return List.of(items);
+  }
+
+  @override
+  Future<int> save(ReadingSession session, {int? sessionId}) async {
+    saves++;
+    if (sessionId == null) {
+      items.add(session);
+      return items.length - 1;
+    }
+    items[sessionId] = session;
+    return sessionId;
   }
 }
 
@@ -117,6 +151,93 @@ void main() {
 
     expect(find.text('本次位置未保存，保留上次保存位置：书籍已更新'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('正式阅读页定时保存，退出尾段不等待进度写入且不计退出耗时', (tester) async {
+    final store = _DelayedRejectingStore();
+    final durations = _ReadingDurationStore();
+    addTearDown(() {
+      if (!store.reject.isCompleted) store.reject.complete();
+    });
+    var closed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EpubReaderPage(
+          bytes: buildTestEpub(paragraphs: List.filled(30, '计时不等待进度保存。' * 100)),
+          bookId: 'duration-close',
+          store: store,
+          readingSessions: durations,
+          onClosed: () => closed = true,
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    expect(durations.items, hasLength(1), reason: '定时保存不等待退出');
+    store.rejectSaves = true;
+    final view = tester.getRect(find.byType(ReaderView));
+    await tester.tapAt(view.topRight + Offset(-4, view.height * 0.4));
+    await pumpReaderUntilComplete(
+      tester,
+      () => store.started.isCompleted,
+      description: '进度写入开始',
+    );
+    final beforeExit = durations.saves;
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(durations.saves, greaterThan(beforeExit), reason: '进度等待期间也先保存阅读尾段');
+    final stoppedAt = durations.items.single.endedAt;
+    await tester.pump(const Duration(seconds: 30));
+    expect(durations.items.single.endedAt, stoppedAt, reason: '退出后的等待不算阅读时间');
+    store.reject.complete();
+    await pumpReaderUntilComplete(tester, () => closed, description: '阅读页保存结束');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史时长加载延迟时保留全部历史，已落盘的当前片段只累计一次', (tester) async {
+    final history = Completer<void>();
+    final durations = _ReadingDurationStore()..historyReady = history;
+    // 已保存时长不依赖记录的时钟值早于本次打开时间。
+    final previous = DateTime.now().add(const Duration(days: 1));
+    durations.items.add(
+      ReadingSession(
+        bookId: 'late-duration',
+        startedAt: previous,
+        endedAt: previous.add(const Duration(hours: 1)),
+        duration: const Duration(hours: 1),
+      ),
+    );
+    var closed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EpubReaderPage(
+          bytes: buildTestEpub(),
+          bookId: 'late-duration',
+          store: _CountingStore(),
+          readingSessions: durations,
+          onClosed: () => closed = true,
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(durations.items, hasLength(2));
+    final current = durations.items.last.duration;
+    history.complete();
+    await tester.pump();
+
+    final page = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    expect(page.readingDuration!.value, const Duration(hours: 1) + current);
+    await tester.pumpWidget(const SizedBox.shrink());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await pumpReaderUntilComplete(
+      tester,
+      () => closed,
+      description: '延迟基线阅读页释放',
+    );
   });
 
   testWidgets('切换后台立即保存最后阅读位置', (tester) async {

@@ -103,7 +103,7 @@ void main() {
       );
       expect(other.selected, isFalse);
 
-      // 子级缩进比父级多 16。
+      // 子级缩进比带圆点的章节标题多 36。
       final childPadding =
           tester
                   .widget<ListTile>(
@@ -124,7 +124,20 @@ void main() {
                   )
                   .contentPadding
               as EdgeInsets;
-      expect(childPadding.left - parentPadding.left, 16);
+      expect(childPadding.left - parentPadding.left, 36);
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey<String>('toc-row-1-第二章')))
+            .height,
+        40,
+      );
+      final chapterTitle = tester.widget<Text>(find.text('第二章'));
+      expect(chapterTitle.style?.fontSize, 14);
+      expect(chapterTitle.style?.fontFamily, 'serif');
+      final leafTile = tester.widget<ListTile>(
+        find.ancestor(of: find.text('第一章'), matching: find.byType(ListTile)),
+      );
+      expect(leafTile.trailing, isNull);
 
       await tester.tap(find.text('2.1'));
       expect(selected.single.title, '2.1');
@@ -162,7 +175,7 @@ void main() {
       expect(find.text('共 5 章'), findsOneWidget);
       expect(
         find.byWidgetPredicate(
-          (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronUp,
+          (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronDown,
         ),
         findsOneWidget,
       );

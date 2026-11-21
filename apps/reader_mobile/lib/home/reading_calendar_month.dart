@@ -43,17 +43,26 @@ class ReadingCalendarMonth {
           (monthTotals[portion.bookId] ?? Duration.zero) + portion.duration;
     }
     days = Map.unmodifiable({
-      for (final day in totals.entries) day.key: _entries(day.value, titles),
+      for (final day in totals.entries)
+        day.key: _entries(day.value, titles, insights.visibleBookIds),
     });
-    monthBooks = _entries(monthTotals, titles);
-    total = monthBooks.fold(
+    dayDurations = Map.unmodifiable({
+      for (final day in totals.entries)
+        day.key: day.value.values.fold(
+          Duration.zero,
+          (sum, value) => sum + value,
+        ),
+    });
+    monthBooks = _entries(monthTotals, titles, insights.visibleBookIds);
+    total = monthTotals.values.fold(
       Duration.zero,
-      (sum, entry) => sum + entry.duration,
+      (sum, duration) => sum + duration,
     );
     bookCount = monthBooks.length;
     final lastDays = <String, DateTime>{};
     for (final portion in insights.portions) {
       if (portion.duration <= Duration.zero ||
+          !insights.visibleBookIds.contains(portion.bookId) ||
           !finishedBookIds.contains(portion.bookId)) {
         continue;
       }
@@ -69,6 +78,7 @@ class ReadingCalendarMonth {
 
   final DateTime start;
   late final Map<DateTime, List<BookDurationEntry>> days;
+  late final Map<DateTime, Duration> dayDurations;
   late final List<BookDurationEntry> monthBooks;
   late final Duration total;
   late final int bookCount;
@@ -159,14 +169,16 @@ List<int> _spanLanes(List<ReadingCalendarSpan> spans, int laneCount) {
 List<BookDurationEntry> _entries(
   Map<String, Duration> durations,
   Map<String, String> titles,
+  Set<String> visibleBookIds,
 ) => List<BookDurationEntry>.unmodifiable(
   <BookDurationEntry>[
     for (final entry in durations.entries)
-      BookDurationEntry(
-        bookId: entry.key,
-        title: titles[entry.key] ?? '已移出书架的书籍',
-        duration: entry.value,
-      ),
+      if (visibleBookIds.contains(entry.key))
+        BookDurationEntry(
+          bookId: entry.key,
+          title: titles[entry.key] ?? '已移出书架的书籍',
+          duration: entry.value,
+        ),
   ]..sort((a, b) {
     final duration = b.duration.compareTo(a.duration);
     return duration == 0 ? a.bookId.compareTo(b.bookId) : duration;

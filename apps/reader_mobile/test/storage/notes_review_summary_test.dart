@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/home/reading_insights.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -62,7 +61,7 @@ void main() {
     expect(counts, isEmpty);
   });
 
-  test('票根时长累计短于五分钟的有效阅读片段', () async {
+  test('票根累计时长包含所有短会话，未达展示条件的书也保留时长', () async {
     final sessions = library.readingSessionStore()!;
     final start = DateTime(2026, 11, 18, 9);
     await sessions.add(
@@ -86,9 +85,7 @@ void main() {
       endedAt: start.add(const Duration(minutes: 2)),
     );
 
-    final durations = await library.bookReadingDurations(
-      minimumCountedSessionDuration,
-    );
+    final durations = await library.bookReadingDurations();
     expect(durations, {
       noted.id: const Duration(minutes: 19, seconds: 59),
       untouched.id: const Duration(minutes: 2),

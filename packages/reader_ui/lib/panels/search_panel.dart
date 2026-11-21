@@ -1,9 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_core/position/cfi.dart';
 
 import '../icons/app_icon.dart';
-import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_drawer_style.dart';
 
 /// 一条搜索结果的展示模型（P4-26，§29.4）。
 class SearchPanelResult {
@@ -65,6 +66,8 @@ class SearchPanel extends StatefulWidget {
     required this.onSelect,
     this.onBack,
     this.focusNode,
+    this.currentSpineIndex = 0,
+    this.currentCfi,
     this.debounce = const Duration(milliseconds: 300),
   });
 
@@ -81,6 +84,10 @@ class SearchPanel extends StatefulWidget {
   final VoidCallback? onBack;
 
   final FocusNode? focusNode;
+
+  /// 打开搜索时的阅读位置，用于结果列表初始定位。
+  final int currentSpineIndex;
+  final String? currentCfi;
 
   /// 输入防抖时长（§29.4 建议 300ms）。
   final Duration debounce;
@@ -99,11 +106,15 @@ class _SearchPanelState extends State<SearchPanel> {
   List<SearchPanelResult> _results = const <SearchPanelResult>[];
   Object? _error;
   int _requestToken = 0;
+  final Set<int> _collapsedChapters = <int>{};
+  final ScrollController _resultsController = ScrollController();
+  final Key _resultsCenter = UniqueKey();
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
     _controller.dispose();
+    _resultsController.dispose();
     super.dispose();
   }
 
@@ -126,6 +137,8 @@ class _SearchPanelState extends State<SearchPanel> {
 
   Future<void> _run(String query) async {
     final token = ++_requestToken;
+    _collapsedChapters.clear();
+    if (_resultsController.hasClients) _resultsController.jumpTo(0);
     final stream = widget.onSearchStream;
     if (stream != null) {
       await _runStream(stream, query, token);
@@ -198,16 +211,31 @@ class _SearchPanelState extends State<SearchPanel> {
     }
   }
 
+  TextStyle _textStyle(ThemeData theme) => TextStyle(
+    fontFamily: 'serif',
+    fontSize: 14,
+    height: 1.5,
+    fontWeight: FontWeight.w400,
+    color: theme.brightness == Brightness.dark
+        ? ReaderDrawerStyle.textOf(theme)
+        : const Color(0xFF555B64),
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final muted = ReaderDrawerStyle.mutedOf(theme);
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(20),
+      borderSide: BorderSide.none,
+    );
     return Material(
-      color: ReaderFrostedSurface.panelColorOf(context),
+      color: ReaderDrawerStyle.surfaceOf(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 16, 4),
+            padding: const EdgeInsets.fromLTRB(22, 10, 24, 12),
             child: Row(
               children: [
                 if (widget.onBack != null)
@@ -218,34 +246,66 @@ class _SearchPanelState extends State<SearchPanel> {
                     tooltip: '返回',
                   ),
                 Expanded(
-                  child: TextField(
-                    key: const ValueKey<String>('search-input'),
-                    controller: _controller,
-                    focusNode: widget.focusNode,
-                    autofocus: true,
-                    onChanged: _onChanged,
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      hintText: '搜索本书内容',
-                      isDense: true,
-                      prefixIcon: const AppIcon(AppGlyph.search, size: 20),
-                      suffixIcon: _controller.text.isEmpty
-                          ? null
-                          : IconButton(
-                              key: const ValueKey<String>('search-clear'),
-                              icon: const AppIcon(AppGlyph.close, size: 18),
-                              onPressed: () {
-                                _controller.clear();
-                                _onChanged('');
-                              },
-                            ),
+                  child: Material(
+                    key: const ValueKey('search-input-surface'),
+                    color: ReaderDrawerStyle.searchSurfaceOf(theme),
+                    borderRadius: border.borderRadius,
+                    elevation: 4,
+                    surfaceTintColor: Colors.transparent,
+                    shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
+                    child: TextField(
+                      key: const ValueKey<String>('search-input'),
+                      controller: _controller,
+                      focusNode: widget.focusNode,
+                      autofocus: true,
+                      onChanged: _onChanged,
+                      textInputAction: TextInputAction.search,
+                      style: _textStyle(theme),
+                      cursorColor: ReaderDrawerStyle.textOf(theme),
+                      decoration: InputDecoration(
+                        hintText: '搜索本书内容',
+                        hintStyle: _textStyle(theme).copyWith(color: muted),
+                        isDense: true,
+                        filled: true,
+                        fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                        border: border,
+                        enabledBorder: border,
+                        focusedBorder: border,
+                        prefixIconConstraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        suffixIconConstraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        prefixIcon: AppIcon(
+                          AppGlyph.search,
+                          size: 20,
+                          color: muted,
+                        ),
+                        suffixIcon: _controller.text.isEmpty
+                            ? null
+                            : IconButton(
+                                key: const ValueKey<String>('search-clear'),
+                                icon: AppIcon(
+                                  AppGlyph.close,
+                                  size: 18,
+                                  color: muted,
+                                ),
+                                onPressed: () {
+                                  _controller.clear();
+                                  _onChanged('');
+                                },
+                              ),
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
           Expanded(child: _buildBody(theme)),
         ],
       ),
@@ -262,7 +322,10 @@ class _SearchPanelState extends State<SearchPanel> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
+            CircularProgressIndicator(
+              color: ReaderDrawerStyle.mutedOf(theme),
+              strokeWidth: 2,
+            ),
             if (_total > 0) ...[
               const SizedBox(height: 12),
               Text(
@@ -290,22 +353,21 @@ class _SearchPanelState extends State<SearchPanel> {
           key: const ValueKey<String>('search-progress'),
           value: _total > 0 ? _scanned / _total : null,
           minHeight: 2,
+          color: ReaderDrawerStyle.mutedOf(theme),
+          backgroundColor: ReaderDrawerStyle.optionBorderOf(theme),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+          padding: const EdgeInsets.fromLTRB(22, 10, 24, 0),
           child: Row(
             children: <Widget>[
               Text(
                 '已找到 ${_results.length} 处',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.primary,
+                  color: ReaderDrawerStyle.mutedOf(theme),
                 ),
               ),
               const Spacer(),
-              Text(
-                '$_scanned/$_total 章',
-                style: theme.textTheme.bodySmall,
-              ),
+              Text('$_scanned/$_total 章', style: theme.textTheme.bodySmall),
             ],
           ),
         ),
@@ -317,13 +379,22 @@ class _SearchPanelState extends State<SearchPanel> {
   Widget _hint(ThemeData theme, String text, {required AppGlyph icon}) {
     return Center(
       key: const ValueKey<String>('search-empty'),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppIcon(icon, size: 40, color: theme.colorScheme.outline),
-          const SizedBox(height: 12),
-          Text(text, style: theme.textTheme.bodyMedium),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppIcon(icon, size: 28, color: ReaderDrawerStyle.faintOf(theme)),
+            const SizedBox(height: 16),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: _textStyle(
+                theme,
+              ).copyWith(fontSize: 14, color: ReaderDrawerStyle.mutedOf(theme)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -333,48 +404,124 @@ class _SearchPanelState extends State<SearchPanel> {
   Widget _buildResults(ThemeData theme) {
     final groups = <int, List<SearchPanelResult>>{};
     for (final result in _results) {
-      groups.putIfAbsent(result.spineIndex, () => <SearchPanelResult>[]).add(
-        result,
-      );
+      groups
+          .putIfAbsent(result.spineIndex, () => <SearchPanelResult>[])
+          .add(result);
     }
     final rows = <Object>[];
-    for (final entry in groups.entries) {
-      final title = entry.value.first.chapterTitle.isEmpty
-          ? '第 ${entry.key + 1} 章'
-          : entry.value.first.chapterTitle;
-      rows.add('$title · ${entry.value.length} 处');
-      rows.addAll(entry.value);
+    final chapters = groups.keys.toList()..sort();
+    final current = widget.currentCfi == null
+        ? null
+        : EpubCfi.parse(widget.currentCfi!);
+    bool atOrAfter(SearchPanelResult result) {
+      if (result.spineIndex != widget.currentSpineIndex) {
+        return result.spineIndex > widget.currentSpineIndex;
+      }
+      final cfi = result.cfi == null ? null : EpubCfi.parse(result.cfi!);
+      if (current != null && cfi != null) return cfi.compareTo(current) >= 0;
+      return result.charOffset >= (current?.charOffset ?? 0);
     }
-    return ListView.builder(
-      key: const ValueKey<String>('search-results'),
-      padding: const EdgeInsets.only(bottom: 16),
-      itemCount: rows.length,
-      itemBuilder: (context, index) {
-        final row = rows[index];
-        if (row is String) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-            child: Text(
-              row,
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
+
+    for (final chapter in chapters) {
+      final hits = groups[chapter]!
+        ..sort((a, b) => a.charOffset.compareTo(b.charOffset));
+      rows.add(chapter);
+      rows.addAll(hits);
+    }
+    var start = rows.indexWhere(
+      (row) => row is SearchPanelResult && atOrAfter(row),
+    );
+    if (start < 0) {
+      start = rows.indexWhere(
+        (row) => row is int && row >= widget.currentSpineIndex,
+      );
+    }
+    if (start < 0) start = rows.length - 1;
+    // 位于章首时同时显示章标题；章内则从阅读位置之后的首条命中开始。
+    if (start > 0 && rows[start - 1] is int) start -= 1;
+    bool visible(Object row) =>
+        row is int ||
+        !_collapsedChapters.contains((row as SearchPanelResult).spineIndex);
+    final before = rows.take(start).where(visible).toList().reversed.toList();
+    final after = rows.skip(start).where(visible).toList();
+
+    Widget buildRow(Object row) {
+      if (row is int) {
+        final hits = groups[row]!;
+        final title = hits.first.chapterTitle.isEmpty
+            ? '第 ${row + 1} 章'
+            : hits.first.chapterTitle;
+        final collapsed = _collapsedChapters.contains(row);
+        return Padding(
+          padding: const EdgeInsets.only(left: 22, right: 24),
+          child: ListTile(
+            key: ValueKey('search-chapter-$row'),
+            minTileHeight: 40,
+            minVerticalPadding: 4,
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: ReaderDrawerStyle.faintOf(theme),
+                shape: BoxShape.circle,
               ),
             ),
-          );
-        }
-        final result = row as SearchPanelResult;
-        return ListTile(
-          key: ValueKey<String>('search-hit-${result.spineIndex}-'
-              '${result.charOffset}'),
-          dense: true,
+            horizontalTitleGap: 12,
+            minLeadingWidth: 8,
+            title: Text('$title · ${hits.length} 处', style: _textStyle(theme)),
+            trailing: AppIcon(
+              collapsed ? AppGlyph.chevronUp : AppGlyph.chevronDown,
+              size: 14,
+              color: ReaderDrawerStyle.mutedOf(theme),
+            ),
+            onTap: () => setState(() {
+              if (!_collapsedChapters.add(row)) _collapsedChapters.remove(row);
+            }),
+          ),
+        );
+      }
+      final result = row as SearchPanelResult;
+      return Padding(
+        padding: const EdgeInsets.only(left: 58, right: 24),
+        child: ListTile(
+          key: ValueKey<String>(
+            'search-hit-${result.spineIndex}-${result.charOffset}',
+          ),
+          minTileHeight: 40,
+          minVerticalPadding: 6,
+          contentPadding: EdgeInsets.zero,
           title: Text.rich(
             _contextSpan(theme, result),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
           onTap: () => widget.onSelect(result),
-        );
-      },
+        ),
+      );
+    }
+
+    // 两个 Sliver 共用阅读位置原点，之前的结果向上生长，之后的结果向下生长。
+    return CustomScrollView(
+      key: const ValueKey<String>('search-results'),
+      controller: _resultsController,
+      center: _resultsCenter,
+      slivers: [
+        SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) => buildRow(before[index]),
+            childCount: before.length,
+          ),
+        ),
+        SliverList(
+          key: _resultsCenter,
+          delegate: SliverChildBuilderDelegate(
+            (context, index) => buildRow(after[index]),
+            childCount: after.length,
+          ),
+        ),
+        const SliverPadding(padding: EdgeInsets.only(bottom: 16)),
+      ],
     );
   }
 
@@ -385,7 +532,7 @@ class _SearchPanelState extends State<SearchPanel> {
     final context = result.context.replaceAll(whitespace, ' ').trim();
     final query = _query.replaceAll(whitespace, ' ').trim();
     final start = query.isEmpty ? -1 : context.indexOf(query);
-    final base = theme.textTheme.bodyMedium;
+    final base = _textStyle(theme);
     if (start < 0) {
       return TextSpan(text: context, style: base);
     }
@@ -396,8 +543,8 @@ class _SearchPanelState extends State<SearchPanel> {
         TextSpan(text: context.substring(0, start)),
         TextSpan(
           text: context.substring(start, end),
-          style: base?.copyWith(
-            color: theme.colorScheme.primary,
+          style: base.copyWith(
+            color: ReaderDrawerStyle.textOf(theme),
             fontWeight: FontWeight.w600,
           ),
         ),

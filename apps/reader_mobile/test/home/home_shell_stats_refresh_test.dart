@@ -85,7 +85,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('点击底部统计标签时重新读取会话，同天跨次累计满五分钟后计入', (tester) async {
+  testWidgets('点击底部统计标签时刷新，单书同天跨次超过五分钟后展示', (tester) async {
     final library = _FakeLibrary();
     await tester.pumpWidget(
       MaterialApp(
@@ -123,7 +123,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(library.sessionStore.listCalls, 1);
-    expect(find.text('该时段没有阅读记录'), findsOneWidget);
+    expect(find.text('该时段暂无符合展示条件的书目'), findsOneWidget);
     await tester.tap(find.text('书架').last);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -131,8 +131,8 @@ void main() {
       ReadingSession(
         bookId: 'book-a',
         startedAt: start.add(const Duration(hours: 1)),
-        endedAt: start.add(const Duration(hours: 1, minutes: 3)),
-        duration: const Duration(minutes: 3),
+        endedAt: start.add(const Duration(hours: 1, minutes: 4)),
+        duration: const Duration(minutes: 4),
       ),
     );
     await tester.tap(find.text('统计'));
@@ -145,7 +145,7 @@ void main() {
             find.byKey(const ValueKey<String>('stats-book-duration-total')),
           )
           .data,
-      '5 分钟',
+      '6 分钟',
     );
   });
 }
