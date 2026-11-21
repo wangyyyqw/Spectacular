@@ -459,43 +459,70 @@ class _SearchPanelState extends State<SearchPanel> {
             ? '第 ${row + 1} 章'
             : hits.first.chapterTitle;
         final collapsed = _collapsedChapters.contains(row);
-        return ListTile(
-          key: ValueKey('search-chapter-$row'),
-          contentPadding: const EdgeInsets.only(left: 22, right: 24),
-          leading: Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: ReaderDrawerStyle.faintOf(theme),
-              shape: BoxShape.circle,
+        return AnimatedContainer(
+          key: ValueKey('search-chapter-line-$row'),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeInOut,
+          margin: const EdgeInsets.only(left: 22, right: 24),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
+              bottom: BorderSide(
+                color: collapsed
+                    ? Colors.transparent
+                    : ReaderDrawerStyle.optionBorderOf(theme),
+              ),
             ),
           ),
-          horizontalTitleGap: 12,
-          minLeadingWidth: 8,
-          title: Text('$title · ${hits.length} 处', style: _textStyle(theme)),
-          trailing: AppIcon(
-            collapsed ? AppGlyph.chevronUp : AppGlyph.chevronDown,
-            size: 14,
-            color: ReaderDrawerStyle.mutedOf(theme),
+          child: ListTile(
+            key: ValueKey('search-chapter-$row'),
+            minTileHeight: 40,
+            minVerticalPadding: 4,
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: ReaderDrawerStyle.faintOf(theme),
+                shape: BoxShape.circle,
+              ),
+            ),
+            horizontalTitleGap: 12,
+            minLeadingWidth: 8,
+            title: Text('$title · ${hits.length} 处', style: _textStyle(theme)),
+            trailing: AppIcon(
+              collapsed ? AppGlyph.chevronUp : AppGlyph.chevronDown,
+              size: 14,
+              color: ReaderDrawerStyle.mutedOf(theme),
+            ),
+            onTap: () => setState(() {
+              if (!_collapsedChapters.add(row)) _collapsedChapters.remove(row);
+            }),
           ),
-          onTap: () => setState(() {
-            if (!_collapsedChapters.add(row)) _collapsedChapters.remove(row);
-          }),
         );
       }
       final result = row as SearchPanelResult;
-      return ListTile(
-        key: ValueKey<String>(
-          'search-hit-${result.spineIndex}-${result.charOffset}',
+      return Container(
+        margin: const EdgeInsets.only(left: 58, right: 24),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
+          ),
         ),
-        minVerticalPadding: 14,
-        contentPadding: const EdgeInsets.only(left: 58, right: 24),
-        title: Text.rich(
-          _contextSpan(theme, result),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        child: ListTile(
+          key: ValueKey<String>(
+            'search-hit-${result.spineIndex}-${result.charOffset}',
+          ),
+          minTileHeight: 40,
+          minVerticalPadding: 6,
+          contentPadding: EdgeInsets.zero,
+          title: Text.rich(
+            _contextSpan(theme, result),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: () => widget.onSelect(result),
         ),
-        onTap: () => widget.onSelect(result),
       );
     }
 
