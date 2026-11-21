@@ -3,20 +3,37 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
+import 'ye_she_assets.dart';
 import 'ye_she_controller.dart';
 import 'ye_she_models.dart';
+import 'ye_she_visuals.dart';
 
 /// 阅微野社：文房、游艺、见闻。
 class YeShePage extends StatefulWidget {
   /// 创建页面。
-  const YeShePage({super.key, this.controller, this.tokenProvider})
-    : assert(controller != null || tokenProvider != null);
+  const YeShePage({
+    super.key,
+    this.controller,
+    this.tokenProvider,
+    this.currentUserName = '',
+    this.currentUserAvatar = '',
+    this.currentUserTitle = '',
+  }) : assert(controller != null || tokenProvider != null);
 
   /// 可注入的控制器，供页面测试使用。
   final YeSheController? controller;
 
   /// 当前阅微令牌提供者。
   final String? Function()? tokenProvider;
+
+  /// 当前阅微账号昵称。
+  final String currentUserName;
+
+  /// 当前阅微账号头像。
+  final String currentUserAvatar;
+
+  /// 当前阅微账号头衔。
+  final String currentUserTitle;
 
   @override
   State<YeShePage> createState() => _YeShePageState();
@@ -49,55 +66,252 @@ class _YeShePageState extends State<YeShePage>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('野社'),
-        actions: <Widget>[
-          ListenableBuilder(
-            listenable: _controller,
-            builder: (context, child) => IconButton(
-              key: const ValueKey<String>('ye-she-refresh'),
-              tooltip: '刷新野社',
-              onPressed:
-                  _controller.loadingStudy ||
-                      _controller.loadingPlay ||
-                      _controller.loadingDiscover ||
-                      _controller.loadingRanks
-                  ? null
-                  : () => unawaited(_controller.refreshAll()),
-              icon: const AppIcon(AppGlyph.refresh),
+      body: Column(
+        children: <Widget>[
+          SafeArea(bottom: false, child: _header(theme)),
+          _tabBar(theme),
+          Expanded(
+            child: ListenableBuilder(
+              listenable: _controller,
+              builder: (context, child) {
+                if (!_controller.signedIn) {
+                  return const _SignedOutView();
+                }
+                if (_controller.actionBusy) {
+                  return Column(
+                    children: <Widget>[
+                      LinearProgressIndicator(
+                        key: const ValueKey<String>('ye-she-action-progress'),
+                        color: YeSheTokens.vermilion(context),
+                        backgroundColor: scheme.surfaceContainerHighest,
+                      ),
+                      Expanded(child: _tabBody()),
+                    ],
+                  );
+                }
+                return _tabBody();
+              },
             ),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const <Widget>[
-            Tab(key: ValueKey<String>('ye-she-tab-study'), text: '文房'),
-            Tab(key: ValueKey<String>('ye-she-tab-play'), text: '游艺'),
-            Tab(key: ValueKey<String>('ye-she-tab-discover'), text: '见闻'),
-          ],
-        ),
-      ),
-      body: ListenableBuilder(
-        listenable: _controller,
-        builder: (context, child) {
-          if (!_controller.signedIn) {
-            return const _SignedOutView();
-          }
-          if (_controller.actionBusy) {
-            return Column(
-              children: <Widget>[
-                LinearProgressIndicator(
-                  key: const ValueKey<String>('ye-she-action-progress'),
-                ),
-                Expanded(child: _tabBody()),
-              ],
-            );
-          }
-          return _tabBody();
-        },
       ),
     );
+  }
+
+  Widget _header(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: YeSheTokens.headerGradient(context),
+        border: Border(bottom: BorderSide(color: YeSheTokens.line(context))),
+      ),
+      child: Stack(
+        children: <Widget>[
+          Positioned(
+            right: -34,
+            top: -50,
+            child: Container(
+              width: 154,
+              height: 154,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: YeSheTokens.jade(context).withValues(alpha: 0.08),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 22,
+            bottom: 10,
+            child: Transform.rotate(
+              angle: -0.06,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: YeSheTokens.vermilion(context)
+                        .withValues(alpha: 0.45),
+                    width: 1.2,
+                  ),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Text(
+                  '野社',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: YeSheTokens.vermilion(context)
+                        .withValues(alpha: 0.75),
+                    letterSpacing: 3,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Builder(
+                  builder: (context) {
+                    final canPop = Navigator.of(context).canPop();
+                    return IconButton(
+                      tooltip: canPop ? '返回' : '野社',
+                      onPressed: canPop
+                          ? () => Navigator.of(context).maybePop()
+                          : null,
+                      icon: AppIcon(
+                        canPop ? AppGlyph.arrowBack : AppGlyph.review,
+                      ),
+                    );
+                  },
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          '野社',
+                          key: const ValueKey<String>('ye-she-header-title'),
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontSize: 27,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 2,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        AnimatedBuilder(
+                          animation: _tabController,
+                          builder: (context, child) => Text(
+                            _tabDescription(_tabController.index),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                ListenableBuilder(
+                  listenable: _controller,
+                  builder: (context, child) => IconButton(
+                    key: const ValueKey<String>('ye-she-refresh'),
+                    tooltip: '刷新野社',
+                    onPressed:
+                        _controller.loadingStudy ||
+                            _controller.loadingPlay ||
+                            _controller.loadingDiscover ||
+                            _controller.loadingRanks
+                        ? null
+                        : () => unawaited(_controller.refreshAll()),
+                    icon: const AppIcon(AppGlyph.refresh),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tabBar(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+      child: TabBar(
+        key: const ValueKey<String>('ye-she-tab-bar'),
+        controller: _tabController,
+        labelColor: scheme.onSurface,
+        unselectedLabelColor: scheme.onSurfaceVariant,
+        indicatorColor: YeSheTokens.vermilion(context),
+        indicatorSize: TabBarIndicatorSize.tab,
+        indicator: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: YeSheTokens.line(context)),
+        ),
+        dividerColor: Colors.transparent,
+        overlayColor: WidgetStatePropertyAll<Color>(
+          YeSheTokens.vermilion(context).withValues(alpha: 0.08),
+        ),
+        labelStyle: theme.textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1,
+        ),
+        unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
+          letterSpacing: 1,
+        ),
+        tabs: <Widget>[
+          _tab(
+            index: 0,
+            key: const ValueKey<String>('ye-she-tab-study'),
+            glyph: AppGlyph.menuBook,
+            label: '文房',
+          ),
+          _tab(
+            index: 1,
+            key: const ValueKey<String>('ye-she-tab-play'),
+            glyph: AppGlyph.play,
+            label: '游艺',
+          ),
+          _tab(
+            index: 2,
+            key: const ValueKey<String>('ye-she-tab-discover'),
+            glyph: AppGlyph.discover,
+            label: '见闻',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tab({
+    required int index,
+    required Key key,
+    required AppGlyph glyph,
+    required String label,
+  }) {
+    return AnimatedBuilder(
+      animation: _tabController,
+      builder: (context, child) {
+        final selected = _tabController.index == index;
+        final scheme = Theme.of(context).colorScheme;
+        final color = selected ? scheme.onSurface : scheme.onSurfaceVariant;
+        return Tab(
+          key: key,
+          height: 42,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              AppIcon(
+                glyph,
+                size: 16,
+                color: selected
+                    ? YeSheTokens.vermilion(context)
+                    : color.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: color)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _tabDescription(int index) {
+    return switch (index) {
+      0 => '文会、清玩与榜上声名',
+      1 => '聚宝、樗蒲与道观',
+      _ => '祈愿、期物与百杂市井',
+    };
   }
 
   Widget _tabBody() {
@@ -129,12 +343,13 @@ class _YeShePageState extends State<YeShePage>
         if (_controller.loadingStudy) const LinearProgressIndicator(),
         _errorCard(_controller.studyError),
         _accountCard(),
+        _societyCard(),
+        _collectionsCard(),
+        _inventoryCard(),
         _titleCard(),
         _rankCard(),
-        _inventoryCard(),
-        _societyCard(),
-        _guildCard(),
-        _collectionsCard(),
+        _merchantCard(),
+        _retainerCard(),
       ],
     );
   }
@@ -147,11 +362,11 @@ class _YeShePageState extends State<YeShePage>
       children: <Widget>[
         if (_controller.loadingPlay) const LinearProgressIndicator(),
         _errorCard(_controller.playError),
-        _dailyLoreCard(),
-        _merchantCard(),
-        _retainerCard(),
+        _guildCard(),
         _auctionCard(),
         _gamblingCard(),
+        _taoistCard(),
+        _medalTreasureCard(),
       ],
     );
   }
@@ -165,12 +380,11 @@ class _YeShePageState extends State<YeShePage>
         if (_controller.loadingDiscover) const LinearProgressIndicator(),
         _errorCard(_controller.discoverError),
         _wishCard(),
-        _taoistCard(),
         _pawnCard(),
+        _dailyLoreCard(),
         _dailyShopCard(),
         _voucherShopCard(),
         _marketCard(),
-        _medalTreasureCard(),
         _thoughtsCard(),
         _rumorsCard(),
       ],
@@ -184,26 +398,33 @@ class _YeShePageState extends State<YeShePage>
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: theme.colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              AppIcon(AppGlyph.warning, color: theme.colorScheme.error),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  error,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onErrorContainer,
-                  ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: theme.colorScheme.error.withValues(alpha: 0.22),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            AppIcon(AppGlyph.warning, color: theme.colorScheme.error),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                error,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onErrorContainer,
                 ),
               ),
-            ],
-          ),
+            ),
+            TextButton(
+              onPressed: () => unawaited(_controller.refreshAll()),
+              child: const Text('重试'),
+            ),
+          ],
         ),
       ),
     );
@@ -218,36 +439,150 @@ class _YeShePageState extends State<YeShePage>
 
   Widget _accountCard() {
     final status = _controller.account;
-    return _YeCard(
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final userName = widget.currentUserName.trim().isEmpty
+        ? '阅微用户'
+        : widget.currentUserName.trim();
+    final userTitle = widget.currentUserTitle.trim();
+    final progress = status == null || status.expMax <= 0
+        ? 0.0
+        : (status.exp / status.expMax).clamp(0.0, 1.0);
+    return Container(
       key: const ValueKey<String>('ye-she-account'),
-      icon: AppGlyph.stats,
-      title: '文房',
-      subtitle: status == null
-          ? '账户状态尚未读取'
-          : '${status.level} 级 · ${status.exp}/${status.expMax} 阅历',
-      child: status == null
-          ? const _EmptyHint('账户状态暂不可用')
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                _metricWrap(<Widget>[
-                  _MetricChip('铜钱', status.coin),
-                  _MetricChip('彩筹', status.gem),
-                  _MetricChip('玉券', status.voucher),
-                ]),
-                const SizedBox(height: 10),
-                Text(
-                  '行商收支 ${_signed(status.travelingMerchantNet)} 铜 · '
-                  '聚宝楼收支 ${_signed(status.auctionNet)} 铜',
-                  style: Theme.of(context).textTheme.bodySmall,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[scheme.surface, YeSheTokens.wash(context)],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: YeSheTokens.line(context)),
+        boxShadow: YeSheTokens.cardShadow(context),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              YeSheAvatar(
+                url: widget.currentUserAvatar,
+                size: 54,
+                ringColor: YeSheTokens.jade(context),
+                semanticsLabel: '我的野社头像',
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Flexible(
+                          child: Text(
+                            userName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontSize: 20,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (status != null)
+                          YeSheTag(
+                            'Lv.${status.level}',
+                            color: YeSheTokens.vermilion(context),
+                          ),
+                      ],
+                    ),
+                    if (userTitle.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '名帖 · $userTitle',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: YeSheTokens.gold(context),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 2),
+                    Text(
+                      status == null
+                          ? '账户状态尚未读取'
+                          : '阅历 ${status.exp}/${status.expMax} · '
+                                '${status.expMax - status.exp} 点升级',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
                 ),
-              ],
+              ),
+              Transform.rotate(
+                angle: 0.04,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: YeSheTokens.vermilion(context)
+                        .withValues(alpha: 0.08),
+                    border: Border.all(
+                      color: YeSheTokens.vermilion(context)
+                          .withValues(alpha: 0.45),
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '野',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: YeSheTokens.vermilion(context),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 5,
+              color: YeSheTokens.vermilion(context),
+              backgroundColor: scheme.surfaceContainerHighest,
             ),
+          ),
+          const SizedBox(height: 12),
+          if (status == null)
+            const _EmptyHint('账户状态暂不可用')
+          else ...<Widget>[
+            _metricWrap(<Widget>[
+              _MetricChip('铜钱', status.coin, glyph: AppGlyph.star),
+              _MetricChip('彩筹', status.gem, glyph: AppGlyph.bookmark),
+              _MetricChip('玉券', status.voucher, glyph: AppGlyph.folder),
+            ]),
+            const SizedBox(height: 4),
+            Text(
+              '行商 ${_signed(status.travelingMerchantNet)} · '
+              '聚宝楼 ${_signed(status.auctionNet)}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
   Widget _titleCard() {
     final title = _controller.title;
+    final theme = Theme.of(context);
     return _YeCard(
       key: const ValueKey<String>('ye-she-title'),
       icon: AppGlyph.star,
@@ -258,9 +593,73 @@ class _YeShePageState extends State<YeShePage>
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 11),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: <Color>[
+                        YeSheTokens.gold(context).withValues(alpha: 0.16),
+                        YeSheTokens.wash(context),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: YeSheTokens.gold(context).withValues(alpha: 0.28),
+                    ),
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Container(
+                        width: 38,
+                        height: 38,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: YeSheTokens.gold(context),
+                            width: 1.2,
+                          ),
+                        ),
+                        child: Text(
+                          '${title.level}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: YeSheTokens.gold(context),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              title.displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            if (title.sourceName.trim().isNotEmpty)
+                              Text(
+                                '承自 ${title.sourceName}',
+                                style: theme.textTheme.labelSmall,
+                              ),
+                          ],
+                        ),
+                      ),
+                      YeSheTag(
+                        '${title.level} 级',
+                        color: YeSheTokens.gold(context),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
                 _InfoLine('当前等级', '${title.level} 级'),
-                if (title.sourceName.trim().isNotEmpty)
-                  _InfoLine('来源', title.sourceName),
                 _InfoLine('升级保底', '${title.upgradePityCount} 次'),
                 _InfoLine('传承保底', '${title.heritagePityCount} 次'),
                 _actionWrap(<Widget>[
@@ -348,41 +747,42 @@ class _YeShePageState extends State<YeShePage>
             const _EmptyHint('榜单暂时没有记录')
           else
             for (final entry in board.entries.take(20))
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  radius: 14,
-                  child: Text(
-                    '${entry.rank}',
-                    style: theme.textTheme.labelSmall,
-                  ),
-                ),
-                title: Text(
-                  entry.nickName.isEmpty ? '阅微用户' : entry.nickName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  <String>[
-                    if (entry.title.trim().isNotEmpty) entry.title,
-                    if (entry.titleLevel > 0) '名帖 ${entry.titleLevel} 级',
-                    '${entry.level} 级',
-                  ].join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Text(_rankValueText(_rankKind, entry.value)),
+              _RankRow(
+                entry: entry,
+                valueText: _rankValueText(_rankKind, entry.value),
               ),
           if (board != null)
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                board.my.rank > 0
-                    ? '我的排名：第 ${board.my.rank} 名 · '
-                          '${_rankValueText(_rankKind, board.my.value)}'
-                    : '我的排名：尚未上榜',
-                style: theme.textTheme.bodySmall,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 9,
+                ),
+                decoration: BoxDecoration(
+                  color: YeSheTokens.wash(context),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    AppIcon(
+                      AppGlyph.stats,
+                      size: 16,
+                      color: YeSheTokens.vermilion(context),
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        board.my.rank > 0
+                            ? '我的排名：第 ${board.my.rank} 名 · '
+                                  '${_rankValueText(_rankKind, board.my.value)}'
+                            : '我的排名：尚未上榜',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
@@ -400,6 +800,10 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.bookmark,
       title: '清玩 · 鉴赏',
       subtitle: '藏印、花笺、徽章与名片',
+      trailing: YeSheTag(
+        '${(seals?.items.length ?? 0) + (notelets?.items.length ?? 0) + (medals?.items.length ?? 0) + (cards?.items.length ?? 0)} 件',
+        color: YeSheTokens.gold(context),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -409,6 +813,7 @@ class _YeShePageState extends State<YeShePage>
               value: '${seals?.items.length ?? 0} 张',
               onPressed: () => _openSignedItems(
                 title: '藏印',
+                kind: _SignedItemKind.seal,
                 note: seals == null ? null : '印泥 ${seals.inkPasteQuantity} 丸',
                 items: seals?.items ?? const <YeSheNamedItem>[],
                 actionLabel: '盖章',
@@ -420,6 +825,7 @@ class _YeShePageState extends State<YeShePage>
               value: '${notelets?.items.length ?? 0} 张',
               onPressed: () => _openSignedItems(
                 title: '花笺',
+                kind: _SignedItemKind.notelet,
                 note: notelets == null
                     ? null
                     : '花笺纸 ${notelets.paperQuantity} 张',
@@ -433,6 +839,7 @@ class _YeShePageState extends State<YeShePage>
               value: '${medals?.items.length ?? 0} 枚',
               onPressed: () => _openSignedItems(
                 title: '徽章',
+                kind: _SignedItemKind.medal,
                 items: medals?.items ?? const <YeSheNamedItem>[],
               ),
             ),
@@ -441,6 +848,7 @@ class _YeShePageState extends State<YeShePage>
               value: '${cards?.items.length ?? 0} 张',
               onPressed: () => _openSignedItems(
                 title: '名片',
+                kind: _SignedItemKind.callingCard,
                 items: cards?.items ?? const <YeSheNamedItem>[],
                 actionLabel: '使用',
                 onAction: (item) async {
@@ -458,6 +866,7 @@ class _YeShePageState extends State<YeShePage>
   Widget _societyCard() {
     final society = _controller.mySociety;
     final scores = _controller.societyScores;
+    final theme = Theme.of(context);
     return _YeCard(
       key: const ValueKey<String>('ye-she-society'),
       icon: AppGlyph.review,
@@ -466,6 +875,18 @@ class _YeShePageState extends State<YeShePage>
           ? '尚未加入文会'
           : '${society.level} 级 · ${society.memberCount}/${society.memberLimit} 人 · '
                 '本周 ${society.weekScore} 声望',
+      banner: YeSheBanner(
+        asset: 'shrine_camp_0_banner.webp',
+        height: 92,
+        label: society?.name.isNotEmpty == true ? society!.name : '文会',
+        caption: society == null ? '与同好共读，赢取每周奖励' : '文社 · 本周共读',
+      ),
+      trailing: society == null
+          ? null
+          : YeSheTag(
+              society.isPublic ? '公开' : '私密',
+              color: YeSheTokens.jade(context),
+            ),
       child: society == null
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -494,8 +915,72 @@ class _YeShePageState extends State<YeShePage>
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                if (society.inviteCode.trim().isNotEmpty)
-                  _InfoLine('邀请码', society.inviteCode),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    YeSheCover(
+                      url: society.coverUrl,
+                      width: 62,
+                      height: 82,
+                      semanticsLabel: '${society.name}的封面',
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              YeSheTag(
+                                '${society.level} 级',
+                                color: YeSheTokens.gold(context),
+                              ),
+                              const SizedBox(width: 6),
+                              YeSheTag(
+                                '${society.memberCount}/${society.memberLimit} 人',
+                              ),
+                              if (society.inviteCode.trim().isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: YeSheTag(
+                                    '邀请码 ${society.inviteCode}',
+                                    color: YeSheTokens.jade(context),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 7),
+                          if (scores != null) ...<Widget>[
+                            Text(
+                              '本周文会声望 ${scores.totalScore}/${scores.maxScore}',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(999),
+                              child: LinearProgressIndicator(
+                                value: scores.ratio,
+                                minHeight: 5,
+                                color: YeSheTokens.jade(context),
+                                backgroundColor:
+                                    theme.colorScheme.surfaceContainerHighest,
+                              ),
+                            ),
+                          ] else
+                            Text('本周声望尚未读取', style: theme.textTheme.bodySmall),
+                          if (society.members.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _MemberAvatarRow(members: society.members.take(8)),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 _InfoLine(
                   '奖励状态',
                   society.claimedRewardName.trim().isEmpty
@@ -505,29 +990,16 @@ class _YeShePageState extends State<YeShePage>
                       : '已领取 ${society.claimedRewardName}',
                 ),
                 if (scores != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          '本周文会声望 ${scores.totalScore}/${scores.maxScore}',
-                          style: Theme.of(context).textTheme.labelMedium,
-                        ),
-                      ),
-                      if (scores.weekStart.trim().isNotEmpty)
-                        Text(
-                          scores.weekStart,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  LinearProgressIndicator(value: scores.ratio),
                   if (scores.members.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    Text(
+                    YeSheSectionLabel(
                       '本周贡献排行',
-                      style: Theme.of(context).textTheme.labelMedium,
+                      trailing: scores.weekStart.trim().isEmpty
+                          ? null
+                          : Text(
+                              scores.weekStart,
+                              style: theme.textTheme.labelSmall,
+                            ),
                     ),
                     const SizedBox(height: 4),
                     Wrap(
@@ -535,33 +1007,10 @@ class _YeShePageState extends State<YeShePage>
                       runSpacing: 6,
                       children: <Widget>[
                         for (final member in scores.members.take(8))
-                          Chip(
-                            label: Text(
-                              '${member.nickName} · ${member.weekScore}',
-                            ),
-                            visualDensity: VisualDensity.compact,
-                          ),
+                          _MemberChip(member: member, score: member.weekScore),
                       ],
                     ),
                   ],
-                ],
-                if (society.members.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text('成员', style: Theme.of(context).textTheme.labelMedium),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: <Widget>[
-                      for (final member in society.members.take(8))
-                        Chip(
-                          label: Text(
-                            '${member.nickName} · ${member.weekScore}',
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                    ],
-                  ),
                 ],
                 _actionWrap(<Widget>[
                   TextButton(
@@ -634,30 +1083,66 @@ class _YeShePageState extends State<YeShePage>
           : guilds == null
           ? '商会信息尚未读取'
           : '加入费用 ${guilds.joinCost} 铜',
+      banner: YeSheBanner(
+        asset: YeSheTokens.guildBanner(current?.code ?? ''),
+        height: 92,
+        label: current?.name ?? '商会',
+        caption: joined ? '${current?.name ?? '商会'} · 本周行商' : '入会结伴，共分商路',
+      ),
+      trailing: joined && current != null
+          ? YeSheTag(
+              '${current.memberCount} 人',
+              color: YeSheTokens.jade(context),
+            )
+          : null,
       child: guilds == null
           ? const _EmptyHint('商会信息暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 if (joined)
-                  _actionWrap(<Widget>[
-                    TextButton(
-                      onPressed: _showGuildMembers,
-                      child: const Text('成员'),
-                    ),
-                    TextButton(
-                      onPressed: _showGuildHistory,
-                      child: const Text('行商动态'),
-                    ),
-                    TextButton(
-                      onPressed: () => _confirmedAction(
-                        title: '退出商会',
-                        message: '退出商会后当前贡献等级可能失效，确定继续吗？',
-                        action: _controller.leaveGuild,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: YeSheStatChip(
+                              label: '商会资金',
+                              value: '${current?.balance ?? 0}',
+                              icon: AppGlyph.star,
+                              color: YeSheTokens.gold(context),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          YeSheStatChip(
+                            label: '贡献',
+                            value: '${membership!.contribution}',
+                            icon: AppGlyph.review,
+                            color: YeSheTokens.jade(context),
+                          ),
+                        ],
                       ),
-                      child: const Text('退出商会'),
-                    ),
-                  ])
+                      _actionWrap(<Widget>[
+                        TextButton(
+                          onPressed: _showGuildMembers,
+                          child: const Text('成员'),
+                        ),
+                        TextButton(
+                          onPressed: _showGuildHistory,
+                          child: const Text('行商动态'),
+                        ),
+                        TextButton(
+                          onPressed: () => _confirmedAction(
+                            title: '退出商会',
+                            message: '退出商会后当前贡献等级可能失效，确定继续吗？',
+                            action: _controller.leaveGuild,
+                          ),
+                          child: const Text('退出商会'),
+                        ),
+                      ]),
+                    ],
+                  )
                 else if (guilds.guilds.isEmpty)
                   const _EmptyHint('暂无可加入的商会')
                 else
@@ -701,11 +1186,36 @@ class _YeShePageState extends State<YeShePage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: Image.asset(
+                  '${YeSheTokens.assetRoot}shrine_trinkets.webp',
+                  width: 42,
+                  height: 56,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  '商会拍卖 · ${auction.itemName}',
-                  style: Theme.of(context).textTheme.titleSmall,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '商会拍卖 · ${auction.itemName}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    if (auction.itemDescription.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          auction.itemDescription,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               if (auction.itemQuality.trim().isNotEmpty)
@@ -715,15 +1225,6 @@ class _YeShePageState extends State<YeShePage>
                 ),
             ],
           ),
-          if (auction.itemDescription.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                auction.itemDescription,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
           const SizedBox(height: 6),
           _metricWrap(<Widget>[
             _MetricChip('起拍价', auction.startingPrice),
@@ -768,14 +1269,45 @@ class _YeShePageState extends State<YeShePage>
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
+                    leading: SizedBox(
+                      width: 48,
+                      height: 52,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: <Widget>[
+                          YeSheCover(
+                            url: item.bookCover,
+                            width: 38,
+                            height: 52,
+                            borderRadius: 6,
+                            semanticsLabel: '收藏书封',
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: YeSheAvatar(
+                              url: item.userAvatar,
+                              size: 20,
+                              ringColor: YeSheTokens.paper(context),
+                              semanticsLabel: '${item.userName}的头像',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     title: Text(
                       item.summary,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    subtitle: item.collectionName.trim().isEmpty
-                        ? null
-                        : Text(item.collectionName),
+                    subtitle: Text(
+                      <String>[
+                        if (item.bookName.trim().isNotEmpty) item.bookName,
+                        if (item.userName.trim().isNotEmpty) item.userName,
+                        if (item.collectionName.trim().isNotEmpty)
+                          item.collectionName,
+                      ].join(' · '),
+                    ),
                   ),
               ],
             ),
@@ -791,15 +1323,40 @@ class _YeShePageState extends State<YeShePage>
       subtitle: lore == null
           ? '今日暂无轶闻'
           : '${lore.category} · ${lore.quality} · ${lore.exp} 阅历',
+      trailing: lore == null
+          ? null
+          : YeSheTag(
+              lore.quality.isEmpty ? '轶闻' : lore.quality,
+              color: YeSheTokens.gold(context),
+            ),
       child: lore == null
           ? const _EmptyHint('今日轶闻暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(lore.content),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(13, 11, 13, 12),
+                  decoration: BoxDecoration(
+                    color: YeSheTokens.wash(context),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: YeSheTokens.line(context)),
+                  ),
+                  child: Text(
+                    lore.content,
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(height: 1.6),
+                  ),
+                ),
                 const SizedBox(height: 8),
                 if (lore.propName.trim().isNotEmpty)
                   _InfoLine('可能获得', lore.propName),
+                _metricWrap(<Widget>[
+                  if (lore.exp > 0)
+                    _MetricChip('阅历', lore.exp, glyph: AppGlyph.star),
+                  if (lore.gem > 0)
+                    _MetricChip('彩筹', lore.gem, glyph: AppGlyph.bookmark),
+                ]),
                 _actionWrap(<Widget>[
                   TextButton(
                     onPressed: _controller.actionBusy || lore.isFinish
@@ -827,6 +1384,23 @@ class _YeShePageState extends State<YeShePage>
                 ? '行商状态尚未读取'
                 : '${merchant.cities.length} 条商路 · ${merchant.transports.where((item) => item.owned).length} 艘船'
           : '$cityName · ${_tripStatus(trip.status)}',
+      banner: YeSheBanner(
+        asset: trip == null
+            ? 'shrine_xingshang.webp'
+            : YeSheTokens.cityAsset(_cityIndex(merchant, trip.cityCode)),
+        height: 104,
+        label: trip == null ? '行商' : cityName,
+        caption: trip == null
+            ? '择一城，装一船，待风起'
+            : '${_transportName(merchant, trip.transportId)} · '
+                  '${_tripStatus(trip.status)}',
+      ),
+      trailing: trip == null
+          ? null
+          : YeSheTag(
+              _tripStatus(trip.status),
+              color: YeSheTokens.jade(context),
+            ),
       child: merchant == null
           ? const _EmptyHint('行商信息暂不可用')
           : Column(
@@ -842,9 +1416,21 @@ class _YeShePageState extends State<YeShePage>
                     ),
                   ])
                 else ...[
+                  _metricWrap(<Widget>[
+                    _MetricChip('本金', trip.principal, glyph: AppGlyph.star),
+                    _MetricChip(
+                      '耗时',
+                      trip.totalDurationMinutes,
+                      glyph: AppGlyph.refresh,
+                    ),
+                    if (trip.settlementAmount != 0)
+                      _MetricChip(
+                        '结算',
+                        trip.settlementAmount,
+                        glyph: AppGlyph.checkCircle,
+                      ),
+                  ]),
                   _InfoLine('船只', transportName),
-                  _InfoLine('本金', '${trip.principal} 铜'),
-                  _InfoLine('预计耗时', '${trip.totalDurationMinutes} 分钟'),
                   if (trip.eventTitle.trim().isNotEmpty)
                     _InfoLine('事件', trip.eventTitle),
                   if (trip.eventContent.trim().isNotEmpty)
@@ -852,8 +1438,6 @@ class _YeShePageState extends State<YeShePage>
                       trip.eventContent,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                  if (trip.settlementAmount != 0)
-                    _InfoLine('结算', '${trip.settlementAmount} 铜'),
                   _actionWrap(<Widget>[
                     TextButton(
                       onPressed: _controller.actionBusy
@@ -895,6 +1479,12 @@ class _YeShePageState extends State<YeShePage>
           ? '门客名册尚未读取'
           : '${retainers.owned.length} 位门客 · 清贵 ${retainers.qinggui} · '
                 '保底 ${retainers.pityCount}',
+      trailing: retainers == null
+          ? null
+          : YeSheTag(
+              '${retainers.owned.length} 位',
+              color: YeSheTokens.gold(context),
+            ),
       child: retainers == null
           ? const _EmptyHint('门客信息暂不可用')
           : Column(
@@ -908,10 +1498,7 @@ class _YeShePageState extends State<YeShePage>
                     runSpacing: 6,
                     children: <Widget>[
                       for (final item in retainers.owned.take(8))
-                        Chip(
-                          label: Text('${item.displayName} · ${item.quality}'),
-                          visualDensity: VisualDensity.compact,
-                        ),
+                        _RetainerTile(retainer: item),
                     ],
                   ),
                 _actionWrap(<Widget>[
@@ -942,21 +1529,93 @@ class _YeShePageState extends State<YeShePage>
       subtitle: auction == null
           ? '今日暂无拍品'
           : '${auction.category} · ${auction.appraisal}',
+      banner: YeSheBanner(
+        asset: 'shrine_auction.webp',
+        height: 112,
+        label: '聚宝楼',
+        caption: auction == null ? '今日暂无拍品' : '一槌定音，价高者得',
+        trailing: auction == null
+            ? null
+            : YeSheTag(
+                auction.canBid ? '正在唱价' : '暂不可出价',
+                color: auction.canBid ? YeSheTokens.vermilion(context) : null,
+              ),
+      ),
       child: auction == null
           ? const _EmptyHint('聚宝楼暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                _metricWrap(<Widget>[
-                  _MetricChip('当前价', auction.highestBid),
-                  _MetricChip('我的出价', auction.myBid),
-                ]),
-                if (auction.condition.trim().isNotEmpty)
-                  _InfoLine('品相', auction.condition),
-                if (auction.material.trim().isNotEmpty)
-                  _InfoLine('材质', auction.material),
-                if (auction.highestBidNickName.trim().isNotEmpty)
-                  _InfoLine('领先者', auction.highestBidNickName),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    YeSheAssetImage(
+                      asset: YeSheTokens.auctionAsset(
+                        auction.objectName,
+                        seed: auction.objectId.isEmpty
+                            ? '${auction.id}-${auction.objectName}'
+                            : auction.objectId,
+                      ),
+                      width: 72,
+                      height: 88,
+                      borderRadius: 9,
+                      semanticsLabel: '${auction.objectName}的拍品图',
+                      fallbackGlyph: AppGlyph.star,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _metricWrap(<Widget>[
+                            _MetricChip(
+                              '当前价',
+                              auction.highestBid,
+                              glyph: AppGlyph.star,
+                            ),
+                            _MetricChip(
+                              '我的出价',
+                              auction.myBid,
+                              glyph: AppGlyph.bookmark,
+                            ),
+                          ]),
+                          if (auction.condition.trim().isNotEmpty)
+                            _InfoLine('品相', auction.condition),
+                          if (auction.material.trim().isNotEmpty)
+                            _InfoLine('材质', auction.material),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (auction.highestBidNickName.trim().isNotEmpty ||
+                    auction.highestBidAvatar.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: <Widget>[
+                        YeSheAvatar(
+                          url: auction.highestBidAvatar,
+                          size: 30,
+                          semanticsLabel: '当前领先者头像',
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '领先 ${auction.highestBidNickName.isEmpty ? '阅微用户' : auction.highestBidNickName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        if (auction.endTime != null)
+                          Text(
+                            _formatDateTime(auction.endTime!),
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                      ],
+                    ),
+                  ),
                 _actionWrap(<Widget>[
                   TextButton(
                     onPressed: _controller.actionBusy || !auction.canBid
@@ -979,6 +1638,20 @@ class _YeShePageState extends State<YeShePage>
       subtitle: gambling == null
           ? '今日暂未开局'
           : '${gambling.people} 人参与 · 剩余 ${gambling.remainingCount} 次',
+      banner: YeSheBanner(
+        asset: 'shrine_chupu.webp',
+        height: 112,
+        label: '樗蒲',
+        caption: gambling == null
+            ? '今日暂未开局'
+            : '${gambling.people} 人同场 · 彩头 ${gambling.prize}',
+        trailing: gambling == null
+            ? null
+            : YeSheTag(
+                gambling.canBet ? '可投注' : '已投注',
+                color: gambling.canBet ? YeSheTokens.vermilion(context) : null,
+              ),
+      ),
       child: gambling == null
           ? const _EmptyHint('樗蒲暂不可用')
           : Column(
@@ -986,9 +1659,64 @@ class _YeShePageState extends State<YeShePage>
               children: <Widget>[
                 if (gambling.prize.trim().isNotEmpty)
                   _InfoLine('彩头', gambling.prize),
-                _metricWrap(<Widget>[_MetricChip('我的点数', gambling.myScore)]),
+                _metricWrap(<Widget>[
+                  _MetricChip('我的点数', gambling.myScore, glyph: AppGlyph.star),
+                  _MetricChip('参与', gambling.people, glyph: AppGlyph.profile),
+                ]),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: <Widget>[
+                      for (var index = 0; index < 3; index++)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: YeSheAssetImage(
+                            asset:
+                                '${YeSheTokens.assetRoot}gambling_${(gambling.id + index) % 5}.webp',
+                            width: 42,
+                            height: 58,
+                            borderRadius: 6,
+                            semanticsLabel: '樗蒲牌面',
+                            fallbackGlyph: AppGlyph.play,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 if (gambling.myDice.trim().isNotEmpty)
-                  _InfoLine('骰面', gambling.myDice),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 2),
+                    child: Wrap(
+                      spacing: 5,
+                      runSpacing: 5,
+                      children: <Widget>[
+                        for (final die in gambling.myDice.split(
+                          RegExp(r'[,，\s]+'),
+                        ))
+                          if (die.trim().isNotEmpty)
+                            Container(
+                              width: 28,
+                              height: 28,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: YeSheTokens.wash(context),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: YeSheTokens.line(context),
+                                ),
+                              ),
+                              child: Text(
+                                die,
+                                style: Theme.of(context).textTheme.labelMedium
+                                    ?.copyWith(
+                                      color: YeSheTokens.vermilion(context),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
                 _actionWrap(<Widget>[
                   TextButton(
                     onPressed: _controller.actionBusy || !gambling.canBet
@@ -1016,6 +1744,20 @@ class _YeShePageState extends State<YeShePage>
       title:
           '祈愿 · ${wish?.propName.isNotEmpty == true ? wish!.propName : '本周提升'}',
       subtitle: wish == null ? '祈愿信息尚未读取' : '本周 ${wish.weekStart}',
+      banner: YeSheBanner(
+        asset: 'shrine_sunrise.webp',
+        height: 100,
+        label: '祈愿',
+        caption: wish == null
+            ? '本周祈愿尚未开始'
+            : '${wish.propName.isEmpty ? '本周提升' : wish.propName} · 概率提升',
+      ),
+      trailing: wish == null
+          ? null
+          : YeSheTag(
+              wish.weekStart.isEmpty ? '本周' : wish.weekStart,
+              color: YeSheTokens.jade(context),
+            ),
       child: wish == null
           ? const _EmptyHint('祈愿信息暂不可用')
           : Column(
@@ -1097,13 +1839,61 @@ class _YeShePageState extends State<YeShePage>
       subtitle: count == null
           ? '典当次数尚未读取'
           : '今日 ${count.usedToday}/${count.maxPerDay} 次 · 剩余 ${count.remaining} 次',
+      trailing: count == null
+          ? null
+          : YeSheTag(
+              '剩 ${count.remaining} 次',
+              color: count.remaining > 0
+                  ? YeSheTokens.jade(context)
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
       child: count == null
           ? const _EmptyHint('期物司暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 if (count.specialPropName.trim().isNotEmpty)
-                  _InfoLine('今日高价收购', count.specialPropName),
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: YeSheTokens.gold(context).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: YeSheTokens.gold(context)
+                            .withValues(alpha: 0.24),
+                      ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        AppIcon(
+                          AppGlyph.star,
+                          size: 16,
+                          color: YeSheTokens.gold(context),
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          '今日高价收购',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: YeSheTokens.gold(context)),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            count.specialPropName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (materials.isEmpty)
                   const _EmptyHint('暂无可典当材料')
                 else
@@ -1112,8 +1902,8 @@ class _YeShePageState extends State<YeShePage>
                     runSpacing: 6,
                     children: <Widget>[
                       for (final item in materials.take(8))
-                        ActionChip(
-                          label: Text('${item.name} ×${item.quantity}'),
+                        _MaterialTile(
+                          material: item,
                           onPressed: count.remaining <= 0
                               ? null
                               : () => _pawn(item),
@@ -1144,8 +1934,17 @@ class _YeShePageState extends State<YeShePage>
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
+                    leading: _ItemGlyph(
+                      glyph: _itemGlyph(item.name, item.type),
+                      color: YeSheTokens.jade(context),
+                    ),
                     title: Text(item.name),
-                    subtitle: Text('${item.quality} · ${item.type}'),
+                    subtitle: Text(
+                      <String>[
+                        if (item.quality.trim().isNotEmpty) item.quality,
+                        if (item.type.trim().isNotEmpty) item.type,
+                      ].join(' · '),
+                    ),
                     trailing: TextButton(
                       onPressed: item.purchased || _controller.actionBusy
                           ? null
@@ -1177,8 +1976,17 @@ class _YeShePageState extends State<YeShePage>
                     ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
+                      leading: _ItemGlyph(
+                        glyph: _itemGlyph(item.name, item.type),
+                        color: YeSheTokens.gold(context),
+                      ),
                       title: Text(item.name),
-                      subtitle: Text('${item.quality} · ${item.type}'),
+                      subtitle: Text(
+                        <String>[
+                          if (item.quality.trim().isNotEmpty) item.quality,
+                          if (item.type.trim().isNotEmpty) item.type,
+                        ].join(' · '),
+                      ),
                       trailing: TextButton(
                         onPressed: _controller.actionBusy
                             ? null
@@ -1206,6 +2014,12 @@ class _YeShePageState extends State<YeShePage>
       subtitle: market == null
           ? '互市坊尚未读取'
           : '铜钱 ${market.coin} · ${market.listings.length} 条挂单',
+      trailing: market == null
+          ? null
+          : YeSheTag(
+              '${market.myListings.length} 条我的挂单',
+              color: YeSheTokens.jade(context),
+            ),
       child: market == null
           ? const _EmptyHint('互市坊暂不可用')
           : Column(
@@ -1235,6 +2049,13 @@ class _YeShePageState extends State<YeShePage>
                     ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
+                      leading: _ItemGlyph(
+                        glyph: _itemGlyph(
+                          listing.propName,
+                          listing.propQuality,
+                        ),
+                        color: YeSheTokens.jade(context),
+                      ),
                       title: Text(
                         '${listing.propName} · ${listing.unitPrice} 铜',
                       ),
@@ -1256,6 +2077,13 @@ class _YeShePageState extends State<YeShePage>
                     ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
+                      leading: _ItemGlyph(
+                        glyph: _itemGlyph(
+                          listing.propName,
+                          listing.propQuality,
+                        ),
+                        color: YeSheTokens.gold(context),
+                      ),
                       title: Text(
                         '${listing.propName} · ${listing.unitPrice} 铜',
                       ),
@@ -1286,18 +2114,84 @@ class _YeShePageState extends State<YeShePage>
       key: const ValueKey<String>('ye-she-medal-treasure'),
       icon: AppGlyph.star,
       title: treasure?.medalName.isNotEmpty == true
-          ? treasure!.medalName
-          : '徽章征集',
+          ? '黄金台 · ${treasure!.medalName}'
+          : '黄金台 · 徽章征集',
       subtitle: treasure == null
           ? '徽章征集尚未读取'
           : '${treasure.currentCount}/${treasure.totalCount} · ${treasure.userCount} 人参与',
+      trailing: treasure == null
+          ? null
+          : YeSheTag(
+              treasure.status.isEmpty ? '征集中' : treasure.status,
+              color: YeSheTokens.vermilion(context),
+            ),
       child: treasure == null
           ? const _EmptyHint('徽章征集暂不可用')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                if (treasure.previousWinnerNickName.trim().isNotEmpty)
-                  _InfoLine('上期得主', treasure.previousWinnerNickName),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    YeSheAssetImage(
+                      asset:
+                          treasure.medalPropId >= 20 &&
+                              treasure.medalPropId <= 28
+                          ? YeSheTokens.sealAsset(treasure.medalPropId)
+                          : YeSheTokens.medalFallback,
+                      width: 54,
+                      height: 72,
+                      borderRadius: 8,
+                      semanticsLabel: '${treasure.medalName}的徽章图',
+                      fallbackGlyph: AppGlyph.star,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: LinearProgressIndicator(
+                              value: treasure.totalCount <= 0
+                                  ? 0
+                                  : (treasure.currentCount /
+                                            treasure.totalCount)
+                                        .clamp(0.0, 1.0),
+                              minHeight: 6,
+                              color: YeSheTokens.vermilion(context),
+                              backgroundColor: YeSheTokens.wash(context),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (treasure.previousWinnerNickName.trim().isNotEmpty)
+                            Row(
+                              children: <Widget>[
+                                YeSheAvatar(
+                                  url: treasure.previousWinnerAvatar,
+                                  size: 26,
+                                  semanticsLabel: '上期得主头像',
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '上期得主 ${treasure.previousWinnerNickName}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            const _EmptyHint('上期暂无得主'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 _actionWrap(<Widget>[
                   TextButton(
                     onPressed: _controller.actionBusy
@@ -1318,6 +2212,9 @@ class _YeShePageState extends State<YeShePage>
       icon: AppGlyph.highlighter,
       title: '社区想法',
       subtitle: '${thoughts.length} 条公开笔记',
+      trailing: thoughts.isEmpty
+          ? null
+          : YeSheTag('${thoughts.length} 条', color: YeSheTokens.jade(context)),
       child: thoughts.isEmpty
           ? const _EmptyHint('暂无公开读书想法')
           : Column(
@@ -1352,16 +2249,23 @@ class _YeShePageState extends State<YeShePage>
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: const AppIcon(AppGlyph.article),
+                    leading: YeSheAvatar(
+                      url: rumor.avatar,
+                      size: 34,
+                      semanticsLabel: '${rumor.nickName}的头像',
+                    ),
                     title: Text(
                       rumor.content,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      rumor.nickName.trim().isEmpty
-                          ? rumor.type
-                          : '${rumor.nickName} · ${rumor.type}',
+                      <String>[
+                        if (rumor.nickName.trim().isNotEmpty) rumor.nickName,
+                        if (rumor.type.trim().isNotEmpty) rumor.type,
+                        if (rumor.createTime != null)
+                          _formatDateTime(rumor.createTime!),
+                      ].join(' · '),
                     ),
                   ),
               ],
@@ -1656,6 +2560,11 @@ class _YeShePageState extends State<YeShePage>
             else
               for (final member in _controller.guildMembers)
                 ListTile(
+                  leading: YeSheAvatar(
+                    url: member.avatar,
+                    size: 38,
+                    semanticsLabel: '${member.nickName}的头像',
+                  ),
                   title: Text(member.nickName),
                   subtitle: Text(
                     '${member.levelName} · 贡献 ${member.contribution}',
@@ -1685,7 +2594,15 @@ class _YeShePageState extends State<YeShePage>
               const _EmptyHint('暂无行商动态')
             else
               for (final item in _controller.guildHistory)
-                ListTile(title: Text(item.nickName), subtitle: Text(item.trip)),
+                ListTile(
+                  leading: YeSheAvatar(
+                    url: item.avatar,
+                    size: 34,
+                    semanticsLabel: '${item.nickName}的头像',
+                  ),
+                  title: Text(item.nickName),
+                  subtitle: Text(item.trip),
+                ),
           ],
         ),
       ),
@@ -1755,10 +2672,28 @@ class _YeShePageState extends State<YeShePage>
                         initialValue: cityCode,
                         decoration: const InputDecoration(labelText: '商路'),
                         items: <DropdownMenuItem<String>>[
-                          for (final city in data.cities)
+                          for (final (index, city) in data.cities.indexed)
                             DropdownMenuItem<String>(
                               value: city.code,
-                              child: Text('${city.name} · ${city.routeType}'),
+                              child: Row(
+                                children: <Widget>[
+                                  YeSheAssetImage(
+                                    asset: YeSheTokens.cityAsset(index),
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: 5,
+                                    semanticsLabel: '${city.name}的商路图',
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '${city.name} · ${city.routeType}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                         ],
                         onChanged: (value) {
@@ -1997,13 +2932,16 @@ class _YeShePageState extends State<YeShePage>
           else
             for (final collector in collectors)
               ListTile(
-                title: Text(
-                  yeSheText(
-                    collector['nickName'] ??
-                        collector['userName'] ??
-                        collector['name'],
+                leading: YeSheAvatar(
+                  url: yeSheText(
+                    collector['avatar'] ??
+                        collector['userAvatar'] ??
+                        collector['avatarUrl'],
                   ),
+                  size: 34,
+                  semanticsLabel: '收藏者头像',
                 ),
+                title: Text(_collectorName(collector)),
                 subtitle: Text(
                   yeSheText(collector['title'] ?? collector['levelName']),
                 ),
@@ -2013,8 +2951,16 @@ class _YeShePageState extends State<YeShePage>
     );
   }
 
+  String _collectorName(Map<String, dynamic> collector) {
+    final name = yeSheText(
+      collector['nickName'] ?? collector['userName'] ?? collector['name'],
+    );
+    return name.trim().isEmpty ? '阅微用户' : name;
+  }
+
   Future<void> _openSignedItems({
     required String title,
+    required _SignedItemKind kind,
     String? note,
     required List<YeSheNamedItem> items,
     String? actionLabel,
@@ -2038,6 +2984,29 @@ class _YeShePageState extends State<YeShePage>
           else
             for (final item in items)
               ListTile(
+                leading: YeSheAssetImage(
+                  asset: switch (kind) {
+                    _SignedItemKind.seal => YeSheTokens.sealAsset(
+                      item.propId,
+                      seed: '${item.identity}-${item.name}',
+                    ),
+                    _SignedItemKind.notelet => YeSheTokens.noteletFallback,
+                    _SignedItemKind.medal => YeSheTokens.medalFallback,
+                    _SignedItemKind.callingCard => YeSheTokens.callingCardAsset(
+                      item.name,
+                    ),
+                  },
+                  width: 42,
+                  height: 42,
+                  borderRadius: 7,
+                  semanticsLabel: '${item.name}的图片',
+                  fallbackGlyph: switch (kind) {
+                    _SignedItemKind.seal => AppGlyph.bookmark,
+                    _SignedItemKind.notelet => AppGlyph.note,
+                    _SignedItemKind.medal => AppGlyph.star,
+                    _SignedItemKind.callingCard => AppGlyph.profile,
+                  },
+                ),
                 title: Text(item.name),
                 trailing: actionLabel == null || onAction == null
                     ? null
@@ -2060,6 +3029,12 @@ class _YeShePageState extends State<YeShePage>
       if (city.code == code) return city.name;
     }
     return code;
+  }
+
+  int _cityIndex(YeSheTravelingMerchant? data, String? code) {
+    if (data == null || code == null || code.isEmpty) return 0;
+    final index = data.cities.indexWhere((city) => city.code == code);
+    return index < 0 ? 0 : index;
   }
 
   String _transportName(YeSheTravelingMerchant? data, int? id) {
@@ -2088,44 +3063,379 @@ class _YeCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.child,
+    this.banner,
+    this.trailing,
   });
 
   final AppGlyph icon;
   final String title;
   final String subtitle;
   final Widget child;
+  final Widget? banner;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Card(
+      child: Container(
         clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: YeSheTokens.line(context)),
+          boxShadow: YeSheTokens.cardShadow(context),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            ?banner,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 13, 15, 12),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  AppIcon(icon, color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(title, style: theme.textTheme.titleMedium),
-                        const SizedBox(height: 2),
-                        Text(subtitle, style: theme.textTheme.bodySmall),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Container(
+                        width: 30,
+                        height: 30,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: YeSheTokens.vermilion(context)
+                              .withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: AppIcon(
+                          icon,
+                          size: 17,
+                          color: YeSheTokens.vermilion(context),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              subtitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (trailing != null) ...<Widget>[
+                        const SizedBox(width: 6),
+                        trailing!,
                       ],
-                    ),
+                    ],
                   ),
+                  const SizedBox(height: 11),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  child,
                 ],
               ),
-              const SizedBox(height: 12),
-              child,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip(this.label, this.value, {this.glyph});
+
+  final String label;
+  final int value;
+  final AppGlyph? glyph;
+
+  @override
+  Widget build(BuildContext context) {
+    return YeSheStatChip(
+      label: label,
+      value: '$value',
+      icon: glyph,
+      color: glyph == null ? null : YeSheTokens.gold(context),
+    );
+  }
+}
+
+class _RankRow extends StatelessWidget {
+  const _RankRow({required this.entry, required this.valueText});
+
+  final YeSheRankEntry entry;
+  final String valueText;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final titleText = <String>[
+      if (entry.title.trim().isNotEmpty) entry.title,
+      if (entry.titleLevel > 0) '名帖 ${entry.titleLevel} 级',
+      '${entry.level} 级',
+    ].join(' · ');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: entry.rank <= 3
+            ? YeSheTokens.gold(context).withValues(alpha: 0.07)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        children: <Widget>[
+          YeSheRankBadge(rank: entry.rank),
+          const SizedBox(width: 8),
+          YeSheAvatar(
+            url: entry.avatar,
+            size: 34,
+            ringColor: entry.rank <= 3
+                ? YeSheTokens.gold(context).withValues(alpha: 0.55)
+                : YeSheTokens.line(context),
+            semanticsLabel: '${entry.nickName}的头像',
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  entry.nickName.isEmpty ? '阅微用户' : entry.nickName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: entry.rank <= 3
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                  ),
+                ),
+                Text(
+                  titleText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 96),
+            child: Text(
+              valueText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: entry.rank <= 3
+                    ? YeSheTokens.vermilion(context)
+                    : scheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MemberAvatarRow extends StatelessWidget {
+  const _MemberAvatarRow({required this.members});
+
+  final Iterable<YeSheSocietyMember> members;
+
+  @override
+  Widget build(BuildContext context) {
+    final list = members.toList(growable: false);
+    if (list.isEmpty) return const SizedBox.shrink();
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        height: 38,
+        width: 36 + (list.length - 1) * 22,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            for (var index = 0; index < list.length; index++)
+              Positioned(
+                left: index * 22,
+                top: 3,
+                child: YeSheAvatar(
+                  url: list[index].avatar,
+                  size: 30,
+                  ringColor: Theme.of(context).colorScheme.surface,
+                  semanticsLabel: '${list[index].nickName}的头像',
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberChip extends StatelessWidget {
+  const _MemberChip({required this.member, required this.score});
+
+  final YeSheSocietyMember member;
+  final int score;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(4, 3, 9, 3),
+      decoration: BoxDecoration(
+        color: YeSheTokens.wash(context),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: YeSheTokens.line(context)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          YeSheAvatar(
+            url: member.avatar,
+            size: 24,
+            semanticsLabel: '${member.nickName}的头像',
+          ),
+          const SizedBox(width: 5),
+          Text(
+            member.nickName.isEmpty ? '同好' : member.nickName,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '$score',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: YeSheTokens.vermilion(context),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RetainerTile extends StatelessWidget {
+  const _RetainerTile({required this.retainer});
+
+  final YeSheRetainer retainer;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = retainer.displayName;
+    final seed = retainer.code.trim().isEmpty
+        ? '${retainer.id}-$name'
+        : retainer.code;
+    return Container(
+      width: 84,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
+      decoration: BoxDecoration(
+        color: YeSheTokens.wash(context),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: YeSheTokens.line(context)),
+      ),
+      child: Column(
+        children: <Widget>[
+          YeSheAssetImage(
+            asset: YeSheTokens.retainerAsset(seed),
+            width: 64,
+            height: 64,
+            borderRadius: 8,
+            semanticsLabel: '$name的门客像',
+            fallbackGlyph: AppGlyph.profile,
+          ),
+          const SizedBox(height: 5),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          if (retainer.quality.trim().isNotEmpty)
+            Text(
+              retainer.quality,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MaterialTile extends StatelessWidget {
+  const _MaterialTile({required this.material, required this.onPressed});
+
+  final YeSheMaterial material;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final name = material.name.trim();
+    final glyph = switch (name) {
+      _ when name.contains('纸') || name.contains('笺') => AppGlyph.note,
+      _ when name.contains('墨') || name.contains('砚') || name.contains('石') =>
+        AppGlyph.edit,
+      _ when name.contains('笔') || name.contains('毫') => AppGlyph.editNote,
+      _ when name.contains('花') || name.contains('桃') => AppGlyph.star,
+      _ when name.contains('竹') || name.contains('木') => AppGlyph.article,
+      _ => AppGlyph.folder,
+    };
+    return Material(
+      color: YeSheTokens.wash(context),
+      borderRadius: BorderRadius.circular(9),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              AppIcon(glyph, size: 15, color: YeSheTokens.jade(context)),
+              const SizedBox(width: 5),
+              Text(
+                material.name,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: onPressed == null
+                      ? scheme.onSurfaceVariant
+                      : scheme.onSurface,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                '×${material.quantity}',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: YeSheTokens.vermilion(context),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -2134,17 +3444,23 @@ class _YeCard extends StatelessWidget {
   }
 }
 
-class _MetricChip extends StatelessWidget {
-  const _MetricChip(this.label, this.value);
+class _ItemGlyph extends StatelessWidget {
+  const _ItemGlyph({required this.glyph, required this.color});
 
-  final String label;
-  final int value;
+  final AppGlyph glyph;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      label: Text('$label $value'),
+    return Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: AppIcon(glyph, size: 18, color: color),
     );
   }
 }
@@ -2162,7 +3478,38 @@ class _InventoryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ActionChip(label: Text('$label $value'), onPressed: onPressed);
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: YeSheTokens.wash(context),
+      borderRadius: BorderRadius.circular(9),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(value, style: Theme.of(context).textTheme.labelSmall),
+              const SizedBox(width: 2),
+              AppIcon(
+                AppGlyph.chevronRight,
+                size: 14,
+                color: scheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -2180,7 +3527,12 @@ class _InfoLine extends StatelessWidget {
         children: <Widget>[
           SizedBox(
             width: 78,
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           Expanded(child: Text(value)),
         ],
@@ -2195,12 +3547,7 @@ class _EmptyHint extends StatelessWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Text(text, style: Theme.of(context).textTheme.bodySmall),
-    );
-  }
+  Widget build(BuildContext context) => YeSheEmpty(text);
 }
 
 class _ThoughtTile extends StatelessWidget {
@@ -2224,31 +3571,117 @@ class _ThoughtTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
+      decoration: BoxDecoration(
+        color: YeSheTokens.paper(context),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: YeSheTokens.line(context)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(thought.text, maxLines: 4, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 4),
-          Text(
-            '${thought.bookName} · ${thought.userName} · ${thought.chapter}',
-            style: Theme.of(context).textTheme.bodySmall,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          Row(
+            children: <Widget>[
+              YeSheAvatar(
+                url: thought.userAvatar,
+                size: 30,
+                semanticsLabel: '${thought.userName}的头像',
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      thought.userName.isEmpty ? '阅微读者' : thought.userName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (thought.title.trim().isNotEmpty ||
+                        thought.userLevel > 0)
+                      Text(
+                        <String>[
+                          if (thought.title.trim().isNotEmpty) thought.title,
+                          if (thought.userLevel > 0) '${thought.userLevel} 级',
+                        ].join(' · '),
+                        style: theme.textTheme.labelSmall,
+                      ),
+                  ],
+                ),
+              ),
+              if (thought.createdAt != null)
+                Text(
+                  _formatDateTime(thought.createdAt!),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
           ),
+          const SizedBox(height: 8),
+          Text(
+            thought.text,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+          ),
+          if (thought.bookName.trim().isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            Row(
+              children: <Widget>[
+                YeSheCover(
+                  url: thought.bookCover,
+                  width: 32,
+                  height: 43,
+                  borderRadius: 5,
+                  semanticsLabel: '想法书封',
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    <String>[
+                      thought.bookName,
+                      if (thought.chapter.trim().isNotEmpty) thought.chapter,
+                    ].join(' · '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ],
           Wrap(
             alignment: WrapAlignment.end,
-            spacing: 4,
+            spacing: 2,
             children: <Widget>[
-              TextButton(onPressed: onCollectors, child: const Text('收藏者')),
-              TextButton(
-                onPressed: busy ? null : onCollect,
-                child: Text(collected ? '取消收藏' : '收藏'),
+              TextButton.icon(
+                onPressed: onCollectors,
+                icon: const AppIcon(AppGlyph.profile, size: 15),
+                label: const Text('收藏者'),
               ),
-              TextButton(
+              TextButton.icon(
+                onPressed: busy ? null : onCollect,
+                icon: AppIcon(
+                  collected ? AppGlyph.bookmark : AppGlyph.bookmarkAdd,
+                  size: 15,
+                ),
+                label: Text(collected ? '取消收藏' : '收藏'),
+              ),
+              TextButton.icon(
                 onPressed: busy ? null : onAppreciate,
-                child: Text(appreciated ? '取消赞赏' : '赞赏'),
+                icon: AppIcon(
+                  appreciated ? AppGlyph.checkCircle : AppGlyph.star,
+                  size: 15,
+                ),
+                label: Text(appreciated ? '取消赞赏' : '赞赏'),
               ),
             ],
           ),
@@ -2263,23 +3696,52 @@ class _SignedOutView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const AppIcon(AppGlyph.autoStories, size: 44),
-            const SizedBox(height: 16),
-            Text('登录阅微后进入野社', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            const Text('野社复用阅微账号，不会在本地另存登录状态。'),
-          ],
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 360),
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
+          decoration: BoxDecoration(
+            color: YeSheTokens.paper(context),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: YeSheTokens.line(context)),
+            boxShadow: YeSheTokens.cardShadow(context),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ClipOval(
+                child: Image.asset(
+                  YeSheTokens.defaultAvatar,
+                  width: 76,
+                  height: 76,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '登录阅微后进入野社',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '野社复用阅微账号，不会在本地另存登录状态。',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
+enum _SignedItemKind { seal, notelet, medal, callingCard }
 
 Widget _actionWrap(List<Widget> children) {
   return Padding(
@@ -2298,6 +3760,21 @@ String _formatDateTime(DateTime value) {
   String two(int number) => number.toString().padLeft(2, '0');
   return '${local.year}-${two(local.month)}-${two(local.day)} '
       '${two(local.hour)}:${two(local.minute)}';
+}
+
+AppGlyph _itemGlyph(String name, [String type = '']) {
+  final text = '$name $type';
+  return switch (text) {
+    _ when text.contains('纸') || text.contains('笺') => AppGlyph.note,
+    _ when text.contains('墨') || text.contains('砚') || text.contains('石') =>
+      AppGlyph.edit,
+    _ when text.contains('笔') || text.contains('毫') => AppGlyph.editNote,
+    _ when text.contains('印') || text.contains('章') => AppGlyph.bookmark,
+    _ when text.contains('帖') || text.contains('卡') => AppGlyph.profile,
+    _ when text.contains('花') || text.contains('桃') => AppGlyph.star,
+    _ when text.contains('书') => AppGlyph.menuBook,
+    _ => AppGlyph.folder,
+  };
 }
 
 String _rankValueText(YeSheRankKind kind, int value) {

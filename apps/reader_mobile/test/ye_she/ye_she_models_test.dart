@@ -185,4 +185,56 @@ void main() {
     expect(title.entries.single.value, 5);
     expect(title.my.rank, 0);
   });
+
+  test('头像、书封与上期得主字段可解析', () {
+    final thought = YeSheThought.fromJson(<String, dynamic>{
+      'id': '31',
+      'bookName': '北寺浮图灾',
+      'bookCover': '/covers/31.png',
+      'note': '这段考据很有意思',
+      'userName': '阅微读者',
+      'userAvatar': '//cdn.example.com/avatar/31.png',
+    });
+    final collection = YeSheCollectionEntry.fromJson(<String, dynamic>{
+      'markId': '31',
+      'collectionType': '1',
+      'collectionName': '读书想法',
+      'mark': <String, dynamic>{
+        'bookName': '北寺浮图灾',
+        'bookCover': '/covers/31.png',
+        'userName': '阅微读者',
+        'userAvatar': '/avatars/31.png',
+        'note': '想法正文',
+      },
+    });
+    final auction = YeSheAuction.fromJson(<String, dynamic>{
+      'id': '8',
+      'objectId': '12',
+      'objectName': '青瓷笔洗',
+      'highestBidNickName': '甲',
+      'highestBidAvatar': '/avatars/a.png',
+    });
+    final treasure = YeSheMedalTreasure.fromJson(<String, dynamic>{
+      'id': '4',
+      'medalName': '鹿鸣印',
+      'previousWinnerNickName': '乙',
+      'previousWinnerAvatar': '/avatars/b.png',
+    });
+    final rank = YeSheRankEntry.fromJson(<String, dynamic>{
+      'rank': '1',
+      'nickName': '丙',
+      'avatar': '/avatars/c.png',
+      'duration': '600',
+    }, YeSheRankKind.readDuration);
+
+    expect(thought.bookCover, '/covers/31.png');
+    expect(thought.userAvatar, '//cdn.example.com/avatar/31.png');
+    expect(collection.bookName, '北寺浮图灾');
+    expect(collection.bookCover, '/covers/31.png');
+    expect(collection.userName, '阅微读者');
+    expect(collection.userAvatar, '/avatars/31.png');
+    expect(auction.highestBidAvatar, '/avatars/a.png');
+    expect(treasure.previousWinnerAvatar, '/avatars/b.png');
+    expect(rank.avatar, '/avatars/c.png');
+  });
 }

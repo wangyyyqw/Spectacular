@@ -24,26 +24,68 @@ void main() {
     expect(find.text('文房'), findsWidgets);
     expect(find.text('游艺'), findsOneWidget);
     expect(find.text('见闻'), findsOneWidget);
-    expect(find.text('白玉京'), findsOneWidget);
-    expect(find.text('青士'), findsOneWidget);
+    expect(find.text('白玉京'), findsWidgets);
+    expect(find.text('青士'), findsWidgets);
     expect(find.text('名帖'), findsWidgets);
     expect(find.text('本周文会声望 71/120'), findsOneWidget);
-    expect(find.text('商会拍卖 · 青瓷笔洗'), findsOneWidget);
+    expect(find.text('我的收藏'), findsOneWidget);
+    expect(find.text('清玩 · 鉴赏'), findsOneWidget);
 
     await tester.tap(find.text('游艺'));
     await tester.pumpAndSettle();
-    expect(find.text('萃野纂闻《北寺浮图灾》'), findsOneWidget);
-    expect(find.text('蓬莱 · 路途中'), findsOneWidget);
-    expect(find.text('青瓷笔洗'), findsOneWidget);
+    expect(find.text('商会 · 财富'), findsOneWidget);
+    expect(find.text('商会拍卖 · 青瓷笔洗'), findsOneWidget);
+    expect(find.text('聚宝楼'), findsWidgets);
+    expect(find.text('青瓷笔洗'), findsWidgets);
+    expect(find.text('今日樗蒲'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('道观'),
+      360,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('道观'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('黄金台 · 鹿鸣印'),
+      360,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('黄金台 · 鹿鸣印'), findsOneWidget);
 
     await tester.tap(find.text('见闻'));
     await tester.pumpAndSettle();
     expect(find.text('祈愿 · 鹿鸣印'), findsOneWidget);
     expect(find.text('期物司'), findsOneWidget);
+    expect(find.text('萃野纂闻《北寺浮图灾》'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('百杂铺'),
+      320,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('百杂铺'), findsOneWidget);
-    expect(find.text('运'), findsOneWidget);
-    expect(find.text('安'), findsOneWidget);
-    expect(find.text('财'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('玉机阁'),
+      320,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('玉机阁'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('互市坊'),
+      320,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('互市坊'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('社区想法'),
+      320,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('社区想法'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('唱经楼'),
+      320,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('唱经楼'), findsOneWidget);
   });
 
   testWidgets('野社在窄屏下不产生布局溢出', (tester) async {
@@ -66,12 +108,47 @@ void main() {
     await tester.tap(find.text('见闻'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
-      find.text('收藏者'),
+      find.text('唱经楼'),
       400,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('收藏者'), findsWidgets);
+    expect(find.text('唱经楼'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('野社标题与页签在明暗主题下均使用主题前景色', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final brightness in <Brightness>[Brightness.light, Brightness.dark]) {
+      final controller = YeSheController(
+        tokenProvider: () => 'token',
+        api: _DemoYeSheApi(),
+      );
+      addTearDown(controller.dispose);
+      final theme = ThemeData(brightness: brightness);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: YeShePage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tabBar = tester.widget<TabBar>(
+        find.byKey(const ValueKey<String>('ye-she-tab-bar')),
+      );
+      expect(tabBar.labelColor, theme.colorScheme.onSurface);
+      expect(tabBar.unselectedLabelColor, theme.colorScheme.onSurfaceVariant);
+      expect(tabBar.labelColor, isNot(Colors.white));
+
+      final title = tester.widget<Text>(
+        find.byKey(const ValueKey<String>('ye-she-header-title')),
+      );
+      expect(title.style?.color, theme.colorScheme.onSurface);
+    }
   });
 }
 

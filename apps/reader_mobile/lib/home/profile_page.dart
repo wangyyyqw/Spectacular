@@ -408,8 +408,12 @@ class _YeSheEntry extends StatelessWidget {
         trailing: const AppIcon(AppGlyph.chevronRight),
         onTap: () => Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
-            builder: (context) =>
-                YeShePage(tokenProvider: () => controller.token),
+            builder: (context) => YeShePage(
+              tokenProvider: () => controller.token,
+              currentUserName: controller.user?.nickName ?? '',
+              currentUserAvatar: controller.user?.avatar ?? '',
+              currentUserTitle: controller.user?.userTitle ?? '',
+            ),
           ),
         ),
       ),

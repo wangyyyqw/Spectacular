@@ -1632,12 +1632,25 @@ class YeSheCollectionEntry {
   final DateTime? collectedAt;
   final String collectionName;
 
+  /// 被收藏条目所属书名。
+  String get bookName => yeSheText(mark['bookName']);
+
+  /// 被收藏条目的书封。
+  String get bookCover => yeSheText(mark['bookCover']);
+
+  /// 被收藏条目的作者昵称。
+  String get userName => yeSheText(mark['userName']);
+
+  /// 被收藏条目的作者头像。
+  String get userAvatar => yeSheText(mark['userAvatar']);
+
+  String get _note => yeSheText(mark['note']);
+
+  String get _quote => yeSheText(mark['quote']);
+
   String get summary {
-    final note = yeSheText(mark['note']);
-    if (note.trim().isNotEmpty) return note;
-    final quote = yeSheText(mark['quote']);
-    if (quote.trim().isNotEmpty) return quote;
-    final bookName = yeSheText(mark['bookName']);
+    if (_note.trim().isNotEmpty) return _note;
+    if (_quote.trim().isNotEmpty) return _quote;
     return bookName.trim().isEmpty ? '已收藏的想法' : bookName;
   }
 }
