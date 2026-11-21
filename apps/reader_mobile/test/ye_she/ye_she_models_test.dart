@@ -80,6 +80,73 @@ void main() {
     expect(merchant.treasures, isEmpty);
   });
 
+  test('文会周奖励状态与领取按钮同步', () {
+    final claimable = YeSheLiterarySociety.fromJson(<String, dynamic>{
+      'id': 7,
+      'rewardStatus': 'CLAIMABLE',
+    });
+    final claimed = YeSheLiterarySociety.fromJson(<String, dynamic>{
+      'id': 7,
+      'rewardStatus': 'CLAIMED',
+      'claimedRewardName': '鹿鸣印',
+    });
+    final empty = YeSheLiterarySociety.fromJson(<String, dynamic>{'id': 7});
+
+    expect(claimable.canClaimWeeklyReward, isTrue);
+    expect(claimable.weeklyRewardStatusText, '可领取');
+    expect(claimable.weeklyRewardActionLabel, '领取周奖励');
+    expect(claimed.hasClaimedWeeklyReward, isTrue);
+    expect(claimed.canClaimWeeklyReward, isFalse);
+    expect(claimed.weeklyRewardStatusText, '已领取 鹿鸣印');
+    expect(claimed.weeklyRewardActionLabel, '本周已领取');
+    expect(empty.canClaimWeeklyReward, isFalse);
+    expect(empty.weeklyRewardStatusText, '暂无奖励');
+  });
+
+  test('行商按阅微规则显示路途中、已抵达、归途中与已返回', () {
+    final now = DateTime(2026, 11, 21, 12);
+    YeSheTravelTrip trip({
+      required String status,
+      required Duration startedAgo,
+      required Duration endsIn,
+    }) => YeSheTravelTrip(
+      id: 88,
+      status: status,
+      startTime: now.subtract(startedAgo),
+      endTime: now.add(endsIn),
+    );
+
+    final traveling = trip(
+      status: 'TRAVELING',
+      startedAgo: const Duration(minutes: 10),
+      endsIn: const Duration(minutes: 90),
+    );
+    final arrived = trip(
+      status: 'TRAVELING',
+      startedAgo: const Duration(minutes: 55),
+      endsIn: const Duration(minutes: 45),
+    );
+    final returning = trip(
+      status: 'TRAVELING',
+      startedAgo: const Duration(minutes: 70),
+      endsIn: const Duration(minutes: 30),
+    );
+    final settled = trip(
+      status: 'SETTLED',
+      startedAgo: const Duration(hours: 3),
+      endsIn: const Duration(hours: -1),
+    );
+
+    expect(traveling.stageAt(now), '路途中');
+    expect(arrived.stageAt(now), '已抵达');
+    expect(returning.stageAt(now), '归途中');
+    expect(returning.progressAt(now), closeTo(0.7, 0.01));
+    expect(settled.stageAt(now), '已返回');
+    expect(settled.canSettle, isTrue);
+    expect(traveling.canSettle, isFalse);
+    expect(traveling.inProgress, isTrue);
+  });
+
   test('公开想法与收藏摘要读取可选内容', () {
     final thought = YeSheThought.fromJson(<String, dynamic>{
       'id': '31',

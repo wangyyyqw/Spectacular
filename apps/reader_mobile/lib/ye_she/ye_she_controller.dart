@@ -34,6 +34,7 @@ class YeSheController extends ChangeNotifier {
   bool _loadingCommunity = false;
   bool _authExpired = false;
   bool _actionBusy = false;
+  Future<void>? _studyTask;
   String _actionName = '';
   String? _studyError;
   String? _playError;
@@ -251,19 +252,60 @@ class YeSheController extends ChangeNotifier {
   }
 
   /// 刷新文房。
+  ///
+  /// 首屏先等待账户、文会与商会三项核心数据并立即通知页面，其余藏印、
+  /// 花笺、徽章、名片、材料与文会排行在后台并行补齐，避免次要请求拖慢
+  /// 文会卡片和顶部账户的首次显示。
   Future<void> refreshStudy() async {
+    if (!_canLoad()) return;
+    while (_loadingStudy) {
+      final pending = _studyTask;
+      if (pending == null) return;
+      await pending;
+      if (!_canLoad()) return;
+    }
+    final task = _loadStudy();
+    _studyTask = task;
+    try {
+      await task;
+    } finally {
+      if (identical(_studyTask, task)) _studyTask = null;
+    }
+  }
+
+  Future<void> _loadStudy() async {
     if (!_canLoad() || _loadingStudy) return;
     _loadingStudy = true;
     _studyError = null;
     _notify();
     final failures = <String>[];
-    final results = await Future.wait<Object?>(<Future<Object?>>[
+    final core = await Future.wait<Object?>(<Future<Object?>>[
       _attempt(
         '账户',
         _api.fetchCommunityStatus(),
         YeSheAccountStatus.fromJson,
         failures,
       ),
+      _attempt<YeSheLiterarySociety?>(
+        '我的文会',
+        _api.fetchMyLiterarySociety(),
+        _societyFromJson,
+        failures,
+      ),
+      _attempt(
+        '商会',
+        _api.fetchMerchantGuilds(),
+        YeSheMerchantGuilds.fromJson,
+        failures,
+      ),
+    ]);
+    if (_disposed) return;
+    _account = core[0] as YeSheAccountStatus?;
+    _mySociety = core[1] as YeSheLiterarySociety?;
+    _guilds = core[2] as YeSheMerchantGuilds?;
+    _notify();
+
+    final details = await Future.wait<Object?>(<Future<Object?>>[
       _attempt('名帖', _api.fetchCommunityTitle(), YeSheTitle.fromJson, failures),
       _attempt('藏印', _api.fetchUserSeals(), YeSheSeals.fromJson, failures),
       _attempt(
@@ -279,31 +321,7 @@ class YeSheController extends ChangeNotifier {
         YeSheCallingCards.fromJson,
         failures,
       ),
-      _attempt<YeSheLiterarySociety?>(
-        '我的文会',
-        _api.fetchMyLiterarySociety(),
-        _societyFromJson,
-        failures,
-      ),
-      _attempt(
-        '商会',
-        _api.fetchMerchantGuilds(),
-        YeSheMerchantGuilds.fromJson,
-        failures,
-      ),
       _attempt('材料', _api.fetchUserMaterials(), _materialsFromJson, failures),
-    ]);
-    if (_disposed) return;
-    _account = results[0] as YeSheAccountStatus?;
-    _title = results[1] as YeSheTitle?;
-    _seals = results[2] as YeSheSeals?;
-    _notelets = results[3] as YeSheNotelets?;
-    _medals = results[4] as YeSheMedals?;
-    _callingCards = results[5] as YeSheCallingCards?;
-    _mySociety = results[6] as YeSheLiterarySociety?;
-    _guilds = results[7] as YeSheMerchantGuilds?;
-    _materials = results[8] as List<YeSheMaterial>? ?? const <YeSheMaterial>[];
-    final extras = await Future.wait<Object?>(<Future<Object?>>[
       if (_mySociety != null)
         _attempt(
           '文会声望',
@@ -323,8 +341,15 @@ class YeSheController extends ChangeNotifier {
       else
         Future<Object?>.value(),
     ]);
-    _societyScores = extras[0] as YeSheLiterarySocietyScores?;
-    _guildAuction = extras[1] as YeSheGuildAuction?;
+    if (_disposed) return;
+    _title = details[0] as YeSheTitle?;
+    _seals = details[1] as YeSheSeals?;
+    _notelets = details[2] as YeSheNotelets?;
+    _medals = details[3] as YeSheMedals?;
+    _callingCards = details[4] as YeSheCallingCards?;
+    _materials = details[5] as List<YeSheMaterial>? ?? const <YeSheMaterial>[];
+    _societyScores = details[6] as YeSheLiterarySocietyScores?;
+    _guildAuction = details[7] as YeSheGuildAuction?;
     _loadedStudy = true;
     _loadingStudy = false;
     _studyError = _failureText(failures);
@@ -716,29 +741,43 @@ class YeSheController extends ChangeNotifier {
     required String cityCode,
     required int transportId,
     required int principal,
-  }) => _perform(
-    '开始行商',
-    '行商已出发',
-    () => _api.startTravelingMerchant(
-      cityCode: cityCode,
-      transportId: transportId,
-      principal: principal,
-    ),
-    refreshPlay,
-  );
+  }) async {
+    final trip = _travelingMerchant?.activeTrip;
+    if (trip != null) {
+      return YeSheActionResult(
+        success: false,
+        message: trip.inProgress ? '行商进行中，抵达并结算后才能再次出发' : '请先结算当前行商',
+      );
+    }
+    return _perform(
+      '开始行商',
+      '行商已出发',
+      () => _api.startTravelingMerchant(
+        cityCode: cityCode,
+        transportId: transportId,
+        principal: principal,
+      ),
+      refreshPlay,
+    );
+  }
 
   /// 结算行商。
   Future<YeSheActionResult> settleTraveling() {
-    final id = _travelingMerchant?.activeTrip?.id ?? 0;
-    if (id <= 0) {
+    final trip = _travelingMerchant?.activeTrip;
+    if (trip == null || trip.id <= 0) {
       return Future<YeSheActionResult>.value(
         const YeSheActionResult(success: false, message: '当前没有可结算的行程'),
+      );
+    }
+    if (!trip.canSettle) {
+      return Future<YeSheActionResult>.value(
+        const YeSheActionResult(success: false, message: '行商仍在途中，抵达并生成结果后才能结算'),
       );
     }
     return _perform(
       '结算行商',
       '行商已结算',
-      () => _api.settleTravelingMerchant(id),
+      () => _api.settleTravelingMerchant(trip.id),
       refreshPlay,
     );
   }

@@ -328,6 +328,35 @@ class YeSheLiterarySociety {
   final String rewardStatus;
   final String claimedRewardName;
   final String coverUrl;
+
+  /// 上周文会奖励是否已经领取。
+  bool get hasClaimedWeeklyReward {
+    final status = rewardStatus.trim().toUpperCase();
+    return status == 'CLAIMED' ||
+        (status.isEmpty && claimedRewardName.trim().isNotEmpty);
+  }
+
+  /// 是否有可领取的文会周奖励。
+  bool get canClaimWeeklyReward =>
+      !hasClaimedWeeklyReward &&
+      rewardStatus.trim().toUpperCase() == 'CLAIMABLE';
+
+  /// 与领取按钮同步的奖励状态文案。
+  String get weeklyRewardStatusText {
+    if (hasClaimedWeeklyReward) {
+      final name = claimedRewardName.trim();
+      return name.isEmpty ? '已领取' : '已领取 $name';
+    }
+    if (canClaimWeeklyReward) return '可领取';
+    return '暂无奖励';
+  }
+
+  /// 领取周奖励按钮文案；不可领取时用于禁用态说明。
+  String get weeklyRewardActionLabel {
+    if (hasClaimedWeeklyReward) return '本周已领取';
+    if (canClaimWeeklyReward) return '领取周奖励';
+    return '暂无可领取奖励';
+  }
 }
 
 /// 公开文会搜索结果。
@@ -1349,6 +1378,35 @@ class YeSheTravelTrip {
   final String eventSubTypeCode;
   final String eventSubTypeName;
   final int guildBonus;
+
+  /// 服务端已完成行程结算。
+  bool get isSettled => status.trim().toUpperCase() == 'SETTLED';
+
+  /// 当前是否有尚未结算的进行中行程。
+  bool get inProgress => !isSettled;
+
+  /// 是否允许调用结算接口；与阅微一致，仅 SETTLED 行程可以结算。
+  bool get canSettle => isSettled;
+
+  /// 按起止时间计算行程进度，缺失时间时视为尚未出发。
+  double progressAt(DateTime now) {
+    final start = startTime;
+    final end = endTime;
+    if (start == null || end == null) return isSettled ? 1 : 0;
+    final total = end.difference(start).inMilliseconds;
+    if (total <= 0) return now.isBefore(end) ? 0 : 1;
+    final elapsed = now.difference(start).inMilliseconds / total;
+    return elapsed.clamp(0.0, 1.0);
+  }
+
+  /// 阅微原生行商阶段：路途中、已抵达、归途中、已返回。
+  String stageAt(DateTime now) {
+    if (isSettled) return '已返回';
+    final progress = progressAt(now);
+    if (progress <= 0.5) return '路途中';
+    if (progress < 0.6) return '已抵达';
+    return '归途中';
+  }
 }
 
 /// 行商总状态。

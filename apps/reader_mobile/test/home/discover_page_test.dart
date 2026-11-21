@@ -216,6 +216,10 @@ void main() {
     );
     expect(requested.last.queryParameters['platform'], 'qidian');
     await tester.tap(find.byTooltip('网格视图'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(LinearProgressIndicator).evaluate().isEmpty,
+    );
     await tester.pumpAndSettle();
     final grid = tester.widget<GridView>(
       find.byKey(const ValueKey('discover-grid')),
@@ -321,6 +325,111 @@ void main() {
     expect(result?.selection['标签'], '凡人流');
     expect(Uri.parse(result!.category!.url).queryParameters['tag'], '凡人流');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('发现网格按批次跨页补齐并复用分类缓存', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final dir = Directory.systemTemp.createTempSync('discover-batch-test');
+    final store = BookSourceStore(directoryProvider: () async => dir);
+    final cookies = BookSourceCookieStore(directoryProvider: () async => dir);
+    final requested = <Uri>[];
+    final service = BookSourceService(
+      cookieStore: cookies,
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          requested.add(request.url);
+          final page =
+              int.tryParse(request.url.queryParameters['page'] ?? '') ?? 1;
+          final group = request.url.queryParameters['type'] == '2'
+              ? '第二'
+              : '第一';
+          return http.Response(
+            jsonEncode({
+              'books': [
+                for (var index = 0; index < 8; index++)
+                  {
+                    'name': '$group-$page-$index',
+                    'author': '作者',
+                    'url': '/book/$group-$page-$index',
+                  },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      ),
+    );
+    final controller = OnlineBookController(
+      library: LibraryStore.memory(),
+      store: store,
+      service: service,
+      cookieStore: cookies,
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await tester.runAsync(() => dir.delete(recursive: true));
+    });
+    await tester.runAsync(() async {
+      await store.importText(
+        jsonEncode({
+          'bookSourceName': '批次书源',
+          'bookSourceUrl': 'https://batch.example.com',
+          'searchUrl': '/search?q={{key}}',
+          'enabledExplore': true,
+          'ruleSearch': {
+            'bookList': r'$.books',
+            'name': 'name',
+            'author': 'author',
+            'bookUrl': 'url',
+          },
+          'ruleToc': {
+            'chapterList': r'$.chapters',
+            'chapterName': 'name',
+            'chapterUrl': 'url',
+          },
+          'ruleContent': {'content': 'content'},
+          'exploreUrl':
+              '第一::/list?page={{page}}\n第二::/list?page={{page}}&type=2',
+          'ruleExplore': {
+            'bookList': r'$.books',
+            'name': 'name',
+            'author': 'author',
+            'bookUrl': 'url',
+          },
+        }),
+      );
+    });
+    await pumpReaderTask(tester, controller.initialize());
+    await tester.pumpWidget(
+      MaterialApp(home: DiscoverPage(controller: controller)),
+    );
+    await pumpReaderUntil(tester, find.text('第一-1-0'));
+    await tester.pumpAndSettle();
+    expect(requested, hasLength(1));
+
+    await tester.tap(find.byTooltip('网格视图'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(LinearProgressIndicator).evaluate().isEmpty,
+    );
+    expect(
+      requested.map((url) => url.queryParameters['page']),
+      containsAll(<String>['2', '3']),
+    );
+
+    await tester.tap(find.text('第二'));
+    await pumpReaderUntil(tester, find.text('第二-1-0'));
+    await tester.pumpAndSettle();
+    final requestsBeforeCacheHit = requested.length;
+    await tester.tap(find.text('第一'));
+    await tester.pumpAndSettle();
+    expect(find.text('第一-1-0'), findsWidgets);
+    expect(requested, hasLength(requestsBeforeCacheHit));
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('多列选项在放大字号时完整换行且仍可选择', (tester) async {

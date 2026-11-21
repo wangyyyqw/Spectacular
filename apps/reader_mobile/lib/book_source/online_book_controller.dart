@@ -130,8 +130,12 @@ class OnlineBookController extends ChangeNotifier {
     try {
       await cookieStore.load();
       await _withConfiguration(() async {
-        _sources = await _store.load(refresh: refresh);
-        _links = await _store.loadLinks();
+        final loaded = await Future.wait<Object>(<Future<Object>>[
+          _store.load(refresh: refresh),
+          _store.loadLinks(),
+        ]);
+        _sources = loaded[0] as List<BookSource>;
+        _links = loaded[1] as Map<String, OnlineBookLink>;
       });
       final loggedIn = <String>{};
       for (final source in _sources) {

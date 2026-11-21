@@ -59,6 +59,27 @@ void main() {
     expect(api.lastGuildBid, 130);
     expect(api.lastGuildAuctionId, 9);
   });
+
+  test('行商进行中不可结算或再次出发', () async {
+    final api = _FakeYeSheApi();
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
+    addTearDown(controller.dispose);
+
+    await controller.refreshPlay();
+    final start = await controller.startTraveling(
+      cityCode: 'penglai',
+      transportId: 9,
+      principal: 100,
+    );
+    final settle = await controller.settleTraveling();
+
+    expect(start.success, isFalse);
+    expect(start.message, contains('行商进行中'));
+    expect(settle.success, isFalse);
+    expect(settle.message, contains('仍在途中'));
+    expect(api.startTravelRequests, 0);
+    expect(api.settleTravelRequests, 0);
+  });
 }
 
 class _FakeYeSheApi implements YeSheApi {
@@ -68,6 +89,8 @@ class _FakeYeSheApi implements YeSheApi {
   int titleRequests = 0;
   int lastGuildAuctionId = 0;
   int lastGuildBid = 0;
+  int startTravelRequests = 0;
+  int settleTravelRequests = 0;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {
@@ -126,6 +149,29 @@ class _FakeYeSheApi implements YeSheApi {
       lastGuildAuctionId = invocation.namedArguments[#auctionId] as int;
       lastGuildBid = invocation.namedArguments[#amount] as int;
       return Future<YeSheJson>.value(<String, dynamic>{'message': '出价成功'});
+    }
+    if (invocation.memberName == #fetchTravelingMerchant) {
+      final now = DateTime.now();
+      return Future<YeSheJson>.value(<String, dynamic>{
+        'activeTrip': <String, dynamic>{
+          'id': 88,
+          'status': 'TRAVELING',
+          'startTime': now
+              .subtract(const Duration(minutes: 10))
+              .millisecondsSinceEpoch,
+          'endTime': now
+              .add(const Duration(minutes: 90))
+              .millisecondsSinceEpoch,
+        },
+      });
+    }
+    if (invocation.memberName == #startTravelingMerchant) {
+      startTravelRequests += 1;
+      return Future<YeSheJson>.value(<String, dynamic>{'message': '行商已出发'});
+    }
+    if (invocation.memberName == #settleTravelingMerchant) {
+      settleTravelRequests += 1;
+      return Future<YeSheJson>.value(<String, dynamic>{'message': '行商已结算'});
     }
     if (invocation.memberName == #joinMerchantGuild) {
       if (unauthorizedAction) {

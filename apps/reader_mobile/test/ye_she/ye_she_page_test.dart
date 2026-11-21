@@ -205,6 +205,59 @@ void main() {
     expect(find.text('退出文会'), findsNothing);
   });
 
+  testWidgets('已领取文会周奖励时按钮与状态同步禁用', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = YeSheController(
+      tokenProvider: () => 'token',
+      api: _DemoYeSheApi(rewardStatus: 'CLAIMED', claimedRewardName: '鹿鸣印'),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: YeShePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已领取 鹿鸣印'), findsOneWidget);
+    expect(find.text('本周已领取'), findsOneWidget);
+    final button = tester.widget<FilledButton>(
+      find.byKey(const ValueKey<String>('ye-she-society-reward')),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('行商进行中显示进度并隐藏结算与另起一程', (tester) async {
+    tester.view.physicalSize = const Size(1200, 3600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = YeSheController(
+      tokenProvider: () => 'token',
+      api: _DemoYeSheApi(),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: YeShePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('ye-she-tab-play')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('ye-she-tab-study')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('ye-she-merchant-progress')),
+      findsOneWidget,
+    );
+    expect(find.text('行程进行中'), findsOneWidget);
+    expect(find.text('结算行程'), findsNothing);
+    expect(find.text('另起一程'), findsNothing);
+  });
+
   testWidgets('名帖显示升级与传承所需材料及持有数量', (tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1;
@@ -323,6 +376,8 @@ class _DemoYeSheApi implements YeSheApi {
     List<Map<String, dynamic>>? materials,
     this.presidentUserId = 11,
     this.memberUserId = 11,
+    this.rewardStatus = 'CLAIMABLE',
+    this.claimedRewardName = '',
   }) : materials =
            materials ??
            <Map<String, dynamic>>[
@@ -335,6 +390,8 @@ class _DemoYeSheApi implements YeSheApi {
   final List<Map<String, dynamic>> materials;
   final int presidentUserId;
   final int memberUserId;
+  final String rewardStatus;
+  final String claimedRewardName;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {
@@ -399,6 +456,8 @@ class _DemoYeSheApi implements YeSheApi {
           'memberLimit': 6,
           'weekScore': 71,
           'presidentUserId': presidentUserId,
+          'rewardStatus': rewardStatus,
+          'claimedRewardName': claimedRewardName,
           'members': <Object?>[
             <String, dynamic>{
               'userId': memberUserId,

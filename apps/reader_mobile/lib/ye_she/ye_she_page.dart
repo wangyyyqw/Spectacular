@@ -920,12 +920,8 @@ class _YeShePageState extends State<YeShePage>
           ? '尚未加入文会'
           : '${society.level} 级 · ${society.memberCount}/${society.memberLimit} 人 · '
                 '本周 ${society.weekScore} 声望',
-      trailing: society == null
-          ? null
-          : YeSheTag(
-              society.isPublic ? '公开' : '私密',
-              color: YeSheTokens.jade(context),
-            ),
+      showHeader: society == null,
+      banner: society == null ? null : _SocietyBanner(society: society),
       child: society == null
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -954,35 +950,23 @@ class _YeShePageState extends State<YeShePage>
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                YeSheCover(
-                  key: const ValueKey<String>('ye-she-society-cover'),
-                  url: society.coverUrl,
-                  width: double.infinity,
-                  height: 150,
-                  borderRadius: 11,
-                  semanticsLabel: '${society.name}的封面',
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: <Widget>[
-                    YeSheTag(
-                      '${society.level} 级',
-                      color: YeSheTokens.gold(context),
-                    ),
-                    YeSheTag('${society.memberCount}/${society.memberLimit} 人'),
-                    if (isPresident)
-                      YeSheTag('会长', color: YeSheTokens.vermilion(context)),
-                    if (society.inviteCode.trim().isNotEmpty)
-                      YeSheTag(
-                        '邀请码 ${society.inviteCode}',
-                        color: YeSheTokens.jade(context),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 9),
+                if (isPresident || society.inviteCode.trim().isNotEmpty) ...[
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: <Widget>[
+                      if (isPresident)
+                        YeSheTag('会长', color: YeSheTokens.vermilion(context)),
+                      if (society.inviteCode.trim().isNotEmpty)
+                        YeSheTag(
+                          '邀请码 ${society.inviteCode}',
+                          color: YeSheTokens.jade(context),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                ],
                 if (scores != null) ...<Widget>[
                   Text(
                     '本周文会声望 ${scores.totalScore}/${scores.maxScore}',
@@ -1016,14 +1000,7 @@ class _YeShePageState extends State<YeShePage>
                   ),
                 ],
                 const SizedBox(height: 8),
-                _InfoLine(
-                  '奖励状态',
-                  society.claimedRewardName.trim().isEmpty
-                      ? society.rewardStatus.trim().isEmpty
-                            ? '可领取时请点击领取'
-                            : society.rewardStatus
-                      : '已领取 ${society.claimedRewardName}',
-                ),
+                _InfoLine('奖励状态', society.weeklyRewardStatusText),
                 if (scores != null) ...[
                   if (scores.members.isNotEmpty) ...[
                     const SizedBox(height: 8),
@@ -1049,8 +1026,10 @@ class _YeShePageState extends State<YeShePage>
                 ],
                 _actionWrap(<Widget>[
                   _primaryActionButton(
-                    '领取周奖励',
-                    onPressed: _controller.actionBusy
+                    society.weeklyRewardActionLabel,
+                    key: const ValueKey<String>('ye-she-society-reward'),
+                    onPressed:
+                        _controller.actionBusy || !society.canClaimWeeklyReward
                         ? null
                         : () => _confirmedAction(
                             title: '领取文会奖励',
@@ -1372,6 +1351,9 @@ class _YeShePageState extends State<YeShePage>
     final trip = merchant?.activeTrip;
     final cityName = _cityName(merchant, trip?.cityCode);
     final transportName = _transportName(merchant, trip?.transportId);
+    final now = DateTime.now();
+    final tripStage = trip == null ? '待出发' : _tripStatus(trip, now);
+    final progress = trip?.progressAt(now) ?? 0;
     return _YeCard(
       key: const ValueKey<String>('ye-she-merchant'),
       icon: AppGlyph.autoStories,
@@ -1380,7 +1362,7 @@ class _YeShePageState extends State<YeShePage>
           ? merchant == null
                 ? '行商状态尚未读取'
                 : '${merchant.cities.length} 条商路 · ${merchant.transports.where((item) => item.owned).length} 艘船'
-          : '$cityName · ${_tripStatus(trip.status)}',
+          : '$cityName · $tripStage',
       banner: YeSheBanner(
         asset: trip == null
             ? 'shrine_xingshang.webp'
@@ -1389,14 +1371,15 @@ class _YeShePageState extends State<YeShePage>
         label: trip == null ? '行商' : cityName,
         caption: trip == null
             ? '择一城，装一船，待风起'
-            : '${_transportName(merchant, trip.transportId)} · '
-                  '${_tripStatus(trip.status)}',
+            : '$transportName · $tripStage · ${(progress * 100).round()}%',
       ),
       trailing: trip == null
           ? null
           : YeSheTag(
-              _tripStatus(trip.status),
-              color: YeSheTokens.jade(context),
+              tripStage,
+              color: trip.isSettled
+                  ? YeSheTokens.gold(context)
+                  : YeSheTokens.jade(context),
             ),
       child: merchant == null
           ? const _EmptyHint('行商信息暂不可用')
@@ -1409,7 +1392,9 @@ class _YeShePageState extends State<YeShePage>
                       onPressed: _controller.actionBusy
                           ? null
                           : _startTraveling,
-                      child: const Text('开始行商'),
+                      child: Text(
+                        _controller.travelHistory.isEmpty ? '开始行商' : '另起一程',
+                      ),
                     ),
                   ])
                 else ...[
@@ -1435,23 +1420,50 @@ class _YeShePageState extends State<YeShePage>
                       trip.eventContent,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: <Widget>[
+                      Text(
+                        '行程进度 ${(progress * 100).round()}%',
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const Spacer(),
+                      Text(
+                        tripStage,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      key: const ValueKey<String>('ye-she-merchant-progress'),
+                      value: progress,
+                      minHeight: 5,
+                      color: trip.isSettled
+                          ? YeSheTokens.gold(context)
+                          : YeSheTokens.jade(context),
+                      backgroundColor: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                    ),
+                  ),
                   _actionWrap(<Widget>[
-                    TextButton(
-                      onPressed: _controller.actionBusy
-                          ? null
-                          : () => _confirmedAction(
-                              title: '结算行商',
-                              message: '结算本次行程并领取收益？',
-                              action: _controller.settleTraveling,
-                            ),
-                      child: const Text('结算行程'),
-                    ),
-                    TextButton(
-                      onPressed: _controller.actionBusy
-                          ? null
-                          : _startTraveling,
-                      child: const Text('另起一程'),
-                    ),
+                    if (trip.canSettle)
+                      TextButton(
+                        onPressed: _controller.actionBusy
+                            ? null
+                            : () => _confirmedAction(
+                                title: '结算行商',
+                                message: '结算本次行程并领取收益？',
+                                action: _controller.settleTraveling,
+                              ),
+                        child: const Text('结算行程'),
+                      )
+                    else
+                      const TextButton(onPressed: null, child: Text('行程进行中')),
                   ]),
                 ],
                 if (_controller.travelHistory.isNotEmpty)
@@ -2582,6 +2594,17 @@ class _YeShePageState extends State<YeShePage>
   Future<void> _startTraveling() async {
     final data = _controller.travelingMerchant;
     if (data == null) return;
+    final activeTrip = data.activeTrip;
+    if (activeTrip != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            activeTrip.canSettle ? '请先结算当前行商' : '行商进行中，抵达并结算后才能再次出发',
+          ),
+        ),
+      );
+      return;
+    }
     if (data.cities.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('暂无可选商路')));
@@ -2712,7 +2735,7 @@ class _YeShePageState extends State<YeShePage>
             ListTile(
               title: Text(
                 '${_cityName(_controller.travelingMerchant, trip.cityCode)} · '
-                '${_tripStatus(trip.status)}',
+                '${_tripStatus(trip)}',
               ),
               subtitle: Text(
                 '本金 ${trip.principal} 铜 · 结算 ${trip.settlementAmount} 铜',
@@ -2909,14 +2932,121 @@ class _YeShePageState extends State<YeShePage>
     return '船只 $id';
   }
 
-  String _tripStatus(String status) {
-    final normalized = status.toLowerCase();
-    if (normalized.contains('travel')) return '路途中';
-    if (normalized.contains('complete') || normalized.contains('finish')) {
-      return '已抵达';
-    }
-    if (normalized.contains('settle')) return '已结算';
-    return status.trim().isEmpty ? '进行中' : status;
+  String _tripStatus(YeSheTravelTrip trip, [DateTime? now]) =>
+      trip.stageAt(now ?? DateTime.now());
+}
+
+/// 文会封面横幅：与行商、聚宝楼卡片一致，将名称与基本信息叠在图片上。
+class _SocietyBanner extends StatelessWidget {
+  const _SocietyBanner({required this.society});
+
+  final YeSheLiterarySociety society;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 360.0;
+        return SizedBox(
+          height: 148,
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              YeSheCover(
+                key: const ValueKey<String>('ye-she-society-cover'),
+                url: society.coverUrl,
+                width: width,
+                height: 148,
+                borderRadius: 0,
+                semanticsLabel: '${society.name}的封面',
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      Colors.black.withValues(alpha: dark ? 0.18 : 0.02),
+                      Colors.black.withValues(alpha: dark ? 0.72 : 0.6),
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 15,
+                right: 14,
+                bottom: 12,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            society.name.isNotEmpty ? society.name : '文会',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                              shadows: const <Shadow>[
+                                Shadow(color: Color(0x66000000), blurRadius: 8),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${society.level} 级 · '
+                            '${society.memberCount}/${society.memberLimit} 人 · '
+                            '本周 ${society.weekScore} 声望',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              shadows: const <Shadow>[
+                                Shadow(color: Color(0x66000000), blurRadius: 6),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.36),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.24),
+                        ),
+                      ),
+                      child: Text(
+                        society.isPublic ? '公开' : '私密',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -2929,6 +3059,7 @@ class _YeCard extends StatelessWidget {
     required this.child,
     this.banner,
     this.trailing,
+    this.showHeader = true,
   });
 
   final AppGlyph icon;
@@ -2937,6 +3068,7 @@ class _YeCard extends StatelessWidget {
   final Widget child;
   final Widget? banner;
   final Widget? trailing;
+  final bool showHeader;
 
   @override
   Widget build(BuildContext context) {
@@ -2961,57 +3093,59 @@ class _YeCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Container(
-                        width: 30,
-                        height: 30,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: YeSheTokens.vermilion(context)
-                              .withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(8),
+                  if (showHeader) ...<Widget>[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Container(
+                          width: 30,
+                          height: 30,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: YeSheTokens.vermilion(context)
+                                .withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: AppIcon(
+                            icon,
+                            size: 17,
+                            color: YeSheTokens.vermilion(context),
+                          ),
                         ),
-                        child: AppIcon(
-                          icon,
-                          size: 17,
-                          color: YeSheTokens.vermilion(context),
-                        ),
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.4,
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.4,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 1),
-                            Text(
-                              subtitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
+                              const SizedBox(height: 1),
+                              Text(
+                                subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      if (trailing != null) ...<Widget>[
-                        const SizedBox(width: 6),
-                        trailing!,
+                        if (trailing != null) ...<Widget>[
+                          const SizedBox(width: 6),
+                          trailing!,
+                        ],
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 11),
-                  const Divider(height: 1),
-                  const SizedBox(height: 10),
+                    ),
+                    const SizedBox(height: 11),
+                    const Divider(height: 1),
+                    const SizedBox(height: 10),
+                  ],
                   child,
                 ],
               ),

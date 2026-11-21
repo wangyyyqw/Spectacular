@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -31,8 +32,13 @@ class DiscoverPage extends StatefulWidget {
 }
 
 class _DiscoverPageState extends State<DiscoverPage> {
+  static const int _gridBatchSize = 21;
+  static const int _maxSourcePagesPerBatch = 4;
+
   final _query = TextEditingController();
   final _scroll = ScrollController();
+  final LinkedHashMap<String, _DiscoverPageSnapshot> _cache =
+      LinkedHashMap<String, _DiscoverPageSnapshot>();
   BookSource? _source;
   List<BookDiscoverCategory> _categories = const [];
   BookDiscoverCategory? _category;
@@ -94,6 +100,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
         .where((item) => item.id == previous?.id)
         .firstOrNull;
     if (current != null && identical(current, previous)) return;
+    if (previous != null && current != null) _cache.clear();
     if (sources.isEmpty) {
       ++_version;
       setState(() {
@@ -149,12 +156,54 @@ class _DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
-  Future<void> _load({bool reset = false}) async {
+  void _toggleGrid() {
+    final grid = !_grid;
+    setState(() => _grid = grid);
+    if (grid &&
+        !_loading &&
+        _hasMore &&
+        _books.isNotEmpty &&
+        _books.length % _gridBatchSize != 0) {
+      unawaited(_load());
+    }
+  }
+
+  Future<void> _load({bool reset = false, bool force = false}) async {
     final source = _source;
     final category = _category;
     if (source == null || category == null || (!reset && _loading)) return;
     final version = ++_version;
-    final page = reset ? 1 : _page + 1;
+    final cacheKey = _cacheKey(source, category);
+    if (reset && !force) {
+      final cached = _cachedPage(cacheKey);
+      if (cached != null) {
+        setState(() {
+          _books = List<({BookSource source, OnlineBook book})>.of(
+            cached.books,
+          );
+          _page = cached.page;
+          _hasMore = cached.hasMore;
+          _loading = false;
+          _error = null;
+        });
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+        return;
+      }
+    }
+
+    final nextBooks = reset
+        ? <({BookSource source, OnlineBook book})>[]
+        : List<({BookSource source, OnlineBook book})>.of(_books);
+    final seen = nextBooks
+        .map((item) => '${item.source.id}|${item.book.bookUrl}')
+        .toSet();
+    final targetCount = _grid
+        ? ((nextBooks.length ~/ _gridBatchSize) + 1) * _gridBatchSize
+        : nextBooks.length + 1;
+    var nextPage = reset ? 1 : _page + 1;
+    var sourceHasMore = true;
+    var addedAny = false;
+    var stalled = false;
     setState(() {
       _loading = true;
       _error = null;
@@ -166,32 +215,87 @@ class _DiscoverPageState extends State<DiscoverPage> {
     });
     if (reset && _scroll.hasClients) _scroll.jumpTo(0);
     try {
-      final books = await widget.controller.service.discover(
-        source,
-        category,
-        page: page,
-      );
+      var requests = 0;
+      while (requests < _maxSourcePagesPerBatch) {
+        final books = await widget.controller.service.discover(
+          source,
+          category,
+          page: nextPage,
+        );
+        if (!mounted || version != _version) return;
+        requests += 1;
+        sourceHasMore = books.isNotEmpty;
+        var pageAdded = 0;
+        for (final book in books) {
+          if (seen.add('${source.id}|${book.bookUrl}')) {
+            nextBooks.add((source: source, book: book));
+            pageAdded += 1;
+          }
+        }
+        if (pageAdded == 0) {
+          stalled = true;
+          break;
+        }
+        addedAny = true;
+        if (!_grid ||
+            nextBooks.length >= targetCount ||
+            !sourceHasMore ||
+            requests >= _maxSourcePagesPerBatch) {
+          break;
+        }
+        nextPage += 1;
+      }
       if (!mounted || version != _version) return;
-      final seen = _books
-          .map((item) => '${item.source.id}|${item.book.bookUrl}')
-          .toSet();
-      final added = books
-          .where((book) => seen.add('${source.id}|${book.bookUrl}'))
-          .toList();
+      final hasMore = sourceHasMore && addedAny && !stalled;
       setState(() {
-        _books = [
-          ..._books,
-          for (final book in added) (source: source, book: book),
-        ];
-        _page = page;
-        _hasMore = added.isNotEmpty;
+        _books = List<({BookSource source, OnlineBook book})>.unmodifiable(
+          nextBooks,
+        );
+        _page = nextPage;
+        _hasMore = hasMore;
       });
+      if (addedAny) {
+        _storePage(cacheKey, _books, nextPage, hasMore);
+      }
     } on Object catch (error) {
       if (mounted && version == _version) {
-        setState(() => _error = '加载失败：$error');
+        setState(() {
+          _books = List<({BookSource source, OnlineBook book})>.unmodifiable(
+            nextBooks,
+          );
+          _page = nextPage;
+          _hasMore = sourceHasMore && addedAny && !stalled;
+          _error = '加载失败：$error';
+        });
       }
     } finally {
       if (mounted && version == _version) setState(() => _loading = false);
+    }
+  }
+
+  String _cacheKey(BookSource source, BookDiscoverCategory category) =>
+      '${source.id}|${category.title}|${category.url}';
+
+  _DiscoverPageSnapshot? _cachedPage(String key) {
+    final cached = _cache.remove(key);
+    if (cached != null) _cache[key] = cached;
+    return cached;
+  }
+
+  void _storePage(
+    String key,
+    List<({BookSource source, OnlineBook book})> books,
+    int page,
+    bool hasMore,
+  ) {
+    _cache.remove(key);
+    _cache[key] = _DiscoverPageSnapshot(
+      books: List<({BookSource source, OnlineBook book})>.unmodifiable(books),
+      page: page,
+      hasMore: hasMore,
+    );
+    while (_cache.length > 16) {
+      _cache.remove(_cache.keys.first);
     }
   }
 
@@ -504,7 +608,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   IconButton(
                     key: const ValueKey('discover-toggle-view'),
                     tooltip: _grid ? '列表视图' : '网格视图',
-                    onPressed: () => setState(() => _grid = !_grid),
+                    onPressed: _toggleGrid,
                     icon: AppIcon(
                       _grid ? AppGlyph.listView : AppGlyph.gridView,
                     ),
@@ -551,7 +655,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                           } else if (_category == null && _source != null) {
                             unawaited(_selectSource(_source!));
                           } else {
-                            unawaited(_load(reset: true));
+                            unawaited(_load(reset: true, force: true));
                           }
                         }
                       : _manageSources,
@@ -564,7 +668,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
     }
     final footer = !_searchMode && (_hasMore || _error != null);
     return RefreshIndicator(
-      onRefresh: () => _searchMode ? _search() : _load(reset: true),
+      onRefresh: () =>
+          _searchMode ? _search() : _load(reset: true, force: true),
       child: _grid
           ? LayoutBuilder(
               builder: (context, constraints) {
@@ -614,7 +719,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Widget _footer() => TextButton(
-    onPressed: _loading ? null : () => _load(),
+    onPressed: _loading
+        ? null
+        : () => _error == null ? _load() : _load(reset: true, force: true),
     child: Text(
       _loading
           ? '加载中…'
@@ -790,19 +897,45 @@ class _DiscoverCoverState extends State<_DiscoverCover> {
     return SizedBox(
       width: widget.grid ? double.infinity : 64,
       height: widget.grid ? double.infinity : 88,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: FutureBuilder<Uint8List?>(
-          future: _cover,
-          builder: (_, snapshot) => snapshot.data == null
-              ? placeholder
-              : Image.memory(
-                  snapshot.data!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, error, stack) => placeholder,
-                ),
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final logicalWidth = widget.grid
+              ? (constraints.maxWidth.isFinite ? constraints.maxWidth : 150.0)
+              : 64.0;
+          final decodeWidth =
+              (logicalWidth * MediaQuery.devicePixelRatioOf(context))
+                  .ceil()
+                  .clamp(64, 640);
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: FutureBuilder<Uint8List?>(
+              future: _cover,
+              builder: (_, snapshot) => snapshot.data == null
+                  ? placeholder
+                  : Image.memory(
+                      snapshot.data!,
+                      fit: BoxFit.cover,
+                      cacheWidth: decodeWidth,
+                      gaplessPlayback: true,
+                      filterQuality: FilterQuality.medium,
+                      errorBuilder: (_, error, stack) => placeholder,
+                    ),
+            ),
+          );
+        },
       ),
     );
   }
+}
+
+class _DiscoverPageSnapshot {
+  const _DiscoverPageSnapshot({
+    required this.books,
+    required this.page,
+    required this.hasMore,
+  });
+
+  final List<({BookSource source, OnlineBook book})> books;
+  final int page;
+  final bool hasMore;
 }

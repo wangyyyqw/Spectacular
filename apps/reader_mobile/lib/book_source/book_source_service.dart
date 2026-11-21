@@ -154,6 +154,8 @@ class BookSourceService {
   final Map<String, Future<void>> _chapterWrites = {};
   final Map<String, Future<Uint8List?>> _coverCache =
       <String, Future<Uint8List?>>{};
+  final Map<String, List<BookDiscoverCategory>> _discoverCategoryCache =
+      <String, List<BookDiscoverCategory>>{};
 
   static const int maxChapterContentPages = 100;
 
@@ -226,12 +228,15 @@ class BookSourceService {
 
   /// 读取来源声明的发现分类，脚本使用现有正式书源运行时。
   List<BookDiscoverCategory> discoverCategories(BookSource source) {
+    final cacheKey = '${source.id}|${source.exploreUrl}';
+    final cached = _discoverCategoryCache[cacheKey];
+    if (cached != null) return cached;
     var raw = source.exploreUrl.trim();
     final scriptDeclared = raw.startsWith('@js:') || raw.startsWith('<js>');
     if (scriptDeclared) {
       final filter = parseDiscoverFilter(raw, const []);
       if (filter != null) {
-        return [
+        final categories = <BookDiscoverCategory>[
           for (final group in filter.groups)
             for (final option in group.options)
               if (option.parameters.isNotEmpty)
@@ -243,12 +248,15 @@ class BookSourceService {
                   }).url,
                 ),
         ];
+        return _cacheDiscoverCategories(cacheKey, categories);
       }
     }
     final parsed = scriptDeclared
         ? <BookDiscoverCategory>[]
         : parseDiscoverCategories(raw);
-    if (!scriptDeclared && parsed.isNotEmpty) return parsed;
+    if (!scriptDeclared && parsed.isNotEmpty) {
+      return _cacheDiscoverCategories(cacheKey, parsed);
+    }
     if (scriptDeclared || raw.startsWith('[') || raw.startsWith('{')) {
       final script = scriptFactory(source);
       try {
@@ -266,7 +274,19 @@ class BookSourceService {
         script.dispose();
       }
     }
-    return parseDiscoverCategories(raw);
+    return _cacheDiscoverCategories(cacheKey, parseDiscoverCategories(raw));
+  }
+
+  List<BookDiscoverCategory> _cacheDiscoverCategories(
+    String key,
+    List<BookDiscoverCategory> categories,
+  ) {
+    final result = List<BookDiscoverCategory>.unmodifiable(categories);
+    _discoverCategoryCache[key] = result;
+    while (_discoverCategoryCache.length > 64) {
+      _discoverCategoryCache.remove(_discoverCategoryCache.keys.first);
+    }
+    return result;
   }
 
   /// 发现列表与搜索列表共用请求、规则和字段解析，只替换地址及列表声明。
