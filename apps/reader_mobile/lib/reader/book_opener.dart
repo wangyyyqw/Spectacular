@@ -162,7 +162,7 @@ class BookOpener {
     final readerBuilder = _readerBuilder(entry, opening);
     return PageRouteBuilder<EpubReaderExit>(
       transitionDuration: const Duration(milliseconds: 220),
-      reverseTransitionDuration: const Duration(milliseconds: 220),
+      reverseTransitionDuration: Duration.zero,
       pageBuilder: (_, _, _) {
         opening.created = true;
         return BookOpeningReader(
