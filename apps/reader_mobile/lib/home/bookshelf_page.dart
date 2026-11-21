@@ -1064,13 +1064,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final colors = Theme.of(context).colorScheme;
     return Material(
       color: colors.surface,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(20),
       elevation: 2,
       shadowColor: colors.shadow.withValues(alpha: .12),
       child: IconButton(
         key: const ValueKey<String>('bookshelf-import'),
         tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-        constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
         onPressed: busy || !widget.allowImport ? null : _import,
         icon: busy
             ? const SizedBox(
@@ -1086,7 +1086,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildSearchField() {
     final colors = Theme.of(context).colorScheme;
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(20),
       borderSide: BorderSide.none,
     );
     return Material(
@@ -1106,17 +1106,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
           filled: true,
           isDense: true,
           fillColor: colors.surface,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: border,
           enabledBorder: border,
           focusedBorder: border,
           prefixIconConstraints: const BoxConstraints.tightFor(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
           ),
           suffixIconConstraints: const BoxConstraints.tightFor(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
           ),
           prefixIcon: IconButton(
             tooltip: '搜索书架',
