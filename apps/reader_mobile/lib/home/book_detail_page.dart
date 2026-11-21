@@ -13,7 +13,6 @@ import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import 'book_cover_image.dart';
 import 'finish_book_sheet.dart';
-import 'reading_insights.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
 import '../storage/reading_session_store.dart';
@@ -764,7 +763,7 @@ class _BookReadingStats {
     var charactersRead = 0;
 
     for (final session in sessions) {
-      if (session.duration < minimumCountedSessionDuration ||
+      if (session.duration <= Duration.zero ||
           !session.endedAt.isAfter(session.startedAt)) {
         continue;
       }

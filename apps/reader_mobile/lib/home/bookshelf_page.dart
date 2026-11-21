@@ -602,7 +602,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       widget.library.listGroups(),
       widget.library.groupAssignments(),
       widget.progressStore.snapshot(),
-      widget.library.bookReadingDurations(minimumCountedSessionDuration),
+      widget.library.bookReadingDurations(),
     ).wait;
     final items = <_ShelfItem>[
       for (final book in books)
@@ -688,7 +688,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _openBookDetail(BookEntry entry) async {
     final (progress, durations) = await (
       widget.progressStore.load(entry.id),
-      widget.library.bookReadingDurations(minimumCountedSessionDuration),
+      widget.library.bookReadingDurations(),
     ).wait;
     if (!mounted) return;
     final action = await showReaderBottomSheet<String>(

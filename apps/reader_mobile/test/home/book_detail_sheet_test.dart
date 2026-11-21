@@ -186,7 +186,7 @@ void main() {
     expect(find.text('2026-11-20'), findsNothing);
   });
 
-  testWidgets('书架长按按本书汇总有效阅读时长，不混入其他书或短会话', (tester) async {
+  testWidgets('书架长按汇总本书全部短会话，不混入其他书的时长', (tester) async {
     late BookEntry entry;
     await tester.runAsync(() async {
       entry = await store.importBytes(buildTestEpub(title: '计时书籍'));
@@ -216,7 +216,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.longPress(find.byKey(ValueKey('book-card-${entry.id}')));
     await tester.pumpAndSettle();
-    expect(find.text('已读 1 小时 15 分'), findsOneWidget);
+    expect(find.text('已读 1 小时 16 分'), findsOneWidget);
     expect(find.text('已读 0 / 1 章'), findsOneWidget);
   });
 

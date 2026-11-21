@@ -379,7 +379,7 @@ class _CalendarWeek extends StatelessWidget {
     return Semantics(
       label:
           '${date.month}月${date.day}日，'
-          '${books.isEmpty ? '暂无阅读记录' : '${books.length} 本书'}',
+          '${books.isEmpty ? (month.dayDurations.containsKey(date) ? '书目未达展示条件' : '暂无阅读记录') : '${books.length} 本书'}',
       child: InkWell(
         key: ValueKey('stats-calendar-day-${_dateKey(date)}'),
         onTap: enabled ? () => onOpen(month, date) : null,
@@ -437,7 +437,9 @@ class _CalendarDaySheet extends StatelessWidget {
               child: books.isEmpty
                   ? Center(
                       child: Text(
-                        '这一天没有阅读记录',
+                        month.dayDurations.containsKey(date)
+                            ? '当天书目尚未达到展示条件，时长已计入'
+                            : '这一天没有阅读记录',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
@@ -457,7 +459,7 @@ class _CalendarDaySheet extends StatelessWidget {
 
   Widget _heading(BuildContext context, List<BookDurationEntry> books) {
     final scheme = Theme.of(context).colorScheme;
-    final total = books.fold(Duration.zero, (sum, book) => sum + book.duration);
+    final total = month.dayDurations[date] ?? Duration.zero;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -472,6 +474,15 @@ class _CalendarDaySheet extends StatelessWidget {
           key: const ValueKey('stats-calendar-detail-total'),
           style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
         ),
+        if (total >
+            books.fold(Duration.zero, (sum, book) => sum + book.duration))
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '合计包含未展示书目的短时阅读',
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+          ),
       ],
     );
   }

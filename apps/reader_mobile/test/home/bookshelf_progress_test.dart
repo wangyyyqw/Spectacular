@@ -110,7 +110,7 @@ void main() {
     );
     await _settle(tester, frames: 16);
 
-    expect(find.text('已读 1 小时 15 分'), findsNothing);
+    expect(find.text('已读 1 小时 16 分'), findsNothing);
     expect(find.text('已读 2 / 3 章'), findsNothing);
     expect(progressStore.loads, 0, reason: '书架应一次读取全部进度');
     expect(progressStore.snapshots, 1);
@@ -119,7 +119,7 @@ void main() {
     final row = find.byKey(ValueKey('book-row-${entry.id}'));
     Finder line(String label) => find.descendant(of: row, matching: find.text(label));
     final author = tester.getRect(line('未知作者'));
-    final duration = tester.getRect(line('已读 1 小时 15 分'));
+    final duration = tester.getRect(line('已读 1 小时 16 分'));
     final chapters = tester.getRect(line('已读 2 / 3 章'));
     expect(author.bottom, lessThanOrEqualTo(duration.top));
     expect(duration.bottom, lessThanOrEqualTo(chapters.top));

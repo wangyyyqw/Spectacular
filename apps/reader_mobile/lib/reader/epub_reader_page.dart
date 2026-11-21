@@ -280,7 +280,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       final sessions = await store.list();
       if (!mounted) return;
       _savedReadingDuration = sessions
-          .where((session) => session.bookId == widget.bookId)
+          .where(
+            (session) =>
+                session.bookId == widget.bookId &&
+                !(_readingTracker?.ownsSession(session) ?? false),
+          )
           .fold(Duration.zero, (total, session) => total + session.duration);
       _updateReadingDuration();
     } catch (error) {
@@ -332,10 +336,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         bookId: widget.bookId,
       );
       unawaited(_loadReadingDuration(sessionStore));
-      _readingDurationTimer = Timer.periodic(
-        const Duration(seconds: 1),
-        (_) => _updateReadingDuration(),
-      );
+      _readingDurationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        _updateReadingDuration();
+        unawaited(_readingTracker?.checkpoint() ?? Future<void>.value());
+      });
     }
     WidgetsBinding.instance.addObserver(this);
     // 源打开与设置/字体准备并行，首屏排版等待二者和实际内容版本到齐。
@@ -512,6 +516,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   @override
   void dispose() {
     _closing = true;
+    unawaited(_readingTracker?.pause() ?? Future<void>.value());
     _openTrace?.stop();
     _readingDurationTimer?.cancel();
     _readingDuration.dispose();
