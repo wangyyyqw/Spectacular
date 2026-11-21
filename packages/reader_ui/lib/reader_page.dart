@@ -2841,41 +2841,39 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               color: (_effectiveTheme ?? ReaderTheme.white).text,
               background: (_effectiveTheme ?? ReaderTheme.white).background,
               topInset: MediaQuery.paddingOf(context).top,
-              child: _buildReadingView(size),
-            ),
-            if (!widget.editMode &&
-                _effectiveTurnMode != PageTurnMode.scroll &&
-                _hasBookmarkOn(page))
-              Positioned(
-                top: MediaQuery.paddingOf(context).top,
-                right: 12 + MediaQuery.paddingOf(context).right,
-                child: IgnorePointer(
-                  child: Semantics(
-                    label: '当前页已有书签',
-                    child: ReaderBookmarkRibbon(
+              rightInset: MediaQuery.paddingOf(context).right,
+              animateReturn: !_inkMode,
+              ribbon: !widget.editMode &&
+                      _effectiveTurnMode != PageTurnMode.scroll
+                  ? ReaderBookmarkRibbon(
                       key: const ValueKey('reader-bookmark-ribbon'),
                       style: _bookmarkStyle,
                       color: (_effectiveTheme ?? ReaderTheme.white).text,
                       imageLoader: widget.bookmarkImageLoader,
+                    )
+                  : null,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildReadingView(size),
+                  // 读屏位置随正文一起下移，不接收指针事件。
+                  Positioned.fill(
+                    child: Padding(
+                      padding: bodyPadding,
+                      child: ExcludeFocus(
+                        excluding: _hasOverlayOpen || widget.editMode,
+                        child: ReaderSemanticsLayer(
+                          page: page,
+                          pageWidth: size.width - bodyPadding.horizontal,
+                          firstNodeFocus: _semanticsFirstFocus,
+                          onNextPage: () => _requestPageTurn(true),
+                          onPreviousPage: () => _requestPageTurn(false),
+                          onCopyBlock: _copyBlock,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            // 正文语义层（P4-27）：读屏用，不接收指针事件。
-            Positioned.fill(
-              child: Padding(
-                padding: bodyPadding,
-                child: ExcludeFocus(
-                  excluding: _hasOverlayOpen || widget.editMode,
-                  child: ReaderSemanticsLayer(
-                    page: page,
-                    pageWidth: size.width - bodyPadding.horizontal,
-                    firstNodeFocus: _semanticsFirstFocus,
-                    onNextPage: () => _requestPageTurn(true),
-                    onPreviousPage: () => _requestPageTurn(false),
-                    onCopyBlock: _copyBlock,
-                  ),
-                ),
+                ],
               ),
             ),
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
