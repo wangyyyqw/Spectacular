@@ -37,6 +37,7 @@ Future<ReaderSession> _open(
   ReaderTapZones tapZones = ReaderTapZones.defaults,
   bool inkMode = false,
   List<TocEntry> toc = const <TocEntry>[],
+  bool searchEnabled = false,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
@@ -47,6 +48,7 @@ Future<ReaderSession> _open(
         bookId: 'menu',
         tapZones: tapZones,
         inkMode: inkMode,
+        onSearch: searchEnabled ? (_) async => [] : null,
         onSessionReady: (value) => session = value,
       ),
     ),
@@ -61,6 +63,35 @@ Finder _button(String direction) =>
     find.byKey(ValueKey('menu-$direction-chapter'));
 
 void main() {
+  testWidgets('目录面板左右滑动切换可用标签并支持点击返回', (tester) async {
+    final session = await _open(tester, 3, searchEnabled: true);
+    final progress = session.progress;
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    final pages = find.byKey(const ValueKey<String>('drawer-tab-pages'));
+    final width = tester.getSize(pages).width;
+
+    await tester.drag(pages, Offset(-width * 0.8, 0));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('输入关键词后点结果跳转'), findsOneWidget);
+    expect(session.progress, progress);
+
+    await tester.drag(pages, Offset(width * 0.8, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('输入关键词后点结果跳转'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey<String>('drawer-tab-search')));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('drawer-tab-toc')));
+    await tester.pumpAndSettle();
+    final pageView = tester.widget<PageView>(pages);
+    expect(pageView.controller!.page, 0);
+    expect(session.progress, progress);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('菜单外九宫格点击只关闭菜单，不改变阅读页', (tester) async {
     final session = await _open(tester, 3);
     await session.next();
