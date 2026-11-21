@@ -39,6 +39,34 @@ class _MemorySessionStore implements ReadingSessionStore {
 }
 
 void main() {
+  test('累计有效前台秒数，暂停不计时，恢复后接续满一分钟', () async {
+    final store = _MemorySessionStore();
+    var now = DateTime.utc(2026, 11, 21);
+    final tracker = ReadingSessionTracker(
+      store: store,
+      bookId: 'book-1',
+      now: () => now,
+    );
+    tracker.start();
+    now = now.add(const Duration(seconds: 35));
+    expect(tracker.elapsed, const Duration(seconds: 35));
+    await tracker.pause();
+    now = now.add(const Duration(minutes: 5));
+    expect(tracker.elapsed, const Duration(seconds: 35));
+    tracker.start();
+    now = now.add(const Duration(seconds: 25));
+    expect(tracker.elapsed, const Duration(minutes: 1));
+    await tracker.pause();
+    expect(tracker.elapsed, const Duration(minutes: 1));
+    expect(
+      store.items.fold<Duration>(
+        Duration.zero,
+        (total, item) => total + item.duration,
+      ),
+      const Duration(minutes: 1),
+    );
+  });
+
   test('进入后台暂停，恢复后开启新片段，结束时提交剩余时长', () async {
     final store = _MemorySessionStore();
     var now = DateTime(2026, 11, 3, 8);
