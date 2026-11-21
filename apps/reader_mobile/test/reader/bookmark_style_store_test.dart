@@ -23,6 +23,7 @@ void main() {
     const style = ReaderBookmarkStyle(
       width: 40,
       length: 120,
+      rightInset: 72,
       imageId: 'image:/bookmark.png',
     );
     final settings = ReaderSettings.defaults.copyWithBookmarkStyle(style);
@@ -58,6 +59,19 @@ void main() {
     expect(
       (await store.load()).bookmarkStyle,
       const ReaderBookmarkStyle(width: 12, length: 200),
+    );
+    for (final (value, expected) in [(-20, 0.0), (9999, 160.0)]) {
+      await library.setSetting(
+        ReaderSettingsStore.keyBookmarkStyle,
+        '{"rightInset":$value}',
+      );
+      expect((await store.load()).bookmarkStyle.rightInset, expected);
+    }
+    expect(
+      const ReaderBookmarkStyle(rightInset: 72)
+          .withImage('image:test')
+          .rightInset,
+      72,
     );
   });
 

@@ -1,32 +1,46 @@
 /// 全局书签外观；尺寸为逻辑像素，不参与正文排版。
 class ReaderBookmarkStyle {
-  const ReaderBookmarkStyle({this.width = 24, this.length = 60, this.imageId});
+  const ReaderBookmarkStyle({
+    this.width = 24,
+    this.length = 60,
+    this.rightInset = 37,
+    this.imageId,
+  });
 
   final double width;
   final double length;
+  final double rightInset;
   final String? imageId;
-
-  /// 从原右边距 12 向左移 25；纸面与下拉提示共用同一位置。
-  static const rightInset = 37.0;
 
   static const minWidth = 12.0;
   static const maxWidth = 96.0;
   static const minLength = 24.0;
   static const maxLength = 200.0;
+  static const minRightInset = 0.0;
+  static const maxRightInset = 160.0;
 
-  ReaderBookmarkStyle copyWith({double? width, double? length}) =>
-      ReaderBookmarkStyle(
-        width: width ?? this.width,
-        length: length ?? this.length,
-        imageId: imageId,
-      );
+  ReaderBookmarkStyle copyWith({
+    double? width,
+    double? length,
+    double? rightInset,
+  }) => ReaderBookmarkStyle(
+    width: width ?? this.width,
+    length: length ?? this.length,
+    rightInset: rightInset ?? this.rightInset,
+    imageId: imageId,
+  );
 
-  ReaderBookmarkStyle withImage(String? id) =>
-      ReaderBookmarkStyle(width: width, length: length, imageId: id);
+  ReaderBookmarkStyle withImage(String? id) => ReaderBookmarkStyle(
+    width: width,
+    length: length,
+    rightInset: rightInset,
+    imageId: id,
+  );
 
   Map<String, Object?> toJson() => {
     'width': width,
     'length': length,
+    'rightInset': rightInset,
     'imageId': imageId,
   };
 
@@ -43,6 +57,7 @@ class ReaderBookmarkStyle {
     return ReaderBookmarkStyle(
       width: dimension('width', 24, minWidth, maxWidth),
       length: dimension('length', 60, minLength, maxLength),
+      rightInset: dimension('rightInset', 37, minRightInset, maxRightInset),
       imageId: image is String && image.startsWith('image:') ? image : null,
     );
   }
@@ -52,8 +67,9 @@ class ReaderBookmarkStyle {
       other is ReaderBookmarkStyle &&
       other.width == width &&
       other.length == length &&
+      other.rightInset == rightInset &&
       other.imageId == imageId;
 
   @override
-  int get hashCode => Object.hash(width, length, imageId);
+  int get hashCode => Object.hash(width, length, rightInset, imageId);
 }

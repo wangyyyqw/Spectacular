@@ -23,7 +23,11 @@ void main() {
           data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
           child: Scaffold(
             body: ReaderBookmarkStyleSheet(
-              style: const ReaderBookmarkStyle(),
+              style: const ReaderBookmarkStyle(
+                width: 96,
+                length: 200,
+                rightInset: 160,
+              ),
               onPickImage: () async => next,
               imageLoader: (_) async => image,
             ),
