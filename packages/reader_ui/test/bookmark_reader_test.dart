@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,7 @@ import 'package:reader_ui/bookmarks/bookmark_ribbon.dart';
 import 'package:reader_ui/bookmarks/bookmark_style.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -96,6 +99,7 @@ Future<ReaderSession> _open(
   ValueChanged<ReaderBookmarkStyle>? onStyle,
   bool disableAnimations = false,
   double topInset = 0,
+  Future<Uint8List> Function(String)? imageLoader,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
@@ -118,6 +122,7 @@ Future<ReaderSession> _open(
               bookId: '书签回归',
               bookmarks: bookmarks,
               bookmarkStyle: style,
+              bookmarkImageLoader: imageLoader,
               onBookmarkStyleChanged: onStyle,
               pageTurnMode: mode,
               overrides: const ReaderOverrides(),
@@ -158,6 +163,7 @@ Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
   expect(pulled.top, greaterThan(original.top + 140));
   expect(tester.getRect(hint).bottom, lessThan(pulled.top));
   final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
+  expect(ribbon, findsOneWidget, reason: '下拉提示与纸面不能重复绘制书签');
   expect(tester.getTopRight(ribbon).dy, original.top);
   await gesture.up();
   await tester.pump();
@@ -170,7 +176,175 @@ Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
   expect(hint, findsNothing);
 }
 
+Future<void> _prepareTurn(WidgetTester tester, {required bool next}) async {
+  final controller = tester
+      .state<PageTurnViewState>(find.byType(PageTurnView))
+      .controller;
+  final down = Offset(next ? 350 : 10, 260);
+  final touch = Offset(next ? 170 : 190, 260);
+  controller.pointerDown(down);
+  controller.beginDrag(DragStartDetails(localPosition: down));
+  controller.updateDrag(
+    DragUpdateDetails(localPosition: touch, globalPosition: touch),
+  );
+  for (
+    var i = 0;
+    i < 80 &&
+        (controller.originImage == null || controller.targetImage == null);
+    i++
+  ) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1)),
+    );
+  }
+  expect(controller.originImage, isNotNull);
+  expect(controller.targetImage, isNotNull);
+}
+
+Future<void> _expectSnapshotBookmark(
+  WidgetTester tester,
+  ui.Image image, {
+  required bool marked,
+}) async {
+  final data = (await tester.runAsync(image.toByteData))!;
+  final x = (image.width * 330 / 360).floor();
+  final y = (image.height * 8 / 520).floor();
+  final offset = (y * image.width + x) * 4;
+  final channels = [for (var i = 0; i < 3; i++) data.getUint8(offset + i)];
+  if (marked) {
+    expect(channels, everyElement(lessThan(100)));
+    expect(data.getUint8(offset + 3), 255);
+  } else {
+    expect(
+      data.getUint8(offset + 3) == 0 || channels.every((value) => value > 240),
+      isTrue,
+      reason: '无书签纸面在该位置应为透明或纸底色',
+    );
+  }
+}
+
 void main() {
+  testWidgets('自定义书签图片先解码再捕获，邻页快照复用同一图片', (tester) async {
+    final bytes = Completer<Uint8List>();
+    var loads = 0;
+    final bookmarks = _Bookmarks();
+    await _open(
+      tester,
+      bookmarks,
+      style: const ReaderBookmarkStyle(imageId: 'image:书签'),
+      imageLoader: (_) {
+        loads++;
+        return bytes.future;
+      },
+    );
+    await _pullBookmark(tester);
+    final png = (await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawColor(const Color(0xFFFF0000), BlendMode.src);
+      final picture = recorder.endRecording();
+      final image = picture.toImageSync(1, 1);
+      try {
+        return (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer
+            .asUint8List();
+      } finally {
+        image.dispose();
+        picture.dispose();
+      }
+    }))!;
+    bytes.complete(png);
+    await _prepareTurn(tester, next: true);
+    final controller = tester
+        .state<PageTurnViewState>(find.byType(PageTurnView))
+        .controller;
+    final image = controller.originImage!;
+    final data = (await tester.runAsync(image.toByteData))!;
+    final offset =
+        ((image.height * 8 / 520).floor() * image.width +
+            (image.width * 330 / 360).floor()) *
+        4;
+    expect(
+      [for (var i = 0; i < 4; i++) data.getUint8(offset + i)],
+      [255, 0, 0, 255],
+    );
+    expect(loads, 1);
+    controller.cancel();
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final mode in PageTurnMode.values.where(
+    (mode) => mode != PageTurnMode.scroll && mode != PageTurnMode.none,
+  )) {
+    testWidgets('${mode.label}翻页快照携带各自书签，增删后不沿用旧缓存', (tester) async {
+      final bookmarks = _Bookmarks();
+      final session = await _open(tester, bookmarks, mode: mode);
+      final controller = tester
+          .state<PageTurnViewState>(find.byType(PageTurnView))
+          .controller;
+      await _prepareTurn(tester, next: true);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: false,
+      );
+      controller.cancel();
+      await tester.pumpAndSettle();
+      await _pullBookmark(tester);
+      await _prepareTurn(tester, next: true);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: true,
+      );
+      await _expectSnapshotBookmark(
+        tester,
+        controller.targetImage!,
+        marked: false,
+      );
+      expect(
+        find.byKey(const ValueKey('reader-bookmark-ribbon')),
+        findsNothing,
+        reason: '活动翻页由纸面快照承载书签，屏幕顶边不再叠加固定标记',
+      );
+      controller.endDrag(
+        DragEndDetails(
+          velocity: const Velocity(pixelsPerSecond: Offset(-1000, 0)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(session.page!.pageIndex, 1);
+      await _prepareTurn(tester, next: false);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: false,
+      );
+      await _expectSnapshotBookmark(
+        tester,
+        controller.targetImage!,
+        marked: true,
+      );
+      controller.endDrag(
+        DragEndDetails(
+          velocity: const Velocity(pixelsPerSecond: Offset(1000, 0)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(session.page!.pageIndex, 0);
+      await _pullBookmark(tester, remove: true);
+      await _prepareTurn(tester, next: true);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: false,
+      );
+      controller.cancel();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('书签在有状态栏留白时仍贴紧页面顶边，添加与移除不弹底部提示', (tester) async {
     final bookmarks = _Bookmarks();
     await _open(tester, bookmarks, topInset: 32);
