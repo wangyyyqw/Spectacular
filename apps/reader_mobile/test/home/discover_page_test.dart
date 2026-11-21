@@ -27,9 +27,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final dir = Directory.systemTemp.createTempSync('discover-test');
     final store = BookSourceStore(directoryProvider: () async => dir);
+    final cookies = BookSourceCookieStore(directoryProvider: () async => dir);
     final requested = <Uri>[];
     final service = BookSourceService(
-      cookieStore: BookSourceCookieStore(directoryProvider: () async => dir),
+      cookieStore: cookies,
       httpClient: BookSourceHttpClient(
         client: MockClient((request) async {
           requested.add(request.url);
@@ -61,10 +62,11 @@ void main() {
       library: LibraryStore.memory(),
       store: store,
       service: service,
+      cookieStore: cookies,
     );
     addTearDown(() async {
       controller.dispose();
-      await dir.delete(recursive: true);
+      await tester.runAsync(() => dir.delete(recursive: true));
     });
     await tester.runAsync(() async {
       await store.importText(
@@ -121,8 +123,8 @@ void main() {
           },
         }),
       );
-      await controller.initialize();
     });
+    await pumpReaderTask(tester, controller.initialize());
     await tester.pumpWidget(
       MaterialApp(home: DiscoverPage(controller: controller)),
     );

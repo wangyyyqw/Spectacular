@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 import '../book_source/book_source_discovery.dart';
 import '../book_source/book_source_models.dart';
@@ -332,7 +333,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(20),
       borderSide: BorderSide.none,
     );
     return Scaffold(
@@ -341,9 +342,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
         toolbarHeight: 56,
         titleSpacing: 16,
         title: Material(
-          color: colors.surface,
-          elevation: 2,
-          shadowColor: colors.shadow.withValues(alpha: .12),
+          color: ReaderDrawerStyle.searchSurfaceOf(theme),
+          elevation: 3,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
           borderRadius: border.borderRadius,
           child: TextField(
             key: const ValueKey('discover-search-field'),
@@ -353,15 +355,19 @@ class _DiscoverPageState extends State<DiscoverPage> {
             decoration: InputDecoration(
               hintText: '搜索书名或作者',
               filled: true,
-              fillColor: colors.surface,
+              fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
               isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
               border: border,
               enabledBorder: border,
               focusedBorder: border,
               prefixIconConstraints: const BoxConstraints.tightFor(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
+              ),
+              suffixIconConstraints: const BoxConstraints.tightFor(
+                width: 40,
+                height: 40,
               ),
               prefixIcon: IconButton(
                 tooltip: '在线搜索',
@@ -387,15 +393,15 @@ class _DiscoverPageState extends State<DiscoverPage> {
             child: Center(
               child: Material(
                 color: colors.surface,
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(20),
                 elevation: 2,
                 shadowColor: colors.shadow.withValues(alpha: .12),
                 child: IconButton(
                   key: const ValueKey('discover-source-menu'),
                   tooltip: '筛选管理',
                   constraints: const BoxConstraints.tightFor(
-                    width: 44,
-                    height: 44,
+                    width: 40,
+                    height: 40,
                   ),
                   icon: const AppIcon(AppGlyph.more),
                   onPressed: _openFilter,
