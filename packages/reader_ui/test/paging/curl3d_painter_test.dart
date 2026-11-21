@@ -12,6 +12,26 @@ const _red = Color(0xFFFF0000);
 const _blue = Color(0xFF0000FF);
 const _paper = Color(0xFFFFFDF4);
 
+class _UnclippedGeometry extends Curl3dGeometry {
+  _UnclippedGeometry(Curl3dGeometry geometry)
+    : super(size: geometry.size, grab: geometry.grab, touch: geometry.touch);
+
+  @override
+  List<Curl3dStrip> get strips => [
+    for (final strip in super.strips) _UnclippedStrip(strip, size),
+  ];
+}
+
+class _UnclippedStrip extends Curl3dStrip {
+  _UnclippedStrip(Curl3dStrip strip, this.size)
+    : super(strip.mesh, strip.profile);
+
+  final Size size;
+
+  @override
+  Rect get projectedBounds => Offset.zero & size;
+}
+
 Future<ui.Image> _solid(Color color) async {
   final recorder = ui.PictureRecorder();
   Canvas(recorder).drawColor(color, BlendMode.src);
@@ -41,18 +61,29 @@ Future<ByteData> _render(
   ui.Image target, {
   Curl3dGeometry? geometry,
   bool mirror = false,
+  Curl3dPaintResources? resources,
+  ui.Image? backgroundImage,
+  Color paperColor = _paper,
+  double ratio = 1,
 }) async {
   await DuokanCurlShader.load();
   final recorder = ui.PictureRecorder();
-  Curl3dPainter(paperColor: _paper).paint(
-    Canvas(recorder),
+  Curl3dPainter(
+    paperColor: paperColor,
+    backgroundImage: backgroundImage,
+    resources: resources,
+  ).paint(
+    Canvas(recorder)..scale(ratio),
     origin,
     target,
     geometry: geometry ?? _geometry(),
     mirror: mirror,
   );
   final picture = recorder.endRecording();
-  final image = await picture.toImage(400, 600);
+  final image = await picture.toImage(
+    (400 * ratio).ceil(),
+    (600 * ratio).ceil(),
+  );
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   image.dispose();
   picture.dispose();
@@ -77,6 +108,106 @@ bool _isBlue(List<int> pixel) =>
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final (grab, touch) in [
+    (const Offset(400, 300), const Offset(380, 300)),
+    (const Offset(400, 300), const Offset(200, 300)),
+    (const Offset(400, 0), const Offset(300, 120)),
+    (const Offset(400, 600), const Offset(300, 480)),
+    (const Offset(400, 0), const Offset(200, 12)),
+    (const Offset(400, 600), const Offset(200, 588)),
+    (const Offset(400, 0), const Offset(380, -40)),
+    (const Offset(400, 300), const Offset(-280, 300)),
+    (const Offset(400, 300), const Offset(-400, 300)),
+    (const Offset(-400, 600), const Offset(100, 480)),
+  ]) {
+    for (final mirror in [false, true]) {
+      test('裁剪保持透明纸底像素：抓点 $grab、触点 $touch、镜像 $mirror', () async {
+        final origin = await _marked();
+        final target = await _solid(_blue);
+        addTearDown(origin.dispose);
+        addTearDown(target.dispose);
+        final geometry = _geometry(grab: grab, touch: touch);
+        final clipped = await _render(
+          origin,
+          target,
+          geometry: geometry,
+          mirror: mirror,
+          paperColor: const Color(0x00FFFDF4),
+          ratio: 1.75,
+        );
+        final full = await _render(
+          origin,
+          target,
+          geometry: _UnclippedGeometry(geometry),
+          mirror: mirror,
+          paperColor: const Color(0x00FFFDF4),
+          ratio: 1.75,
+        );
+        expect(
+          clipped.buffer.asUint8List(),
+          orderedEquals(full.buffer.asUint8List()),
+          reason: '抓点 $grab、触点 $touch、镜像 $mirror',
+        );
+      });
+    }
+  }
+
+  test('视口复用两类着色器，更新纹理及纸色后无旧帧残留，销毁释放资源', () async {
+    final resources = Curl3dPaintResources();
+    expect(resources.debugSheetShader, isNull);
+    expect(resources.debugShadowShader, isNull);
+    final origin = await _marked();
+    final target = await _solid(_blue);
+    addTearDown(origin.dispose);
+    addTearDown(target.dispose);
+    ui.FragmentShader? sheet, shadow;
+    for (var frame = 0; frame < 4; frame++) {
+      final geometry = _geometry(touch: Offset(300 - frame * 40, 480));
+      final front = frame.isEven ? origin : target;
+      final bottom = frame.isEven ? target : origin;
+      final background = frame < 2 ? origin : null;
+      final paperColor = frame.isEven ? _paper : const Color(0xFF102020);
+      final shared = await _render(
+        front,
+        bottom,
+        geometry: geometry,
+        mirror: frame.isOdd,
+        resources: resources,
+        backgroundImage: background,
+        paperColor: paperColor,
+      );
+      final separate = await _render(
+        front,
+        bottom,
+        geometry: geometry,
+        mirror: frame.isOdd,
+        backgroundImage: background,
+        paperColor: paperColor,
+      );
+      expect(
+        shared.buffer.asUint8List(),
+        orderedEquals(separate.buffer.asUint8List()),
+      );
+      sheet ??= resources.debugSheetShader;
+      shadow ??= resources.debugShadowShader;
+      expect(resources.debugSheetShader, same(sheet));
+      expect(resources.debugShadowShader, same(shadow));
+    }
+    expect(sheet!.debugDisposed, isFalse);
+    expect(shadow!.debugDisposed, isFalse);
+    resources.releaseImages();
+    expect(sheet.debugDisposed, isTrue);
+    expect(resources.debugSheetShader, isNull);
+    expect(shadow.debugDisposed, isFalse);
+    await _render(origin, target, resources: resources);
+    final replacement = resources.debugSheetShader!;
+    expect(replacement, isNot(same(sheet)));
+    expect(resources.debugShadowShader, same(shadow));
+    resources.dispose();
+    expect(replacement.debugDisposed, isTrue);
+    expect(shadow.debugDisposed, isTrue);
+  });
 
   test('掀起的页角露出下一页，其余位置保留原页', () async {
     final origin = await _solid(_red);

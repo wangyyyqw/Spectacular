@@ -124,6 +124,35 @@ class _CfiPageSource implements ReaderChapterSource {
   Future<List<PageContent>> loadChapter(int spineIndex) async => pages;
 }
 
+class _CountingSession extends ReaderSession {
+  _CountingSession({required super.source, required super.store})
+    : super(bookId: '滚动合并', contentRevision: '测试版本');
+
+  int captures = 0;
+  int cfiResolutions = 0;
+
+  @override
+  bool stageViewportSnapshot(
+    ReaderViewportSnapshot snapshot, {
+    bool userNavigation = true,
+  }) {
+    captures += 1;
+    return super.stageViewportSnapshot(
+      snapshot,
+      userNavigation: userNavigation,
+    );
+  }
+
+  @override
+  String? cfiAtPageOffset(PageContent value, double? scrollOffset) {
+    cfiResolutions += 1;
+    return super.cfiAtPageOffset(value, scrollOffset);
+  }
+
+  String? expectedCfi(PageContent value, double offset) =>
+      super.cfiAtPageOffset(value, offset);
+}
+
 class _VariablePageSource implements ReaderChapterSource {
   final loads = <int>[];
 
@@ -237,6 +266,108 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() condition) async {
 }
 
 void main() {
+  testWidgets('同帧滚动只捕获一次，同行复用 CFI，跨行刷新锚点', (tester) async {
+    final session = _CountingSession(
+      source: _CfiPageSource(),
+      store: MemoryReaderProgressStore(),
+    );
+    await session.open();
+    final key = GlobalKey<ContinuousScrollViewState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ContinuousScrollView(
+          key: key,
+          session: session,
+          revision: 1,
+          padding: EdgeInsets.zero,
+          paperBuilder: (_, _) => const ColoredBox(color: Colors.white),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    session.captures = 0;
+    session.cfiResolutions = 0;
+    position.jumpTo(3);
+    position.jumpTo(6);
+    position.jumpTo(9);
+    expect(session.captures, 0);
+    await tester.pump();
+    expect(session.captures, 1);
+    final afterFirstLine = session.cfiResolutions;
+    expect(afterFirstLine, greaterThan(0));
+    final firstCfi = session.readingCfi;
+
+    position.jumpTo(12);
+    await tester.pump();
+    expect(session.cfiResolutions, afterFirstLine);
+    expect(session.readingCfi, firstCfi);
+    position.jumpTo(30);
+    await tester.pump();
+    expect(session.cfiResolutions, afterFirstLine + 1);
+    expect(session.readingCfi, isNot(firstCfi));
+    final hit = key.currentState!.pageAt(const Offset(100, 0))!;
+    expect(
+      session.readingCfi,
+      session.expectedCfi(hit.page, hit.localPosition.dy),
+    );
+    final beforeDelayedFrame = session.captures;
+    position.jumpTo(70);
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      session.captures,
+      beforeDelayedFrame + 1,
+      reason: '帧合并尚未执行时取消上一位置的防抖提交，不能短暂回写旧位置',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    session.dispose();
+  });
+
+  for (final saveBeforeDispose in [true, false]) {
+    testWidgets('滚动合并帧尚未执行时${saveBeforeDispose ? '会话立即保存' : '立即退出'}仍保留最新位置', (
+      tester,
+    ) async {
+      final store = MemoryReaderProgressStore();
+      final session = _CountingSession(source: _CfiPageSource(), store: store);
+      await session.open();
+      final key = GlobalKey<ContinuousScrollViewState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ContinuousScrollView(
+            key: key,
+            session: session,
+            revision: 1,
+            padding: EdgeInsets.zero,
+            paperBuilder: (_, _) => const ColoredBox(color: Colors.white),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable))
+          .position;
+      session.captures = 0;
+      position.jumpTo(5);
+      position.jumpTo(30);
+      expect(session.captures, 0);
+      final hit = key.currentState!.pageAt(const Offset(100, 0))!;
+      final expectedCfi = session.expectedCfi(hit.page, hit.localPosition.dy);
+      if (saveBeforeDispose) {
+        await session.flushProgress();
+      } else {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await session.flushProgress();
+      }
+      final saved = await store.load(session.bookId);
+      expect(saved?.scrollOffset, 30);
+      expect(saved?.cfi, expectedCfi);
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+    });
+  }
+
   for (final pageIndex in [0, 34]) {
     testWidgets('进入滚动模式补入变高邻章后仍显示原章第 $pageIndex 页', (tester) async {
       await tester.binding.setSurfaceSize(const Size(384, 853));
@@ -521,6 +652,7 @@ void main() {
 
     final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
     scrollable.position.jumpTo(350);
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(session.progress?.spineIndex, 0);
@@ -670,6 +802,7 @@ void main() {
     );
     expect(find.byKey(const ValueKey('delayed-2-1')), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(session.progress!.pageIndex, greaterThanOrEqualTo(2));
     final before = session.progress;
@@ -682,6 +815,63 @@ void main() {
     session.dispose();
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final disposeBeforeSave in [false, true]) {
+    testWidgets('前插章节尚未布局时${disposeBeforeSave ? '立即退出' : '立即保存'}保持原纸面位置', (
+      tester,
+    ) async {
+      final source = _DelayedNeighbors();
+      final store = MemoryReaderProgressStore();
+      await store.save(
+        'pending-insert',
+        const ReaderProgress(spineIndex: 2, pageIndex: 1, scrollOffset: 125),
+      );
+      final session = ReaderSession(
+        source: source,
+        store: store,
+        bookId: 'pending-insert',
+      );
+      await session.open();
+      final key = GlobalKey<ContinuousScrollViewState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ContinuousScrollView(
+            key: key,
+            session: session,
+            revision: 1,
+            padding: EdgeInsets.zero,
+            paperBuilder: (_, _) => const ColoredBox(color: Colors.white),
+          ),
+        ),
+      );
+      await _pumpUntil(tester, () => source.requested.contains(1));
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable))
+          .position;
+      position.jumpTo(450);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      source.gate.complete();
+      // 仅清空异步加载，不绘制下一帧：条目已有前章，眼前仍是旧纸面。
+      await tester.idle();
+      expect(key.currentState!.debugLoadedSpineIndices, contains(1));
+      position.jumpTo(475);
+      final actual = key.currentState!.pageAt(const Offset(100, 0));
+      expect(actual?.page.spineIndex, 2);
+      expect(actual?.page.pageIndex, 1);
+      expect(actual?.localPosition.dy, 175);
+      if (disposeBeforeSave) {
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+      await session.flushProgress();
+      final saved = await store.load('pending-insert');
+      expect(saved?.spineIndex, 2);
+      expect(saved?.pageIndex, 1);
+      expect(saved?.scrollOffset, 175);
+      await tester.pumpWidget(const SizedBox.shrink());
+      session.dispose();
+    });
+  }
 
   testWidgets('连续滚动只保留视口附近的章节', (tester) async {
     final source = _Source();

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,7 @@ import 'package:reader_ui/bookmarks/bookmark_ribbon.dart';
 import 'package:reader_ui/bookmarks/bookmark_style.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -57,6 +60,7 @@ class _Book implements RestylableChapterSource {
 class _Bookmarks implements ReaderBookmarkStore {
   final items = <ReaderBookmark>[];
   bool fail = false;
+  bool failRemove = false;
 
   @override
   Future<List<ReaderBookmark>> list() async => List.of(items);
@@ -81,8 +85,10 @@ class _Bookmarks implements ReaderBookmarkStore {
   }
 
   @override
-  Future<void> remove(String id) async =>
-      items.removeWhere((item) => item.id == id);
+  Future<void> remove(String id) async {
+    if (failRemove) throw StateError('测试删除失败');
+    items.removeWhere((item) => item.id == id);
+  }
 }
 
 Future<ReaderSession> _open(
@@ -91,10 +97,20 @@ Future<ReaderSession> _open(
   PageTurnMode mode = PageTurnMode.cover,
   ReaderBookmarkStyle style = const ReaderBookmarkStyle(),
   ValueChanged<ReaderBookmarkStyle>? onStyle,
+  bool disableAnimations = false,
+  double topInset = 0,
+  Future<Uint8List> Function(String)? imageLoader,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          disableAnimations: disableAnimations,
+          padding: EdgeInsets.only(top: topInset),
+        ),
+        child: child!,
+      ),
       home: Scaffold(
         body: Center(
           child: SizedBox(
@@ -106,6 +122,7 @@ Future<ReaderSession> _open(
               bookId: '书签回归',
               bookmarks: bookmarks,
               bookmarkStyle: style,
+              bookmarkImageLoader: imageLoader,
               onBookmarkStyleChanged: onStyle,
               pageTurnMode: mode,
               overrides: const ReaderOverrides(),
@@ -131,34 +148,335 @@ Future<void> _move(WidgetTester tester, Future<Object?> action) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _pullBookmark(WidgetTester tester, {bool remove = false}) async {
+  final view = find.byType(ReaderView);
+  final original = tester.getRect(view);
+  final gesture = await tester.startGesture(tester.getCenter(view));
+  await gesture.moveBy(const Offset(0, 25));
+  await tester.pump();
+  await gesture.moveBy(const Offset(0, 145));
+  await tester.pump();
+  final hint = find.text(remove ? '松手确认移除' : '松手确认添加');
+  expect(hint, findsOneWidget);
+  final pulled = tester.getRect(view);
+  expect(pulled.size, original.size, reason: '整页移动不压缩正文或重新分页');
+  expect(pulled.top, greaterThan(original.top + 140));
+  expect(tester.getRect(hint).bottom, lessThan(pulled.top));
+  final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
+  expect(ribbon, findsOneWidget, reason: '下拉提示与纸面不能重复绘制书签');
+  expect(tester.getTopRight(ribbon).dy, original.top);
+  expect(tester.getTopRight(ribbon).dx, original.right - 37);
+  await gesture.up();
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 60));
+  final returning = tester.getTopLeft(view).dy;
+  expect(returning, greaterThan(original.top));
+  expect(returning, lessThan(pulled.top));
+  await tester.pumpAndSettle();
+  expect(tester.getRect(view), original);
+  expect(hint, findsNothing);
+}
+
+Future<void> _prepareTurn(WidgetTester tester, {required bool next}) async {
+  final controller = tester
+      .state<PageTurnViewState>(find.byType(PageTurnView))
+      .controller;
+  final down = Offset(next ? 350 : 10, 260);
+  final touch = Offset(next ? 170 : 190, 260);
+  controller.pointerDown(down);
+  controller.beginDrag(DragStartDetails(localPosition: down));
+  controller.updateDrag(
+    DragUpdateDetails(localPosition: touch, globalPosition: touch),
+  );
+  for (
+    var i = 0;
+    i < 80 &&
+        (controller.originImage == null || controller.targetImage == null);
+    i++
+  ) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1)),
+    );
+  }
+  expect(controller.originImage, isNotNull);
+  expect(controller.targetImage, isNotNull);
+}
+
+Future<void> _expectSnapshotBookmark(
+  WidgetTester tester,
+  ui.Image image, {
+  required bool marked,
+}) async {
+  final data = (await tester.runAsync(image.toByteData))!;
+  final x = (image.width * 311 / 360).floor();
+  final y = (image.height * 8 / 520).floor();
+  final offset = (y * image.width + x) * 4;
+  final channels = [for (var i = 0; i < 3; i++) data.getUint8(offset + i)];
+  if (marked) {
+    expect(channels, everyElement(lessThan(100)));
+    expect(data.getUint8(offset + 3), 255);
+  } else {
+    expect(
+      data.getUint8(offset + 3) == 0 || channels.every((value) => value > 240),
+      isTrue,
+      reason: '无书签纸面在该位置应为透明或纸底色',
+    );
+  }
+}
+
 void main() {
+  testWidgets('自定义书签图片先解码再捕获，邻页快照复用同一图片', (tester) async {
+    final bytes = Completer<Uint8List>();
+    var loads = 0;
+    final bookmarks = _Bookmarks();
+    await _open(
+      tester,
+      bookmarks,
+      style: const ReaderBookmarkStyle(imageId: 'image:书签'),
+      imageLoader: (_) {
+        loads++;
+        return bytes.future;
+      },
+    );
+    await _pullBookmark(tester);
+    final png = (await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawColor(const Color(0xFFFF0000), BlendMode.src);
+      final picture = recorder.endRecording();
+      final image = picture.toImageSync(1, 1);
+      try {
+        return (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer
+            .asUint8List();
+      } finally {
+        image.dispose();
+        picture.dispose();
+      }
+    }))!;
+    bytes.complete(png);
+    await _prepareTurn(tester, next: true);
+    final controller = tester
+        .state<PageTurnViewState>(find.byType(PageTurnView))
+        .controller;
+    final image = controller.originImage!;
+    final data = (await tester.runAsync(image.toByteData))!;
+    final offset =
+        ((image.height * 8 / 520).floor() * image.width +
+            (image.width * 311 / 360).floor()) *
+        4;
+    expect(
+      [for (var i = 0; i < 4; i++) data.getUint8(offset + i)],
+      [255, 0, 0, 255],
+    );
+    expect(loads, 1);
+    controller.cancel();
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final mode in PageTurnMode.values.where(
+    (mode) => mode != PageTurnMode.scroll && mode != PageTurnMode.none,
+  )) {
+    testWidgets('${mode.label}翻页快照携带各自书签，增删后不沿用旧缓存', (tester) async {
+      final bookmarks = _Bookmarks();
+      final session = await _open(tester, bookmarks, mode: mode);
+      final controller = tester
+          .state<PageTurnViewState>(find.byType(PageTurnView))
+          .controller;
+      await _prepareTurn(tester, next: true);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: false,
+      );
+      controller.cancel();
+      await tester.pumpAndSettle();
+      await _pullBookmark(tester);
+      await _prepareTurn(tester, next: true);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: true,
+      );
+      await _expectSnapshotBookmark(
+        tester,
+        controller.targetImage!,
+        marked: false,
+      );
+      expect(
+        find.byKey(const ValueKey('reader-bookmark-ribbon')),
+        findsNothing,
+        reason: '活动翻页由纸面快照承载书签，屏幕顶边不再叠加固定标记',
+      );
+      controller.endDrag(
+        DragEndDetails(
+          velocity: const Velocity(pixelsPerSecond: Offset(-1000, 0)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(session.page!.pageIndex, 1);
+      await _prepareTurn(tester, next: false);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: false,
+      );
+      await _expectSnapshotBookmark(
+        tester,
+        controller.targetImage!,
+        marked: true,
+      );
+      controller.endDrag(
+        DragEndDetails(
+          velocity: const Velocity(pixelsPerSecond: Offset(1000, 0)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(session.page!.pageIndex, 0);
+      await _pullBookmark(tester, remove: true);
+      await _prepareTurn(tester, next: true);
+      await _expectSnapshotBookmark(
+        tester,
+        controller.originImage!,
+        marked: false,
+      );
+      controller.cancel();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets('书签在有状态栏留白时仍贴紧页面顶边，添加与移除不弹底部提示', (tester) async {
+    final bookmarks = _Bookmarks();
+    await _open(tester, bookmarks, topInset: 32);
+    await _pullBookmark(tester);
+    final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
+    expect(
+      tester.getTopRight(ribbon).dy,
+      tester.getTopLeft(find.byType(ReaderView)).dy,
+    );
+    expect(bookmarks.items, hasLength(1));
+    expect(find.byType(SnackBar), findsNothing);
+    await _pullBookmark(tester, remove: true);
+    expect(bookmarks.items, isEmpty);
+    expect(ribbon, findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('未到阈值松手回位不添加，减少动画设置直接归位', (tester) async {
+    final bookmarks = _Bookmarks();
+    await _open(tester, bookmarks, disableAnimations: true);
+    final view = find.byType(ReaderView);
+    final original = tester.getRect(view);
+    final gesture = await tester.startGesture(original.center);
+    await gesture.moveBy(const Offset(0, 25));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 80));
+    await tester.pump();
+    expect(tester.getTopLeft(view).dy, original.top + 105);
+    expect(find.text('下拉添加书签'), findsOneWidget);
+    await gesture.up();
+    await tester.pump();
+    expect(tester.getRect(view), original);
+    expect(bookmarks.items, isEmpty);
+    expect(find.byKey(const ValueKey('reader-bookmark-ribbon')), findsNothing);
+  });
+
+  testWidgets('替换书签存储立即清除旧命中，并按章节和重定位状态更新标记', (tester) async {
+    ReaderBookmark bookmark(String id, int spine, {String? status}) =>
+        ReaderBookmark(
+          id: id,
+          cfi: 'epubcfi(/6/2!/4/2/1:0)',
+          spineIndex: spine,
+          label: '缓存回归',
+          createdAt: DateTime(2026),
+          relocationStatus: status,
+        );
+    final marked = _Bookmarks()..items.add(bookmark('当前章', 0));
+    final unrelated = _Bookmarks()
+      ..items.add(bookmark('其它章', 1))
+      ..items.add(bookmark('待重定位', 0, status: 'pending'));
+    final store = ValueNotifier<_Bookmarks>(marked);
+    final source = _Book();
+    final progress = MemoryReaderProgressStore();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ValueListenableBuilder<_Bookmarks>(
+            valueListenable: store,
+            builder: (_, bookmarks, _) => ReaderPage(
+              source: source,
+              store: progress,
+              bookId: '书签缓存替换',
+              bookmarks: bookmarks,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
+    expect(ribbon, findsOneWidget);
+    await _openMenu(tester);
+    expect(
+      tester
+          .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+          .bookmarked,
+      isTrue,
+    );
+
+    store.value = unrelated;
+    await tester.pumpAndSettle();
+    expect(ribbon, findsNothing);
+    expect(
+      tester
+          .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+          .bookmarked,
+      isFalse,
+    );
+    store.value = marked;
+    await tester.pumpAndSettle();
+    expect(ribbon, findsOneWidget);
+    expect(
+      tester
+          .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+          .bookmarked,
+      isTrue,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    store.dispose();
+  });
+
   for (final mode in PageTurnMode.values.where(
     (value) => value != PageTurnMode.scroll,
   )) {
-    testWidgets('${mode.label}下拉添加，短拖和上滑不触发，横滑仍翻页', (tester) async {
+    testWidgets('${mode.label}下拉添加与移除，短拖和上滑不触发，横滑仍翻页', (tester) async {
       final bookmarks = _Bookmarks();
       final session = await _open(tester, bookmarks, mode: mode);
       final view = find.byType(ReaderView);
       final initial = session.currentCfi;
       await tester.drag(view, const Offset(0, 45));
       await tester.pumpAndSettle();
+      await tester.drag(view, const Offset(0, 125));
+      await tester.pumpAndSettle();
       await tester.drag(view, const Offset(0, -150));
       await tester.pumpAndSettle();
       expect(bookmarks.items, isEmpty);
       final start = tester.getCenter(view);
-      final gesture = await tester.startGesture(start);
-      await gesture.moveBy(const Offset(0, 25));
-      await tester.pump();
-      await gesture.moveBy(const Offset(0, 100));
-      await tester.pump();
-      expect(find.text('松手添加书签'), findsOneWidget);
-      await gesture.up();
-      await tester.pumpAndSettle();
+      await _pullBookmark(tester);
       expect(bookmarks.items.single.cfi, initial);
       expect(
         find.byKey(const ValueKey('reader-bookmark-ribbon')),
         findsOneWidget,
       );
+      await _pullBookmark(tester, remove: true);
+      expect(bookmarks.items, isEmpty);
+      expect(
+        find.byKey(const ValueKey('reader-bookmark-ribbon')),
+        findsNothing,
+      );
+      expect(find.byType(SnackBar), findsNothing);
+      await _pullBookmark(tester);
       // 用多次采样兼容仿真模式的原生起拖规则。
       final horizontal = await tester.startGesture(
         start + const Offset(100, 0),
@@ -204,14 +522,15 @@ void main() {
       await tester.tap(button);
       await tester.pumpAndSettle();
       expect(bookmarks.items.single.cfi, expected);
+      expect(find.byType(SnackBar), findsNothing);
       expect(
         find.byKey(const ValueKey('reader-bookmark-ribbon')),
-        findsOneWidget,
+        mode == PageTurnMode.scroll ? findsNothing : findsOneWidget,
       );
       await tester.tap(button);
       await tester.pumpAndSettle();
       expect(bookmarks.items, hasLength(1));
-      expect(find.text('该位置已有书签'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
@@ -220,6 +539,7 @@ void main() {
       await tester.tap(find.byTooltip('删除书签'));
       await tester.pumpAndSettle();
       expect(find.text('共 0 条'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       expect(
         find.byKey(const ValueKey('reader-bookmark-ribbon')),
         findsNothing,
@@ -227,6 +547,91 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  testWidgets('斜向、先上滑、回拉和取消手势均不改变书签', (tester) async {
+    final bookmarks = _Bookmarks();
+    await _open(tester, bookmarks);
+    final center = tester.getCenter(find.byType(ReaderView));
+    for (final deltas in [
+      [const Offset(0, 25), const Offset(70, 150)],
+      [const Offset(0, -40), const Offset(0, 220)],
+      [const Offset(0, 25), const Offset(0, 150), const Offset(0, -80)],
+    ]) {
+      final gesture = await tester.startGesture(center);
+      for (final delta in deltas) {
+        await gesture.moveBy(delta);
+        await tester.pump();
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(bookmarks.items, isEmpty);
+    }
+    final gesture = await tester.startGesture(center);
+    await gesture.moveBy(const Offset(0, 25));
+    await gesture.moveBy(const Offset(0, 150));
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+    expect(bookmarks.items, isEmpty);
+    await _pullBookmark(tester);
+    expect(bookmarks.items, hasLength(1));
+  });
+
+  testWidgets('下拉移除按当前页文本范围匹配，并保留其它页和待重定位书签', (tester) async {
+    final bookmarks = _Bookmarks();
+    final session = await _open(tester, bookmarks);
+    final currentCfi = session.currentCfi!;
+    await _move(tester, session.next());
+    final nextCfi = session.currentCfi!;
+    await _move(tester, session.previous());
+    bookmarks.items.addAll([
+      for (final offset in [5, 20])
+        ReaderBookmark(
+          id: '当前页-$offset',
+          cfi: currentCfi.replaceFirst(':0)', ':$offset)'),
+          spineIndex: 0,
+          label: '当前页正文中的书签',
+          createdAt: DateTime(2026),
+        ),
+      ReaderBookmark(
+        id: '其它页',
+        cfi: nextCfi,
+        spineIndex: 0,
+        label: '其它页书签',
+        createdAt: DateTime(2026),
+      ),
+      ReaderBookmark(
+        id: '待重定位',
+        cfi: currentCfi,
+        spineIndex: 0,
+        label: '待重定位书签',
+        createdAt: DateTime(2026),
+        relocationStatus: 'pending',
+      ),
+    ]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _open(tester, bookmarks);
+    await _pullBookmark(tester, remove: true);
+    expect(bookmarks.items.map((item) => item.id), ['其它页', '待重定位']);
+    expect(find.byKey(const ValueKey('reader-bookmark-ribbon')), findsNothing);
+  });
+
+  testWidgets('下拉移除失败保留标记，重试可成功', (tester) async {
+    final bookmarks = _Bookmarks();
+    await _open(tester, bookmarks);
+    await _pullBookmark(tester);
+    bookmarks.failRemove = true;
+    await _pullBookmark(tester, remove: true);
+    expect(bookmarks.items, hasLength(1));
+    expect(find.text('书签删除失败，请重试'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('reader-bookmark-ribbon')),
+      findsOneWidget,
+    );
+    bookmarks.failRemove = false;
+    await _pullBookmark(tester, remove: true);
+    expect(bookmarks.items, isEmpty);
+    expect(find.byKey(const ValueKey('reader-bookmark-ribbon')), findsNothing);
+  });
 
   testWidgets('重排后按文本位置恢复标记，书签样式可从面板修改并保存', (tester) async {
     final bookmarks = _Bookmarks();
@@ -251,7 +656,7 @@ void main() {
     expect(ribbon, findsOneWidget);
     expect(tester.getSize(ribbon), const Size(32, 90));
     final readerRect = tester.getRect(find.byType(ReaderView));
-    expect(tester.getTopRight(ribbon).dx, readerRect.right - 12);
+    expect(tester.getTopRight(ribbon).dx, readerRect.right - 37);
     expect(tester.getTopRight(ribbon).dy, readerRect.top);
     await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
     await tester.pumpAndSettle();

@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:reader_core/layout/paginator.dart';
 
 import '../reader_session.dart';
+import '../reader_ui_diagnostics.dart';
 import 'chapter_preload_controller.dart';
+import 'curl3d_painter.dart';
 import 'duokan_curl_shader.dart';
 import 'page_snapshot_cache.dart';
 import 'page_turn_controller.dart';
@@ -81,6 +84,7 @@ class PageTurnViewState extends State<PageTurnView>
   final _currentBoundary = GlobalKey();
   final _captureBoundary = GlobalKey();
   final _cache = PageSnapshotCache();
+  final _curl3dResources = Curl3dPaintResources();
   Future<void> _captureQueue = Future.value();
   PageContent? _capturePage;
   Size _size = Size.zero;
@@ -121,7 +125,16 @@ class PageTurnViewState extends State<PageTurnView>
   );
 
   static const _warmDelay = Duration(milliseconds: 100);
-  static const _busyRetryDelay = Duration(milliseconds: 50);
+  static const _traceEnabled =
+      bool.fromEnvironment('READER_TURN_TRACE') || kDebugMode;
+
+  bool get _canPrepareBackground =>
+      _warmingAllowed &&
+      !_warmSuspended &&
+      widget.preload &&
+      !controller.active &&
+      !widget.session.loading &&
+      widget.session.jumpLoadingTitle == null;
 
   bool get _usesWindow => widget.mode != PageTurnMode.scroll;
   bool get _usesContinuationPaper =>
@@ -176,6 +189,7 @@ class PageTurnViewState extends State<PageTurnView>
     _revisionDirty = false;
     _pageCountsDirty = false;
     if (controller.active) controller.cancel();
+    _curl3dResources.releaseImages();
     _captureToken++;
     _pauseWarmup();
     _capturePage = null;
@@ -201,6 +215,7 @@ class PageTurnViewState extends State<PageTurnView>
 
   void _refreshPageCounts() {
     _pageCountsDirty = false;
+    _curl3dResources.releaseImages();
     bool stale(PageContent page) =>
         _snapshotPageCounts[page] !=
         widget.session.pageCountOf(page.spineIndex);
@@ -235,6 +250,12 @@ class PageTurnViewState extends State<PageTurnView>
         (controller.targetImage == null || identical(target, _staticPage))) {
       // 纯动画帧由 painter 消费，不重复维护窗口、缓存和后台预热。
       return;
+    }
+    if (_traceEnabled) {
+      ReaderUiDiagnostics.onEvent?.call('turn.maintenance', {
+        'phase': controller.phase.name,
+        'mode': controller.mode.name,
+      });
     }
     if (controller.active != _turnActive) {
       _turnActive = controller.active;
@@ -297,7 +318,7 @@ class PageTurnViewState extends State<PageTurnView>
     if (page == null) return;
     final token = _staticToken;
     try {
-      await widget.preparePageImages?.call(page);
+      await _prepareImages(page);
     } catch (_) {
       // 宿主解码失败时恢复既有缺图占位，不能留下永久覆盖的快照。
     }
@@ -415,6 +436,9 @@ class PageTurnViewState extends State<PageTurnView>
         final distance = entry.key - offset;
         if (distance.abs() <= 2) retained[distance] = entry.value;
       }
+    } else {
+      // 远跳后的新窗口不再持有旧页的 GPU 采样器。
+      _curl3dResources.releaseImages();
     }
     _window
       ..clear()
@@ -438,23 +462,41 @@ class PageTurnViewState extends State<PageTurnView>
     bool urgent = false,
   }) {
     final cached = _cache.get(page);
-    if (cached != null) return Future.value(cached);
     var capture = _captures[page];
     final generation = widget.session.generation;
-    if (capture != null &&
+    final shared =
+        capture != null &&
         capture.token == _captureToken &&
-        capture.generation == generation) {
+        capture.generation == generation;
+    if (_traceEnabled) {
+      ReaderUiDiagnostics.onEvent?.call('turn.cache', {
+        'spine': page.spineIndex,
+        'page': page.pageIndex,
+        'hit': cached != null,
+        'shared': shared,
+        'urgent': urgent,
+      });
+    }
+    if (cached != null) return Future.value(cached);
+    if (capture != null && shared) {
       if (urgent) capture.urgent = true;
       if (urgent && _pendingCaptures.remove(capture)) {
         _pendingCaptures.insert(0, capture);
-        unawaited(_drainWindowCaptures());
       }
+      _startWindowCapture(capture);
+      unawaited(_drainWindowCaptures());
       return capture.result.future;
     }
     capture = _WindowCapture(page, _captureToken, generation)..urgent = urgent;
     _captures[page] = capture;
-    unawaited(_prepareWindowCapture(capture));
+    _startWindowCapture(capture);
     return capture.result.future;
+  }
+
+  void _startWindowCapture(_WindowCapture capture) {
+    if (capture.started || (!capture.urgent && !_canPrepareBackground)) return;
+    capture.started = true;
+    unawaited(_prepareWindowCapture(capture));
   }
 
   Future<void> _prepareWindowCapture(_WindowCapture capture) async {
@@ -486,12 +528,19 @@ class PageTurnViewState extends State<PageTurnView>
   Future<void> _prepareImages(PageContent page) {
     final existing = _imagePreparations[page];
     if (existing != null) return existing;
+    final report = _traceEnabled ? ReaderUiDiagnostics.onEvent : null;
+    final timer = report == null ? null : (Stopwatch()..start());
     late final Future<void> pending;
     pending = Future<void>.sync(() => widget.preparePageImages?.call(page))
         .whenComplete(() {
           if (identical(_imagePreparations[page], pending)) {
             _imagePreparations.remove(page);
           }
+          report?.call('turn.images', {
+            'spine': page.spineIndex,
+            'page': page.pageIndex,
+            'duration_us': timer!.elapsedMicroseconds,
+          });
         });
     _imagePreparations[page] = pending;
     return pending;
@@ -502,7 +551,7 @@ class PageTurnViewState extends State<PageTurnView>
     _capturingWindow = true;
     try {
       while (_pendingCaptures.isNotEmpty) {
-        final index = controller.active || !_warmingAllowed
+        final index = !_canPrepareBackground
             ? _pendingCaptures.indexWhere((capture) => capture.urgent)
             : 0;
         if (index < 0) break;
@@ -514,11 +563,7 @@ class PageTurnViewState extends State<PageTurnView>
             imagesPrepared: true,
             shouldCapture: () =>
                 capture.generation == widget.session.generation &&
-                (capture.urgent ||
-                    (_warmingAllowed &&
-                        !controller.active &&
-                        !widget.session.loading &&
-                        widget.session.jumpLoadingTitle == null)),
+                (capture.urgent || _canPrepareBackground),
           );
           capture.result.complete(image);
         } catch (error, stack) {
@@ -567,6 +612,10 @@ class PageTurnViewState extends State<PageTurnView>
     PageContent page,
     bool Function() valid,
   ) async {
+    final report = _traceEnabled ? ReaderUiDiagnostics.onEvent : null;
+    final timer = report == null ? null : (Stopwatch()..start());
+    int? snapshotMicros;
+    var success = false;
     final pageCount = widget.session.pageCountOf(page.spineIndex);
     var current = _usesCurrentBoundary(page);
     if (!current) setState(() => _capturePage = page);
@@ -588,14 +637,29 @@ class PageTurnViewState extends State<PageTurnView>
         final key = current ? _currentBoundary : _captureBoundary;
         final boundary = key.currentContext?.findRenderObject();
         if (boundary is RenderRepaintBoundary && !boundary.debugNeedsPaint) {
+          final snapshotStart = timer?.elapsedMicroseconds;
           final image = boundary.toImageSync(pixelRatio: _ratio);
+          if (timer != null) {
+            snapshotMicros = timer.elapsedMicroseconds - snapshotStart!;
+          }
           _cache.put(page, image);
           _snapshotPageCounts[page] = pageCount;
+          success = true;
           return image;
         }
       }
       return null;
     } finally {
+      report?.call('turn.capture', {
+        'spine': page.spineIndex,
+        'page': page.pageIndex,
+        'duration_us': timer!.elapsedMicroseconds,
+        // 同步截图调用耗时不包含随后 GPU 执行的全部栅格工作。
+        'snapshot_us': snapshotMicros,
+        'success': success,
+        'count': _cache.length,
+        'bytes': snapshotBytes,
+      });
       if (mounted && identical(_capturePage, page)) {
         setState(() => _capturePage = null);
       }
@@ -606,7 +670,7 @@ class PageTurnViewState extends State<PageTurnView>
     _chapterPreload.update(
       paused: _warmSuspended || !widget.preload || controller.active,
     );
-    if (_warmSuspended || !widget.preload || !mounted) {
+    if (_warmSuspended || !widget.preload || !mounted || controller.active) {
       return;
     }
     if (widget.session.loading || widget.session.jumpLoadingTitle != null) {
@@ -665,7 +729,7 @@ class PageTurnViewState extends State<PageTurnView>
         return;
       }
       if (controller.active) {
-        _startWarmTimer(page, token, generation, _busyRetryDelay);
+        // 收尾状态变化会重新安排空闲预热，活动帧期间无需轮询。
         return;
       }
       _warmingAllowed = true;
@@ -856,6 +920,7 @@ class PageTurnViewState extends State<PageTurnView>
                     paperColor: widget.paperColor,
                     backgroundImage: _backgroundImage,
                     pageInsets: widget.pageInsets,
+                    curl3dResources: _curl3dResources,
                   ),
                 ),
               ),
@@ -876,6 +941,7 @@ class PageTurnViewState extends State<PageTurnView>
     widget.session.cancelTurnPrefetch();
     controller.removeListener(_controllerChanged);
     controller.dispose();
+    _curl3dResources.dispose();
     widget.session.setBackgroundLayoutPaused(false);
     _cache.clear();
     _clearBackgroundImage();
@@ -891,5 +957,6 @@ class _WindowCapture {
   final int token;
   final int generation;
   bool urgent = false;
+  bool started = false;
   final result = Completer<ui.Image?>();
 }

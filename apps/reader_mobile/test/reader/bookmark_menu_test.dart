@@ -128,7 +128,7 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey<String>('drawer-add-bookmark')));
     await tester.pumpAndSettle();
-    expect(find.text('已添加书签'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
 
     final saved = await bookmarks.list();
     expect(saved, hasLength(1));

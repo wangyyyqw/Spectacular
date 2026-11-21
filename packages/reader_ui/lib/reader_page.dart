@@ -902,12 +902,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   /// 翻页快照前准备目标页图片；不触发版本失效，避免取消当前手势。
-  Future<void> _prepareTurnPageImages(PageContent page) {
+  Future<void> _prepareTurnPageImages(PageContent page) async {
+    final bookmarkImageId = _bookmarkStyle.imageId;
+    if (bookmarkImageId != null &&
+        widget.bookmarkImageLoader != null &&
+        _hasBookmarkOn(page)) {
+      try {
+        final bytes = await _loadBookmarkImage(bookmarkImageId);
+        if (!mounted) return;
+        await precacheImage(MemoryImage(bytes), context, onError: (_, _) {});
+      } catch (_) {
+        // 自定义图读取失败时，静态纸面和翻页快照均沿用默认书签。
+      }
+    }
     final width = _lastContentSize?.width ?? 0;
     if (width <= 0) {
-      return Future<void>.value();
+      return;
     }
-    return _prefetchPageImages(
+    await _prefetchPageImages(
       page,
       width,
       notify: false,
@@ -1097,9 +1109,22 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   ReaderAnnotation? _relocatingAnnotation;
   ReaderBookmark? _relocatingBookmark;
   List<ReaderBookmark> _bookmarks = const [];
-  bool _addingBookmark = false;
+  final Map<int, List<ReaderBookmark>> _bookmarksByChapter = {};
+  Expando<bool> _bookmarkPageHits = Expando<bool>();
+  bool _changingBookmark = false;
+  bool _pullingBookmark = false;
+  String? _bookmarkImageId;
+  Future<Uint8List>? _bookmarkImageBytes;
   late ReaderBookmarkStyle _bookmarkStyle = widget.bookmarkStyle;
   bool _relocationBusy = false;
+
+  Future<Uint8List> _loadBookmarkImage(String id) {
+    if (_bookmarkImageId != id || _bookmarkImageBytes == null) {
+      _bookmarkImageId = id;
+      _bookmarkImageBytes = widget.bookmarkImageLoader!(id);
+    }
+    return _bookmarkImageBytes!;
+  }
 
   /// 可绘制的标注（P4-20：重定位后；失效标注保留数据但不绘制）。
   List<ReaderAnnotation> _resolvedAnnotations = const <ReaderAnnotation>[];
@@ -1147,11 +1172,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.bookmarkImageLoader != widget.bookmarkImageLoader) {
+      _bookmarkImageBytes = null;
+    }
     if (oldWidget.bookmarkStyle != widget.bookmarkStyle) {
       _bookmarkStyle = widget.bookmarkStyle;
     }
     if (oldWidget.bookmarks != widget.bookmarks) {
-      _bookmarks = const [];
+      _setBookmarks(const []);
       unawaited(_reloadBookmarks());
     }
     if (oldWidget.customFonts != widget.customFonts) {
@@ -1370,15 +1398,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 添加当前页书签（P4-13）。
   Future<void> _addBookmark() async {
-    if (_addingBookmark) return;
-    _addingBookmark = true;
+    if (_changingBookmark) return;
+    _changingBookmark = true;
     try {
       await _scrollKey.currentState?.flushVisiblePosition();
       if (mounted) await _saveCurrentBookmark();
     } catch (_) {
       if (mounted) _showBookmarkMessage('书签保存失败，请重试');
     } finally {
-      _addingBookmark = false;
+      _changingBookmark = false;
     }
   }
 
@@ -1394,7 +1422,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final page = progress?.pageIndex ?? 0;
     final chapterTitle = _chapterTitleOf(spine);
     final line = _session.currentLineText;
-    final created = await store.add(
+    await store.add(
       cfi: cfi,
       spineIndex: spine,
       label:
@@ -1405,8 +1433,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     await _reloadBookmarks();
-    if (!mounted) return;
-    _showBookmarkMessage(created == null ? '该位置已有书签' : '已添加书签');
   }
 
   void _showBookmarkMessage(String message) {
@@ -1423,27 +1449,62 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     try {
       final items = await store?.list() ?? <ReaderBookmark>[];
       if (mounted && store == widget.bookmarks) {
-        setState(() => _bookmarks = items);
+        setState(() => _setBookmarks(items));
       }
     } catch (_) {
       if (mounted) _showBookmarkMessage('书签读取失败，请重新打开阅读页');
     }
   }
 
-  bool _hasBookmarkOn(PageContent page) => _bookmarks.any(
-    (item) =>
-        !item.needsRelocation &&
-        item.spineIndex == page.spineIndex &&
-        (item.cfi == _session.cfiAtPageOffset(page, null) ||
-            ReaderTextRangeGeometry.containsPoint(page, item.cfi)),
-  );
+  void _setBookmarks(List<ReaderBookmark> items) {
+    _bookmarks = items;
+    _bookmarksByChapter.clear();
+    for (final item in items) {
+      if (!item.needsRelocation) {
+        (_bookmarksByChapter[item.spineIndex] ??= []).add(item);
+      }
+    }
+    _bookmarkPageHits = Expando<bool>();
+  }
 
-  Future<void> _deleteBookmark(ReaderBookmark bookmark) async {
+  bool _hasBookmarkOn(PageContent page) {
+    final cached = _bookmarkPageHits[page];
+    if (cached != null) return cached;
+    return _bookmarkPageHits[page] = _bookmarksOn(page).isNotEmpty;
+  }
+
+  Iterable<ReaderBookmark> _bookmarksOn(PageContent page) {
+    final bookmarks = _bookmarksByChapter[page.spineIndex];
+    if (bookmarks == null) return const [];
+    final startCfi = _session.cfiAtPageOffset(page, null);
+    return bookmarks.where(
+      (item) =>
+          item.cfi == startCfi ||
+          ReaderTextRangeGeometry.containsPoint(page, item.cfi),
+    );
+  }
+
+  Future<void> _toggleBookmark(PageContent page) async {
+    final bookmarks = _bookmarksOn(page).toList();
+    if (bookmarks.isEmpty) {
+      await _addBookmark();
+    } else {
+      await _deleteBookmarks(bookmarks);
+    }
+  }
+
+  Future<void> _deleteBookmarks(List<ReaderBookmark> bookmarks) async {
+    if (_changingBookmark) return;
+    _changingBookmark = true;
     try {
-      await widget.bookmarks?.remove(bookmark.id);
+      for (final bookmark in bookmarks) {
+        await widget.bookmarks?.remove(bookmark.id);
+      }
       await _reloadBookmarks();
     } catch (_) {
       if (mounted) _showBookmarkMessage('书签删除失败，请重试');
+    } finally {
+      _changingBookmark = false;
     }
   }
 
@@ -2859,50 +2920,55 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           fit: StackFit.expand,
           children: [
             BookmarkPullTarget(
-              onAdd:
+              bookmarked: _hasBookmarkOn(page),
+              onToggle:
                   widget.bookmarks != null &&
                       !widget.editMode &&
                       !_hasOverlayOpen &&
                       !_session.loading &&
                       _effectiveTurnMode != PageTurnMode.scroll
-                  ? () => unawaited(_addBookmark())
+                  ? () => unawaited(_toggleBookmark(page))
                   : null,
               color: (_effectiveTheme ?? ReaderTheme.white).text,
               background: (_effectiveTheme ?? ReaderTheme.white).background,
               topInset: MediaQuery.paddingOf(context).top,
-              child: _buildReadingView(size),
-            ),
-            if (!widget.editMode && _hasBookmarkOn(page))
-              Positioned(
-                top: MediaQuery.paddingOf(context).top,
-                right: 12 + MediaQuery.paddingOf(context).right,
-                child: IgnorePointer(
-                  child: Semantics(
-                    label: '当前页已有书签',
-                    child: ReaderBookmarkRibbon(
+              rightInset: MediaQuery.paddingOf(context).right,
+              animateReturn: !_inkMode,
+              onPullingChanged: (pulling) =>
+                  setState(() => _pullingBookmark = pulling),
+              ribbon: !widget.editMode &&
+                      _effectiveTurnMode != PageTurnMode.scroll
+                  ? ReaderBookmarkRibbon(
                       key: const ValueKey('reader-bookmark-ribbon'),
                       style: _bookmarkStyle,
                       color: (_effectiveTheme ?? ReaderTheme.white).text,
-                      imageLoader: widget.bookmarkImageLoader,
+                      imageLoader: widget.bookmarkImageLoader == null
+                          ? null
+                          : _loadBookmarkImage,
+                    )
+                  : null,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildReadingView(size),
+                  // 读屏位置随正文一起下移，不接收指针事件。
+                  Positioned.fill(
+                    child: Padding(
+                      padding: bodyPadding,
+                      child: ExcludeFocus(
+                        excluding: _hasOverlayOpen || widget.editMode,
+                        child: ReaderSemanticsLayer(
+                          page: page,
+                          pageWidth: size.width - bodyPadding.horizontal,
+                          firstNodeFocus: _semanticsFirstFocus,
+                          onNextPage: () => _requestPageTurn(true),
+                          onPreviousPage: () => _requestPageTurn(false),
+                          onCopyBlock: _copyBlock,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            // 正文语义层（P4-27）：读屏用，不接收指针事件。
-            Positioned.fill(
-              child: Padding(
-                padding: bodyPadding,
-                child: ExcludeFocus(
-                  excluding: _hasOverlayOpen || widget.editMode,
-                  child: ReaderSemanticsLayer(
-                    page: page,
-                    pageWidth: size.width - bodyPadding.horizontal,
-                    firstNodeFocus: _semanticsFirstFocus,
-                    onNextPage: () => _requestPageTurn(true),
-                    onPreviousPage: () => _requestPageTurn(false),
-                    onCopyBlock: _copyBlock,
-                  ),
-                ),
+                ],
               ),
             ),
             // 选区层（P4-15）：高亮 + 起止手柄；只有手柄热区接收手势。
@@ -3044,7 +3110,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       bookmarks: widget.bookmarks,
                       bookmarkItems: _bookmarks,
                       onDeleteBookmark: (bookmark) =>
-                          unawaited(_deleteBookmark(bookmark)),
+                          unawaited(_deleteBookmarks([bookmark])),
                       onBookmarkStyle: () => unawaited(_openBookmarkStyle()),
                       annotations: widget.annotations,
                       annotationItems: _annotations,
@@ -3304,6 +3370,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _tempHighlight,
       _bodyPadding(),
       _cornerInfo,
+      _bookmarks,
+      _bookmarkStyle,
+      widget.bookmarkImageLoader,
+      _pullingBookmark,
     );
     if (_effectiveTurnMode == PageTurnMode.scroll) {
       final padding = _bodyPadding();
@@ -3394,7 +3464,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           preparePageImages: _prepareTurnPageImages,
           onBookEnd: widget.onBookEnd == null ? null : _openBookEnd,
           onError: _reportChapterLoadError,
-          preload: !_editingMargins && !_finishingMarginEdit,
+          preload:
+              !_editingMargins && !_finishingMarginEdit && !_pullingBookmark,
           rtl: _readingRtl,
         ),
       ),
@@ -3448,6 +3519,25 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           ),
         if (furniture) ..._paperFurniture(page),
         ..._galleryLayers(page, padding: _bodyPadding()),
+        if (!widget.editMode && !_pullingBookmark && _hasBookmarkOn(page))
+          Positioned(
+            top: 0,
+            right: ReaderBookmarkStyle.rightInset +
+                MediaQuery.paddingOf(context).right,
+            child: IgnorePointer(
+              child: Semantics(
+                label: '当前页已有书签',
+                child: ReaderBookmarkRibbon(
+                  key: const ValueKey('reader-bookmark-ribbon'),
+                  style: _bookmarkStyle,
+                  color: (_effectiveTheme ?? ReaderTheme.white).text,
+                  imageLoader: widget.bookmarkImageLoader == null
+                      ? null
+                      : _loadBookmarkImage,
+                ),
+              ),
+            ),
+          ),
       ],
     ),
   );

@@ -36,6 +36,7 @@ void main() {
       _frame(2500, build: 9000),
       _frame(3500, build: 200, raster: 300),
     ]);
+    samples.flush();
 
     expect(previous['frame_count'], 2);
     expect(previous['longest_build_ms'], 0.7);
@@ -55,6 +56,7 @@ void main() {
     expect(current['frame_timings_complete'], isFalse);
 
     samples.addFrames([_frame(4000, build: 400, raster: 100)]);
+    samples.flush();
     expect(current['frame_count'], 2);
     expect(current['longest_build_ms'], 0.4);
     expect(previous['frame_count'], 2);
@@ -66,6 +68,7 @@ void main() {
     expect(samples.complete, isTrue);
     samples.start(1000);
     samples.addFrames([_frame(1500)]);
+    samples.flush();
     final result = samples.finish(
       elapsedMicros: 1000,
       rawFrameTimestampMicros: 2000,
@@ -74,8 +77,10 @@ void main() {
     expect(result['frame_timings_complete'], isFalse);
 
     samples.addFrames([_frame(1999)]);
+    samples.flush();
     expect(result['frame_timings_complete'], isFalse);
     samples.addFrames([_frame(2000)]);
+    samples.flush();
     expect(result['frame_count'], 3);
     expect(result['frame_timings_complete'], isTrue);
     expect(samples.complete, isTrue);
@@ -87,6 +92,7 @@ void main() {
       for (var index = 1; index <= 20; index++)
         _frame(index * 1000, raster: index * 1000),
     ]);
+    samples.flush();
     final result = samples.finish(
       elapsedMicros: 20000,
       rawFrameTimestampMicros: 20000,
@@ -96,6 +102,32 @@ void main() {
     expect(result['frame_count'], 20);
   });
 
+  test('120Hz 分别结算 UI 和 Raster，回调不排序也不改统计结果', () {
+    final samples = ReaderPerfProbeSamples()..start(0, refreshRate: 120);
+    final result = samples.finish(
+      elapsedMicros: 3000,
+      rawFrameTimestampMicros: 3000,
+    );
+    samples.addFrames([
+      _frame(1000, build: 9000, raster: 1000),
+      _frame(2000, build: 1000, raster: 18000),
+      _frame(3000, build: 2000, raster: 2000),
+    ]);
+    expect(result['frame_count'], 0, reason: '回调只收集，不结算');
+    samples.flush();
+    expect(result['frame_count'], 3);
+    expect(result['frame_budget_ms'], closeTo(8.3333, 0.0001));
+    expect(result['build_p50_ms'], 2);
+    expect(result['build_p95_ms'], 9);
+    expect(result['raster_p99_ms'], 18);
+    expect(result['build_over_budget_ratio'], 1 / 3);
+    expect(result['raster_over_budget_ratio'], 1 / 3);
+    expect(
+      (result['raw_frames'] as List<Map<String, int>>).first['buildStart'],
+      1000,
+    );
+  });
+
   test('观察到后续帧但事件内无帧时不误报完整', () {
     final samples = ReaderPerfProbeSamples()..start(1000);
     final result = samples.finish(
@@ -103,11 +135,13 @@ void main() {
       rawFrameTimestampMicros: 2000,
     );
     samples.addFrames([_frame(2500)]);
+    samples.flush();
     expect(result['frame_count'], 0);
     expect(result['frame_timings_complete'], isFalse);
     expect(samples.complete, isFalse);
 
     samples.addFrames([_frame(1500)]);
+    samples.flush();
     expect(result['frame_count'], 1);
     expect(result['frame_timings_complete'], isTrue);
     expect(samples.complete, isTrue);
@@ -141,6 +175,7 @@ void main() {
       _frame(2500),
       _frame(6000),
     ]);
+    samples.flush();
 
     expect(first['frame_count'], 1);
     expect(second['frame_count'], 2);

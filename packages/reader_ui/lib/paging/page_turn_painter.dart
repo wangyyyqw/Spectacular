@@ -16,10 +16,12 @@ class PageTurnPainter extends CustomPainter {
     required this.paperColor,
     this.backgroundImage,
     this.pageInsets = EdgeInsets.zero,
+    this.curl3dResources,
   }) : _besselPainter = BesselPainter(paperColor: paperColor),
        _curl3dPainter = Curl3dPainter(
          paperColor: paperColor,
          backgroundImage: backgroundImage,
+         resources: curl3dResources,
        ),
        super(repaint: controller);
 
@@ -27,6 +29,7 @@ class PageTurnPainter extends CustomPainter {
   final Color paperColor;
   final ui.Image? backgroundImage;
   final EdgeInsets pageInsets;
+  final Curl3dPaintResources? curl3dResources;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
   final BesselPainter _besselPainter;
   final Curl3dPainter _curl3dPainter;
@@ -306,5 +309,6 @@ class PageTurnPainter extends CustomPainter {
       oldDelegate.controller != controller ||
       oldDelegate.paperColor != paperColor ||
       oldDelegate.backgroundImage != backgroundImage ||
-      oldDelegate.pageInsets != pageInsets;
+      oldDelegate.pageInsets != pageInsets ||
+      oldDelegate.curl3dResources != curl3dResources;
 }

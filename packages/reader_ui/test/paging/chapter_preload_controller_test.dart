@@ -5,8 +5,45 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/progressive_source.dart';
 
+class _PauseSource extends ProgressiveTestSource {
+  final pauses = <bool>[];
+
+  @override
+  void setBackgroundLayoutPaused(bool paused) {
+    pauses.add(paused);
+    super.setBackgroundLayoutPaused(paused);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('重复视口更新只在暂停状态变化时通知后台排版', (tester) async {
+    final source = _PauseSource();
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: '暂停状态去重',
+    );
+    await session.open();
+    final controller = ChapterPreloadController(session, onFirstPage: () {});
+    for (var update = 0; update < 8; update++) {
+      controller.update(paused: false);
+    }
+    await tester.pump(const Duration(milliseconds: 100));
+    for (var update = 0; update < 8; update++) {
+      controller.update(paused: true);
+    }
+    expect(source.pauses, [false, true]);
+    expect(source.requests, [0, 1]);
+    controller.update(paused: false);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(source.pauses, [false, true, false]);
+    expect(source.requests, [0, 1], reason: '恢复复用同章作业');
+    controller.dispose();
+    session.dispose();
+    source.cancelPendingLayouts();
+  });
+
   test('邻章首页已就绪但余章被取消，停留原页也会继续预排总数', () async {
     final source = ProgressiveTestSource(counts: [20, 80, 1]);
     final session = ReaderSession(
