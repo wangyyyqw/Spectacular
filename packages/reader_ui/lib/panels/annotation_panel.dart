@@ -409,12 +409,11 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                   Expanded(
                     child: Material(
                       key: const ValueKey('annotation-search-surface'),
-                      color: theme.colorScheme.surface,
+                      color: ReaderDrawerStyle.searchSurfaceOf(theme),
                       borderRadius: searchBorder.borderRadius,
-                      elevation: 2,
-                      shadowColor: theme.colorScheme.shadow.withValues(
-                        alpha: .12,
-                      ),
+                      elevation: 4,
+                      surfaceTintColor: Colors.transparent,
+                      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
                       child: TextField(
                         key: const ValueKey<String>('annotation-search-input'),
                         controller: _searchController,
@@ -456,7 +455,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                                 ),
                           isDense: true,
                           filled: true,
-                          fillColor: theme.colorScheme.surface,
+                          fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
                           border: searchBorder,
                           enabledBorder: searchBorder,
                           focusedBorder: searchBorder,

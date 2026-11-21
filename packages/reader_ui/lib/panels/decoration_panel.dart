@@ -5,6 +5,7 @@ import 'package:reader_core/position/cfi.dart';
 import '../decorations/decoration.dart';
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_drawer_style.dart';
 
 /// 只管理手工装饰的抽屉页签。
 class ReaderDecorationPanel extends StatefulWidget {
@@ -101,6 +102,21 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
   @override
   Widget build(BuildContext context) {
     final items = _items;
+    final theme = Theme.of(context);
+    final muted = ReaderDrawerStyle.mutedOf(theme);
+    final searchBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(20),
+      borderSide: BorderSide.none,
+    );
+    final searchStyle = TextStyle(
+      fontFamily: 'serif',
+      fontSize: 14,
+      height: 1.5,
+      fontWeight: FontWeight.w400,
+      color: theme.brightness == Brightness.dark
+          ? ReaderDrawerStyle.textOf(theme)
+          : const Color(0xFF555B64),
+    );
     return Material(
       color: ReaderFrostedSurface.panelColorOf(context),
       child: Column(
@@ -142,24 +158,51 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
             onTap: widget.onRules,
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              key: const ValueKey<String>('decoration-search'),
-              controller: _search,
-              onChanged: (value) => setState(() => _query = value),
-              decoration: InputDecoration(
-                hintText: '搜索原文、章节或样式',
-                prefixIcon: const AppIcon(AppGlyph.search),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: '清除搜索',
-                        icon: const AppIcon(AppGlyph.close),
-                        onPressed: () {
-                          _search.clear();
-                          setState(() => _query = '');
-                        },
-                      ),
+            padding: const EdgeInsets.fromLTRB(22, 10, 24, 12),
+            child: Material(
+              key: const ValueKey('decoration-search-surface'),
+              color: ReaderDrawerStyle.searchSurfaceOf(theme),
+              borderRadius: searchBorder.borderRadius,
+              elevation: 4,
+              surfaceTintColor: Colors.transparent,
+              shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
+              child: TextField(
+                key: const ValueKey<String>('decoration-search'),
+                controller: _search,
+                onChanged: (value) => setState(() => _query = value),
+                textInputAction: TextInputAction.search,
+                style: searchStyle,
+                cursorColor: ReaderDrawerStyle.textOf(theme),
+                decoration: InputDecoration(
+                  hintText: '搜索原文、章节或样式',
+                  hintStyle: searchStyle.copyWith(color: muted),
+                  isDense: true,
+                  filled: true,
+                  fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  border: searchBorder,
+                  enabledBorder: searchBorder,
+                  focusedBorder: searchBorder,
+                  prefixIconConstraints: const BoxConstraints.tightFor(
+                    width: 40,
+                    height: 40,
+                  ),
+                  suffixIconConstraints: const BoxConstraints.tightFor(
+                    width: 40,
+                    height: 40,
+                  ),
+                  prefixIcon: AppIcon(AppGlyph.search, size: 20, color: muted),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          icon: AppIcon(AppGlyph.close, size: 18, color: muted),
+                          onPressed: () {
+                            _search.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
+                ),
               ),
             ),
           ),

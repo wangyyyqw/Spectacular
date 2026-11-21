@@ -74,7 +74,7 @@ void main() {
     await tester.drag(pages, Offset(-width * 0.8, 0));
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('输入关键词后点结果跳转'), findsOneWidget);
+    expect(find.text('输入关键词后点结果跳转'), findsNothing);
     expect(session.progress, progress);
 
     await tester.drag(pages, Offset(width * 0.8, 0));

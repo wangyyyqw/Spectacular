@@ -13,6 +13,7 @@ import 'package:reader_ui/decorations/decoration_rule_preview.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_style_preview.dart';
 import 'package:reader_ui/panels/decoration_panel.dart';
+import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/panels/settings_panel.dart' show ReaderFontOption;
 import 'package:reader_ui/decorations/decoration_highlight_editor.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -974,6 +975,67 @@ void main() {
     expect(find.byType(ReaderDecorationStylePreview), findsNWidgets(6));
     expect(saved, isNull);
   });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('装饰搜索框与搜索页统一：${brightness.name}', (tester) async {
+      final theme = ThemeData(brightness: brightness);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: SearchPanel(
+              onSearch: (_) async => const [],
+              onSelect: (_) {},
+            ),
+          ),
+        ),
+      );
+      final reference = tester.widget<TextField>(
+        find.byKey(const ValueKey('search-input')),
+      );
+      final surface = tester.widget<Material>(
+        find.byKey(const ValueKey('search-input-surface')),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: ReaderDecorationPanel(
+              decorations: const [],
+              toc: const [],
+              onSelect: (_) {},
+              onEdit: (_) {},
+              onRemove: (_) {},
+              onRules: () {},
+              ruleCount: 0,
+            ),
+          ),
+        ),
+      );
+      final field = tester.widget<TextField>(
+        find.byKey(const ValueKey('decoration-search')),
+      );
+      final actual = tester.widget<Material>(
+        find.byKey(const ValueKey('decoration-search-surface')),
+      );
+      expect(field.style, reference.style);
+      expect(
+        field.decoration?.enabledBorder,
+        reference.decoration?.enabledBorder,
+      );
+      expect(field.decoration?.fillColor, reference.decoration?.fillColor);
+      expect(
+        field.decoration?.contentPadding,
+        reference.decoration?.contentPadding,
+      );
+      expect(actual.color, surface.color);
+      expect(actual.shadowColor, surface.shadowColor);
+      expect(actual.elevation, surface.elevation);
+      expect(actual.borderRadius, surface.borderRadius);
+      expect(actual.surfaceTintColor, Colors.transparent);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('装饰列表独立展示手工记录、待修复和规则入口', (tester) async {
     var rulesOpened = false;

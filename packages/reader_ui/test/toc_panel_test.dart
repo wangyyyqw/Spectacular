@@ -129,7 +129,7 @@ void main() {
         tester
             .getSize(find.byKey(const ValueKey<String>('toc-row-1-第二章')))
             .height,
-        56,
+        40,
       );
       final chapterTitle = tester.widget<Text>(find.text('第二章'));
       expect(chapterTitle.style?.fontSize, 14);

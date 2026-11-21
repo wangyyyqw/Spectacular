@@ -51,24 +51,9 @@ void main() {
     final hit = find.byKey(const ValueKey('search-hit-0-3'));
     expect(tester.getSize(chapter).height, 40);
     expect(tester.getSize(hit).height, 40);
-    expect(
-      tester.getTopLeft(hit).dy - tester.getBottomLeft(chapter).dy,
-      closeTo(2, 1),
-    );
-    final lineFinder = find.byKey(const ValueKey('search-chapter-line-0'));
-    final expandedLine = tester.widget<AnimatedContainer>(lineFinder);
-    expect(expandedLine.duration, const Duration(milliseconds: 180));
-    final expandedBorder =
-        (expandedLine.decoration! as BoxDecoration).border! as Border;
-    expect(expandedBorder.bottom.color, isNot(Colors.transparent));
+    expect(tester.getTopLeft(hit).dy - tester.getBottomLeft(chapter).dy, 0);
+    expect(find.byType(Divider), findsNothing);
     await tester.tap(chapter);
-    await tester.pump();
-    final collapsedLine = tester.widget<AnimatedContainer>(lineFinder);
-    final collapsedBorder =
-        (collapsedLine.decoration! as BoxDecoration).border! as Border;
-    expect(collapsedBorder.bottom.color, Colors.transparent);
-    await tester.pump(const Duration(milliseconds: 90));
-    expect(tester.hasRunningAnimations, isTrue);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('search-hit-0-3')), findsNothing);
     expect(find.byKey(const ValueKey('search-hit-0-20')), findsNothing);
@@ -207,7 +192,12 @@ void main() {
       expect(border.borderSide, BorderSide.none);
       expect(field.decoration?.focusedBorder, border);
       expect(field.decoration?.filled, isTrue);
-      expect(field.decoration?.fillColor, theme.colorScheme.surface);
+      expect(
+        field.decoration?.fillColor,
+        brightness == Brightness.dark
+            ? theme.colorScheme.surfaceContainerHigh
+            : theme.colorScheme.surface,
+      );
       expect(
         field.decoration?.contentPadding,
         const EdgeInsets.symmetric(vertical: 8),
@@ -215,7 +205,14 @@ void main() {
       final inputSurface = tester.widget<Material>(
         find.byKey(const ValueKey('search-input-surface')),
       );
-      expect(inputSurface.elevation, 2);
+      expect(inputSurface.elevation, 4);
+      expect(
+        inputSurface.shadowColor,
+        Colors.black.withValues(
+          alpha: brightness == Brightness.dark ? .55 : .22,
+        ),
+      );
+      expect(inputSurface.surfaceTintColor, Colors.transparent);
       expect(inputSurface.borderRadius, BorderRadius.circular(20));
       await tester.enterText(input, '沈河');
       await tester.pumpAndSettle();
@@ -226,16 +223,8 @@ void main() {
         find.byKey(const ValueKey<String>('search-hit-0-3')),
       );
       expect(hit.contentPadding, EdgeInsets.zero);
-      final hitSurface = tester.widget<Container>(
-        find
-            .ancestor(
-              of: find.byKey(const ValueKey('search-hit-0-3')),
-              matching: find.byType(Container),
-            )
-            .first,
-      );
-      expect(hitSurface.margin, const EdgeInsets.only(left: 58, right: 24));
-      expect((hitSurface.decoration! as BoxDecoration).border, isA<Border>());
+      expect(find.byKey(const ValueKey('search-chapter-line-0')), findsNothing);
+      expect(find.byType(Divider), findsNothing);
       final span = (hit.title! as Text).textSpan! as TextSpan;
       expect(span.style?.height, 1.5);
       final highlighted = span.children![1] as TextSpan;
