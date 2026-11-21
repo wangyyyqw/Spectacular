@@ -195,7 +195,7 @@ void main() {
       expect(
         field.decoration?.fillColor,
         brightness == Brightness.dark
-            ? theme.colorScheme.surfaceContainerHigh
+            ? theme.colorScheme.surfaceContainerHighest
             : theme.colorScheme.surface,
       );
       expect(
@@ -205,12 +205,11 @@ void main() {
       final inputSurface = tester.widget<Material>(
         find.byKey(const ValueKey('search-input-surface')),
       );
-      expect(inputSurface.elevation, 4);
+      expect(inputSurface.elevation, 3);
       expect(
         inputSurface.shadowColor,
-        Colors.black.withValues(
-          alpha: brightness == Brightness.dark ? .55 : .22,
-        ),
+        (brightness == Brightness.dark ? Colors.white : Colors.black)
+            .withValues(alpha: brightness == Brightness.dark ? .24 : .28),
       );
       expect(inputSurface.surfaceTintColor, Colors.transparent);
       expect(inputSurface.borderRadius, BorderRadius.circular(20));

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing/epub_editing.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/editing/book_editor_controller.dart';
 import 'package:reader_mobile/editing/book_editor_tools.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
@@ -112,6 +113,9 @@ void main() {
   });
 
   testWidgets('250 宽以声明识别无扩展名的字体和图片，SVG 仍可开源码', (tester) async {
+    final log = ReaderLog.instance;
+    log.resetForTest();
+    addTearDown(log.resetForTest);
     final editor = await _openBook(tester);
     var opens = 0;
     await _mount(tester, editor, width: 250, onOpen: () => opens++);
@@ -119,7 +123,11 @@ void main() {
     expect(find.text('字体'), findsOneWidget);
     await tester.tap(_row('OEBPS/typeface'));
     await tester.pump();
-    expect(find.text('OEBPS/typeface · 5 字节'), findsOneWidget);
+    expect(
+      await pumpReaderTask(tester, log.exportText()),
+      contains(' | editor_file_info_opened'),
+    );
+    expect(find.byType(SnackBar), findsNothing);
     await _search(tester, 'picture');
     expect(find.text('图片'), findsOneWidget);
     await _menu(tester, 'OEBPS/picture');
@@ -203,6 +211,9 @@ void main() {
   });
 
   testWidgets('五千章节按需建行，输入、滚动与同版本通知不再读清单或资源内容', (tester) async {
+    final log = ReaderLog.instance;
+    log.resetForTest();
+    addTearDown(log.resetForTest);
     final session = _CountingSession();
     final editor = _CountingEditor(session);
     addTearDown(editor.dispose);
@@ -223,7 +234,11 @@ void main() {
     expect(find.text('其他资源'), findsOneWidget);
     await tester.tap(_row('raw.bin'));
     await tester.pump();
-    expect(find.text('raw.bin · 987654321 字节'), findsOneWidget);
+    expect(
+      await pumpReaderTask(tester, log.exportText()),
+      contains(' | editor_file_info_opened'),
+    );
+    expect(find.byType(SnackBar), findsNothing);
     expect(session.resourceReads, 1);
     expect(session.spineReads, 1);
     await tester.pumpWidget(const SizedBox());

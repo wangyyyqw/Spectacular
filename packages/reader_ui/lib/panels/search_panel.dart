@@ -250,7 +250,7 @@ class _SearchPanelState extends State<SearchPanel> {
                     key: const ValueKey('search-input-surface'),
                     color: ReaderDrawerStyle.searchSurfaceOf(theme),
                     borderRadius: border.borderRadius,
-                    elevation: 4,
+                    elevation: 3,
                     surfaceTintColor: Colors.transparent,
                     shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
                     child: TextField(

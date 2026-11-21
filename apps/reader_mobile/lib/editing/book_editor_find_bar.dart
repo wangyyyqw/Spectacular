@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 class EditorFindBar extends StatefulWidget {
   const EditorFindBar({
@@ -95,6 +96,20 @@ class _EditorFindBarState extends State<EditorFindBar> {
     final value = find.value;
     if (value == null) return const SizedBox.shrink();
     final result = value.result;
+    final theme = Theme.of(context);
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(20),
+      borderSide: BorderSide.none,
+    );
+    final searchFieldDecoration = InputDecoration(
+      isDense: true,
+      filled: true,
+      fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      border: border,
+      enabledBorder: border,
+      focusedBorder: border,
+    );
     return Material(
       key: const ValueKey('editor-find-bottom-bar'),
       color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -112,19 +127,21 @@ class _EditorFindBarState extends State<EditorFindBar> {
                     child: Text('查找', style: TextStyle(fontSize: 12)),
                   ),
                   Expanded(
-                    child: TextField(
-                      controller: find.findInputController,
-                      focusNode: find.findInputFocusNode,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
-                        labelText: '文档内查找',
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 5,
+                    child: Material(
+                      color: ReaderDrawerStyle.searchSurfaceOf(theme),
+                      borderRadius: border.borderRadius,
+                      elevation: 3,
+                      surfaceTintColor: Colors.transparent,
+                      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
+                      child: TextField(
+                        controller: find.findInputController,
+                        focusNode: find.findInputFocusNode,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: searchFieldDecoration.copyWith(
+                          hintText: '文档内查找',
                         ),
+                        onSubmitted: (_) => _move(false),
                       ),
-                      onSubmitted: (_) => _move(false),
                     ),
                   ),
                   _icon('上一处', AppGlyph.chevronUp, () => _move(true)),

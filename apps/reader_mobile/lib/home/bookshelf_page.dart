@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
@@ -1284,17 +1285,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildSearchField() {
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(20),
       borderSide: BorderSide.none,
     );
     return Material(
       key: const ValueKey('bookshelf-search-surface'),
-      color: colors.surface,
+      color: ReaderDrawerStyle.searchSurfaceOf(theme),
       borderRadius: border.borderRadius,
-      elevation: 2,
-      shadowColor: colors.shadow.withValues(alpha: .12),
+      elevation: 3,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
       child: TextField(
         key: const ValueKey<String>('bookshelf-search-field'),
         controller: _searchController,
@@ -1305,7 +1307,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           hintText: '搜索书名或作者',
           filled: true,
           isDense: true,
-          fillColor: colors.surface,
+          fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
           contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: border,
           enabledBorder: border,

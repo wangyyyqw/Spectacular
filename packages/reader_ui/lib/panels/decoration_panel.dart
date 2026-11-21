@@ -163,7 +163,7 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
               key: const ValueKey('decoration-search-surface'),
               color: ReaderDrawerStyle.searchSurfaceOf(theme),
               borderRadius: searchBorder.borderRadius,
-              elevation: 4,
+              elevation: 3,
               surfaceTintColor: Colors.transparent,
               shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
               child: TextField(
