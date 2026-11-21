@@ -8,6 +8,7 @@ import 'package:reader_core/editing/epub_edit_session.dart';
 import 'package:reader_core/editing/package_editor.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_editor_controller.dart';
@@ -809,6 +810,11 @@ class BookEditorTools {
     var sensitive = true;
     var matches = <EditSearchMatch>[];
     String? error;
+    final theme = Theme.of(context);
+    final searchBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(20),
+      borderSide: BorderSide.none,
+    );
     await _showEditorDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -819,13 +825,27 @@ class BookEditorTools {
             height: 420,
             child: Column(
               children: [
-                TextField(
-                  controller: query,
-                  onChanged: (_) => setState(() {
-                    matches = [];
-                    error = null;
-                  }),
-                  decoration: const InputDecoration(labelText: '查找内容'),
+                Material(
+                  color: ReaderDrawerStyle.searchSurfaceOf(theme),
+                  borderRadius: searchBorder.borderRadius,
+                  elevation: 3,
+                  surfaceTintColor: Colors.transparent,
+                  shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
+                  child: TextField(
+                    controller: query,
+                    onChanged: (_) => setState(() {
+                      matches = [];
+                      error = null;
+                    }),
+                    decoration: InputDecoration(
+                      labelText: '查找内容',
+                      filled: true,
+                      fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
+                      border: searchBorder,
+                      enabledBorder: searchBorder,
+                      focusedBorder: searchBorder,
+                    ),
+                  ),
                 ),
                 TextField(
                   controller: replacement,

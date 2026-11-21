@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
@@ -393,25 +394,57 @@ class _ReviewsPageState extends State<ReviewsPage>
     ),
   );
 
-  Widget _searchField() => TextField(
-    key: const ValueKey<String>('reviews-search-field'),
-    controller: _searchController,
-    focusNode: _searchFocus,
-    autofocus: !usesDesktopLayout(context),
-    textInputAction: TextInputAction.search,
-    decoration: InputDecoration(
-      hintText: '搜索书名、作者或书评',
-      border: InputBorder.none,
-      suffixIcon: _query.isEmpty
-          ? null
-          : IconButton(
-              tooltip: '清除搜索',
-              onPressed: _clearSearch,
-              icon: const AppIcon(AppGlyph.close),
-            ),
-    ),
-    onChanged: (value) => setState(() => _query = value),
-  );
+  Widget _searchField() {
+    final theme = Theme.of(context);
+    final muted = ReaderDrawerStyle.mutedOf(theme);
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(20),
+      borderSide: BorderSide.none,
+    );
+    return Material(
+      color: ReaderDrawerStyle.searchSurfaceOf(theme),
+      borderRadius: border.borderRadius,
+      elevation: 3,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
+      child: TextField(
+        key: const ValueKey<String>('reviews-search-field'),
+        controller: _searchController,
+        focusNode: _searchFocus,
+        autofocus: !usesDesktopLayout(context),
+        textInputAction: TextInputAction.search,
+        cursorColor: ReaderDrawerStyle.textOf(theme),
+        decoration: InputDecoration(
+          hintText: '搜索书名、作者或书评',
+          hintStyle: TextStyle(color: muted),
+          filled: true,
+          isDense: true,
+          fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          border: border,
+          enabledBorder: border,
+          focusedBorder: border,
+          prefixIconConstraints: const BoxConstraints.tightFor(
+            width: 40,
+            height: 40,
+          ),
+          suffixIconConstraints: const BoxConstraints.tightFor(
+            width: 40,
+            height: 40,
+          ),
+          prefixIcon: AppIcon(AppGlyph.search, size: 20, color: muted),
+          suffixIcon: _query.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: '清除搜索',
+                  onPressed: _clearSearch,
+                  icon: AppIcon(AppGlyph.close, color: muted),
+                ),
+        ),
+        onChanged: (value) => setState(() => _query = value),
+      ),
+    );
+  }
 
   List<Widget> _actions() {
     final books = _books;
