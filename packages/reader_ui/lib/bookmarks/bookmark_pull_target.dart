@@ -17,6 +17,7 @@ class BookmarkPullTarget extends StatefulWidget {
     this.topInset = 0,
     this.rightInset = 0,
     this.animateReturn = true,
+    this.onPullingChanged,
   });
 
   final Widget child;
@@ -28,6 +29,7 @@ class BookmarkPullTarget extends StatefulWidget {
   final double topInset;
   final double rightInset;
   final bool animateReturn;
+  final ValueChanged<bool>? onPullingChanged;
 
   @override
   State<BookmarkPullTarget> createState() => _BookmarkPullTargetState();
@@ -39,6 +41,13 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
   double _distance = 0;
   bool _hintReady = false;
   bool _hintBookmarked = false;
+  bool _pulling = false;
+
+  void _setPulling(bool value) {
+    if (_pulling == value) return;
+    _pulling = value;
+    widget.onPullingChanged?.call(value);
+  }
 
   @override
   void didUpdateWidget(BookmarkPullTarget oldWidget) {
@@ -67,6 +76,7 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
       _distance = offset.dy.clamp(0, double.infinity);
       _hintReady = _distance >= _threshold;
     });
+    if (_distance > 0) _setPulling(true);
   }
 
   double get _pageOffset =>
@@ -91,7 +101,7 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
           offset: Offset(0, offset),
           child: ColoredBox(color: widget.background, child: child),
         ),
-        if (widget.ribbon != null && (offset > 0 || widget.bookmarked))
+        if (widget.ribbon != null && offset > 0)
           Positioned(
             top: 0,
             right: 12 + widget.rightInset,
@@ -173,6 +183,11 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
             ? Duration.zero
             : const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
+        onEnd: () {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _distance == 0) _setPulling(false);
+          });
+        },
         builder: (context, offset, child) => _buildSurface(offset, child),
         child: RepaintBoundary(child: widget.child),
       ),
