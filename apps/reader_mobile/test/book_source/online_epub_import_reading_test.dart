@@ -451,7 +451,7 @@ void main() {
     expect(f.requested, isEmpty);
   });
 
-  testWidgets('书架打开在线同步书在阅读页等待目录，并沿用原身份关闭和续读', (tester) async {
+  testWidgets('书架打开在线同步书等待目录，退出首帧恢复入口并保留身份和续读', (tester) async {
     final f = (await tester.runAsync(_Fixture.create))!;
     addTearDown(f.dispose);
     final entry = await pumpReaderTask(
@@ -493,7 +493,15 @@ void main() {
       contains('源站第1章正文'),
     );
     expect(tester.widget<ReaderPage>(find.byType(ReaderPage)).onSearch, isNull);
+    // 先完成入场，避免尚未展开的路由掩盖退出动画。
+    await tester.pump(
+      ModalRoute.of(tester.element(find.byType(EpubReaderPage)))!
+          .transitionDuration,
+    );
     Navigator.of(tester.element(find.byType(EpubReaderPage))).pop();
+    await tester.pump();
+    expect(find.text('打开同步书').hitTestable(), findsOneWidget);
+    expect(find.byType(EpubReaderPage), findsNothing);
     await pumpReaderTask(tester, opened!);
     expect(finished, 1);
     expect(
@@ -501,6 +509,7 @@ void main() {
       isNotNull,
     );
     expect(await pumpReaderTask(tester, f.library.list()), hasLength(1));
+    await pumpReaderTask(tester, f.service.waitForIdle());
     await tester.pumpWidget(const SizedBox());
   }, timeout: const Timeout(Duration(seconds: 45)));
 
@@ -751,6 +760,7 @@ class _Fixture {
     this.library,
     this.store,
     this.source,
+    this.service,
     this.controller,
   );
 
@@ -759,6 +769,7 @@ class _Fixture {
   final LibraryStore library;
   final BookSourceStore store;
   final BookSource source;
+  final _TrackedBookSourceService service;
   final OnlineBookController controller;
   final progress = MemoryReaderProgressStore();
   final requested = <String>[];
@@ -785,7 +796,7 @@ class _Fixture {
       directoryProvider: () async => directory,
     );
     late final _Fixture fixture;
-    final service = BookSourceService(
+    final originalService = BookSourceService(
       cookieStore: cookies,
       chapterContentStore: OnlineChapterContentStore(
         directoryProvider: () async => directory,
@@ -821,12 +832,14 @@ class _Fixture {
         }),
       ),
     );
+    final service = _TrackedBookSourceService(originalService);
     fixture = _Fixture(
       directory,
       db,
       library,
       store,
       source,
+      service,
       OnlineBookController(
         library: library,
         store: store,
@@ -847,4 +860,85 @@ class _Fixture {
     await db.close();
     await directory.delete(recursive: true);
   }
+}
+
+/// 追踪完整正文请求，防止引擎取消等待后夹具抢先删除仍在写入的缓存。
+class _TrackedBookSourceService implements BookSourceService {
+  _TrackedBookSourceService(this._delegate);
+
+  final BookSourceService _delegate;
+  final _pendingContent = <Future<String>>{};
+
+  Future<void> waitForIdle() async {
+    while (_pendingContent.isNotEmpty) {
+      await Future.wait(_pendingContent.toList());
+    }
+  }
+
+  @override
+  Future<String> fetchChapterContent(
+    BookSource source,
+    OnlineChapter chapter,
+    String bookUrl, {
+    bool forceRefresh = false,
+    OnlineChapter? nextChapter,
+    String? nextChapterUrl,
+  }) {
+    final task = _delegate.fetchChapterContent(
+      source,
+      chapter,
+      bookUrl,
+      forceRefresh: forceRefresh,
+      nextChapter: nextChapter,
+      nextChapterUrl: nextChapterUrl,
+    );
+    _pendingContent.add(task);
+    task.whenComplete(() => _pendingContent.remove(task)).ignore();
+    return task;
+  }
+
+  @override
+  Future<OnlineBook> loadBookInfo(BookSource source, OnlineBook book) =>
+      _delegate.loadBookInfo(source, book);
+
+  @override
+  Future<List<OnlineChapter>> fetchToc(BookSource source, OnlineBook book) =>
+      _delegate.fetchToc(source, book);
+
+  @override
+  String contentRulesFingerprint(BookSource source) =>
+      _delegate.contentRulesFingerprint(source);
+
+  @override
+  String chapterContentRevision(
+    BookSource source,
+    OnlineChapter chapter, {
+    OnlineChapter? nextChapter,
+    String? nextChapterUrl,
+  }) => _delegate.chapterContentRevision(
+    source,
+    chapter,
+    nextChapter: nextChapter,
+    nextChapterUrl: nextChapterUrl,
+  );
+
+  @override
+  Future<Uint8List?> loadCover(
+    BookSource source,
+    String url, {
+    String referer = '',
+  }) => _delegate.loadCover(source, url, referer: referer);
+
+  @override
+  BookSourceCookieStore get cookieStore => _delegate.cookieStore;
+
+  @override
+  BookSourceHttpClient get http => _delegate.http;
+
+  @override
+  void dispose() => _delegate.dispose();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('夹具未配置书源服务入口：${invocation.memberName}');
 }

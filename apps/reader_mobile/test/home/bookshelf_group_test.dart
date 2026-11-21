@@ -61,6 +61,31 @@ void main() {
       expect(find.text('滑动乙'), findsWidgets);
       expect(find.byTooltip('分组选项'), findsNothing);
     }
+    // 手指未松开时两页已按完整页面宽度联动，短拖动回弹。
+    final start = tester.getTopLeft(
+      find.byKey(const ValueKey('bookshelf-grid')),
+    );
+    final gesture = await tester.startGesture(
+      tester.getTopLeft(pages) + const Offset(360, 60),
+    );
+    await gesture.moveBy(const Offset(-24, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-12, 0));
+    await tester.pump();
+    final draggingGrids = find.byKey(const ValueKey('bookshelf-grid'));
+    expect(draggingGrids, findsNWidgets(2));
+    expect(tester.getTopLeft(draggingGrids.first).dx, lessThan(start.dx));
+    expect(
+      tester.getTopLeft(draggingGrids.last).dx -
+          tester.getTopLeft(draggingGrids.first).dx,
+      closeTo(tester.getSize(pages).width, .01),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.text('滑动乙'), findsWidgets);
+    expect(find.byKey(const ValueKey('bookshelf-grid')), findsOneWidget);
+
     await dragPages(const Offset(-180, 0));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
@@ -121,7 +146,7 @@ void main() {
         expect(tester.getTopLeft(grids.first).dx, greaterThan(0));
         expect(tester.getTopLeft(grids.last).dx, lessThan(0));
       }
-      await _settle(tester, frames: 3);
+      await tester.pumpAndSettle();
     }
     expect(find.text('滑动乙'), findsWidgets);
     await tester.tap(find.byTooltip('列表视图'));

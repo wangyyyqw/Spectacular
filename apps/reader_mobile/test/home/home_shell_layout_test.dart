@@ -60,6 +60,57 @@ Future<void> _shortcut(WidgetTester tester, LogicalKeyboardKey key) async {
 }
 
 void main() {
+  testWidgets('退出全屏阅读首帧保留书架搜索框和底栏位置，系统栏恢复时不弹动', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    const systemPadding = FakeViewPadding(top: 32, bottom: 24);
+    tester.view.viewPadding = systemPadding;
+    tester.view.padding = systemPadding;
+    addTearDown(tester.view.reset);
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        theme: buildAppTheme(),
+        home: HomeShell(
+          library: LibraryStore.memory(),
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final search = find.byKey(const ValueKey('bookshelf-search-field'));
+    final bottom = find.byType(BottomNavigationBar);
+    final searchRect = tester.getRect(search);
+    final bottomRect = tester.getRect(bottom);
+    navigator.currentState!.push(
+      PageRouteBuilder<void>(
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (_, _, _) => const Scaffold(body: Text('全屏阅读')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.view.viewPadding = FakeViewPadding.zero;
+    tester.view.padding = FakeViewPadding.zero;
+    await tester.pump();
+    navigator.currentState!.pop();
+    await tester.pump();
+    expect(tester.getRect(search), searchRect, reason: '返回首帧搜索框直接位于最终位置');
+    expect(tester.getRect(bottom), bottomRect, reason: '返回首帧底栏直接位于最终位置');
+    tester.view.viewPadding = const FakeViewPadding(top: 32, bottom: 12);
+    tester.view.padding = const FakeViewPadding(top: 32, bottom: 12);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getRect(search), searchRect);
+    expect(tester.getRect(bottom), bottomRect, reason: '系统栏恢复途中底栏不跟随上移');
+    tester.view.viewPadding = systemPadding;
+    tester.view.padding = systemPadding;
+    await tester.pumpAndSettle();
+    expect(tester.getRect(search), searchRect);
+    expect(tester.getRect(bottom), bottomRect);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('切换书评和我的不重建无关的隐藏书架与统计页', (tester) async {
     await _showHome(tester, LibraryStore.memory());
     await tester.pumpAndSettle();

@@ -203,16 +203,20 @@ void _stats(AppIconCanvas canvas) {
 }
 
 void _review(AppIconCanvas canvas) {
-  canvas.rotate(const Offset(18.75, 11.45), -0.17, () {
-    canvas.outline(_roundRect(17.4, 2.7, 20.1, 20.2, 1.2));
-  });
-  canvas.outline(_roundRect(2.8, 2.7, 10.1, 21.3, 1.2));
-  canvas.outline(_roundRect(10.8, 8.5, 16, 21.3, 1.2));
-  canvas.solid(
-    canvas.filled
-        ? _roundRect(11.7, 14, 15.1, 16.2, 1.1)
-        : _roundRect(11.9, 14, 14.9, 15.4, 0.7),
-  );
+  canvas.outline(_roundRect(3, 2.8, 21, 21.2, 2.1));
+  canvas.solid(_roundRect(7, 3.6, 8.6, 20.4, 0.7));
+
+  final bookmark = Path()
+    ..moveTo(12.3, 3.2)
+    ..lineTo(17.6, 3.2)
+    ..quadraticBezierTo(17.9, 3.2, 17.9, 3.6)
+    ..lineTo(17.9, 12.1)
+    ..lineTo(15, 10.2)
+    ..lineTo(12.1, 12.1)
+    ..lineTo(12.1, 3.6)
+    ..quadraticBezierTo(12.1, 3.2, 12.3, 3.2)
+    ..close();
+  canvas.solid(bookmark);
 }
 
 void _profile(AppIconCanvas canvas) {

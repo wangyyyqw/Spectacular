@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/home/book_cover_image.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -20,6 +21,13 @@ List<String> _titles(WidgetTester tester) => [
         (text.key! as ValueKey<String>).value.startsWith('book-row-title-'))
       text.data!,
 ];
+
+double _coverShadowOpacity(WidgetTester tester, Finder cover) => tester
+    .widget<Material>(
+      find.descendant(of: cover, matching: find.byType(Material)),
+    )
+    .shadowColor!
+    .a;
 
 void main() {
   for (final sort in BookSortOrder.values) {
@@ -63,7 +71,17 @@ void main() {
 
       await showShelf();
       final original = _titles(tester);
+      final unpinnedCover = find.descendant(
+        of: find.byKey(ValueKey('book-row-${books[0].id}')),
+        matching: find.byType(BookCoverImage),
+      );
+      expect(_coverShadowOpacity(tester, unpinnedCover), closeTo(.12, .001));
       await togglePin(books[0], '置顶');
+      final pinnedCover = find.descendant(
+        of: find.byKey(ValueKey('book-row-${books[0].id}')),
+        matching: find.byType(BookCoverImage),
+      );
+      expect(_coverShadowOpacity(tester, pinnedCover), closeTo(.42, .001));
       expect(_titles(tester), ['B书', ...original.where((t) => t != 'B书')]);
       await togglePin(books[1], '置顶');
       expect(_titles(tester), ['A书', 'B书', 'C书']);
@@ -79,6 +97,11 @@ void main() {
       expect(_titles(tester), ['A书', 'B书']);
       await tester.tap(find.byTooltip('网格视图'));
       await tester.pumpAndSettle();
+      final pinnedGridCover = find.descendant(
+        of: find.byKey(ValueKey('book-card-${books[1].id}')),
+        matching: find.byType(BookCoverImage),
+      );
+      expect(_coverShadowOpacity(tester, pinnedGridCover), closeTo(.42, .001));
       final first = tester.getTopLeft(
         find.byKey(ValueKey('book-card-${books[1].id}')),
       );
@@ -96,6 +119,16 @@ void main() {
       await tester.pumpAndSettle();
       expect(_titles(tester), ['B书', ...original.where((t) => t != 'B书')]);
       await togglePin(books[0], '取消置顶');
+      expect(
+        _coverShadowOpacity(
+          tester,
+          find.descendant(
+            of: find.byKey(ValueKey('book-row-${books[0].id}')),
+            matching: find.byType(BookCoverImage),
+          ),
+        ),
+        closeTo(.12, .001),
+      );
       expect(_titles(tester), original);
       await showShelf();
       expect(_titles(tester), original);

@@ -158,7 +158,7 @@ class BookOpener {
     final settings = _loadSettings()..ignore();
     final revision = prepared.then((book) => book.revision)..ignore();
     Future<EpubChapterSource>? source;
-    final route = MaterialPageRoute<void>(
+    final route = _OnlineReaderRoute(
       builder: (_) {
         created = true;
         return EpubReaderPage(
@@ -317,7 +317,7 @@ class BookOpener {
     final readerBuilder = _readerBuilder(entry, opening);
     return PageRouteBuilder<EpubReaderExit>(
       transitionDuration: const Duration(milliseconds: 220),
-      reverseTransitionDuration: const Duration(milliseconds: 220),
+      reverseTransitionDuration: Duration.zero,
       pageBuilder: (_, _, _) {
         opening.created = true;
         return BookOpeningReader(
@@ -378,6 +378,14 @@ class BookOpener {
       reviewStore: reviews,
     );
   }
+}
+
+/// 在线阅读沿用平台入场动画，退出时直接交回原页面。
+class _OnlineReaderRoute extends MaterialPageRoute<void> {
+  _OnlineReaderRoute({required super.builder});
+
+  @override
+  Duration get reverseTransitionDuration => Duration.zero;
 }
 
 /// 目录仍在加载时先显示常规阅读页，位置读写等待同一份在线目录快照。

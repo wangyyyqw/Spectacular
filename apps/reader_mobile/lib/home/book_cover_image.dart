@@ -14,6 +14,7 @@ class BookCoverImage extends StatelessWidget {
     this.height,
     this.showReadabilityBadge = false,
     this.showShadow = false,
+    this.shadowOpacity = .12,
   });
 
   final BookEntry book;
@@ -21,6 +22,7 @@ class BookCoverImage extends StatelessWidget {
   final double? height;
   final bool showReadabilityBadge;
   final bool showShadow;
+  final double shadowOpacity;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -39,7 +41,7 @@ class BookCoverImage extends StatelessWidget {
           child: Material(
             color: scheme.surface,
             elevation: showShadow ? 2 : 0,
-            shadowColor: scheme.shadow.withValues(alpha: .12),
+            shadowColor: scheme.shadow.withValues(alpha: shadowOpacity),
             borderRadius: BorderRadius.circular(4),
             child: Container(
               clipBehavior: Clip.antiAlias,

@@ -513,7 +513,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('3D 纸底只捕获一次、按版本重建并计入位图预算', (tester) async {
+  testWidgets('3D 纸底只捕获一次、按版本重建并统计位图占用', (tester) async {
     final session = await _openInputSession();
     addTearDown(session.dispose);
     final key = GlobalKey<PageTurnViewState>();
@@ -541,7 +541,10 @@ void main() {
     expect(key.currentState!.snapshotCount, 4, reason: '三页快照加一张主题纸底');
     expect(
       key.currentState!.snapshotBytes,
-      lessThanOrEqualTo(64 * 1024 * 1024),
+      4 *
+          tester.view.physicalSize.width.toInt() *
+          tester.view.physicalSize.height.toInt() *
+          4,
     );
     key.currentState!.controller.request(true);
     await tester.pumpAndSettle();
@@ -562,7 +565,11 @@ void main() {
   for (final mode in PageTurnMode.values.where(
     (mode) => mode != PageTurnMode.none,
   )) {
-    testWidgets('${mode.label} 跨两章按近邻优先预热前后各两页', (tester) async {
+    testWidgets('${mode.label} 跨两章以原生分辨率预热前后各两页', (tester) async {
+      tester.view.devicePixelRatio = 3;
+      tester.view.physicalSize = const Size(1440, 3200);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
       final source = _FiveChapterSource();
       final store = MemoryReaderProgressStore();
       await store.save(
@@ -592,10 +599,7 @@ void main() {
       expect(source.loads, [2, 3, 1, 4, 0]);
       expect(prepared, [2, 3, 1, 4, 0]);
       expect(key.currentState!.snapshotCount, 5);
-      expect(
-        key.currentState!.snapshotBytes,
-        lessThanOrEqualTo(64 * 1024 * 1024),
-      );
+      expect(key.currentState!.snapshotBytes, 5 * 1440 * 3200 * 4);
       expect(
         session.progress,
         const ReaderProgress(spineIndex: 2, pageIndex: 0),

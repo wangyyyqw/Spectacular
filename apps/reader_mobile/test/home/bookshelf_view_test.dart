@@ -6,6 +6,7 @@ import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../support/test_epub.dart';
 
@@ -72,6 +73,21 @@ void main() {
       await _settle(tester);
       final grid = find.byKey(const ValueKey('bookshelf-grid'));
       final list = find.byKey(const ValueKey('bookshelf-list'));
+      final toolbar = tester.getRect(
+        find.byKey(const ValueKey('bookshelf-group-toolbar')),
+      );
+      final groupCenter = tester.getCenter(find.text('全部 1')).dy;
+      for (final button in [
+        find.byTooltip('列表视图'),
+        find.byKey(const ValueKey('bookshelf-multi-select')),
+      ]) {
+        final icon = find.descendant(of: button, matching: find.byType(AppIcon));
+        expect(tester.getCenter(icon).dy, closeTo(groupCenter, .01));
+      }
+      final cover = tester.getRect(
+        find.byKey(const ValueKey('book-card-cover')),
+      );
+      expect(cover.top - toolbar.bottom, 4, reason: '保持分组工具栏与封面的紧凑间距');
       final restingBounds = tester.getRect(grid);
       await tester.tap(find.byTooltip('列表视图'));
       await tester.pump();
@@ -83,6 +99,15 @@ void main() {
         reducedMotion ? 0 : inExclusiveRange(0, 13),
       );
       await tester.pump(const Duration(milliseconds: 80));
+      expect(
+        tester.getCenter(
+          find.descendant(
+            of: find.byTooltip('网格视图'),
+            matching: find.byType(AppIcon),
+          ),
+        ).dy,
+        closeTo(groupCenter, .01),
+      );
       expect(list, findsOneWidget);
       expect(grid, reducedMotion ? findsNothing : findsOneWidget);
       if (!reducedMotion) {
