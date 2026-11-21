@@ -26,24 +26,23 @@ ui.Image _image(int width, int height) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('默认预算 64 MiB、最多六张快照', () {
+  test('默认最多五张页面快照', () {
     final cache = PageSnapshotCache();
-    expect(cache.maxBytes, 64 * 1024 * 1024);
-    expect(cache.maxEntries, 6);
+    expect(cache.maxEntries, 5);
     cache.clear();
   });
 
-  test('超出六张时按最久未使用淘汰', () {
+  test('超出五张时按最久未使用淘汰', () {
     final cache = PageSnapshotCache();
-    final pages = [for (var index = 0; index < 7; index++) _page(index)];
+    final pages = [for (var index = 0; index < 6; index++) _page(index)];
     for (var index = 0; index < pages.length; index++) {
       cache.put(pages[index], _image(4, 4));
     }
 
-    expect(cache.length, 6);
+    expect(cache.length, 5);
     expect(cache.get(pages.first), isNull);
     expect(cache.get(pages.last), isNotNull);
-    expect(cache.bytes, 6 * 4 * 4 * 4);
+    expect(cache.bytes, 5 * 4 * 4 * 4);
     cache.clear();
   });
 
@@ -75,21 +74,17 @@ void main() {
     expect(cache.length, 0);
   });
 
-  test('纸底占用同一预算并淘汰旧页，清空后释放预留', () {
-    final cache = PageSnapshotCache(maxBytes: 48);
-    final pages = [for (var index = 0; index < 3; index++) _page(index)];
+  test('位图尺寸不影响五页数量限制', () {
+    final cache = PageSnapshotCache();
+    final pages = [for (var index = 0; index < 5; index++) _page(index)];
     for (final page in pages) {
-      cache.put(page, _image(2, 2));
+      cache.put(page, _image(256, 256));
     }
-    cache.reservedBytes = 16;
-    expect(cache.bytes, 32);
-    expect(cache.length, 2);
-    expect(cache.get(pages.first), isNull);
-    cache.clear();
+    expect(cache.length, 5);
+    expect(cache.bytes, 5 * 256 * 256 * 4);
     for (final page in pages) {
-      cache.put(page, _image(2, 2));
+      expect(cache.get(page), isNotNull);
     }
-    expect(cache.length, 3, reason: '纸底已释放，容量应恢复');
     cache.clear();
   });
 }

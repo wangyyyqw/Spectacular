@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -200,7 +199,6 @@ class PageTurnViewState extends State<PageTurnView>
   void _clearBackgroundImage() {
     _backgroundImage?.dispose();
     _backgroundImage = null;
-    _cache.reservedBytes = 0;
   }
 
   void _controllerChanged() {
@@ -373,8 +371,6 @@ class PageTurnViewState extends State<PageTurnView>
         (_size.width * _ratio).ceil(),
         (_size.height * _ratio).ceil(),
       );
-      _cache.reservedBytes =
-          _backgroundImage!.width * _backgroundImage!.height * 4;
     } finally {
       picture.dispose();
     }
@@ -703,7 +699,7 @@ class PageTurnViewState extends State<PageTurnView>
         await current;
         await WidgetsBinding.instance.endOfFrame;
         if (!_canWarm(page, token, generation)) return;
-        // 窗口外仅预解码首页，进入近邻窗口后再生成位图，保持既有内存预算。
+        // 窗口外仅预解码首页，进入近邻窗口后再生成位图，避免额外缓存页面。
         if (!_windowPages.contains(first) &&
             !widget.session.adjacentPages.contains(first)) {
           await _prepareImages(first);
@@ -749,15 +745,8 @@ class PageTurnViewState extends State<PageTurnView>
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final size = constraints.biggest;
-      final deviceRatio = MediaQuery.devicePixelRatioOf(context);
-      // 纹理纸底占用同一预算，六张容量覆盖五张页面与一张纸底。
-      final cacheRatio =
-          math.sqrt(
-            _cache.maxBytes /
-                (size.width * size.height * 4 * _cache.maxEntries),
-          ) *
-          0.98;
-      final ratio = math.min(deviceRatio, cacheRatio);
+      // 快照保持设备原生分辨率，仅用前后各两页的窗口限制缓存数量。
+      final ratio = MediaQuery.devicePixelRatioOf(context);
       if (_size != size || _ratio != ratio) {
         _invalidate();
         _size = size;
