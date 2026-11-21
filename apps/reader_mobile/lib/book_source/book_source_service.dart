@@ -1040,6 +1040,15 @@ class BookSourceService {
     OnlineChapter? nextChapter,
     String? nextChapterUrl,
   }) async {
+    final normalized = onlineChapterRequest(chapter);
+    chapter = OnlineChapter(
+      index: chapter.index,
+      title: chapter.title,
+      url: normalized.url,
+      volume: chapter.volume,
+      updateTime: chapter.updateTime,
+      requestOptions: normalized.options,
+    );
     final boundary = _nextChapterRequest(
       source,
       chapter,
@@ -1183,7 +1192,7 @@ class BookSourceService {
           );
         }
         pageCount += 1;
-        final data = _decodeDataUrl(current.url);
+        final data = _decodeDataUrl(current.url, options: current.options);
         final Object? root;
         final String pageUrl;
         if (data != null) {
@@ -1391,7 +1400,11 @@ class BookSourceService {
       final pending = script.takePendingRequests();
       if (pending.isEmpty) return html;
       for (final request in pending) {
-        final data = _decodeDataUrl(request.url);
+        final urlRequest = splitBookSourceUrlOptions(request.url);
+        final data = _decodeDataUrl(
+          urlRequest.url,
+          options: urlRequest.options,
+        );
         if (data != null) {
           script.rememberResponse(request.key, data);
           continue;
@@ -1423,15 +1436,19 @@ class BookSourceService {
   }) {
     final request = nextChapter == null
         ? splitBookSourceUrlOptions(nextChapterUrl ?? '')
-        : (url: nextChapter.url, options: nextChapter.requestOptions);
+        : onlineChapterRequest(nextChapter);
     if (!request.url.isNotBlank) return null;
     final chapterUrl = rules.resolveUrl(source.baseUrl, chapter.url);
     final base = chapterUrl.startsWith('data:') ? source.baseUrl : chapterUrl;
     final resolved = rules.resolveUrl(base, request.url);
     return (
-      url:
-          Uri.tryParse(resolved)?.removeFragment().normalizePath().toString() ??
-          resolved,
+      url: resolved.toLowerCase().startsWith('data:')
+          ? resolved
+          : Uri.tryParse(resolved)
+                    ?.removeFragment()
+                    .normalizePath()
+                    .toString() ??
+                resolved,
       options: request.options,
     );
   }
@@ -1441,7 +1458,7 @@ class BookSourceService {
       .convert(
         utf8.encode(
           jsonEncode({
-            'version': 5,
+            'version': 6,
             'base': source.baseUrl,
             'headers': source.header,
             'jsLib': source.jsLib,
@@ -1484,18 +1501,30 @@ class BookSourceService {
         .toString();
   }
 
-  String? _decodeDataUrl(String raw) {
+  String? _decodeDataUrl(
+    String raw, {
+    Map<String, Object?> options = const {},
+  }) {
     final text = raw.trim();
-    if (!text.startsWith('data:')) return null;
+    if (!text.toLowerCase().startsWith('data:')) return null;
     final comma = text.indexOf(',');
     if (comma < 0) return null;
     final meta = text.substring(5, comma).toLowerCase();
     final payload = text.substring(comma + 1);
     try {
+      final List<int> bytes;
       if (meta.endsWith(';base64')) {
-        return utf8.decode(base64.decode(payload), allowMalformed: true);
+        bytes = base64.decode(payload.replaceAll(RegExp(r'\s+'), ''));
+      } else {
+        bytes = UriData.parse(text).contentAsBytes();
       }
-      return UriData.parse(text).contentAsString(encoding: utf8);
+      // Legado 声明 type 时返回字节的十六进制，由正文脚本自行解码。
+      if (options['type'] != null) {
+        return bytes
+            .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+            .join();
+      }
+      return utf8.decode(bytes, allowMalformed: true);
     } on FormatException {
       throw const BookSourceException(
         '章节地址中的 data URL 无法解码',

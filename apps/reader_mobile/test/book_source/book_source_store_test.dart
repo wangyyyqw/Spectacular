@@ -126,6 +126,18 @@ void main() {
     expect(source.canSearch, isFalse);
     const data = 'data:text/html,<p>原文,{"content":"内容"}</p>';
     expect(splitBookSourceUrlOptions(data).url, data);
+    const jsonData = 'data:application/json,{"type":"正文","text":"100%+"}';
+    expect(splitBookSourceUrlOptions(jsonData).url, jsonData);
+    expect(splitBookSourceUrlOptions(jsonData).options, isEmpty);
+    final encoded = splitBookSourceUrlOptions(
+      'data:;base64,NzYwMDc4MzAzOTAwOTkxNTQxNw==, {"type":"novel"}',
+    );
+    expect(encoded.url, 'data:;base64,NzYwMDc4MzAzOTAwOTkxNTQxNw==');
+    expect(encoded.options, {'type': 'novel'});
+    expect(
+      splitBookSourceUrlOptions('data:;base64,MTIz,{broken}').url,
+      'data:;base64,MTIz,{broken}',
+    );
     expect(splitBookSourceUrlOptions('/page,{broken}').url, '/page,{broken}');
   });
 
@@ -183,9 +195,9 @@ void main() {
       sourceUrl: 'https://example.com/Book',
     );
     expect(
-      OnlineEpubMetadata.findSource(
-        legacyBookSourceId(pathSource.sourceUrl), [pathSource],
-      ),
+      OnlineEpubMetadata.findSource(legacyBookSourceId(pathSource.sourceUrl), [
+        pathSource,
+      ]),
       same(pathSource),
     );
   });

@@ -270,6 +270,57 @@ void main() {
     }
   });
 
+  test('Base64 章节附带 type 选项，从索引和旧目录均可正式打开正文', () async {
+    final f = await _Fixture.create();
+    addTearDown(f.dispose);
+    const chapterId = '7600783039009915417';
+    const dataUrl = 'data:;base64,NzYwMDc4MzAzOTAwOTkxNTQxNw==';
+    final entry = await f.library.importBytes(
+      _epub(
+        chapterUrls: [
+          '$dataUrl,{"type":"novel"}',
+          'data:;base64,MTIz,{"type":"novel"}',
+        ],
+      ),
+    );
+    final metadata = (await OnlineEpubMetadata.read(f.library, entry))!;
+    final indexed = metadata.chapters.first.toChapter(0, metadata.detailUrl);
+    expect(indexed.url, dataUrl);
+    expect(indexed.requestOptions, {'type': 'novel'});
+    final dataSource = f.source.copyWith(
+      content: const ContentRule(
+        content:
+            '<js>var id = java.hexDecodeToString(result);'
+            'if (id !== "7600783039009915417") throw new Error("章节编号错误");'
+            'result = "<p>章节编号：" + id + "，正文正常加载。</p>";</js>',
+      ),
+    );
+    for (final chapter in [
+      indexed,
+      const OnlineChapter(
+        index: 0,
+        title: '旧目录第一章',
+        url: '$dataUrl,{"type":"novel"}',
+      ),
+    ]) {
+      final source = OnlineReadingBook(
+        source: dataSource,
+        book: metadata.linkFor(dataSource, entry).bookFor(dataSource),
+        chapters: [chapter],
+        service: f.controller.service,
+      ).open();
+      try {
+        final content = (await source.loadAnchorChapter(0)).text;
+        expect(content, contains(chapterId));
+        expect(content, contains('正文正常加载'));
+      } finally {
+        source.close();
+        await source.preparationsStopped;
+      }
+    }
+    expect(f.requested, isEmpty);
+  });
+
   test('原 spine 对应同一正文接口的 POST 章节时，按请求体恢复到新目录', () async {
     final f = await _Fixture.create();
     addTearDown(f.dispose);

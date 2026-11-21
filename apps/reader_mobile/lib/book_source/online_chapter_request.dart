@@ -8,14 +8,33 @@ import 'book_source_models.dart';
 String onlineChapterIdentity(OnlineChapter chapter) =>
     onlineRequestIdentity(chapter.url, chapter.requestOptions);
 
-/// 忽略链接片段与对象字段顺序，保留查询参数和列表顺序。
+/// 兼容旧目录中尚未拆出的 data URL 选项，显式选项优先。
+({String url, Map<String, Object?> options}) onlineChapterRequest(
+  OnlineChapter chapter,
+) {
+  final request = splitBookSourceUrlOptions(chapter.url);
+  return (
+    url: request.url,
+    options: {...request.options, ...chapter.requestOptions},
+  );
+}
+
+/// 忽略网络链接片段与对象字段顺序；data 内容保持完整。
 String onlineRequestIdentity(String url, Map<String, Object?> options) {
-  final raw = url.trim();
+  final request = splitBookSourceUrlOptions(url);
+  final raw = request.url;
   final uri = Uri.tryParse(raw);
-  final normalizedUrl = uri?.removeFragment().normalizePath().toString() ?? raw;
+  final normalizedUrl = raw.toLowerCase().startsWith('data:')
+      ? raw
+      : uri?.removeFragment().normalizePath().toString() ?? raw;
   return sha256
       .convert(
-        utf8.encode(jsonEncode([normalizedUrl, _normalizeOptions(options)])),
+        utf8.encode(
+          jsonEncode([
+            normalizedUrl,
+            _normalizeOptions({...request.options, ...options}),
+          ]),
+        ),
       )
       .toString();
 }

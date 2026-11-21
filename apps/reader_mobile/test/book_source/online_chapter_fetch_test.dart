@@ -75,6 +75,22 @@ void main() {
     );
   });
 
+  test('旧目录 data 选项与新目录身份一致，正文中的片段字符不被丢弃', () {
+    const url = 'data:;base64,NzYwMDc4MzAzOTAwOTkxNTQxNw==';
+    expect(
+      onlineRequestIdentity('$url,{"type":"novel"}', const {}),
+      onlineRequestIdentity(url, const {'type': 'novel'}),
+    );
+    expect(
+      onlineRequestIdentity('$url,{"type":"novel"}', const {'type': 'comic'}),
+      onlineRequestIdentity(url, const {'type': 'comic'}),
+    );
+    expect(
+      onlineRequestIdentity('data:text/plain,正文#第一段', const {}),
+      isNot(onlineRequestIdentity('data:text/plain,正文#第二段', const {})),
+    );
+  });
+
   test('正文分页跳过重复候选并保留剩余页，相对下一章和重定向不混入正文', () async {
     final requested = <String>[];
     final service = _service(directory, (request) async {

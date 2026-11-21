@@ -835,11 +835,20 @@ BookSourceLoadMode _loadMode(Object? value) {
   String raw,
 ) {
   final text = raw.trim();
-  if (text.toLowerCase().startsWith('data:')) {
+  final isData = text.toLowerCase().startsWith('data:');
+  final dataSeparator = isData ? text.indexOf(',') : -1;
+  // 普通 data 的逗号和 JSON 属于正文；Base64 字符集不含逗号，
+  // 编码数据后独立的 JSON 对象才是 Legado 请求选项。
+  if (isData &&
+      (dataSeparator < 0 ||
+          !text
+              .substring(5, dataSeparator)
+              .toLowerCase()
+              .endsWith(';base64'))) {
     return (url: text, options: const <String, Object?>{});
   }
   for (final separator in const <String>[',{', ', {']) {
-    final index = text.indexOf(separator);
+    final index = text.indexOf(separator, isData ? dataSeparator + 1 : 0);
     if (index <= 0) continue;
     final candidate = text.substring(index + 1).trim();
     if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue;

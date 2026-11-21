@@ -214,16 +214,16 @@ class OnlineEpubIndexedChapter {
   final bool ready;
 
   OnlineChapter toChapter(int index, String detailUrl) {
-    // data 正文逗号后的 JSON 是内容，不是 Legado 请求选项。
+    final request = splitBookSourceUrlOptions(url);
     if (url.trimLeft().toLowerCase().startsWith('data:')) {
       return OnlineChapter(
         index: index,
         title: title,
-        url: url,
+        url: request.url,
         volume: volume,
+        requestOptions: request.options,
       );
     }
-    final request = splitBookSourceUrlOptions(url);
     final base = splitBookSourceUrlOptions(detailUrl).url;
     return OnlineChapter(
       index: index,
