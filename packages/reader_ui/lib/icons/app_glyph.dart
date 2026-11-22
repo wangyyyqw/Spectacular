@@ -67,6 +67,7 @@ enum AppGlyph {
   radioChecked(_radioChecked),
   radioUnchecked(_radioUnchecked),
   checklist(_checklist),
+  multiSelect(_multiSelect),
   lock(_lock),
   preview(_preview),
   touchApp(_touchApp),
@@ -83,6 +84,7 @@ enum AppGlyph {
   folder(_folder),
   folderOff(_folderOff),
   folderAdd(_folderAdd),
+  folderMove(_folderMove),
   warning(_warning),
   error(_error),
   info(_info),
@@ -121,6 +123,22 @@ class AppIconCanvas {
   /// 实心细节：线框态使用前景色，实心态镂空为底色。
   void solid(Path path) =>
       _canvas.drawPath(path, _fillPaint(filled ? cutoutColor : color));
+
+  /// 实心徽标：在独立图层中镂空描边细节，箭头可透出任意表面底色。
+  void solidBadge(Path shape, Path detail, {double detailWidth = 1.35}) {
+    _canvas.saveLayer(const Rect.fromLTWH(0, 0, 24, 24), Paint());
+    _canvas.drawPath(shape, _fillPaint(color));
+    _canvas.drawPath(
+      detail,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = detailWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..blendMode = BlendMode.clear,
+    );
+    _canvas.restore();
+  }
 
   void rotate(Offset center, double radians, void Function() draw) {
     _canvas.save();
@@ -654,30 +672,20 @@ void _code(AppIconCanvas canvas) => canvas.line(
 );
 
 Path _trashPath() => Path()
-  ..moveTo(4.5, 6.5)
-  ..lineTo(19.5, 6.5)
-  ..moveTo(9.5, 6.5)
-  ..lineTo(9.5, 4.5)
-  ..lineTo(14.5, 4.5)
-  ..lineTo(14.5, 6.5)
-  ..moveTo(6.5, 6.5)
-  ..lineTo(6.5, 18.5)
-  ..arcToPoint(
-    const Offset(9, 21),
-    radius: const Radius.circular(2.5),
-    clockwise: false,
-  )
-  ..lineTo(15, 21)
-  ..arcToPoint(
-    const Offset(17.5, 18.5),
-    radius: const Radius.circular(2.5),
-    clockwise: false,
-  )
-  ..lineTo(17.5, 6.5)
-  ..moveTo(10, 10.5)
-  ..lineTo(10, 16.5)
-  ..moveTo(14, 10.5)
-  ..lineTo(14, 16.5);
+  ..moveTo(3.8, 5.8)
+  ..lineTo(8.8, 5.8)
+  ..cubicTo(9.2, 2, 14.8, 2, 15.2, 5.8)
+  ..lineTo(20.2, 5.8)
+  ..moveTo(5.5, 5.8)
+  ..lineTo(6.2, 18)
+  ..quadraticBezierTo(6.4, 19.7, 8.1, 20.6)
+  ..lineTo(15.9, 20.6)
+  ..quadraticBezierTo(17.6, 19.7, 17.8, 18)
+  ..lineTo(18.5, 5.8)
+  ..moveTo(10.1, 9.4)
+  ..lineTo(10.1, 16.8)
+  ..moveTo(13.9, 9.4)
+  ..lineTo(13.9, 16.8);
 
 void _delete(AppIconCanvas canvas) => canvas.line(_trashPath());
 
@@ -830,6 +838,25 @@ void _checklist(AppIconCanvas canvas) => canvas.line(
     [Offset(11.5, 16.8), Offset(20.5, 16.8)],
   ]),
 );
+
+void _multiSelect(AppIconCanvas canvas) {
+  canvas.line(
+    Path()
+      ..moveTo(9.2, 6.8)
+      ..lineTo(9.2, 5.5)
+      ..quadraticBezierTo(9.2, 3.3, 11.3, 3.3)
+      ..lineTo(17.9, 3.3)
+      ..quadraticBezierTo(20.3, 3.3, 20.3, 5.8)
+      ..lineTo(20.3, 12.7)
+      ..quadraticBezierTo(20.3, 13.9, 19.4, 14.4),
+  );
+  canvas.line(_roundRect(3.6, 6.8, 17.5, 20.5, 2.6));
+  canvas.line(
+    _polylines(const [
+      [Offset(6.9, 13.5), Offset(9.6, 16.2), Offset(14.2, 11)],
+    ]),
+  );
+}
 
 void _lock(AppIconCanvas canvas) {
   canvas.line(_roundRect(5, 10.5, 19, 20.5, 2));
@@ -1039,6 +1066,18 @@ void _folderAdd(AppIconCanvas canvas) {
       [Offset(12, 10.5), Offset(12, 16.5)],
       [Offset(9, 13.5), Offset(15, 13.5)],
     ]),
+  );
+}
+
+void _folderMove(AppIconCanvas canvas) {
+  canvas.line(_folderPath());
+  canvas.solidBadge(
+    _circle(17.2, 16.5, 2.65),
+    _polylines(const [
+      [Offset(15.8, 16.5), Offset(18.6, 16.5)],
+      [Offset(17.5, 15.4), Offset(18.6, 16.5), Offset(17.5, 17.6)],
+    ]),
+    detailWidth: 1.25,
   );
 }
 

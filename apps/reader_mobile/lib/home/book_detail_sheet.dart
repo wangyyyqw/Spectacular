@@ -183,7 +183,7 @@ class BookDetailSheet extends StatelessWidget {
                 Expanded(
                   child: _DetailAction(
                     key: const ValueKey<String>('book-detail-create-group'),
-                    icon: AppGlyph.folderAdd,
+                    icon: AppGlyph.folderMove,
                     label: '分组',
                     onTap: () => Navigator.of(context).pop('create-group'),
                   ),

@@ -1170,7 +1170,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             : items.isEmpty
             ? null
             : _startSelection,
-        icon: AppIcon(_selectionMode ? AppGlyph.close : AppGlyph.checklist),
+        icon: AppIcon(_selectionMode ? AppGlyph.close : AppGlyph.multiSelect),
       ),
       const SizedBox(width: 8),
     ],
@@ -1394,7 +1394,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
-                      icon: const AppIcon(AppGlyph.folder, size: 18),
+                      icon: const AppIcon(AppGlyph.folderMove, size: 18),
                       label: const Text('分组'),
                     ),
                   ),
