@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/txt.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../library/library_store.dart';
 import '../diagnostics/reader_log.dart';
@@ -239,9 +241,10 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
   }
 
   Future<void> _saveRule() async {
-    final saved = await showReaderDialog<ChapterRule>(
+    final saved = await showReaderDrawer<ChapterRule>(
       context: context,
       builder: (_) => _SaveRuleDialog(rule: _currentRule()),
+      waitForDismissal: true,
     );
     if (saved == null || !mounted) return;
     try {
@@ -262,9 +265,10 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
 
   Future<void> _manageRules() async {
     try {
-      await showReaderDialog<void>(
+      await showReaderDrawer<void>(
         context: context,
         builder: (_) => _RuleManager(store: _ruleStore),
+        waitForDismissal: true,
       );
       final rules = await _ruleStore.load();
       if (!mounted) return;
@@ -589,7 +593,7 @@ class _SaveRuleDialogState extends State<_SaveRuleDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
+  Widget build(BuildContext context) => ReaderSheetForm(
     title: const Text('另存为我的规则'),
     content: SizedBox(
       width: 420,
@@ -652,7 +656,7 @@ class _RuleManagerState extends State<_RuleManager> {
   }
 
   @override
-  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
+  Widget build(BuildContext context) => ReaderSheetForm(
     title: const Text('我的规则'),
     content: SizedBox(
       width: 520,
@@ -688,7 +692,7 @@ class _RuleManagerState extends State<_RuleManager> {
                   trailing: IconButton(
                     tooltip: '删除规则',
                     onPressed: () => _update(rule, delete: true),
-                    icon: const Icon(Icons.delete_outline),
+                    icon: const AppIcon(AppGlyph.delete),
                   ),
                 ),
             ],

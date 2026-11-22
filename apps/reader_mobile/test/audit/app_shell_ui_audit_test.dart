@@ -11,6 +11,7 @@ import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/test_epub.dart';
 
@@ -93,10 +94,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('bookshelf-sort-setting')));
     await _pumpFrames(tester, frames: 8);
     expect(find.text('书架排序'), findsWidgets);
-    expect(
-      find.byWidgetPredicate((widget) => widget is AlertDialog),
-      findsOneWidget,
-    );
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
     final theme = buildAppTheme();
     expect(theme.useMaterial3, isFalse);
     expect(theme.colorScheme.surfaceTint, Colors.transparent);

@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_theme.dart';
-import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_sheet_form.dart';
 
 /// 配色草稿只在保存时应用，取消保留原主题。
 class CustomThemeDialog extends StatefulWidget {
@@ -84,7 +84,7 @@ class _CustomThemeDialogState extends State<CustomThemeDialog> {
             ),
           ),
         ),
-        SizedBox(width: 28, child: Text('$value', textAlign: TextAlign.right)),
+        Text('$value', textAlign: TextAlign.right),
       ],
     );
   }
@@ -122,18 +122,25 @@ class _CustomThemeDialogState extends State<CustomThemeDialog> {
   Widget _controls() => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      SegmentedButton<bool>(
-        selectedIcon: const AppIcon(AppGlyph.check),
-        segments: const [
-          ButtonSegment(value: false, label: Text('背景色')),
-          ButtonSegment(value: true, label: Text('文字色')),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final editingText in [false, true])
+            ChoiceChip(
+              label: Text(editingText ? '文字色' : '背景色'),
+              selected: _editingText == editingText,
+              avatar: _editingText == editingText
+                  ? const AppIcon(AppGlyph.check, size: 16)
+                  : null,
+              showCheckmark: false,
+              onSelected: (_) => setState(() {
+                _editingText = editingText;
+                _error = null;
+                _hex.text = _rgb(_color);
+              }),
+            ),
         ],
-        selected: {_editingText},
-        onSelectionChanged: (selected) => setState(() {
-          _editingText = selected.single;
-          _error = null;
-          _hex.text = _rgb(_color);
-        }),
       ),
       const SizedBox(height: 12),
       _hexInput(),
@@ -144,24 +151,19 @@ class _CustomThemeDialogState extends State<CustomThemeDialog> {
   );
 
   @override
-  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
+  Widget build(BuildContext context) => ReaderSheetForm(
     title: const Text('自定义主题'),
-    content: SizedBox(
-      width: 340,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _preview(),
-            const SizedBox(height: 16),
-            _controls(),
-            Text(
-              _draft.luminance >= 4.5 ? '文字与背景清晰可辨' : '当前颜色接近，建议拉大明暗差异',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _preview(),
+        const SizedBox(height: 16),
+        _controls(),
+        Text(
+          _draft.luminance >= 4.5 ? '文字与背景清晰可辨' : '当前颜色接近，建议拉大明暗差异',
+          style: Theme.of(context).textTheme.bodySmall,
         ),
-      ),
+      ],
     ),
     actions: [
       TextButton(

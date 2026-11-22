@@ -319,7 +319,7 @@ class _TocPanelState extends State<TocPanel> {
                 : RawScrollbar(
                     controller: _scrollController,
                     thumbVisibility: true,
-                    thumbColor: const Color(0xFFCCCCCC),
+                    thumbColor: faint,
                     thickness: 4,
                     radius: const Radius.circular(2),
                     child: ListView.builder(
@@ -358,8 +358,10 @@ class _TocPanelState extends State<TocPanel> {
                                 Container(
                                   width: 8,
                                   height: 8,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFE5E9EF),
+                                  decoration: BoxDecoration(
+                                    color: ReaderDrawerStyle.optionFillOf(
+                                      theme,
+                                    ),
                                     shape: BoxShape.circle,
                                   ),
                                 ),
@@ -372,14 +374,9 @@ class _TocPanelState extends State<TocPanel> {
                                       : row.entry.title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontFamily: 'serif',
+                                  style: theme.textTheme.bodyMedium!.copyWith(
                                     fontSize: 14,
-                                    color: missing
-                                        ? muted
-                                        : theme.brightness == Brightness.dark
-                                        ? text
-                                        : const Color(0xFF555B64),
+                                    color: missing ? muted : text,
                                     fontWeight: current && !missing
                                         ? FontWeight.w600
                                         : FontWeight.w400,
@@ -403,9 +400,7 @@ class _TocPanelState extends State<TocPanel> {
                                           ? AppGlyph.chevronDown
                                           : AppGlyph.chevronUp,
                                       size: 14,
-                                      color: theme.brightness == Brightness.dark
-                                          ? faint
-                                          : const Color(0xFF171A1F),
+                                      color: faint,
                                     ),
                                   ),
                                 )

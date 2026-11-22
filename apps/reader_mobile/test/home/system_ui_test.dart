@@ -9,6 +9,7 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/reader_pump.dart';
 
@@ -52,13 +53,22 @@ Future<void> _selectMode(
 ) async {
   await tester.tap(find.text('界面主题'));
   await _pumpApp(tester);
-  await tester.tap(find.widgetWithText(RadioListTile<ThemeMode>, label));
+  final drawer = find.byType(ReaderSheetForm);
+  expect(drawer, findsOneWidget);
+  expect(
+    find.byWidgetPredicate((widget) => widget is AlertDialog),
+    findsNothing,
+  );
+  await tester.tap(
+    find.descendant(
+      of: drawer,
+      matching: find.widgetWithText(RadioListTile<ThemeMode>, label),
+    ),
+  );
   await pumpReaderUntilComplete(
     tester,
-    () => find
-        .byWidgetPredicate((widget) => widget is AlertDialog)
-        .evaluate()
-        .isEmpty,
+    () => drawer.evaluate().isEmpty,
+    description: '界面主题抽屉退场',
   );
   await pumpReaderUntilComplete(
     tester,
@@ -280,18 +290,31 @@ void main() {
       expect(brightness(), Brightness.dark);
       await tester.tap(find.text('界面主题'));
       await _pumpApp(tester);
+      final drawer = find.byType(ReaderSheetForm);
+      expect(drawer, findsOneWidget);
       expect(
         tester
-            .widget<RadioGroup<ThemeMode>>(find.byType(RadioGroup<ThemeMode>))
+            .widget<RadioGroup<ThemeMode>>(
+              find.descendant(
+                of: drawer,
+                matching: find.byType(RadioGroup<ThemeMode>),
+              ),
+            )
             .groupValue,
         ThemeMode.system,
       );
-      Navigator.of(
-        tester.element(
-          find.byWidgetPredicate((widget) => widget is AlertDialog),
-        ),
-      ).pop();
-      await _pumpApp(tester);
+      await tester.tap(
+        find.descendant(of: drawer, matching: find.byTooltip('关闭')),
+      );
+      await pumpReaderUntilComplete(
+        tester,
+        () => drawer.evaluate().isEmpty,
+        description: '关闭主题抽屉',
+      );
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.system,
+      );
 
       dispatcher.platformBrightnessTestValue = Brightness.light;
       await _pumpApp(tester);

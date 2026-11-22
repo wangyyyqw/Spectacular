@@ -16,6 +16,7 @@ import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -155,13 +156,13 @@ void main() {
     await pumpReaderUntil(tester, find.text('书籍信息'));
     await tester.tap(find.text('书籍信息'));
     await pumpReaderUntil(tester, find.widgetWithText(TextField, '书名'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     await tester.tap(find.text('取消'));
     await pumpReaderUntilComplete(
       tester,
-      () => find
-          .byWidgetPredicate((widget) => widget is AlertDialog)
-          .evaluate()
-          .isEmpty,
+      () => find.byType(ReaderSheetForm).evaluate().isEmpty,
     );
     await tester.tap(find.byTooltip('在文档中查找'));
     await tester.pump();
@@ -275,13 +276,11 @@ void main() {
     await tester.tap(row, buttons: kSecondaryMouseButton);
     await pumpReaderUntil(tester, find.text('在此处之前插入 HTML').hitTestable());
     await tester.tap(find.text('在此处之前插入 HTML'));
-    await pumpReaderUntil(
-      tester,
-      find.byWidgetPredicate((widget) => widget is AlertDialog),
-    );
+    await pumpReaderUntil(tester, find.byType(ReaderSheetForm));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
-        of: find.byWidgetPredicate((widget) => widget is AlertDialog),
+        of: find.byType(ReaderSheetForm),
         matching: find.byType(TextField),
       ),
       'OEBPS/新章.xhtml',
@@ -302,13 +301,11 @@ void main() {
     );
     await pumpReaderUntil(tester, find.text('重命名').hitTestable());
     await tester.tap(find.text('重命名'));
-    await pumpReaderUntil(
-      tester,
-      find.byWidgetPredicate((widget) => widget is AlertDialog),
-    );
+    await pumpReaderUntil(tester, find.byType(ReaderSheetForm));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
-        of: find.byWidgetPredicate((widget) => widget is AlertDialog),
+        of: find.byType(ReaderSheetForm),
         matching: find.byType(TextField),
       ),
       'OEBPS/改名.xhtml',

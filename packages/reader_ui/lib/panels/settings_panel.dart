@@ -377,7 +377,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }
 
   Future<void> _editTheme() async {
-    final result = await showReaderDialog<ReaderTheme>(
+    final result = await showReaderDrawer<ReaderTheme>(
       context: context,
       builder: (_) => CustomThemeDialog(
         theme: widget.customTheme ?? ReaderTheme.byId(widget.themeId),
@@ -1169,10 +1169,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
     required VoidCallback? onTap,
     bool dashed = false,
     bool showPlus = false,
-    Color plusColor = ReaderDrawerStyle.textSecondary,
+    Color? plusColor,
   }) {
     final theme = Theme.of(context);
-    final dark = color.computeLuminance() < 0.35;
     return Opacity(
       opacity: onTap == null ? 0.42 : 1,
       child: InkWell(
@@ -1189,28 +1188,10 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   ? null
                   : selected
                   ? Border.all(
-                      color: dark
-                          ? ReaderDrawerStyle.surface
-                          : ReaderDrawerStyle.selectedRing,
+                      color: ReaderDrawerStyle.selectedRingOf(theme),
                       width: 2.5,
                     )
-                  : Border.all(
-                      color: theme.brightness == Brightness.dark
-                          ? theme.colorScheme.outlineVariant
-                          : Colors.black.withValues(alpha: 0.08),
-                    ),
-              boxShadow: selected
-                  ? <BoxShadow>[
-                      BoxShadow(
-                        color: ReaderDrawerStyle.selectedRing.withValues(
-                          alpha: dark ? 1 : 0.2,
-                        ),
-                        blurRadius: dark ? 0 : 6,
-                        spreadRadius: dark ? 1.5 : 0,
-                        offset: dark ? Offset.zero : const Offset(0, 2),
-                      ),
-                    ]
-                  : null,
+                  : Border.all(color: ReaderDrawerStyle.optionBorderOf(theme)),
             ),
             child: CustomPaint(
               painter: dashed
@@ -1222,11 +1203,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   ? AppIcon(
                       AppGlyph.add,
                       size: 20,
-                      color: dark
-                          ? ReaderDrawerStyle.surface
-                          : dashed
-                          ? ReaderDrawerStyle.secondaryOf(theme)
-                          : plusColor,
+                      color: plusColor ?? ReaderDrawerStyle.secondaryOf(theme),
                     )
                   : null,
             ),

@@ -797,7 +797,7 @@ Path _bookmarkPath() => _polygon(const [
   Offset(6.5, 20.5),
 ]);
 
-void _bookmark(AppIconCanvas canvas) => canvas.line(_bookmarkPath());
+void _bookmark(AppIconCanvas canvas) => canvas.outline(_bookmarkPath());
 
 void _bookmarkAdd(AppIconCanvas canvas) {
   canvas.line(_bookmarkPath());

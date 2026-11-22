@@ -108,14 +108,11 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
       borderRadius: BorderRadius.circular(20),
       borderSide: BorderSide.none,
     );
-    final searchStyle = TextStyle(
-      fontFamily: 'serif',
+    final searchStyle = theme.textTheme.bodyMedium!.copyWith(
       fontSize: 14,
       height: 1.5,
       fontWeight: FontWeight.w400,
-      color: theme.brightness == Brightness.dark
-          ? ReaderDrawerStyle.textOf(theme)
-          : const Color(0xFF555B64),
+      color: ReaderDrawerStyle.textOf(theme),
     );
     return Material(
       color: ReaderFrostedSurface.panelColorOf(context),

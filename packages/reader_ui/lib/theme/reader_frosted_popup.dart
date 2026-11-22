@@ -75,39 +75,240 @@ Future<T?> showReaderBottomSheet<T>({
   bool isDismissible = true,
   bool enableDrag = true,
   bool showDragHandle = false,
+  bool waitForDismissal = false,
   ReaderTheme? readerTheme,
-}) => showModalBottomSheet<T>(
-  context: context,
-  isScrollControlled: isScrollControlled,
-  useSafeArea: useSafeArea,
-  isDismissible: isDismissible,
-  enableDrag: enableDrag,
-  showDragHandle: false,
-  backgroundColor: Colors.transparent,
-  elevation: 0,
-  clipBehavior: Clip.none,
-  builder: (context) {
-    final panel = ReaderFrostedSurface(
-      radius: 24,
-      bottomRadius: 0,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        child: RepaintBoundary(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (showDragHandle) _DragHandle(dismissible: isDismissible),
-              Flexible(child: Builder(builder: builder)),
-            ],
+  BoxConstraints? constraints,
+}) async {
+  final navigator = Navigator.of(context);
+  final localizations = MaterialLocalizations.of(context);
+  final reduceMotion =
+      ReaderFrostedScope.inkModeOf(context) ||
+      readerTheme?.id == 'ink' ||
+      MediaQuery.disableAnimationsOf(context);
+  final route = ModalBottomSheetRoute<T>(
+    capturedThemes: InheritedTheme.capture(
+      from: context,
+      to: navigator.context,
+    ),
+    barrierLabel: localizations.scrimLabel,
+    barrierOnTapHint: localizations.scrimOnTapHint(
+      localizations.bottomSheetLabel,
+    ),
+    modalBarrierColor: Theme.of(context).bottomSheetTheme.modalBarrierColor,
+    isScrollControlled: isScrollControlled,
+    useSafeArea: useSafeArea,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    showDragHandle: false,
+    constraints: constraints,
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    clipBehavior: Clip.none,
+    sheetAnimationStyle: reduceMotion ? AnimationStyle.noAnimation : null,
+    builder: (context) => _drawerPanel(
+      builder: builder,
+      readerTheme: readerTheme,
+      showDragHandle: showDragHandle,
+      isDismissible: isDismissible,
+    ),
+  );
+  final result = await navigator.push(route);
+  if (waitForDismissal) await route.completed;
+  return result;
+}
+
+/// 手机使用底部抽屉，桌面使用靠右抽屉；两者共享主题和路由返回契约。
+Future<T?> showReaderDrawer<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool isScrollControlled = true,
+  bool useSafeArea = true,
+  bool isDismissible = true,
+  bool enableDrag = true,
+  bool showDragHandle = false,
+  bool waitForDismissal = false,
+  ReaderTheme? readerTheme,
+  double maxWidth = 680,
+}) async {
+  final platform = Theme.of(context).platform;
+  final desktop =
+      platform == TargetPlatform.macOS ||
+      platform == TargetPlatform.windows ||
+      platform == TargetPlatform.linux;
+  if (!desktop) {
+    return showReaderBottomSheet<T>(
+      context: context,
+      builder: builder,
+      isScrollControlled: isScrollControlled,
+      useSafeArea: useSafeArea,
+      isDismissible: isDismissible,
+      enableDrag: enableDrag,
+      showDragHandle: showDragHandle,
+      waitForDismissal: waitForDismissal,
+      readerTheme: readerTheme,
+      constraints: BoxConstraints(maxWidth: maxWidth),
+    );
+  }
+  final navigator = Navigator.of(context);
+  final route = _ReaderDrawerRoute<T>(
+    builder: builder,
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor:
+        Theme.of(context).bottomSheetTheme.modalBarrierColor ?? Colors.black54,
+    barrierDismissible: isDismissible,
+    useSafeArea: useSafeArea,
+    readerTheme: readerTheme,
+    maxWidth: maxWidth,
+    reduceMotion:
+        ReaderFrostedScope.inkModeOf(context) ||
+        readerTheme?.id == 'ink' ||
+        MediaQuery.disableAnimationsOf(context),
+  );
+  final result = await navigator.push(route);
+  if (waitForDismissal) await route.completed;
+  return result;
+}
+
+Widget _drawerPanel({
+  required WidgetBuilder builder,
+  ReaderTheme? readerTheme,
+  bool showDragHandle = false,
+  bool isDismissible = true,
+  bool desktop = false,
+}) {
+  final panel = ReaderFrostedSurface(
+    radius: 24,
+    bottomRadius: desktop ? 24 : 0,
+    child: ClipRRect(
+      borderRadius: desktop
+          ? BorderRadius.circular(24)
+          : const BorderRadius.vertical(top: Radius.circular(24)),
+      child: RepaintBoundary(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showDragHandle) _DragHandle(dismissible: isDismissible),
+            Flexible(child: Builder(builder: builder)),
+          ],
+        ),
+      ),
+    ),
+  );
+  return readerTheme == null
+      ? panel
+      : ReaderPanelTheme(theme: readerTheme, child: panel);
+}
+
+class _ReaderDrawerRoute<T> extends PopupRoute<T> {
+  _ReaderDrawerRoute({
+    required this.builder,
+    required this.themes,
+    required this.barrierLabel,
+    required this.barrierColor,
+    required this.barrierDismissible,
+    required this.useSafeArea,
+    required this.readerTheme,
+    required this.maxWidth,
+    required this.reduceMotion,
+  }) : super(
+         requestFocus: true,
+         traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
+       );
+
+  final WidgetBuilder builder;
+  final CapturedThemes themes;
+  @override
+  final String barrierLabel;
+  @override
+  final Color barrierColor;
+  @override
+  final bool barrierDismissible;
+  final bool useSafeArea;
+  final ReaderTheme? readerTheme;
+  final double maxWidth;
+  final bool reduceMotion;
+  final _shortcuts = ShortcutManager(
+    modal: true,
+    shortcuts: WidgetsApp.defaultShortcuts,
+  );
+
+  @override
+  void dispose() {
+    _shortcuts.dispose();
+    super.dispose();
+  }
+
+  @override
+  Duration get transitionDuration =>
+      reduceMotion ? Duration.zero : const Duration(milliseconds: 240);
+
+  @override
+  Duration get reverseTransitionDuration =>
+      reduceMotion ? Duration.zero : const Duration(milliseconds: 180);
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    Widget panel = Padding(
+      padding: MediaQuery.viewInsetsOf(context),
+      child: MediaQuery.removeViewInsets(
+        context: context,
+        removeLeft: true,
+        removeTop: true,
+        removeRight: true,
+        removeBottom: true,
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: SizedBox.expand(
+              child: _drawerPanel(
+                builder: builder,
+                readerTheme: readerTheme,
+                desktop: true,
+              ),
+            ),
           ),
         ),
       ),
     );
-    return readerTheme == null
-        ? panel
-        : ReaderPanelTheme(theme: readerTheme, child: panel);
-  },
-);
+    if (useSafeArea) panel = SafeArea(child: panel);
+    return themes.wrap(
+      Shortcuts.manager(
+        manager: _shortcuts,
+        child: DefaultTextEditingShortcuts(
+          child: Semantics(
+            scopesRoute: true,
+            explicitChildNodes: true,
+            child: panel,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => reduceMotion
+      ? child
+      : SlideTransition(
+          position: animation.drive(
+            Tween<Offset>(
+              begin: const Offset(1, 0),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: Curves.easeOutCubic)),
+          ),
+          child: child,
+        );
+}
 
 class _DragHandle extends StatelessWidget {
   const _DragHandle({required this.dismissible});

@@ -20,6 +20,7 @@ import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -219,6 +220,8 @@ void main() {
     await pumpReaderUntil(tester, find.text('全书 .body'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('全书 .body'), findsOneWidget);
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     final color = find.byWidgetPredicate(
       (widget) =>
           widget is TextField && widget.decoration?.labelText == 'color',
@@ -265,19 +268,44 @@ void main() {
     await pumpReaderUntil(tester, find.text('旧图片描述'));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('旧图片描述'));
-    await tester.pump(const Duration(milliseconds: 300));
+    await pumpReaderUntil(tester, find.byType(ReaderSheetForm));
+    final imageRoute = ModalRoute.of(
+      tester.element(find.byType(ReaderSheetForm)),
+    )!;
+    await pumpReaderUntilComplete(
+      tester,
+      () => imageRoute.animation!.status == AnimationStatus.completed,
+      description: '图片编辑抽屉入场',
+    );
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     await tester.tap(
       find.byWidgetPredicate(
         (widget) => widget is DropdownButtonFormField<String>,
       ),
     );
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('OEBPS/other.png').last);
-    await tester.pump(const Duration(milliseconds: 300));
+    await pumpReaderUntil(tester, find.text('OEBPS/other.png'));
+    final option = find.text('OEBPS/other.png').last;
+    final dropdownRoute = ModalRoute.of(tester.element(option))!;
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          dropdownRoute.animation!.status == AnimationStatus.completed &&
+          option.hitTestable().evaluate().isNotEmpty,
+      description: '图片资源下拉选项入场',
+    );
+    await tester.tap(option);
+    await pumpReaderTask(tester, dropdownRoute.completed);
     await tester.enterText(find.byKey(const ValueKey('image-alt')), '新图片 & 描述');
     final history = editor.session.history.length;
     await tester.tap(find.text('应用图片修改'));
-    await tester.pump(const Duration(milliseconds: 300));
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          find.byType(ReaderSheetForm).evaluate().isEmpty &&
+          find.byType(BookEditorElementSheet).evaluate().isEmpty,
+      description: '图片编辑与段落抽屉退场',
+    );
     final image = editor.session
         .editableDocument(_chapter)
         .elements

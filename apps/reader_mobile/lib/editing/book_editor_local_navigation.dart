@@ -20,8 +20,11 @@ class _NavigationDialogState extends State<_NavigationDialog> {
   List<NavigationEntry> get _entries => _sections[_section]!;
 
   @override
-  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
+  Widget build(BuildContext context) => ReaderSheetForm(
     title: const Text('目录与导航'),
+    onClose: () {
+      if (!_busy) Navigator.pop(context);
+    },
     content: SizedBox(
       width: 790,
       height: 480,
@@ -124,7 +127,7 @@ class _NavigationDialogState extends State<_NavigationDialog> {
     final entry = index == null
         ? const NavigationEntry(title: '', href: '', level: 1)
         : _entries[index];
-    final changed = await _localDialog<NavigationEntry>(
+    final changed = await _localDrawer<NavigationEntry>(
       context,
       (_) => _NavigationEntryDialog(entry: entry, section: _section),
     );
@@ -223,7 +226,7 @@ class _NavigationEntryDialogState extends State<_NavigationEntryDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
+  Widget build(BuildContext context) => ReaderSheetForm(
     title: Text('编辑${widget.section.label}条目'),
     content: SizedBox(
       width: 540,

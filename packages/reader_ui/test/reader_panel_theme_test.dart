@@ -5,6 +5,7 @@ import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 void main() {
   testWidgets('阅读面板主题跟随深色阅读主题', (tester) async {
@@ -83,6 +84,42 @@ void main() {
 
     expect(find.text('排版'), findsNothing);
     expect(find.text('翻页方式'), findsOneWidget);
+  });
+
+  testWidgets('面板固定使用界面黑体，语义色不受浅色硬编码影响', (tester) async {
+    late ThemeData captured;
+    final theme = ReaderTheme.custom(
+      background: const Color(0xFFEEE1C8),
+      text: const Color(0xFF35291B),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(fontFamily: '正文宋体'),
+        home: ReaderPanelTheme(
+          theme: theme,
+          child: Builder(
+            builder: (context) {
+              captured = Theme.of(context);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+    expect(captured.textTheme.bodyMedium?.fontFamily, 'builtin_hei');
+    expect(captured.textTheme.bodySmall?.fontFamily, 'builtin_hei');
+    expect(captured.listTileTheme.titleTextStyle?.fontFamily, 'builtin_hei');
+    expect(ReaderDrawerStyle.surfaceOf(captured), theme.background);
+    expect(ReaderDrawerStyle.textOf(captured), theme.text);
+    expect(
+      ReaderDrawerStyle.secondaryOf(captured),
+      captured.colorScheme.onSurfaceVariant,
+    );
+    expect(
+      ReaderDrawerStyle.dividerOf(captured),
+      captured.colorScheme.outlineVariant,
+    );
+    expect(ReaderDrawerStyle.selectedRingOf(captured), theme.text);
   });
 
   testWidgets('抽屉内容共用凝光底板，设置面板不叠加实色背景', (tester) async {

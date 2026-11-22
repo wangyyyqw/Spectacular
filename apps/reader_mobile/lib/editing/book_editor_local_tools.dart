@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:spectacular_epub_tools/local_epub_tools.dart';
 
 import 'book_editor_controller.dart';
@@ -18,8 +19,8 @@ part 'book_editor_local_forms.dart';
 part 'book_editor_local_navigation.dart';
 part 'book_editor_local_health.dart';
 
-Future<T?> _localDialog<T>(BuildContext context, WidgetBuilder builder) =>
-    showReaderDialog<T>(
+Future<T?> _localDrawer<T>(BuildContext context, WidgetBuilder builder) =>
+    showReaderDrawer<T>(
       context: context,
       builder: builder,
       waitForDismissal: true,
@@ -34,7 +35,7 @@ class BookEditorLocalTools {
   Future<void> open([LocalEpubTool? selected]) async {
     final tool =
         selected ??
-        await _localDialog<LocalEpubTool>(context, (_) => const _ToolPicker());
+        await _localDrawer<LocalEpubTool>(context, (_) => const _ToolPicker());
     if (tool == null || !context.mounted) return;
     switch (tool) {
       case LocalEpubTool.health:
@@ -59,7 +60,7 @@ class BookEditorLocalTools {
     if (output == null) return;
     try {
       if (!context.mounted) return;
-      await _localDialog<void>(
+      await _localDrawer<void>(
         context,
         (_) => _ToolResultDialog(output: output, tool: tool, fileName: title),
       );
@@ -83,7 +84,7 @@ class BookEditorLocalTools {
       return name == null ? null : {'inputPaths': paths, 'title': name};
     }
     if (_formTools.contains(tool)) {
-      return _localDialog<Map<String, Object?>>(
+      return _localDrawer<Map<String, Object?>>(
         context,
         (_) => _ToolOptionsDialog(tool: tool, title: title, editor: editor),
       );
@@ -103,7 +104,7 @@ class BookEditorLocalTools {
     List<String>? fixes;
     try {
       if (!context.mounted) return;
-      fixes = await _localDialog<List<String>>(
+      fixes = await _localDrawer<List<String>>(
         context,
         (_) => _HealthDialog(
           report: output.result.data! as EpubHealthReport,
@@ -125,7 +126,7 @@ class BookEditorLocalTools {
     EpubNavigationDocument? navigation;
     try {
       if (!context.mounted) return;
-      navigation = await _localDialog<EpubNavigationDocument>(
+      navigation = await _localDrawer<EpubNavigationDocument>(
         context,
         (_) => _NavigationDialog(
           document: output.result.data! as EpubNavigationDocument,
@@ -148,7 +149,7 @@ class BookEditorLocalTools {
     try {
       if (!context.mounted) return;
       final targets = output.result.data! as List<SplitTarget>;
-      points = await _localDialog<List<int>>(
+      points = await _localDrawer<List<int>>(
         context,
         (_) => _SplitDialog(targets: targets),
       );
@@ -167,7 +168,7 @@ class BookEditorLocalTools {
     Map<String, Object?>? targets;
     try {
       if (!context.mounted) return;
-      targets = await _localDialog<Map<String, Object?>>(
+      targets = await _localDrawer<Map<String, Object?>>(
         context,
         (_) => _FontTargetDialog(
           targets: output.result.data! as FontEncryptTargets,
@@ -188,7 +189,7 @@ class _ToolPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DefaultTabController(
     length: 5,
-    child: ReaderFrostedAlertDialog(
+    child: ReaderSheetForm(
       title: const Text('本地 EPUB 工具'),
       content: SizedBox(
         width: 760,
@@ -252,7 +253,7 @@ class _ToolResultDialog extends StatelessWidget {
   final String fileName;
 
   @override
-  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
+  Widget build(BuildContext context) => ReaderSheetForm(
     title: Text(output.applied ? '${tool.label}已应用' : '${tool.label}完成'),
     content: SizedBox(
       width: 680,

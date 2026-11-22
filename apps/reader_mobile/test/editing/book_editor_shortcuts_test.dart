@@ -10,6 +10,7 @@ import 'package:reader_mobile/editing/book_editor_controller.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -227,7 +228,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   }, variant: _platforms);
 
-  testWidgets('源码快捷键打开全书查找，弹窗内不误保存或关闭文档', (tester) async {
+  testWidgets('源码快捷键打开全书查找抽屉，输入时不误保存或关闭文档', (tester) async {
     var saves = 0;
     final editor = await _open(tester, (_) async => saves++);
     await _show(tester, editor);
@@ -235,6 +236,8 @@ void main() {
     await _shortcut(tester, key: LogicalKeyboardKey.keyF, shift: true);
     await pumpReaderUntil(tester, find.text('全书源码查找替换'));
     await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     await tester.tap(find.widgetWithText(TextField, '查找内容'));
     await _shortcut(tester);
     await _shortcut(tester, key: LogicalKeyboardKey.keyW);
@@ -244,10 +247,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await pumpReaderUntilComplete(
       tester,
-      () => find
-          .byWidgetPredicate((widget) => widget is AlertDialog)
-          .evaluate()
-          .isEmpty,
+      () => find.byType(ReaderSheetForm).evaluate().isEmpty,
     );
     await _focusSource(tester);
     await _shortcut(tester);

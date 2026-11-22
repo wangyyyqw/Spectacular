@@ -11,6 +11,10 @@ import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/txt/txt_chapter_rule_page.dart';
 import 'package:reader_mobile/txt/txt_encoding_dialog.dart';
 import 'package:reader_mobile/txt/txt_rule_store.dart';
+import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
+
+import '../support/reader_pump.dart';
 
 Future<void> _finishWork(WidgetTester tester) async {
   var idleFrames = 0;
@@ -165,12 +169,68 @@ void main() {
     await tester.ensureVisible(find.text('另存为我的规则'));
     await tester.tap(find.text('另存为我的规则'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, '我的章标题');
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    await tester.enterText(find.widgetWithText(TextField, '规则名称'), '我的章标题');
     await tester.tap(find.text('保存规则'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(ReaderSheetForm).evaluate().isEmpty,
+      description: 'TXT 规则另存抽屉退场',
+    );
     await _finishWork(tester);
     final rules = await TxtRuleStore(library).load();
+    expect(find.byType(ReaderSheetForm), findsNothing);
+    expect(find.byType(TxtChapterRulePage), findsOneWidget);
     expect(rules.single.name, '我的章标题');
     expect(rules.single.autoEnabled, isFalse);
+    expect(
+      (await library.bookById(entry.id))!.contentRevision,
+      entry.contentRevision,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('个人规则管理抽屉保存自动识别开关，关闭后回到原章节页', (tester) async {
+    final store = TxtRuleStore(library);
+    await store.save(
+      const ChapterRule(
+        id: 'user-manager',
+        name: '我的章节',
+        pattern: r'^第.+章.*$',
+        autoEnabled: false,
+      ),
+    );
+    await showPage(tester);
+    await tester.ensureVisible(find.text('管理我的规则'));
+    await tester.tap(find.text('管理我的规则'));
+    await _finishWork(tester);
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('我的章节'), findsOneWidget);
+    expect(
+      tester
+          .widget<AppIcon>(
+            find.descendant(
+              of: find.byTooltip('删除规则'),
+              matching: find.byType(AppIcon),
+            ),
+          )
+          .glyph,
+      AppGlyph.delete,
+    );
+    await tester.tap(find.byType(Switch));
+    await _finishWork(tester);
+    expect((await store.load()).single.autoEnabled, isTrue);
+    await tester.tap(find.byTooltip('关闭'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(ReaderSheetForm).evaluate().isEmpty,
+      description: 'TXT 规则管理抽屉退场',
+    );
+    await _finishWork(tester);
+    expect(find.byType(ReaderSheetForm), findsNothing);
+    expect(find.byType(TxtChapterRulePage), findsOneWidget);
     expect(
       (await library.bookById(entry.id))!.contentRevision,
       entry.contentRevision,
@@ -197,6 +257,8 @@ void main() {
     );
     await tester.tap(find.text('选择编码'));
     await tester.pumpAndSettle();
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('简体正文样例'), findsOneWidget);
     await tester.tap(find.byType(DropdownButtonFormField<int>));
     await tester.pumpAndSettle();
@@ -206,5 +268,13 @@ void main() {
     await tester.tap(find.text('继续导入'));
     await tester.pumpAndSettle();
     expect(selected, 'Big5');
+    expect(find.byType(ReaderSheetForm), findsNothing);
+    await tester.tap(find.text('选择编码'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(selected, isNull);
+    expect(find.byType(ReaderSheetForm), findsNothing);
+    expect(find.text('选择编码'), findsOneWidget);
   });
 }

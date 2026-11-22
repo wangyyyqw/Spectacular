@@ -211,14 +211,11 @@ class _SearchPanelState extends State<SearchPanel> {
     }
   }
 
-  TextStyle _textStyle(ThemeData theme) => TextStyle(
-    fontFamily: 'serif',
+  TextStyle _textStyle(ThemeData theme) => theme.textTheme.bodyMedium!.copyWith(
     fontSize: 14,
     height: 1.5,
     fontWeight: FontWeight.w400,
-    color: theme.brightness == Brightness.dark
-        ? ReaderDrawerStyle.textOf(theme)
-        : const Color(0xFF555B64),
+    color: ReaderDrawerStyle.textOf(theme),
   );
 
   @override

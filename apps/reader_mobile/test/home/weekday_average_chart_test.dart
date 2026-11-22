@@ -182,6 +182,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(HourlyReadingPage), findsOneWidget);
+    expect(find.byType(BottomSheet), findsOneWidget);
     expect(
       tester
           .widget<Text>(
@@ -232,8 +233,9 @@ void main() {
         '${date.year}年${date.month}月${date.day}日 · 周${labels[index]}',
       );
 
-      await tester.pageBack();
+      await tester.tap(find.byTooltip('关闭'));
       await tester.pumpAndSettle();
+      expect(find.byType(HourlyReadingPage), findsNothing);
     }
   });
 

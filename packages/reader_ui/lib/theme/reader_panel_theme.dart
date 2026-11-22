@@ -83,21 +83,34 @@ ThemeData _panelTypography(
   dividerColor: scheme.outlineVariant,
   iconTheme: base.iconTheme.copyWith(color: theme.text),
   textTheme: base.textTheme
-      .apply(bodyColor: theme.text, displayColor: theme.text)
+      .apply(
+        fontFamily: 'builtin_hei',
+        bodyColor: theme.text,
+        displayColor: theme.text,
+      )
       .copyWith(
         bodySmall: base.textTheme.bodySmall?.copyWith(
+          fontFamily: 'builtin_hei',
           color: scheme.onSurfaceVariant,
         ),
         labelMedium: base.textTheme.labelMedium?.copyWith(
+          fontFamily: 'builtin_hei',
           color: scheme.onSurfaceVariant,
         ),
         labelSmall: base.textTheme.labelSmall?.copyWith(
+          fontFamily: 'builtin_hei',
           color: scheme.onSurfaceVariant,
         ),
       ),
   listTileTheme: base.listTileTheme.copyWith(
-    titleTextStyle: base.textTheme.bodyMedium?.copyWith(color: theme.text),
+    titleTextStyle: base.textTheme.bodyMedium?.copyWith(
+      fontFamily: 'builtin_hei',
+      fontSize: 14,
+      color: theme.text,
+    ),
     subtitleTextStyle: base.textTheme.bodySmall?.copyWith(
+      fontFamily: 'builtin_hei',
+      fontSize: 12,
       color: scheme.onSurfaceVariant,
     ),
   ),
@@ -129,7 +142,7 @@ ThemeData _panelSurfaces(
     backgroundColor: theme.background,
     surfaceTintColor: Colors.transparent,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
   ),
   popupMenuTheme: base.popupMenuTheme.copyWith(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
@@ -11,6 +12,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/source/chapter_source.dart';
 import 'package:reader_ui/bookmarks/bookmark_ribbon.dart';
 import 'package:reader_ui/bookmarks/bookmark_style.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
@@ -99,6 +101,8 @@ Future<ReaderSession> _open(
   ValueChanged<ReaderBookmarkStyle>? onStyle,
   bool disableAnimations = false,
   double topInset = 0,
+  double devicePixelRatio = 1,
+  double? touchSlop,
   Future<Uint8List> Function(String)? imageLoader,
 }) async {
   late ReaderSession session;
@@ -108,6 +112,10 @@ Future<ReaderSession> _open(
         data: MediaQuery.of(context).copyWith(
           disableAnimations: disableAnimations,
           padding: EdgeInsets.only(top: topInset),
+          devicePixelRatio: devicePixelRatio,
+          gestureSettings: touchSlop == null
+              ? null
+              : DeviceGestureSettings(touchSlop: touchSlop),
         ),
         child: child!,
       ),
@@ -158,7 +166,7 @@ Future<void> _expectBookmarkPullDisabled(WidgetTester tester) async {
   final gesture = await tester.startGesture(tester.getCenter(view));
   await gesture.moveBy(const Offset(0, 25));
   await tester.pump();
-  await gesture.moveBy(const Offset(0, 145));
+  await gesture.moveBy(const Offset(0, 280));
   await tester.pump();
   expect(tester.getRect(view), original);
   expect(find.text('松手确认添加'), findsNothing);
@@ -194,13 +202,13 @@ Future<void> _pullBookmark(
   final gesture = await tester.startGesture(tester.getCenter(view));
   await gesture.moveBy(const Offset(0, 25));
   await tester.pump();
-  await gesture.moveBy(const Offset(0, 145));
+  await gesture.moveBy(const Offset(0, 280));
   await tester.pump();
   final hint = find.text(remove ? '松手确认移除' : '松手确认添加');
   expect(hint, findsOneWidget);
   final pulled = tester.getRect(view);
   expect(pulled.size, original.size, reason: '整页移动不压缩正文或重新分页');
-  expect(pulled.top, greaterThan(original.top + 140));
+  expect(pulled.top, original.top + 161);
   expect(tester.getRect(hint).bottom, lessThan(pulled.top));
   final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
   expect(ribbon, findsOneWidget, reason: '下拉提示与纸面不能重复绘制书签');
@@ -347,7 +355,7 @@ void main() {
     expect(cached, greaterThan(0));
 
     // 反复在提示层与静态纸面间交接，不能短暂绘制黑色默认图标。
-    for (final distance in [80.0, 145.0, 145.0]) {
+    for (final distance in [80.0, 280.0, 280.0]) {
       final gesture = await tester.startGesture(
         tester.getCenter(find.byType(ReaderView)),
       );
@@ -505,7 +513,11 @@ void main() {
     await tester.pump();
     await gesture.moveBy(const Offset(0, 80));
     await tester.pump();
-    expect(tester.getTopLeft(view).dy, original.top + 105);
+    expect(tester.getRect(view), original, reason: '缓冲距离内不推动纸面');
+    expect(find.text('下拉添加书签'), findsNothing);
+    await gesture.moveBy(const Offset(0, 80));
+    await tester.pump();
+    expect(tester.getTopLeft(view).dy, original.top + 41);
     expect(find.text('下拉添加书签'), findsOneWidget);
     await gesture.up();
     await tester.pump();
@@ -582,28 +594,25 @@ void main() {
   for (final mode in PageTurnMode.values.where(
     (value) => value != PageTurnMode.scroll,
   )) {
-    testWidgets('${mode.label}左右斜拉不增删书签，取消后回正不触发，轻微手抖仍可下拉', (tester) async {
+    testWidgets('${mode.label}纵向主方向斜拉可切换书签，锁定后横移不取消', (tester) async {
       final bookmarks = _Bookmarks();
-      await _open(tester, bookmarks, mode: mode);
-      for (final bookmarked in [false, true]) {
-        final before = List.of(bookmarks.items);
-        for (final direction in [-1.0, 1.0]) {
-          for (final diagonalStart in [false, true]) {
-            await _dragBookmark(tester, [
-              Offset(diagonalStart ? 12 * direction : 0, 25),
-              Offset(diagonalStart ? 20 * direction : 32 * direction, 145),
-              Offset(-32 * direction, 30),
-            ]);
-            expect(bookmarks.items, before, reason: '斜拉取消后，回正继续下拉也不能触发');
-            expect(find.textContaining('松手确认'), findsNothing);
-          }
+      final session = await _open(tester, bookmarks, mode: mode);
+      final initial = session.currentCfi;
+      for (final direction in [-1.0, 1.0]) {
+        for (final diagonalStart in [false, true]) {
+          final remove = bookmarks.items.isNotEmpty;
+          await _dragBookmark(tester, [
+            Offset(diagonalStart ? 24 * direction : 0, 40),
+            Offset(180 * direction, 260),
+            Offset(-180 * direction, 0),
+          ]);
+          expect(bookmarks.items, hasLength(remove ? 0 : 1));
+          expect(session.currentCfi, initial, reason: '纵向锁定后横移不能翻页');
+          expect(find.textContaining('松手确认'), findsNothing);
         }
-        await _dragBookmark(tester, [
-          const Offset(4, 25),
-          const Offset(6, 145),
-        ]);
-        expect(bookmarks.items, hasLength(bookmarked ? 0 : 1));
       }
+      await _dragBookmark(tester, [const Offset(4, 25), const Offset(6, 280)]);
+      expect(bookmarks.items, hasLength(1));
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
@@ -759,14 +768,14 @@ void main() {
     });
   }
 
-  testWidgets('斜向、先上滑、回拉和取消手势均不改变书签', (tester) async {
+  testWidgets('横向主方向、未达阈值、回拉和系统取消均不改变书签', (tester) async {
     final bookmarks = _Bookmarks();
     await _open(tester, bookmarks);
     final center = tester.getCenter(find.byType(ReaderView));
     for (final deltas in [
-      [const Offset(0, 25), const Offset(70, 150)],
+      [const Offset(70, 25), const Offset(0, 300)],
       [const Offset(0, -40), const Offset(0, 220)],
-      [const Offset(0, 25), const Offset(0, 150), const Offset(0, -80)],
+      [const Offset(0, 25), const Offset(0, 280), const Offset(0, -80)],
     ]) {
       final gesture = await tester.startGesture(center);
       for (final delta in deltas) {
@@ -779,12 +788,82 @@ void main() {
     }
     final gesture = await tester.startGesture(center);
     await gesture.moveBy(const Offset(0, 25));
-    await gesture.moveBy(const Offset(0, 150));
+    await gesture.moveBy(const Offset(0, 280));
     await gesture.cancel();
     await tester.pumpAndSettle();
     expect(bookmarks.items, isEmpty);
     await _pullBookmark(tester);
     expect(bookmarks.items, hasLength(1));
+  });
+
+  for (final ratio in [1.0, 2.0, 3.0]) {
+    testWidgets('像素比 $ratio 按 144 物理像素缓冲和 128dp 纸面阈值切换', (tester) async {
+      final bookmarks = _Bookmarks();
+      await _open(tester, bookmarks, devicePixelRatio: ratio);
+      final view = find.byType(ReaderView);
+      final original = tester.getRect(view);
+      final gesture = await tester.startGesture(original.center);
+      await gesture.moveBy(const Offset(0, 25));
+      await tester.pump();
+      await gesture.moveBy(Offset(0, 144 / ratio + 128 - 25 - 0.5));
+      await tester.pump();
+      expect(tester.getTopLeft(view).dy, original.top + 127.5);
+      expect(find.text('下拉添加书签'), findsOneWidget);
+      final hintIcon = find.byWidgetPredicate(
+        (widget) => widget is AppIcon && widget.glyph == AppGlyph.bookmark,
+      );
+      expect(tester.widget<AppIcon>(hintIcon).filled, isFalse);
+      expect(bookmarks.items, isEmpty, reason: '拖动时尚未保存');
+      await gesture.moveBy(const Offset(0, 0.5));
+      await tester.pump();
+      expect(find.text('松手确认添加'), findsOneWidget);
+      expect(tester.widget<AppIcon>(hintIcon).filled, isTrue);
+      expect(bookmarks.items, isEmpty, reason: '达到阈值仍须松手');
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(bookmarks.items, hasLength(1));
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets('设备起拖阈值前的采样不推动纸面，纵向先上滑后下拉仍可添加', (tester) async {
+    final bookmarks = _Bookmarks();
+    await _open(tester, bookmarks, touchSlop: 40);
+    final view = find.byType(ReaderView);
+    final original = tester.getRect(view);
+    final gesture = await tester.startGesture(original.center);
+    await gesture.moveBy(const Offset(0, 30));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 30));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 150));
+    await tester.pump();
+    expect(tester.getTopLeft(view).dy, original.top + 36);
+    expect(find.text('松手确认添加'), findsNothing);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(bookmarks.items, isEmpty);
+    await _dragBookmark(tester, [const Offset(0, -50), const Offset(0, 340)]);
+    expect(bookmarks.items, hasLength(1));
+  });
+
+  testWidgets('拖动达到阈值后切换页面，松手不会修改旧页或新页书签', (tester) async {
+    final bookmarks = _Bookmarks();
+    final session = await _open(tester, bookmarks);
+    final initial = session.currentCfi;
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(ReaderView)),
+    );
+    await gesture.moveBy(const Offset(0, 25));
+    await gesture.moveBy(const Offset(0, 280));
+    await tester.pump();
+    expect(find.text('松手确认添加'), findsOneWidget);
+    await _move(tester, session.next());
+    expect(session.currentCfi, isNot(initial));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(bookmarks.items, isEmpty);
+    expect(find.textContaining('松手确认'), findsNothing);
   });
 
   testWidgets('下拉移除按当前页文本范围匹配，并保留其它页和待重定位书签', (tester) async {

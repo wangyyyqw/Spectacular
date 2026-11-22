@@ -10,6 +10,7 @@ import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/editing/book_editor_toolkit.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:spectacular_epub_tools/local_epub_tools.dart';
 
 import '../support/local_toolkit_fixture.dart';
@@ -253,6 +254,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('广告规则清理'));
     await tester.pumpAndSettle();
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     await tester.enterText(find.widgetWithText(TextField, '清理正则'), '[');
     await tester.tap(find.text('预览命中'));
     await tester.pump();
@@ -263,6 +266,7 @@ void main() {
     expect(find.textContaining('源码命中 1 处'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
+    expect(find.byType(ReaderSheetForm), findsNothing);
     expect(editor.session.revision, 0);
     expect(editor.busy, isFalse);
     await tester.pumpWidget(const SizedBox());

@@ -35,6 +35,7 @@ class BookDetailPage extends StatefulWidget {
     this.sessionStore,
     this.progressStore,
     this.reviewStore,
+    this.inDrawer = false,
   });
 
   /// 打开页面时的书籍条目。
@@ -54,6 +55,9 @@ class BookDetailPage extends StatefulWidget {
 
   /// 可注入的书评存储；为空时使用书库数据库实现。
   final BookReviewStore? reviewStore;
+
+  /// 从书架打开时展示为抽屉，保留直接打开完整页面的能力。
+  final bool inDrawer;
 
   static Future<CoverSelection?> _pickCoverImage() async {
     final file = await FilePicker.pickFile(
@@ -453,8 +457,19 @@ class _BookDetailPageState extends State<BookDetailPage> {
     final canSave =
         !_saving && !_loading && _hasMetadataChanges && _loadError == null;
     return Scaffold(
+      backgroundColor: widget.inDrawer ? Colors.transparent : null,
       appBar: AppBar(
+        backgroundColor: widget.inDrawer ? theme.colorScheme.surface : null,
+        automaticallyImplyLeading: !widget.inDrawer,
+        leading: widget.inDrawer
+            ? IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.maybePop(context),
+                icon: const AppIcon(AppGlyph.close),
+              )
+            : null,
         title: const Text('图书详情'),
+        titleTextStyle: widget.inDrawer ? theme.textTheme.titleSmall : null,
         actions: <Widget>[
           TextButton(
             key: const ValueKey<String>('book-detail-save'),
@@ -474,7 +489,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
           : _loadError != null
           ? Center(child: Text(_loadError!))
           : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
               children: <Widget>[
                 _CoverEditor(
                   entry: _entry,
@@ -555,7 +570,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     contentPadding: EdgeInsets.zero,
                     title: const Text('章节正则'),
                     subtitle: const Text('预览并重新划分当前正文的章节'),
-                    trailing: const Icon(Icons.chevron_right),
+                    trailing: const AppIcon(AppGlyph.chevronRight),
                     onTap: _openChapterRules,
                   ),
                 const Divider(height: 40),
@@ -871,7 +886,7 @@ class _ReadingStatsSection extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
             border: Border.all(color: theme.colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(4),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1203,7 +1218,7 @@ class _ReviewStars extends StatelessWidget {
             filled: star <= rating,
             size: size,
             color: star <= rating
-                ? const Color(0xFFE0A327)
+                ? Theme.of(context).colorScheme.onSurface
                 : Theme.of(context).colorScheme.outlineVariant,
           ),
       ],

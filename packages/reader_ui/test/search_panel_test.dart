@@ -160,7 +160,10 @@ void main() {
 
   for (final brightness in Brightness.values) {
     testWidgets('搜索页与目录统一排版并适配 ${brightness.name} 主题', (tester) async {
-      final theme = ThemeData(brightness: brightness);
+      final theme = ThemeData(
+        brightness: brightness,
+        fontFamily: 'builtin_hei',
+      );
       await tester.pumpWidget(
         MaterialApp(
           theme: theme,
@@ -177,16 +180,12 @@ void main() {
       final material = tester.widget<Material>(
         find.descendant(of: panel, matching: find.byType(Material)).first,
       );
-      expect(
-        material.color,
-        brightness == Brightness.dark
-            ? theme.colorScheme.surface
-            : Colors.white,
-      );
+      expect(material.color, theme.colorScheme.surface);
       final input = find.byKey(const ValueKey<String>('search-input'));
       final field = tester.widget<TextField>(input);
-      expect(field.style?.fontFamily, 'serif');
+      expect(field.style?.fontFamily, 'builtin_hei');
       expect(field.style?.fontSize, 14);
+      expect(field.style?.color, theme.colorScheme.onSurface);
       final border = field.decoration!.enabledBorder! as OutlineInputBorder;
       expect(border.borderRadius, BorderRadius.circular(20));
       expect(border.borderSide, BorderSide.none);
@@ -216,7 +215,7 @@ void main() {
       await tester.enterText(input, '沈河');
       await tester.pumpAndSettle();
       final title = tester.widget<Text>(find.text('第一章 简单正文 · 2 处'));
-      expect(title.style?.fontFamily, 'serif');
+      expect(title.style?.fontFamily, 'builtin_hei');
       expect(title.style?.fontSize, 14);
       final hit = tester.widget<ListTile>(
         find.byKey(const ValueKey<String>('search-hit-0-3')),
@@ -228,12 +227,7 @@ void main() {
       expect(span.style?.height, 1.5);
       final highlighted = span.children![1] as TextSpan;
       expect(highlighted.style?.fontWeight, FontWeight.w600);
-      expect(
-        highlighted.style?.color,
-        brightness == Brightness.dark
-            ? theme.colorScheme.onSurface
-            : const Color(0xFF333333),
-      );
+      expect(highlighted.style?.color, theme.colorScheme.onSurface);
       await tester.tap(find.byKey(const ValueKey<String>('search-clear')));
       await tester.pumpAndSettle();
       expect(find.text('输入关键词搜索全书'), findsOneWidget);

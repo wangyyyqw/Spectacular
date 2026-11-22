@@ -81,12 +81,6 @@ class ReviewTicket extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
     final stacked = width < 300 * scale || scale >= 1.5;
-    final hue = HSLColor.fromAHSL(
-      1,
-      book.coverHue.toDouble(),
-      .44,
-      .55,
-    ).toColor();
     final face = Ink(
       decoration: ShapeDecoration(
         shape: _PaperEdge(
@@ -94,12 +88,7 @@ class ReviewTicket extends StatelessWidget {
           Alignment.bottomRight,
           scheme.outlineVariant,
         ),
-        gradient: LinearGradient(
-          colors: [
-            Color.lerp(scheme.surface, hue, .28)!,
-            Color.lerp(scheme.surface, hue, .055)!,
-          ],
-        ),
+        color: scheme.surface,
       ),
       padding: const EdgeInsets.all(14),
       child: _bookFace(context),
@@ -111,7 +100,7 @@ class ReviewTicket extends StatelessWidget {
           stacked ? Alignment.topRight : Alignment.bottomLeft,
           scheme.outlineVariant,
         ),
-        color: Color.lerp(scheme.surface, hue, .025),
+        color: scheme.surface,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       child: _stub(context, date, time, stacked),
@@ -201,7 +190,7 @@ class ReviewTicket extends StatelessWidget {
             AppIcon(
               AppGlyph.star,
               size: 14,
-              color: style.color,
+              color: Theme.of(context).colorScheme.onSurface,
               filled: star <= rating,
             ),
         if (_hasBody)

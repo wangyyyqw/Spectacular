@@ -183,7 +183,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
                 tooltip: '$star 星',
                 onPressed: _saving ? null : () => _setRating(star),
                 iconSize: 34,
-                color: const Color(0xFFE0A327),
+                color: theme.colorScheme.onSurface,
                 icon: AppIcon(AppGlyph.star, filled: star <= (_rating ?? 0)),
               ),
             ),

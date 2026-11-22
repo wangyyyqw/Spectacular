@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
@@ -38,11 +40,10 @@ class BookNotesList extends StatelessWidget {
       });
 
   Future<void> _openBook(BuildContext context, BookEntry book) =>
-      Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) =>
-              _BookNotesPage(title: book.title, load: () => loadNotes(book.id)),
-        ),
+      showReaderDrawer<void>(
+        context: context,
+        builder: (_) =>
+            _BookNotesPage(title: book.title, load: () => loadNotes(book.id)),
       );
 
   @override
@@ -116,7 +117,7 @@ class _BookNotesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: Theme.of(context).colorScheme.surface,
-    borderRadius: BorderRadius.circular(8),
+    borderRadius: BorderRadius.circular(4),
     clipBehavior: Clip.antiAlias,
     child: Semantics(
       button: true,
@@ -219,46 +220,48 @@ class _BookNotesPageState extends State<_BookNotesPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+  Widget build(BuildContext context) => ReaderSheetForm(
+    title: Text(widget.title),
+    contentPadding: EdgeInsets.zero,
+    scrollContent: false,
+    content: SizedBox(
+      height: MediaQuery.sizeOf(context).height * .84,
+      child: _body(),
     ),
-    body: SafeArea(
-      top: false,
-      child: FutureBuilder<List<ReaderAnnotation>>(
-        future: _notes,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(
-              child: CircularProgressIndicator(semanticsLabel: '正在读取笔记'),
-            );
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: SingleChildScrollView(
-                child: _NotesMessage(
-                  '笔记读取失败',
-                  onRetry: () {
-                    final notes = _load();
-                    setState(() {
-                      _notes = notes;
-                    });
-                  },
-                ),
-              ),
-            );
-          }
-          final notes = snapshot.requireData;
-          if (notes.isEmpty) return const _NotesMessage('这本书还没有笔记');
-          return ListView.separated(
-            padding: _listInsets,
-            itemCount: notes.length,
-            itemBuilder: (_, index) => _NoteCard(notes[index]),
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-          );
-        },
-      ),
-    ),
+  );
+
+  Widget _body() => FutureBuilder<List<ReaderAnnotation>>(
+    future: _notes,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Center(
+          child: CircularProgressIndicator(semanticsLabel: '正在读取笔记'),
+        );
+      }
+      if (snapshot.hasError) {
+        return Center(
+          child: SingleChildScrollView(
+            child: _NotesMessage(
+              '笔记读取失败',
+              onRetry: () {
+                final notes = _load();
+                setState(() {
+                  _notes = notes;
+                });
+              },
+            ),
+          ),
+        );
+      }
+      final notes = snapshot.requireData;
+      if (notes.isEmpty) return const _NotesMessage('这本书还没有笔记');
+      return ListView.separated(
+        padding: _listInsets,
+        itemCount: notes.length,
+        itemBuilder: (_, index) => _NoteCard(notes[index]),
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+      );
+    },
   );
 }
 
