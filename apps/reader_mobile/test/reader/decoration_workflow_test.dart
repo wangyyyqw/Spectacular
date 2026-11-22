@@ -17,6 +17,7 @@ import 'package:reader_ui/panels/decoration_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/reader_ui_diagnostics.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
 import 'package:reader_ui/decorations/decoration_image_codec.dart';
@@ -27,6 +28,7 @@ import '../support/reader_pump.dart';
 import 'support/css_chapter_book.dart';
 
 const _padding = EdgeInsets.fromLTRB(24, 40, 24, 40);
+final _messages = <String>[];
 
 class _CountingImages implements ReaderDecorationImageStore {
   _CountingImages(this.source);
@@ -166,18 +168,18 @@ Future<void> _savePreset(WidgetTester tester, String name) async {
   await pumpReaderUntilComplete(
     tester,
     () =>
-        find.text('装饰已保存').evaluate().isNotEmpty &&
+        _messages.contains('装饰已保存') &&
             find
                 .byKey(const ValueKey('decoration-editor-sheet'))
                 .evaluate()
                 .isEmpty ||
-        find.text('装饰保存失败，请重试').evaluate().isNotEmpty ||
-        find.text('当前位置不支持标注').evaluate().isNotEmpty,
+        _messages.contains('装饰保存失败，请重试') ||
+        _messages.contains('当前位置不支持标注'),
     description: '装饰保存结果',
   );
   expect(
-    find.text('装饰已保存'),
-    findsOneWidget,
+    _messages,
+    contains('装饰已保存'),
     reason: tester
         .widgetList<Text>(find.byType(Text))
         .map((text) => text.data)
@@ -186,6 +188,50 @@ Future<void> _savePreset(WidgetTester tester, String name) async {
 }
 
 void main() {
+  setUp(() {
+    _messages.clear();
+    ReaderUiDiagnostics.onEvent = (event, fields) {
+      if (event == 'reader_ui_message') {
+        _messages.add(fields['message'] as String);
+      }
+    };
+  });
+  tearDown(() => ReaderUiDiagnostics.onEvent = null);
+  testWidgets('默认对话规则在正式排版前应用，留白字号与原文位置保留', (tester) async {
+    final fixture = await _fixture(
+      tester,
+      body: '<p>“前段</p><p>后段”旁白<span>「作者行内」</span></p>',
+    );
+    addTearDown(() => tester.runAsync(fixture.close));
+    await _show(tester, fixture);
+    await pumpReaderUntilComplete(tester, () {
+      final page = fixture.session.page;
+      return page != null &&
+          TextHitTester.lineBoxes(page).any(
+            (line) => line.slice.block.layout.runs.any(
+              (run) => (run.style.fontSize - 14.4).abs() < .01,
+            ),
+          );
+    }, description: '默认规则排版');
+    final anchors = await tester.runAsync(
+      () => fixture.source.loadAnchorChapter(0),
+    );
+    expect(anchors!.blocks.last.ruleProtected, isNotEmpty);
+    final page = fixture.session.page!;
+    expect(TextHitTester.lineBoxes(page).first.rect.height, greaterThan(16));
+    expect(page.slices.first.block.startCfi, isNotNull);
+    expect(
+      await fixture.database.select(fixture.database.decorations).get(),
+      isEmpty,
+    );
+    expect(
+      await fixture.database.select(fixture.database.annotations).get(),
+      isEmpty,
+    );
+    expect(fixture.session.pageTurns, 0);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -298,7 +344,7 @@ void main() {
       expect(bounds.bottom, lessThanOrEqualTo(page.usedHeight + 0.01));
       expect(line.slice.block.offsetForCfi(start), 2);
       expect(line.slice.block.offsetForCfi(end), 6);
-      expect(images.loaded, [path]);
+      expect(images.loaded.where((p) => p == path), [path]);
       expect(
         await fixture.database.select(fixture.database.decorations).get(),
         hasLength(regex ? 0 : 1),
@@ -349,7 +395,9 @@ void main() {
       () => images.loaded.contains(path),
       description: '正则规则图片解码',
     );
-    expect(images.loaded, [path], reason: '多个命中复用同一份图片');
+    expect(images.loaded.where((p) => p == path), [
+      path,
+    ], reason: '多个命中复用同一份图片');
     expect(fixture.session.page, isNotNull);
     expect(fixture.session.pageTurns, 0);
     expect(
@@ -388,7 +436,7 @@ void main() {
     expect(positions[3].dy, greaterThan(positions[0].dy));
     await tester.tap(find.byKey(const ValueKey('selection-action-dictionary')));
     await tester.pumpAndSettle();
-    expect(find.text('词典功能开发中'), findsOneWidget);
+    expect(_messages, contains('词典功能开发中'));
     final more = find.byKey(const ValueKey('selection-action-more'));
     await tester.tap(more);
     await tester.pumpAndSettle();
@@ -421,7 +469,7 @@ void main() {
     final original = fixture.session.page!.slices.first.block.layout;
     await _selectText(tester, fixture);
     await _savePreset(tester, 'sticky');
-    expect(find.text('装饰已保存'), findsOneWidget);
+    expect(_messages, contains('装饰已保存'));
     final saved =
         (await fixture.library.decorationStore(fixture.book.id)!.list()).single;
     expect(saved.style.backgroundColor, 0xFFFFF3C4);
@@ -465,7 +513,7 @@ void main() {
     expect(layout, isNot(same(original)));
     expect(layout.runs.any((run) => run.style.fontWeight == 700), isTrue);
     expect(cfiBase(fixture.session.currentCfi!), cfiBase(anchor));
-    expect(find.text('装饰已保存'), findsOneWidget);
+    expect(_messages, contains('装饰已保存'));
     expect(tester.takeException(), isNull);
   });
 }

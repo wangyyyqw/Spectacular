@@ -253,7 +253,7 @@ class ReaderDecorationStyle {
     final json = styleObject(raw);
     final weight = json['fontWeight'];
     double padding(String name) =>
-        styleNumber(json[name], fallback: 0, min: 0, max: 12);
+        styleNumber(json[name], fallback: 0, min: 0, max: 32);
     return ReaderDecorationStyle(
       fontFamily: styleString(json['fontFamily']),
       fontSizeScale: styleNumber(

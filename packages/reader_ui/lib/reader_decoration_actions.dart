@@ -163,8 +163,17 @@ extension _ReaderDecorationActions on _ReaderPageState {
               errors: _ruleEngine.errors,
               images: widget.decorationImages,
               inkMode: _inkMode,
-              onPreview: (rule) async =>
-                  _ruleEngine.preview(rule, await _session.chapterPages()),
+              fonts: _customFonts,
+              onPreview: (rule) async => _ruleEngine.preview(
+                rule,
+                await _session.chapterPages(),
+                sourceBlocks: widget.source is AnchorChapterSource
+                    ? ReaderDecorationRuleEngine.anchorBlocks(
+                        await (widget.source as AnchorChapterSource)
+                            .loadAnchorChapter(_session.page!.spineIndex),
+                      )
+                    : null,
+              ),
             ),
           ),
         ),

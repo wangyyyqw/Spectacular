@@ -101,6 +101,7 @@ flutter:
     - assets/textures/
     - assets/ye_she/
     - assets/ye_she/items/
+    - assets/reader_highlight/
     - integration_test/m0_page_sequence.json
 
   # 内置正文宋体与黑体（OFL）。宋体使用阅微精简思源宋体子集，

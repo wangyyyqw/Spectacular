@@ -6,6 +6,7 @@ extension _ReaderDecorationController on _ReaderPageState {
         groups: _decorationGroups,
         rules: _decorationRules,
         bookId: widget.bookId,
+        globalRuleIds: _globalDecorationRuleIds,
       ).isNotEmpty;
 
   List<ReaderDecoration> get _orderedManualDecorations =>
@@ -18,14 +19,7 @@ extension _ReaderDecorationController on _ReaderPageState {
 
   List<ReaderTextOverlay> get _textOverlays => [
     for (final matches in _chapterRuleMatches.values)
-      for (final match in matches)
-        ReaderTextOverlay(
-          startCfi: match.startCfi,
-          endCfi: match.endCfi,
-          color: match.style.decorationStyle.textColor,
-          colorOpacity: match.style.decorationStyle.textColorOpacity,
-          paddingByTextHeight: _decorationPadding(match.style.decorationStyle),
-        ),
+      for (final match in matches) _ruleTextOverlay(match),
     for (final decoration in _orderedManualDecorations)
       _manualTextOverlay(decoration),
     for (final annotation in _resolvedAnnotations)
@@ -37,6 +31,42 @@ extension _ReaderDecorationController on _ReaderPageState {
           colorOpacity: annotation.effectiveOpacity,
         ),
   ];
+
+  ReaderDecorationStyle _ruleStyle(ReaderDecorationRuleStyle style) => style
+      .forTheme((_effectiveTheme ?? ReaderTheme.white).isDark)
+      .decorationStyle;
+
+  ReaderTextOverlay _ruleTextOverlay(ReaderDecorationRuleMatch match) {
+    final style = _ruleStyle(match.style);
+    return ReaderTextOverlay(
+      startCfi: match.startCfi,
+      endCfi: match.endCfi,
+      fontFamily: _unavailableDecorationFonts.contains(style.fontFamily)
+          ? null
+          : style.fontFamily,
+      fontSizeScale: style.fontSizeScale,
+      fontWeight: style.fontWeight,
+      italic: style.italic,
+      letterSpacingEm: style.letterSpacingEm,
+      color: style.textColor,
+      colorOpacity: style.textColorOpacity,
+      paddingLogicalPixels:
+          [
+            style.paddingLeft,
+            style.paddingTop,
+            style.paddingRight,
+            style.paddingBottom,
+          ].any((v) => v > 0)
+          ? EdgeInsets.fromLTRB(
+              style.paddingLeft,
+              style.paddingTop,
+              style.paddingRight,
+              style.paddingBottom,
+            )
+          : null,
+      paddingByTextHeight: _decorationPadding(style),
+    );
+  }
 
   ReaderTextOverlay _manualTextOverlay(
     ReaderDecoration decoration, {
@@ -100,17 +130,16 @@ extension _ReaderDecorationController on _ReaderPageState {
       groups: _decorationGroups,
       rules: _decorationRules,
       bookId: widget.bookId,
+      globalRuleIds: _globalDecorationRuleIds,
     ))
-      if (rule.style.backgroundImagePath != null &&
-          rule.style.backgroundImageFit == ReaderDecorationImageFit.nineSlice)
-        [
-          rule.id,
-          rule.pattern,
-          rule.isRegex,
-          rule.caseSensitive,
-          rule.style.backgroundImagePath,
-          rule.style.backgroundImageNineSlice?.toJson(),
-        ],
+      [
+        rule.id,
+        rule.pattern,
+        rule.effectiveType.name,
+        rule.caseSensitive,
+        rule.allowCrossParagraph,
+        _ruleStyle(rule.style).toJson(),
+      ],
   ]);
 
   List<ReaderDecorationRange> _decorationRangesFor(PageContent page) => [
@@ -120,7 +149,7 @@ extension _ReaderDecorationController on _ReaderPageState {
       ReaderDecorationRange(
         startCfi: match.startCfi,
         endCfi: match.endCfi,
-        style: match.style.decorationStyle,
+        style: _ruleStyle(match.style),
       ),
     for (final decoration in _orderedManualDecorations)
       ReaderDecorationRange(
@@ -298,10 +327,24 @@ extension _ReaderDecorationController on _ReaderPageState {
     if (!await _verifyManualDecorations(generation, spineIndex: spineIndex)) {
       return false;
     }
+    final source = widget.source;
+    if (_hasEnabledDecorationRules && source is AnchorChapterSource) {
+      final matches = await _ruleEngine.matchChapter(
+        pages: const [],
+        sourceBlocks: ReaderDecorationRuleEngine.anchorBlocks(
+          await source.loadAnchorChapter(spineIndex),
+        ),
+        groups: _decorationGroups,
+        rules: _decorationRules,
+        bookId: widget.bookId,
+        globalRuleIds: _globalDecorationRuleIds,
+      );
+      if (!_currentDecorationRequest(generation)) return false;
+      _chapterRuleMatches[spineIndex] = matches;
+    }
     await _loadDecorationFonts(generation, spineIndex: spineIndex);
     await _loadDecorationImages(generation);
     if (!_currentDecorationRequest(generation)) return false;
-    final source = widget.source;
     final changed =
         source is ReaderTextOverlaySource &&
         await (source as ReaderTextOverlaySource).applyTextOverlays(
@@ -320,11 +363,17 @@ extension _ReaderDecorationController on _ReaderPageState {
     final items = await itemsTask ?? const <ReaderDecoration>[];
     final groups = await groupsTask ?? const <ReaderDecorationRuleGroup>[];
     final rules = await rulesTask ?? const <ReaderDecorationRule>[];
+    final preferences = widget.decorationRules;
+    final selection = preferences is ReaderDecorationRulePreferences
+        ? await (preferences as ReaderDecorationRulePreferences)
+              .loadGlobalRuleSelection()
+        : null;
     if (!_currentDecorationRequest(generation)) return false;
     _changeReaderState(() {
       _decorations = items;
       _decorationGroups = groups;
       _decorationRules = rules;
+      _globalDecorationRuleIds = selection;
       _manualDecorationsByChapter.clear();
       _chapterDecorationPreparations.clear();
       _chapterRuleMatches.clear();
@@ -334,6 +383,7 @@ extension _ReaderDecorationController on _ReaderPageState {
     if (source case BookTypographyFontSource fonts) {
       fonts.setBookTypographyFamilies({
         for (final item in items) ?item.style.fontFamily,
+        for (final rule in rules) ?_ruleStyle(rule.style).fontFamily,
       });
     }
     if (source is PreparedChapterSource) {
@@ -450,6 +500,7 @@ extension _ReaderDecorationController on _ReaderPageState {
               : _manualDecorationsByChapter[spineIndex] ??
                     const <ReaderDecoration>[])
         if (decoration.style.fontFamily != null) decoration.style.fontFamily!,
+      for (final rule in _decorationRules) ?_ruleStyle(rule.style).fontFamily,
     };
     for (final family in fonts) {
       try {
@@ -498,15 +549,25 @@ extension _ReaderDecorationController on _ReaderPageState {
     if (spine == null) return;
     final token = generation ?? _decorationGeneration;
     if (!_hasEnabledDecorationRules) return;
-    final pages = spine == _session.page?.spineIndex
+    final source = widget.source;
+    final blocks = source is AnchorChapterSource
+        ? ReaderDecorationRuleEngine.anchorBlocks(
+            await source.loadAnchorChapter(spine),
+          )
+        : null;
+    final pages = blocks != null
+        ? const <PageContent>[]
+        : spine == _session.page?.spineIndex
         ? await _session.chapterPages()
         : await widget.source.loadChapter(spine);
     if (!_currentDecorationRequest(token)) return;
     final matches = await _ruleEngine.matchChapter(
       pages: pages,
+      sourceBlocks: blocks,
       groups: _decorationGroups,
       rules: _decorationRules,
       bookId: widget.bookId,
+      globalRuleIds: _globalDecorationRuleIds,
     );
     if (!_currentDecorationRequest(token)) return;
     _changeReaderState(() {
@@ -516,7 +577,6 @@ extension _ReaderDecorationController on _ReaderPageState {
       }
       _painter = _buildPainter();
     });
-    final source = widget.source;
     if (source is ReaderTextOverlaySource) {
       await _loadDecorationImages(token);
       if (!_currentDecorationRequest(token)) return;
@@ -565,8 +625,9 @@ extension _ReaderDecorationController on _ReaderPageState {
         groups: _decorationGroups,
         rules: _decorationRules,
         bookId: widget.bookId,
+        globalRuleIds: _globalDecorationRuleIds,
       ))
-        ?rule.style.backgroundImagePath,
+        ?_ruleStyle(rule.style).backgroundImagePath,
     };
     for (final path in _decorationImages.keys.toList()) {
       if (!paths.contains(path)) {

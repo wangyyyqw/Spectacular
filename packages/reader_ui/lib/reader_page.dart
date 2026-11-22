@@ -1090,6 +1090,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Future<bool>? _decorationStoresTask;
   List<ReaderDecorationRuleGroup> _decorationGroups = const [];
   List<ReaderDecorationRule> _decorationRules = const [];
+  Set<String>? _globalDecorationRuleIds;
   final _ruleEngine = ReaderDecorationRuleEngine();
   final Map<int, List<ReaderDecorationRuleMatch>> _chapterRuleMatches = {};
   final Map<String, ui.Image> _decorationImages = {};
@@ -1767,7 +1768,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     widget.onOverridesChanged?.call(next);
   }
 
-  /// 切换主题（P4-21）：不重排，只重绘并通知外部持久化。
+  /// 切换主题并持久化；规则日夜字体或留白不同时重新排版。
   void _applyTheme(String themeId) {
     final theme = ReaderTheme.byId(themeId);
     setState(() {
@@ -1777,6 +1778,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
     unawaited(_session.applyOverrides(_effectiveOverrides()));
     widget.onThemeChanged?.call(themeId);
+    if (_decorationRules.any((rule) => rule.style.darkStyle != null)) {
+      unawaited(_reloadDecorations());
+    }
   }
 
   /// 仅最新加载请求可应用，解码失败保留当前背景。

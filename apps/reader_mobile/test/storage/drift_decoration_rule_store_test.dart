@@ -8,6 +8,7 @@ import 'package:reader_mobile/reader/reader_decoration_image_store.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_style.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/decorations/decoration_rule_defaults.dart';
 
 import '../library/fixtures/revision_epub.dart';
 
@@ -86,6 +87,36 @@ void main() {
     );
   });
 
+  test('内置规则仅初始化一次，样式引用可编辑并保留本书全局选择', () async {
+    final store = library.decorationRuleStore(book.id, images: images)!;
+    final preferences = store as ReaderDecorationRulePreferences;
+    final rules = await store.listRules();
+    expect(rules.map((r) => r.id), [
+      'double_quote_dialogue',
+      'single_quote_phrase',
+    ]);
+    expect(rules.first.style.typography.paddingLeft, 16);
+    await store.removeRule(rules.first.id);
+    expect(await store.listRules(), hasLength(1));
+    await preferences.saveStyle(
+      ReaderDecorationNamedStyle(
+        id: readerDecorationBuiltInStyles.last.id,
+        name: '夜间颜色',
+        style: const ReaderDecorationRuleStyle(color: 0xFF112233),
+        builtIn: true,
+      ),
+    );
+    expect(
+      (await store.listRules()).single.style.forTheme(true).color,
+      0xFF112233,
+    );
+    await preferences.saveGlobalRuleSelection({});
+    expect(await preferences.loadGlobalRuleSelection(), isEmpty);
+    await preferences.saveGlobalRuleSelection(null);
+    expect(await preferences.loadGlobalRuleSelection(), isNull);
+    expect(await store.listRules(), hasLength(1));
+  });
+
   test('删除非默认组把规则移到同作用域默认组末尾，保留样式与排序', () async {
     final store = library.decorationRuleStore(book.id, images: images)!;
     final target = (await store.listGroups()).singleWhere(
@@ -102,16 +133,19 @@ void main() {
       (await store.listGroups()).any((group) => group.id == 'source'),
       isFalse,
     );
-    final rules = await store.listRules();
+    final rules = (await store.listRules())
+        .where((r) => r.groupId == target.id)
+        .toList();
     expect(rules.map((rule) => rule.id), ['existing', 'first', 'second']);
     expect(rules.every((rule) => rule.groupId == target.id), isTrue);
     expect(rules.last.style.color, 0xff123456);
     await store.reorderRules(target.id, ['second', 'existing', 'first']);
-    expect((await store.listRules()).map((rule) => rule.id), [
-      'second',
-      'existing',
-      'first',
-    ]);
+    expect(
+      (await store.listRules())
+          .where((r) => r.groupId == target.id)
+          .map((rule) => rule.id),
+      ['second', 'existing', 'first'],
+    );
     await expectLater(
       store.reorderRules(target.id, ['first', 'first']),
       throwsFormatException,
@@ -127,21 +161,21 @@ void main() {
       ),
       throwsFormatException,
     );
-    expect(await store.listRules(), isEmpty);
+    expect((await store.listRules()).any((r) => r.id == 'bad'), isFalse);
     await store.saveRule(
       _rule('ok', group.id).copyWith(pattern: r'\p{L}+', isRegex: true),
     );
     await store.saveRule(
       _rule('ok', group.id).copyWith(enabled: false, name: '停用文字'),
     );
-    final rules = await store.listRules();
+    final rules = (await store.listRules()).where((r) => r.id == 'ok').toList();
     expect(rules, hasLength(1));
     expect(rules.single.enabled, isFalse);
     expect(rules.single.name, '停用文字');
     expect(await db.select(db.decorations).get(), isEmpty);
     expect(await db.select(db.annotations).get(), isEmpty);
     await store.removeRule('ok');
-    expect(await store.listRules(), isEmpty);
+    expect((await store.listRules()).any((r) => r.id == 'ok'), isFalse);
   });
 
   test('彻底删书级联清理本书组与规则，不触碰全局规则', () async {
@@ -179,7 +213,13 @@ void main() {
     );
     await store.saveRule(_rule('highlight', group.id).copyWith(style: style));
     final reloaded = library.decorationRuleStore(book.id, images: images)!;
-    expect((await reloaded.listRules()).single.style.toJson(), style.toJson());
+    expect(
+      (await reloaded.listRules())
+          .singleWhere((r) => r.id == 'highlight')
+          .style
+          .toJson(),
+      style.toJson(),
+    );
     expect(await db.select(db.decorations).get(), isEmpty);
     expect(await db.select(db.annotations).get(), isEmpty);
   });

@@ -21,6 +21,7 @@ class ReaderTextOverlay {
     this.color,
     this.colorOpacity = 1,
     this.paddingByTextHeight,
+    this.paddingLogicalPixels,
   });
 
   /// 原文起点与终点，不包含终点字符。
@@ -46,6 +47,9 @@ class ReaderTextOverlay {
 
   final EdgeInsets? paddingByTextHeight;
 
+  /// 规则 CSS 留白使用逻辑像素；未指定时保留点九按字高计算的行为。
+  final EdgeInsets? paddingLogicalPixels;
+
   /// 是否包含字体或行内占位度量，不包含颜色变化。
   bool get affectsTypography =>
       normalizedFontFamily != null ||
@@ -53,6 +57,7 @@ class ReaderTextOverlay {
       fontWeight != null ||
       italic != null ||
       normalizedLetterSpacingEm != 0 ||
+      paddingLogicalPixels != null && paddingLogicalPixels != EdgeInsets.zero ||
       paddingByTextHeight != null && paddingByTextHeight != EdgeInsets.zero;
 
   /// 去除空白后的字体族；空字符串视为继承。
@@ -77,6 +82,13 @@ class ReaderTextOverlay {
     italic,
     normalizedLetterSpacingEm,
     if (paddingByTextHeight case final padding?) ...[
+      padding.left,
+      padding.top,
+      padding.right,
+      padding.bottom,
+    ],
+    if (paddingLogicalPixels case final padding?) ...[
+      'px',
       padding.left,
       padding.top,
       padding.right,
@@ -111,7 +123,8 @@ class ReaderTextOverlayResolver {
          for (final overlay in overlays)
            if (typography &&
                    (overlay.affectsTypography ||
-                       overlay.paddingByTextHeight != null) ||
+                       overlay.paddingByTextHeight != null ||
+                       overlay.paddingLogicalPixels != null) ||
                colors && overlay.color != null)
              ?_TextOverlayRange.parse(overlay),
        ];
@@ -227,10 +240,17 @@ class ReaderTextOverlayResolver {
           (range) =>
               range.start <= start &&
               range.end >= end &&
-              range.overlay.paddingByTextHeight != null,
+              (range.overlay.paddingByTextHeight != null ||
+                  range.overlay.paddingLogicalPixels != null),
         )
         .lastOrNull;
-    final padding = _paddingFor(style, padded?.overlay.paddingByTextHeight);
+    final padding =
+        !typography ||
+            style.isRtl ||
+            style.writingMode != CssWritingMode.horizontalTb
+        ? EdgeInsets.zero
+        : padded?.overlay.paddingLogicalPixels ??
+              _paddingFor(style, padded?.overlay.paddingByTextHeight);
     return (
       insets: padding,
       leading: start == padded?.start ? padding.left : 0,

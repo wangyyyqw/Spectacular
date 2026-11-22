@@ -5,7 +5,7 @@ import '../panels/settings_panel.dart' show ReaderFontOption;
 import 'decoration_style.dart';
 import 'style_controls.dart';
 
-/// 只有手工装饰可以编辑的字体度量属性。
+/// 手工装饰与自动规则共用的字体度量编辑器。
 class ReaderDecorationTypographyEditor extends StatelessWidget {
   /// 创建字体编辑器。
   const ReaderDecorationTypographyEditor({
