@@ -56,6 +56,10 @@ void main() {
     expect(find.textContaining('缺少 media-type'), findsNothing);
     expect(find.text('导入报告'), findsNothing);
     expect(find.text('关闭'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('book-detail-reading-chart')),
+      findsNothing,
+    );
   });
 
   testWidgets('长按进入详情抽屉，关闭后保留原书架与书籍资料', (tester) async {
@@ -225,6 +229,13 @@ void main() {
       entry = await store.importBytes(buildTestEpub(title: '计时书籍'));
       final other = await store.importBytes(buildTestEpub(title: '其他书籍'));
       final sessions = store.readingSessionStore()!;
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      final startedAt = DateTime(
+        yesterday.year,
+        yesterday.month,
+        yesterday.day,
+        10,
+      );
       for (final (bookId, minutes) in [
         (entry.id, 60),
         (entry.id, 15),
@@ -233,8 +244,8 @@ void main() {
       ]) {
         await sessions.add(
           bookId: bookId,
-          startedAt: DateTime(2026, 11, 20, 10),
-          endedAt: DateTime(2026, 11, 20, 10).add(Duration(minutes: minutes)),
+          startedAt: startedAt,
+          endedAt: startedAt.add(Duration(minutes: minutes)),
         );
       }
     });
@@ -251,6 +262,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('已读 1 小时 16 分'), findsOneWidget);
     expect(find.text('已读 0 / 1 章'), findsOneWidget);
+    final chart = find.byKey(
+      const ValueKey<String>('book-detail-reading-chart'),
+    );
+    final cover = find.byKey(const ValueKey<String>('book-detail-cover'));
+    expect(chart, findsOneWidget);
+    expect(find.text('最近 7 天'), findsOneWidget);
+    expect(
+      tester.getRect(chart).top,
+      greaterThan(tester.getRect(cover).bottom),
+    );
   });
 
   testWidgets('窄屏和放大文字下三组操作分别同行，遮罩和下拉仍可关闭', (tester) async {

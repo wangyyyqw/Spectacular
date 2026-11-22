@@ -3,7 +3,9 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../storage/reading_session_store.dart';
 import '../txt/txt_book_service.dart';
+import 'book_reading_chart.dart';
 import 'book_cover_image.dart';
 import 'reading_insights.dart';
 
@@ -20,6 +22,7 @@ class BookDetailSheet extends StatelessWidget {
     required this.library,
     this.progress,
     this.readingDuration = Duration.zero,
+    this.readingSessions = const <ReadingSession>[],
     this.pinned = false,
   });
 
@@ -35,12 +38,20 @@ class BookDetailSheet extends StatelessWidget {
   /// 本书累计有效阅读时长，与图书详情的统计口径一致。
   final Duration readingDuration;
 
+  /// 全部阅读会话；图表只汇总当前书籍最近 7 天的记录。
+  final List<ReadingSession> readingSessions;
+
   /// 本书是否已置顶。
   final bool pinned;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final recentDurations = recentBookReadingDurations(
+      readingSessions,
+      bookId: entry.id,
+      now: DateTime.now(),
+    );
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -112,6 +123,12 @@ class BookDetailSheet extends StatelessWidget {
                 ],
               ),
             ),
+            if (recentDurations.any(
+              (duration) => duration > Duration.zero,
+            )) ...[
+              const SizedBox(height: 16),
+              BookReadingChart(durations: recentDurations),
+            ],
             const Divider(height: 24),
             FutureBuilder<List<String>>(
               future: library.pendingLocationReasons(entry.id),

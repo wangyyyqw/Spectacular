@@ -28,6 +28,7 @@ import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
 import 'reading_insights.dart';
 import '../storage/import_queue.dart';
+import '../storage/reading_session_store.dart';
 import '../diagnostics/reader_log.dart';
 
 /// 书架条目及列表显示的阅读记录。
@@ -687,9 +688,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 长按卡片：快捷详情面板；可继续进入完整详情页或删除。
   Future<void> _openBookDetail(BookEntry entry) async {
-    final (progress, durations) = await (
+    final sessions =
+        widget.library.readingSessionStore()?.list() ??
+        Future<List<ReadingSession>>.value(const <ReadingSession>[]);
+    final (progress, durations, readingSessions) = await (
       widget.progressStore.load(entry.id),
       widget.library.bookReadingDurations(),
+      sessions,
     ).wait;
     if (!mounted) return;
     final action = await showReaderBottomSheet<String>(
@@ -701,6 +706,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         library: widget.library,
         progress: progress,
         readingDuration: durations[entry.id] ?? Duration.zero,
+        readingSessions: readingSessions,
         pinned: _pinnedIds.contains(entry.id),
       ),
     );
