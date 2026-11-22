@@ -65,6 +65,7 @@ dependencies:
   multicast_dns: ^0.3.3+1
   pointycastle: ^4.0.0
   flutter_js: 0.8.7
+  enough_convert: ^1.7.1
 
 dev_dependencies:
   flutter_test:
@@ -102,6 +103,7 @@ flutter:
     - assets/ye_she/
     - assets/ye_she/items/
     - assets/reader_highlight/
+    - assets/rea_micro/search/
     - integration_test/m0_page_sequence.json
 
   # 内置正文宋体与黑体（OFL）。宋体使用阅微精简思源宋体子集，

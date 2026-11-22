@@ -23,6 +23,8 @@ class _Controller extends ReaMicroController {
     : super(library: LibraryStore.memory(), enableLanLoginServer: false);
   final searches = <Completer<List<ReaMicroPublicReadingGroup>>>[];
   ReaMicroManualAssociation? saved;
+  ReaMicroThirdPartyBook? savedThirdParty;
+  final updates = <void Function(List<ReaMicroPublicReadingGroup>)?>[];
   bool scheduled = false;
 
   @override
@@ -32,9 +34,13 @@ class _Controller extends ReaMicroController {
   Future<List<ReaMicroPublicReadingGroup>> searchPublicReadingCandidates({
     required String name,
     String author = '',
+    void Function(List<ReaMicroPublicReadingGroup>)? onUpdate,
+    void Function(String)? onSourceError,
+    bool Function()? isCancelled,
   }) {
     final response = Completer<List<ReaMicroPublicReadingGroup>>();
     searches.add(response);
+    updates.add(onUpdate);
     return response.future;
   }
 
@@ -44,8 +50,10 @@ class _Controller extends ReaMicroController {
     ReaMicroCloudBook? cloudBook,
     ReaMicroCloudPublisher? publisher,
     ReaMicroManualAssociation? manual,
+    ReaMicroThirdPartyBook? thirdParty,
   }) async {
     saved = manual;
+    savedThirdParty = thirdParty;
     return ReaMicroBookLink(
       cloudBookId: 42,
       name: manual?.name ?? cloudBook!.name,
@@ -156,6 +164,52 @@ void main() {
     expect(controller.saved?.wordCount, '10万');
     expect(controller.saved?.error, isNull);
     expect(controller.scheduled, isTrue);
+  });
+
+  testWidgets('平台候选可在其他源等待期间选择关联并停止搜索', (tester) async {
+    final controller = _Controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaMicroPublicReadingPage(controller: controller, book: _book),
+      ),
+    );
+    await tester.pump();
+    const third = ReaMicroThirdPartyBook(
+      source: 'ciweimao_1',
+      title: '平台书',
+      author: '平台作者',
+      publisher: '刺猬猫阅读',
+      words: '10万',
+      status: '连载',
+    );
+    controller.updates.single!([
+      ReaMicroPublicReadingGroup(
+        publisherName: '刺猬猫阅读',
+        candidates: [third.candidate],
+      ),
+    ]);
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(ValueKey('public-reading-candidate-${third.key}')),
+      180,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(
+      find.byKey(ValueKey('public-reading-candidate-${third.key}')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('public-reading-link')));
+    await tester.pump();
+    expect(controller.savedThirdParty, same(third));
+    expect(controller.scheduled, isTrue);
+    controller.searches.single.complete([]);
+    await tester.pumpAndSettle();
   });
 
   test('手动关联校验拒绝白名单外平台、无效封面及过长简介', () {

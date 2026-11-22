@@ -306,7 +306,7 @@ packages:
     source: hosted
     version: "2.35.1"
   enough_convert:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: enough_convert
       sha256: "65bff24436f4da878435e80ba24a6f762870751a6f5fd4ea51cdec232d90a936"

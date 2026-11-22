@@ -13,6 +13,54 @@ http.Response _json(Object? body, {int status = 200}) => http.Response(
 );
 
 void main() {
+  test('原生平台规则目录和 JS 下载使用正确接口，完整字段传入出版创建', () async {
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        expect(request.headers['Authorization'], 'Bearer token');
+        if (request.url.path.endsWith('query-third-party')) {
+          expect(request.method, 'POST');
+          return _json({
+            'code': 0,
+            'data': {
+              'files': ['ciweimao_1', 'douban_4'],
+            },
+          });
+        }
+        if (request.url.path.endsWith('download-third-party')) {
+          expect(request.method, 'GET');
+          expect(request.url.queryParameters, {'name': 'ciweimao_1'});
+          return http.Response('function search(key){}', 200);
+        }
+        final body = jsonDecode(request.body) as Map;
+        expect(body['original'], '原名');
+        expect(body['translator'], '译者');
+        expect(body['bookAlias'], '别名');
+        return _json({
+          'code': 0,
+          'data': {'cloudBookId': 42, 'bookPublisherId': 88},
+        });
+      }),
+    );
+    addTearDown(api.close);
+    expect(await api.fetchThirdPartyRuleNames('token'), [
+      'ciweimao_1',
+      'douban_4',
+    ]);
+    expect(
+      await api.downloadThirdPartyRule('token', 'ciweimao_1'),
+      contains('function search'),
+    );
+    await api.createCloudBook(
+      'token',
+      name: '书',
+      author: '作者',
+      original: '原名',
+      translator: '译者',
+      bookAlias: '别名',
+    );
+  });
+
   test('书籍分页未读完时拒绝返回不完整清单', () async {
     var pages = 0;
     final api = ReaMicroApiClient(

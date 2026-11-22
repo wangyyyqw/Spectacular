@@ -738,6 +738,7 @@ class ReaMicroPublicReadingCandidate {
     required this.book,
     this.publisher,
     this.publisherName = '',
+    this.thirdParty,
   });
 
   /// 云端书籍。
@@ -749,14 +750,90 @@ class ReaMicroPublicReadingCandidate {
   /// 分组展示名称。
   final String publisherName;
 
+  /// 平台原始候选；关联时创建出版版本，沿用已有内部用户书。
+  final ReaMicroThirdPartyBook? thirdParty;
+
   /// 出版方标识。
   int get publisherId => publisher?.publisherId ?? 0;
 
   /// 是否为可直接公开关联的出版方条目。
-  bool get linkable => publisherId > 0;
+  bool get linkable => publisherId > 0 || thirdParty != null;
 
   /// 稳定标识，用于选择和去重。
-  String get key => '${book.cloudBookId}|$publisherId|${publisherName.trim()}';
+  String get key =>
+      thirdParty?.key ??
+      '${book.cloudBookId}|$publisherId|${publisherName.trim()}';
+}
+
+/// 阅微原生 JavaScript 搜索返回的完整第三方书籍资料。
+class ReaMicroThirdPartyBook {
+  const ReaMicroThirdPartyBook({
+    required this.source,
+    required this.title,
+    this.author = '',
+    this.alias = '',
+    this.subtitle = '',
+    this.original = '',
+    this.intro = '',
+    this.cover = '',
+    this.translator = '',
+    this.publisher = '',
+    this.publishDate = '',
+    this.price = '',
+    this.isbn = '',
+    this.words = '',
+    this.detail = '',
+    this.status = '',
+  });
+
+  final String source, title, author, alias, subtitle, original, intro, cover;
+  final String translator, publisher, publishDate, price, isbn, words, detail;
+  final String status;
+
+  String get key => 'third|$source|$title|$author|$publisher|$isbn|$detail';
+
+  factory ReaMicroThirdPartyBook.fromJson(
+    String source,
+    Map<String, Object?> json,
+  ) {
+    String text(String key) => '${json[key] ?? ''}'.trim();
+    return ReaMicroThirdPartyBook(
+      source: source,
+      title: text('title'),
+      author: text('author'),
+      alias: text('alias'),
+      subtitle: text('subtitle'),
+      original: text('original'),
+      intro: text('intro'),
+      cover: text('cover'),
+      translator: text('translator'),
+      publisher: text('publisher'),
+      publishDate: text('publish_date'),
+      price: text('price'),
+      isbn: text('isbn'),
+      words: text('words'),
+      detail: text('detail'),
+      status: text('status'),
+    );
+  }
+
+  ReaMicroPublicReadingCandidate get candidate =>
+      ReaMicroPublicReadingCandidate(
+        book: ReaMicroCloudBook(
+          cloudBookId: 0,
+          name: title,
+          author: author,
+          subtitle: subtitle,
+          original: original,
+          intro: intro,
+        ),
+        publisherName: status == '出版'
+            ? '实体出版（豆瓣）'
+            : publisher.isEmpty
+            ? source.split('_').first
+            : publisher,
+        thirdParty: this,
+      );
 }
 
 /// 公开阅读搜索中的出版方分组。

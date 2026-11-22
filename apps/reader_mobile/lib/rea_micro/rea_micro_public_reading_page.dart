@@ -10,8 +10,8 @@ import 'rea_micro_manual_association_page.dart';
 
 /// 将本地书籍公开关联到阅微云端书籍。
 ///
-/// 页面按出版方分组展示云端候选，关联成功后立即补传本书已有的阅读时长、
-/// 阅读位置、划线和想法；失败的数据保留在本地，由控制器在联网后重试。
+/// 页面按平台或出版方渐进展示聚合候选，关联后安排阅读数据同步；
+/// 失败的数据保留在本地，由控制器在联网后重试。
 class ReaMicroPublicReadingPage extends StatefulWidget {
   /// 创建公开阅读页。
   const ReaMicroPublicReadingPage({
@@ -44,6 +44,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
   bool _searching = false;
   bool _linking = false;
   int _searchGeneration = 0;
+  final List<String> _sourceErrors = [];
 
   ReaMicroBookLink? get _link => widget.controller.links[widget.book.id];
 
@@ -56,6 +57,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
 
   @override
   void dispose() {
+    _searchGeneration++;
     widget.controller.removeListener(_onControllerChanged);
     _name.dispose();
     _author.dispose();
@@ -78,25 +80,40 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
       _error = null;
       _groups = null;
       _selected = null;
+      _sourceErrors.clear();
     });
+    void update(List<ReaMicroPublicReadingGroup> groups) {
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _groups = groups;
+        // 渐进返回时保留用户已经选中的版本。
+        if (_selected == null) {
+          for (final group in groups) {
+            for (final candidate in group.candidates) {
+              if (candidate.linkable) {
+                _selected = candidate;
+                return;
+              }
+            }
+          }
+        }
+      });
+    }
+
     try {
       final groups = await widget.controller.searchPublicReadingCandidates(
         name: _name.text,
         author: _author.text,
+        onUpdate: update,
+        onSourceError: (error) {
+          if (!mounted || generation != _searchGeneration) return;
+          setState(() => _sourceErrors.add(error));
+        },
+        isCancelled: () => !mounted || generation != _searchGeneration,
       );
       if (!mounted || generation != _searchGeneration) return;
-      ReaMicroPublicReadingCandidate? selected;
-      for (final group in groups) {
-        for (final candidate in group.candidates) {
-          if (!candidate.linkable) continue;
-          selected = candidate;
-          break;
-        }
-        if (selected != null) break;
-      }
+      update(groups);
       setState(() {
-        _groups = groups;
-        _selected = selected;
         if (groups.isEmpty) _error = '没有找到匹配版本，可调整关键词或手动关联';
       });
     } catch (error) {
@@ -121,6 +138,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
         widget.book.id,
         cloudBook: candidate.book,
         publisher: candidate.publisher,
+        thirdParty: candidate.thirdParty,
       ),
     );
   }
@@ -158,8 +176,10 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
   }
 
   Future<void> _runLink(Future<Object?> Function() action) async {
+    _searchGeneration++;
     setState(() {
       _linking = true;
+      _searching = false;
       _error = null;
     });
     try {
@@ -275,6 +295,16 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
                         style: TextStyle(color: theme.colorScheme.error),
                       ),
                     ],
+                    if (_sourceErrors.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(
+                          '部分来源暂不可用：${_sourceErrors.map((error) => error.split('：').first).join('、')}。可使用已返回的结果或重新搜索。',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     if (groups != null && groups.isNotEmpty) ...<Widget>[
                       const SizedBox(height: 18),
                       Text('搜索结果', style: theme.textTheme.titleMedium),
@@ -511,6 +541,7 @@ class _PublisherGroupCard extends StatelessWidget {
               candidate: candidate,
               selected: selected?.key == candidate.key,
               linked:
+                  candidate.thirdParty == null &&
                   currentLink?.cloudBookId == candidate.book.cloudBookId &&
                   (candidate.publisherId <= 0 ||
                       currentLink?.publisherId == candidate.publisherId),
@@ -561,6 +592,21 @@ class _CandidateTile extends StatelessWidget {
                     : theme.colorScheme.outline,
               ),
               const SizedBox(width: 10),
+              if (candidate.thirdParty?.cover.isNotEmpty == true) ...[
+                BookCoverImage(
+                  book: BookEntry(
+                    id: candidate.key,
+                    title: book.name,
+                    author: book.author,
+                    filePath: '',
+                    addedAt: DateTime(2026),
+                    remoteCoverUrl: candidate.thirdParty!.cover,
+                  ),
+                  width: 40,
+                  height: 54,
+                ),
+                const SizedBox(width: 10),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -580,7 +626,14 @@ class _CandidateTile extends StatelessWidget {
                         if (candidate.publisher != null &&
                             candidate.publisher!.publisher.trim().isNotEmpty)
                           candidate.publisher!.publisher.trim(),
+                        if (candidate.thirdParty?.status == '出版' &&
+                            candidate.thirdParty!.publisher.isNotEmpty)
+                          candidate.thirdParty!.publisher,
                         if (!candidate.linkable) '未提供出版方',
+                        if (candidate.thirdParty?.status.isNotEmpty == true)
+                          candidate.thirdParty!.status,
+                        if (candidate.thirdParty?.words.isNotEmpty == true)
+                          candidate.thirdParty!.words,
                         if (linked) '当前关联',
                       ].join(' · '),
                       maxLines: 2,
@@ -589,6 +642,17 @@ class _CandidateTile extends StatelessWidget {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
+                    if (book.intro.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        book.intro,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

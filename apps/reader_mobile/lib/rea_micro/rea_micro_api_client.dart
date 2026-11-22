@@ -43,6 +43,12 @@ abstract interface class ReaMicroMoteSyncApi {
   Future<void> deleteMoteObject(String token, {required String objectKey});
 }
 
+/// 阅微原生平台搜索规则接口。
+abstract interface class ReaMicroThirdPartyApi {
+  Future<List<String>> fetchThirdPartyRuleNames(String token);
+  Future<String> downloadThirdPartyRule(String token, String name);
+}
+
 /// 阅微数据接口；抽出接口便于同步逻辑使用内存实现测试。
 abstract interface class ReaMicroApi {
   /// 发送邮箱验证码。
@@ -134,6 +140,9 @@ abstract interface class ReaMicroApi {
     required String name,
     required String author,
     String subtitle = '',
+    String original = '',
+    String translator = '',
+    String bookAlias = '',
     String intro = '',
     String publisher = '',
     String isbn = '',
@@ -284,7 +293,8 @@ abstract interface class ReaMicroApi {
 }
 
 /// 阅微 HTTP 接口实现。
-class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
+class ReaMicroApiClient
+    implements ReaMicroApi, ReaMicroMoteSyncApi, ReaMicroThirdPartyApi {
   /// 创建客户端。
   ReaMicroApiClient({
     http.Client? client,
@@ -302,6 +312,27 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
 
   /// 单次请求超时。
   final Duration timeout;
+
+  @override
+  Future<List<String>> fetchThirdPartyRuleNames(String token) async {
+    final data = await _post('rest/user/query-third-party', {}, token: token);
+    final files = data is Map ? data['files'] : null;
+    return files is List ? files.whereType<String>().toList() : const [];
+  }
+
+  @override
+  Future<String> downloadThirdPartyRule(String token, String name) async {
+    final uri = Uri.parse('${baseUrl}rest/user/download-third-party')
+        .replace(queryParameters: {'name': name});
+    final response = await _client
+        .get(uri, headers: _headers(token))
+        .timeout(timeout);
+    // 原生下载端点直接返回 UTF-8 JavaScript，不使用业务 JSON 包装。
+    if (response.statusCode != 200) {
+      throw ReaMicroException('下载平台搜索规则失败（HTTP ${response.statusCode}）');
+    }
+    return utf8.decode(response.bodyBytes);
+  }
 
   @override
   Future<void> sendEmailCode(String email) async {
@@ -617,6 +648,9 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
     required String name,
     required String author,
     String subtitle = '',
+    String original = '',
+    String translator = '',
+    String bookAlias = '',
     String intro = '',
     String publisher = '',
     String isbn = '',
@@ -630,15 +664,15 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
       'name': name,
       'author': author,
       'subtitle': subtitle,
-      'original': '',
+      'original': original,
       'intro': intro,
       'cover': cover,
-      'translator': '',
+      'translator': translator,
       'publisher': publisher,
       'publishDate': publishDate,
       'price': price,
       'isbn': isbn,
-      'bookAlias': '',
+      'bookAlias': bookAlias,
       'wordCount': wordCount,
       'status': status,
     }, token: token);

@@ -13,6 +13,7 @@ import '../library/library_store.dart';
 import '../book_source/book_source_compat.dart';
 import '../storage/reading_session_store.dart';
 import 'rea_micro_api_client.dart';
+import 'rea_micro_aggregate_search.dart';
 import 'rea_micro_annotation_cfi.dart';
 import 'rea_micro_github.dart';
 import 'rea_micro_lan.dart';
@@ -60,6 +61,7 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroLanLoginServer? lanLoginServer,
     bool enableLanLoginServer = true,
     ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
+    ReaMicroAggregateSearch? aggregateSearch,
   }) : _library = library,
        _api = api ?? ReaMicroApiClient(),
        _store = store ?? ReaMicroStore(library),
@@ -69,6 +71,14 @@ class ReaMicroController extends ChangeNotifier {
        _lanLoginServerEnabled = enableLanLoginServer,
        _lanLoginServer = lanLoginServer ?? ReaMicroLanLoginServer(),
        _lan = lan ?? ReaMicroLanClient() {
+    _aggregateSearch =
+        aggregateSearch ??
+        ReaMicroAggregateSearch(
+          library: library,
+          ruleApi: _api is ReaMicroThirdPartyApi
+              ? _api as ReaMicroThirdPartyApi
+              : null,
+        );
     _trackedProgressStore = progressStore == null
         ? null
         : ReaMicroTrackingProgressStore(progressStore, _onLocalProgressSaved);
@@ -78,6 +88,7 @@ class ReaMicroController extends ChangeNotifier {
   final LibraryStore _library;
   final ReaMicroApi _api;
   final ReaMicroStore _store;
+  late final ReaMicroAggregateSearch _aggregateSearch;
   final ReaderProgressStore? _rawProgressStore;
   final ReaMicroLanClient _lan;
   final ReaMicroLanLoginServer _lanLoginServer;
@@ -1428,9 +1439,96 @@ class ReaMicroController extends ChangeNotifier {
   Future<List<ReaMicroPublicReadingGroup>> searchPublicReadingCandidates({
     required String name,
     String author = '',
+    void Function(List<ReaMicroPublicReadingGroup>)? onUpdate,
+    void Function(String)? onSourceError,
+    bool Function()? isCancelled,
   }) async {
-    final books = await searchCloudBooks(name: name, author: author);
-    return groupPublicReadingCandidates(books, title: name, author: author);
+    final token = _token;
+    if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    if (name.trim().isEmpty) throw const ReaMicroException('请填写书名');
+    bool cancelled() =>
+        _disposed || _token != token || isCancelled?.call() == true;
+    final candidates = <ReaMicroPublicReadingCandidate>[];
+    var succeeded = 0;
+    final failures = <String>[];
+    List<ReaMicroPublicReadingGroup> groups() {
+      final byName = <String, List<ReaMicroPublicReadingCandidate>>{};
+      final seen = <String>{};
+      for (final candidate in candidates) {
+        if (!seen.add(candidate.key)) continue;
+        byName.putIfAbsent(candidate.publisherName, () => []).add(candidate);
+      }
+      final queryTitle = _normalizeBookText(name);
+      final queryAuthor = _normalizeBookText(author);
+      int rank(ReaMicroPublicReadingCandidate candidate) =>
+          _publicReadingRank(candidate.book, queryTitle, queryAuthor);
+      final result = byName.entries.map((entry) {
+        entry.value.sort((a, b) => rank(a).compareTo(rank(b)));
+        return ReaMicroPublicReadingGroup(
+          publisherName: entry.key,
+          candidates: List.unmodifiable(entry.value),
+        );
+      }).toList();
+      result.sort(
+        (a, b) => rank(a.candidates.first).compareTo(rank(b.candidates.first)),
+      );
+      return List.unmodifiable(result);
+    }
+
+    void failed(String source, Object error) {
+      if (cancelled()) return;
+      final message = '$source：$error';
+      failures.add(message);
+      onSourceError?.call(message);
+    }
+
+    await Future.wait([
+      (() async {
+        try {
+          final books = await _api
+              .searchCloudBooks(token, name: name.trim(), author: author.trim())
+              .timeout(const Duration(seconds: 20));
+          if (cancelled()) return;
+          succeeded++;
+          for (final group in groupPublicReadingCandidates(
+            books,
+            title: name,
+            author: author,
+          )) {
+            candidates.addAll(group.candidates);
+          }
+          onUpdate?.call(groups());
+        } catch (error) {
+          failed('阅微书库', error);
+        }
+      })(),
+      (() async {
+        try {
+          await _aggregateSearch.search(
+            token: token,
+            title: name,
+            isCancelled: cancelled,
+            onResult: (result) {
+              if (cancelled()) return;
+              if (result.error != null) {
+                failed(result.source, result.error!);
+                return;
+              }
+              succeeded++;
+              candidates.addAll(result.books.map((book) => book.candidate));
+              onUpdate?.call(groups());
+            },
+          );
+        } catch (error) {
+          failed('平台搜索', error);
+        }
+      })(),
+    ]);
+    if (cancelled()) return const [];
+    if (succeeded == 0 && failures.isNotEmpty) {
+      throw const ReaMicroException('搜索来源暂不可用，请重试或手动关联');
+    }
+    return groups();
   }
 
   /// 将云端搜索结果整理为按出版方分组的公开阅读候选。
@@ -1631,6 +1729,7 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroCloudBook? cloudBook,
     ReaMicroCloudPublisher? publisher,
     ReaMicroManualAssociation? manual,
+    ReaMicroThirdPartyBook? thirdParty,
   }) async {
     if (manual?.error case final String error) {
       throw ReaMicroException(error);
@@ -1658,16 +1757,18 @@ class ReaMicroController extends ChangeNotifier {
       publisherId: identity.publisherId,
       publisher: identity.publisherName,
     );
-    var cloudBookId = manual != null
+    var cloudBookId = manual != null || thirdParty != null
         ? 0
         : cloudBook?.cloudBookId ?? registration.cloudBookId;
-    var publisherId = <int>[
-      publisher?.publisherId ?? 0,
-      cloudBook?.linkablePublisher?.publisherId ?? 0,
-      if (cloudBook == null ||
-          cloudBook.cloudBookId == registration.cloudBookId)
-        registration.publisherId,
-    ].firstWhere((value) => value > 0, orElse: () => 0);
+    var publisherId = thirdParty != null
+        ? 0
+        : <int>[
+            publisher?.publisherId ?? 0,
+            cloudBook?.linkablePublisher?.publisherId ?? 0,
+            if (cloudBook == null ||
+                cloudBook.cloudBookId == registration.cloudBookId)
+              registration.publisherId,
+          ].firstWhere((value) => value > 0, orElse: () => 0);
     ReaMicroCloudBook? resolvedCloudBook = cloudBook;
     if (cloudBookId > 0 && publisherId <= 0) {
       try {
@@ -1684,19 +1785,32 @@ class ReaMicroController extends ChangeNotifier {
       }
     }
     if (cloudBookId <= 0) {
+      if (_token != token) throw const ReaMicroException('账号已变更，关联已停止');
       final created = await _api.createCloudBook(
         token,
-        name: manual?.name.trim() ?? resolvedCloudBook?.name ?? book.title,
+        name:
+            thirdParty?.title ??
+            manual?.name.trim() ??
+            resolvedCloudBook?.name ??
+            book.title,
         author:
+            thirdParty?.author ??
             manual?.author.trim() ??
             (resolvedCloudBook?.author.isNotEmpty == true
                 ? resolvedCloudBook!.author
                 : book.author),
-        intro: manual?.intro.trim() ?? book.description,
-        publisher: manual?.publisher.trim() ?? '',
-        cover: manual?.cover.trim() ?? '',
-        wordCount: manual?.wordCount.trim() ?? '',
-        status: manual?.status.trim() ?? '',
+        subtitle: thirdParty?.subtitle ?? '',
+        original: thirdParty?.original ?? '',
+        translator: thirdParty?.translator ?? '',
+        bookAlias: thirdParty?.alias ?? '',
+        isbn: thirdParty?.isbn ?? '',
+        publishDate: thirdParty?.publishDate ?? '',
+        price: thirdParty?.price ?? '',
+        intro: thirdParty?.intro ?? manual?.intro.trim() ?? book.description,
+        publisher: thirdParty?.publisher ?? manual?.publisher.trim() ?? '',
+        cover: thirdParty?.cover ?? manual?.cover.trim() ?? '',
+        wordCount: thirdParty?.words ?? manual?.wordCount.trim() ?? '',
+        status: thirdParty?.status ?? manual?.status.trim() ?? '',
       );
       cloudBookId = created.cloudBookId;
       publisherId = created.publisherId;
@@ -1731,11 +1845,20 @@ class ReaMicroController extends ChangeNotifier {
     _publisherNameRequests.removeWhere((key, _) => key.$1 == bookId);
     final link = ReaMicroBookLink(
       cloudBookId: cloudBookId,
-      name: manual?.name.trim() ?? resolvedCloudBook?.name ?? book.title,
-      author: manual?.author.trim() ?? resolvedCloudBook?.author ?? book.author,
+      name:
+          thirdParty?.title ??
+          manual?.name.trim() ??
+          resolvedCloudBook?.name ??
+          book.title,
+      author:
+          thirdParty?.author ??
+          manual?.author.trim() ??
+          resolvedCloudBook?.author ??
+          book.author,
       userBookId: registration.userBookId,
       publisherId: publisherId,
       publisherName: <String>[
+        if (thirdParty != null) thirdParty.publisher,
         if (manual != null) manual.publisher.trim(),
         selectedName,
         registeredName,
@@ -1755,7 +1878,11 @@ class ReaMicroController extends ChangeNotifier {
     };
     await _store.saveSyncBooks(_syncBooks);
     await _seedProgressStatesForBook(bookId);
-    var intro = manual?.intro.trim() ?? publisher?.intro.trim() ?? '';
+    var intro =
+        thirdParty?.intro ??
+        manual?.intro.trim() ??
+        publisher?.intro.trim() ??
+        '';
     if (intro.isEmpty) intro = resolvedCloudBook?.intro.trim() ?? '';
     if (intro.isEmpty) {
       intro =

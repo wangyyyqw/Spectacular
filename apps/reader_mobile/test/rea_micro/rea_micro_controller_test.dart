@@ -12,6 +12,7 @@ import 'package:reader_core/parser/external_annotation_cfi.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_aggregate_search.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_lan.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_s3.dart';
@@ -456,6 +457,9 @@ class _FakeApi implements ReaMicroApi {
     required String name,
     required String author,
     String subtitle = '',
+    String original = '',
+    String translator = '',
+    String bookAlias = '',
     String intro = '',
     String publisher = '',
     String isbn = '',
@@ -469,6 +473,13 @@ class _FakeApi implements ReaMicroApi {
       'name': name,
       'author': author,
       'intro': intro,
+      if (subtitle.isNotEmpty) 'subtitle': subtitle,
+      if (original.isNotEmpty) 'original': original,
+      if (translator.isNotEmpty) 'translator': translator,
+      if (bookAlias.isNotEmpty) 'bookAlias': bookAlias,
+      if (isbn.isNotEmpty) 'isbn': isbn,
+      if (publishDate.isNotEmpty) 'publishDate': publishDate,
+      if (price.isNotEmpty) 'price': price,
       if (publisher.isNotEmpty) 'publisher': publisher,
       if (cover.isNotEmpty) 'cover': cover,
       if (wordCount.isNotEmpty) 'wordCount': wordCount,
@@ -882,6 +893,7 @@ Future<ReaMicroController> _createController(
   ReaderProgressStore? progressStore,
   ReaMicroLanClient? lan,
   ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
+  ReaMicroAggregateSearch? aggregateSearch,
 }) async {
   if (signedIn) {
     await ReaMicroStore(library).saveToken('token');
@@ -904,6 +916,7 @@ Future<ReaMicroController> _createController(
     lan: lan,
     enableLanLoginServer: false,
     s3ClientFactory: s3ClientFactory,
+    aggregateSearch: aggregateSearch,
   );
   await controller.initialize();
   return controller;
@@ -1075,6 +1088,103 @@ void main() {
     final result = await controller.loadCloudMonth(DateTime(2025, 12));
     expect(result, same(api.period));
     expect(api.monthRequests.last, DateTime(2025, 12));
+  });
+
+  test('平台候选完整创建出版版本并沿用未关联用户书与已确认水位', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(buildTestEpub(title: '本地书'));
+    final store = ReaMicroStore(library);
+    await store.saveSyncBooks({
+      book.id: const ReaMicroBookSyncIdentity(cloudBookId: 0, userBookId: 7001),
+    });
+    await store.saveSessionWatermarks({book.id: 123456});
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    const third = ReaMicroThirdPartyBook(
+      source: 'douban_4',
+      title: '平台书名',
+      author: '作者',
+      alias: '别名',
+      subtitle: '副标题',
+      original: '原名',
+      translator: '译者',
+      intro: '平台简介',
+      publisher: '出版方',
+      cover: 'https://example.com/cover.jpg',
+      words: '123',
+      status: '出版',
+      isbn: '1234567890',
+      publishDate: '2026-11',
+      price: '20',
+    );
+    final link = await controller.registerAndLinkBook(
+      book.id,
+      thirdParty: third,
+    );
+    expect(link.userBookId, 7001);
+    expect(link.name, third.title);
+    expect(link.publisherName, third.publisher);
+    expect(api.userBookRequests, isEmpty);
+    expect(api.relateRequests.single['userBookId'], 7001);
+    expect(await store.loadSessionWatermarks(), {book.id: 123456});
+    expect(api.cloudBookRequests.single, {
+      'name': third.title,
+      'author': third.author,
+      'intro': third.intro,
+      'subtitle': third.subtitle,
+      'original': third.original,
+      'translator': third.translator,
+      'bookAlias': third.alias,
+      'isbn': third.isbn,
+      'publishDate': third.publishDate,
+      'price': third.price,
+      'publisher': third.publisher,
+      'cover': third.cover,
+      'wordCount': third.words,
+      'status': third.status,
+    });
+    expect((await library.bookById(book.id))!.description, third.intro);
+  });
+
+  test('聚合控制器同时保留在线书库和原生平台候选，作者只参与排序', () async {
+    final api = _FakeApi()
+      ..cloudBooks = [
+        const ReaMicroCloudBook(
+          cloudBookId: 42,
+          name: '书名',
+          author: '本地作者',
+          publishers: [
+            ReaMicroCloudPublisher(publisherId: 88, publisher: '云端出版方'),
+          ],
+        ),
+      ];
+    final controller = await _createController(
+      _TestLibrary(),
+      api,
+      aggregateSearch: ReaMicroAggregateSearch(
+        rulesLoader: () async => {
+          'ciweimao_1': '''
+function search(key){return JSON.stringify({code:200,data:[
+{title:key,author:'不同作者',publisher:'刺猬猫阅读',intro:'完整简介'},
+{title:'其他无关作品',author:'本地作者',publisher:'刺猬猫阅读'}
+]});}
+''',
+        },
+      ),
+    );
+    addTearDown(controller.dispose);
+    final updates = <List<ReaMicroPublicReadingGroup>>[];
+    final result = await controller.searchPublicReadingCandidates(
+      name: '书名',
+      author: '本地作者',
+      onUpdate: updates.add,
+    );
+    expect(updates, hasLength(2));
+    expect(result.map((group) => group.publisherName), ['云端出版方', '刺猬猫阅读']);
+    expect(result.last.candidates.single.book.author, '不同作者');
+    expect(result.last.candidates.single.thirdParty?.intro, '完整简介');
+    expect(result.last.candidates.single.linkable, isTrue);
   });
 
   test('退出账号清理内部用户书标识和云统计，保留公开关联与本地会话', () async {
