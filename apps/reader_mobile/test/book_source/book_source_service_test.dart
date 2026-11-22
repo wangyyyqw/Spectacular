@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_mobile/book_source/book_source_http_client.dart';
+import 'package:reader_mobile/book_source/book_source_cookie_store.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_script.dart';
 import 'package:reader_mobile/book_source/book_source_service.dart';
@@ -61,6 +63,95 @@ class _DelayedChapterCache extends OnlineChapterContentStore {
 }
 
 void main() {
+  test('真实后台详情和下载保持前台计时器响应，慢网络下载可立即取消', () async {
+    final directory = await Directory.systemTemp.createTemp('online-worker-');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final stopped = Completer<void>();
+    server.listen((request) async {
+      if (request.uri.path == '/slow') await stopped.future;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'name': '后台测试书',
+          'intro': '后台简介',
+          'toc': '/toc',
+          'chapters': [
+            {'name': '第一章', 'url': '/chapter'},
+          ],
+          'content': '<p>后台正文。</p>',
+        }),
+      );
+      await request.response.close();
+    });
+    final base = 'http://127.0.0.1:${server.port}';
+    final source = _source.copyWith(
+      sourceUrl: base,
+      bookInfo: const BookInfoRule(
+        name: r'$.name',
+        intro: r'$.intro',
+        tocUrl: r'$.toc',
+      ),
+      toc: const TocRule(
+        chapterList: r'$.chapters[*]',
+        chapterName: r'$.name',
+        chapterUrl: r'$.url',
+      ),
+      content: const ContentRule(content: r'$.content'),
+      loadMode: BookSourceLoadMode.book,
+    );
+    final service = BookSourceService(
+      backgroundOperations: true,
+      httpClient: BookSourceHttpClient(allowPrivateHosts: true),
+      cookieStore: BookSourceCookieStore(
+        directoryProvider: () async => directory,
+      ),
+      chapterContentStore: OnlineChapterContentStore(
+        directoryProvider: () async => directory,
+      ),
+    );
+    addTearDown(() async {
+      if (!stopped.isCompleted) stopped.complete();
+      service.dispose();
+      await server.close(force: true);
+      await directory.delete(recursive: true);
+    });
+    final book = OnlineBook(
+      sourceId: source.id,
+      sourceName: source.name,
+      name: '测试',
+      author: '',
+      bookUrl: '$base/book',
+    );
+    final info = await service.loadBookInfo(source, book);
+    expect(info.intro, '后台简介');
+    final completed = await service.download(source, book);
+    expect(completed.bytes, isNotEmpty);
+    var cancelled = false;
+    var ticks = 0;
+    final timer = Timer.periodic(const Duration(milliseconds: 20), (_) {
+      ticks++;
+      if (ticks == 5) cancelled = true;
+    });
+    try {
+      await expectLater(
+        service.download(
+          source,
+          book.copyWith(bookUrl: '$base/slow'),
+          isCancelled: () => cancelled,
+        ),
+        throwsA(
+          isA<BookSourceException>().having(
+            (e) => e.code,
+            '取消代码',
+            'ONLINE_CANCELLED',
+          ),
+        ),
+      );
+      expect(ticks, greaterThanOrEqualTo(5));
+    } finally {
+      timer.cancel();
+    }
+  });
   test('清理章节缓存前等待完整写入，不因布局取消提前释放', () async {
     final cache = _DelayedChapterCache();
     final service = BookSourceService(

@@ -14,6 +14,9 @@ class OnlineChapterContentStore {
   Future<Directory>? _rootTask;
   int _writeSequence = 0;
 
+  /// 后台下载使用同一缓存根目录，不调用平台目录通道。
+  Future<Directory> supportDirectory() => _directoryProvider();
+
   Future<String?> read({
     required String sourceId,
     required String bookUrl,

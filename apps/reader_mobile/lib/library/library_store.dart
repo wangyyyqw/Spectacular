@@ -1162,6 +1162,46 @@ class LibraryStore {
     return row == null || row.deletedAt != null ? null : _entryFromRow(row);
   }
 
+  /// 旧版导入漏存简介时，详情页只读 OPF 补齐空值，不覆盖用户已写的简介。
+  Future<BookEntry?> restoreBookDescription(String id) async {
+    final entry = await bookById(id);
+    if (entry == null || entry.description.trim().isNotEmpty) return entry;
+    try {
+      final description = await readImportDescription(
+        path: entry.filePath,
+        bytes: entry.filePath.isEmpty ? await readBytes(entry) : null,
+      );
+      return await fillBookDescription(id, description);
+    } on Object {
+      return entry;
+    }
+  }
+
+  /// 网络详情和原书元信息仅补齐空简介，保留用户编辑与书籍身份。
+  Future<BookEntry?> fillBookDescription(String id, String description) async {
+    final value = description.trim();
+    final latest = await bookById(id);
+    if (latest == null ||
+        latest.description.trim().isNotEmpty ||
+        value.isEmpty) {
+      return latest;
+    }
+    if (_isMemory) {
+      final updated = latest.copyWith(description: value);
+      _memoryEntries[id] = updated;
+      _notify();
+      return updated;
+    }
+    await (_db!.update(_db.books)..where(
+          (t) =>
+              t.uuid.equals(id) &
+              (t.description.isNull() | t.description.equals('')),
+        ))
+        .write(BooksCompanion(description: Value(value)));
+    _notify();
+    return bookById(id);
+  }
+
   /// 保存用户编辑的书名、作者和简介。
   Future<BookEntry> updateBookMetadata(
     String id, {
@@ -1417,9 +1457,7 @@ class LibraryStore {
     }
     final title =
         existing?.title ??
-        (meta.title.trim().isEmpty
-            ? '未命名书籍'
-            : meta.title.trim());
+        (meta.title.trim().isEmpty ? '未命名书籍' : meta.title.trim());
     final author = existing == null
         ? meta.author.trim()
         : existing.author ?? '';
@@ -1477,7 +1515,7 @@ class LibraryStore {
         id: id,
         title: title,
         author: author,
-        description: existing?.description ?? '',
+        description: existing?.description ?? meta.description,
         filePath: filePath,
         addedAt: addedAt,
         spineCount: summary.spine.length,
@@ -1499,7 +1537,7 @@ class LibraryStore {
           contentRevision: sourceRevision,
           title: title,
           author: Value(author.isEmpty ? null : author),
-          description: Value(existing?.description),
+          description: Value(existing?.description ?? meta.description),
           language: Value(
             meta.language.trim().isEmpty ? null : meta.language.trim(),
           ),

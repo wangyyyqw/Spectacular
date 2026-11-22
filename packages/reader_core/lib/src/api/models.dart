@@ -13,6 +13,7 @@ class BookMeta {
     required this.author,
     required this.language,
     required this.identifier,
+    this.description = '',
   });
 
   /// 书名。
@@ -26,6 +27,9 @@ class BookMeta {
 
   /// 唯一标识，字体解混淆时也用作密钥来源。
   final String identifier;
+
+  /// OPF 声明的简介，保留段落换行。
+  final String description;
 }
 
 /// spine 中的一项。

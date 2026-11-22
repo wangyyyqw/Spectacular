@@ -21,6 +21,16 @@ OpfPackage? _parseSample(String name) {
 }
 
 void main() {
+  test('OPF 简介解码实体并保留段落换行', () {
+    final package = OpfParser.parse('''
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>简介测试</dc:title><dc:description>第一段 &amp; 说明。
+
+第二段。</dc:description></metadata><manifest/><spine/>
+</package>''');
+    expect(package.meta.description, '第一段 & 说明。\n\n第二段。');
+  });
   final corpus = findCorpusRoot();
   final skip = corpus == null ? '本地样本库缺失（test_corpus/ 不入库）' : null;
 

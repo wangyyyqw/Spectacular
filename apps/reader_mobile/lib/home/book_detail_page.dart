@@ -186,6 +186,21 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _loadError = null;
     });
     unawaited(_loadChapterRuleAvailability(entry));
+    if (entry.description.trim().isEmpty) unawaited(_restoreDescription());
+  }
+
+  Future<void> _restoreDescription() async {
+    final restored = await widget.library.restoreBookDescription(_entry.id);
+    if (!mounted ||
+        restored == null ||
+        restored.description.isEmpty ||
+        _descriptionController.text.trim().isNotEmpty) {
+      return;
+    }
+    setState(() {
+      _entry = restored;
+      _descriptionController.text = restored.description;
+    });
   }
 
   Future<void> _loadChapterRuleAvailability(BookEntry entry) async {

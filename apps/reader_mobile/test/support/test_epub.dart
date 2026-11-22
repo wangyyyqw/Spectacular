@@ -11,6 +11,7 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 Uint8List buildTestEpub({
   String title = '测试书',
   String author = '测试作者',
+  String description = '',
   bool cover = false,
   String? identifier,
   List<String>? paragraphs,
@@ -33,6 +34,7 @@ Uint8List buildTestEpub({
       '<dc:title>$title</dc:title>'
       '<dc:creator>$author</dc:creator>'
       '<dc:language>zh</dc:language>'
+      '<dc:description>${const HtmlEscape().convert(description)}</dc:description>'
       '<meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>'
       '${cover ? '<meta name="cover" content="cover-img"/>' : ''}'
       '</metadata><manifest>'

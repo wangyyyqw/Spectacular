@@ -413,7 +413,15 @@ class OnlineEpubBuilder {
     required String? coverHref,
   }) {
     final modified = DateTime.now().toUtc().toIso8601String().split('.').first;
-    final description = _plainText(intro);
+    final description = intro
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</(?:p|div)>', caseSensitive: false), '\n\n')
+        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\u00a0', ' ')
+        .replaceAll(RegExp(r'[ \t]+'), ' ')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
     return '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
         'unique-identifier="book-id">\n'
@@ -432,12 +440,6 @@ class OnlineEpubBuilder {
         '<guide>${coverHref == null ? '' : '<reference type="cover" title="封面" href="cover.xhtml"/>'}</guide>\n'
         '</package>';
   }
-
-  String _plainText(String value) => value
-      .replaceAll(RegExp(r'<[^>]+>'), ' ')
-      .replaceAll('\u00a0', ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
 
   String _escapeXml(String value) => const HtmlEscape().convert(value);
 

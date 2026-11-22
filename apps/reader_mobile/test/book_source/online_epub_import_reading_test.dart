@@ -46,6 +46,7 @@ void main() {
       author: '作者',
       bookUrl: 'https://example.test/book',
       coverUrl: 'https://example.test/cover.png',
+      intro: '在线图书的简介。\n第二段。',
     );
     final catalog = await f.controller.refreshCatalog(f.source, book);
     final entry = await f.controller.addToShelf(
@@ -54,6 +55,7 @@ void main() {
       catalog.chapters,
     );
     expect(entry.coverPath, isNotNull);
+    expect(entry.description, '在线图书的简介。\n第二段。');
     expect(await File(entry.coverPath!).exists(), isTrue);
     expect(
       f.requested.where((url) => RegExp(r'^/\d+$').hasMatch(url)),
@@ -74,12 +76,13 @@ void main() {
     expect(old.coverPath, isNull);
     final patched = await f.controller.addToShelf(
       f.source,
-      plain.copyWith(coverUrl: book.coverUrl),
+      plain.copyWith(coverUrl: book.coverUrl, intro: book.intro),
       catalog.chapters,
     );
     expect(patched.id, old.id);
     expect(patched.contentRevision, old.contentRevision);
     expect(patched.coverPath, isNotNull);
+    expect(patched.description, book.intro);
   });
 
   test('逐章书手动下载全本后保留书架身份并按正文迁移在线续读', () async {

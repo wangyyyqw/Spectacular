@@ -8,7 +8,6 @@ import 'book_source_models.dart';
 import 'book_source_discovery.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
-import 'online_book_toc_page.dart';
 import 'online_chapter_request.dart';
 import 'online_reading_book.dart';
 
@@ -47,6 +46,13 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   bool _downloading = false;
   bool _opening = false;
   bool _cancelRequested = false;
+  bool _closed = false;
+  bool _showIntroduction = true;
+  bool _catalogReversed = false;
+  final Set<String> _collapsedVolumes = {};
+  List<OnlineChapter>? _groupedChapters;
+  List<_CatalogVolume> _volumes = [];
+  int _downloadSequence = 0;
   String? _error;
   int _completed = 0;
   int _total = 0;
@@ -56,6 +62,13 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   void initState() {
     super.initState();
     unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _closed = true;
+    _cancelRequested = true;
+    super.dispose();
   }
 
   BookSource? get _currentSource {
@@ -82,20 +95,28 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       source,
       _info ?? widget.book,
     );
-    if (_chapters == null) {
-      final cached = await load.cached;
-      if (!mounted) return;
-      if (cached != null) {
-        setState(() {
-          _info = cached.book;
-          _chapters = cached.chapters;
-          _usingCachedCatalog = true;
-          _loading = false;
-        });
+    load.info?.then<void>((info) {
+      if (mounted && identical(_catalogLoad, load)) {
+        setState(() => _info = info);
       }
-    }
+    }, onError: (Object error, StackTrace stack) {}).ignore();
     try {
-      final catalog = await load.refresh;
+      if (_chapters == null) {
+        final cached = await load.cached;
+        if (!mounted) return;
+        if (cached != null) {
+          setState(() {
+            _info = cached.book;
+            _chapters = cached.chapters;
+            _usingCachedCatalog = true;
+            _loading = false;
+          });
+        }
+      }
+      final catalog = await load.refresh.timeout(
+        const Duration(seconds: 50),
+        onTimeout: () => throw const BookSourceException('详情或目录加载超时，请重试'),
+      );
       if (!mounted) return;
       setState(() {
         _info = catalog.book;
@@ -117,6 +138,9 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
 
   Future<void> _download() async {
     if (_downloading) return;
+    final sequence = ++_downloadSequence;
+    bool cancelled() =>
+        _closed || _cancelRequested || sequence != _downloadSequence;
     final info = _info ?? widget.book;
     setState(() {
       _downloading = true;
@@ -129,27 +153,38 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       final source = _currentSource ?? widget.source;
       if (source.loadMode == BookSourceLoadMode.chapter &&
           _chapters?.isNotEmpty == true) {
-        await widget.controller.addToShelf(source, info, _chapters!);
-        if (!mounted) return;
+        await waitOnlineOperation(
+          widget.controller.addToShelf(
+            source,
+            info,
+            _chapters!,
+            isCancelled: cancelled,
+          ),
+          cancelled,
+        );
+        if (!mounted || cancelled()) return;
         setState(() => _downloading = false);
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('已加入书架')));
         return;
       }
-      await widget.controller.downloadAndImport(
-        _currentSource ?? widget.source,
-        info,
-        onProgress: (completed, total, message) {
-          if (!mounted) return;
-          setState(() {
-            _completed = completed;
-            _total = total;
-            _progressMessage = message;
-          });
-        },
-        isCancelled: () => _cancelRequested,
+      await waitOnlineOperation(
+        widget.controller.downloadAndImport(
+          _currentSource ?? widget.source,
+          info,
+          onProgress: (completed, total, message) {
+            if (!mounted || cancelled()) return;
+            setState(() {
+              _completed = completed;
+              _total = total;
+              _progressMessage = message;
+            });
+          },
+          isCancelled: cancelled,
+        ),
+        cancelled,
       );
-      if (!mounted) return;
+      if (!mounted || cancelled()) return;
       Navigator.of(context).pop(true);
     } on BookSourceException catch (error) {
       if (!mounted) return;
@@ -189,7 +224,10 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
           currentLoad != null && _sameCatalogSource(currentLoad.source, source)
           ? currentLoad
           : widget.controller.loadCatalog(source, _info ?? widget.book);
-      final catalog = await load.forReading();
+      final catalog = await waitOnlineOperation(
+        load.forReading(),
+        () => _closed,
+      );
       if (!mounted) return;
       final currentSource = _currentSource;
       if (currentSource == null ||
@@ -263,47 +301,31 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     }
   }
 
-  Future<void> _showToc() async {
-    final chapters = _chapters;
-    if (chapters == null || _opening || _downloading) return;
-    final book = OnlineReadingBook(
-      source: _currentSource ?? widget.source,
-      book: _info ?? widget.book,
-      chapters: chapters,
-      service: widget.controller.service,
-    );
-    final progress = await OnlineReadingProgress(
-      widget.controller.library,
-      book,
-    ).load(book.id);
-    if (!mounted) return;
-    final selected = await Navigator.of(context).push<int>(
-      MaterialPageRoute(
-        builder: (_) => OnlineBookTocPage(
-          bookTitle: book.book.name,
-          chapters: chapters,
-          currentChapter: progress?.spineIndex,
-          selectable: _canRead,
-        ),
-      ),
-    );
-    if (selected != null && mounted) await _read(chapters[selected]);
-  }
-
   @override
   Widget build(BuildContext context) {
     final info = _info ?? widget.book;
     return PopScope(
-      canPop: !_downloading,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          _closed = true;
+          _cancelRequested = true;
+        }
+      },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('书籍详情'),
+          leading: BackButton(
+            onPressed: () {
+              _cancelRequested = true;
+              Navigator.of(context).maybePop();
+            },
+          ),
           actions: [
             IconButton(
               key: const ValueKey('online-book-refresh-catalog'),
               tooltip: '刷新目录',
               onPressed: _refreshing || _downloading || _opening ? null : _load,
-              icon: const Icon(Icons.refresh),
+              icon: const AppIcon(AppGlyph.refresh),
             ),
           ],
           bottom: _refreshing
@@ -313,75 +335,42 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                 )
               : null,
         ),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
-          children: <Widget>[
-            _header(info),
-            if (_error != null) ...<Widget>[
+        body: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: Column(
+            children: [
+              _header(info),
               const SizedBox(height: 16),
-              Card(
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
                     _chapters == null
                         ? '详情加载不完整：$_error'
                         : '目录更新失败，已保留现有目录：$_error',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ),
-            ],
-            if (info.intro.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 20),
-              Text('简介', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 6),
-              SelectableText(info.intro),
-            ],
-            const SizedBox(height: 22),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    '目录',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-                if (_chapters != null)
-                  Text(
-                    '${_chapters!.length} 章'
-                    '${_usingCachedCatalog ? ' · 缓存目录' : ''}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_loading)
-              const LinearProgressIndicator()
-            else if (_chapters == null)
-              TextButton(onPressed: _load, child: const Text('重新读取目录'))
-            else
-              for (final (index, chapter) in _chapters!.take(40).indexed)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  onTap: _canRead && !_downloading && !_opening
-                      ? () => _read(chapter)
-                      : null,
-                  title: Text(
-                    '${index + 1}. ${chapter.title}',
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: Theme.of(context).colorScheme.error),
                   ),
                 ),
-            if (_chapters != null && _chapters!.length > 40)
-              TextButton.icon(
-                key: const ValueKey('online-book-full-toc'),
-                onPressed: _downloading || _opening ? null : _showToc,
-                icon: const Icon(Icons.list),
-                label: Text('查看全部 ${_chapters!.length} 章'),
+              Expanded(
+                key: const ValueKey('online-book-content-container'),
+                child: _showIntroduction
+                    ? SingleChildScrollView(
+                        key: const PageStorageKey('online-book-introduction'),
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: SelectableText(
+                            info.intro.isEmpty ? '暂无简介' : info.intro,
+                          ),
+                        ),
+                      )
+                    : _catalogContent(),
               ),
-          ],
+            ],
+          ),
         ),
         bottomNavigationBar: SafeArea(
           top: false,
@@ -394,76 +383,296 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     );
   }
 
-  Widget _header(OnlineBook info) {
-    final kind = onlineBookPlatformAndTags(info.kind);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: SizedBox(
-            width: 96,
-            height: 130,
-            child: _BookCover(
-              source: widget.source,
-              service: widget.controller.service,
-              url: info.coverUrl,
-              fallbackUrl: widget.book.coverUrl,
-              referer: info.bookUrl,
-            ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                info.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                [
-                  info.author.isEmpty ? '未知作者' : info.author,
-                  if (info.status.isNotEmpty) info.status,
-                  if (info.wordCount.isNotEmpty) info.wordCount,
-                  if (kind.platform.isNotEmpty) kind.platform,
-                ].join(' · '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+  Widget _catalogContent() {
+    final chapters = _chapters;
+    if (chapters == null) {
+      return _loading
+          ? const Center(child: CircularProgressIndicator())
+          : Center(
+              child: TextButton(onPressed: _load, child: const Text('重新读取目录')),
+            );
+    }
+    final volumes = _catalogVolumes(chapters);
+    final namedVolumes = volumes.where((volume) => volume.title.isNotEmpty);
+    final hasExpandedVolume = namedVolumes.any(
+      (volume) => !_collapsedVolumes.contains(volume.id),
+    );
+    final rows = <({int? chapter, _CatalogVolume? volume})>[];
+    for (final volume in _catalogReversed ? volumes.reversed : volumes) {
+      if (volume.title.isNotEmpty) {
+        rows.add((chapter: null, volume: volume));
+        if (_collapsedVolumes.contains(volume.id)) continue;
+      }
+      for (var position = 0; position < volume.end - volume.start; position++) {
+        rows.add((
+          chapter: _catalogReversed
+              ? volume.end - position - 1
+              : volume.start + position,
+          volume: null,
+        ));
+      }
+    }
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${chapters.length} 章${_usingCachedCatalog ? ' · 缓存目录' : ''}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              if (info.lastChapter.isNotEmpty || info.chapterCount > 0) ...[
-                const SizedBox(height: 6),
-                Text(
-                  [
-                    if (info.chapterCount > 0) '${info.chapterCount}章',
-                    if (info.lastChapter.isNotEmpty) '最新：${info.lastChapter}',
-                  ].join(' · '),
+            ),
+            IconButton(
+              key: const ValueKey('online-book-toggle-volumes'),
+              tooltip: hasExpandedVolume ? '折叠全部' : '展开全部',
+              onPressed: namedVolumes.isEmpty
+                  ? null
+                  : () => setState(() {
+                      for (final volume in namedVolumes) {
+                        if (hasExpandedVolume) {
+                          _collapsedVolumes.add(volume.id);
+                        } else {
+                          _collapsedVolumes.remove(volume.id);
+                        }
+                      }
+                    }),
+              icon: AppIcon(
+                hasExpandedVolume ? AppGlyph.chevronUp : AppGlyph.chevronDown,
+                size: 20,
+              ),
+            ),
+            IconButton(
+              key: const ValueKey('online-book-order'),
+              tooltip: _catalogReversed ? '正序排列' : '倒序排列',
+              isSelected: _catalogReversed,
+              onPressed: () =>
+                  setState(() => _catalogReversed = !_catalogReversed),
+              icon: const AppIcon(AppGlyph.sort, size: 20),
+              selectedIcon: const RotatedBox(
+                quarterTurns: 2,
+                child: AppIcon(AppGlyph.sort, size: 20),
+              ),
+            ),
+          ],
+        ),
+        Expanded(
+          child: ListView.builder(
+            key: const PageStorageKey('online-book-directory'),
+            itemCount: rows.length,
+            itemBuilder: (context, position) {
+              final row = rows[position];
+              final volume = row.volume;
+              if (volume != null) {
+                final expanded = !_collapsedVolumes.contains(volume.id);
+                return Semantics(
+                  expanded: expanded,
+                  child: ListTile(
+                    key: ValueKey('online-book-volume-${volume.start}'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    onTap: () => setState(() {
+                      if (expanded) {
+                        _collapsedVolumes.add(volume.id);
+                      } else {
+                        _collapsedVolumes.remove(volume.id);
+                      }
+                    }),
+                    title: Text(
+                      volume.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${volume.end - volume.start}章',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(width: 8),
+                        AppIcon(
+                          expanded ? AppGlyph.chevronUp : AppGlyph.chevronDown,
+                          size: 18,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              final index = row.chapter!;
+              final chapter = chapters[index];
+              return ListTile(
+                key: ValueKey('online-book-chapter-$index'),
+                contentPadding: EdgeInsets.only(
+                  left: chapter.volume.trim().isEmpty ? 0 : 12,
+                ),
+                dense: true,
+                onTap: _canRead && !_downloading && !_opening
+                    ? () => _read(chapter)
+                    : null,
+                title: Text(
+                  '${index + 1}. ${chapter.title}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-              ],
-              if (kind.tags.isNotEmpty || info.updateTime.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  [
-                    if (info.updateTime.isNotEmpty) info.updateTime,
-                    if (kind.tags.isNotEmpty) kind.tags,
-                  ].join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ],
+              );
+            },
           ),
         ),
       ],
+    );
+  }
+
+  List<_CatalogVolume> _catalogVolumes(List<OnlineChapter> chapters) {
+    if (identical(_groupedChapters, chapters)) return _volumes;
+    _groupedChapters = chapters;
+    _volumes = [];
+    for (var start = 0; start < chapters.length;) {
+      final title = chapters[start].volume.trim();
+      var end = start + 1;
+      while (end < chapters.length && chapters[end].volume.trim() == title) {
+        end++;
+      }
+      _volumes.add(
+        _CatalogVolume(
+          id: '$title:${onlineChapterIdentity(chapters[start])}',
+          title: title,
+          start: start,
+          end: end,
+        ),
+      );
+      start = end;
+    }
+    _collapsedVolumes.retainAll(_volumes.map((volume) => volume.id));
+    return _volumes;
+  }
+
+  Widget _contentTabs() {
+    final theme = Theme.of(context);
+    return Container(
+      key: const ValueKey('online-book-content-tabs'),
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.onSurface.withValues(alpha: .09),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final (intro, label) in [(true, '简介'), (false, '目录')])
+            Semantics(
+              selected: _showIntroduction == intro,
+              child: TextButton(
+                key: ValueKey(
+                  intro ? 'online-book-intro-tab' : 'online-book-toc-tab',
+                ),
+                onPressed: () => setState(() => _showIntroduction = intro),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(44, 26),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: theme.colorScheme.onSurface.withValues(
+                    alpha: _showIntroduction == intro ? 1 : .6,
+                  ),
+                  backgroundColor: _showIntroduction == intro
+                      ? theme.colorScheme.surface
+                      : Colors.transparent,
+                  elevation: _showIntroduction == intro ? 1 : 0,
+                  shadowColor: Colors.black.withValues(alpha: .05),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(17),
+                  ),
+                  textStyle: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 12,
+                    fontWeight: _showIntroduction == intro
+                        ? FontWeight.w600
+                        : FontWeight.w500,
+                  ),
+                ),
+                child: Text(label),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(OnlineBook info) {
+    final kind = onlineBookPlatformAndTags(info.kind);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              key: const ValueKey('online-book-cover'),
+              width: 96,
+              height: 130,
+              child: _BookCover(
+                source: widget.source,
+                service: widget.controller.service,
+                url: info.coverUrl,
+                fallbackUrl: widget.book.coverUrl,
+                referer: info.bookUrl,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  info.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    info.author.isEmpty ? '未知作者' : info.author,
+                    if (info.status.isNotEmpty) info.status,
+                    if (info.wordCount.isNotEmpty) info.wordCount,
+                    if (kind.platform.isNotEmpty) kind.platform,
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (info.lastChapter.isNotEmpty || info.chapterCount > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (info.chapterCount > 0) '${info.chapterCount}章',
+                      if (info.lastChapter.isNotEmpty) '最新：${info.lastChapter}',
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (kind.tags.isNotEmpty || info.updateTime.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (info.updateTime.isNotEmpty) info.updateTime,
+                      if (kind.tags.isNotEmpty) kind.tags,
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                const SizedBox(height: 4),
+                _contentTabs(),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -532,6 +741,20 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       label: Text(ready ? label : '目录不可用'),
     );
   }
+}
+
+class _CatalogVolume {
+  const _CatalogVolume({
+    required this.id,
+    required this.title,
+    required this.start,
+    required this.end,
+  });
+
+  final String id;
+  final String title;
+  final int start;
+  final int end;
 }
 
 class _BookCover extends StatefulWidget {

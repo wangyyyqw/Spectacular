@@ -31,10 +31,276 @@ import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
-  testWidgets('目录请求未返回时缓存仍可打开，并从完整目录直达第75章', (tester) async {
+  testWidgets('简介目录切换只滚动内容区域，慢详情可返回且慢下载可取消', (tester) async {
+    final f = (await tester.runAsync(() => _ReadingFixture.create(80)))!;
+    addTearDown(() => f.dispose(tester: tester));
+    final book = f.readingBook.book.copyWith(
+      intro: List.filled(80, '这是一段较长的简介。').join('\n'),
+    );
+    await pumpReaderTask(
+      tester,
+      f.controller.catalogs.save(f.source, book, f.readingBook.chapters),
+    );
+    f.catalogGate = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            child: const Text('打开测试详情'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => OnlineBookDetailPage(
+                  controller: f.controller,
+                  source: f.source,
+                  book: book,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开测试详情'));
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('online-book-content-tabs')),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 200));
+    final tabs = find.byKey(const ValueKey('online-book-content-tabs'));
+    final headerRect = tester.getRect(tabs);
+    final bottom = tester.getRect(
+      find.byKey(const ValueKey('online-book-download')),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('online-book-content-container')),
+      const Offset(0, -300),
+    );
+    await tester.pump();
+    expect(tester.getRect(tabs), headerRect);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('online-book-download'))),
+      bottom,
+    );
+    await tester.tap(find.byKey(const ValueKey('online-book-toc-tab')));
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('online-book-chapter-74')),
+      350,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('75. 第75章'), findsOneWidget);
+    expect(tester.getRect(tabs), headerRect);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('打开测试详情'), findsOneWidget);
+    f.catalogGate!.complete();
+    await pumpReaderTask(tester, f.controller.refreshCatalog(f.source, book));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('紧凑切换按钮在窄屏及放大字体下不超出封面底部', (tester) async {
+    final f = (await tester.runAsync(() => _ReadingFixture.create(3)))!;
+    addTearDown(() => f.dispose(tester: tester));
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.devicePixelRatio = 1;
+    final book = f.readingBook.book.copyWith(
+      name: '较长的书名用于验证封面右侧的信息布局',
+      author: '示例作者',
+      wordCount: '129.4万字',
+      chapterCount: 589,
+      lastChapter: '第589章 最新章节',
+      kind: '都市高武',
+      updateTime: '2026 11 22',
+    );
+    await pumpReaderTask(
+      tester,
+      f.controller.catalogs.save(f.source, book, f.readingBook.chapters),
+    );
+    f.catalogGate = Completer<void>();
+    for (final (width, scale) in [(384.0, 1.0), (320.0, 1.5), (320.0, 2.0)]) {
+      tester.view.physicalSize = Size(width, 836);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: OnlineBookDetailPage(
+            key: ValueKey((width, scale)),
+            controller: f.controller,
+            source: f.source,
+            book: book,
+          ),
+        ),
+      );
+      await tester.pump();
+      final tabs = tester.getRect(
+        find.byKey(const ValueKey('online-book-content-tabs')),
+      );
+      final cover = tester.getRect(
+        find.byKey(const ValueKey('online-book-cover')),
+      );
+      expect(tabs.bottom, lessThanOrEqualTo(cover.bottom + .01));
+      if (scale == 1) expect(tabs.height, lessThanOrEqualTo(32));
+      expect(tester.takeException(), isNull);
+    }
+    f.catalogGate!.complete();
+    await pumpReaderTask(tester, f.controller.refreshCatalog(f.source, book));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('目录按连续卷折叠，全部展开与倒序保留章节身份', (tester) async {
+    final f = (await tester.runAsync(() => _ReadingFixture.create(7)))!;
+    addTearDown(() => f.dispose(tester: tester));
+    final chapters = [
+      for (final (index, chapter) in f.readingBook.chapters.indexed)
+        OnlineChapter(
+          index: index,
+          title: chapter.title,
+          url: chapter.url,
+          volume: switch (index) {
+            0 => '',
+            1 || 2 || 5 || 6 => '第一卷',
+            _ => '第二卷',
+          },
+        ),
+    ];
+    await pumpReaderTask(
+      tester,
+      f.controller.catalogs.save(f.source, f.readingBook.book, chapters),
+    );
+    f.catalogGate = Completer<void>();
+    int? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnlineBookDetailPage(
+          controller: f.controller,
+          source: f.source,
+          book: f.readingBook.book,
+          onRead: (context, reading, {startChapter}) async {
+            selected = startChapter;
+          },
+        ),
+      ),
+    );
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('online-book-toc-tab')),
+    );
+    await tester.tap(find.byKey(const ValueKey('online-book-toc-tab')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('online-book-full-toc')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('online-book-volume-1')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('online-book-chapter-1')), findsNothing);
+    expect(find.byKey(const ValueKey('online-book-chapter-3')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('online-book-toggle-volumes')));
+    await tester.pump();
+    expect(find.byTooltip('展开全部'), findsOneWidget);
+    expect(find.text('第一卷'), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('online-book-chapter-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('online-book-chapter-3')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('online-book-order')));
+    await tester.pump();
+    expect(find.byTooltip('正序排列'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('online-book-volume-5'))).dy,
+      lessThan(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('online-book-volume-3')))
+            .dy,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('online-book-toggle-volumes')));
+    await tester.pump();
+    expect(find.byTooltip('折叠全部'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('online-book-chapter-6'))).dy,
+      lessThan(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('online-book-chapter-5')))
+            .dy,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('online-book-chapter-6')));
+    await pumpReaderUntil(tester, find.text('暂不加入'));
+    expect(selected, 6);
+    await tester.tap(find.text('暂不加入'));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    f.catalogGate!.complete();
+    await pumpReaderTask(
+      tester,
+      f.controller.refreshCatalog(f.source, f.readingBook.book),
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('整本下载请求未返回时取消即恢复按钮，返回同步取消', (tester) async {
+    final f = (await tester.runAsync(() => _ReadingFixture.create(3)))!;
+    addTearDown(() => f.dispose(tester: tester));
+    await pumpReaderTask(
+      tester,
+      f.controller.setSourceLoadMode(f.source.id, BookSourceLoadMode.book),
+    );
+    final source = f.controller.sources.single;
+    await pumpReaderTask(
+      tester,
+      f.controller.catalogs.save(
+        source,
+        f.readingBook.book,
+        f.readingBook.chapters,
+      ),
+    );
+    f.catalogGate = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnlineBookDetailPage(
+          controller: f.controller,
+          source: source,
+          book: f.readingBook.book,
+        ),
+      ),
+    );
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('online-book-download')),
+    );
+    await tester.tap(find.byKey(const ValueKey('online-book-download')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('online-book-cancel-download')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('online-book-cancel-download')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('online-book-download')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('online-book-download')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('online-book-cancel-download')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('online-book-cancel-download')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    expect(await pumpReaderTask(tester, f.library.list()), isEmpty);
+    f.catalogGate!.complete();
+    await pumpReaderTask(
+      tester,
+      f.controller.refreshCatalog(source, f.readingBook.book),
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('目录请求未返回时缓存仍可打开，倒序目录直达第75章', (tester) async {
     final fixture = await tester.runAsync(() => _ReadingFixture.create(80));
     final f = fixture!;
-    addTearDown(f.dispose);
+    addTearDown(() => f.dispose(tester: tester));
     final book = f.readingBook;
     await pumpReaderTask(tester, f.cacheChapter(74));
     await pumpReaderTask(
@@ -72,21 +338,11 @@ void main() {
       find.byKey(const ValueKey('online-book-read')),
     );
     expect(f.requested, ['/book']);
-    final fullToc = find.byKey(const ValueKey('online-book-full-toc'));
-    await tester.scrollUntilVisible(
-      fullToc,
-      600,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(fullToc);
-    await pumpReaderUntil(
-      tester,
-      find.byKey(const ValueKey('online-toc-query')),
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('online-toc-query')),
-      '第75章',
-    );
+    await tester.tap(find.byKey(const ValueKey('online-book-toc-tab')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('online-book-order')));
+    await tester.pump();
+    await tester.ensureVisible(find.text('75. 第75章'));
     await tester.pump();
     await tester.tap(find.text('75. 第75章'));
     await pumpReaderUntil(tester, find.byKey(const ValueKey('reader-content')));
@@ -101,6 +357,7 @@ void main() {
     expect(f.requested.where((path) => path == '/75'), isEmpty);
     f.catalogGate!.complete();
     Navigator.of(tester.element(find.byType(ReaderPage))).pop();
+    await tester.pump();
     await pumpReaderTask(tester, opened!);
     final saved = await pumpReaderTask(
       tester,
@@ -122,7 +379,7 @@ void main() {
   testWidgets('最近阅读刷新失败仍可离线续读，原EPUB书架和进度保持', (tester) async {
     final fixture = await tester.runAsync(() => _ReadingFixture.create(3));
     final f = fixture!;
-    addTearDown(f.dispose);
+    addTearDown(() => f.dispose(tester: tester));
     final local = await pumpReaderTask(
       tester,
       f.library.importBytes(
@@ -211,7 +468,7 @@ void main() {
   testWidgets('来源模式变化后旧入口停用，目录规则变化后有网自动重取', (tester) async {
     final fixture = await tester.runAsync(() => _ReadingFixture.create(3));
     final f = fixture!;
-    addTearDown(f.dispose);
+    addTearDown(() => f.dispose(tester: tester));
     final book = f.readingBook;
     await pumpReaderTask(
       tester,
@@ -273,7 +530,7 @@ void main() {
   testWidgets('目录规则失效仍保留最近入口，断网时不误用旧目录', (tester) async {
     final fixture = await tester.runAsync(() => _ReadingFixture.create(3));
     final f = fixture!;
-    addTearDown(f.dispose);
+    addTearDown(() => f.dispose(tester: tester));
     final book = f.readingBook;
     await pumpReaderTask(
       tester,
@@ -323,7 +580,7 @@ void main() {
   testWidgets('最近阅读快速更新目录后新增章立即可读，原章节CFI保留', (tester) async {
     final fixture = await tester.runAsync(() => _ReadingFixture.create(3));
     final f = fixture!;
-    addTearDown(f.dispose);
+    addTearDown(() => f.dispose(tester: tester));
     final book = f.readingBook;
     await pumpReaderTask(
       tester,
@@ -398,7 +655,7 @@ void main() {
   testWidgets('最近阅读目录请求缓慢时先读缓存，后台更新保持会话目录不变', (tester) async {
     final fixture = await tester.runAsync(() => _ReadingFixture.create(3));
     final f = fixture!;
-    addTearDown(f.dispose);
+    addTearDown(() => f.dispose(tester: tester));
     final book = f.readingBook;
     await pumpReaderTask(
       tester,
@@ -467,12 +724,12 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('完整目录打开后后台重排，同一POST地址按章节参数跳转', (tester) async {
+  testWidgets('目录点击时后台重排，同一POST地址按章节参数跳转', (tester) async {
     final fixture = await tester.runAsync(
       () => _ReadingFixture.create(80, postChapters: true),
     );
     final f = fixture!;
-    addTearDown(f.dispose);
+    addTearDown(() => f.dispose(tester: tester));
     final book = f.readingBook;
     await pumpReaderTask(
       tester,
@@ -515,26 +772,20 @@ void main() {
       find.byKey(const ValueKey('online-book-read')),
     );
     final sharedRefresh = f.controller.refreshCatalog(f.source, book.book);
-    final fullToc = find.byKey(const ValueKey('online-book-full-toc'));
-    await tester.scrollUntilVisible(
-      fullToc,
-      600,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(fullToc);
-    await pumpReaderUntil(
-      tester,
-      find.byKey(const ValueKey('online-toc-query')),
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('online-toc-query')),
-      '第75章',
-    );
+    await tester.tap(find.byKey(const ValueKey('online-book-toc-tab')));
     await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('online-book-chapter-74')),
+      350,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('75. 第75章'), findsOneWidget);
+    await tester.ensureVisible(find.text('75. 第75章'));
+    await tester.pump();
+    await tester.tap(find.text('75. 第75章'));
+    await tester.pump();
     f.catalogGate!.complete();
     await pumpReaderTask(tester, sharedRefresh);
-    await tester.tap(find.text('75. 第75章'));
     await pumpReaderUntil(tester, find.byKey(const ValueKey('reader-content')));
     expect(selected, 0);
     expect(openedBook?.chapters, hasLength(81));
@@ -866,13 +1117,19 @@ class _ReadingFixture {
     }
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose({WidgetTester? tester}) async {
     if (catalogGate != null && !catalogGate!.isCompleted) {
       catalogGate!.complete();
     }
+    if (tester != null) {
+      await pumpReaderTask(tester, service.chapterRequestsStopped);
+    } else {
+      await service.chapterRequestsStopped;
+    }
     controller.dispose();
-    await service.chapterRequestsStopped;
-    await db.close();
-    await directory.delete(recursive: true);
+    await TestWidgetsFlutterBinding.instance.runAsync(() async {
+      await db.close();
+      await directory.delete(recursive: true);
+    });
   }
 }

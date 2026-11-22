@@ -73,6 +73,60 @@ void main() {
     });
   });
 
+  testWidgets('在线 EPUB 简介入库并补齐旧空值，保留用户修改的简介', (tester) async {
+    const description = '第一段简介。\n\n第二段简介。';
+    final entry = (await tester.runAsync(
+      () => store.importBytes(
+        buildTestEpub(title: '简介测试', description: description),
+      ),
+    ))!;
+    expect(entry.description, description);
+    await tester.runAsync(
+      () => store.updateBookMetadata(
+        entry.id,
+        title: entry.title,
+        author: entry.author,
+        description: '',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    for (var index = 0; index < 30; index++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+      final fields = find
+          .byKey(const ValueKey('book-detail-description-field'))
+          .evaluate();
+      if (fields.isNotEmpty &&
+          (fields.single.widget as TextField).controller!.text == description) {
+        break;
+      }
+    }
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('book-detail-description-field')),
+    );
+    expect(field.controller!.text, description);
+    await tester.runAsync(
+      () => store.updateBookMetadata(
+        entry.id,
+        title: entry.title,
+        author: entry.author,
+        description: '用户自写简介',
+      ),
+    );
+    final restored = await tester.runAsync(
+      () => store.restoreBookDescription(entry.id),
+    );
+    expect(restored!.description, '用户自写简介');
+    expect(restored.id, entry.id);
+    expect(restored.contentRevision, entry.contentRevision);
+  });
+
   testWidgets('详情页隐藏图书信息与导入报告，保留阅读记录', (tester) async {
     late BookEntry entry;
     await tester.runAsync(() async {

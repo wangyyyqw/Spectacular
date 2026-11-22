@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -100,46 +101,174 @@ typedef BookSourceScriptFactory = BookSourceScriptSession Function(
   BookSource source,
 );
 
-Future<
-  ({
-    List<OnlineChapter> chapters,
-    Map<String, Object?> cookies,
-    Map<String, Object?> memory,
-  })
->
-_runBackgroundToc(
-  BookSource source,
-  OnlineBook book,
-  Map<String, Object?> cookies,
-  Map<String, Object?> memory,
-) => Isolate.run(() => _fetchBackgroundToc(source, book, cookies, memory));
+const _onlineCancelled = BookSourceException('已取消下载', code: 'ONLINE_CANCELLED');
 
-Future<
-  ({
-    List<OnlineChapter> chapters,
-    Map<String, Object?> cookies,
-    Map<String, Object?> memory,
-  })
->
-_fetchBackgroundToc(
-  BookSource source,
-  OnlineBook book,
-  Map<String, Object?> snapshot,
-  Map<String, Object?> memory,
-) async {
-  final cookies = BookSourceCookieStore.detached(snapshot);
+/// 等待网络期间也检查取消，已发出的共享请求可自行结束，结果不再用于入库。
+Future<T> waitOnlineOperation<T>(Future<T> task, bool Function()? isCancelled) {
+  if (isCancelled == null) return task;
+  final result = Completer<T>();
+  void check() {
+    if (!result.isCompleted && isCancelled()) {
+      result.completeError(_onlineCancelled);
+    }
+  }
+
+  final timer = Timer.periodic(
+    const Duration(milliseconds: 50),
+    (_) => check(),
+  );
+  task.then(
+    (value) {
+      if (!result.isCompleted) {
+        if (isCancelled()) {
+          result.completeError(_onlineCancelled);
+        } else {
+          result.complete(value);
+        }
+      }
+    },
+    onError: (Object error, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(error, stack);
+    },
+  );
+  check();
+  return result.future.whenComplete(timer.cancel);
+}
+
+/// JS 求值、目录与整本生成均在独立线程；退出或取消能终止该次下载线程。
+Future<Map<String, Object?>> _runBookSourceWorker(
+  Map<String, Object?> input, {
+  OnlineDownloadProgress? onProgress,
+  bool Function()? isCancelled,
+  Duration? timeout,
+}) async {
+  final messages = ReceivePort();
+  final errors = ReceivePort();
+  final exits = ReceivePort();
+  final result = Completer<Map<String, Object?>>();
+  Isolate? worker;
+  Timer? deadline;
+  Timer? cancellation;
+  void fail(Object error) {
+    if (!result.isCompleted) result.completeError(error);
+  }
+
+  final subscription = messages.listen((message) {
+    final data = message as Map;
+    if (data['progress'] == true) {
+      onProgress?.call(
+        data['completed'] as int,
+        data['total'] as int,
+        data['message'] as String,
+      );
+    } else if (data['error'] != null) {
+      fail(data['error'] as Object);
+    } else if (!result.isCompleted) {
+      result.complete(Map<String, Object?>.from(data));
+    }
+  });
+  final errorSubscription = errors.listen(
+    (error) => fail(BookSourceException('书源后台处理失败：${(error as List).first}')),
+  );
+  final exitSubscription = exits.listen(
+    (_) => fail(const BookSourceException('书源后台任务已停止')),
+  );
+  try {
+    worker = await Isolate.spawn(
+      _bookSourceWorker,
+      {...input, 'port': messages.sendPort},
+      onError: errors.sendPort,
+      onExit: exits.sendPort,
+    );
+    if (timeout != null) {
+      deadline = Timer(
+        timeout,
+        () => fail(
+          const BookSourceException(
+            '书源详情或目录加载超时，请重试',
+            code: 'ONLINE_HTTP_TIMEOUT',
+          ),
+        ),
+      );
+    }
+    if (isCancelled != null) {
+      cancellation = Timer.periodic(const Duration(milliseconds: 50), (_) {
+        if (isCancelled()) fail(_onlineCancelled);
+      });
+      if (isCancelled()) fail(_onlineCancelled);
+    }
+    return await result.future;
+  } finally {
+    worker?.kill(priority: Isolate.immediate);
+    deadline?.cancel();
+    cancellation?.cancel();
+    await subscription.cancel();
+    await errorSubscription.cancel();
+    await exitSubscription.cancel();
+    messages.close();
+    errors.close();
+    exits.close();
+  }
+}
+
+Future<void> _bookSourceWorker(Map<String, Object?> input) async {
+  final port = input['port'] as SendPort;
+  final cookies = BookSourceCookieStore.detached(
+    input['cookies'] as Map<String, Object?>,
+  );
   final service = BookSourceService(
     cookieStore: cookies,
-    httpClient: BookSourceHttpClient(cookieStore: cookies),
+    httpClient: BookSourceHttpClient(
+      cookieStore: cookies,
+      allowPrivateHosts: input['allowPrivateHosts'] as bool? ?? false,
+      defaultTimeout:
+          input['timeout'] as Duration? ?? const Duration(seconds: 45),
+    ),
+    chapterContentStore: input['directory'] == null
+        ? null
+        : OnlineChapterContentStore(
+            directoryProvider: () async =>
+                Directory(input['directory'] as String),
+          ),
   );
-  service._scriptMemory[source.id] = memory;
+  final source = input['source'] as BookSource;
+  final book = input['book'] as OnlineBook;
+  service._scriptMemory[source.id] = Map<String, Object?>.from(
+    input['memory'] as Map,
+  );
   try {
-    final chapters = await service.fetchToc(source, book);
-    return (
-      chapters: chapters,
-      cookies: cookies.detachedSnapshot,
-      memory: service._scriptMemory[source.id] ?? {},
-    );
+    final Object value;
+    switch (input['operation']) {
+      case 'info':
+        value = await service.loadBookInfo(source, book);
+      case 'toc':
+        value = await service.fetchToc(source, book);
+      default:
+        value = await service.download(
+          source,
+          book,
+          preparedBook: input['preparedBook'] as OnlineBook?,
+          selectedChapters: input['selectedChapters'] as List<OnlineChapter>?,
+          chapterDirectory: input['chapterDirectory'] as List<OnlineChapter>?,
+          onProgress: (completed, total, message) => port.send({
+            'progress': true,
+            'completed': completed,
+            'total': total,
+            'message': message,
+          }),
+        );
+    }
+    port.send({
+      'value': value,
+      'cookies': cookies.detachedSnapshot,
+      'memory': service._scriptMemory[source.id] ?? <String, Object?>{},
+    });
+  } catch (error) {
+    port.send({
+      'error': error is BookSourceException
+          ? error
+          : BookSourceException('$error'),
+    });
   } finally {
     service.dispose();
   }
@@ -161,6 +290,7 @@ class BookSourceService {
     BookSourceScriptFactory? scriptFactory,
     BookSourceCookieStore? cookieStore,
     OnlineChapterContentStore? chapterContentStore,
+    bool? backgroundOperations,
   }) {
     final store = cookieStore ?? BookSourceCookieStore();
     return BookSourceService._(
@@ -169,7 +299,8 @@ class BookSourceService {
       rules: ruleEngine,
       epubBuilder: epubBuilder,
       chapterContentStore: chapterContentStore ?? OnlineChapterContentStore(),
-      backgroundToc: httpClient == null && scriptFactory == null,
+      backgroundToc:
+          backgroundOperations ?? (httpClient == null && scriptFactory == null),
       scriptFactory:
           scriptFactory ??
           (source) => QuickJsBookSourceScriptSession(
@@ -223,6 +354,40 @@ class BookSourceService {
       {};
 
   static const int maxChapterContentPages = 100;
+
+  Future<Object> _backgroundOperation(
+    String operation,
+    BookSource source,
+    OnlineBook book, {
+    Map<String, Object?> arguments = const {},
+    OnlineDownloadProgress? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final snapshot = cookieStore.detachedSnapshot;
+    final result = await _runBookSourceWorker(
+      {
+        'operation': operation,
+        'source': source,
+        'book': book,
+        'cookies': snapshot,
+        'memory': Map<String, Object?>.of(_scriptMemory[source.id] ?? {}),
+        'allowPrivateHosts': http.allowPrivateHosts,
+        'timeout': http.defaultTimeout,
+        ...arguments,
+      },
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+      timeout: operation == 'download' ? null : const Duration(seconds: 45),
+    );
+    await cookieStore.mergeDetachedChanges(
+      snapshot,
+      result['cookies'] as Map<String, Object?>,
+    );
+    _scriptMemory
+        .putIfAbsent(source.id, () => {})
+        .addAll(result['memory'] as Map<String, Object?>);
+    return result['value']!;
+  }
 
   void dispose() => http.close();
 
@@ -746,6 +911,9 @@ class BookSourceService {
   /// 读取详情页字段并定位目录地址。
   Future<OnlineBook> loadBookInfo(BookSource source, OnlineBook book) async {
     await cookieStore.load();
+    if (backgroundToc) {
+      return (await _backgroundOperation('info', source, book)) as OnlineBook;
+    }
     final script = scriptFactory(source);
     try {
       final response = await http.fetchText(
@@ -872,16 +1040,8 @@ class BookSourceService {
   ) async {
     await cookieStore.load();
     if (backgroundToc) {
-      final snapshot = cookieStore.detachedSnapshot;
-      final result = await _runBackgroundToc(
-        source,
-        book,
-        snapshot,
-        Map.of(_scriptMemory[source.id] ?? {}),
-      );
-      await cookieStore.mergeDetachedChanges(snapshot, result.cookies);
-      _scriptMemory.putIfAbsent(source.id, () => {}).addAll(result.memory);
-      return result.chapters;
+      return (await _backgroundOperation('toc', source, book))
+          as List<OnlineChapter>;
     }
     final script = _scriptFor(source);
     try {
@@ -1062,11 +1222,32 @@ class BookSourceService {
     List<OnlineChapter>? chapterDirectory,
   }) async {
     await cookieStore.load();
+    if (backgroundToc) {
+      return (await _backgroundOperation(
+        'download',
+        source,
+        searchBook,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+        arguments: {
+          'preparedBook': preparedBook,
+          'selectedChapters': selectedChapters,
+          'chapterDirectory': chapterDirectory,
+          'directory': (await chapterContentStore.supportDirectory()).path,
+        },
+      )) as OnlineBookDownloadResult;
+    }
+    Future<T> wait<T>(Future<T> task) => waitOnlineOperation(task, isCancelled);
+    _checkCancelled(isCancelled);
     onProgress?.call(0, 0, '正在读取详情');
-    final info = preparedBook ?? await loadBookInfo(source, searchBook);
+    final OnlineBook info =
+        preparedBook ??
+        await wait<OnlineBook>(loadBookInfo(source, searchBook));
     _checkCancelled(isCancelled);
     onProgress?.call(0, 0, '正在读取目录');
-    final toc = selectedChapters ?? await fetchToc(source, info);
+    final List<OnlineChapter> toc =
+        selectedChapters ??
+        await wait<List<OnlineChapter>>(fetchToc(source, info));
     _checkCancelled(isCancelled);
     final directory = chapterDirectory ?? toc;
     final nextChapters = <String, OnlineChapter>{};
@@ -1087,7 +1268,7 @@ class BookSourceService {
     final images = <String, OnlineEpubImage>{};
     var imageBytes = 0;
     final cover = selectedChapters == null
-        ? await downloadCover(source, info)
+        ? await wait(downloadCover(source, info))
         : null;
     final chapters = <OnlineEpubChapter>[];
     final skippedReasons = <String>[];
@@ -1100,16 +1281,19 @@ class BookSourceService {
       Object? failure;
       for (var attempt = 1; attempt <= 2; attempt++) {
         try {
-          content = await fetchChapterContent(
-            source,
-            chapter,
-            info.bookUrl,
-            forceRefresh: source.loadMode == BookSourceLoadMode.book,
-            nextChapter: nextChapters[onlineChapterIdentity(chapter)],
+          content = await wait(
+            fetchChapterContent(
+              source,
+              chapter,
+              info.bookUrl,
+              forceRefresh: source.loadMode == BookSourceLoadMode.book,
+              nextChapter: nextChapters[onlineChapterIdentity(chapter)],
+            ),
           );
           failure = null;
           break;
         } on Object catch (error) {
+          _checkCancelled(isCancelled);
           failure = error;
           final transient = error is BookSourceException && error.isTransient;
           if (!transient || attempt >= 2) break;
@@ -1163,6 +1347,7 @@ class BookSourceService {
             : '已下载 ${index + 1}/${toc.length} 章',
       );
     }
+    _checkCancelled(isCancelled);
     if (chapters.isEmpty) {
       final detail = skippedReasons.isEmpty ? '' : '（${skippedReasons.first}）';
       throw BookSourceException(

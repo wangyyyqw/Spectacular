@@ -7,6 +7,8 @@ import 'package:reader_core/api.dart' show BookMeta, ImportReport, SpineItem;
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_core/epub/archive_reader.dart';
+import 'package:reader_core/epub/container.dart';
+import 'package:reader_core/epub/xml_encoding.dart';
 import 'package:reader_core/editing/edit_change_classifier.dart';
 
 /// isolate 可安全传回的新书导入摘要。
@@ -68,6 +70,26 @@ class ImportAnalysis {
 
 /// isolate 启动与字节复制有固定成本；小文件留在当前线程更快。
 const int importAnalysisIsolateThreshold = 256 * 1024;
+
+/// 旧书简介补齐只读容器和 OPF，不解析正文、样式或重新导入。
+Future<String> readImportDescription({
+  required String path,
+  Uint8List? bytes,
+}) => Isolate.run(() async {
+  final archive = path.isEmpty
+      ? EpubArchive.fromBytes(bytes!, verify: false)
+      : await EpubArchive.fromFile(File(path));
+  try {
+    final container = await archive.readBytesAsync(EpubContainer.containerPath);
+    if (container == null) return '';
+    final info = EpubContainer.parseBytes(container);
+    final opf = await archive.readBytesAsync(info.rootfilePath);
+    if (opf == null) return '';
+    return OpfParser.parse(decodeXmlBytes(opf)).meta.description;
+  } finally {
+    archive.close();
+  }
+});
 
 /// 改版比较与迁移需要整本字节；读取与哈希均在后台完成，并返回同一份内容。
 Future<({Uint8List bytes, String revision})> readRevisionFileSnapshot(

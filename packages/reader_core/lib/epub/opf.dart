@@ -261,6 +261,7 @@ abstract final class OpfParser {
       author: creators.join('、'),
       language: textOf('language'),
       identifier: identifier,
+      description: textOf('description'),
     );
   }
 

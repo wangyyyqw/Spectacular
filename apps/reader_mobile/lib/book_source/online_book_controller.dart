@@ -25,17 +25,24 @@ import 'online_download_notification.dart';
 import 'online_reading_book.dart';
 import 'online_reading_catalog_store.dart';
 
+const _cancelledDownload = BookSourceException(
+  '已取消下载',
+  code: 'ONLINE_CANCELLED',
+);
+
 /// 缓存先显示，快速刷新完成后使用新目录，慢请求继续在后台更新快照。
 class OnlineCatalogLoad {
   const OnlineCatalogLoad({
     required this.source,
     required this.cached,
     required this.refresh,
+    this.info,
   });
 
   final BookSource source;
   final Future<OnlineReadingCatalog?> cached;
   final Future<OnlineReadingCatalog> refresh;
+  final Future<OnlineBook>? info;
 
   /// 有效缓存最多等待 200 毫秒，不把站点超时带入续读。
   Future<OnlineReadingCatalog> forReading() async {
@@ -90,6 +97,7 @@ class OnlineBookController extends ChangeNotifier {
   bool _lastUpdateWasCatalogOnly = false;
   List<String> _lastSkippedReasons = const <String>[];
   final Map<String, Future<OnlineReadingCatalog>> _catalogRefreshes = {};
+  final Map<String, Completer<OnlineBook>> _catalogDetails = {};
   final Map<
     String,
     ({String path, String? revision, OnlineEpubMetadata? metadata})
@@ -304,27 +312,59 @@ class OnlineBookController extends ChangeNotifier {
   /// 详情、最近阅读和选章共享同一刷新，过期缓存只保留最近入口。
   OnlineCatalogLoad loadCatalog(BookSource source, OnlineBook book) {
     final cached = catalogs.read(source, book);
+    final info = Completer<OnlineBook>();
+    info.future.ignore();
     final refresh = cached.then(
-      (catalog) => refreshCatalog(source, catalog?.book ?? book),
+      (catalog) => refreshCatalog(
+        source,
+        catalog?.book ?? book,
+        onInfo: (value) {
+          if (!info.isCompleted) info.complete(value);
+        },
+      ),
+    );
+    refresh.then<void>(
+      (value) {
+        if (!info.isCompleted) info.complete(value.book);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!info.isCompleted) info.completeError(error, stack);
+      },
     );
     // 页面关闭后刷新仍可落盘，异常由仍在显示的页面或缓存回退处理。
     refresh.ignore();
-    return OnlineCatalogLoad(source: source, cached: cached, refresh: refresh);
+    return OnlineCatalogLoad(
+      source: source,
+      cached: cached,
+      refresh: refresh,
+      info: info.future,
+    );
   }
 
   /// 只合并完整请求和目录规则相同的网络任务。
   Future<OnlineReadingCatalog> refreshCatalog(
     BookSource source,
-    OnlineBook book,
-  ) {
+    OnlineBook book, {
+    ValueChanged<OnlineBook>? onInfo,
+  }) {
     final key = catalogs.requestIdentity(source, book);
     final pending = _catalogRefreshes[key];
-    if (pending != null) return pending;
-    final task = _refreshCatalog(source, book);
+    if (pending != null) {
+      if (onInfo != null) _catalogDetails[key]?.future.then(onInfo).ignore();
+      return pending;
+    }
+    final detail = _catalogDetails[key] = Completer<OnlineBook>();
+    detail.future.ignore();
+    if (onInfo != null) detail.future.then(onInfo).ignore();
+    final task = _refreshCatalog(source, book, detail: detail);
     _catalogRefreshes[key] = task;
     void finished() {
       if (identical(_catalogRefreshes[key], task)) {
         _catalogRefreshes.remove(key);
+        _catalogDetails.remove(key);
+        if (!detail.isCompleted) {
+          detail.completeError(const BookSourceException('详情加载失败'));
+        }
       }
     }
 
@@ -337,11 +377,19 @@ class OnlineBookController extends ChangeNotifier {
 
   Future<OnlineReadingCatalog> _refreshCatalog(
     BookSource source,
-    OnlineBook book,
-  ) async {
+    OnlineBook book, {
+    required Completer<OnlineBook> detail,
+  }) async {
     final info = await service.loadBookInfo(source, book);
-    final chapters = await service.fetchToc(source, info);
     bool isCurrent() => !_disposed && _matchesCurrentSource(source, book);
+    if (!isCurrent()) throw const BookSourceException('来源已更新，请重新获取目录');
+    detail.complete(info);
+    final entry = shelfEntryFor(source, info);
+    if (entry != null) {
+      final updated = await library.fillBookDescription(entry.id, info.intro);
+      if (updated != null) _shelfEntries[entry.id] = updated;
+    }
+    final chapters = await service.fetchToc(source, info);
     if (!isCurrent()) {
       throw const BookSourceException('来源已更新，请重新获取目录');
     }
@@ -571,8 +619,17 @@ class OnlineBookController extends ChangeNotifier {
     bool Function()? isCancelled,
   }) async {
     if (source.loadMode == BookSourceLoadMode.chapter) {
-      final catalog = await loadCatalog(source, book).forReading();
-      return addToShelf(source, catalog.book, catalog.chapters);
+      final catalog = await waitOnlineOperation(
+        loadCatalog(source, book).forReading(),
+        isCancelled,
+      );
+      if (isCancelled?.call() == true) throw _cancelledDownload;
+      return addToShelf(
+        source,
+        catalog.book,
+        catalog.chapters,
+        isCancelled: isCancelled,
+      );
     }
     _lastSkippedChapters = 0;
     _lastSkippedReasons = const <String>[];
@@ -582,10 +639,12 @@ class OnlineBookController extends ChangeNotifier {
       onProgress: onProgress,
       isCancelled: isCancelled,
     );
+    if (isCancelled?.call() == true) throw _cancelledDownload;
     onProgress?.call(0, 0, '正在加入书架');
     final entry = await library.importBytes(
       result.bytes,
       fallbackTitle: result.book.name,
+      isCancelled: isCancelled,
     );
     await _withConfiguration(() async {
       await _store.saveLink(
@@ -612,13 +671,24 @@ class OnlineBookController extends ChangeNotifier {
   Future<BookEntry> addToShelf(
     BookSource source,
     OnlineBook book,
-    List<OnlineChapter> chapters,
-  ) async {
+    List<OnlineChapter> chapters, {
+    bool Function()? isCancelled,
+  }) async {
+    void check() {
+      if (isCancelled?.call() == true) throw _cancelledDownload;
+    }
+
+    check();
     await initialize();
     await registerImportedBooks();
+    check();
     final existing = shelfEntryFor(source, book);
     if (existing != null) {
-      return await _restoreShelfCover(existing, source, book) ?? existing;
+      final updated =
+          await library.fillBookDescription(existing.id, book.intro) ??
+          existing;
+      _shelfEntries[existing.id] = updated;
+      return await _restoreShelfCover(updated, source, book) ?? updated;
     }
     final input = OnlineEpubInput(
       title: book.name,
@@ -628,7 +698,10 @@ class OnlineBookController extends ChangeNotifier {
       sourceId: source.id,
       bookUrl: book.bookUrl,
       onDemand: true,
-      cover: await service.downloadCover(source, book),
+      cover: await waitOnlineOperation(
+        service.downloadCover(source, book),
+        isCancelled,
+      ),
       chapters: [
         for (final chapter in chapters)
           OnlineEpubChapter(
@@ -641,9 +714,11 @@ class OnlineBookController extends ChangeNotifier {
           ),
       ],
     );
+    check();
     final entry = await library.importBytes(
       const OnlineEpubBuilder().build(input),
       fallbackTitle: book.name,
+      isCancelled: isCancelled,
     );
     await _withConfiguration(() async {
       await _store.saveLink(
