@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -302,6 +302,47 @@ void main() {
       expect(geometry.parts.first.clip.top, 0);
       expect(geometry.parts.last.clip.bottom, _sheet.height);
     }
+  });
+
+  test('中文宋体在真机字号和行距下仍逐行接续', () async {
+    final font = await File(
+      '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
+    ).readAsBytes();
+    final loader = FontLoader('接续宋体回归')
+      ..addFont(Future.value(ByteData.sublistView(font)));
+    await loader.load();
+    final style = ComputedStyle({
+      'font-family': '接续宋体回归',
+      'font-size': '18px',
+      'line-height': '1.6',
+      'text-indent': '2em',
+      'margin-bottom': '10px',
+    });
+    final layout = TextLayoutEngine.layout(
+      text: '每一行文字都有独立的接续节奏，同一段落内也应逐行移动。' * 4,
+      style: style,
+      maxWidth: 366,
+    );
+    final block = PageBlock.styled(
+      layout: layout,
+      style: style,
+      containingWidth: 366,
+    );
+    final page = Paginator(pageHeight: 760)
+        .measureChapter(spineIndex: 0, blocks: [block])
+        .pages
+        .single;
+    final geometry = ContinuationPageGeometry.resolve(
+      page,
+      const Size(384, 853),
+      pageInsets: const EdgeInsets.fromLTRB(9, 60, 9, 26),
+    );
+    expect(layout.lineCount, greaterThan(2));
+    expect(
+      geometry.parts,
+      hasLength(layout.lineCount),
+      reason: '字体度量之外的额外缓冲不能把普通正文重新合成整段',
+    );
   });
 
   test('真实竖排连续列各自接力，共用背景边框则保持完整容器', () {

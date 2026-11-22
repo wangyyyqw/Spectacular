@@ -233,9 +233,19 @@ Iterable<_Band> _textLineBands(
     final edges = style == null
         ? const PageTextEdges()
         : textLineEdges(layout, line, style);
+    // 普通正文的缓冲限于行框内留白，避免中文字体因留白较少重新合并成段。
+    // 注音、着重号和边框的真实外溢仍保留，交由条带合并保护。
+    final topPadding = overhang <= 2 ? math.min(overhang, edges.top) : overhang;
+    final bottomPadding = overhang <= 2
+        ? math.min(overhang, edges.bottom)
+        : overhang;
     yield _Band(
-      lineTop + edges.top - overhang,
-      lineTop + line.height - edges.bottom + edges.bottomOverflow + overhang,
+      lineTop + edges.top - topPadding,
+      lineTop +
+          line.height -
+          edges.bottom +
+          edges.bottomOverflow +
+          bottomPadding,
       Set.of(owners),
     );
     lineTop += line.height;
