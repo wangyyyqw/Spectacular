@@ -1,5 +1,4 @@
-/// 错误分类（技术方案 §82.4；形态对齐 Reeden 30 诊断码体系，
-/// 见 `参考/reeden/reports/500-spec-parse.md` §0-#8）。
+/// 错误分类：用稳定错误码、分类、严重度和可选偏移描述解析结果。
 enum EpubErrorCategory { opening, layout, resource, annotation, tts, io, unknown }
 
 /// 错误严重度。
@@ -75,13 +74,13 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_TOC_TARGET_OUTSIDE_SPINE', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 目录项目标不在 spine 降级到最近章节（P7-13）'),
     EpubCodeSpec('E_SPINE_ALL_NON_LINEAR', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§35.2 spine 全部非 linear 退化目录包含全部项（P7-13）'),
     EpubCodeSpec('E_SPINE_FALLBACK', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 spine 为空时按 manifest/整库扫描恢复阅读顺序（对照 Ferrous fallback parser）'),
-    // ---- ZIP 诊断四档（P7-15；对照 Reeden kkf 0-7 的四类可修复档）----
+    // ---- ZIP 诊断四档（P7-15）----
     EpubCodeSpec('E_ZIP_EOCD_MISSING', EpubErrorCategory.opening, EpubErrorSeverity.fatal, '§55.3 EOCD/中心目录缺失（不可恢复档）'),
     EpubCodeSpec('E_ZIP_LOCAL_HEADER', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§55.3 局部头损坏/错位（偏移修补恢复档）'),
     EpubCodeSpec('E_ZIP_ENTRY_TRUNCATED', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§12 条目截断/损坏（跳过坏条目恢复档）'),
     EpubCodeSpec('E_ZIP_NAME_ENCODING', EpubErrorCategory.opening, EpubErrorSeverity.recoverable, '§54 文件名传统编码错位（资源索引大小写容错兜底）'),
     EpubCodeSpec('E_ZIP_RESOURCE_LIMIT', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, 'ZIP 单条目解压预算与异常压缩比诊断'),
-    // ---- 压力防护（P7-16；对照 Reeden 四道防线）----
+    // ---- 压力防护（P7-16）----
     EpubCodeSpec('E_DOM_NESTING_TOO_DEEP', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 DOM 嵌套超 500 层子树展平为文本'),
     EpubCodeSpec('E_ATTRIBUTE_TRUNCATED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 属性值超 65536 字符截断（SVG/data URI 炸弹防线）'),
     EpubCodeSpec('E_PAGINATION_TRUNCATED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§12 单章超 20000 页截断（渐进提示不中断）'),
@@ -93,7 +92,7 @@ abstract final class EpubCodeTable {
     EpubCodeSpec('E_FONT_UNSUPPORTED', EpubErrorCategory.resource, EpubErrorSeverity.informational, '§68.6 ttc/woff 不支持（详情页展示，不弹窗）', reservedFor: 'P3-06'),
     EpubCodeSpec('E_FONT_OBFUSCATION_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§5.3 解混淆失败回退字体', reservedFor: 'P3-05'),
     EpubCodeSpec('E_FONT_LOAD_FAILED', EpubErrorCategory.resource, EpubErrorSeverity.recoverable, '§68.6 字体加载失败/缺失回退系统字体（提示只一次）', reservedFor: 'P3-06'),
-    EpubCodeSpec('E_FAIRPLAY_ENCRYPTION', EpubErrorCategory.resource, EpubErrorSeverity.informational, '§5.3 Apple FairPlay 加密检测到，不支持解密（Reeden 120 号同口径）', reservedFor: 'P3-05'),
+    EpubCodeSpec('E_FAIRPLAY_ENCRYPTION', EpubErrorCategory.resource, EpubErrorSeverity.informational, '§5.3 Apple FairPlay 加密检测到，不支持解密', reservedFor: 'P3-05'),
     // ---- 预留：排版与渲染（P6）----
     EpubCodeSpec('E_LAYOUT_ABORTED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§71.5 分页被取消/异常', reservedFor: 'P6-12'),
     EpubCodeSpec('E_LAYOUT_RENDER_FAILED', EpubErrorCategory.layout, EpubErrorSeverity.recoverable, '§71.5 单页绘制异常', reservedFor: 'P6-12'),
@@ -143,7 +142,7 @@ class EpubError {
   /// 细分原因（不参与分支，§82.4 纪律 2）。
   final Map<String, Object?> detail;
 
-  /// 相关偏移（字节/字符，可空；对齐 Reeden 诊断的 offset 字段）。
+  /// 相关偏移（字节/字符，可空）。
   final int? offset;
 
   /// 是否致命（等价 severity == fatal 的便捷判断）。

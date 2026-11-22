@@ -1,4 +1,4 @@
-#ifndef RUNNER_FLUTTER_WINDOW_H_
+﻿#ifndef RUNNER_FLUTTER_WINDOW_H_
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
@@ -8,15 +8,15 @@
 
 #include "win32_window.h"
 
-// A window that does nothing but host a Flutter view.
+// 仅用于承载 Flutter 视图的窗口。
 class FlutterWindow : public Win32Window {
  public:
-  // Creates a new FlutterWindow hosting a Flutter view running |project|.
+  // 创建 FlutterWindow，承载运行 |project| 的 Flutter 视图。
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
  protected:
-  // Win32Window:
+  // Win32Window 重写方法：
   bool OnCreate() override;
   void OnDestroy() override;
   LRESULT MessageHandler(HWND window, UINT const message, WPARAM const wparam,
@@ -25,10 +25,10 @@ class FlutterWindow : public Win32Window {
  private:
   void RegisterAppearanceChannel();
 
-  // The project to run.
+  // 要运行的项目。
   flutter::DartProject project_;
 
-  // The Flutter instance hosted by this window.
+  // 当前窗口承载的 Flutter 实例。
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 };
 

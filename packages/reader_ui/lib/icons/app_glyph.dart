@@ -36,6 +36,7 @@ enum AppGlyph {
   redo(_redo),
   save(_save),
   locate(_locate),
+  locateCurrent(_locateCurrent),
   tune(_tune),
   settings(_settings),
   more(_more),
@@ -465,6 +466,19 @@ void _locate(AppIconCanvas canvas) {
     ]),
   );
   canvas.solid(_circle(12, 12, 2.2));
+}
+
+void _locateCurrent(AppIconCanvas canvas) {
+  canvas.line(_circle(12, 12, 5.5));
+  canvas.line(
+    _polylines(const [
+      [Offset(12, 3), Offset(12, 5.2)],
+      [Offset(12, 18.8), Offset(12, 21)],
+      [Offset(3, 12), Offset(5.2, 12)],
+      [Offset(18.8, 12), Offset(21, 12)],
+    ]),
+  );
+  canvas.solid(_circle(12, 12, 1.9));
 }
 
 void _tune(AppIconCanvas canvas) {

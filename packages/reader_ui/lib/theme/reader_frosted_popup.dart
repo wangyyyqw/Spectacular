@@ -74,7 +74,7 @@ Future<T?> showReaderBottomSheet<T>({
   bool useSafeArea = false,
   bool isDismissible = true,
   bool enableDrag = true,
-  bool showDragHandle = false,
+  bool showDragHandle = true,
   bool waitForDismissal = false,
   ReaderTheme? readerTheme,
   BoxConstraints? constraints,
@@ -108,7 +108,7 @@ Future<T?> showReaderBottomSheet<T>({
     builder: (context) => _drawerPanel(
       builder: builder,
       readerTheme: readerTheme,
-      showDragHandle: showDragHandle,
+      showDragHandle: showDragHandle && enableDrag,
       isDismissible: isDismissible,
     ),
   );
@@ -125,7 +125,7 @@ Future<T?> showReaderDrawer<T>({
   bool useSafeArea = true,
   bool isDismissible = true,
   bool enableDrag = true,
-  bool showDragHandle = false,
+  bool showDragHandle = true,
   bool waitForDismissal = false,
   ReaderTheme? readerTheme,
   double maxWidth = 680,
@@ -321,6 +321,7 @@ class _DragHandle extends StatelessWidget {
     button: true,
     onTap: dismissible ? () => Navigator.maybePop(context) : null,
     child: SizedBox(
+      key: const ValueKey<String>('reader-drawer-drag-handle'),
       height: 48,
       child: Center(
         child: Container(

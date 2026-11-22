@@ -5,7 +5,7 @@ import 'package:reader_core/position/revision_relocator.dart';
 
 import 'annotation.dart';
 
-/// 重定位状态（§30.4，对照 Reeden verified/relocated/migrated 三态）。
+/// 重定位状态（§30.4）。
 enum AnnotationRelocationStatus {
   /// CFI 直接命中当前排版（字号/边距变化不影响 CFI）。
   verified,
@@ -17,7 +17,7 @@ enum AnnotationRelocationStatus {
   failed,
 }
 
-/// 重定位失败原因（对照 Reeden 五枚举的一期子集）。
+/// 重定位失败原因（一期子集）。
 enum AnnotationRelocationFailure {
   /// 当前章找不到引文。
   quoteNotFound,

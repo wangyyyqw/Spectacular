@@ -5,7 +5,7 @@ import '../src/api/models.dart' show BookMeta, SpineItem;
 import 'resource_index.dart';
 
 /// 可读性分级（P3-26，技术方案 §55；判定输入直接消费 P7-05 码表
-/// 警告串，不另起判定体系——Reeden 500 号 §1.2 分级哲学同构）。
+/// 警告串，不另起判定体系）。
 ///
 /// - L0 完整：全部可解析；
 /// - L1 可修复：引用经索引/嗅探兜底全部可解（导入提示「已自动修复」）；

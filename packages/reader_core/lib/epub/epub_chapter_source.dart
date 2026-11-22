@@ -438,8 +438,8 @@ class EpubChapterSource
       '|text=${_chapterOverlays.forSpine(spine).typographyFingerprint}'
       '${_previewCache == null ? '' : '|resources=${_structures.prepared(spine, contentWidth).resourceDependency}'}';
 
-  /// 失效与续排日志（P7-27；对照 Reeden 失效诊断带 old/new——
-  /// 「批量排版缓存失效. 因为屏幕尺寸变更. old: 」）。
+  /// 失效与续排日志（P7-27）：同时记录失效前后的缓存键，
+  /// 便于定位设置、视口或页索引变化。
   ///
   /// 每条：`reason | oldKey -> newKey`，能回答「这次失效是谁引起的、
   /// 丢了哪几层」。四类诱因可区分：

@@ -3423,8 +3423,7 @@ abstract final class TextLayoutEngine {
     return slack + hangingWidth;
   }
 
-  /// 行尾可悬挂的句读（P7-18；Reeden 150 号 §0-#5 悬挂行为——行尾
-  /// 句号、逗号挂到版心外）。
+  /// 行尾可悬挂的句读（P7-18）：行尾句号、逗号可挂到版心外。
   static const Set<String> hangableTrailingPunctuation = <String>{
     '，',
     '。',

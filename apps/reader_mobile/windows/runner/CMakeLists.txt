@@ -1,11 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 project(runner LANGUAGES CXX)
 
-# Define the application target. To change its name, change BINARY_NAME in the
-# top-level CMakeLists.txt, not the value here, or `flutter run` will no longer
-# work.
+# 定义应用目标。更名应修改顶层 CMakeLists.txt 中的 BINARY_NAME，
+# 请勿修改此处的值，否则 flutter run 将无法正常运行。
 #
-# Any new source files that you add to the application should be added here.
+# 应用新增的源码文件均应加入此处。
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
@@ -16,25 +15,23 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
 )
 
-# Apply the standard set of build settings. This can be removed for applications
-# that need different build settings.
+# 应用标准构建设置；需要其他构建设置的应用可移除此调用。
 apply_standard_settings(${BINARY_NAME})
 
-# Add preprocessor definitions for the build version.
+# 添加构建版本的预处理器定义。
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTTER_VERSION_MINOR}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
 
-# Disable Windows macros that collide with C++ standard library functions.
+# 禁用与 C++ 标准库函数冲突的 Windows 宏。
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
-# Add dependency libraries and include directories. Add any application-specific
-# dependencies here.
+# 添加依赖库和头文件目录；应用专用依赖也应加入此处。
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
-# Run the Flutter tool portions of the build. This must not be removed.
+# 执行 Flutter 工具负责的构建步骤，不可移除。
 add_dependencies(${BINARY_NAME} flutter_assemble)

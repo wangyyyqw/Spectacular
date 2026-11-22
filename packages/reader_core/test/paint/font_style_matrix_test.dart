@@ -7,8 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// P7-08：S5 补测 italic 维度。
 ///
-/// S5 只实测了 regular+bold；Reeden 的注册模型是 family→(weight, italic)
-/// 二元组（550 号 §3）。CJK 测试字体无真斜体文件，验证口径改为
+/// S5 只实测了 regular+bold；字体注册模型按 family→(weight, italic)
+/// 二元组组织。CJK 测试字体无真斜体文件，验证口径改为
 /// 「italic 维度被引擎消费」：仅注册 regular 时 `fontStyle: italic` 会
 /// 触发合成倾斜（synthetic oblique），像素差 >0 即证明 (weight, italic)
 /// 二元组被完整传递；权重维度在 italic 之下仍能选面。

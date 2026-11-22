@@ -111,8 +111,7 @@ abstract final class OpfParser {
             .toList(growable: false);
         var mediaType = element.getAttribute('media-type')?.trim() ?? '';
         if (mediaType.isEmpty) {
-          // P7-12：media-type 缺失按扩展名推断（对照 Reeden
-          // manifestMediaTypeInferred 诊断），推断失败保持空并告警。
+          // P7-12：media-type 缺失按扩展名推断，失败时保持空并告警。
           mediaType = inferMediaType(href);
           manifestWarnings.add(
             'E_MANIFEST_MEDIA_TYPE_INFERRED: manifest 项 $id（$href）'

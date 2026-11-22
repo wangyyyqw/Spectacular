@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
-/// 用户可配置正则的运行时守卫（P7-16；对照 Reeden「1 秒暂停」防线：
-/// `HighlightRegexGuard`——超时挂起而非卡死 UI）。
+/// 用户可配置正则的运行时守卫（P7-16）：超时后挂起匹配，不阻塞 UI。
 ///
 /// Dart 的 RegExp 不可中断，超时守卫必须在 isolate 中执行：
 /// 模式与输入以字符串传入（RegExp/Match 不可跨 isolate 发送），

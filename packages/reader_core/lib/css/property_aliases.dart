@@ -31,8 +31,8 @@ abstract final class CssPropertyAliases {
     'duokan-margin-after': 'margin-bottom',
     'duokan-padding-before': 'padding-top',
     'duokan-padding-after': 'padding-bottom',
-    // 着重号族：多看 4.x 与 WebKit 旧语法都写过（真实书与多看官方
-    // 样式表里两套并存），统一落到标准 text-emphasis* 长属性。
+    // 着重号族：部分中文阅读器与 WebKit 旧语法都写过，真实书里两套并存；
+    // 统一落到标准 text-emphasis* 长属性。
     'duokan-text-emphasis': 'text-emphasis',
     'duokan-text-emphasis-style': 'text-emphasis-style',
     'duokan-text-emphasis-color': 'text-emphasis-color',

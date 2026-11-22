@@ -114,7 +114,7 @@ class ProgressWeights {
           .round()
           .clamp(0, 100);
 
-  /// 万分比 0～10000（对齐 Reeden 的 read_progress 口径，便于外部系统对齐）。
+  /// 万分比 0～10000，便于外部进度系统互通。
   int percentOf10000(int spineIndex, {double charOffsetInChapter = 0}) =>
       (percentOf(spineIndex, charOffsetInChapter: charOffsetInChapter) * 10000)
           .round()

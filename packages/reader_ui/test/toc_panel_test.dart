@@ -21,7 +21,7 @@ TocEntry _entry(
 
 void main() {
   for (final (width, scale) in [(360.0, 1.0), (320.0, 1.5)]) {
-    testWidgets('目录页头在宽度$width、字号倍率$scale下完整显示时间并统一颜色', (tester) async {
+    testWidgets('目录页头在宽度$width、字号倍率$scale下完整显示时间', (tester) async {
       tester.view.physicalSize = Size(width, 640);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -49,12 +49,11 @@ void main() {
         ),
       );
       final time = find.byKey(const ValueKey('toc-reading-duration'));
-      final count = find.text('共 1515 章');
       expect(
         tester.renderObject<RenderParagraph>(time).didExceedMaxLines,
         isFalse,
       );
-      expect(tester.widget<Text>(time).style, tester.widget<Text>(count).style);
+      expect(find.textContaining('共 '), findsNothing);
       for (final key in [
         'toc-expand-all',
         'toc-collapse-all',
@@ -62,6 +61,13 @@ void main() {
       ]) {
         expect(tester.getSize(find.byKey(ValueKey(key))), const Size(44, 44));
       }
+      final locateIcon = tester.widget<AppIcon>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('toc-locate-current')),
+          matching: find.byType(AppIcon),
+        ),
+      );
+      expect(locateIcon.glyph, AppGlyph.locateCurrent);
       expect(tester.takeException(), isNull);
     });
   }
@@ -88,7 +94,7 @@ void main() {
     duration.value = const Duration(minutes: 61, seconds: 59);
     await tester.pump();
     expect(find.text('累计阅读 1 小时 1 分钟'), findsOneWidget);
-    expect(find.text('共 1 章'), findsOneWidget);
+    expect(find.textContaining('共 '), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
@@ -137,7 +143,7 @@ void main() {
       );
 
       expect(find.text('累计阅读 0 分钟'), findsOneWidget);
-      expect(find.text('共 3 章'), findsOneWidget);
+      expect(find.textContaining('共 '), findsNothing);
       expect(find.text('第一章'), findsOneWidget);
       expect(find.text('2.1'), findsOneWidget);
 
@@ -147,16 +153,38 @@ void main() {
       );
       expect(current.selected, isTrue);
       final theme = Theme.of(tester.element(find.byType(TocPanel)));
-      expect(current.selectedTileColor, ReaderDrawerStyle.selectedRowOf(theme));
-      expect(current.selectedTileColor, isNot(current.tileColor));
+      expect(current.selectedTileColor, Colors.transparent);
       expect(
         tester.widget<Text>(find.text('第二章')).style?.fontWeight,
         FontWeight.w600,
       );
+      expect(
+        tester.widget<Text>(find.text('第一章')).style?.color,
+        ReaderDrawerStyle.secondaryOf(theme),
+      );
+      expect(
+        tester.widget<Text>(find.text('第二章')).style?.color,
+        ReaderDrawerStyle.textOf(theme),
+      );
+      expect(
+        tester.widget<Text>(find.text('2.1')).style?.color,
+        ReaderDrawerStyle.textOf(theme),
+      );
+      expect(
+        find.byKey(const ValueKey<String>('toc-current-pin')),
+        findsOneWidget,
+      );
+      final pin = tester.widget<AppIcon>(
+        find.byKey(const ValueKey<String>('toc-current-pin')),
+      );
+      expect(pin.glyph, AppGlyph.pushPin);
+      expect(pin.size, 18);
       final other = tester.widget<ListTile>(
         find.ancestor(of: find.text('第一章'), matching: find.byType(ListTile)),
       );
       expect(other.selected, isFalse);
+      expect(other.focusColor, Colors.transparent);
+      expect(other.hoverColor, Colors.transparent);
 
       // 子级缩进比带圆点的章节标题多 36。
       final childPadding =
@@ -186,6 +214,11 @@ void main() {
             .height,
         40,
       );
+      final currentRow = tester.getRect(
+        find.byKey(const ValueKey<String>('toc-row-1-第二章')),
+      );
+      final currentTitle = tester.getRect(find.text('第二章'));
+      expect(currentTitle.center.dy, closeTo(currentRow.center.dy, .5));
       final chapterTitle = tester.widget<Text>(find.text('第二章'));
       expect(chapterTitle.style?.fontSize, 14);
       expect(
@@ -202,6 +235,38 @@ void main() {
 
       await tester.tap(find.text('2.1'));
       expect(selected.single.title, '2.1');
+    });
+
+    testWidgets('长标题省略后当前章图钉仍完整显示在标题右侧', (tester) async {
+      final title = '第906章 这是一个非常非常长的章节标题，用来确认省略号出现后图钉依然完整可见';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 320,
+              child: TocPanel(
+                entries: [_entry(title, 0)],
+                currentSpineIndex: 0,
+                onSelect: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final titleRect = tester.getRect(find.text(title));
+      final pinRect = tester.getRect(
+        find.byKey(const ValueKey<String>('toc-current-pin')),
+      );
+      final rowRect = tester.getRect(
+        find.byKey(ValueKey<String>('toc-row-0-$title')),
+      );
+      final text = tester.widget<Text>(find.text(title));
+      expect(text.overflow, TextOverflow.ellipsis);
+      expect(text.maxLines, 1);
+      expect(pinRect.left, greaterThanOrEqualTo(titleRect.right));
+      expect(pinRect.right, lessThanOrEqualTo(rowRect.right));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('多级目录可折叠，当前分支默认展开', (tester) async {
@@ -233,7 +298,7 @@ void main() {
       expect(find.text('1.1.1'), findsNothing);
       expect(find.text('第二章'), findsOneWidget);
       expect(find.text('2.1'), findsNothing);
-      expect(find.text('共 5 章'), findsOneWidget);
+      expect(find.textContaining('共 '), findsNothing);
       expect(
         find.descendant(
           of: find.byType(ListView),
@@ -248,7 +313,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('toc-toggle-0-第一章')));
       await tester.pump();
       expect(find.text('1.1'), findsNothing);
-      expect(find.text('共 5 章'), findsOneWidget);
+      expect(find.textContaining('共 '), findsNothing);
       expect(selected, isEmpty);
 
       await tester.tap(find.byKey(const ValueKey<String>('toc-toggle-0-第一章')));
@@ -266,14 +331,14 @@ void main() {
       expect(find.text('1.1.1'), findsNothing);
       expect(find.text('第二章'), findsOneWidget);
       expect(find.text('2.1'), findsNothing);
-      expect(find.text('共 5 章'), findsOneWidget);
+      expect(find.textContaining('共 '), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey<String>('toc-expand-all')));
       await tester.pump();
       expect(find.text('1.1'), findsOneWidget);
       expect(find.text('1.1.1'), findsOneWidget);
       expect(find.text('2.1'), findsOneWidget);
-      expect(find.text('共 5 章'), findsOneWidget);
+      expect(find.textContaining('共 '), findsNothing);
     });
 
     testWidgets('打开时把当前章移到目录中间', (tester) async {
@@ -363,12 +428,7 @@ void main() {
         find.ancestor(of: find.text('1.1.1'), matching: find.byType(ListTile)),
       );
       expect(current.selected, isTrue);
-      expect(
-        current.selectedTileColor,
-        ReaderDrawerStyle.selectedRowOf(
-          Theme.of(tester.element(find.byType(TocPanel))),
-        ),
-      );
+      expect(current.selectedTileColor, Colors.transparent);
     });
 
     testWidgets('同一 spine 按 CFI 定位当前顶层目录项', (tester) async {
@@ -400,6 +460,19 @@ void main() {
       expect(tileOf('第一节').selected, isTrue);
       expect(tileOf('第一节子目').selected, isFalse);
       expect(tileOf('第二节').selected, isFalse);
+      final theme = Theme.of(tester.element(find.byType(TocPanel)));
+      expect(
+        tester.widget<Text>(find.text('第一节')).style?.color,
+        ReaderDrawerStyle.textOf(theme),
+      );
+      expect(
+        tester.widget<Text>(find.text('第一节子目')).style?.color,
+        ReaderDrawerStyle.secondaryOf(theme),
+      );
+      expect(
+        tester.widget<Text>(find.text('第二节')).style?.color,
+        ReaderDrawerStyle.textOf(theme),
+      );
     });
 
     testWidgets('无目录显示空态', (tester) async {

@@ -101,7 +101,7 @@ void main() {
       expect(size.height.isFinite, isTrue);
     });
 
-    test('缺 tbody（裸 table，Reeden 630 最高频形态）：解析不崩溃', () {
+    test('缺 tbody（裸 table）：解析不崩溃', () {
       // 无任何属性/样式的裸表格；html 解析器对缺 tbody 自动补齐。
       final doc = _parse(
         '<table><tr><td>裸</td><td>表</td></tr></table>',
