@@ -284,7 +284,11 @@ extension _ReaderAnnotationController on _ReaderPageState {
         '复制',
         () => unawaited(_copySelection(page, selection)),
       ),
-      _selectionAction('dictionary', '词典', () => _showToast('词典功能开发中')),
+      _selectionAction(
+        'dictionary',
+        '词典',
+        () => unawaited(_lookupDictionary(page, selection)),
+      ),
       _selectionAction(
         'more',
         '更多',
@@ -302,6 +306,31 @@ extension _ReaderAnnotationController on _ReaderPageState {
     String label,
     VoidCallback action,
   ) => SelectionAction(id: id, label: label, onTap: action);
+
+  Future<void> _lookupDictionary(
+    PageContent page,
+    ReaderSelection selection,
+  ) async {
+    final lookup = widget.onDictionary;
+    if (lookup == null) {
+      _showToast('请在词典设置中配置释义服务');
+      return;
+    }
+    _changeReaderState(() => _hideSelectionMenu = true);
+    try {
+      final text = selection.isMultiPage
+          ? SelectionOps.textAcrossPages(
+              await _session.chapterPages(),
+              selection,
+            )
+          : SelectionOps.textOf(page, selection);
+      if (mounted && text.trim().isNotEmpty) await lookup(text.trim());
+    } catch (_) {
+      if (mounted) _showToast('词典打开失败，请重试');
+    } finally {
+      if (mounted) _changeReaderState(() => _hideSelectionMenu = false);
+    }
+  }
 
   Future<void> _saveAnnotation(
     PageContent page,

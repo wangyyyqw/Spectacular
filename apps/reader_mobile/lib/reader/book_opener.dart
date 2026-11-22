@@ -13,6 +13,7 @@ import '../book_source/online_book_controller.dart';
 import '../book_source/online_reading_book.dart';
 import '../book_source/online_reading_catalog_store.dart';
 import '../diagnostics/reader_log.dart';
+import '../dictionary/dictionary_store.dart';
 import '../library/library_store.dart';
 import '../editing/book_edit_repository.dart';
 import '../rea_micro/rea_micro_models.dart';
@@ -162,6 +163,7 @@ class BookOpener {
       builder: (_) {
         created = true;
         return EpubReaderPage(
+          dictionaryStore: DictionaryStore(library),
           onlineReading: prepared,
           sourceFuture: source ??= prepared.then((book) {
             if (cancelled) throw const ChapterLoadCancelled();
@@ -354,6 +356,7 @@ class BookOpener {
     final reviews = library.reviewStore();
     final fontStore = ReaderFontStore(library);
     return (onReady, readingActive) => EpubReaderPage(
+      dictionaryStore: DictionaryStore(library),
       bytesFuture: opening.bytes,
       sourcePath: entry.filePath.isEmpty ? null : entry.filePath,
       bookId: entry.id,

@@ -26,6 +26,8 @@ import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 import '../home/finish_book_sheet.dart';
+import '../dictionary/dictionary_store.dart';
+import '../dictionary/dictionary_sheet.dart';
 import '../theme/app_theme.dart';
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
@@ -101,9 +103,11 @@ class EpubReaderPage extends StatefulWidget {
     this.enableFullTextSearch = true,
     this.persistInitialPosition = false,
     this.onlineReading,
+    this.dictionaryStore,
   });
 
   final BookEditRepository? bookEditorRepository;
+  final DictionaryStore? dictionaryStore;
   final BookEntry? book;
   final BookReviewStore? reviewStore;
 
@@ -1097,6 +1101,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       decorations: widget.decorations,
       decorationRules: widget.decorationRules,
       decorationImages: widget.decorationImages,
+      onDictionary: widget.dictionaryStore == null
+          ? null
+          : (text) => showDictionary(context, widget.dictionaryStore!, text),
       markSettings: settings.markSettings,
       onMarkSettingsChanged: (mark) =>
           _changeSettings(_settings.copyWithMarkSettings(mark)),
@@ -1411,7 +1418,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   int? _onlinePrefetchSpine;
 
   void _prefetchOnlineChapters(ReaderSession session) {
-    if (widget.onlineReading == null || session.loading || !session.hasContent) {
+    if (widget.onlineReading == null ||
+        session.loading ||
+        !session.hasContent) {
       return;
     }
     final index = session.page?.spineIndex;

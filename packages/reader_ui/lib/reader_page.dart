@@ -179,6 +179,7 @@ class ReaderPage extends StatefulWidget {
     this.onShowSystemBarsChanged,
     this.onTts,
     this.onContentAction,
+    this.onDictionary,
   });
 
   /// 编辑预览中单击正文直接请求编辑；普通阅读仍保留翻页和脚注语义。
@@ -194,6 +195,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 显式正文动作优先交给宿主；返回是否已处理。
   final bool Function(int spineIndex, String href)? onContentAction;
+
+  /// 词典由宿主配置服务，UI 只交付选中的原文。
+  final Future<void> Function(String text)? onDictionary;
 
   /// 书签存储（P4-13）；为 null 时菜单不显示书签入口。
   final ReaderBookmarkStore? bookmarks;
