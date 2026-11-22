@@ -30,3 +30,6 @@ enum BookSortOrder {
 
 /// 书架排序设置键。
 const bookshelfSortKey = 'bookshelf.sort';
+
+/// 书架是否显示书名设置键；缺省为显示。
+const bookshelfShowTitlesKey = 'bookshelf.showTitles';

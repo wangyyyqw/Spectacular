@@ -115,6 +115,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Map<String, String> _bookGroups = const <String, String>{};
   String? _activeGroupId;
   bool _grid = true;
+  bool _showTitles = true;
   bool _searching = false;
   bool _selectionMode = false;
   bool _removing = false;
@@ -201,17 +202,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
     _searchFocus.requestFocus();
   }
 
-  /// 读持久化的排序与视图模式（settings 表）。
+  /// 读持久化的排序、视图模式与书名显示（settings 表）。
   Future<void> _loadPreferences() async {
     final sort = await widget.library.getSetting(bookshelfSortKey);
     final grid = await widget.library.getSetting(_viewKey);
     final pinned = await widget.library.getSetting(_pinnedKey);
+    final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
     if (!mounted) {
       return;
     }
     setState(() {
       _sort = BookSortOrder.fromValue(sort);
       _grid = grid != 'false';
+      _showTitles = showTitles != 'false';
       _pinnedIds = pinned == null
           ? const <String>[]
           : (jsonDecode(pinned) as List).cast<String>();
@@ -1292,6 +1295,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             return _BookCard(
               entry: item.entry,
               pinned: pinned,
+              showTitle: _showTitles,
               selectionMode: _selectionMode,
               selected: _selectedIds.contains(item.entry.id),
               onSelect: () => _toggleSelected(item.entry.id),
@@ -1320,8 +1324,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       crossAxisCount: columns,
       mainAxisExtent:
           cardWidth / _shelfCoverAspectRatio +
-          _shelfTitleGap +
-          textScaler.scale(_shelfTitleHeight),
+          (_showTitles
+              ? _shelfTitleGap + textScaler.scale(_shelfTitleHeight)
+              : 0),
       mainAxisSpacing: 20,
       crossAxisSpacing: _shelfGridSpacing,
     );
@@ -1338,6 +1343,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         return _BookRow(
           item: item,
           pinned: _pinnedIds.contains(item.entry.id),
+          showTitle: _showTitles,
           selectionMode: _selectionMode,
           selected: _selectedIds.contains(item.entry.id),
           onSelect: () => _toggleSelected(item.entry.id),
@@ -2085,6 +2091,7 @@ class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.item,
     required this.pinned,
+    required this.showTitle,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2095,6 +2102,7 @@ class _BookRow extends StatelessWidget {
 
   final _ShelfItem item;
   final bool pinned;
+  final bool showTitle;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2168,16 +2176,18 @@ class _BookRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      entry.title,
-                      key: ValueKey<String>('book-row-title-${entry.id}'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                    if (showTitle) ...[
+                      Text(
+                        entry.title,
+                        key: ValueKey<String>('book-row-title-${entry.id}'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
+                      const SizedBox(height: 4),
+                    ],
                     for (final label in [
                       author.isEmpty ? '未知作者' : author,
                       '已读 ${formatReadingDuration(item.duration)}',
@@ -2337,6 +2347,7 @@ class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
     required this.pinned,
+    required this.showTitle,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2347,6 +2358,7 @@ class _BookCard extends StatelessWidget {
 
   final BookEntry entry;
   final bool pinned;
+  final bool showTitle;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2420,26 +2432,28 @@ class _BookCard extends StatelessWidget {
             aspectRatio: _shelfCoverAspectRatio,
             child: cover,
           ),
-          const SizedBox(height: _shelfTitleGap),
-          SizedBox(
-            height: MediaQuery.textScalerOf(context).scale(_shelfTitleHeight),
-            child: Align(
-              alignment: Alignment.center,
-              child: Text(
-                entry.title,
-                key: ValueKey<String>('book-card-title-${entry.id}'),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: selectionMode && selected
-                      ? theme.colorScheme.primary
-                      : null,
+          if (showTitle) ...[
+            const SizedBox(height: _shelfTitleGap),
+            SizedBox(
+              height: MediaQuery.textScalerOf(context).scale(_shelfTitleHeight),
+              child: Align(
+                alignment: Alignment.center,
+                child: Text(
+                  entry.title,
+                  key: ValueKey<String>('book-card-title-${entry.id}'),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: selectionMode && selected
+                        ? theme.colorScheme.primary
+                        : null,
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
