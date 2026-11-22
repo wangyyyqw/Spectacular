@@ -235,6 +235,17 @@ class _TocPanelState extends State<TocPanel> {
     return fallback < 0 ? null : rows[fallback].entry;
   }
 
+  bool _isRead(TocEntry entry, EpubCfi? readingCfi) {
+    if (entry.spineIndex < widget.currentSpineIndex) {
+      return true;
+    }
+    if (entry.spineIndex > widget.currentSpineIndex) {
+      return false;
+    }
+    final cfi = entry.cfi;
+    return cfi != null && readingCfi != null && cfi.compareTo(readingCfi) < 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -249,6 +260,9 @@ class _TocPanelState extends State<TocPanel> {
     final allRows = flattenToc(widget.entries);
     final rows = _visibleRows();
     final active = _activeEntry(allRows);
+    final readingCfi = widget.currentCfi == null
+        ? null
+        : EpubCfi.parse(widget.currentCfi!);
     return Material(
       color: surface,
       child: Column(
@@ -282,13 +296,11 @@ class _TocPanelState extends State<TocPanel> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('共 ${allRows.length} 章', style: metaStyle),
-                    const SizedBox(width: 8),
                     _TocArrows(onExpand: _expandAll, onCollapse: _collapseAll),
                     _TocToolButton(
                       buttonKey: const ValueKey<String>('toc-locate-current'),
                       tooltip: '回到当前章',
-                      icon: AppGlyph.listBulleted,
+                      icon: AppGlyph.locateCurrent,
                       onTap: active == null ? null : _locateCurrent,
                     ),
                   ],
@@ -333,23 +345,27 @@ class _TocPanelState extends State<TocPanel> {
                         final row = rows[index];
                         final current = identical(row.entry, active);
                         final missing = row.entry.missing;
+                        final read = !current && _isRead(row.entry, readingCfi);
                         final expanded = _expanded.contains(row.entry);
                         final hasChildren = row.entry.children.isNotEmpty;
+                        final rowColor = missing || read ? muted : text;
+                        final baseLeft = row.depth == 1
+                            ? 22.0
+                            : 58.0 + (row.depth - 2) * 18.0;
                         return ListTile(
                           key: ValueKey<String>(
                             'toc-row-${row.entry.spineIndex}-${row.entry.title}',
                           ),
                           dense: true,
+                          minTileHeight: _rowExtent,
                           selected: current && !missing,
                           selectedColor: text,
                           tileColor: Colors.transparent,
-                          selectedTileColor: ReaderDrawerStyle.selectedRowOf(
-                            theme,
-                          ),
+                          focusColor: Colors.transparent,
+                          hoverColor: Colors.transparent,
+                          selectedTileColor: Colors.transparent,
                           contentPadding: EdgeInsets.only(
-                            left: row.depth == 1
-                                ? 22
-                                : 58 + (row.depth - 2) * 18,
+                            left: baseLeft,
                             right: 24,
                           ),
                           title: Row(
@@ -368,19 +384,37 @@ class _TocPanelState extends State<TocPanel> {
                                 const SizedBox(width: 12),
                               ],
                               Expanded(
-                                child: Text(
-                                  missing
-                                      ? '${row.entry.title}（章节缺失）'
-                                      : row.entry.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyMedium!.copyWith(
-                                    fontSize: 14,
-                                    color: missing ? muted : text,
-                                    fontWeight: current && !missing
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                  ),
+                                child: Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        missing
+                                            ? '${row.entry.title}（章节缺失）'
+                                            : row.entry.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodyMedium!
+                                            .copyWith(
+                                              fontSize: 14,
+                                              color: rowColor,
+                                              fontWeight: current && !missing
+                                                  ? FontWeight.w600
+                                                  : FontWeight.w400,
+                                            ),
+                                      ),
+                                    ),
+                                    if (current && !missing) ...[
+                                      const SizedBox(width: 6),
+                                      AppIcon(
+                                        AppGlyph.pushPin,
+                                        key: const ValueKey<String>(
+                                          'toc-current-pin',
+                                        ),
+                                        size: 18,
+                                        color: text,
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                             ],
