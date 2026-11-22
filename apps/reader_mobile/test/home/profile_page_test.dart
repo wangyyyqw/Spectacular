@@ -5,7 +5,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
 import 'package:reader_mobile/home/profile_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+
+class _FakeAppFontStore extends ReaderFontStore {
+  _FakeAppFontStore(
+    super.library, {
+    List<ReaderFontEntry> fonts = const [],
+    this.picked,
+  }) : _fonts = List.of(fonts);
+
+  final List<ReaderFontEntry> _fonts;
+  final ReaderFontEntry? picked;
+  final List<String> removed = <String>[];
+
+  @override
+  Future<List<ReaderFontEntry>> list() async => List.of(_fonts);
+
+  @override
+  Future<ReaderFontEntry?> pick() async {
+    final font = picked;
+    if (font != null) _fonts.add(font);
+    return font;
+  }
+
+  @override
+  Future<void> remove(String family) async {
+    removed.add(family);
+    _fonts.removeWhere((font) => font.family == family);
+  }
+}
 
 void main() {
   testWidgets('我的页可查看诊断日志且不显示浮动提示', (tester) async {
@@ -113,6 +142,105 @@ void main() {
       TargetPlatform.windows,
     }),
   );
+
+  testWidgets('应用字体默认思源宋体，可切换已导入的自定义字体', (tester) async {
+    final library = LibraryStore.memory();
+    const custom = ReaderFontEntry(
+      family: 'user_demo',
+      filePath: '/测试/演示字体.otf',
+      displayName: '演示字体',
+    );
+    await library.saveUserFont(custom);
+    final selected = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ProfilePage(
+          library: library,
+          themeMode: ThemeMode.light,
+          onThemeModeChanged: (_) async {},
+          appFontStore: ReaderFontStore(library),
+          onAppFontFamilyChanged: (family) async => selected.add(family),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const ValueKey('app-font-setting'));
+    expect(entry, findsOneWidget);
+    expect((tester.widget<ListTile>(entry).subtitle! as Text).data, '思源宋体');
+
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('app-font-default')), findsOneWidget);
+    expect(find.text('演示字体'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('app-font-user_demo')));
+    await tester.pumpAndSettle();
+
+    expect(selected, ['user_demo']);
+    expect(find.byKey(const ValueKey('app-font-default')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('应用字体可导入并移除，移除当前字体恢复思源宋体', (tester) async {
+    const existing = ReaderFontEntry(
+      family: 'user_existing',
+      filePath: '/测试/已有字体.otf',
+      displayName: '已有字体',
+    );
+    const imported = ReaderFontEntry(
+      family: 'user_imported',
+      filePath: '/测试/导入字体.otf',
+      displayName: '导入字体',
+    );
+    final store = _FakeAppFontStore(
+      LibraryStore.memory(),
+      fonts: const [existing],
+      picked: imported,
+    );
+    final selected = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ProfilePage(
+          library: LibraryStore.memory(),
+          themeMode: ThemeMode.light,
+          onThemeModeChanged: (_) async {},
+          appFontFamily: existing.family,
+          appFontStore: store,
+          onAppFontFamilyChanged: (family) async => selected.add(family),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('app-font-setting')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('app-font-import')));
+    await tester.pumpAndSettle();
+    expect(selected, [imported.family]);
+
+    await tester.tap(find.byKey(const ValueKey('app-font-setting')));
+    await tester.pumpAndSettle();
+    final existingTile = find.byKey(const ValueKey('app-font-user_existing'));
+    await tester.ensureVisible(existingTile);
+    await tester.tap(
+      find.byKey(const ValueKey('app-font-actions-user_existing')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移除字体'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('app-font-remove-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(store.removed, [existing.family]);
+    expect(selected.last, AppFonts.defaultFamily);
+    expect(
+      tester
+          .widget<ListTile>(find.byKey(const ValueKey('app-font-default')))
+          .selected,
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('清理日志保留后果确认，可取消返回设置', (tester) async {
     await tester.pumpWidget(
