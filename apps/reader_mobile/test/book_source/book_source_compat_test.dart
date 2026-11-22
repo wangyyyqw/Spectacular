@@ -43,7 +43,12 @@ void main() {
         onlineSearchTagLine(sourceName: '番茄', status: '番茄', wordCount: '1.3万字'),
         '番茄 / 1.3万字',
       );
-      expect(onlineSearchTagLine(), '详情加载中');
+      expect(onlineSearchTagLine(), '');
+      expect(
+        onlineSearchTagLine(kind: '玄幻 修仙', lastChapter: '第十章'),
+        '玄幻 修仙 / 最新：第十章',
+      );
+      expect(onlineSearchTagLine(intro: '<p>列表简介</p>'), '简介：列表简介');
     });
 
     test('状态文本与末章推断', () {

@@ -13,6 +13,7 @@ import 'package:reader_mobile/book_source/book_source_store.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_discovery.dart';
 import 'package:reader_mobile/book_source/online_book_controller.dart';
+import 'package:reader_mobile/book_source/online_search_page.dart';
 import 'package:reader_mobile/home/discover_choice_dialog.dart';
 import 'package:reader_mobile/home/discover_filter_dialog.dart';
 import 'package:reader_mobile/home/discover_page.dart';
@@ -155,10 +156,10 @@ void main() {
     await pumpReaderUntil(tester, find.text('更新书'));
     await tester.pumpAndSettle();
     expect(find.text('更新书'), findsWidgets);
-    expect(find.text('作者 · 连载 / 25万字'), findsOneWidget);
+    expect(find.text('作者 · 连载'), findsOneWidget);
     final details = find
         .ancestor(
-          of: find.text('作者 · 连载 / 25万字'),
+          of: find.text('作者 · 连载'),
           matching: find.byWidgetPredicate(
             (widget) =>
                 widget is Column && widget.mainAxisSize == MainAxisSize.min,
@@ -170,7 +171,7 @@ void main() {
       findsNWidgets(4),
     );
     expect(find.text('10章 · 最新：第十章'), findsOneWidget);
-    expect(find.text('今天 · 玄幻'), findsOneWidget);
+    expect(find.text('连载 / 25万字 / 玄幻 · 今天'), findsOneWidget);
     expect(find.textContaining('/ 测试平台'), findsNothing);
     final categoryText = tester.widget<Text>(find.text('最近更新'));
     final categoryTheme = Theme.of(tester.element(find.text('最近更新')));
@@ -281,9 +282,9 @@ void main() {
     expect(find.text('推荐'), findsOneWidget);
     await tester.tap(find.byTooltip('列表视图'));
     await tester.pumpAndSettle();
-    expect(find.text('作者 · 连载 / 25万字 / 番茄小说'), findsOneWidget);
+    expect(find.text('作者 · 连载'), findsOneWidget);
     expect(find.text('10章 · 最新：第十章'), findsOneWidget);
-    expect(find.text('今天 · 都市脑洞'), findsOneWidget);
+    expect(find.text('连载 / 25万字 / 番茄小说 / 都市脑洞 · 今天'), findsOneWidget);
     expect(find.byTooltip('分类分组'), findsNothing);
     expect(requested.last.host, 'second.example.com');
     final selected = controller.selectedDiscoverSourceId;
@@ -550,6 +551,116 @@ void main() {
     expect(find.text('第一-1-0'), findsWidgets);
     expect(requested, hasLength(requestsBeforeCacheHit));
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('发现和搜索卡片直接展示列表字段，重绘与再次搜索不逐本请求详情', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('list-only-metadata');
+    final store = BookSourceStore(directoryProvider: () async => dir);
+    final cookies = BookSourceCookieStore(directoryProvider: () async => dir);
+    final requested = <String>[];
+    final service = BookSourceService(
+      cookieStore: cookies,
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          requested.add(request.url.path);
+          return http.Response(
+            jsonEncode({
+              'books': [
+                {
+                  'name': '列表书',
+                  'author': '列表作者',
+                  'url': '/book/1',
+                  'kind': '玄幻 修仙',
+                  'intro': '列表返回的简介。',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      ),
+    );
+    final controller = OnlineBookController(
+      library: LibraryStore.memory(),
+      store: store,
+      service: service,
+      cookieStore: cookies,
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await tester.runAsync(() => dir.delete(recursive: true));
+    });
+    await tester.runAsync(
+      () => store.importText(
+        jsonEncode({
+          'bookSourceName': '缺少详情字段的来源',
+          'bookSourceUrl': 'https://example.com',
+          'searchUrl': '/search?key={{key}}',
+          'enabledExplore': true,
+          'exploreUrl': '推荐::/list',
+          'ruleSearch': {
+            'bookList': r'$.books',
+            'name': 'name',
+            'author': 'author',
+            'bookUrl': 'url',
+            'kind': 'kind',
+            'intro': 'intro',
+          },
+          'ruleBookInfo': {
+            'wordCount': '不存在的字段',
+            'chapterCount': '不存在的字段',
+            'updateTime': '不存在的字段',
+          },
+          'ruleToc': {'chapterList': r'$.chapters'},
+          'ruleContent': {'content': 'content'},
+        }),
+      ),
+    );
+    await pumpReaderTask(tester, controller.initialize());
+    await tester.pumpWidget(
+      MaterialApp(home: DiscoverPage(controller: controller)),
+    );
+    await pumpReaderUntil(tester, find.text('简介：列表返回的简介。'));
+    await tester.pumpAndSettle();
+    expect(find.text('玄幻 修仙'), findsOneWidget);
+    final details = find
+        .ancestor(
+          of: find.text('列表作者'),
+          matching: find.byWidgetPredicate((widget) => widget is Column),
+        )
+        .first;
+    expect(
+      find.descendant(of: details, matching: find.byType(Text)),
+      findsNWidgets(4),
+    );
+    await tester.tap(find.byTooltip('网格视图'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(LinearProgressIndicator).evaluate().isEmpty,
+    );
+    await tester.pumpAndSettle();
+    expect(requested.every((path) => path == '/list'), isTrue);
+    await tester.pumpWidget(
+      MaterialApp(home: OnlineSearchPage(controller: controller)),
+    );
+    for (var search = 0; search < 2; search++) {
+      await tester.enterText(
+        find.byKey(const ValueKey('online-search-query')),
+        '列表书',
+      );
+      await tester.tap(find.byKey(const ValueKey('online-search-submit')));
+      await pumpReaderUntil(tester, find.text('列表作者'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('玄幻 修仙'), findsOneWidget);
+      expect(find.text('详情加载中'), findsNothing);
+    }
+    expect(requested.where((path) => path == '/search'), hasLength(2));
+    expect(
+      requested.every((path) => path == '/list' || path == '/search'),
+      isTrue,
+    );
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('多列选项在放大字号时完整换行且仍可选择', (tester) async {

@@ -3,6 +3,43 @@ import 'dart:typed_data';
 
 import 'package:html/parser.dart' as html_parser;
 
+import 'book_source_discovery.dart';
+import 'book_source_models.dart';
+
+/// 列表卡片只展示列表返回的字段，分类与简介填入现有行位，不触发详情请求。
+({String author, String latest, String description}) onlineBookCardSummary(
+  OnlineBook book,
+) {
+  final kind = onlineBookPlatformAndTags(book.kind);
+  final status = book.status.trim();
+  final labels = <String>{
+    if (status.isNotEmpty) status,
+    if (book.wordCount.trim().isNotEmpty) book.wordCount.trim(),
+    if (kind.platform.isNotEmpty) kind.platform,
+    if (kind.tags.isNotEmpty && kind.tags != status) kind.tags,
+  };
+  final latest = [
+    if (book.chapterCount > 0) '${book.chapterCount}章',
+    if (book.lastChapter.trim().isNotEmpty) '最新：${book.lastChapter.trim()}',
+  ].join(' · ');
+  final intro = (html_parser.parseFragment(book.intro).text ?? '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return (
+    author: [
+      book.author.trim().isEmpty ? '佚名' : book.author.trim(),
+      if (status.isNotEmpty) status,
+    ].join(' · '),
+    latest: latest.isNotEmpty ? latest : labels.join(' / '),
+    description: intro.isNotEmpty
+        ? '简介：$intro'
+        : [
+            if (latest.isNotEmpty) labels.join(' / '),
+            if (book.updateTime.trim().isNotEmpty) book.updateTime.trim(),
+          ].where((value) => value.isNotEmpty).join(' · '),
+  );
+}
+
 /// 规范在线书籍字数，兼容 `12.3万`、`123456` 等常见站点写法。
 String normalizeOnlineWordCount(String raw) {
   final text = raw.trim();
@@ -102,24 +139,33 @@ String onlineSearchTagLine({
   String wordCount = '',
   int chapterCount = 0,
   String updateTime = '',
+  String kind = '',
+  String lastChapter = '',
+  String intro = '',
 }) {
   final platform = normalizeOnlinePlatformLabel(
     platformName.trim().isNotEmpty ? platformName : sourceName,
   );
   final time = formatOnlineUpdateTime(updateTime);
+  final description = (html_parser.parseFragment(intro).text ?? '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
   final values = <String>[
     platform,
     status.trim(),
     wordCount.trim(),
     if (chapterCount > 0) '$chapterCount章',
     time,
+    onlineBookPlatformAndTags(kind).tags,
+    if (lastChapter.trim().isNotEmpty) '最新：${lastChapter.trim()}',
+    if (description.isNotEmpty) '简介：$description',
   ];
   final seen = <String>{};
   final parts = <String>[
     for (final value in values)
       if (value.isNotEmpty && seen.add(value)) value,
   ];
-  return parts.isEmpty ? '详情加载中' : parts.join(' / ');
+  return parts.join(' / ');
 }
 
 String _formatOnlineDate(DateTime value) {

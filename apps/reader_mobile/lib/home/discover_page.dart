@@ -7,6 +7,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 import '../book_source/book_source_discovery.dart';
+import '../book_source/book_source_compat.dart';
 import '../book_source/book_source_models.dart';
 import '../book_source/online_book_controller.dart';
 import '../book_source/online_book_detail_page.dart';
@@ -272,7 +273,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
       });
       if (addedAny) {
         _storePage(cacheKey, _books, nextPage, hasMore);
-        unawaited(_enrichVisibleMetadata(source, version, cacheKey));
       }
     } on Object catch (error) {
       if (mounted && version == _version) {
@@ -287,38 +287,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
       }
     } finally {
       if (mounted && version == _version) setState(() => _loading = false);
-    }
-  }
-
-  /// 榜单接口可能只给书名和封面，列表先显示，详情元信息分批后台补齐。
-  Future<void> _enrichVisibleMetadata(
-    BookSource source,
-    int version,
-    String cacheKey,
-  ) async {
-    if (source.bookInfo.wordCount.isEmpty &&
-        source.bookInfo.lastChapter.isEmpty &&
-        source.bookInfo.chapterCount.isEmpty &&
-        source.bookInfo.updateTime.isEmpty) {
-      return;
-    }
-    final snapshot = List.of(_books);
-    for (var start = 0; start < snapshot.length; start += 8) {
-      if (!mounted || version != _version) return;
-      final batch = snapshot.skip(start).take(8).toList();
-      final enriched = await widget.controller.service.enrichSearchResults(
-        source,
-        batch.map((item) => item.book).toList(),
-      );
-      if (!mounted || version != _version) return;
-      final byUrl = {for (final book in enriched) book.bookUrl: book};
-      setState(() {
-        _books = [
-          for (final item in _books)
-            (source: item.source, book: byUrl[item.book.bookUrl] ?? item.book),
-        ];
-      });
-      _storePage(cacheKey, _books, _page, _hasMore);
     }
   }
 
@@ -782,7 +750,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   Widget _bookTile(BookSource source, OnlineBook book, {bool grid = false}) {
     final theme = Theme.of(context);
-    final kind = onlineBookPlatformAndTags(book.kind);
+    final summary = onlineBookCardSummary(book);
     final cover = _DiscoverCover(
       controller: widget.controller,
       source: source,
@@ -822,14 +790,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
         if (!grid) ...[
           const SizedBox(height: 3),
           Text(
-            [
-              [
-                book.author.isEmpty ? '佚名' : book.author,
-                if (book.status.isNotEmpty) book.status,
-              ].join(' · '),
-              if (book.wordCount.isNotEmpty) book.wordCount,
-              if (kind.platform.isNotEmpty) kind.platform,
-            ].join(' / '),
+            summary.author,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall?.copyWith(
@@ -837,26 +798,19 @@ class _DiscoverPageState extends State<DiscoverPage> {
             ),
           ),
         ],
-        if (!grid &&
-            (book.lastChapter.isNotEmpty || book.chapterCount > 0)) ...[
+        if (!grid) ...[
           const SizedBox(height: 3),
           Text(
-            [
-              if (book.chapterCount > 0) '${book.chapterCount}章',
-              if (book.lastChapter.isNotEmpty) '最新：${book.lastChapter}',
-            ].join(' · '),
+            summary.latest,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall,
           ),
         ],
-        if (!grid && (book.updateTime.isNotEmpty || kind.tags.isNotEmpty)) ...[
+        if (!grid) ...[
           const SizedBox(height: 3),
           Text(
-            [
-              if (book.updateTime.isNotEmpty) book.updateTime,
-              if (kind.tags.isNotEmpty) kind.tags,
-            ].join(' · '),
+            summary.description,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall,

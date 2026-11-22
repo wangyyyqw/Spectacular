@@ -148,7 +148,6 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
         _results = results;
         _searching = false;
       });
-      unawaited(_enrichResults(version, results));
     } on Object catch (error) {
       if (!mounted || version != _searchVersion) return;
       setState(() => _error = '搜索失败：$error');
@@ -156,20 +155,6 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
       if (mounted && version == _searchVersion && _searching) {
         setState(() => _searching = false);
       }
-    }
-  }
-
-  Future<void> _enrichResults(
-    int version,
-    List<OnlineSourceSearchResult> results,
-  ) async {
-    if (!results.any((result) => result.books.isNotEmpty)) return;
-    try {
-      final enriched = await widget.controller.enrichSearchResults(results);
-      if (!mounted || version != _searchVersion) return;
-      setState(() => _results = enriched);
-    } on Object {
-      // 详情字段补齐失败时保留搜索结果。
     }
   }
 
@@ -419,6 +404,9 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
                                 wordCount: book.wordCount,
                                 chapterCount: book.chapterCount,
                                 updateTime: book.updateTime,
+                                kind: book.kind,
+                                lastChapter: book.lastChapter,
+                                intro: book.intro,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

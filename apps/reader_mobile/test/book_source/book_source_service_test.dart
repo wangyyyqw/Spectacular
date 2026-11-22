@@ -378,11 +378,13 @@ void main() {
     expect(books.single.updateTime, '2025 06 11');
   });
 
-  test('详情元数据补齐搜索结果章节数与更新时间', () async {
+  test('列表缺失字段保持为空，打开详情时才获取章节数与更新时间', () async {
+    final requested = <String>[];
     final timestamp = DateTime(2025, 6, 11).millisecondsSinceEpoch ~/ 1000;
     final service = BookSourceService(
       httpClient: BookSourceHttpClient(
         client: MockClient((request) async {
+          requested.add(request.url.path);
           final body = request.url.path == '/search'
               ? <String, Object?>{
                   'ret_data': <Object?>[
@@ -438,11 +440,13 @@ void main() {
     expect(books.single.chapterCount, 0);
     expect(books.single.updateTime, isEmpty);
 
-    final enriched = await service.enrichSearchResults(source, books);
+    expect(requested, ['/search']);
+    final info = await service.loadBookInfo(source, books.single);
 
-    expect(enriched.single.wordCount, '1.3万字');
-    expect(enriched.single.chapterCount, 1);
-    expect(enriched.single.updateTime, '2025 06 11');
+    expect(info.wordCount, '1.3万字');
+    expect(info.chapterCount, 1);
+    expect(info.updateTime, '2025 06 11');
+    expect(requested, ['/search', '/book/1']);
   });
 
   test('封面通过书源请求器加载并使用引用页缓存', () async {
