@@ -251,17 +251,26 @@ class _DetailAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = theme.colorScheme.onSurface;
-    return Material(
-      type: MaterialType.transparency,
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        minLeadingWidth: 24,
-        leading: AppIcon(icon, size: 22, color: color),
-        title: Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(color: color),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: theme.colorScheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: theme.colorScheme.outlineVariant),
         ),
-        onTap: onTap,
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          minLeadingWidth: 22,
+          horizontalTitleGap: 10,
+          leading: AppIcon(icon, size: 22, color: color),
+          title: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(color: color),
+          ),
+          onTap: onTap,
+        ),
       ),
     );
   }
