@@ -81,7 +81,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('menu-entry-settings')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('settings-page-turn-scroll')));
+      final scrollOption = find.byKey(
+        const ValueKey('settings-page-turn-scroll'),
+      );
+      await tester.ensureVisible(scrollOption);
+      await tester.tap(scrollOption);
       await pumpReaderUntil(
         tester,
         find.byKey(const ValueKey('continuous-scroll')),
@@ -100,7 +104,11 @@ void main() {
       expect(visible?.page.spineIndex, targetSpine);
       expect(visible?.page.pageIndex, originalPage);
       expect(session.currentCfi, anchor);
-      await tester.tap(find.byKey(const ValueKey('settings-page-turn-cover')));
+      final coverOption = find.byKey(
+        const ValueKey('settings-page-turn-cover'),
+      );
+      await tester.ensureVisible(coverOption);
+      await tester.tap(coverOption);
       await tester.pumpAndSettle();
       expect(session.progress?.spineIndex, targetSpine);
       expect(session.progress?.pageIndex, originalPage);
