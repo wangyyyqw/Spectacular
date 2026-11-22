@@ -1,3 +1,5 @@
+import '../theme/reader_dropdown.dart';
+
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
@@ -28,7 +30,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      DropdownButtonFormField<String>(
+      ReaderDropdownButtonFormField<String>(
         key: const ValueKey<String>('decoration-font'),
         icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.fontFamily ?? '',
@@ -59,7 +61,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
         suffix: '%',
         onChanged: (value) => _set('fontSizeScale', value / 100),
       ),
-      DropdownButtonFormField<int>(
+      ReaderDropdownButtonFormField<int>(
         key: const ValueKey<String>('decoration-weight'),
         icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.fontWeight ?? 0,
@@ -72,7 +74,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
         onChanged: (value) => _set('fontWeight', value == 0 ? null : value),
       ),
       const SizedBox(height: 14),
-      DropdownButtonFormField<String>(
+      ReaderDropdownButtonFormField<String>(
         key: const ValueKey<String>('decoration-italic'),
         icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.italic == null

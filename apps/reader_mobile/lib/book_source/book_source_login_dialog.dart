@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 
 import 'book_source_login_config.dart';
@@ -107,7 +108,7 @@ class _BookSourceLoginDialogState extends State<BookSourceLoginDialog> {
     }
     if (const {'select', 'toggle'}.contains(row.type)) {
       final value = _values[row.name];
-      return DropdownButtonFormField<String>(
+      return ReaderDropdownButtonFormField<String>(
         key: ValueKey('${key.value}-${value ?? ''}'),
         initialValue: row.options.contains(value) ? value : null,
         isExpanded: true,

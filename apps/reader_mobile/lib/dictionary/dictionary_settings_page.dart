@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -120,7 +121,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
                   ),
                 Text('释义服务', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
+                ReaderDropdownButtonFormField<String>(
                   key: const ValueKey('dictionary-api-select'),
                   initialValue:
                       state.apis.any((a) => a.id == state.settings.apiId)
@@ -194,7 +195,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
                 const Divider(height: 32),
                 Text('释义预设', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
+                ReaderDropdownButtonFormField<String>(
                   key: ValueKey('dictionary-default-preset-${state.preset.id}'),
                   initialValue: state.preset.id,
                   isExpanded: true,
@@ -405,7 +406,7 @@ class _ApiFormState extends State<_ApiForm> {
             validator: (v) => v?.trim().isEmpty ?? true ? '请输入模型' : null,
           ),
           if (_models.isNotEmpty)
-            DropdownButtonFormField<String>(
+            ReaderDropdownButtonFormField<String>(
               isExpanded: true,
               decoration: const InputDecoration(labelText: '已获取模型'),
               items: [

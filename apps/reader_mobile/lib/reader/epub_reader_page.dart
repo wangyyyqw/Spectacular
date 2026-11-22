@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
@@ -393,7 +394,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                 const SizedBox(height: 12),
                 if (draft.mode == ReaderTtsMode.system) ...<Widget>[
                   if (systemVoices.isNotEmpty) ...<Widget>[
-                    DropdownButtonFormField<String>(
+                    ReaderDropdownButtonFormField<String>(
                       key: ValueKey<String>(
                         'tts-voice-${draft.voiceName}-${draft.voiceLocale}',
                       ),
@@ -496,7 +497,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     label: const Text('管理离线音色'),
                   ),
                 ] else ...<Widget>[
-                  DropdownButtonFormField<String>(
+                  ReaderDropdownButtonFormField<String>(
                     key: ValueKey<String>(
                       'tts-narrator-${draft.narratorVoiceId}',
                     ),
@@ -526,7 +527,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     },
                   ),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
+                  ReaderDropdownButtonFormField<String>(
                     key: ValueKey<String>(
                       'tts-dialogue-${draft.dialogueVoiceId}',
                     ),
@@ -574,7 +575,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     ),
                   ),
                   if ((selectedNarrator?.speakerCount ?? 1) > 1) ...[
-                    DropdownButtonFormField<int>(
+                    ReaderDropdownButtonFormField<int>(
                       key: ValueKey<int>(draft.narratorSpeakerId),
                       initialValue: draft.narratorSpeakerId.clamp(
                         0,

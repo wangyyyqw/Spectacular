@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 
 import 'rea_micro_controller.dart';
@@ -430,7 +431,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                   ],
                 ],
                 const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
+                ReaderDropdownButtonFormField<String>(
                   initialValue: _provider,
                   decoration: const InputDecoration(
                     labelText: '同步方式',
@@ -441,10 +442,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                       value: 'MOTE',
                       child: Text('阅微内置存储'),
                     ),
-                    DropdownMenuItem<String>(
-                      value: 'S3',
-                      child: Text('自建 S3'),
-                    ),
+                    DropdownMenuItem<String>(value: 'S3', child: Text('自建 S3')),
                     DropdownMenuItem<String>(
                       value: 'WEBDAV',
                       child: Text('WebDAV'),
@@ -540,7 +538,8 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                     controller: _endpoint,
                     decoration: const InputDecoration(
                       labelText: 'WebDAV 地址',
-                      hintText: 'https://dav.example.com/remote.php/dav/files/me',
+                      hintText:
+                          'https://dav.example.com/remote.php/dav/files/me',
                       border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.url,

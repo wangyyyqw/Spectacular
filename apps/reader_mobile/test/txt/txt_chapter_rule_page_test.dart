@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,7 +35,7 @@ Future<void> _finishWork(WidgetTester tester) async {
 }
 
 Future<void> _selectMode(WidgetTester tester, String mode) async {
-  await tester.tap(find.byType(DropdownButtonFormField<String>));
+  await tester.tap(find.byType(ReaderDropdownButtonFormField<String>));
   await tester.pumpAndSettle();
   await tester.tap(find.text(mode).last);
   await tester.pumpAndSettle();
@@ -260,7 +261,7 @@ void main() {
     expect(find.byType(ReaderSheetForm), findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('简体正文样例'), findsOneWidget);
-    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.tap(find.byType(ReaderDropdownButtonFormField<int>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Big5').last);
     await tester.pumpAndSettle();

@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing/epub_editing.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -81,7 +82,7 @@ class _ImageEditorState extends State<_ImageEditor> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DropdownButtonFormField<String>(
+            ReaderDropdownButtonFormField<String>(
               icon: const AppIcon(AppGlyph.chevronDown),
               initialValue: _path,
               key: ValueKey(_path),

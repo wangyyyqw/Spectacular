@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../theme/reader_dropdown.dart';
+
 import 'package:flutter/material.dart';
 
 import '../reader_ui_diagnostics.dart';
@@ -59,10 +61,10 @@ class _ReaderDecorationRuleEditorState
     extends State<ReaderDecorationRuleEditor> {
   late final _name = TextEditingController(text: widget.rule.name ?? '');
   late final _pattern = TextEditingController(text: widget.rule.pattern);
-  late bool _regex = widget.rule.isRegex;
   late bool _caseSensitive = widget.rule.caseSensitive;
   late ReaderDecorationRuleStyle _style = widget.rule.style;
   late ReaderDecorationRuleType _type = widget.rule.effectiveType;
+  bool get _regex => _type == ReaderDecorationRuleType.regex;
   late bool _crossParagraph = widget.rule.allowCrossParagraph;
   late String? _styleId = widget.rule.styleId;
   late String? _darkStyleId = widget.rule.darkStyleId;
@@ -92,7 +94,6 @@ class _ReaderDecorationRuleEditorState
   bool get _dirty =>
       _name.text.trim() != (widget.rule.name ?? '') ||
       _pattern.text != widget.rule.pattern ||
-      _regex != widget.rule.isRegex ||
       _caseSensitive != widget.rule.caseSensitive ||
       _type != widget.rule.effectiveType ||
       _crossParagraph != widget.rule.allowCrossParagraph ||
@@ -109,9 +110,7 @@ class _ReaderDecorationRuleEditorState
     enabled: widget.rule.enabled,
     style: _style,
     sortOrder: widget.rule.sortOrder,
-    type: _regex && _type == ReaderDecorationRuleType.fixedText
-        ? ReaderDecorationRuleType.regex
-        : _type,
+    type: _type,
     allowCrossParagraph: _crossParagraph,
     styleId: _styleId,
     darkStyleId: _darkStyleId,
@@ -366,7 +365,7 @@ class _ReaderDecorationRuleEditorState
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       if (!widget.styleOnly) ...[
-        DropdownButtonFormField<ReaderDecorationRuleType>(
+        ReaderDropdownButtonFormField<ReaderDecorationRuleType>(
           key: const ValueKey('rule-match-type'),
           initialValue: _type,
           isExpanded: true,
@@ -377,7 +376,7 @@ class _ReaderDecorationRuleEditorState
           ],
           onChanged: (value) => setState(() {
             _type = value!;
-            _regex = _type == ReaderDecorationRuleType.regex;
+            _error = null;
             _resetPreview();
           }),
         ),
@@ -398,28 +397,11 @@ class _ReaderDecorationRuleEditorState
                   ? r'例如 \d+。最多 512 字符，不支持环视、反向引用和占有量词；超限跳过。'
                   : _type == ReaderDecorationRuleType.range
                   ? '例如 【】 匹配含分隔符的范围；重复开符使用最近起点。'
-                  : '输入要自动装饰的文字，可开启正则匹配多个词或文字模式。',
+                  : '按原文匹配输入的文字。',
               helperMaxLines: 3,
               errorText: _error,
               border: const OutlineInputBorder(),
             ),
-          ),
-        if (_type == ReaderDecorationRuleType.fixedText ||
-            _type == ReaderDecorationRuleType.regex)
-          SwitchListTile(
-            key: const ValueKey<String>('rule-regex'),
-            contentPadding: EdgeInsets.zero,
-            title: const Text('正则表达式'),
-            subtitle: Text(_regex ? '使用 Unicode 正则' : '按文本字面量匹配'),
-            value: _regex,
-            onChanged: (value) => setState(() {
-              _regex = value;
-              _type = value
-                  ? ReaderDecorationRuleType.regex
-                  : ReaderDecorationRuleType.fixedText;
-              _error = null;
-              _resetPreview();
-            }),
           ),
         if (_type.supportsCrossParagraph)
           SwitchListTile(
@@ -511,7 +493,7 @@ class _ReaderDecorationRuleEditorState
         child: const Text('导入 CSS 到当前样式'),
       ),
       if (!widget.styleOnly)
-        DropdownButtonFormField<String>(
+        ReaderDropdownButtonFormField<String>(
           key: ValueKey('rule-style-reference-$_dark'),
           initialValue: (_dark ? _darkStyleId : _styleId) ?? '',
           isExpanded: true,

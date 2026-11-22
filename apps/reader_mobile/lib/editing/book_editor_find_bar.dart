@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -190,7 +191,7 @@ class _EditorFindBarState extends State<EditorFindBar> {
               spacing: 6,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                DropdownButton<bool>(
+                ReaderDropdownButton<bool>(
                   value: value.option.regex,
                   isDense: true,
                   underline: const SizedBox.shrink(),

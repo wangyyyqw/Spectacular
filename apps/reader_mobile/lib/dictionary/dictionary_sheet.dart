@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -150,7 +151,7 @@ class _DictionarySheetState extends State<DictionarySheet> {
         ),
         const SizedBox(height: 16),
         if (_state != null)
-          DropdownButtonFormField<String>(
+          ReaderDropdownButtonFormField<String>(
             key: const ValueKey('dictionary-query-preset'),
             initialValue: _presetId,
             isExpanded: true,

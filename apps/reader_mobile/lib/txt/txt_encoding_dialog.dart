@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_core/txt.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -34,7 +35,7 @@ class _EncodingDialogState extends State<_EncodingDialog> {
         children: [
           const Text('请选择正文显示正确的编码，然后继续导入。'),
           const SizedBox(height: 16),
-          DropdownButtonFormField<int>(
+          ReaderDropdownButtonFormField<int>(
             initialValue: _selected,
             decoration: const InputDecoration(
               labelText: '编码',

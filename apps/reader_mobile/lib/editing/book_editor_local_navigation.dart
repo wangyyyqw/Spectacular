@@ -244,7 +244,7 @@ class _NavigationEntryDialogState extends State<_NavigationEntryDialog> {
               decoration: const InputDecoration(labelText: '目标路径与锚点'),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<int>(
+            ReaderDropdownButtonFormField<int>(
               initialValue: _level,
               decoration: const InputDecoration(labelText: '层级'),
               items: [

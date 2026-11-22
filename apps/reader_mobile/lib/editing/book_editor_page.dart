@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
@@ -598,7 +599,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
                   ],
                 ),
               ),
-              DropdownButton<bool>(
+              ReaderDropdownButton<bool>(
                 icon: const AppIcon(AppGlyph.chevronDown),
                 value: editor.useReadingSettings,
                 underline: const SizedBox(),

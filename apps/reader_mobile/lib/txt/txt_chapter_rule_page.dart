@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/txt.dart';
@@ -398,7 +399,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
   }
 
   List<Widget> _buildRuleFields() => [
-    DropdownButtonFormField<String>(
+    ReaderDropdownButtonFormField<String>(
       key: ValueKey('txt-rule-selector-$_selection'),
       initialValue: _selection,
       isExpanded: true,

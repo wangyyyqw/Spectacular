@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
@@ -78,8 +79,22 @@ Future<BookEditorController> _open(
     discardDraft: discardDraft,
   );
   addTearDown(() async {
+    await tester.pumpWidget(const SizedBox());
     editor.dispose();
-    await temporary.delete(recursive: true);
+    // 文件归档异步关闭后再清理，Windows 不允许删除仍被占用的 EPUB。
+    await tester.runAsync(() async {
+      final target = temporary.absolute.path;
+      expect(target, startsWith(Directory.systemTemp.absolute.path));
+      for (var attempt = 0; attempt < 10; attempt++) {
+        try {
+          await temporary.delete(recursive: true);
+          return;
+        } on PathAccessException {
+          if (attempt == 9) rethrow;
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
+    });
   });
   await pumpReaderUntilComplete(tester, () => editor.previewSource != null);
   return editor;
@@ -281,7 +296,7 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
     await tester.tap(
       find.byWidgetPredicate(
-        (widget) => widget is DropdownButtonFormField<String>,
+        (widget) => widget is ReaderDropdownButtonFormField<String>,
       ),
     );
     await pumpReaderUntil(tester, find.text('OEBPS/other.png'));

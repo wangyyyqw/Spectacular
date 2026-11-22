@@ -147,7 +147,7 @@ class _ToolOptionsDialogState extends State<_ToolOptionsDialog> {
       _field(_noterefColor, '脚注标记颜色'),
     ],
     LocalEpubTool.phonetic => [
-      DropdownButtonFormField<String>(
+      ReaderDropdownButtonFormField<String>(
         initialValue: _toneMode,
         decoration: const InputDecoration(labelText: '声调格式'),
         items: const [

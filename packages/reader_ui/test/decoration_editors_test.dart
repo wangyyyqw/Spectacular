@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
@@ -591,7 +592,9 @@ void main() {
               .onPressed !=
           null,
     );
-    final fit = find.byType(DropdownButtonFormField<ReaderDecorationImageFit>);
+    final fit = find.byType(
+      ReaderDropdownButtonFormField<ReaderDecorationImageFit>,
+    );
     await tester.ensureVisible(fit);
     await tester.tap(fit);
     await tester.pumpAndSettle();
@@ -792,7 +795,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('字体加载失败，请选择其他字体或跟随正文'), findsOneWidget);
     expect(_saveButton(tester).onPressed, isNull);
-    final weight = tester.widget<DropdownButtonFormField<int>>(
+    final weight = tester.widget<ReaderDropdownButtonFormField<int>>(
       find.byKey(const ValueKey<String>('decoration-weight')),
     );
     weight.onChanged!(700);
@@ -846,7 +849,7 @@ void main() {
     );
     await _openTypography(tester);
     await _selectFont(tester, '本地测试字体');
-    final font = tester.widget<DropdownButtonFormField<String>>(
+    final font = tester.widget<ReaderDropdownButtonFormField<String>>(
       find.byKey(const ValueKey<String>('decoration-font')),
     );
     font.onChanged!('');
@@ -884,9 +887,12 @@ void main() {
       find.byKey(const ValueKey<String>('rule-pattern')),
       '(',
     );
-    final regex = find.byKey(const ValueKey<String>('rule-regex'));
+    expect(find.byKey(const ValueKey<String>('rule-regex')), findsNothing);
+    final regex = find.byKey(const ValueKey<String>('rule-match-type'));
     await tester.ensureVisible(regex);
     await tester.tap(regex);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('正则表达式').last);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('rule-save')));
     await tester.pump();

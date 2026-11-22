@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/book_source/book_source_auth.dart';
@@ -96,7 +97,7 @@ void main() {
       find.byKey(const ValueKey('online-login-field-密钥')),
       ' key== ',
     );
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.tap(find.byType(ReaderDropdownButtonFormField<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('乙').last);
     await tester.pumpAndSettle();

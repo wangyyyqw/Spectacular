@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
@@ -2750,7 +2751,7 @@ class _YeShePageState extends State<YeShePage>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      DropdownButtonFormField<String>(
+                      ReaderDropdownButtonFormField<String>(
                         initialValue: cityCode,
                         decoration: const InputDecoration(labelText: '商路'),
                         items: <DropdownMenuItem<String>>[
@@ -2783,7 +2784,7 @@ class _YeShePageState extends State<YeShePage>
                         },
                       ),
                       const SizedBox(height: 8),
-                      DropdownButtonFormField<int>(
+                      ReaderDropdownButtonFormField<int>(
                         initialValue: transportId,
                         decoration: const InputDecoration(labelText: '船只'),
                         items: <DropdownMenuItem<int>>[
