@@ -87,7 +87,7 @@ void main() {
     final shape = material.shape! as RoundedRectangleBorder;
     expect(shape.borderRadius, BorderRadius.circular(10));
     expect(shape.side.color, scheme.outlineVariant);
-    expect(material.color, scheme.surfaceContainerLow);
+    expect(material.color, scheme.surface);
     expect(
       find.descendant(of: panel, matching: find.byType(Divider)),
       findsNothing,
@@ -200,15 +200,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('无修复或告警'), findsNothing);
     expect(find.text('未知作者'), findsOneWidget);
-    expect(find.text('已读 0 / 3 章'), findsOneWidget);
+    expect(find.text('已读 0 / 3 章'), findsNothing);
     expect(find.text('已读 0 分钟'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('book-detail-chapter-progress')),
+      findsOneWidget,
+    );
     final coverSize = tester.getSize(
       find.byKey(const ValueKey<String>('book-detail-cover')),
     );
     expect(coverSize, const Size(80, 108));
   });
 
-  testWidgets('作者下方显示已保存的章节进度，隐藏内容等级与日期', (tester) async {
+  testWidgets('元信息底部显示章节进度条，隐藏内容等级与日期', (tester) async {
+    final semantics = tester.ensureSemantics();
     final entry = BookEntry(
       id: 'reading-book',
       title: '章节进度',
@@ -232,8 +237,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final progress = find.text('已读 4 / 15 章');
-    expect(progress, findsOneWidget);
+    expect(find.text('已读 4 / 15 章'), findsNothing);
+    expect(find.bySemanticsLabel('已读 4 / 15 章'), findsOneWidget);
     final progressBarFinder = find.byKey(
       const ValueKey('book-detail-chapter-progress'),
     );
@@ -242,20 +247,16 @@ void main() {
     );
     expect(progressBar.value, closeTo(4 / 15, 1e-9));
     expect(progressBar.minHeight, 3);
-    expect(
-      tester.getRect(progressBarFinder).left,
-      greaterThan(tester.getRect(progress).right),
-    );
+    final progressBarRect = tester.getRect(progressBarFinder);
+    final titleRect = tester.getRect(find.text('章节进度'));
+    final authorRect = tester.getRect(find.text('测试作者'));
     final duration = find.text('已读 2 小时 15 分');
     expect(duration, findsOneWidget);
-    expect(
-      tester.getTopLeft(duration).dy,
-      greaterThan(tester.getBottomLeft(find.text('测试作者')).dy),
-    );
-    expect(
-      tester.getTopLeft(progress).dy,
-      greaterThan(tester.getBottomLeft(duration).dy),
-    );
+    final durationRect = tester.getRect(duration);
+    expect(authorRect.top - titleRect.bottom, greaterThan(8));
+    expect(durationRect.top - authorRect.bottom, greaterThan(8));
+    expect(durationRect.top, greaterThan(authorRect.bottom));
+    expect(progressBarRect.top - durationRect.bottom, greaterThan(8));
     final cover = tester.getRect(
       find.byKey(const ValueKey('book-detail-cover')),
     );
@@ -264,12 +265,16 @@ void main() {
     );
     expect(metadata.top, closeTo(cover.top, 0.1));
     expect(metadata.bottom, closeTo(cover.bottom, 0.1));
+    expect(metadata.height, closeTo(cover.height, 0.1));
+    expect(progressBarRect.width, closeTo(metadata.width, 0.1));
+    expect(progressBarRect.bottom, closeTo(cover.bottom, 0.1));
     expect(find.text('内容部分降级'), findsNothing);
     expect(find.text('章节'), findsNothing);
     expect(find.text('导入'), findsNothing);
     expect(find.text('最近阅读'), findsNothing);
     expect(find.text('2026-11-01'), findsNothing);
     expect(find.text('2026-11-20'), findsNothing);
+    semantics.dispose();
   });
 
   testWidgets('书架长按汇总本书全部短会话，不混入其他书的时长', (tester) async {
@@ -310,7 +315,11 @@ void main() {
     await tester.longPress(find.byKey(ValueKey('book-card-${entry.id}')));
     await tester.pumpAndSettle();
     expect(find.text('已读 1 小时 16 分'), findsOneWidget);
-    expect(find.text('已读 0 / 1 章'), findsOneWidget);
+    expect(find.text('已读 0 / 1 章'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('book-detail-chapter-progress')),
+      findsOneWidget,
+    );
     final chart = find.byKey(
       const ValueKey<String>('book-detail-reading-chart'),
     );

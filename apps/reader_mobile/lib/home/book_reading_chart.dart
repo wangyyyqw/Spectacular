@@ -70,7 +70,7 @@ class BookReadingChart extends StatelessWidget {
           height: 166,
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerLow,
+            color: theme.colorScheme.surface,
             border: Border.all(color: theme.colorScheme.outlineVariant),
             borderRadius: BorderRadius.circular(10),
           ),
@@ -155,16 +155,25 @@ class _ReadingLinePainter extends CustomPainter {
     final yLabels = <TextPainter>[
       for (final value in yValues)
         _labelPainter(
-          value <= Duration.zero ? '0' : _formatAxisDuration(value),
+          value <= Duration.zero ? '0' : _formatAxisDurationLines(value),
         ),
     ];
     final yLabelWidth = yLabels.fold<double>(
       0,
       (width, painter) => math.max(width, painter.width),
     );
+    final yLabelHeight = yLabels.fold<double>(
+      0,
+      (height, painter) => math.max(height, painter.height),
+    );
     final left = math.max(22.0, yLabelWidth + 7);
     final xHeight = _labelPainter('00/00').height + 4;
-    final plot = Rect.fromLTRB(left, 7, size.width - 2, size.height - xHeight);
+    final plot = Rect.fromLTRB(
+      left,
+      yLabelHeight / 2 + 3,
+      size.width - 2,
+      size.height - xHeight,
+    );
     if (plot.width <= 0 || plot.height <= 0) return;
 
     final axisPaint = Paint()
@@ -277,6 +286,7 @@ class _ReadingLinePainter extends CustomPainter {
       ),
     ),
     textDirection: TextDirection.ltr,
+    textAlign: TextAlign.right,
     textScaler: textScaler,
   )..layout();
 
@@ -346,4 +356,11 @@ String _formatAxisDuration(Duration duration) {
   final hours = minutes ~/ 60;
   final rest = minutes % 60;
   return rest == 0 ? '$hours时' : '$hours时$rest分';
+}
+
+String _formatAxisDurationLines(Duration duration) {
+  final text = _formatAxisDuration(duration);
+  final hourEnd = text.indexOf('时');
+  if (hourEnd < 0 || hourEnd == text.length - 1) return text;
+  return '${text.substring(0, hourEnd + 1)}\n${text.substring(hourEnd + 1)}';
 }

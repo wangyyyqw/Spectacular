@@ -88,50 +88,40 @@ class BookDetailSheet extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleMedium?.copyWith(
-                            height: 1.25,
+                            fontSize: 17,
+                            height: 1.2,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           entry.author.isEmpty ? '未知作者' : entry.author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            height: 1.3,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            height: 1.25,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 2),
                         Text(
                           '已读 ${formatReadingDuration(readingDuration)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            height: 1.3,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            height: 1.25,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                formatReadingChapters(
-                                  progress?.spineIndex,
-                                  entry.spineCount,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  height: 1.3,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
+                        if (chapterProgress != null) ...[
+                          Semantics(
+                            label: formatReadingChapters(
+                              progress?.spineIndex,
+                              entry.spineCount,
                             ),
-                            if (chapterProgress != null) ...[
-                              const SizedBox(width: 8),
-                              Expanded(
+                            child: ExcludeSemantics(
+                              child: SizedBox(
+                                width: double.infinity,
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(2),
                                   child: LinearProgressIndicator(
@@ -147,9 +137,9 @@ class BookDetailSheet extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                            ],
-                          ],
-                        ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -192,7 +182,7 @@ class BookDetailSheet extends StatelessWidget {
               width: double.infinity,
               child: Material(
                 key: const ValueKey('book-detail-actions'),
-                color: theme.colorScheme.surfaceContainerLow,
+                color: theme.colorScheme.surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                   side: BorderSide(color: theme.colorScheme.outlineVariant),
