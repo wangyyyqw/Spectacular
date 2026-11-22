@@ -97,6 +97,27 @@ void main() {
     );
   });
 
+  test('声明字重可覆盖字库内部字重，但仍拒绝合成粗体', () {
+    const family = 'PunctuationMetricsDeclaredWeight';
+    final bytes = _fixture();
+    FontPunctuationRegistry.register(
+      family,
+      bytes,
+      weight: 400,
+      italic: false,
+      declaredWeight: 400,
+    );
+    FontPunctuationRegistry.register(
+      family,
+      bytes,
+      weight: 700,
+      italic: false,
+      declaredWeight: 700,
+    );
+    expect(_lookup(family, '，', weight: 400), isNotNull);
+    expect(_lookup(family, '，', weight: 700), isNull);
+  });
+
   test('多字面包含未知解析结果或缺少精确候选时拒绝猜测', () {
     const uncertain = 'PunctuationMetricsUncertain';
     final bytes = _fixture();

@@ -2,6 +2,8 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/font_face.dart';
+import 'package:reader_core/text/font_punctuation_metrics.dart';
+import 'package:reader_mobile/reader/bundled_font_punctuation.dart';
 
 /// P9-05：内置阅微精简思源宋体可加载且覆盖正文常用字与部分生僻字。
 ///
@@ -10,6 +12,21 @@ import 'package:reader_core/css/font_face.dart';
 /// 生僻字（谮/愚）有字形而不是豆腐块。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('内置宋体登记常规与粗体标点轮廓度量', () async {
+    await registerBundledSongPunctuation();
+    for (final weight in [400, 700]) {
+      expect(
+        FontPunctuationRegistry.lookup(
+          FontFamilyAliases.song,
+          '，'.codeUnitAt(0),
+          weight: weight,
+          italic: false,
+        ),
+        isNotNull,
+      );
+    }
+  });
 
   test('内置精简思源宋体可加载并渲染生僻字', () async {
     final loader = FontLoader('builtin_song_test')

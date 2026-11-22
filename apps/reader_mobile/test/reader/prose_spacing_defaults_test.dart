@@ -9,6 +9,7 @@ import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/line_spans.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_mobile/reader/bundled_font_punctuation.dart';
 
 import 'support/css_chapter_book.dart';
 
@@ -21,10 +22,11 @@ Future<List<PageBlock>> _blocks(EpubChapterSource source) async =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
-    await (FontLoader('prose_flow_song')..addFont(
+    await (FontLoader('builtin_song')..addFont(
           rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
         ))
         .load();
+    await registerBundledSongPunctuation();
   });
 
   test('普通 p 和叶子 div 默认两端对齐及统一压缩，默认不伪造作者来源', () async {
@@ -68,15 +70,15 @@ void main() {
   test('正文默认逐字压缩孤立和连续标点，行内样式不改变规则', () async {
     final source = await openCssChapter(
       body: '<p>（甲）<span style="color:red">，</span>乙！丙“丁”戊？</p>',
-      css: 'body { font-family:prose_flow_song; font-size:20px; }',
+      css: 'body { font-family:builtin_song; font-size:20px; }',
     );
     final block = (await _blocks(source)).single;
     final line = block.layout.lines.single;
     expect(line.spacing!.glyphs.keys, [0, 2, 3, 5, 7, 9, 11]);
     for (final glyph in line.spacing!.glyphs.values) {
-      expect(glyph.halfWidth, isTrue);
-      final reduction = [0, 2, 3, 11].contains(glyph.offset) ? 8 : 4;
-      expect(glyph.reduction, closeTo(reduction, .05));
+      expect(glyph.halfWidth, isFalse);
+      expect(glyph.reduction, greaterThan(0));
+      expect(glyph.letterSpacing, closeTo(-glyph.reduction, .01));
     }
     _expectFlowGeometry(
       TextHitTester.lineBoxes((await source.loadChapter(0)).single).single,
