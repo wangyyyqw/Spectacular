@@ -933,6 +933,136 @@ void main() {
     expect((await controller.syncReadingSessions()).requests, 0);
   });
 
+  for (final linked in [false, true]) {
+    test('${linked ? '已关联' : '未关联'}阅读片段连续增长只上报新增时长', () async {
+      final library = _TestLibrary();
+      final api = _FakeApi();
+      var controller = await _createController(library, api);
+      if (linked) {
+        await controller.linkBook(
+          'book-a',
+          const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+          userBookId: 7001,
+        );
+      }
+      final start = DateTime.utc(2026, 11, 22, 1);
+      for (var minutes = 2; minutes <= 32; minutes += 2) {
+        library.sessions
+          ..clear()
+          ..add(_session(start, start.add(Duration(minutes: minutes))));
+        expect((await controller.syncReadingSessions()).durationSeconds, 120);
+        if (minutes == 16) {
+          controller.dispose();
+          controller = await _createController(library, api);
+        }
+      }
+      addTearDown(controller.dispose);
+      expect(
+        api.uploads
+            .expand((entries) => entries)
+            .fold<int>(0, (sum, entry) => sum + entry.durationSeconds),
+        32 * 60,
+      );
+      expect((await controller.syncReadingSessions()).requests, 0);
+      if (linked) {
+        final logs = api.sessionLogUploads.expand((logs) => logs).toList();
+        for (var index = 1; index < logs.length; index++) {
+          expect(logs[index].startedAt, logs[index - 1].endedAt);
+        }
+      }
+    });
+  }
+
+  test('旧累计台账升级后只发送水位之后的尾段', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final start = DateTime.utc(2026, 11, 22, 1);
+    final end = start.add(const Duration(minutes: 10));
+    final store = ReaMicroStore(library);
+    await store.saveSessionWatermarks({'book-a': end.millisecondsSinceEpoch});
+    await store.saveUploadedSessionKeys({
+      'book-a|${start.millisecondsSinceEpoch}|${end.millisecondsSinceEpoch}|2026-11-22',
+    });
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 12))),
+    );
+    expect((await controller.syncReadingSessions()).durationSeconds, 120);
+  });
+
+  test('超过七小时的有效会话分配不发生整数乘法溢出', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final start = DateTime.utc(2026, 11, 22, 1);
+    library.sessions.add(_session(start, start.add(const Duration(hours: 7))));
+    expect((await controller.syncReadingSessions()).durationSeconds, 7 * 3600);
+    library.sessions[0] = _session(
+      start,
+      start.add(const Duration(hours: 7, minutes: 15)),
+    );
+    expect((await controller.syncReadingSessions()).durationSeconds, 15 * 60);
+  });
+
+  test('跨午夜部分成功后增长快照先重试原批次再发送尾段', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    var controller = await _createController(library, api);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    final start = DateTime.utc(2026, 11, 21, 15, 59);
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 2))),
+    );
+    var calls = 0;
+    api.onSessionUpload = () async {
+      if (++calls == 2) throw const ReaMicroException('请求超时');
+    };
+    await controller.syncReadingSessions();
+    final failed = api.sessionLogUploads.last.single;
+    controller.dispose();
+    library.sessions[0] = _session(
+      start,
+      start.add(const Duration(minutes: 4)),
+    );
+    api.onSessionUpload = null;
+    controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    expect((await controller.syncReadingSessions()).durationSeconds, 60);
+    expect(api.sessionLogUploads.last.single.id, failed.id);
+    expect(api.sessionLogUploads.last.single.endedAt, failed.endedAt);
+    expect((await controller.syncReadingSessions()).durationSeconds, 120);
+    final tail = api.sessionLogUploads.last.single;
+    expect(tail.startedAt, failed.endedAt);
+    expect((await controller.syncReadingSessions()).requests, 0);
+    expect(await ReaMicroStore(library).loadPendingSessionUpload(), isNull);
+  });
+
+  test('连续小数秒快照按原起点取整且总秒数守恒', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final start = DateTime.utc(2026, 11, 22, 1);
+    for (final milliseconds in [1200, 1800, 2400, 2900, 3600]) {
+      library.sessions
+        ..clear()
+        ..add(_session(start, start.add(Duration(milliseconds: milliseconds))));
+      await controller.syncReadingSessions();
+    }
+    expect(
+      api.uploads
+          .expand((entries) => entries)
+          .fold<int>(0, (sum, entry) => sum + entry.durationSeconds),
+      3,
+    );
+  });
+
   test('会话请求超时后重试使用相同标识，确认成功后推进水位', () async {
     final library = _TestLibrary();
     final api = _FakeApi();

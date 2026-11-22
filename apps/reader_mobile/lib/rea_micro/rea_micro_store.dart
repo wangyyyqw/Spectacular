@@ -20,6 +20,7 @@ class ReaMicroStore {
   static const String _syncBooksKey = 'reamicro.book.syncIdentities';
   static const String _uploadedKey = 'reamicro.sync.uploaded';
   static const String _watermarksKey = 'reamicro.sync.watermarks';
+  static const String _pendingSessionsKey = 'reamicro.sync.pendingSessions';
   static const String _lastSyncKey = 'reamicro.sync.lastAt';
   static const String _progressKey = 'reamicro.progress.state';
   static const String _deviceIdKey = 'reamicro.device.id';
@@ -186,6 +187,17 @@ class ReaMicroStore {
   /// 保存每本本地书籍已处理到的会话结束时间。
   Future<void> saveSessionWatermarks(Map<String, int> values) =>
       _library.setSetting(_watermarksKey, jsonEncode(values));
+
+  /// 请求前保存固定批次，超时或重启后先重试原批次，避免增长快照换标识。
+  Future<Map<String, Object?>?> loadPendingSessionUpload() async {
+    final raw = await _library.getSetting(_pendingSessionsKey);
+    if (raw == null || raw.isEmpty) return null;
+    return jsonDecode(raw) as Map<String, Object?>;
+  }
+
+  /// 成功批次从待传计划移除；空值表示本轮计划已经完成。
+  Future<void> savePendingSessionUpload(Map<String, Object?>? plan) => _library
+      .setSetting(_pendingSessionsKey, plan == null ? '' : jsonEncode(plan));
 
   /// 读取上次成功同步时间。
   Future<DateTime?> loadLastSyncAt() async {

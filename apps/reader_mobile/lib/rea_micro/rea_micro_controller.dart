@@ -1864,11 +1864,13 @@ class ReaMicroController extends ChangeNotifier {
     List<ReadingSession> sessions;
     Set<String> uploaded;
     Map<String, int> watermarks;
+    Map<String, Object?>? pendingPlan;
     final readingBookIds = <String, int>{};
     try {
       sessions = await sessionStore.list();
       uploaded = await _store.loadUploadedSessionKeys();
       watermarks = await _store.loadSessionWatermarks();
+      pendingPlan = await _store.loadPendingSessionUpload();
       final records = await _api.fetchBookRecords(token);
       if (_token != token) {
         _syncing = false;
@@ -1904,11 +1906,27 @@ class ReaMicroController extends ChangeNotifier {
     final groups = <String, _SyncGroup>{};
     final bookEnds = <String, int>{};
     final pendingGroupCount = <String, int>{};
+    // 兼容旧台账中的累计快照，也处理跨日批次只成功了一部分的情况。
+    final uploadedEnds = <String, int>{};
+    for (final key in uploaded) {
+      final fields = key.split('|');
+      if (fields.length != 4) continue;
+      final end = int.tryParse(fields[2]);
+      if (end == null) continue;
+      final identity = '${fields[0]}|${fields[1]}|${fields[3]}';
+      if (end > (uploadedEnds[identity] ?? 0)) {
+        uploadedEnds[identity] = end;
+      }
+    }
     for (final session in sessions) {
       final endedAt = session.endedAt.millisecondsSinceEpoch;
       if (endedAt <= (watermarks[session.bookId] ?? 0)) continue;
       final cloudBookId = readingBookIds[session.bookId] ?? 0;
-      for (final portion in _splitSession(session)) {
+      for (final portion in _splitSession(
+        session,
+        watermark: watermarks[session.bookId] ?? 0,
+        uploadedEnds: uploadedEnds,
+      )) {
         if (uploaded.contains(portion.key)) continue;
         final key = '$cloudBookId|${portion.date}';
         final group = groups.putIfAbsent(
@@ -1933,6 +1951,21 @@ class ReaMicroController extends ChangeNotifier {
       }
       final currentEnd = bookEnds[session.bookId] ?? 0;
       if (endedAt > currentEnd) bookEnds[session.bookId] = endedAt;
+    }
+    if (pendingPlan != null) {
+      // 已发送请求的快照必须保持不变，即使本地片段已经继续增长。
+      groups.clear();
+      for (final value in pendingPlan['groups']! as List<Object?>) {
+        final group = _SyncGroup.fromJson(value! as Map<String, Object?>);
+        groups['${group.cloudBookId}|${group.date}'] = group;
+      }
+      bookEnds
+        ..clear()
+        ..addAll(
+          (pendingPlan['bookEnds']! as Map<String, Object?>).map(
+            (key, value) => MapEntry(key, (value! as num).toInt()),
+          ),
+        );
     }
     for (final group in groups.values) {
       for (final bookId in group.bookIds) {
@@ -1962,6 +1995,7 @@ class ReaMicroController extends ChangeNotifier {
 
     if (groups.isEmpty) {
       await saveAdvancedWatermarks();
+      if (pendingPlan != null) await _store.savePendingSessionUpload(null);
       _syncing = false;
       _notice = '没有新的阅读记录需要同步';
       _notify();
@@ -1971,6 +2005,19 @@ class ReaMicroController extends ChangeNotifier {
     var requests = 0;
     var durationSeconds = 0;
     String? failure;
+    final remainingGroups = groups.values.toList();
+    Map<String, Object?> uploadPlan() => {
+      'bookEnds': bookEnds,
+      'groups': [for (final group in remainingGroups) group.toJson()],
+    };
+    try {
+      await _store.savePendingSessionUpload(uploadPlan());
+    } catch (error) {
+      _syncing = false;
+      await _handleError(error);
+      _notify();
+      return ReaMicroSyncResult(success: false, message: _error ?? '保存待传时段失败');
+    }
     for (final group in groups.values) {
       if (_token != token) {
         failure = '账号已变更，同步已停止';
@@ -1990,12 +2037,30 @@ class ReaMicroController extends ChangeNotifier {
           sessionAccounting: group.logs.isNotEmpty,
         );
         uploaded.addAll(group.keys);
+        await _store.saveUploadedSessionKeys(uploaded);
+        // 保留最后的空计划直到水位落盘，防止崩溃后用增长快照重建批次。
+        await _store.savePendingSessionUpload({
+          'bookEnds': bookEnds,
+          'groups': [
+            for (final remaining in remainingGroups)
+              if (!identical(remaining, group)) remaining.toJson(),
+          ],
+        });
+        remainingGroups.remove(group);
         for (final bookId in group.bookIds) {
           final remaining = (pendingGroupCount[bookId] ?? 1) - 1;
           pendingGroupCount[bookId] = remaining < 0 ? 0 : remaining;
         }
         requests += 1;
         durationSeconds += group.durationSeconds;
+        recordAppEvent(
+          'reamicro_read_time_uploaded',
+          fields: {
+            'duration_seconds': group.durationSeconds,
+            'sessions': group.keys.length,
+            'session_accounting': group.logs.isNotEmpty,
+          },
+        );
       } catch (error) {
         failure = _messageOf(error);
         if (error is ReaMicroException && error.unauthorized) {
@@ -2006,6 +2071,9 @@ class ReaMicroController extends ChangeNotifier {
     }
 
     if (_token == token) await saveAdvancedWatermarks();
+    if (_token == token && remainingGroups.isEmpty) {
+      await _store.savePendingSessionUpload(null);
+    }
     if (requests > 0 && _token == token) {
       await _store.saveUploadedSessionKeys(uploaded);
       final now = DateTime.now();
@@ -3880,6 +3948,40 @@ class _SyncGroup {
   final Set<String> bookIds = <String>{};
   final List<ReaMicroReadSessionLog> logs = <ReaMicroReadSessionLog>[];
   int durationSeconds = 0;
+
+  Map<String, Object?> toJson() => {
+    'cloudBookId': cloudBookId,
+    'date': date,
+    'keys': keys.toList(),
+    'bookIds': bookIds.toList(),
+    'logs': [for (final log in logs) log.toJson()],
+    'durationSeconds': durationSeconds,
+  };
+
+  factory _SyncGroup.fromJson(Map<String, Object?> json) {
+    final group = _SyncGroup(
+      cloudBookId: (json['cloudBookId']! as num).toInt(),
+      date: json['date']! as String,
+    );
+    group.keys.addAll((json['keys']! as List<Object?>).cast<String>());
+    group.bookIds.addAll((json['bookIds']! as List<Object?>).cast<String>());
+    group.durationSeconds = (json['durationSeconds']! as num).toInt();
+    for (final value in json['logs']! as List<Object?>) {
+      final log = value! as Map<String, Object?>;
+      group.logs.add(
+        ReaMicroReadSessionLog(
+          id: log['id']! as String,
+          cloudBookId: (log['bookId']! as num).toInt(),
+          startedAt: (log['startedAt']! as num).toInt(),
+          endedAt: (log['endedAt']! as num).toInt(),
+          durationSeconds: (log['duration']! as num).toInt(),
+          recordDay: log['recordDay']! as String,
+          listening: log['listening']! as bool,
+        ),
+      );
+    }
+    return group;
+  }
 }
 
 enum _LanSyncStage {
@@ -3915,7 +4017,11 @@ class _SessionPortion {
   final int endedAt;
 }
 
-List<_SessionPortion> _splitSession(ReadingSession session) {
+List<_SessionPortion> _splitSession(
+  ReadingSession session, {
+  required int watermark,
+  required Map<String, int> uploadedEnds,
+}) {
   if (session.duration <= Duration.zero ||
       !session.endedAt.isAfter(session.startedAt)) {
     return const <_SessionPortion>[];
@@ -3924,8 +4030,12 @@ List<_SessionPortion> _splitSession(ReadingSession session) {
   final end = _chinaTime(session.endedAt);
   final portions = <_SessionPortion>[];
   final span = end.difference(start).inMicroseconds;
-  final totalSeconds = session.duration.inSeconds;
-  var assigned = 0;
+  int cumulativeSeconds(DateTime value) =>
+      (BigInt.from(session.duration.inMicroseconds) *
+              BigInt.from(value.difference(start).inMicroseconds) ~/
+              BigInt.from(span) ~/
+              BigInt.from(Duration.microsecondsPerSecond))
+          .toInt();
   var cursor = start;
   while (cursor.isBefore(end)) {
     // start/end 已平移为北京时间墙钟值并保留 UTC 标志，日期边界也必须
@@ -3933,13 +4043,27 @@ List<_SessionPortion> _splitSession(ReadingSession session) {
     final dayStart = DateTime.utc(cursor.year, cursor.month, cursor.day);
     final dayEnd = dayStart.add(const Duration(days: 1));
     final segmentEnd = end.isBefore(dayEnd) ? end : dayEnd;
-    // 按累计比例分配有效时长，跨日小数秒只在整段会话取整一次。
-    final cumulative =
-        totalSeconds * segmentEnd.difference(start).inMicroseconds ~/ span;
-    final seconds = cumulative - assigned;
-    assigned = cumulative;
+    final date = _dateString(dayStart);
+    final identity =
+        '${session.bookId}|${session.startedAt.millisecondsSinceEpoch}|$date';
+    final uploadedEnd = uploadedEnds[identity] ?? 0;
+    final cutoff = _chinaTime(
+      DateTime.fromMillisecondsSinceEpoch(
+        uploadedEnd > watermark ? uploadedEnd : watermark,
+      ),
+    );
+    final portionStart = cutoff.isAfter(cursor) ? cutoff : cursor;
+    // 从原起点累计取整再扣除已传前缀，保留定时保存之间的小数秒。
+    final seconds = portionStart.isBefore(segmentEnd)
+        ? cumulativeSeconds(segmentEnd) - cumulativeSeconds(portionStart)
+        : 0;
     if (seconds > 0) {
-      final date = _dateString(dayStart);
+      final startedAt =
+          session.startedAt.millisecondsSinceEpoch +
+          portionStart.difference(start).inMilliseconds;
+      final endedAt =
+          session.startedAt.millisecondsSinceEpoch +
+          segmentEnd.difference(start).inMilliseconds;
       portions.add(
         _SessionPortion(
           date: date,
@@ -3947,13 +4071,9 @@ List<_SessionPortion> _splitSession(ReadingSession session) {
           key:
               '${session.bookId}|'
               '${session.startedAt.millisecondsSinceEpoch}|'
-              '${session.endedAt.millisecondsSinceEpoch}|$date',
-          startedAt:
-              session.startedAt.millisecondsSinceEpoch +
-              cursor.difference(start).inMilliseconds,
-          endedAt:
-              session.startedAt.millisecondsSinceEpoch +
-              segmentEnd.difference(start).inMilliseconds,
+              '$endedAt|$date',
+          startedAt: startedAt,
+          endedAt: endedAt,
         ),
       );
     }
