@@ -349,6 +349,45 @@ void main() {
     expect(result, isNull);
   });
 
+  testWidgets('表单抽屉可从顶部下拉关闭', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.android),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showReaderDrawer<void>(
+                context: context,
+                builder: (_) => ReaderSheetForm(
+                  title: const Text('界面主题'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      ListTile(title: Text('跟随系统')),
+                      ListTile(title: Text('日间模式')),
+                    ],
+                  ),
+                ),
+              ),
+              child: const Text('打开抽屉'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开抽屉'));
+    await tester.pumpAndSettle();
+    final dragHandle = find.byKey(
+      const ValueKey<String>('reader-drawer-drag-handle'),
+    );
+    expect(dragHandle, findsOneWidget);
+    await tester.fling(dragHandle, const Offset(0, 400), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('界面主题'), findsNothing);
+  });
+
   testWidgets('确认弹窗局部磨砂，深色主题和键盘避让保留', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
