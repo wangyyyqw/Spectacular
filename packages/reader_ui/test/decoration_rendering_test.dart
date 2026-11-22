@@ -768,6 +768,88 @@ void main() {
     expect(_alpha(pixels, 9, 40), 0);
   });
 
+  test('普通图片各铺放模式按实际图片边界裁切圆角并保留中心', () async {
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawColor(const Color(_red), BlendMode.src);
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(60, 60);
+    picture.dispose();
+    addTearDown(image.dispose);
+    for (final fit in ReaderDecorationImageFit.values.where(
+      (fit) => fit != ReaderDecorationImageFit.nineSlice,
+    )) {
+      final pixels = await _pixels(
+        (canvas) => ReaderDecorationPainter.paintBox(
+          canvas,
+          const Rect.fromLTWH(10, 10, 120, 60),
+          ReaderDecorationStyle(
+            backgroundImageFit: fit,
+            borderRadius: 12,
+            backgroundOpacity: .5,
+          ),
+          image: image,
+        ),
+      );
+      final left = fit == ReaderDecorationImageFit.contain ? 40 : 10;
+      expect(_alpha(pixels, left, 10), 0, reason: fit.name);
+      expect(_alpha(pixels, 70, 40), inInclusiveRange(127, 128));
+      expect(_alpha(pixels, 9, 40), 0);
+    }
+  });
+
+  test('点九圆角裁切完整图案，保留外扩、分片锚点与竖排旋转', () async {
+    final decoded = await ReaderDecorationImageCodec.decode(
+      await ninePatchTestBytes(),
+    );
+    addTearDown(decoded.image.dispose);
+    const config = ReaderDecorationNineSlice(
+      slice: Rect.fromLTRB(5 / 30, 5 / 20, 25 / 30, 15 / 20),
+      content: Rect.fromLTRB(5 / 30, 5 / 20, 25 / 30, 15 / 20),
+    );
+    const style = ReaderDecorationStyle(
+      backgroundImageFit: ReaderDecorationImageFit.nineSlice,
+      backgroundImageNineSlice: config,
+      borderRadius: 8,
+    );
+    const anchor = Rect.fromLTWH(40, 40, 80, 20);
+    final normal = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintBox(
+        canvas,
+        anchor,
+        style,
+        image: decoded.image,
+      ),
+    );
+    expect(_alpha(normal, 30, 30), 0);
+    expect(_alpha(normal, 39, 31), 255); // 完整图案外扩依然保留。
+    expect(_alpha(normal, 60, 50), 255);
+    final sliced = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintBox(
+        canvas,
+        const Rect.fromLTWH(40, 40, 40, 20),
+        style,
+        image: decoded.image,
+        imageAnchor: anchor,
+        clipRect: const Rect.fromLTRB(0, 0, 80, 180),
+      ),
+    );
+    expect(_alpha(sliced, 30, 30), 0);
+    expect(_color(sliced, 79, 40), _color(normal, 79, 40));
+    expect(_alpha(sliced, 81, 40), 0);
+    final vertical = await _pixels(
+      (canvas) => ReaderDecorationPainter.paintBox(
+        canvas,
+        const Rect.fromLTWH(40, 40, 20, 80),
+        style,
+        image: decoded.image,
+        vertical: true,
+      ),
+    );
+    expect(_alpha(vertical, 30, 30), 0);
+    expect(_alpha(vertical, 31, 40), 255);
+    expect(_alpha(vertical, 50, 70), 255);
+  });
+
   test('四边不同宽度和颜色独立绘制，内部保持透明', () async {
     final pixels = await _pixels(
       (canvas) => ReaderDecorationPainter.paintBox(

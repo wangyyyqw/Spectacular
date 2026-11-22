@@ -656,7 +656,7 @@ class _ReaderDecorationRuleEditorState
       if (widget.images != null)
         Text(
           _editingStyle.backgroundImageFit == ReaderDecorationImageFit.nineSlice
-              ? '点九图按每行命中文字拉伸，保留素材边角；可调整图片透明度。'
+              ? '点九图按每行命中文字拉伸，保留素材边角；透明度和圆角作用于完整图案。'
               : '每行命中的文字使用同一张图片；透明度和圆角同时作用于图片。',
         ),
       ReaderStyleSlider(

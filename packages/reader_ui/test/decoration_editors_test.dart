@@ -21,6 +21,7 @@ import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
 import 'package:reader_ui/decorations/decoration_image_codec.dart';
 import 'package:reader_ui/decorations/decoration_nine_slice_editor.dart';
+import 'package:reader_ui/decorations/style_controls.dart';
 
 import 'support/decoration_test_images.dart';
 
@@ -600,6 +601,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('平铺').last);
     await tester.pumpAndSettle();
+    final radius = find.byWidgetPredicate(
+      (widget) => widget is ReaderStyleSlider && widget.label == '圆角',
+    );
+    await tester.ensureVisible(radius);
+    tester.widget<ReaderStyleSlider>(radius).onChanged(12);
+    await tester.pumpAndSettle();
     final preview = find.byKey(const ValueKey<String>('rule-preview'));
     await tester.ensureVisible(preview);
     await tester.tap(preview);
@@ -613,7 +620,8 @@ void main() {
         (item) =>
             item.images == images &&
             item.style.backgroundImagePath == '/local/texture.png' &&
-            item.style.backgroundImageFit == ReaderDecorationImageFit.tile,
+            item.style.backgroundImageFit == ReaderDecorationImageFit.tile &&
+            item.style.borderRadius == 12,
       ),
       isTrue,
     );
@@ -623,6 +631,8 @@ void main() {
     expect(saved!.pattern, r'甲|乙\d+');
     expect(saved!.style.backgroundImagePath, '/local/texture.png');
     expect(saved!.style.backgroundImageFit, ReaderDecorationImageFit.tile);
+    expect(saved!.style.borderRadius, 12);
+    expect(saved!.style.decorationStyle.borderRadius, 12);
     expect(tester.takeException(), isNull);
   });
 
