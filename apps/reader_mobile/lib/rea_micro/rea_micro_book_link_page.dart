@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../library/library_store.dart';
+import '../home/book_cover_image.dart';
 import 'rea_micro_controller.dart';
 import 'rea_micro_public_reading_page.dart';
 
@@ -27,17 +28,24 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
   String? _error;
   String _query = '';
   bool _autoMatching = false;
+  String _statusFilter = '未关联';
 
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_onControllerChanged);
     unawaited(_loadBooks());
   }
 
   @override
   void dispose() {
     _filter.dispose();
+    widget.controller.removeListener(_onControllerChanged);
     super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadBooks() async {
@@ -92,11 +100,14 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
   List<BookEntry> get _visibleBooks {
     final books = _books ?? const <BookEntry>[];
     final query = _query.trim().toLowerCase();
-    if (query.isEmpty) return books;
     return <BookEntry>[
       for (final book in books)
-        if (book.title.toLowerCase().contains(query) ||
-            book.author.toLowerCase().contains(query))
+        if ((_statusFilter == '全部' ||
+                (_statusFilter == '已关联') ==
+                    widget.controller.links.containsKey(book.id)) &&
+            (query.isEmpty ||
+                book.title.toLowerCase().contains(query) ||
+                book.author.toLowerCase().contains(query)))
           book,
     ];
   }
@@ -157,11 +168,31 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
                       ),
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
+                    child: Row(
+                      children: [
+                        for (final status in ['未关联', '已关联', '全部'])
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(status),
+                              selected: _statusFilter == status,
+                              onSelected: (_) =>
+                                  setState(() => _statusFilter = status),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                   const Padding(
                     padding: EdgeInsets.fromLTRB(20, 2, 20, 10),
                     child: Text(
-                      '点击书籍后按出版方选择阅微公开阅读版本。关联用于'
-                      '公开阅读，阅读时长、进度和标注会另行独立同步。',
+                      '未关联书籍也会同步阅读数据。选择来源或出版版本，'
+                      '已有记录会沿用本书身份继续上传。',
                     ),
                   ),
                   Expanded(
@@ -183,7 +214,11 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
                                 key: ValueKey<String>(
                                   'reamicro-link-book-${book.id}',
                                 ),
-                                leading: const Icon(Icons.menu_book_outlined),
+                                leading: BookCoverImage(
+                                  book: book,
+                                  width: 40,
+                                  height: 54,
+                                ),
                                 title: Text(
                                   book.title,
                                   maxLines: 1,

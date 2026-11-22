@@ -24,6 +24,8 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 
+import 'package:reader_mobile/rea_micro/rea_micro_manual_association.dart';
+
 class _TestLibrary extends LibraryStore {
   _TestLibrary() : super.memory();
 
@@ -266,6 +268,7 @@ class _FakeApi implements ReaMicroApi {
   int userCalls = 0;
   int recordCalls = 0;
   bool failRecordFetch = false;
+  bool failRegistration = false;
   List<ReaMicroMark> marks = <ReaMicroMark>[];
   final List<ReaMicroMarkDraft> markUpserts = <ReaMicroMarkDraft>[];
   final List<int> markDeletes = <int>[];
@@ -435,6 +438,7 @@ class _FakeApi implements ReaMicroApi {
     String cover = '',
     String coverMd5 = '',
   }) async {
+    if (failRegistration) throw const ReaMicroException('登记超时');
     userBookRequests.add(<String, Object?>{
       'name': name,
       'author': author,
@@ -457,11 +461,18 @@ class _FakeApi implements ReaMicroApi {
     String isbn = '',
     String publishDate = '',
     String price = '',
+    String cover = '',
+    String wordCount = '',
+    String status = '',
   }) async {
     cloudBookRequests.add(<String, Object?>{
       'name': name,
       'author': author,
       'intro': intro,
+      if (publisher.isNotEmpty) 'publisher': publisher,
+      if (cover.isNotEmpty) 'cover': cover,
+      if (wordCount.isNotEmpty) 'wordCount': wordCount,
+      if (status.isNotEmpty) 'status': status,
     });
     return ReaMicroCloudBookRegistration(
       cloudBookId: nextCloudBookId++,
@@ -874,6 +885,17 @@ Future<ReaMicroController> _createController(
 }) async {
   if (signedIn) {
     await ReaMicroStore(library).saveToken('token');
+    // 纯时段夹具不包含 EPUB，预置内部用户书；真实登记使用数据库夹具。
+    if (library is _TestLibrary &&
+        library.book == null &&
+        (await ReaMicroStore(library).loadSyncBooks()).isEmpty) {
+      await ReaMicroStore(library).saveSyncBooks({
+        'book-a': const ReaMicroBookSyncIdentity(
+          cloudBookId: 0,
+          userBookId: 7001,
+        ),
+      });
+    }
   }
   final controller = ReaMicroController(
     library: library,
@@ -890,6 +912,160 @@ Future<ReaMicroController> _createController(
 void main() {
   setUpAll(() {
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+  });
+
+  test('未关联登记仅建内部身份，超时重启后关联沿用历史与新增会话', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(buildTestEpub(title: '未关联历史'));
+    final api = _FakeApi();
+    var controller = await _createController(library, api);
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessionStore.items.add(
+      ReadingSession(
+        bookId: book.id,
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 10)),
+        duration: const Duration(minutes: 10),
+      ),
+    );
+    api.onSessionUpload = () async => throw const ReaMicroException('响应丢失');
+    expect((await controller.syncReadingSessions()).success, isFalse);
+    final log = api.sessionLogUploads.single.single;
+    expect(log.cloudBookId, 7001);
+    expect(api.cloudBookRequests, isEmpty);
+    expect(api.relateRequests, isEmpty);
+    expect(controller.links, isEmpty);
+    controller.dispose();
+    controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    expect(controller.syncBooks[book.id]?.userBookId, 7001);
+    api.onSessionUpload = null;
+    final link = await controller.registerAndLinkBook(
+      book.id,
+      cloudBook: const ReaMicroCloudBook(
+        cloudBookId: 42,
+        name: '未关联历史',
+        publishers: [ReaMicroCloudPublisher(publisherId: 88, publisher: '平台')],
+      ),
+    );
+    expect(link.userBookId, 7001);
+    expect(api.userBookRequests, hasLength(1));
+    expect(api.relateRequests.single['userBookId'], 7001);
+    // 关联后的列表可能仍返回旧公开版本，内部身份与新选择不能被覆盖。
+    api.bookRecords = [
+      ReaMicroBookRecord(
+        bookId: 7001,
+        cloudBookId: 11,
+        name: '云端改名',
+        author: '',
+        cover: '',
+        progress: 0,
+        totalReadTimeSeconds: 600,
+        readDays: 1,
+        finishReadTime: 0,
+        listeningDurationSeconds: 0,
+        readingDurationSeconds: 600,
+      ),
+      ReaMicroBookRecord(
+        bookId: 7999,
+        cloudBookId: 42,
+        name: book.title,
+        author: book.author,
+        cover: '',
+        progress: 0,
+        totalReadTimeSeconds: 0,
+        readDays: 0,
+        finishReadTime: 0,
+        listeningDurationSeconds: 0,
+        readingDurationSeconds: 0,
+      ),
+    ];
+    expect((await controller.syncReadingSessions()).durationSeconds, 600);
+    expect(api.sessionLogUploads.last.single.id, log.id);
+    expect(api.sessionLogUploads.last.single.cloudBookId, 7001);
+    library.sessionStore.items[0] = ReadingSession(
+      bookId: book.id,
+      startedAt: start,
+      endedAt: start.add(const Duration(minutes: 12)),
+      duration: const Duration(minutes: 12),
+    );
+    expect((await controller.syncReadingSessions()).durationSeconds, 120);
+    expect((await controller.syncReadingSessions()).requests, 0);
+    expect(api.sessionLogUploads.last.single.cloudBookId, 7001);
+    expect(api.sessionLogUploads.last.single.startedAt, log.endedAt);
+    expect(controller.links[book.id]?.cloudBookId, 42);
+  });
+
+  test('登记失败保留未关联时段，恢复后使用会话而不累计降级', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(buildTestEpub(title: '登记失败'));
+    final api = _FakeApi()..failRegistration = true;
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessionStore.items.add(
+      ReadingSession(
+        bookId: book.id,
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 2)),
+        duration: const Duration(minutes: 2),
+      ),
+    );
+    expect((await controller.syncReadingSessions()).success, isFalse);
+    expect(api.uploads, isEmpty);
+    expect(await ReaMicroStore(library).loadSessionWatermarks(), isEmpty);
+    api.failRegistration = false;
+    expect((await controller.syncReadingSessions()).durationSeconds, 120);
+    expect(api.accountingFlags, [true]);
+    expect(api.cloudBookRequests, isEmpty);
+  });
+
+  test('旧累计历史关联后只传新增尾段，手动资料完整传入且不重登记', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(buildTestEpub(title: '旧累计历史'));
+    final start = DateTime.utc(2026, 11, 23, 1);
+    final priorEnd = start.add(const Duration(minutes: 10));
+    final store = ReaMicroStore(library);
+    await store.saveSessionWatermarks({
+      book.id: priorEnd.millisecondsSinceEpoch,
+    });
+    await store.saveSyncBooks({
+      book.id: const ReaMicroBookSyncIdentity(cloudBookId: 0, userBookId: 7001),
+    });
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    const draft = ReaMicroManualAssociation(
+      name: '手动书名',
+      author: '手动作者',
+      intro: '手动简介',
+      publisher: '起点中文网',
+      wordCount: '10万',
+      status: '完结',
+      cover: 'https://example.com/cover.png',
+    );
+    await controller.registerAndLinkBook(book.id, manual: draft);
+    expect(api.cloudBookRequests.single, {
+      'name': draft.name,
+      'author': draft.author,
+      'intro': draft.intro,
+      'publisher': draft.publisher,
+      'wordCount': draft.wordCount,
+      'status': draft.status,
+      'cover': draft.cover,
+    });
+    expect(api.userBookRequests, isEmpty);
+    expect(controller.links[book.id]?.userBookId, 7001);
+    library.sessionStore.items.add(
+      ReadingSession(
+        bookId: book.id,
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 12)),
+        duration: const Duration(minutes: 12),
+      ),
+    );
+    expect((await controller.syncReadingSessions()).durationSeconds, 120);
+    expect(api.uploads.single.single.durationSeconds, 120);
   });
 
   test('历史月统计传递所选年份和月份', () async {
@@ -1214,7 +1390,9 @@ void main() {
     final controller = await _createController(library, api);
     addTearDown(controller.dispose);
     final start = DateTime.utc(2026, 11, 23, 1);
-    library.sessions.add(_session(start, start.add(const Duration(minutes: 2))));
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 2))),
+    );
     api.onSessionUpload = controller.logout;
     await controller.syncReadingSessions();
     expect(await ReaMicroStore(library).loadUploadedSessionKeys(), isEmpty);
@@ -1518,7 +1696,7 @@ void main() {
     expect(api.uploads.last.single.durationSeconds, 420);
   });
 
-  test('未公开关联的书籍也上报阅读时长且不附带书籍标识', () async {
+  test('未公开关联的书籍用内部用户书与稳定会话上报', () async {
     final library = _TestLibrary();
     final api = _FakeApi();
     final controller = await _createController(library, api);
@@ -1531,9 +1709,9 @@ void main() {
 
     expect(result.success, isTrue);
     expect(api.uploads, hasLength(1));
-    expect(api.uploads.single.single.cloudBookId, 0);
-    expect(api.uploads.single.single.toJson().containsKey('bookId'), isFalse);
-    expect(api.sessionLogUploads.single, isEmpty);
+    expect(api.uploads.single.single.cloudBookId, 7001);
+    expect(api.sessionLogUploads.single.single.cloudBookId, 7001);
+    expect(api.accountingFlags.single, isTrue);
     expect(controller.links, isEmpty);
   });
 
@@ -1581,9 +1759,9 @@ void main() {
 
     expect(result.success, isTrue);
     expect(controller.links, isEmpty);
-    expect(controller.syncBooks['book-a']?.cloudBookId, 8001);
+    expect(controller.syncBooks['book-a']?.cloudBookId, 0);
     expect(api.userBookRequests, hasLength(1));
-    expect(api.cloudBookRequests, hasLength(1));
+    expect(api.cloudBookRequests, isEmpty);
     expect(api.progressUploads, hasLength(1));
     expect(api.progressUploads.single.cloudBookId, 7001);
   });
@@ -1623,7 +1801,7 @@ void main() {
 
     expect(result.success, isTrue);
     expect(controller.links, isEmpty);
-    expect(controller.syncBooks[imported.id]?.cloudBookId, 8001);
+    expect(controller.syncBooks[imported.id]?.cloudBookId, 0);
     expect(api.markUpserts, hasLength(1));
     expect(api.markUpserts.single.bookId, '7001');
   });

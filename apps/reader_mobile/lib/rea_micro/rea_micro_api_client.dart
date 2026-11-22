@@ -139,6 +139,9 @@ abstract interface class ReaMicroApi {
     String isbn = '',
     String publishDate = '',
     String price = '',
+    String cover = '',
+    String wordCount = '',
+    String status = '',
   });
 
   /// 建立用户书与出版书的关联。
@@ -619,6 +622,9 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
     String isbn = '',
     String publishDate = '',
     String price = '',
+    String cover = '',
+    String wordCount = '',
+    String status = '',
   }) async {
     final data = await _post('rest/book/post-cloud-book', <String, Object?>{
       'name': name,
@@ -626,15 +632,15 @@ class ReaMicroApiClient implements ReaMicroApi, ReaMicroMoteSyncApi {
       'subtitle': subtitle,
       'original': '',
       'intro': intro,
-      'cover': '',
+      'cover': cover,
       'translator': '',
       'publisher': publisher,
       'publishDate': publishDate,
       'price': price,
       'isbn': isbn,
       'bookAlias': '',
-      'wordCount': '',
-      'status': '',
+      'wordCount': wordCount,
+      'status': status,
     }, token: token);
     final json = _objectData(data);
     if (json == null) {

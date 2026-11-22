@@ -334,6 +334,10 @@ void main() {
       name: '新书',
       author: '作者',
       intro: '简介',
+      publisher: '起点中文网',
+      wordCount: '10万',
+      status: '完结',
+      cover: 'https://example.com/cover.png',
     );
     await api.relateCloudBook(
       'token',
@@ -366,6 +370,13 @@ void main() {
     });
     expect(jsonDecode(requests[3].body), containsPair('name', '新书'));
     expect(jsonDecode(requests[3].body), containsPair('intro', '简介'));
+    expect(jsonDecode(requests[3].body), containsPair('publisher', '起点中文网'));
+    expect(jsonDecode(requests[3].body), containsPair('wordCount', '10万'));
+    expect(jsonDecode(requests[3].body), containsPair('status', '完结'));
+    expect(
+      jsonDecode(requests[3].body),
+      containsPair('cover', 'https://example.com/cover.png'),
+    );
     expect(jsonDecode(requests[4].body), <String, Object?>{
       'userBookId': 7001,
       'bookPublisherId': 88,

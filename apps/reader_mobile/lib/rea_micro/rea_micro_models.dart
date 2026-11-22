@@ -905,25 +905,37 @@ class ReaMicroBookSyncIdentity {
   const ReaMicroBookSyncIdentity({
     required this.cloudBookId,
     this.userBookId = 0,
+    this.publisherId = 0,
+    this.publisherName = '',
   });
 
-  /// 阅微云端书籍标识。
+  /// 阅微公开书库标识；为 0 时仍可使用内部用户书同步。
   final int cloudBookId;
 
   /// 阅微用户书标识；为 0 表示接口未返回。
   final int userBookId;
+
+  /// 登记接口已匹配的出版方，用于后续显式关联。
+  final int publisherId;
+
+  /// 登记接口已匹配的出版方名称。
+  final String publisherName;
 
   /// 从本地 JSON 解析。
   factory ReaMicroBookSyncIdentity.fromJson(Map<String, Object?> json) =>
       ReaMicroBookSyncIdentity(
         cloudBookId: _intValue(json['cloudBookId']),
         userBookId: _intValue(json['userBookId']),
+        publisherId: _intValue(json['publisherId']),
+        publisherName: _stringValue(json['publisherName']) ?? '',
       );
 
   /// 序列化到本地 JSON。
   Map<String, Object?> toJson() => <String, Object?>{
     'cloudBookId': cloudBookId,
     'userBookId': userBookId,
+    if (publisherId > 0) 'publisherId': publisherId,
+    if (publisherName.isNotEmpty) 'publisherName': publisherName,
   };
 }
 

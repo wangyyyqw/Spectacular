@@ -6,6 +6,7 @@ import '../home/book_cover_image.dart';
 import '../library/library_store.dart';
 import 'rea_micro_controller.dart';
 import 'rea_micro_models.dart';
+import 'rea_micro_manual_association_page.dart';
 
 /// 将本地书籍公开关联到阅微云端书籍。
 ///
@@ -42,6 +43,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
   String? _error;
   bool _searching = false;
   bool _linking = false;
+  int _searchGeneration = 0;
 
   ReaMicroBookLink? get _link => widget.controller.links[widget.book.id];
 
@@ -65,7 +67,8 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
   }
 
   Future<void> _search() async {
-    if (_searching || _linking) return;
+    if (_linking) return;
+    final generation = ++_searchGeneration;
     if (!widget.controller.signedIn) {
       setState(() => _error = '请先登录阅微账号');
       return;
@@ -81,7 +84,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
         name: _name.text,
         author: _author.text,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _searchGeneration) return;
       ReaMicroPublicReadingCandidate? selected;
       for (final group in groups) {
         for (final candidate in group.candidates) {
@@ -94,13 +97,15 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
       setState(() {
         _groups = groups;
         _selected = selected;
-        if (groups.isEmpty) _error = '没有找到匹配的阅微云端书籍，可尝试新建书籍';
+        if (groups.isEmpty) _error = '没有找到匹配版本，可调整关键词或手动关联';
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() => _error = '$error');
     } finally {
-      if (mounted) setState(() => _searching = false);
+      if (mounted && generation == _searchGeneration) {
+        setState(() => _searching = false);
+      }
     }
   }
 
@@ -112,7 +117,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
       return;
     }
     await _runLink(
-      () => widget.controller.publishBookForPublicReading(
+      () => widget.controller.registerAndLinkBook(
         widget.book.id,
         cloudBook: candidate.book,
         publisher: candidate.publisher,
@@ -122,23 +127,15 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
 
   Future<void> _createAndPublish() async {
     if (_linking) return;
-    await _runLink(
-      () => widget.controller.publishBookForPublicReading(widget.book.id),
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ReaMicroManualAssociationPage(
+          controller: widget.controller,
+          book: widget.book,
+        ),
+      ),
     );
-  }
-
-  Future<void> _linkOnly() async {
-    final candidate = _selected;
-    if (candidate == null || _linking) return;
-    await _runLink(() async {
-      await widget.controller.linkBook(
-        widget.book.id,
-        candidate.book,
-        publisherId: candidate.publisherId,
-      );
-      await widget.controller.syncAll();
-      return null;
-    });
+    if (changed == true && mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _unlink() async {
@@ -167,6 +164,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
     });
     try {
       await action();
+      widget.controller.scheduleReadingSync(delay: Duration.zero);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (error) {
@@ -183,165 +181,183 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
     final theme = Theme.of(context);
     final link = _link;
     final groups = _groups;
-    return Scaffold(
-      key: const ValueKey<String>('reamicro-public-reading-page'),
-      appBar: AppBar(title: const Text('公开阅读')),
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: <Widget>[
-            _LocalBookHeader(book: widget.book),
-            const SizedBox(height: 12),
-            if (link != null) ...<Widget>[
-              _CurrentLinkCard(
-                link: link,
-                linking: _linking,
-                onUnlink: _unlink,
+    return PopScope(
+      canPop: !_linking,
+      child: Scaffold(
+        key: const ValueKey<String>('reamicro-public-reading-page'),
+        appBar: AppBar(title: const Text('关联书籍')),
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: _LocalBookHeader(book: widget.book),
               ),
-              const SizedBox(height: 12),
-            ],
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                   children: <Widget>[
-                    Text('聚合搜索', style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      '按书名和作者检索阅微公开书库，再按出版方选择要关联的版本。',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    if (link != null) ...<Widget>[
+                      _CurrentLinkCard(
+                        link: link,
+                        linking: _linking,
+                        onUnlink: _unlink,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            Text('聚合搜索', style: theme.textTheme.titleMedium),
+                            const SizedBox(height: 4),
+                            Text(
+                              '按书名和作者检索，再选择来源平台或出版版本。',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              key: const ValueKey<String>(
+                                'public-reading-name',
+                              ),
+                              controller: _name,
+                              textInputAction: TextInputAction.search,
+                              onSubmitted: (_) => unawaited(_search()),
+                              decoration: const InputDecoration(
+                                labelText: '阅微书名',
+                                prefixIcon: Icon(Icons.book_outlined),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              key: const ValueKey<String>(
+                                'public-reading-author',
+                              ),
+                              controller: _author,
+                              textInputAction: TextInputAction.search,
+                              onSubmitted: (_) => unawaited(_search()),
+                              decoration: const InputDecoration(
+                                labelText: '作者（可选）',
+                                prefixIcon: Icon(Icons.person_outline),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              key: const ValueKey<String>(
+                                'public-reading-search',
+                              ),
+                              onPressed: _linking ? null : _search,
+                              icon: _searching
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.search),
+                              label: Text(_searching ? '正在搜索…' : '搜索关联版本'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      key: const ValueKey<String>('public-reading-name'),
-                      controller: _name,
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) => unawaited(_search()),
-                      decoration: const InputDecoration(
-                        labelText: '阅微书名',
-                        prefixIcon: Icon(Icons.book_outlined),
+                    if (_error != null) ...<Widget>[
+                      const SizedBox(height: 10),
+                      Text(
+                        _error!,
+                        key: const ValueKey<String>('public-reading-error'),
+                        style: TextStyle(color: theme.colorScheme.error),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      key: const ValueKey<String>('public-reading-author'),
-                      controller: _author,
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) => unawaited(_search()),
-                      decoration: const InputDecoration(
-                        labelText: '作者（可选）',
-                        prefixIcon: Icon(Icons.person_outline),
+                    ],
+                    if (groups != null && groups.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 18),
+                      Text('搜索结果', style: theme.textTheme.titleMedium),
+                      const SizedBox(height: 4),
+                      Text(
+                        '共 ${groups.fold<int>(0, (count, group) => count + group.candidates.length)} 个版本',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      key: const ValueKey<String>('public-reading-search'),
-                      onPressed: _searching || _linking ? null : _search,
-                      icon: _searching
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                      label: Text(_searching ? '正在搜索…' : '搜索公开阅读版本'),
-                    ),
+                      const SizedBox(height: 10),
+                      for (final group in groups) ...<Widget>[
+                        _PublisherGroupCard(
+                          group: group,
+                          selected: _selected,
+                          currentLink: link,
+                          onSelected: _linking
+                              ? null
+                              : (candidate) => setState(() {
+                                  _selected = candidate;
+                                  _error = null;
+                                }),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ],
+                    if (groups == null && !_searching && _error == null)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: Text('输入书名后开始搜索')),
+                      ),
                   ],
                 ),
               ),
-            ),
-            if (_error != null) ...<Widget>[
-              const SizedBox(height: 10),
-              Text(
-                _error!,
-                key: const ValueKey<String>('public-reading-error'),
-                style: TextStyle(color: theme.colorScheme.error),
-              ),
             ],
-            if (groups != null && groups.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 18),
-              Text('搜索结果', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                '共 ${groups.fold<int>(0, (count, group) => count + group.candidates.length)} 个版本',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 10),
-              for (final group in groups) ...<Widget>[
-                _PublisherGroupCard(
-                  group: group,
-                  selected: _selected,
-                  currentLink: link,
-                  onSelected: _linking
-                      ? null
-                      : (candidate) => setState(() {
-                          _selected = candidate;
-                          _error = null;
-                        }),
-                ),
-                const SizedBox(height: 10),
-              ],
-            ],
-            if (groups == null && !_searching && _error == null)
-              const Padding(
-                padding: EdgeInsets.only(top: 24),
-                child: Center(child: Text('输入书名后开始搜索')),
-              ),
-          ],
+          ),
         ),
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              FilledButton.icon(
-                key: const ValueKey<String>('public-reading-link'),
-                onPressed: _linking || _selected == null
-                    ? null
-                    : _publishSelected,
-                icon: _linking
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.cloud_upload_outlined),
-                label: Text(_linking ? '关联中…' : '关联并公开阅读'),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>('public-reading-new-book'),
-                      onPressed: _linking ? null : _createAndPublish,
-                      icon: const Icon(Icons.add_link),
-                      label: const Text('新建书籍'),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                FilledButton.icon(
+                  key: const ValueKey<String>('public-reading-link'),
+                  onPressed: _linking || _selected == null
+                      ? null
+                      : _publishSelected,
+                  icon: _linking
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_upload_outlined),
+                  label: Text(_linking ? '关联中…' : '关联所选版本'),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const ValueKey<String>('public-reading-new-book'),
+                        onPressed: _linking ? null : _createAndPublish,
+                        icon: const Icon(Icons.add_link),
+                        label: const Text('手动关联'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextButton(
-                      key: const ValueKey<String>('public-reading-link-only'),
-                      onPressed: _linking || _selected == null
-                          ? null
-                          : _linkOnly,
-                      child: const Text('仅关联数据'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                    if (link != null) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextButton(
+                          onPressed: _linking ? null : _unlink,
+                          child: const Text('解除关联'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -393,7 +409,7 @@ class _LocalBookHeader extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '关联后，本书的阅读时长、进度、划线和想法会同步到阅微。',
+                    '未关联也保存阅读数据，关联后继续同步到所选版本。',
                     style: theme.textTheme.bodySmall,
                   ),
                 ],

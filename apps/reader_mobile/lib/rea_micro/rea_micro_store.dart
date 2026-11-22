@@ -120,7 +120,9 @@ class ReaMicroStore {
         final value = entry.value;
         if (value is! Map<String, Object?>) continue;
         final identity = ReaMicroBookSyncIdentity.fromJson(value);
-        if (identity.cloudBookId > 0) identities[entry.key] = identity;
+        if (identity.userBookId > 0 || identity.cloudBookId > 0) {
+          identities[entry.key] = identity;
+        }
       }
       return identities;
     } on FormatException {
