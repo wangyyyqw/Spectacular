@@ -3,6 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/panels/custom_theme_dialog.dart';
 
 Widget _panel(
   List<String> changes, {
@@ -70,9 +73,19 @@ void main() {
     await tester.pumpWidget(_panel(changes));
     await tester.tap(find.byKey(const ValueKey('settings-custom-theme-edit')));
     await tester.pumpAndSettle();
+    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
     await tester.enterText(
       find.byKey(const ValueKey('custom-color-hex')),
       'EEDDBB',
+    );
+    await tester.pump();
+    final preview = tester.widget<Container>(
+      find.byKey(const ValueKey('custom-theme-preview')),
+    );
+    expect(
+      (preview.decoration! as BoxDecoration).color,
+      const Color(0xFFEEDDBB),
     );
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
@@ -110,4 +123,60 @@ void main() {
     expect(changes.last, custom.id);
     expect(tester.takeException(), isNull);
   });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.windows]) {
+    testWidgets('${platform.name}窄屏大字号键盘下可调整 RGB 并保存配色', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(280, 480));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      ReaderTheme? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(2.4)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  result = await showReaderDrawer<ReaderTheme>(
+                    context: context,
+                    builder: (_) =>
+                        const CustomThemeDialog(theme: ReaderTheme.white),
+                  );
+                },
+                child: const Text('编辑主题'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('编辑主题'));
+      await tester.pumpAndSettle();
+      final slider = tester.widget<Slider>(
+        find.byKey(const ValueKey('custom-color-红')),
+      );
+      slider.onChanged!(128);
+      await tester.pump();
+      final field = find.byKey(const ValueKey('custom-color-hex'));
+      await tester.ensureVisible(field);
+      await tester.enterText(field, 'AABBCC');
+      await tester.pump();
+      final save = find.byKey(const ValueKey('custom-theme-save'));
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(save).bottom, lessThanOrEqualTo(280));
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(result?.background, const Color(0xFFAABBCC));
+      expect(result?.text, ReaderTheme.white.text);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

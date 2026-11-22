@@ -10,6 +10,7 @@ import 'package:reader_core/epub/opf.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import 'book_editor_controller.dart';
 import '../diagnostics/reader_log.dart';
@@ -27,6 +28,16 @@ Future<T?> _showEditorDialog<T>({
   waitForDismissal: true,
 );
 
+/// 表单返回后仍等待抽屉卸载，避免输入控制器提前释放。
+Future<T?> _showEditorDrawer<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+}) => showReaderDrawer<T>(
+  context: context,
+  builder: builder,
+  waitForDismissal: true,
+);
+
 Future<String?> editorPrompt(
   BuildContext context,
   String title, {
@@ -34,15 +45,18 @@ Future<String?> editorPrompt(
   bool multiline = false,
 }) async {
   final input = TextEditingController(text: initial);
-  final result = await _showEditorDialog<String>(
+  final result = await _showEditorDrawer<String>(
     context: context,
-    builder: (context) => ReaderFrostedAlertDialog(
+    builder: (context) => ReaderSheetForm(
       title: Text(title),
       content: SizedBox(
         width: 560,
         child: TextField(
           autofocus: true,
           controller: input,
+          style: multiline
+              ? const TextStyle(fontFamily: 'monospace', fontSize: 14)
+              : null,
           minLines: multiline ? 5 : 1,
           maxLines: multiline ? 12 : 1,
         ),
@@ -111,9 +125,9 @@ class BookEditorTools {
       for (final key in labels.keys)
         key: TextEditingController(text: values[key]),
     };
-    await _showEditorDialog<void>(
+    await _showEditorDrawer<void>(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
+      builder: (context) => ReaderSheetForm(
         title: const Text('书籍信息'),
         content: SizedBox(
           width: 560,
@@ -205,10 +219,10 @@ class BookEditorTools {
     }
     String? failure;
     var working = false;
-    await _showEditorDialog<void>(
+    await _showEditorDrawer<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => ReaderFrostedAlertDialog(
+        builder: (context, setState) => ReaderSheetForm(
           title: Text('全书 .$name'),
           content: SizedBox(
             width: 640,
@@ -229,22 +243,25 @@ class BookEditorTools {
                           .where((item) => item.path.endsWith('.css'))
                           .map((item) => item.path)
                           .toList();
-                      final path = await _showEditorDialog<String>(
+                      final path = await _showEditorDrawer<String>(
                         context: context,
-                        builder: (context) => ReaderFrostedSimpleDialog(
+                        builder: (context) => ReaderSheetForm(
                           title: const Text('选择 CSS 文件'),
-                          children: [
-                            if (paths.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Text('此书没有 CSS 文件；先应用样式将创建共享样式表。'),
-                              ),
-                            for (final path in paths)
-                              SimpleDialogOption(
-                                onPressed: () => Navigator.pop(context, path),
-                                child: Text(path),
-                              ),
-                          ],
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (paths.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: Text('此书没有 CSS 文件；先应用样式将创建共享样式表。'),
+                                ),
+                              for (final path in paths)
+                                ListTile(
+                                  onTap: () => Navigator.pop(context, path),
+                                  title: Text(path),
+                                ),
+                            ],
+                          ),
                         ),
                       );
                       if (path != null && context.mounted) {
@@ -412,20 +429,23 @@ class BookEditorTools {
   );
 
   Future<void> addResource() async {
-    final action = await _showEditorDialog<String>(
+    final action = await _showEditorDrawer<String>(
       context: context,
-      builder: (context) => ReaderFrostedSimpleDialog(
+      builder: (context) => ReaderSheetForm(
         title: const Text('新增内容'),
-        children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, 'chapter'),
-            child: const Text('空白章节'),
-          ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, 'file'),
-            child: const Text('导入图片、字体或文件'),
-          ),
-        ],
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              onTap: () => Navigator.pop(context, 'chapter'),
+              title: const Text('空白章节'),
+            ),
+            ListTile(
+              onTap: () => Navigator.pop(context, 'file'),
+              title: const Text('导入图片、字体或文件'),
+            ),
+          ],
+        ),
       ),
     );
     if (!context.mounted) return;
@@ -575,10 +595,10 @@ class BookEditorTools {
   Future<void> chapters() async {
     if (!editor.flush()) return;
     final items = package.chapters.toList();
-    await _showEditorDialog<void>(
+    await _showEditorDrawer<void>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => ReaderFrostedAlertDialog(
+        builder: (context, setState) => ReaderSheetForm(
           title: const Text('章节顺序'),
           content: SizedBox(
             width: 640,
@@ -674,10 +694,10 @@ class BookEditorTools {
   Future<void> toc() async {
     if (!editor.flush()) return;
     final items = package.toc.toList();
-    await _showEditorDialog<void>(
+    await _showEditorDrawer<void>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => ReaderFrostedAlertDialog(
+        builder: (context, setState) => ReaderSheetForm(
           title: const Text('书籍目录'),
           content: SizedBox(
             width: 640,
@@ -751,9 +771,9 @@ class BookEditorTools {
           : '${entry.path}${entry.fragment == null ? '' : '#${entry.fragment}'}',
     );
     final depth = TextEditingController(text: '${entry?.depth ?? 0}');
-    final result = await _showEditorDialog<EditTocEntry>(
+    final result = await _showEditorDrawer<EditTocEntry>(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
+      builder: (context) => ReaderSheetForm(
         title: const Text('目录项'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -815,10 +835,10 @@ class BookEditorTools {
       borderRadius: BorderRadius.circular(20),
       borderSide: BorderSide.none,
     );
-    await _showEditorDialog<void>(
+    await _showEditorDrawer<void>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => ReaderFrostedAlertDialog(
+        builder: (context, setState) => ReaderSheetForm(
           title: const Text('全书源码查找替换'),
           content: SizedBox(
             width: 680,
@@ -950,9 +970,9 @@ class BookEditorTools {
     Future<void> Function()? restorePrevious,
     required VoidCallback onRestored,
   }) async {
-    await _showEditorDialog<void>(
+    await _showEditorDrawer<void>(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
+      builder: (context) => ReaderSheetForm(
         title: const Text('编辑历史'),
         content: SizedBox(
           width: 600,

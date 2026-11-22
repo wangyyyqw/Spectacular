@@ -334,9 +334,9 @@ class _StatsContent extends StatelessWidget {
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
-            desktop ? 28 : 20,
+            desktop ? 28 : 16,
             20,
-            desktop ? 28 : 20,
+            desktop ? 28 : 16,
             36,
           ),
           children: [
@@ -628,7 +628,7 @@ class _StatsSkeleton extends StatelessWidget {
         width: 680,
         child: ListView(
           physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 36),
           children: [
             Align(alignment: Alignment.centerLeft, child: block(20, width: 64)),
             const SizedBox(height: 12),

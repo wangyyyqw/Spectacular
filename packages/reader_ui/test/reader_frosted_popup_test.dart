@@ -7,8 +7,180 @@ import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 void main() {
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+  ]) {
+    testWidgets('${platform.name}抽屉捕获主题、返回结果并在退场后释放控制器', (tester) async {
+      final input = TextEditingController();
+      final focus = FocusNode();
+      final origin = FocusNode();
+      addTearDown(focus.dispose);
+      addTearDown(origin.dispose);
+      final desktop = platform != TargetPlatform.android;
+      var completed = false;
+      var backgroundShortcut = false;
+      String? result;
+      BuildContext? drawerContext;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          builder: (context, child) => CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.f2): () =>
+                  backgroundShortcut = true,
+            },
+            child: child!,
+          ),
+          home: ReaderPanelTheme(
+            theme: ReaderTheme.sepia,
+            child: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  focusNode: origin,
+                  onPressed: () async {
+                    result = await showReaderDrawer<String>(
+                      context: context,
+                      waitForDismissal: true,
+                      maxWidth: 420,
+                      isDismissible: false,
+                      enableDrag: false,
+                      builder: (context) {
+                        drawerContext = context;
+                        return ReaderSheetForm(
+                          title: const Text('编辑名称'),
+                          content: TextField(
+                            controller: input,
+                            focusNode: focus,
+                            autofocus: true,
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.pop(context, input.text),
+                              child: const Text('保存'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                    input.dispose();
+                    completed = true;
+                  },
+                  child: const Text('打开抽屉'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      origin.requestFocus();
+      await tester.pump();
+      await tester.tap(find.text('打开抽屉'));
+      await tester.pumpAndSettle();
+      final surface = find.byType(ReaderFrostedSurface);
+      expect(tester.getSize(surface).width, 420);
+      expect(
+        Theme.of(drawerContext!).textTheme.bodyMedium?.fontFamily,
+        'builtin_hei',
+      );
+      expect(
+        Theme.of(drawerContext!).colorScheme.surface,
+        ReaderTheme.sepia.background,
+      );
+      expect(focus.hasFocus, isTrue);
+      expect(find.byType(BottomSheet), desktop ? findsNothing : findsOneWidget);
+      expect(ModalRoute.of(drawerContext!)!.barrierColor, Colors.black54);
+      if (desktop) {
+        expect(tester.getRect(surface).right, 800);
+        final route = ModalRoute.of(drawerContext!)!;
+        expect(route.traversalEdgeBehavior, TraversalEdgeBehavior.closedLoop);
+        expect(
+          route.reverseTransitionDuration,
+          lessThan(route.transitionDuration),
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+        expect(backgroundShortcut, isFalse);
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      expect(focus.hasFocus, isTrue, reason: '焦点遍历不能进入被遮罩的页面');
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.byType(ReaderSheetForm), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '真实结果');
+      await tester.tap(find.text('保存'));
+      await tester.pump();
+      expect(completed, isFalse);
+      await tester.pumpAndSettle();
+      expect(completed, isTrue);
+      expect(result, '真实结果');
+      expect(drawerContext!.mounted, isFalse);
+      expect(origin.hasFocus, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+      expect(backgroundShortcut, isTrue, reason: '抽屉关闭后恢复原页面快捷键');
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.windows]) {
+    testWidgets('${platform.name}减少动态效果即时显示，关闭按钮和系统返回保留', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showReaderDrawer<void>(
+                  context: context,
+                  builder: (_) => const ReaderSheetForm(title: Text('选项')),
+                ),
+                child: const Text('打开抽屉'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开抽屉'));
+      await tester.pump();
+      final route = ModalRoute.of(
+        tester.element(find.byType(ReaderSheetForm)),
+      )!;
+      expect(route.animation!.value, 1);
+      expect(route.animation!.isAnimating, isFalse);
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pump();
+      expect(find.byType(ReaderSheetForm), findsNothing);
+      await tester.tap(find.text('打开抽屉'));
+      await tester.pump();
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.byType(ReaderSheetForm), findsNothing);
+      if (platform == TargetPlatform.windows) {
+        await tester.tap(find.text('打开抽屉'));
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pump();
+        expect(find.byType(ReaderSheetForm), findsNothing);
+      }
+      await tester.tap(find.text('打开抽屉'));
+      await tester.pump();
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pump();
+      expect(find.byType(ReaderSheetForm), findsNothing);
+    });
+  }
+
   testWidgets('弹窗保持焦点循环、遮罩关闭约定与返回值，退场结束后释放输入控制器', (tester) async {
     final input = TextEditingController();
     final focus = FocusNode();

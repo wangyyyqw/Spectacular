@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/editing/epub_editing.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_tools.dart';
@@ -11,9 +12,10 @@ Future<bool> editBookImage(
   BookEditorController editor,
   EditableElementRef image,
 ) async =>
-    await showReaderDialog<bool>(
+    await showReaderDrawer<bool>(
       context: context,
       builder: (_) => _ImageEditor(editor: editor, image: image),
+      waitForDismissal: true,
     ) ??
     false;
 
@@ -72,7 +74,7 @@ class _ImageEditorState extends State<_ImageEditor> {
           .where((item) => item.mediaType.startsWith('image/'))
           .map((item) => item.path),
     };
-    return ReaderFrostedAlertDialog(
+    return ReaderSheetForm(
       title: const Text('编辑图片'),
       content: SizedBox(
         width: 560,

@@ -175,8 +175,10 @@ void main() {
     expect(tester.getTopLeft(body).dy, lessThan(tester.getTopLeft(quote).dy));
     expect(tester.getTopLeft(quote).dy, lessThan(tester.getTopLeft(mark).dy));
     expect(find.byType(EditableText), findsNothing);
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
+    expect(find.text('冬日'), findsOneWidget);
+    expect(body, findsNothing);
     await tester.tap(find.text('春潮'));
     await tester.pumpAndSettle();
     expect(opened, ['one', 'two']);
@@ -205,6 +207,35 @@ void main() {
     expect(attempts, ['one', 'one']);
     expect(find.text('这本书还没有笔记'), findsOneWidget);
     expect(find.text('重试'), findsNothing);
+  });
+
+  testWidgets('大量笔记按可见区域构建，滚动可读末条并关闭回书目', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        books: [_book('many', '长篇笔记')],
+        counts: {'many': _counts(0, 100)},
+        loadNotes: (_) async => [
+          for (var index = 0; index < 100; index++)
+            _annotation('第 $index 条原文', day: 100 - index),
+        ],
+      ),
+    );
+    await tester.tap(find.text('长篇笔记'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 0 条原文'), findsOneWidget);
+    expect(find.text('第 99 条原文'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('第 99 条原文'),
+      500,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('第 99 条原文'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('长篇笔记'), findsOneWidget);
+    expect(find.text('第 99 条原文'), findsNothing);
   });
 
   testWidgets('没有笔记时也能下拉刷新列表', (tester) async {

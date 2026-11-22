@@ -188,7 +188,13 @@ void main() {
       );
       final chapterTitle = tester.widget<Text>(find.text('第二章'));
       expect(chapterTitle.style?.fontSize, 14);
-      expect(chapterTitle.style?.fontFamily, 'serif');
+      expect(
+        chapterTitle.style?.fontFamily,
+        Theme.of(tester.element(find.byType(TocPanel)))
+            .textTheme
+            .bodyMedium
+            ?.fontFamily,
+      );
       final leafTile = tester.widget<ListTile>(
         find.ancestor(of: find.text('第一章'), matching: find.byType(ListTile)),
       );

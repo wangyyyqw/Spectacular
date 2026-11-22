@@ -791,12 +791,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     if (action == 'detail') {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => BookDetailPage(
+      await showReaderDrawer<void>(
+        context: context,
+        builder: (context) => SizedBox(
+          height: MediaQuery.sizeOf(context).height * .9,
+          child: BookDetailPage(
             entry: entry,
             library: widget.library,
             progressStore: widget.progressStore,
+            inDrawer: true,
           ),
         ),
       );

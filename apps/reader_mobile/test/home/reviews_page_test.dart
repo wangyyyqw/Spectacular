@@ -124,7 +124,7 @@ Future<void> _openReviewsTab(WidgetTester tester) async {
 
 void main() {
   testWidgets(
-    '桌面书评并排展示、常驻搜索，窄窗编辑弹窗可取消并保存',
+    '桌面书评并排展示、常驻搜索，窄窗编辑抽屉可取消并保存',
     (tester) async {
       final books = [_book('one', '第一本书', '作者甲'), _book('two', '第二本书', '作者乙')];
       final store = _MemoryReviewStore()
@@ -166,35 +166,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(second);
       await tester.pumpAndSettle();
-      expect(find.byType(Dialog), findsOneWidget);
+      expect(find.byType(Dialog), findsNothing);
       expect(find.byType(BottomSheet), findsNothing);
       expect(find.byType(ReaderFrostedSurface), findsOneWidget);
-      expect(
-        tester
-            .widget<Material>(find.byKey(const ValueKey('review-detail')))
-            .color,
-        Colors.transparent,
-      );
+      expect(find.byKey(const ValueKey('review-detail')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('review-detail-edit')));
       await tester.pumpAndSettle();
-      expect(find.byType(ReaderFrostedSurface), findsOneWidget);
-      expect(
-        tester
-            .widget<Material>(find.byKey(const ValueKey('review-editor')))
-            .color,
-        Colors.transparent,
-      );
-      final actions = find
-          .ancestor(
-            of: find.byKey(const ValueKey('review-save')),
-            matching: find.byType(DecoratedBox),
-          )
-          .first;
-      expect(
-        (tester.widget<DecoratedBox>(actions).decoration as BoxDecoration)
-            .color,
-        Colors.transparent,
-      );
+      expect(find.byKey(const ValueKey('review-editor')), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
       await tester.enterText(
         find.byKey(const ValueKey('review-content')),
         '修订后的桌面书评',
@@ -258,12 +237,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('review-detail')), findsOneWidget);
     expect(find.byType(ReaderFrostedSurface), findsOneWidget);
-    expect(
-      tester
-          .widget<Material>(find.byKey(const ValueKey('review-detail')))
-          .color,
-      Colors.transparent,
-    );
     expect(find.text(review.content), findsOneWidget);
     expect(
       tester
@@ -712,6 +685,38 @@ void main() {
     expect(store.items, isEmpty);
   });
 
+  testWidgets('书评编辑抽屉遮罩与下拉不丢草稿，系统返回仍请求放弃确认', (tester) async {
+    final store = _MemoryReviewStore();
+    await _pumpReviews(
+      tester,
+      books: [_book('protected-draft', '受保护的草稿', '作者')],
+      store: store,
+    );
+    await tester.tap(find.text('写书评'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('review-content')),
+      '遮罩和拖动后仍应保留',
+    );
+    await tester.tapAt(const Offset(8, 8));
+    await tester.drag(
+      find.byKey(const ValueKey('review-editor-close')),
+      const Offset(0, 240),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-editor')), findsOneWidget);
+    expect(find.text('遮罩和拖动后仍应保留'), findsOneWidget);
+    expect(find.text('放弃未保存的书评？'), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('放弃未保存的书评？'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('review-discard-cancel')));
+    await tester.pumpAndSettle();
+    expect(find.text('遮罩和拖动后仍应保留'), findsOneWidget);
+    expect(store.items, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('书评搜索支持书名、作者和正文且不改变顶部汇总', (tester) async {
     final books = <BookEntry>[
       _book('star', '星河', '刘慈欣'),
@@ -885,6 +890,20 @@ void main() {
     expect(top('beta'), lessThan(top('gamma')));
     expect(top('gamma'), lessThan(top('alpha')));
 
+    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort')));
+    await tester.pumpAndSettle();
+    for (final sort in ['updated', 'rating', 'title']) {
+      expect(find.byKey(ValueKey('reviews-sort-$sort')), findsOneWidget);
+    }
+    expect(
+      tester
+          .widget<ListTile>(find.byKey(const ValueKey('reviews-sort-updated')))
+          .selected,
+      isTrue,
+    );
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(top('beta'), lessThan(top('gamma')));
     await tester.tap(find.byKey(const ValueKey<String>('reviews-sort')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('reviews-sort-rating')));

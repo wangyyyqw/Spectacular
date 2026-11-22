@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_detail_sheet.dart';
+import 'package:reader_mobile/home/book_detail_page.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
@@ -55,6 +56,38 @@ void main() {
     expect(find.textContaining('缺少 media-type'), findsNothing);
     expect(find.text('导入报告'), findsNothing);
     expect(find.text('关闭'), findsNothing);
+  });
+
+  testWidgets('长按进入详情抽屉，关闭后保留原书架与书籍资料', (tester) async {
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(buildTestEpub(title: '详情抽屉样本'));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: BookshelfPage(
+          library: store,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final card = find.byKey(ValueKey('book-card-${entry.id}'));
+    await tester.longPress(card);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('book-detail-open-page')));
+    await tester.pumpAndSettle();
+    expect(find.byType(BookDetailPage), findsOneWidget);
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byTooltip('关闭'), findsOneWidget);
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BookDetailPage), findsNothing);
+    expect(card, findsOneWidget);
+    expect((await store.bookById(entry.id))!.title, entry.title);
+    expect(await store.list(), hasLength(1));
+    expect(tester.takeException(), isNull);
   });
 
   for (final fail in [false, true]) {

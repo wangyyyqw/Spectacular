@@ -69,7 +69,6 @@ class BookDetailSheet extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleMedium?.copyWith(
-                            fontSize: 18,
                             height: 1.25,
                             fontWeight: FontWeight.w600,
                           ),
@@ -80,7 +79,6 @@ class BookDetailSheet extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 13,
                             height: 1.3,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -91,18 +89,19 @@ class BookDetailSheet extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 13,
                             height: 1.3,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          formatReadingChapters(progress?.spineIndex, entry.spineCount),
+                          formatReadingChapters(
+                            progress?.spineIndex,
+                            entry.spineCount,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 13,
                             height: 1.3,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),

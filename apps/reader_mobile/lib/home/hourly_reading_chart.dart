@@ -12,6 +12,7 @@ class HourlyReadingPage extends StatelessWidget {
     super.key,
     required this.insights,
     required this.date,
+    this.inDrawer = false,
   });
 
   /// 阅读统计快照。
@@ -20,21 +21,35 @@ class HourlyReadingPage extends StatelessWidget {
   /// 要展示的日期。
   final DateTime date;
 
+  /// 内容抽屉提供关闭入口，直接作为页面使用时保留原导航。
+  final bool inDrawer;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
     return Scaffold(
       key: const ValueKey<String>('stats-hourly-page'),
+      backgroundColor: inDrawer ? Colors.transparent : null,
       appBar: AppBar(
+        backgroundColor: inDrawer ? theme.colorScheme.surface : null,
+        automaticallyImplyLeading: !inDrawer,
+        leading: inDrawer
+            ? IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.maybePop(context),
+                icon: const AppIcon(AppGlyph.close),
+              )
+            : null,
         title: const Text('小时分布'),
+        titleTextStyle: inDrawer ? theme.textTheme.titleSmall : null,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: theme.colorScheme.outlineVariant),
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
         children: [
           Center(
             child: ConstrainedBox(

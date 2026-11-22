@@ -118,12 +118,15 @@ class _BookDurationChartState extends State<BookDurationChart>
       date: start,
       bookTitles: widget.bookTitles,
     );
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => BookDurationListPage(
+    showReaderDrawer<void>(
+      context: context,
+      builder: (context) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * .85,
+        child: BookDurationListPage(
           period: period,
           start: start,
           summary: summary,
+          inDrawer: true,
         ),
       ),
     );
@@ -592,11 +595,15 @@ class BookDurationListPage extends StatelessWidget {
     required this.period,
     required this.start,
     required this.summary,
+    this.inDrawer = false,
   });
 
   final BookDurationPeriod period;
   final DateTime start;
   final BookDurationSummary summary;
+
+  /// 从图表进入内容抽屉时使用关闭入口。
+  final bool inDrawer;
 
   @override
   Widget build(BuildContext context) {
@@ -604,8 +611,19 @@ class BookDurationListPage extends StatelessWidget {
     final muted = theme.colorScheme.onSurfaceVariant;
     return Scaffold(
       key: const ValueKey('stats-book-duration-list-page'),
+      backgroundColor: inDrawer ? Colors.transparent : null,
       appBar: AppBar(
+        backgroundColor: inDrawer ? theme.colorScheme.surface : null,
+        automaticallyImplyLeading: !inDrawer,
+        leading: inDrawer
+            ? IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.maybePop(context),
+                icon: const AppIcon(AppGlyph.close),
+              )
+            : null,
         title: const Text('图书时长'),
+        titleTextStyle: inDrawer ? theme.textTheme.titleSmall : null,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: theme.colorScheme.outlineVariant),
@@ -616,7 +634,7 @@ class BookDurationListPage extends StatelessWidget {
               child: Text('该时段没有阅读记录', style: TextStyle(color: muted)),
             )
           : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 36),
               itemCount: summary.entries.length + 1,
               separatorBuilder: (_, index) => index == 0
                   ? const SizedBox(height: 8)

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'hourly_reading_chart.dart';
 import 'reading_insights.dart';
@@ -309,10 +310,15 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
   }
 
   void _openHourlyPage(BuildContext context, DateTime date) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            HourlyReadingPage(insights: widget.insights, date: date),
+    showReaderDrawer<void>(
+      context: context,
+      builder: (context) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * .85,
+        child: HourlyReadingPage(
+          insights: widget.insights,
+          date: date,
+          inDrawer: true,
+        ),
       ),
     );
   }

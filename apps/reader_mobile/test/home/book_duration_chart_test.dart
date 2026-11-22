@@ -177,6 +177,7 @@ void main() {
     expect(_key('tag-1'), findsNothing);
     await _tap(tester, 'tag-other');
     expect(_key('list-page'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsOneWidget);
     expect(_text(tester, 'list-range'), '2026年11月15日');
     expect(_text(tester, 'list-summary'), '7 本书 · 合计 4 小时 40 分');
     for (var i = 1; i <= 7; i++) {
@@ -187,8 +188,9 @@ void main() {
     }
     expect(find.text('书籍 1'), findsOneWidget);
     expect(find.text('10 分钟 · 3.6%'), findsOneWidget);
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
+    expect(_key('list-page'), findsNothing);
     expect(_text(tester, 'range'), '今天 · 2026年11月15日');
   });
 
@@ -283,9 +285,12 @@ void main() {
     );
     await _tap(tester, 'all');
     expect(_key('list-page'), findsOneWidget);
-    expect(find.text(title), findsOneWidget);
+    expect(
+      find.descendant(of: _key('list-page'), matching: find.text(title)),
+      findsOneWidget,
+    );
     expect(find.text('30 分钟 · 75.0%'), findsOneWidget);
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
     expect(_text(tester, 'total'), '40 分钟');
   });
