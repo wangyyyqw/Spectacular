@@ -59,6 +59,7 @@ class BookDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasOnlineSource = onlineSourceName?.isNotEmpty ?? false;
     final metadataStyle = theme.textTheme.bodyMedium?.copyWith(
       height: 1.25,
       color: theme.colorScheme.onSurfaceVariant,
@@ -110,6 +111,7 @@ class BookDetailSheet extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
+                        if (!hasOnlineSource) const Spacer(),
                         Text(
                           entry.author.isEmpty ? '未知作者' : entry.author,
                           maxLines: 1,
@@ -117,6 +119,7 @@ class BookDetailSheet extends StatelessWidget {
                           style: metadataStyle,
                         ),
                         const SizedBox(height: 4),
+                        if (!hasOnlineSource) const Spacer(),
                         FutureBuilder<String>(
                           future: linkedPublisherNameFuture,
                           initialData: linkedPublisherName,
@@ -143,7 +146,7 @@ class BookDetailSheet extends StatelessWidget {
                             );
                           },
                         ),
-                        if (onlineSourceName?.isNotEmpty ?? false) ...[
+                        if (hasOnlineSource) ...[
                           const SizedBox(height: 4),
                           Text(
                             '在线来源：$onlineSourceName',
@@ -153,6 +156,7 @@ class BookDetailSheet extends StatelessWidget {
                           ),
                         ],
                         const SizedBox(height: 4),
+                        if (!hasOnlineSource) const Spacer(),
                         Text(
                           '已读 ${formatReadingDuration(readingDuration)}',
                           key: const ValueKey('book-detail-reading-summary'),
@@ -161,7 +165,10 @@ class BookDetailSheet extends StatelessWidget {
                           style: metadataStyle,
                         ),
                         if (chapterProgress != null) ...[
-                          const Spacer(),
+                          if (hasOnlineSource)
+                            const Spacer()
+                          else
+                            const SizedBox(height: 4),
                           Semantics(
                             label: formatReadingChapters(
                               progress?.spineIndex,

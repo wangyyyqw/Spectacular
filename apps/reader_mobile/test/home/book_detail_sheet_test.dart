@@ -329,6 +329,15 @@ void main() {
     expect(metadata.height, closeTo(cover.height, 0.1));
     expect(progressBarRect.width, closeTo(metadata.width, 0.1));
     expect(progressBarRect.bottom, closeTo(cover.bottom, 0.1));
+    final linked = tester.getRect(find.text('未关联'));
+    final gaps = [
+      authorRect.top - titleRect.bottom,
+      linked.top - authorRect.bottom,
+      durationRect.top - linked.bottom,
+    ];
+    expect(gaps[0], closeTo(gaps[1], .01));
+    expect(gaps[1], closeTo(gaps[2], .01));
+    expect(progressBarRect.top - durationRect.bottom, closeTo(4, .01));
     expect(find.text('内容部分降级'), findsNothing);
     expect(find.text('章节'), findsNothing);
     expect(find.text('导入'), findsNothing);
