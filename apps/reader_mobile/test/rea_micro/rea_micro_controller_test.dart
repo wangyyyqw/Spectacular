@@ -70,6 +70,24 @@ class _TestLibrary extends LibraryStore {
   }
 }
 
+class _FailingLedgerLibrary extends _TestLibrary {
+  bool failWatermark = false;
+  bool failPlanRemoval = false;
+
+  @override
+  Future<void> setSetting(String key, String value) async {
+    if (failWatermark && key == 'reamicro.sync.watermarks') {
+      throw const FileSystemException('模拟台账写入失败');
+    }
+    if (failPlanRemoval &&
+        key == 'reamicro.sync.pendingSessions' &&
+        value.contains('"groups":[]')) {
+      throw const FileSystemException('模拟待传计划移除失败');
+    }
+    await super.setSetting(key, value);
+  }
+}
+
 class _DbTestLibrary extends LibraryStore {
   _DbTestLibrary(this.db, Directory dir)
     : super(database: db, directoryProvider: () async => dir);
@@ -247,6 +265,7 @@ class _FakeApi implements ReaMicroApi {
   int nextPublisherId = 9001;
   int userCalls = 0;
   int recordCalls = 0;
+  bool failRecordFetch = false;
   List<ReaMicroMark> marks = <ReaMicroMark>[];
   final List<ReaMicroMarkDraft> markUpserts = <ReaMicroMarkDraft>[];
   final List<int> markDeletes = <int>[];
@@ -364,6 +383,7 @@ class _FakeApi implements ReaMicroApi {
   @override
   Future<List<ReaMicroBookRecord>> fetchBookRecords(String token) async {
     recordCalls += 1;
+    if (failRecordFetch) throw const ReaMicroException('读取书籍列表失败');
     if (unauthorized) {
       throw const ReaMicroException('登录已失效', unauthorized: true);
     }
@@ -1033,10 +1053,10 @@ void main() {
     api.onSessionUpload = null;
     controller = await _createController(library, api);
     addTearDown(controller.dispose);
-    expect((await controller.syncReadingSessions()).durationSeconds, 60);
-    expect(api.sessionLogUploads.last.single.id, failed.id);
-    expect(api.sessionLogUploads.last.single.endedAt, failed.endedAt);
-    expect((await controller.syncReadingSessions()).durationSeconds, 120);
+    expect((await controller.syncReadingSessions()).durationSeconds, 180);
+    final retryLogs = api.sessionLogUploads.expand((logs) => logs).toList();
+    expect(retryLogs.where((log) => log.id == failed.id), hasLength(2));
+    expect((await controller.syncReadingSessions()).durationSeconds, 0);
     final tail = api.sessionLogUploads.last.single;
     expect(tail.startedAt, failed.endedAt);
     expect((await controller.syncReadingSessions()).requests, 0);
@@ -1061,6 +1081,180 @@ void main() {
           .fold<int>(0, (sum, entry) => sum + entry.durationSeconds),
       3,
     );
+  });
+
+  test('小数秒进位窗口满足服务器校验，旧无效批次保留标识并不堵塞新增数据', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    final start = DateTime.utc(2026, 11, 22, 1);
+    library.sessions.add(
+      _session(start, start.add(const Duration(milliseconds: 41208))),
+    );
+    await controller.syncReadingSessions();
+    library.sessions[0] = _session(
+      start,
+      start.add(const Duration(milliseconds: 114076)),
+    );
+    await controller.syncReadingSessions();
+    final log = api.sessionLogUploads.last.single;
+    expect(log.durationSeconds, 73);
+    expect(log.endedAt - log.startedAt, greaterThanOrEqualTo(73000));
+    final store = ReaMicroStore(library);
+    await store.savePendingSessionUpload({
+      'bookEnds': {'book-a': log.endedAt},
+      'groups': [
+        {
+          'cloudBookId': 11,
+          'date': log.recordDay,
+          'keys': ['original-key'],
+          'bookIds': ['book-a'],
+          'durationSeconds': 73,
+          'logs': [
+            {
+              ...log.toJson(),
+              'id': 'original-id',
+              'startedAt': log.endedAt - 72868,
+            },
+          ],
+        },
+      ],
+    });
+    library.sessions[0] = _session(
+      start,
+      start.add(const Duration(minutes: 3)),
+    );
+    final result = await controller.syncReadingSessions();
+    final repaired = api.sessionLogUploads
+        .expand((logs) => logs)
+        .firstWhere((log) => log.id == 'original-id');
+    expect(repaired.id, 'original-id');
+    expect(repaired.endedAt - repaired.startedAt, 73000);
+    expect(await store.loadPendingSessionUpload(), isNull);
+    expect(result.durationSeconds, 139);
+    expect((await controller.syncReadingSessions()).durationSeconds, 0);
+    expect((await controller.syncReadingSessions()).requests, 0);
+  });
+
+  test('水位写入失败后释放同步状态，空计划恢复不重复发送', () async {
+    final library = _FailingLedgerLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 2))),
+    );
+    library.failWatermark = true;
+    expect((await controller.syncReadingSessions()).success, isFalse);
+    expect(api.uploads, hasLength(1));
+    library.failWatermark = false;
+    expect((await controller.syncReadingSessions()).success, isTrue);
+    expect(api.uploads, hasLength(1));
+    expect(await ReaMicroStore(library).loadPendingSessionUpload(), isNull);
+  });
+
+  test('已确认累计请求移除计划失败，重启只补本地确认不重复累计', () async {
+    final library = _FailingLedgerLibrary();
+    final api = _FakeApi();
+    var controller = await _createController(library, api);
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 2))),
+    );
+    library.failPlanRemoval = true;
+    expect((await controller.syncReadingSessions()).success, isFalse);
+    expect(api.uploads, hasLength(1));
+    controller.dispose();
+    library.failPlanRemoval = false;
+    controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    expect((await controller.syncReadingSessions()).success, isTrue);
+    expect(api.uploads, hasLength(1));
+    expect(await ReaMicroStore(library).loadPendingSessionUpload(), isNull);
+  });
+
+  test('固定会话重试不依赖云端书籍列表，失败后新增记录也继续同步', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 2))),
+    );
+    api.onSessionUpload = () async => throw const ReaMicroException('请求超时');
+    await controller.syncReadingSessions();
+    final id = api.sessionLogUploads.last.single.id;
+    api.onSessionUpload = null;
+    api.failRecordFetch = true;
+    library.sessions[0] = _session(
+      start,
+      start.add(const Duration(minutes: 3)),
+    );
+    expect((await controller.syncReadingSessions()).durationSeconds, 180);
+    expect(api.sessionLogUploads[1].single.id, id);
+    expect((await controller.syncReadingSessions()).requests, 0);
+  });
+
+  test('发送中退出账号不把旧响应确认到新账号台账', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessions.add(_session(start, start.add(const Duration(minutes: 2))));
+    api.onSessionUpload = controller.logout;
+    await controller.syncReadingSessions();
+    expect(await ReaMicroStore(library).loadUploadedSessionKeys(), isEmpty);
+    expect(await ReaMicroStore(library).loadSessionWatermarks(), isEmpty);
+  });
+
+  test('无效旧批次保留重试但不阻塞今天的新时段', () async {
+    final library = _TestLibrary();
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    await controller.linkBook(
+      'book-a',
+      const ReaMicroCloudBook(cloudBookId: 11, name: '云端书'),
+      userBookId: 7001,
+    );
+    final yesterday = DateTime.utc(2026, 11, 22, 1);
+    library.sessions.add(
+      _session(yesterday, yesterday.add(const Duration(minutes: 1))),
+    );
+    api.onSessionUpload = () async {
+      if (api.sessionLogUploads.last.single.recordDay == '2026-11-22') {
+        throw const ReaMicroException('invalid time session', code: 2);
+      }
+    };
+    await controller.syncReadingSessions();
+    final failed = api.sessionLogUploads.last.single;
+    final today = DateTime.utc(2026, 11, 23, 1);
+    library.sessions.add(
+      _session(today, today.add(const Duration(minutes: 2))),
+    );
+    expect((await controller.syncReadingSessions()).durationSeconds, 120);
+    final pending = await ReaMicroStore(library).loadPendingSessionUpload();
+    expect(pending!['groups'] as List, hasLength(1));
+    expect(api.sessionLogUploads.last.single.recordDay, '2026-11-23');
+    expect((await controller.syncReadingSessions()).requests, 0);
+    expect(api.sessionLogUploads.last.single.id, failed.id);
+    api.onSessionUpload = null;
+    expect((await controller.syncReadingSessions()).durationSeconds, 60);
+    expect((await controller.syncReadingSessions()).requests, 0);
   });
 
   test('会话请求超时后重试使用相同标识，确认成功后推进水位', () async {

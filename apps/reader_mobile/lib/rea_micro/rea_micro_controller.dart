@@ -1866,19 +1866,38 @@ class ReaMicroController extends ChangeNotifier {
     Map<String, int> watermarks;
     Map<String, Object?>? pendingPlan;
     final readingBookIds = <String, int>{};
+    final unresolvedBooks = <String>{};
+    String? identityFailure;
     try {
       sessions = await sessionStore.list();
       uploaded = await _store.loadUploadedSessionKeys();
       watermarks = await _store.loadSessionWatermarks();
       pendingPlan = await _store.loadPendingSessionUpload();
-      final records = await _api.fetchBookRecords(token);
+      List<ReaMicroBookRecord> records = const [];
+      try {
+        records = await _api.fetchBookRecords(token);
+      } catch (error) {
+        if (error is ReaMicroException && error.unauthorized) rethrow;
+        // 固定批次已有完整身份；记录列表失败不能阻止重试和无关联总时长。
+      }
       if (_token != token) {
         _syncing = false;
         _notify();
         return const ReaMicroSyncResult(success: false, message: '账号已变更，同步已停止');
       }
       for (final session in sessions) {
+        final frozenEnd =
+            ((pendingPlan?['bookEnds']
+                        as Map<String, Object?>?)?[session.bookId]
+                    as num?)
+                ?.toInt() ??
+            0;
+        final end = session.endedAt.millisecondsSinceEpoch;
+        if (end <= (watermarks[session.bookId] ?? 0) || end <= frozenEnd) {
+          continue;
+        }
         if (readingBookIds.containsKey(session.bookId)) continue;
+        if (unresolvedBooks.contains(session.bookId)) continue;
         final link = _links[session.bookId];
         final identity = link == null
             ? _syncBooks[session.bookId]
@@ -1889,221 +1908,298 @@ class ReaMicroController extends ChangeNotifier {
                     : _syncBooks[session.bookId]?.userBookId ?? 0,
               );
         if (identity == null) continue;
-        readingBookIds[session.bookId] = await _resolveReadingBookId(
-          token,
-          session.bookId,
-          identity,
-          records: records,
-        );
+        try {
+          readingBookIds[session.bookId] = await _resolveReadingBookId(
+            token,
+            session.bookId,
+            identity,
+            records: records,
+          );
+        } catch (error) {
+          if (error is ReaMicroException && error.unauthorized) rethrow;
+          unresolvedBooks.add(session.bookId);
+          identityFailure ??= _messageOf(error);
+        }
       }
     } catch (error) {
       _syncing = false;
       await _handleError(error);
       _notify();
+      _schedulePendingReadingRetry();
       return ReaMicroSyncResult(success: false, message: _error ?? '读取阅读记录失败');
     }
 
-    final groups = <String, _SyncGroup>{};
-    final bookEnds = <String, int>{};
-    final pendingGroupCount = <String, int>{};
-    // 兼容旧台账中的累计快照，也处理跨日批次只成功了一部分的情况。
-    final uploadedEnds = <String, int>{};
-    for (final key in uploaded) {
-      final fields = key.split('|');
-      if (fields.length != 4) continue;
-      final end = int.tryParse(fields[2]);
-      if (end == null) continue;
-      final identity = '${fields[0]}|${fields[1]}|${fields[3]}';
-      if (end > (uploadedEnds[identity] ?? 0)) {
-        uploadedEnds[identity] = end;
+    try {
+      final groups = <String, _SyncGroup>{};
+      final bookEnds = <String, int>{};
+      final pendingGroupCount = <String, int>{};
+      // 兼容旧台账中的累计快照，也处理跨日批次只成功了一部分的情况。
+      final uploadedEnds = <String, int>{};
+      for (final key in uploaded) {
+        final fields = key.split('|');
+        if (fields.length != 4) continue;
+        final end = int.tryParse(fields[2]);
+        if (end == null) continue;
+        final identity = '${fields[0]}|${fields[1]}|${fields[3]}';
+        if (end > (uploadedEnds[identity] ?? 0)) {
+          uploadedEnds[identity] = end;
+        }
       }
-    }
-    for (final session in sessions) {
-      final endedAt = session.endedAt.millisecondsSinceEpoch;
-      if (endedAt <= (watermarks[session.bookId] ?? 0)) continue;
-      final cloudBookId = readingBookIds[session.bookId] ?? 0;
-      for (final portion in _splitSession(
-        session,
-        watermark: watermarks[session.bookId] ?? 0,
-        uploadedEnds: uploadedEnds,
-      )) {
-        if (uploaded.contains(portion.key)) continue;
-        final key = '$cloudBookId|${portion.date}';
-        final group = groups.putIfAbsent(
-          key,
-          () => _SyncGroup(cloudBookId: cloudBookId, date: portion.date),
-        );
-        group.durationSeconds += portion.durationSeconds;
-        group.keys.add(portion.key);
-        group.bookIds.add(session.bookId);
-        if (cloudBookId > 0) {
-          group.logs.add(
-            ReaMicroReadSessionLog(
-              id: 'spectacular-${portion.key}',
-              cloudBookId: cloudBookId,
-              startedAt: portion.startedAt,
-              endedAt: portion.endedAt,
-              durationSeconds: portion.durationSeconds,
-              recordDay: portion.date,
-            ),
+      for (final session in sessions) {
+        if (unresolvedBooks.contains(session.bookId)) continue;
+        final endedAt = session.endedAt.millisecondsSinceEpoch;
+        final pendingEnd =
+            ((pendingPlan?['bookEnds']
+                        as Map<String, Object?>?)?[session.bookId]
+                    as num?)
+                ?.toInt() ??
+            0;
+        final watermark = watermarks[session.bookId] ?? 0;
+        final frozenEnd = pendingEnd > watermark ? pendingEnd : watermark;
+        if (endedAt <= frozenEnd) continue;
+        final cloudBookId = readingBookIds[session.bookId] ?? 0;
+        for (final portion in _splitSession(
+          session,
+          watermark: frozenEnd,
+          uploadedEnds: uploadedEnds,
+        )) {
+          if (uploaded.contains(portion.key)) continue;
+          final key = '$cloudBookId|${portion.date}';
+          final group = groups.putIfAbsent(
+            key,
+            () => _SyncGroup(cloudBookId: cloudBookId, date: portion.date),
+          );
+          group.durationSeconds += portion.durationSeconds;
+          group.keys.add(portion.key);
+          group.bookIds.add(session.bookId);
+          if (cloudBookId > 0) {
+            group.logs.add(
+              ReaMicroReadSessionLog(
+                id: 'spectacular-${portion.key}',
+                cloudBookId: cloudBookId,
+                startedAt: portion.startedAt,
+                endedAt: portion.endedAt,
+                durationSeconds: portion.durationSeconds,
+                recordDay: portion.date,
+              ),
+            );
+          }
+        }
+        final currentEnd = bookEnds[session.bookId] ?? 0;
+        if (endedAt > currentEnd) bookEnds[session.bookId] = endedAt;
+      }
+      if (pendingPlan != null) {
+        // 原批次保持幂等身份；后续时段独立加入计划，失败批次不阻塞新记录。
+        final newGroups = Map<String, _SyncGroup>.of(groups);
+        groups.clear();
+        final pendingGroups = pendingPlan['groups']! as List<Object?>;
+        for (final (index, value) in pendingGroups.indexed) {
+          final group = _SyncGroup.fromJson(value! as Map<String, Object?>);
+          // 旧批次小数秒累计进位可能大于实际窗口，修正窗口但保留原幂等标识。
+          for (var index = 0; index < group.logs.length; index++) {
+            final log = group.logs[index];
+            if (log.endedAt - log.startedAt >= log.durationSeconds * 1000) {
+              continue;
+            }
+            group.logs[index] = ReaMicroReadSessionLog(
+              id: log.id,
+              cloudBookId: log.cloudBookId,
+              startedAt: log.endedAt - log.durationSeconds * 1000,
+              endedAt: log.endedAt,
+              durationSeconds: log.durationSeconds,
+              recordDay: log.recordDay,
+              listening: log.listening,
+            );
+          }
+          groups['pending:$index|${group.cloudBookId}|${group.date}'] = group;
+        }
+        groups.addAll(newGroups);
+        for (final entry
+            in (pendingPlan['bookEnds']! as Map<String, Object?>).entries) {
+          final end = (entry.value! as num).toInt();
+          if (end > (bookEnds[entry.key] ?? 0)) bookEnds[entry.key] = end;
+        }
+      }
+      for (final group in groups.values) {
+        for (final bookId in group.bookIds) {
+          pendingGroupCount.update(
+            bookId,
+            (count) => count + 1,
+            ifAbsent: () => 1,
           );
         }
       }
-      final currentEnd = bookEnds[session.bookId] ?? 0;
-      if (endedAt > currentEnd) bookEnds[session.bookId] = endedAt;
-    }
-    if (pendingPlan != null) {
-      // 已发送请求的快照必须保持不变，即使本地片段已经继续增长。
-      groups.clear();
-      for (final value in pendingPlan['groups']! as List<Object?>) {
-        final group = _SyncGroup.fromJson(value! as Map<String, Object?>);
-        groups['${group.cloudBookId}|${group.date}'] = group;
-      }
-      bookEnds
-        ..clear()
-        ..addAll(
-          (pendingPlan['bookEnds']! as Map<String, Object?>).map(
-            (key, value) => MapEntry(key, (value! as num).toInt()),
-          ),
-        );
-    }
-    for (final group in groups.values) {
-      for (final bookId in group.bookIds) {
-        pendingGroupCount.update(
-          bookId,
-          (count) => count + 1,
-          ifAbsent: () => 1,
-        );
-      }
-    }
 
-    Future<void> saveAdvancedWatermarks() async {
-      final next = Map<String, int>.of(watermarks);
-      var changed = false;
-      for (final entry in bookEnds.entries) {
-        if ((pendingGroupCount[entry.key] ?? 0) != 0) continue;
-        if (entry.value > (next[entry.key] ?? 0)) {
-          next[entry.key] = entry.value;
-          changed = true;
+      Future<void> saveAdvancedWatermarks() async {
+        final next = Map<String, int>.of(watermarks);
+        var changed = false;
+        for (final entry in bookEnds.entries) {
+          if ((pendingGroupCount[entry.key] ?? 0) != 0) continue;
+          if (entry.value > (next[entry.key] ?? 0)) {
+            next[entry.key] = entry.value;
+            changed = true;
+          }
+        }
+        if (changed) {
+          watermarks = next;
+          await _store.saveSessionWatermarks(next);
         }
       }
-      if (changed) {
-        watermarks = next;
-        await _store.saveSessionWatermarks(next);
-      }
-    }
 
-    if (groups.isEmpty) {
-      await saveAdvancedWatermarks();
-      if (pendingPlan != null) await _store.savePendingSessionUpload(null);
-      _syncing = false;
-      _notice = '没有新的阅读记录需要同步';
-      _notify();
-      return const ReaMicroSyncResult(success: true, message: '没有新的阅读记录需要同步');
-    }
-
-    var requests = 0;
-    var durationSeconds = 0;
-    String? failure;
-    final remainingGroups = groups.values.toList();
-    Map<String, Object?> uploadPlan() => {
-      'bookEnds': bookEnds,
-      'groups': [for (final group in remainingGroups) group.toJson()],
-    };
-    try {
-      await _store.savePendingSessionUpload(uploadPlan());
-    } catch (error) {
-      _syncing = false;
-      await _handleError(error);
-      _notify();
-      return ReaMicroSyncResult(success: false, message: _error ?? '保存待传时段失败');
-    }
-    for (final group in groups.values) {
-      if (_token != token) {
-        failure = '账号已变更，同步已停止';
-        break;
+      if (groups.isEmpty) {
+        await saveAdvancedWatermarks();
+        if (pendingPlan != null) await _store.savePendingSessionUpload(null);
+        _syncing = false;
+        _notice = '没有新的阅读记录需要同步';
+        _notify();
+        if (identityFailure != null) {
+          _schedulePendingReadingRetry();
+          return ReaMicroSyncResult(success: false, message: identityFailure);
+        }
+        return const ReaMicroSyncResult(success: true, message: '没有新的阅读记录需要同步');
       }
+
+      var requests = 0;
+      var durationSeconds = 0;
+      String? failure = identityFailure;
+      final remainingGroups = groups.values.toList();
+      Map<String, Object?> uploadPlan() => {
+        'bookEnds': bookEnds,
+        'groups': [for (final group in remainingGroups) group.toJson()],
+      };
       try {
-        await _api.updateReadTimeByDate(
-          token,
-          <ReaMicroReadTimeEntry>[
-            ReaMicroReadTimeEntry(
-              cloudBookId: group.cloudBookId,
-              date: group.date,
-              durationSeconds: group.durationSeconds,
-            ),
-          ],
-          sessionLogs: group.logs,
-          sessionAccounting: group.logs.isNotEmpty,
-        );
-        uploaded.addAll(group.keys);
-        await _store.saveUploadedSessionKeys(uploaded);
-        // 保留最后的空计划直到水位落盘，防止崩溃后用增长快照重建批次。
-        await _store.savePendingSessionUpload({
-          'bookEnds': bookEnds,
-          'groups': [
-            for (final remaining in remainingGroups)
-              if (!identical(remaining, group)) remaining.toJson(),
-          ],
-        });
-        remainingGroups.remove(group);
-        for (final bookId in group.bookIds) {
-          final remaining = (pendingGroupCount[bookId] ?? 1) - 1;
-          pendingGroupCount[bookId] = remaining < 0 ? 0 : remaining;
-        }
-        requests += 1;
-        durationSeconds += group.durationSeconds;
-        recordAppEvent(
-          'reamicro_read_time_uploaded',
-          fields: {
-            'duration_seconds': group.durationSeconds,
-            'sessions': group.keys.length,
-            'session_accounting': group.logs.isNotEmpty,
-          },
-        );
+        await _store.savePendingSessionUpload(uploadPlan());
       } catch (error) {
-        failure = _messageOf(error);
-        if (error is ReaMicroException && error.unauthorized) {
-          await _clearExpiredAuth();
-        }
-        break;
+        _syncing = false;
+        await _handleError(error);
+        _notify();
+        _schedulePendingReadingRetry();
+        return ReaMicroSyncResult(
+          success: false,
+          message: _error ?? '保存待传时段失败',
+        );
       }
-    }
+      for (final group in groups.values) {
+        if (_token != token) {
+          failure = '账号已变更，同步已停止';
+          break;
+        }
+        try {
+          // 上次响应已确认但移除计划失败时，仅补本地落盘，不再累计发送。
+          if (!group.keys.every(uploaded.contains)) {
+            await _api.updateReadTimeByDate(
+              token,
+              <ReaMicroReadTimeEntry>[
+                ReaMicroReadTimeEntry(
+                  cloudBookId: group.cloudBookId,
+                  date: group.date,
+                  durationSeconds: group.durationSeconds,
+                ),
+              ],
+              sessionLogs: group.logs,
+              sessionAccounting: group.logs.isNotEmpty,
+            );
+          }
+          if (_token != token) {
+            failure = '账号已变更，同步已停止';
+            break;
+          }
+          uploaded.addAll(group.keys);
+          await _store.saveUploadedSessionKeys(uploaded);
+          // 保留最后的空计划直到水位落盘，防止崩溃后用增长快照重建批次。
+          await _store.savePendingSessionUpload({
+            'bookEnds': bookEnds,
+            'groups': [
+              for (final remaining in remainingGroups)
+                if (!identical(remaining, group)) remaining.toJson(),
+            ],
+          });
+          remainingGroups.remove(group);
+          for (final bookId in group.bookIds) {
+            final remaining = (pendingGroupCount[bookId] ?? 1) - 1;
+            pendingGroupCount[bookId] = remaining < 0 ? 0 : remaining;
+          }
+          requests += 1;
+          durationSeconds += group.durationSeconds;
+          recordAppEvent(
+            'reamicro_read_time_uploaded',
+            fields: {
+              'duration_seconds': group.durationSeconds,
+              'sessions': group.keys.length,
+              'session_accounting': group.logs.isNotEmpty,
+            },
+          );
+        } catch (error) {
+          failure = _messageOf(error);
+          recordAppEvent(
+            'reamicro_read_time_failed',
+            fields: {
+              'duration_seconds': group.durationSeconds,
+              'sessions': group.keys.length,
+              if (error is ReaMicroException) 'code': error.code ?? 0,
+              if (error is ReaMicroException)
+                'http_status': error.statusCode ?? 0,
+            },
+          );
+          if (error is ReaMicroException && error.unauthorized) {
+            await _clearExpiredAuth();
+            break;
+          }
+          // 独立日期和书籍继续上报，失败组留在固定计划中等待重试。
+        }
+      }
 
-    if (_token == token) await saveAdvancedWatermarks();
-    if (_token == token && remainingGroups.isEmpty) {
-      await _store.savePendingSessionUpload(null);
-    }
-    if (requests > 0 && _token == token) {
-      await _store.saveUploadedSessionKeys(uploaded);
-      final now = DateTime.now();
-      _lastSyncAt = now;
-      await _store.saveLastSyncAt(now);
-    }
-    _syncing = false;
-    if (failure == null) {
-      final message = requests == 0
-          ? '没有新的阅读记录需要同步'
-          : '已同步 $requests 天，共 ${_formatDuration(durationSeconds)}';
-      _notice = message;
+      if (_token == token) await saveAdvancedWatermarks();
+      if (_token == token && remainingGroups.isEmpty) {
+        await _store.savePendingSessionUpload(null);
+      }
+      if (requests > 0 && _token == token) {
+        await _store.saveUploadedSessionKeys(uploaded);
+        final now = DateTime.now();
+        _lastSyncAt = now;
+        await _store.saveLastSyncAt(now);
+      }
+      _syncing = false;
+      if (failure == null) {
+        if (pendingPlan != null &&
+            sessions.any(
+              (session) =>
+                  session.endedAt.millisecondsSinceEpoch >
+                  (watermarks[session.bookId] ?? 0),
+            )) {
+          scheduleReadingSync(delay: const Duration(seconds: 2));
+        }
+        final message = requests == 0
+            ? '没有新的阅读记录需要同步'
+            : '已同步 $requests 天，共 ${_formatDuration(durationSeconds)}';
+        _notice = message;
+        _notify();
+        return ReaMicroSyncResult(
+          success: true,
+          message: message,
+          requests: requests,
+          durationSeconds: durationSeconds,
+        );
+      }
+      _error = failure;
+      _syncing = false;
       _notify();
+      _schedulePendingReadingRetry();
       return ReaMicroSyncResult(
-        success: true,
-        message: message,
+        success: requests > 0,
+        message: requests == 0 ? failure : '已同步 $requests 天，其余记录失败：$failure',
         requests: requests,
         durationSeconds: durationSeconds,
       );
+    } catch (error) {
+      await _handleError(error);
+      _schedulePendingReadingRetry();
+      return ReaMicroSyncResult(success: false, message: _error ?? '保存同步台账失败');
+    } finally {
+      // 台账写入失败也必须释放状态，后续自动及手动同步才能继续。
+      _syncing = false;
+      _notify();
     }
-    _error = failure;
-    _syncing = false;
-    _notify();
-    _schedulePendingReadingRetry();
-    return ReaMicroSyncResult(
-      success: requests > 0,
-      message: requests == 0 ? failure : '已同步 $requests 天，其余记录失败：$failure',
-      requests: requests,
-      durationSeconds: durationSeconds,
-    );
   }
 
   /// 双向同步阅微划线与想法。
@@ -4072,7 +4168,10 @@ List<_SessionPortion> _splitSession(
               '${session.bookId}|'
               '${session.startedAt.millisecondsSinceEpoch}|'
               '$endedAt|$date',
-          startedAt: startedAt,
+          // 累计秒数进位最多提前不足一秒，窗口不能短于服务器记账秒数。
+          startedAt: startedAt < endedAt - seconds * 1000
+              ? startedAt
+              : endedAt - seconds * 1000,
           endedAt: endedAt,
         ),
       );
