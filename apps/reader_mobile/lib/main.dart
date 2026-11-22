@@ -12,6 +12,8 @@ import 'package:reader_ui/system_ui.dart';
 import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
 import 'library/library_store.dart';
+import 'reader/bundled_font_punctuation.dart';
+import 'reader/reader_font_store.dart';
 import 'reader/reader_text_warmup.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
@@ -59,6 +61,16 @@ Future<void> main() async {
     unawaited(
       log.log(
         'text_warmup_failed',
+        fields: <String, Object?>{'error': '$error', 'stack': '$stack'},
+      ),
+    );
+  }
+  try {
+    await registerBundledSongPunctuation();
+  } catch (error, stack) {
+    unawaited(
+      log.log(
+        'bundled_font_punctuation_failed',
         fields: <String, Object?>{'error': '$error', 'stack': '$stack'},
       ),
     );
@@ -142,12 +154,12 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   static const _window = OptionalMethodChannel(
     'com.spectacular.reader_mobile/window',
   );
-  static final _day = buildAppTheme();
-  static final _night = buildAppTheme(brightness: Brightness.dark);
 
-  late final Future<ThemeMode> _savedMode = _loadMode();
+  late final ReaderFontStore _fontStore = ReaderFontStore(widget.library);
+  late final Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
+  String? _selectedFontFamily;
 
   @override
   void initState() {
@@ -165,6 +177,12 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   void didChangePlatformBrightness() {
     final mode = _selectedMode ?? _loadedMode;
     if (mode == ThemeMode.system) unawaited(_syncWindow(ThemeMode.system));
+  }
+
+  Future<_AppPreferences> _loadPreferences() async {
+    final mode = _loadMode();
+    final fontFamily = _loadFontFamily();
+    return _AppPreferences(mode: await mode, fontFamily: await fontFamily);
   }
 
   Future<ThemeMode> _loadMode() async {
@@ -189,12 +207,60 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     return mode;
   }
 
+  Future<String> _loadFontFamily() async {
+    String? stored;
+    try {
+      stored = await widget.library.getSetting(AppFonts.settingKey);
+      if (stored == null || stored.isEmpty) return AppFonts.defaultFamily;
+      if (stored == AppFonts.defaultFamily) return stored;
+      if (!stored.startsWith('user_')) {
+        throw const FormatException('应用字体标识无效');
+      }
+      await _fontStore.load(stored);
+      return stored;
+    } catch (error, stackTrace) {
+      await ReaderLog.instance.log(
+        'app_font_load_failed',
+        fields: {'family': stored, 'error': error, 'stack': stackTrace},
+      );
+      if (stored != null && stored.isNotEmpty) {
+        try {
+          await _saveFontFamily(AppFonts.defaultFamily);
+        } catch (saveError, saveStack) {
+          await ReaderLog.instance.log(
+            'app_font_reset_failed',
+            fields: {'error': saveError, 'stack': saveStack},
+          );
+          FlutterError.reportError(
+            FlutterErrorDetails(
+              exception: saveError,
+              stack: saveStack,
+              library: 'reader_mobile',
+              context: ErrorDescription('恢复默认应用字体'),
+            ),
+          );
+        }
+      }
+      return AppFonts.defaultFamily;
+    }
+  }
+
   Future<void> _setMode(ThemeMode mode) async {
     await widget.library.setSetting(_themeModeKey, mode.name);
     if (!mounted) return;
     setState(() => _selectedMode = mode);
     await _syncWindow(mode);
   }
+
+  Future<void> _setFontFamily(String family) async {
+    if (family != AppFonts.defaultFamily) await _fontStore.load(family);
+    await _saveFontFamily(family);
+    if (!mounted) return;
+    setState(() => _selectedFontFamily = family);
+  }
+
+  Future<void> _saveFontFamily(String family) =>
+      widget.library.setSetting(AppFonts.settingKey, family);
 
   Future<void> _syncWindow(ThemeMode mode) async {
     if (!kIsWeb &&
@@ -216,35 +282,52 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<ThemeMode>(
-    future: _savedMode,
+  Widget build(BuildContext context) => FutureBuilder<_AppPreferences>(
+    future: _savedPreferences,
     builder: (context, snapshot) =>
-        snapshot.connectionState == ConnectionState.done
-        ? _buildApp(_selectedMode ?? snapshot.data ?? ThemeMode.system)
-        : const SizedBox.shrink(),
+        snapshot.hasData ? _buildApp(snapshot.data!) : const SizedBox.shrink(),
   );
 
-  Widget _buildApp(ThemeMode mode) => MaterialApp(
-    title: '阅微Extend',
-    debugShowCheckedModeBanner: false,
-    theme: _day,
-    darkTheme: _night,
-    themeMode: mode,
-    themeAnimationDuration: Duration.zero,
-    builder: (context, child) => AppThemeScope(
-      mode: mode,
-      onModeChanged: _setMode,
-      child: AnnotatedRegion<SystemUiOverlayStyle>(
-        value: readerSystemBarStyle(Theme.of(context).scaffoldBackgroundColor),
-        child: child!,
+  Widget _buildApp(_AppPreferences preferences) {
+    final mode = _selectedMode ?? preferences.mode;
+    final fontFamily = _selectedFontFamily ?? preferences.fontFamily;
+    return MaterialApp(
+      title: '阅微Extend',
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(fontFamily: fontFamily),
+      darkTheme: buildAppTheme(
+        brightness: Brightness.dark,
+        fontFamily: fontFamily,
       ),
-    ),
-    home: HomeShell(
-      library: widget.library,
-      progressStore: widget.progressStore,
-      storageRecovery: widget.recovery,
       themeMode: mode,
-      onThemeModeChanged: _setMode,
-    ),
-  );
+      themeAnimationDuration: Duration.zero,
+      builder: (context, child) => AppThemeScope(
+        mode: mode,
+        onModeChanged: _setMode,
+        child: AnnotatedRegion<SystemUiOverlayStyle>(
+          value: readerSystemBarStyle(
+            Theme.of(context).scaffoldBackgroundColor,
+          ),
+          child: child!,
+        ),
+      ),
+      home: HomeShell(
+        library: widget.library,
+        progressStore: widget.progressStore,
+        storageRecovery: widget.recovery,
+        themeMode: mode,
+        onThemeModeChanged: _setMode,
+        appFontFamily: fontFamily,
+        appFontStore: _fontStore,
+        onAppFontFamilyChanged: _setFontFamily,
+      ),
+    );
+  }
+}
+
+class _AppPreferences {
+  const _AppPreferences({required this.mode, required this.fontFamily});
+
+  final ThemeMode mode;
+  final String fontFamily;
 }

@@ -2,16 +2,33 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/font_face.dart';
+import 'package:reader_core/text/font_punctuation_metrics.dart';
+import 'package:reader_mobile/reader/bundled_font_punctuation.dart';
 
-/// P9-05：内置思源宋体（全量字库）可加载且覆盖生僻字。
+/// P9-05：内置阅微精简思源宋体可加载且覆盖正文常用字与部分生僻字。
 ///
 /// 真实 App 通过 pubspec `fonts:` 注册 `builtin_song`；这里显式用
 /// FontLoader 加载同一份资产，验证文件可解析、CJK 全角宽度正确、
-/// 生僻字（谮/愚/龘）有字形而不是豆腐块。
+/// 生僻字（谮/愚）有字形而不是豆腐块。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('内置思源宋体可加载并渲染生僻字', () async {
+  test('内置宋体登记常规与粗体标点轮廓度量', () async {
+    await registerBundledSongPunctuation();
+    for (final weight in [400, 700]) {
+      expect(
+        FontPunctuationRegistry.lookup(
+          FontFamilyAliases.song,
+          '，'.codeUnitAt(0),
+          weight: weight,
+          italic: false,
+        ),
+        isNotNull,
+      );
+    }
+  });
+
+  test('内置精简思源宋体可加载并渲染生僻字', () async {
     final loader = FontLoader('builtin_song_test')
       ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'))
       ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Bold.otf'));
@@ -19,7 +36,7 @@ void main() {
 
     final painter = TextPainter(
       text: const TextSpan(
-        text: '谮愚龘中',
+        text: '谮愚中粗',
         style: TextStyle(fontFamily: 'builtin_song_test', fontSize: 20),
       ),
       textDirection: TextDirection.ltr,

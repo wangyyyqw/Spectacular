@@ -86,7 +86,7 @@ void main() {
     expect(find.text('翻页方式'), findsOneWidget);
   });
 
-  testWidgets('面板固定使用界面黑体，语义色不受浅色硬编码影响', (tester) async {
+  testWidgets('面板沿用宿主应用字体，语义色不受浅色硬编码影响', (tester) async {
     late ThemeData captured;
     final theme = ReaderTheme.custom(
       background: const Color(0xFFEEE1C8),
@@ -94,7 +94,7 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
-        theme: ThemeData(fontFamily: '正文宋体'),
+        theme: ThemeData(fontFamily: '应用宋体'),
         home: ReaderPanelTheme(
           theme: theme,
           child: Builder(
@@ -106,9 +106,9 @@ void main() {
         ),
       ),
     );
-    expect(captured.textTheme.bodyMedium?.fontFamily, 'builtin_hei');
-    expect(captured.textTheme.bodySmall?.fontFamily, 'builtin_hei');
-    expect(captured.listTileTheme.titleTextStyle?.fontFamily, 'builtin_hei');
+    expect(captured.textTheme.bodyMedium?.fontFamily, '应用宋体');
+    expect(captured.textTheme.bodySmall?.fontFamily, '应用宋体');
+    expect(captured.listTileTheme.titleTextStyle?.fontFamily, '应用宋体');
     expect(ReaderDrawerStyle.surfaceOf(captured), theme.background);
     expect(ReaderDrawerStyle.textOf(captured), theme.text);
     expect(

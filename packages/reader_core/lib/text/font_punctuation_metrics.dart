@@ -27,17 +27,24 @@ abstract final class FontPunctuationRegistry {
 
   static int get revision => _revision;
 
+  /// 登记字面；[weight] 是排版样式匹配键，[declaredWeight] 可覆盖字库
+  /// 内部 OS/2 字重（例如 Medium 500 作为正文 400 使用）。内部字重仍用于
+  /// 拒绝合成粗体。
   static void register(
     String family,
     Uint8List bytes, {
     required int weight,
     required bool italic,
+    int? declaredWeight,
   }) {
     final name = family.trim().toLowerCase();
     if (name.isEmpty) return;
     final faces = _families.putIfAbsent(name, () => {});
     final key = (weight, italic);
-    final face = _PunctuationFace.parse(bytes);
+    final face = _PunctuationFace.parse(
+      bytes,
+      matchWeight: declaredWeight ?? weight,
+    );
     final previous = faces[key];
     if (faces.containsKey(key) &&
         (face == null ? previous == null : face.same(previous))) {
@@ -62,12 +69,13 @@ abstract final class FontPunctuationRegistry {
       if (entry.key.$2 != italic) return null;
       face ??= entry.value;
     } else if (face == null ||
-        face.weight != weight ||
+        face.matchWeight != weight ||
         faces.values.any((candidate) => candidate == null) ||
         faces.values
                 .where(
                   (candidate) =>
-                      candidate!.weight == weight && candidate.italic == italic,
+                      candidate!.matchWeight == weight &&
+                      candidate.italic == italic,
                 )
                 .length !=
             1) {
@@ -75,7 +83,7 @@ abstract final class FontPunctuationRegistry {
     }
     if (face == null ||
         face.italic != italic ||
-        (weight >= 600 && face.weight < 600)) {
+        (weight >= 600 && face.os2Weight < 600)) {
       return null;
     }
     return face.glyphs[codePoint];
@@ -83,13 +91,19 @@ abstract final class FontPunctuationRegistry {
 }
 
 class _PunctuationFace {
-  _PunctuationFace(this.weight, this.italic, this.glyphs);
+  _PunctuationFace(
+    this.os2Weight,
+    this.italic,
+    this.glyphs, {
+    required this.matchWeight,
+  });
 
-  final int weight;
+  final int os2Weight;
   final bool italic;
+  final int matchWeight;
   final Map<int, FontPunctuationMetrics> glyphs;
 
-  static _PunctuationFace? parse(Uint8List bytes) {
+  static _PunctuationFace? parse(Uint8List bytes, {required int matchWeight}) {
     try {
       final font = _TrueTypeFont(_readTables(bytes));
       final glyphs = <int, FontPunctuationMetrics>{};
@@ -100,7 +114,12 @@ class _PunctuationFace {
       }
       if (glyphs.isEmpty) return null;
       final style = font.style;
-      return _PunctuationFace(style.$1, style.$2, Map.unmodifiable(glyphs));
+      return _PunctuationFace(
+        style.$1,
+        style.$2,
+        Map.unmodifiable(glyphs),
+        matchWeight: matchWeight,
+      );
     } catch (_) {
       return null;
     }
@@ -108,7 +127,8 @@ class _PunctuationFace {
 
   bool same(_PunctuationFace? other) {
     if (other == null ||
-        weight != other.weight ||
+        os2Weight != other.os2Weight ||
+        matchWeight != other.matchWeight ||
         italic != other.italic ||
         glyphs.length != other.glyphs.length) {
       return false;

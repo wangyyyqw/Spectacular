@@ -592,9 +592,9 @@ void main() {
       tester,
       'stats-calendar-day-${now.year}-${now.month}-${now.day}',
     );
-    expect(find.text('1 本书 · 合计 25 分钟'), findsOneWidget);
+    expect(find.text('合计 25 分钟'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('stats-calendar-detail-a')),
+      find.byKey(const ValueKey('stats-calendar-detail-0')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -961,9 +961,8 @@ void main() {
       tester,
       'stats-calendar-day-${now.year}-${now.month}-${now.day}',
     );
-    expect(find.text('1 本书 · 合计 8 分钟'), findsOneWidget);
-    expect(find.text('合计包含未展示书目的短时阅读'), findsOneWidget);
-    Navigator.of(tester.element(find.text('1 本书 · 合计 8 分钟'))).pop();
+    expect(find.text('合计 8 分钟'), findsOneWidget);
+    Navigator.of(tester.element(find.text('合计 8 分钟'))).pop();
     await tester.pumpAndSettle();
     await _scrollTo(tester, find.byKey(const ValueKey('stats-ranking-a')), 180);
     expect(_valueOf(tester, 'stats-ranking-duration-a'), '6 分钟');

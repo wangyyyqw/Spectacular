@@ -86,11 +86,9 @@ void main() {
           tester,
           find.byKey(ValueKey('book-row-title-${book.id}')),
         );
-        final secondary = _style(
-          tester,
-          find.text('已读 0 分钟'),
-        );
+        final secondary = _style(tester, find.text('已读 0 分钟'));
         expect(primary.fontSize, 14);
+        expect(primary.fontFamily, AppFonts.defaultFamily);
         expect(secondary.fontSize, 12);
         expect(secondary.color, theme.colorScheme.onSurfaceVariant);
         expect(secondary.color, isNot(primary.color));
@@ -136,7 +134,7 @@ void main() {
     for (final readerTheme in [ReaderTheme.white, ReaderTheme.black]) {
       await tester.pumpWidget(
         MaterialApp(
-          theme: buildAppTheme(),
+          theme: buildAppTheme(fontFamily: 'user_test_font'),
           home: ReaderPanelTheme(
             theme: readerTheme,
             child: const Scaffold(
@@ -149,6 +147,8 @@ void main() {
       final primary = _style(tester, find.text('阅读面板主文字'));
       final secondary = _style(tester, find.text('阅读面板说明'));
       expect(primary.fontSize, 14);
+      expect(primary.fontFamily, 'user_test_font');
+      expect(secondary.fontFamily, 'user_test_font');
       expect(primary.color, readerTheme.text);
       expect(secondary.fontSize, 12);
       expect(
@@ -162,6 +162,14 @@ void main() {
   test('日夜辅助文字在页面和控件背景上保持可读对比度', () {
     for (final brightness in Brightness.values) {
       final theme = buildAppTheme(brightness: brightness);
+      expect(
+        theme.appBarTheme.titleTextStyle?.fontFamily,
+        AppFonts.defaultFamily,
+      );
+      expect(
+        theme.bottomNavigationBarTheme.selectedLabelStyle?.fontFamily,
+        AppFonts.defaultFamily,
+      );
       final text = theme.textTheme.bodySmall!.color!.computeLuminance();
       for (final surface in [
         theme.colorScheme.surface,

@@ -12,7 +12,9 @@ import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_models.dart';
 import '../reader/book_opener.dart';
+import '../reader/reader_font_store.dart';
 import '../storage/startup_storage.dart';
+import '../theme/app_theme.dart';
 import 'bookshelf_page.dart';
 import 'discover_page.dart';
 import 'desktop_layout.dart';
@@ -31,6 +33,9 @@ class HomeShell extends StatefulWidget {
     this.storageRecovery,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.appFontFamily = AppFonts.defaultFamily,
+    this.appFontStore,
+    this.onAppFontFamilyChanged,
   });
 
   /// 书架存储。
@@ -47,6 +52,15 @@ class HomeShell extends StatefulWidget {
 
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
+
+  /// 当前应用字体。
+  final String appFontFamily;
+
+  /// 应用字体存储。
+  final ReaderFontStore? appFontStore;
+
+  /// 切换并保存应用字体。
+  final Future<void> Function(String family)? onAppFontFamilyChanged;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -120,7 +134,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         oldWidget.progressStore != widget.progressStore ||
         oldWidget.storageRecovery != widget.storageRecovery ||
         oldWidget.themeMode != widget.themeMode ||
-        oldWidget.onThemeModeChanged != widget.onThemeModeChanged) {
+        oldWidget.onThemeModeChanged != widget.onThemeModeChanged ||
+        oldWidget.appFontFamily != widget.appFontFamily ||
+        oldWidget.appFontStore != widget.appFontStore ||
+        oldWidget.onAppFontFamilyChanged != widget.onAppFontFamilyChanged) {
       _pages = [];
     }
   }
@@ -194,6 +211,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       onReadOnline: _bookOpener.openOnline,
       themeMode: widget.themeMode,
       onThemeModeChanged: widget.onThemeModeChanged,
+      appFontFamily: widget.appFontFamily,
+      appFontStore: widget.appFontStore,
+      onAppFontFamilyChanged: widget.onAppFontFamilyChanged,
     ),
   };
 

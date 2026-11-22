@@ -103,8 +103,9 @@ flutter:
     - assets/ye_she/items/
     - integration_test/m0_page_sequence.json
 
-  # 内置正文宋体与黑体（OFL），字体别名表把宋体/serif、黑体/sans-serif
-  # 映射到对应规范族；楷体仍走系统字族回退。
+  # 内置正文宋体与黑体（OFL）。宋体使用阅微精简思源宋体子集，
+  # Regular/Bold 分别对应 serif_medium/serif_bold；字体别名表把
+  # 宋体/serif、黑体/sans-serif 映射到对应规范族，楷体仍走系统字族回退。
   fonts:
     - family: builtin_song
       fonts:

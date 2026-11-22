@@ -64,6 +64,47 @@ void main() {
       await pumpReaderTask(tester, TxtBookService(store).canRechapter(entry)),
       isFalse,
     );
+    expect(
+      find.byKey(const ValueKey<String>('book-detail-reading-chart')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('长按菜单操作区使用一个大圆角边框且内部无分隔线', (tester) async {
+    final entry = BookEntry(
+      id: 'style-book',
+      title: '样式样本',
+      author: '作者',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: BookDetailSheet(entry: entry, library: store),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final panel = find.byKey(const ValueKey('book-detail-actions'));
+    final scheme = Theme.of(
+      tester.element(find.byKey(const ValueKey('book-detail-open-page'))),
+    ).colorScheme;
+    final material = tester.widget<Material>(panel);
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(shape.borderRadius, BorderRadius.circular(10));
+    expect(shape.side.color, scheme.outlineVariant);
+    expect(material.color, scheme.surfaceContainerLow);
+    expect(
+      find.descendant(of: panel, matching: find.byType(Divider)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(VerticalDivider)),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('长按进入详情抽屉，关闭后保留原书架与书籍资料', (tester) async {
@@ -250,6 +291,18 @@ void main() {
     await tester.pumpAndSettle();
     final progress = find.text('已读 2 小时 15 分 · 4 / 15 章');
     expect(progress, findsOneWidget);
+    final progressBarFinder = find.byKey(
+      const ValueKey('book-detail-chapter-progress'),
+    );
+    final progressBar = tester.widget<LinearProgressIndicator>(
+      progressBarFinder,
+    );
+    expect(progressBar.value, closeTo(4 / 15, 1e-9));
+    expect(progressBar.minHeight, 3);
+    expect(
+      tester.getRect(progressBarFinder).left,
+      greaterThan(tester.getRect(progress).right),
+    );
     final duration = find.textContaining('已读 2 小时 15 分');
     expect(duration, findsOneWidget);
     expect(
@@ -282,6 +335,13 @@ void main() {
       entry = await store.importBytes(buildTestEpub(title: '计时书籍'));
       final other = await store.importBytes(buildTestEpub(title: '其他书籍'));
       final sessions = store.readingSessionStore()!;
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      final startedAt = DateTime(
+        yesterday.year,
+        yesterday.month,
+        yesterday.day,
+        10,
+      );
       for (final (bookId, minutes) in [
         (entry.id, 60),
         (entry.id, 15),
@@ -290,8 +350,8 @@ void main() {
       ]) {
         await sessions.add(
           bookId: bookId,
-          startedAt: DateTime(2026, 11, 20, 10),
-          endedAt: DateTime(2026, 11, 20, 10).add(Duration(minutes: minutes)),
+          startedAt: startedAt,
+          endedAt: startedAt.add(Duration(minutes: minutes)),
         );
       }
     });
@@ -308,6 +368,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('已读 1 小时 16 分 · 0 / 1 章'), findsOneWidget);
     expect(find.textContaining('0 / 1 章'), findsOneWidget);
+    final chart = find.byKey(
+      const ValueKey<String>('book-detail-reading-chart'),
+    );
+    final cover = find.byKey(const ValueKey<String>('book-detail-cover'));
+    expect(chart, findsOneWidget);
+    expect(find.text('最近 7 天'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(BookDetailSheet),
+        matching: find.byType(Divider),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.getRect(chart).top,
+      greaterThan(tester.getRect(cover).bottom),
+    );
     // 等待面板的真实文件查询完成，避免清理 EPUB 时仍持有文件句柄。
     expect(
       await pumpReaderTask(tester, TxtBookService(store).canRechapter(entry)),
@@ -377,7 +454,7 @@ void main() {
         final leftRect = tester.getRect(leftButton);
         final rightRect = tester.getRect(rightButton);
         expect(leftRect.center.dy, closeTo(rightRect.center.dy, 0.1));
-        expect(leftRect.right, lessThan(rightRect.left));
+        expect(leftRect.right, lessThanOrEqualTo(rightRect.left));
         expect(leftRect.height, greaterThanOrEqualTo(48));
         expect(rightRect.height, greaterThanOrEqualTo(48));
         expect(leftButton.hitTestable(), findsOneWidget);

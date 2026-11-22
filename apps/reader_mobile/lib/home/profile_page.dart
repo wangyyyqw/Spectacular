@@ -15,6 +15,9 @@ import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_page.dart';
 import '../ye_she/community_page.dart';
 import '../ye_she/ye_she_page.dart';
+import '../reader/reader_font_store.dart';
+import '../theme/app_theme.dart';
+import 'app_font_picker.dart';
 import 'bookshelf_sort.dart';
 
 /// 我的页：外观、书架设置、版本信息、诊断日志导出。
@@ -28,6 +31,9 @@ class ProfilePage extends StatefulWidget {
     this.onReadOnline,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.appFontFamily = AppFonts.defaultFamily,
+    this.appFontStore,
+    this.onAppFontFamilyChanged,
   });
 
   /// 书架存储。
@@ -46,6 +52,15 @@ class ProfilePage extends StatefulWidget {
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
 
+  /// 当前应用字体。
+  final String appFontFamily;
+
+  /// 应用字体存储；为空时不显示应用字体入口。
+  final ReaderFontStore? appFontStore;
+
+  /// 切换并保存应用字体。
+  final Future<void> Function(String family)? onAppFontFamilyChanged;
+
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -55,6 +70,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _exporting = false;
   bool _savingTheme = false;
   BookSortOrder _shelfSort = BookSortOrder.recent;
+  List<ReaderFontEntry> _appFonts = const [];
 
   @override
   void initState() {
@@ -67,6 +83,29 @@ class _ProfilePageState extends State<ProfilePage> {
         })
         .catchError((_) {});
     _loadShelfSort();
+    _loadAppFonts();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.appFontStore != widget.appFontStore) {
+      _loadAppFonts();
+    }
+  }
+
+  Future<void> _loadAppFonts() async {
+    final store = widget.appFontStore;
+    if (store == null) {
+      _appFonts = const [];
+      return;
+    }
+    try {
+      final fonts = await store.list();
+      if (mounted) setState(() => _appFonts = fonts);
+    } catch (error, stackTrace) {
+      recordAppError('app_font_list_failed', error, stackTrace: stackTrace);
+    }
   }
 
   Future<void> _loadShelfSort() async {
@@ -145,6 +184,45 @@ class _ProfilePageState extends State<ProfilePage> {
     } finally {
       if (mounted) setState(() => _savingTheme = false);
     }
+  }
+
+  String get _appFontLabel {
+    if (widget.appFontFamily == AppFonts.defaultFamily) return '思源宋体';
+    return _appFonts
+            .where((font) => font.family == widget.appFontFamily)
+            .firstOrNull
+            ?.displayName ??
+        '自定义字体';
+  }
+
+  Future<void> _chooseAppFont() async {
+    final store = widget.appFontStore;
+    final onChanged = widget.onAppFontFamilyChanged;
+    if (store == null || onChanged == null) return;
+    await showReaderDrawer<void>(
+      context: context,
+      builder: (_) => AppFontPickerSheet(
+        fonts: _appFonts,
+        selectedFamily: widget.appFontFamily,
+        onSelect: onChanged,
+        onImport: _importAppFont,
+        onRemove: _removeAppFont,
+      ),
+    );
+  }
+
+  Future<ReaderFontEntry?> _importAppFont() async {
+    final font = await widget.appFontStore!.pick();
+    if (font != null) await _loadAppFonts();
+    return font;
+  }
+
+  Future<void> _removeAppFont(String family) async {
+    await widget.appFontStore!.remove(family);
+    if (widget.appFontFamily == family) {
+      await widget.onAppFontFamilyChanged!(AppFonts.defaultFamily);
+    }
+    await _loadAppFonts();
   }
 
   Future<void> _clearLogs() async {
@@ -302,6 +380,15 @@ class _ProfilePageState extends State<ProfilePage> {
         trailing: const AppIcon(AppGlyph.chevronRight),
         onTap: _savingTheme ? null : () => _chooseTheme(mode),
       ),
+      if (widget.appFontStore != null && widget.onAppFontFamilyChanged != null)
+        ListTile(
+          key: const ValueKey('app-font-setting'),
+          leading: const AppIcon(AppGlyph.textFields),
+          title: const Text('应用字体'),
+          subtitle: Text(_appFontLabel),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: _chooseAppFont,
+        ),
     ]);
   }
 

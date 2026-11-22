@@ -29,7 +29,7 @@ void main() {
       BuildContext? drawerContext;
       await tester.pumpWidget(
         MaterialApp(
-          theme: ThemeData(platform: platform),
+          theme: ThemeData(platform: platform, fontFamily: '内置测试字体'),
           builder: (context, child) => CallbackShortcuts(
             bindings: {
               const SingleActivator(LogicalKeyboardKey.f2): () =>
@@ -87,7 +87,7 @@ void main() {
       expect(tester.getSize(surface).width, 420);
       expect(
         Theme.of(drawerContext!).textTheme.bodyMedium?.fontFamily,
-        'builtin_hei',
+        '内置测试字体',
       );
       expect(
         Theme.of(drawerContext!).colorScheme.surface,

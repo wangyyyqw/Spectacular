@@ -188,7 +188,7 @@ Future<void> _clickSearchResult(WidgetTester tester) async {
   await tester.enterText(find.byKey(const ValueKey('search-input')), 'ABtail');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
-  await tester.tap(find.byType(ListTile));
+  await tester.tap(find.byKey(const ValueKey('search-hit-0-4')));
   await tester.pumpAndSettle();
 }
 
@@ -227,6 +227,30 @@ void main() {
     final restored = await _session(source, store);
     expect(restored.readingCfi, target);
     expect(restored.page!.pageIndex, 1);
+  });
+
+  test('分页切片末尾不重复命中下一页的书签位置，原段末尾仍可定位', () async {
+    final source = await _source(
+      '<p class="float">F</p><p id="p">${'boundary' * 10}</p>',
+      css: '.float{float:left;width:16px;height:24px}',
+    );
+    final session = await _session(source, MemoryReaderProgressStore());
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    for (var index = 1; index < pages.length; index++) {
+      final cfi = session.cfiAtPageOffset(pages[index], null)!;
+      expect(ReaderTextRangeGeometry.containsPoint(pages[index], cfi), isTrue);
+      expect(
+        ReaderTextRangeGeometry.containsPoint(pages[index - 1], cfi),
+        isFalse,
+        reason: '下一页页首不能被上一页的文本切片末尾命中',
+      );
+    }
+    expect(
+      ReaderTextRangeGeometry.containsPoint(pages.last, _cfi('/4[p]/1', 80)),
+      isTrue,
+      reason: '原段真实末尾仍支持尾部留白处的定位',
+    );
   });
 
   test('同段跨元素选区和批注装饰均映射到各自来源字符块', () async {

@@ -3,7 +3,9 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../library/library_store.dart';
+import '../storage/reading_session_store.dart';
 import '../txt/txt_book_service.dart';
+import 'book_reading_chart.dart';
 import 'book_cover_image.dart';
 import 'reading_insights.dart';
 
@@ -23,6 +25,7 @@ class BookDetailSheet extends StatelessWidget {
     this.linkedPublisherNameFuture,
     this.progress,
     this.readingDuration = Duration.zero,
+    this.readingSessions = const <ReadingSession>[],
     this.pinned = false,
   });
 
@@ -47,12 +50,28 @@ class BookDetailSheet extends StatelessWidget {
   /// 本书累计有效阅读时长，与图书详情的统计口径一致。
   final Duration readingDuration;
 
+  /// 全部阅读会话；图表只汇总当前书籍最近 7 天的记录。
+  final List<ReadingSession> readingSessions;
+
   /// 本书是否已置顶。
   final bool pinned;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final recentDurations = recentBookReadingDurations(
+      readingSessions,
+      bookId: entry.id,
+      now: DateTime.now(),
+    );
+    final hasRecentReading = recentDurations.any(
+      (duration) => duration > Duration.zero,
+    );
+    final spineCount = entry.spineCount ?? 0;
+    final chapterProgress = spineCount <= 0
+        ? null
+        : (((progress?.spineIndex ?? -1) + 1).clamp(0, spineCount)) /
+              spineCount;
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -96,16 +115,43 @@ class BookDetailSheet extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          '已读 ${formatReadingDuration(readingDuration)} · '
-                          '${formatReadingChapters(progress?.spineIndex, entry.spineCount).replaceFirst('已读 ', '')}',
-                          key: const ValueKey('book-detail-reading-summary'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            height: 1.3,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '已读 ${formatReadingDuration(readingDuration)} · '
+                                '${formatReadingChapters(progress?.spineIndex, entry.spineCount).replaceFirst('已读 ', '')}',
+                                key: const ValueKey(
+                                  'book-detail-reading-summary',
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  height: 1.3,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            if (chapterProgress != null) ...[
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(2),
+                                  child: LinearProgressIndicator(
+                                    key: const ValueKey(
+                                      'book-detail-chapter-progress',
+                                    ),
+                                    value: chapterProgress,
+                                    minHeight: 3,
+                                    color: theme.colorScheme.primary,
+                                    backgroundColor: theme
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 4),
                         FutureBuilder<String>(
@@ -160,7 +206,14 @@ class BookDetailSheet extends StatelessWidget {
                 ],
               ),
             ),
-            const Divider(height: 24),
+            if (hasRecentReading) ...[
+              const SizedBox(height: 16),
+              BookReadingChart(durations: recentDurations),
+            ],
+            if (hasRecentReading)
+              const SizedBox(height: 20)
+            else
+              const Divider(height: 24),
             FutureBuilder<List<String>>(
               future: library.pendingLocationReasons(entry.id),
               builder: (context, snapshot) {
@@ -185,83 +238,96 @@ class BookDetailSheet extends StatelessWidget {
                 );
               },
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-open-page'),
-                    icon: AppGlyph.menuBook,
-                    label: '详情',
-                    onTap: () => Navigator.of(context).pop('detail'),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: Material(
+                key: const ValueKey('book-detail-actions'),
+                color: theme.colorScheme.surfaceContainerLow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: theme.colorScheme.outlineVariant),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-pin'),
-                    icon: AppGlyph.pushPin,
-                    label: pinned ? '取消置顶' : '置顶',
-                    onTap: () => Navigator.of(context).pop('pin'),
-                  ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    _DetailActionPair(
+                      left: _DetailAction(
+                        key: const ValueKey<String>('book-detail-open-page'),
+                        icon: AppGlyph.menuBook,
+                        label: '详情',
+                        onTap: () => Navigator.of(context).pop('detail'),
+                      ),
+                      right: _DetailAction(
+                        key: const ValueKey<String>('book-detail-pin'),
+                        icon: AppGlyph.pushPin,
+                        label: pinned ? '取消置顶' : '置顶',
+                        onTap: () => Navigator.of(context).pop('pin'),
+                      ),
+                    ),
+                    FutureBuilder<bool>(
+                      future: TxtBookService(library).canRechapter(entry),
+                      builder: (context, snapshot) => snapshot.data == true
+                          ? _DetailAction(
+                              key: const ValueKey('book-detail-chapters'),
+                              icon: AppGlyph.listBulleted,
+                              label: '章节正则',
+                              onTap: () =>
+                                  Navigator.of(context).pop('chapters'),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                    _DetailActionPair(
+                      left: _DetailAction(
+                        key: const ValueKey<String>('book-detail-update'),
+                        icon: AppGlyph.refresh,
+                        label: '更新',
+                        onTap: () => Navigator.of(context).pop('update'),
+                      ),
+                      right: _DetailAction(
+                        key: const ValueKey<String>('book-detail-create-group'),
+                        icon: AppGlyph.folderMove,
+                        label: '分组',
+                        onTap: () => Navigator.of(context).pop('create-group'),
+                      ),
+                    ),
+                    _DetailActionPair(
+                      left: _DetailAction(
+                        key: const ValueKey<String>('book-detail-export'),
+                        icon: AppGlyph.upload,
+                        label: '导出',
+                        onTap: () => Navigator.of(context).pop('export'),
+                      ),
+                      right: _DetailAction(
+                        key: const ValueKey<String>('book-detail-delete'),
+                        icon: AppGlyph.delete,
+                        label: '删除',
+                        onTap: () => Navigator.of(context).pop('delete'),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            FutureBuilder<bool>(
-              future: TxtBookService(library).canRechapter(entry),
-              builder: (context, snapshot) => snapshot.data == true
-                  ? _DetailAction(
-                      key: const ValueKey('book-detail-chapters'),
-                      icon: AppGlyph.listBulleted,
-                      label: '章节正则',
-                      onTap: () => Navigator.of(context).pop('chapters'),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-update'),
-                    icon: AppGlyph.refresh,
-                    label: '更新',
-                    onTap: () => Navigator.of(context).pop('update'),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-create-group'),
-                    icon: AppGlyph.folderAdd,
-                    label: '分组',
-                    onTap: () => Navigator.of(context).pop('create-group'),
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-export'),
-                    icon: AppGlyph.upload,
-                    label: '导出',
-                    onTap: () => Navigator.of(context).pop('export'),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _DetailAction(
-                    key: const ValueKey<String>('book-detail-delete'),
-                    icon: AppGlyph.delete,
-                    label: '删除',
-                    onTap: () => Navigator.of(context).pop('delete'),
-                  ),
-                ),
-              ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DetailActionPair extends StatelessWidget {
+  const _DetailActionPair({required this.left, required this.right});
+
+  final Widget left;
+  final Widget right;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: left),
+        Expanded(child: right),
+      ],
     );
   }
 }
@@ -282,18 +348,16 @@ class _DetailAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = theme.colorScheme.onSurface;
-    return Material(
-      type: MaterialType.transparency,
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        minLeadingWidth: 24,
-        leading: AppIcon(icon, size: 22, color: color),
-        title: Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(color: color),
-        ),
-        onTap: onTap,
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      minLeadingWidth: 22,
+      horizontalTitleGap: 10,
+      leading: AppIcon(icon, size: 22, color: color),
+      title: Text(
+        label,
+        style: theme.textTheme.bodyMedium?.copyWith(color: color),
       ),
+      onTap: onTap,
     );
   }
 }
