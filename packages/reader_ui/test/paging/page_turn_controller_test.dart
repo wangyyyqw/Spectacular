@@ -227,6 +227,37 @@ Completer<void> _requestWithActivationCancellation(
 }
 
 void main() {
+  testWidgets('3D（新版）点击上下角时斜向起卷，键盘请求从中部平卷', (tester) async {
+    for (final next in [false, true]) {
+      for (final height in <double?>[32, 448, null]) {
+        final controller = await _controller(tester)
+          ..mode = PageTurnMode.simulation3dNext;
+        if (height != null) {
+          controller.pointerDown(ui.Offset(next ? 310 : 10, height));
+        }
+        controller.request(next);
+        await tester.pump();
+        await tester.pump();
+        expect(controller.phase, PageTurnPhase.dragging);
+        await tester.pump(Duration(milliseconds: (next ? 50 : 75) - 1));
+        final grab = controller.grab!;
+        final point = controller.point!;
+        expect(point.dx, lessThan(grab.dx));
+        expect(controller.fromRight, next);
+        if (height == null) {
+          expect(point.dy, 240);
+        } else {
+          expect(grab.dy, height < 240 ? 0 : 480);
+          expect((point.dy - grab.dy).abs(), greaterThan(8));
+        }
+        expect(controller.session.progress!.pageIndex, 1);
+        await tester.pumpAndSettle();
+        expect(controller.session.progress!.pageIndex, next ? 2 : 0);
+        await controller.session.flushProgress();
+      }
+    }
+  });
+
   for (final mode in PageTurnMode.values.where(
     (mode) => mode != PageTurnMode.scroll,
   )) {
@@ -1295,8 +1326,7 @@ void main() {
   }
 
   for (final mode in PageTurnMode.values) {
-    if (mode == PageTurnMode.simulationBessel ||
-        mode == PageTurnMode.simulation3d) {
+    if (mode == PageTurnMode.simulationBessel || mode.is3d) {
       continue;
     }
     testWidgets('${mode.label} 保留旧距离与速度门槛', (tester) async {

@@ -82,7 +82,7 @@ void main() {
       final controller = await _open(tester, mode, source: source);
       _start(controller);
       await tester.pump();
-      if (mode == PageTurnMode.simulation3d) {
+      if (mode.is3d) {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
       }
@@ -113,7 +113,7 @@ void main() {
       final source = _Source();
       final controller = await _open(tester, mode, source: source);
       _start(controller);
-      _move(controller, mode == PageTurnMode.simulation3d ? 301 : 295);
+      _move(controller, mode.is3d ? 301 : 295);
       await tester.pump();
       controller.endDrag(DragEndDetails());
       await tester.pumpAndSettle();
@@ -127,7 +127,7 @@ void main() {
       expect(controller.session.pageTurns, 0);
     });
     testWidgets(
-      '${mode.label} ${mode == PageTurnMode.simulation3d ? '动画中拒绝第二次拖动' : '连续滑动在收尾后接管触点'}',
+      '${mode.label} ${mode.is3d ? '动画中拒绝第二次拖动' : '连续滑动在收尾后接管触点'}',
       (tester) async {
         final source = _Source()
           ..nextChapter.complete([_Source.page(1, 0), _Source.page(1, 1)]);
@@ -138,7 +138,7 @@ void main() {
         _move(controller, 100);
         await tester.pumpAndSettle();
         expect(controller.session.page!.spineIndex, 1);
-        if (mode == PageTurnMode.simulation3d) {
+        if (mode.is3d) {
           expect(controller.phase, PageTurnPhase.idle);
           _move(controller, 80);
           controller.endDrag(DragEndDetails());

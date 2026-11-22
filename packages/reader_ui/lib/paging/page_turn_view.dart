@@ -132,6 +132,8 @@ class PageTurnViewState extends State<PageTurnView>
       widget.session.jumpLoadingTitle == null;
 
   bool get _usesWindow => widget.mode != PageTurnMode.scroll;
+  bool get _usesPaperBackground =>
+      widget.mode.is3d || widget.mode == PageTurnMode.continuation;
   bool get _usesContinuationPaper =>
       widget.mode == PageTurnMode.continuation &&
       widget.continuationPaperBuilder != null;
@@ -238,7 +240,7 @@ class PageTurnViewState extends State<PageTurnView>
     if (!mounted) return;
     final show = controller.active && controller.originImage != null;
     final target = controller.turn?.target.content;
-    if (controller.mode != PageTurnMode.simulation3d &&
+    if (!controller.mode.is3d &&
         _turnActive &&
         show &&
         _showAnimation &&
@@ -378,8 +380,7 @@ class PageTurnViewState extends State<PageTurnView>
       // 冷目标也属于这次窗口，提交后可平移并保留刚读过的原页。
       _window[controller.next ? 1 : -1] = page;
     }
-    if (widget.mode == PageTurnMode.simulation3d ||
-        widget.mode == PageTurnMode.continuation) {
+    if (_usesPaperBackground) {
       await _prepareTurnBackground();
       if (!mounted ||
           token != _captureToken ||
@@ -394,7 +395,7 @@ class PageTurnViewState extends State<PageTurnView>
   Future<void> _prepareTurnBackground() async {
     final token = _captureToken;
     final generation = widget.session.generation;
-    if (widget.mode == PageTurnMode.simulation3d) {
+    if (widget.mode.is3d) {
       await DuokanCurlShader.load();
     }
     if (!mounted ||
@@ -740,8 +741,7 @@ class PageTurnViewState extends State<PageTurnView>
   Future<void> _warm(PageContent page, int token, int generation) async {
     final animate = widget.mode != PageTurnMode.none;
     if (!_canWarm(page, token, generation)) return;
-    if (widget.mode == PageTurnMode.simulation3d ||
-        widget.mode == PageTurnMode.continuation) {
+    if (_usesPaperBackground) {
       await _prepareTurnBackground();
       if (!_canWarm(page, token, generation)) return;
     }

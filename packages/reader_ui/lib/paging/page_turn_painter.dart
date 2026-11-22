@@ -55,7 +55,7 @@ class PageTurnPainter extends CustomPainter {
       return;
     }
     final opacity = controller.targetOpacity;
-    if (opacity < 1 && controller.mode == PageTurnMode.simulation3d) {
+    if (opacity < 1 && controller.mode.is3d) {
       _paintTurn(canvas, size, origin, origin);
       if (opacity > 0) {
         canvas.saveLayer(
@@ -128,7 +128,7 @@ class PageTurnPainter extends CustomPainter {
 
   void _paintTurn(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
     final p = controller.progress;
-    final curl3d = controller.mode == PageTurnMode.simulation3d;
+    final curl3d = controller.mode.is3d;
     // 3D 的可见程度由折角几何决定，不看进度。
     if (!curl3d && (p <= 0 || p >= 1)) {
       if (p >= 1) {

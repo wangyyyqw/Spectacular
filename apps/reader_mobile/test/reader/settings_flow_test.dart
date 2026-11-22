@@ -252,11 +252,14 @@ void main() {
       expect((await store.load()).pageTurnMode, mode);
     }
 
-    await library.setSetting(
-      ReaderSettingsStore.keyPageTurnMode,
-      'removed-mode',
-    );
-    expect((await store.load()).pageTurnMode, PageTurnMode.cover);
+    for (final entry in const {
+      'simulation3d': PageTurnMode.simulation3d,
+      'simulation3dNext': PageTurnMode.simulation3dNext,
+      'removed-mode': PageTurnMode.cover,
+    }.entries) {
+      await library.setSetting(ReaderSettingsStore.keyPageTurnMode, entry.key);
+      expect((await store.load()).pageTurnMode, entry.value);
+    }
   });
 
   test('屏幕常亮和音量键翻页持久化往返', () async {

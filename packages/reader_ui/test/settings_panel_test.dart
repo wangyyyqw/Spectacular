@@ -304,7 +304,10 @@ void main() {
     );
   });
 
-  testWidgets('设置段标题统一，接续与滚动可分别选择', (tester) async {
+  testWidgets('设置段标题统一，窄屏可滚动选择新旧 3D、接续与滚动', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 720);
+    addTearDown(tester.view.reset);
     final changes = <PageTurnMode>[];
     await tester.pumpWidget(
       MaterialApp(
@@ -332,14 +335,24 @@ void main() {
     ];
     expect(titleStyles[1], titleStyles[0]);
     expect(titleStyles[2], titleStyles[0]);
-    for (final mode in [PageTurnMode.continuation, PageTurnMode.scroll]) {
+    const choices = {
+      '3D（旧版）': PageTurnMode.simulation3d,
+      '3D（新版）': PageTurnMode.simulation3dNext,
+      '接续': PageTurnMode.continuation,
+      '滚动': PageTurnMode.scroll,
+    };
+    for (final choice in choices.entries) {
       final option = find.byKey(
-        ValueKey<String>('settings-page-turn-${mode.id}'),
+        ValueKey<String>('settings-page-turn-${choice.value.id}'),
       );
       await tester.ensureVisible(option);
+      expect(
+        find.descendant(of: option, matching: find.text(choice.key)),
+        findsOneWidget,
+      );
       await tester.tap(option);
     }
-    expect(changes, [PageTurnMode.continuation, PageTurnMode.scroll]);
+    expect(changes, orderedEquals(choices.values));
     expect(tester.takeException(), isNull);
   });
 

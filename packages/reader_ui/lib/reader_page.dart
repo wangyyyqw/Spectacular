@@ -3347,9 +3347,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       config: ReaderGestureConfig(
         tapZones: _tapZones,
         verticalWriting: _readingRtl,
-        minimumFlingVelocity: _effectiveTurnMode == PageTurnMode.simulation3d
-            ? 20
-            : null,
+        minimumFlingVelocity: _effectiveTurnMode.is3d ? 20 : null,
       ),
       onPrevious: () => _requestPageTurn(false),
       onNext: () => _requestPageTurn(true),
