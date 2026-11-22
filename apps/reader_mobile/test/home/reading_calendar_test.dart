@@ -346,9 +346,59 @@ void main() {
           .first,
     );
     expect(
-      find.descendant(of: find.byType(BottomSheet), matching: find.text(title)),
+      find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.textContaining(title, findRichText: true),
+      ),
       findsOneWidget,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('当日明细按阅读片段显示时分秒时间轴和秒级时长', (tester) async {
+    await _pump(tester, [
+      ReadingSession(
+        bookId: 'vegetarian',
+        bookTitle: '素食者',
+        startedAt: DateTime(2026, 11, 15, 0, 23, 5),
+        endedAt: DateTime(2026, 11, 15, 0, 23, 37),
+        duration: const Duration(seconds: 32),
+      ),
+      ReadingSession(
+        bookId: 'vegetarian',
+        bookTitle: '素食者',
+        startedAt: DateTime(2026, 11, 15, 0, 27),
+        endedAt: DateTime(2026, 11, 15, 0, 27, 2),
+        duration: const Duration(seconds: 2),
+      ),
+      ReadingSession(
+        bookId: 'radar',
+        bookTitle: '现代雷达系统分析与设计',
+        startedAt: DateTime(2026, 11, 15, 0, 36, 4),
+        endedAt: DateTime(2026, 11, 15, 0, 36, 55),
+        duration: const Duration(seconds: 51),
+      ),
+    ]);
+    await _tap(tester, 'day-2026-11-15');
+
+    expect(find.text('00:23:05'), findsOneWidget);
+    expect(find.text('00:27:00'), findsOneWidget);
+    expect(find.text('00:36:04'), findsOneWidget);
+    expect(find.text('32秒'), findsOneWidget);
+    expect(find.text('2秒'), findsOneWidget);
+    expect(find.text('51秒'), findsOneWidget);
+    expect(find.textContaining('《素食者》', findRichText: true), findsNWidgets(2));
+    expect(
+      find.textContaining('《现代雷达系统分析与设计》', findRichText: true),
+      findsOneWidget,
+    );
+    final line = tester.getRect(
+      find.byKey(const ValueKey('stats-calendar-detail-0')),
+    );
+    final second = tester.getRect(
+      find.byKey(const ValueKey('stats-calendar-detail-1')),
+    );
+    expect(line.top, lessThan(second.top));
     expect(tester.takeException(), isNull);
   });
 

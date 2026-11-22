@@ -62,12 +62,37 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   }
 
   void _openDay(ReadingCalendarMonth month, DateTime date) {
+    final portions =
+        <ReadingDayPortion>[
+          for (final portion in widget.insights.portions)
+            if (portion.duration > Duration.zero &&
+                portion.startedAt.year == date.year &&
+                portion.startedAt.month == date.month &&
+                portion.startedAt.day == date.day)
+              portion,
+        ]..sort((a, b) {
+          final started = a.startedAt.compareTo(b.startedAt);
+          if (started != 0) return started;
+          final ended = a.endedAt.compareTo(b.endedAt);
+          return ended != 0 ? ended : a.bookId.compareTo(b.bookId);
+        });
     showReaderBottomSheet<void>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => _CalendarDaySheet(month: month, date: date),
+      builder: (context) => _CalendarDaySheet(
+        date: date,
+        portions: portions,
+        bookTitles: {...widget.insights.bookTitles, ...widget.bookTitles},
+        finishedBookIds: {
+          for (final entry in month.finishDays.entries)
+            if (entry.value.year == date.year &&
+                entry.value.month == date.month &&
+                entry.value.day == date.day)
+              entry.key,
+        },
+      ),
     );
   }
 
@@ -416,14 +441,30 @@ class _CalendarWeek extends StatelessWidget {
 }
 
 class _CalendarDaySheet extends StatelessWidget {
-  const _CalendarDaySheet({required this.month, required this.date});
+  const _CalendarDaySheet({
+    required this.date,
+    required this.portions,
+    required this.bookTitles,
+    required this.finishedBookIds,
+  });
 
-  final ReadingCalendarMonth month;
   final DateTime date;
+  final List<ReadingDayPortion> portions;
+  final Map<String, String> bookTitles;
+  final Set<String> finishedBookIds;
 
   @override
   Widget build(BuildContext context) {
-    final books = month.days[date] ?? const <BookDurationEntry>[];
+    final scheme = Theme.of(context).colorScheme;
+    final total = portions.fold(
+      Duration.zero,
+      (sum, portion) => sum + portion.duration,
+    );
+    final bookCount = {for (final portion in portions) portion.bookId}.length;
+    final lastIndexByBook = <String, int>{
+      for (var index = 0; index < portions.length; index++)
+        portions[index].bookId: index,
+    };
     return SizedBox(
       height: MediaQuery.sizeOf(context).height * 0.6,
       child: Padding(
@@ -431,24 +472,31 @@ class _CalendarDaySheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _heading(context, books),
-            const SizedBox(height: 8),
+            Text(
+              _isoDate(date),
+              key: const ValueKey('stats-calendar-detail-date'),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '$bookCount 本书 · 合计 ${formatReadingDuration(total)}',
+              key: const ValueKey('stats-calendar-detail-total'),
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
             Expanded(
-              child: books.isEmpty
+              child: portions.isEmpty
                   ? Center(
                       child: Text(
-                        month.dayDurations.containsKey(date)
-                            ? '当天书目尚未达到展示条件，时长已计入'
-                            : '这一天没有阅读记录',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                        '这一天没有阅读记录',
+                        style: TextStyle(color: scheme.onSurfaceVariant),
                       ),
                     )
                   : ListView.builder(
-                      itemCount: books.length,
+                      padding: const EdgeInsets.only(bottom: 4),
+                      itemCount: portions.length,
                       itemBuilder: (context, index) =>
-                          _bookRow(context, books[index]),
+                          _timelineRow(context, index, lastIndexByBook),
                     ),
             ),
           ],
@@ -457,95 +505,149 @@ class _CalendarDaySheet extends StatelessWidget {
     );
   }
 
-  Widget _heading(BuildContext context, List<BookDurationEntry> books) {
+  Widget _timelineRow(
+    BuildContext context,
+    int index,
+    Map<String, int> lastIndexByBook,
+  ) {
     final scheme = Theme.of(context).colorScheme;
-    final total = month.dayDurations[date] ?? Duration.zero;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          _isoDate(date),
-          key: const ValueKey('stats-calendar-detail-date'),
-          style: Theme.of(context).textTheme.titleSmall,
-        ),
-        const SizedBox(height: 6),
-        Text(
-          '${books.length} 本书 · 合计 ${formatReadingDuration(total)}',
-          key: const ValueKey('stats-calendar-detail-total'),
-          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-        ),
-        if (total >
-            books.fold(Duration.zero, (sum, book) => sum + book.duration))
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              '合计包含未展示书目的短时阅读',
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _bookRow(BuildContext context, BookDurationEntry book) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      key: ValueKey('stats-calendar-detail-${book.bookId}'),
-      padding: const EdgeInsets.symmetric(vertical: 10),
+    final portion = portions[index];
+    final bookId = portion.bookId;
+    final isLast = index == portions.length - 1;
+    final finished =
+        finishedBookIds.contains(bookId) && lastIndexByBook[bookId] == index;
+    final title = bookTitles[bookId]?.trim();
+    final displayTitle = title == null || title.isEmpty ? '已移出书架的书籍' : title;
+    final textScale = MediaQuery.textScalerOf(context).scale(11) / 11;
+    final timeWidth = (48 * textScale.clamp(1.0, 1.8)).toDouble();
+    final lineColor = scheme.outlineVariant.withValues(alpha: 0.8);
+    return IntrinsicHeight(
+      key: ValueKey('stats-calendar-detail-$index'),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 8,
-            height: 8,
-            margin: const EdgeInsets.only(top: 6.5, right: 10),
-            decoration: BoxDecoration(
-              color: _bookColor(book.bookId),
-              shape: BoxShape.circle,
-            ),
-          ),
-          Expanded(
-            child: Row(
-              children: [
-                Flexible(
+          SizedBox(
+            width: timeWidth,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
                   child: Text(
-                    book.title,
-                    style: Theme.of(context).textTheme.bodyMedium
-                        ?.copyWith(height: 1.4),
+                    _formatTimelineTime(portion.startedAt),
+                    key: ValueKey('stats-calendar-time-$index'),
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.4,
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ),
-                if (month.finishDays[book.bookId] == date) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 1,
-                    ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 14,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.topCenter,
+              children: [
+                if (!isLast)
+                  Positioned(
+                    left: 6.5,
+                    top: index == 0 ? 8.5 : 0,
+                    bottom: 0,
+                    child: Container(width: 1, color: lineColor),
+                  ),
+                if (isLast && index > 0)
+                  Positioned(
+                    left: 6.5,
+                    top: 0,
+                    height: 8.5,
+                    child: Container(width: 1, color: lineColor),
+                  ),
+                Positioned(
+                  top: 4,
+                  child: Container(
+                    width: 9,
+                    height: 9,
                     decoration: BoxDecoration(
-                      color: _doneColor,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: const Text(
-                      '已读',
-                      style: TextStyle(
-                        fontSize: 11,
-                        height: 1.4,
-                        color: Colors.white,
-                      ),
+                      color: _bookColor(bookId),
+                      shape: BoxShape.circle,
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          Text(
-            formatReadingDuration(book.duration),
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.4,
-              color: scheme.onSurfaceVariant,
-              fontFeatures: const [FontFeature.tabularFigures()],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        const TextSpan(
+                          text: '阅读',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        TextSpan(text: '《$displayTitle》'),
+                      ],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize: 13,
+                      height: 1.45,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(
+                        _formatTimelineDuration(portion.duration),
+                        key: ValueKey('stats-calendar-duration-$index'),
+                        style: TextStyle(
+                          fontSize: 11,
+                          height: 1.4,
+                          color: scheme.onSurfaceVariant,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      if (finished) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _doneColor,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: const Text(
+                            '已读',
+                            style: TextStyle(
+                              fontSize: 10,
+                              height: 1.3,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -559,6 +661,25 @@ String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
 String _isoDate(DateTime date) =>
     '${date.year}-${date.month.toString().padLeft(2, '0')}-'
     '${date.day.toString().padLeft(2, '0')}';
+
+String _formatTimelineTime(DateTime time) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
+}
+
+String _formatTimelineDuration(Duration duration) {
+  if (duration <= Duration.zero) return '0秒';
+  final seconds = math.max(1, (duration.inMilliseconds / 1000).round());
+  if (seconds < 60) return '$seconds秒';
+  final minutes = seconds ~/ 60;
+  final restSeconds = seconds % 60;
+  if (minutes < 60) {
+    return restSeconds == 0 ? '$minutes分钟' : '$minutes分$restSeconds秒';
+  }
+  final hours = minutes ~/ 60;
+  final restMinutes = minutes % 60;
+  return restMinutes == 0 ? '$hours小时' : '$hours小时$restMinutes分';
+}
 
 const _calendarColors = [
   Color(0xFF397665),
