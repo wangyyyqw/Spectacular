@@ -80,8 +80,10 @@ abstract final class EpubContainer {
     return result;
   }
 
-  /// container.xml 失败时的回退扫描候选（P7-12；对照 Reeden 500 号
-  /// §1.3 的 "Fallback: found OEBPS/content.opf"）。
+  /// container.xml 失败时的回退扫描候选（P7-12）。
+  ///
+  /// 常见 EPUB 会把 OPF 放在 `OEBPS/content.opf`；先按固定候选扫描，
+  /// 避免仅因容器描述损坏而拒绝整本书。
   static const List<String> _fallbackCandidates = <String>[
     'OEBPS/content.opf',
     'OEBPS/package.opf',

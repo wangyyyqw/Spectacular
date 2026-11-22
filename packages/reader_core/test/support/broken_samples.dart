@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
-/// 破损书样本集（P3-28，§55.4 + Reeden 500/180 注入面）。
+/// 破损书样本集（P3-28）：覆盖解析、编码、结构、资源引用和容量边界。
 ///
 /// 全部内存构造、确定性输出；生成脚本与回归测试共用。
 /// 期望分级见 [brokenExpectations]。

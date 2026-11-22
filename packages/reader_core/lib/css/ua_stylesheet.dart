@@ -4,17 +4,14 @@ import 'parser.dart';
 /// UA 默认样式表（P7-03）。
 ///
 /// 规则文本按 WHATWG HTML 15.3（渲染建议）分节，UA-001～UA-078 为稳定规则 ID。
-/// 来源、支持状态及回归映射见 docs/UA规则台账-2026-11-07.md；
-/// 本轮只补审计元数据，不改变声明顺序或作者覆盖行为。
-/// 差异取舍对照 Reeden 2.0.0 的 134 规则 UA 表（`参考/reeden/reports/
-/// 630-ua-stylesheet.md`）与技术方案 §73。统一通过 [uaRules] 提供完整
-/// UA 规则集，由 `Cascade.compute` 与作者样式共同参与逐元素层叠。
+/// 统一通过 [uaRules] 提供完整 UA 规则集，由 `Cascade.compute` 与作者样式
+/// 共同参与逐元素层叠。
 const String uaStylesheetCss = '''
-/* ==== 隐藏元素（WHATWG HTML 15.3.1；P8-03 对标 Reeden 630）==== */
+/* ==== 隐藏元素（WHATWG HTML 15.3.1；P8-03）==== */
 /* 规范标题：Hidden elements；
    https://html.spec.whatwg.org/multipage/rendering.html#hidden-elements */
 /* 解析器按脚本可用把 noscript 解析成原始文本，样式须与 DOM 层一致；
-   与 Chrome 行为一致（Reeden 630 号 §2 差异 1）。 */
+   与 Chrome 行为一致。 */
 /* UA-001；HTML 15.3.1；支持隐藏。 */
 noscript { display: none !important; }
 /* UA-002；HTML 15.3.1；支持隐藏。 */
@@ -27,7 +24,7 @@ input[type=hidden] { display: none; }
 /* UA-005；HTML 15.3.1；支持隐藏。 */
 dialog:not([open]) { display: none; }
 
-/* ==== 页面（15.3.2；边距由阅读器设置接管，Reeden 630 号 §4-3）==== */
+/* ==== 页面（15.3.2；边距由阅读器设置接管）==== */
 /* 规范标题：The page；
    https://html.spec.whatwg.org/multipage/rendering.html#the-page */
 /* UA-006；HTML 15.3.2；支持块与边距。 */
@@ -35,7 +32,7 @@ html, body { display: block; }
 /* UA-007；HTML 15.3.2；支持块与边距。 */
 body { margin: 0; }
 
-/* ==== 排版前注入（P7-25；对照 Reeden 必配注入样式，630 号 §4-3）====
+/* ==== 排版前注入（P7-25）====
    html/body 基础约束 + body 建立 BFC（flow-root）：阻断作者页面的
    裸 float/负 margin 污染整章。 */
 /* 项目私有取值；flow-root 的属性定义见 CSS Display 3，
@@ -88,8 +85,7 @@ center { text-align: center; }
    https://www.w3.org/TR/css-break-3/#break-between */
 /* 字号 2.00/1.50/1.17/1.00/0.83/0.67em、上下边距 0.67/0.83/1.00/
    1.33/1.67/2.33em 取自 WHATWG 渲染建议；
-   标题避开页底（break-after: avoid）采纳自 Reeden（architecture 6.3，
-   630 号 §2 差异 5）。 */
+   标题避开页底（break-after: avoid）为项目排版增强。 */
 /* UA-019；HTML 15.3.6 / 阅读器策略；支持标题与避页底。 */
 h1 { font-size: 2em; font-weight: bold; margin-top: 0.67em; margin-bottom: 0.67em; page-break-after: avoid; }
 /* UA-020；HTML 15.3.6 / 阅读器策略；支持标题与避页底。 */

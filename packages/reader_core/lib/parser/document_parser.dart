@@ -181,12 +181,12 @@ class ParsedDocument implements SpineDocument {
 
 /// 把 XHTML 解析为节点模型，并在解析期绑定 CFI。
 abstract final class DocumentParser {
-  /// DOM 嵌套深度上限（P7-16；对照 Reeden nestingTooDeep 防线，
-  /// 兼顾本解析器 convert 的递归栈深）。超限子树展平为文本。
+  /// DOM 嵌套深度上限（P7-16）：兼顾本解析器 convert 的递归栈深，
+  /// 超限子树展平为文本。
   static const int maxDomDepth = 500;
 
-  /// 单个属性值长度上限（P7-16；对照 Reeden SVG 单段 65536 字符——
-  /// data URI 炸弹经属性进入）。超限截断并记诊断。
+  /// 单个属性值长度上限（P7-16）：防止 data URI 或超长 SVG 属性
+  /// 造成额外内存占用。超限截断并记诊断。
   static const int maxAttributeValueLength = 65536;
 
   /// 解析 XHTML。

@@ -1198,7 +1198,7 @@ class ChapterPagination {
 
 /// 按块推进的分页器状态机。
 class Paginator {
-  /// 单章页数上限（P7-16；对照 Reeden 20000 页截断防线）。
+  /// 单章页数上限（P7-16）：超过后停止推进并标记截断。
   static const int maxPagesPerChapter = 20000;
 
   /// 创建分页器。
@@ -2643,13 +2643,12 @@ class Paginator {
         );
         continue;
       }
-      // 页数上限截断（P7-16，对照 Reeden「一章超过 20000 页，章节在
-      // 这里截断」）：达到上限即停止推进，已产出页保留。
+      // 页数上限截断（P7-16）：达到上限即停止推进，已产出页保留。
       if (progress.pageCount >= maxPages) {
         progress.truncated = true;
         break;
       }
-      // 整组不可切（P7-26，对照 Reeden D28「图和题注、画廊整组不切开」）：
+      // 整组不可切（P7-26）：图和题注、画廊整组不切开。
       // 组首块放不下当前页、且整组能放进一个新页时先收页整体下移；
       // 组高于整页时按序切（不强制）。
       if (block.groupId != 0 &&
@@ -3057,8 +3056,8 @@ class Paginator {
         if (page != null) yield _PaginationStep.page(page);
       }
 
-      // break-after: avoid（P3-22，Reeden 510 §3.3 优先级「avoid before
-      // （标题不落页底）」）：本块能整块放进当前页、但放完之后剩余高度
+      // break-after: avoid（P3-22，标题不落页底）：本块能整块放进当前页、
+      // 但放完之后剩余高度
       // 不足下一块的首行时，把本块推到下一页与后文同页——标题不孤立在
       // 页底。优先级低于强制断页（force 已在上面 record）与 avoid-inside。
       if (block.breakAfterAvoid &&

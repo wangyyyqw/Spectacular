@@ -180,7 +180,7 @@ class CssFontFaceRegistry {
 
 /// 中文/通用字体族别名映射（P3-03，技术方案 §68.3）。
 ///
-/// 两级模型中的**内置别名级**（Reeden 150 号 §0-#9）：全局生效；
+/// 两级模型中的**内置别名级**：全局生效；
 /// 按书覆盖级留给后续版本。映射目标是内置字族的规范名
 /// （`builtin_song/kai/hei`），内置字族未注册时由引擎回退系统字体。
 abstract final class FontFamilyAliases {

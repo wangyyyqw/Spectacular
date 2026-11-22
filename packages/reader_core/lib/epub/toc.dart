@@ -477,8 +477,7 @@ extension TocFallback on TocParser {
 /// 目录项目标不在 spine 时的降级器（P7-13）。
 ///
 /// 降级到阅读顺序最近的可定位章节（先前向、无前项则后向），条目保留、
-/// 跳转可用；诊断码 `E_TOC_TARGET_OUTSIDE_SPINE`（对照 Reeden
-/// tocTargetOutsideSpine 校验）。
+/// 跳转可用；诊断码 `E_TOC_TARGET_OUTSIDE_SPINE`。
 abstract final class TocDegrader {
   /// 降级并返回新树与告警（原树不修改）。
   static ({List<TocEntry> entries, List<String> warnings}) degradeOutsideSpine(

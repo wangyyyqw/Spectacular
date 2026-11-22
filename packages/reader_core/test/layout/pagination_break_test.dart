@@ -127,7 +127,7 @@ void main() {
     expect(auto.breakInsideAvoid, isFalse);
   });
 
-  // ---- avoid 档位（P3-22，Reeden 510 §3.3：标题不落页底）----
+  // ---- avoid 档位（P3-22：标题不落页底）----
 
   test('break-after: avoid：标题不孤立在页底，与后文同页', () {
     // 页高 72：首段 2 行（48），标题只剩 24 可放——放完标题后剩余 0，

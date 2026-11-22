@@ -6,7 +6,7 @@ import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
 import '../theme/reader_frosted_surface.dart';
 
-/// 选区菜单动作（P4-16）：id 化预留，后续可配置（§40 / Reeden 270 号）。
+/// 选区菜单动作（P4-16）：id 化预留，后续可配置。
 class SelectionAction {
   /// 创建动作。
   const SelectionAction({

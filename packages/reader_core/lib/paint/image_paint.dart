@@ -3,8 +3,8 @@ import 'dart:ui';
 
 import 'image_cache.dart';
 
-/// 图片绘制埋点（P3-09，Reeden 540 号口径：解码不进手势→帧路径，
-/// 「占位帧数」与「替换耗时」分开记）。
+/// 图片绘制埋点（P3-09）：解码不进入手势→帧路径，
+/// 「占位帧数」与「替换耗时」分开记录。
 class ImagePaintMetrics {
   int placeholderCount = 0;
   int drawnCount = 0;

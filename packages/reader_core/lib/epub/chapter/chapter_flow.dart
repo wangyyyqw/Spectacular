@@ -94,7 +94,7 @@ class ListContext {
 
   /// 当前项的标记文本（P9-12）：优先按 `list-style-type` 选择
   ///（decimal/roman/alpha 等），`none` 不画标记；未声明时 ol 递增序号、
-  /// ul 按深度取 disc→circle→square（Reeden 630 §0-#4 嵌套类型轮换）。
+  /// ul 按深度轮换 disc→circle→square。
   String nextMarker(CssListStyleType style, {String? customMarker}) {
     if (type == 'ol') {
       _olCounter += 1;
