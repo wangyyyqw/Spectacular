@@ -59,6 +59,10 @@ class BookDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final metadataStyle = theme.textTheme.bodyMedium?.copyWith(
+      height: 1.25,
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final recentDurations = recentBookReadingDurations(
       readingSessions,
       bookId: entry.id,
@@ -110,21 +114,56 @@ class BookDetailSheet extends StatelessWidget {
                           entry.author.isEmpty ? '未知作者' : entry.author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            height: 1.25,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                          style: metadataStyle,
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
+                        FutureBuilder<String>(
+                          future: linkedPublisherNameFuture,
+                          initialData: linkedPublisherName,
+                          builder: (context, snapshot) {
+                            final linked = linkedPublisherName != null;
+                            final name = snapshot.data?.trim() ?? '';
+                            return Material(
+                              type: MaterialType.transparency,
+                              child: InkWell(
+                                key: const ValueKey(
+                                  'book-detail-public-reading',
+                                ),
+                                onTap: () =>
+                                    Navigator.of(context).pop('reamicro-link'),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
+                                  child: Text(
+                                    linked
+                                        ? (name.isEmpty ? '已关联' : name)
+                                        : '未关联',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: metadataStyle,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        if (onlineSourceName?.isNotEmpty ?? false) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '在线来源：$onlineSourceName',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: metadataStyle,
+                          ),
+                        ],
+                        const SizedBox(height: 4),
                         Text(
                           '已读 ${formatReadingDuration(readingDuration)}',
                           key: const ValueKey('book-detail-reading-summary'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            height: 1.25,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                          style: metadataStyle,
                         ),
                         if (chapterProgress != null) ...[
                           Semantics(
@@ -159,46 +198,6 @@ class BookDetailSheet extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 4),
-            FutureBuilder<String>(
-              future: linkedPublisherNameFuture,
-              initialData: linkedPublisherName,
-              builder: (context, snapshot) {
-                final linked = linkedPublisherName != null;
-                final name = snapshot.data?.trim() ?? '';
-                return Material(
-                  type: MaterialType.transparency,
-                  child: InkWell(
-                    key: const ValueKey('book-detail-public-reading'),
-                    onTap: () => Navigator.of(context).pop('reamicro-link'),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Text(
-                        linked ? (name.isEmpty ? '已关联' : name) : '未关联',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          height: 1.3,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-            if (onlineSourceName?.isNotEmpty ?? false) ...[
-              const SizedBox(height: 4),
-              Text(
-                '在线来源：$onlineSourceName',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  height: 1.3,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            ],
             if (hasRecentReading) ...[
               const SizedBox(height: 16),
               BookReadingChart(durations: recentDurations),

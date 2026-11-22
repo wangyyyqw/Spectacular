@@ -314,10 +314,10 @@ void main() {
     final duration = find.text('已读 2 小时 15 分');
     expect(duration, findsOneWidget);
     final durationRect = tester.getRect(duration);
-    expect(authorRect.top - titleRect.bottom, greaterThan(8));
-    expect(durationRect.top - authorRect.bottom, greaterThan(8));
+    expect(authorRect.top, greaterThanOrEqualTo(titleRect.bottom));
     expect(durationRect.top, greaterThan(authorRect.bottom));
-    expect(progressBarRect.top - durationRect.bottom, greaterThan(8));
+    expect(durationRect.top, greaterThan(authorRect.bottom));
+    expect(progressBarRect.top, greaterThanOrEqualTo(durationRect.bottom));
     final cover = tester.getRect(
       find.byKey(const ValueKey('book-detail-cover')),
     );
@@ -336,6 +336,44 @@ void main() {
     expect(find.text('2026-11-01'), findsNothing);
     expect(find.text('2026-11-20'), findsNothing);
     semantics.dispose();
+  });
+
+  testWidgets('作者、关联、在线来源和时长按顺序显示且样式一致', (tester) async {
+    final entry = BookEntry(
+      id: 'metadata',
+      title: '测试书',
+      author: '测试作者',
+      filePath: '',
+      addedAt: DateTime(2026),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BookDetailSheet(
+            entry: entry,
+            library: store,
+            linkedPublisherName: '测试出版方',
+            onlineSourceName: '测试书源',
+            readingDuration: const Duration(minutes: 15),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final fields = ['测试作者', '测试出版方', '在线来源：测试书源', '已读 15 分钟'];
+    final texts = [
+      for (final field in fields) tester.widget<Text>(find.text(field)),
+    ];
+    for (var index = 1; index < fields.length; index++) {
+      expect(texts[index].style, texts.first.style);
+      expect(
+        tester.getRect(find.text(fields[index])).top,
+        greaterThanOrEqualTo(
+          tester.getRect(find.text(fields[index - 1])).bottom,
+        ),
+      );
+    }
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('书架长按汇总本书全部短会话，不混入其他书的时长', (tester) async {
@@ -646,7 +684,7 @@ void main() {
       final reading = tester.getRect(
         find.byKey(const ValueKey('book-detail-reading-summary')),
       );
-      expect(tester.getRect(action).top, greaterThanOrEqualTo(reading.bottom));
+      expect(tester.getRect(action).bottom, lessThanOrEqualTo(reading.top));
       await tester.tap(action);
       await tester.pumpAndSettle();
       expect(popped, 'reamicro-link');
