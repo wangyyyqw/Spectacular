@@ -215,7 +215,7 @@ class OnlineReadingCatalogStore {
       final book = _bookFromJson(json['book'] as Map<String, dynamic>);
       final chapters = [
         for (final value in json['chapters'] as List)
-          _chapterFromJson(value as Map<String, dynamic>),
+          _chapterFromJson(value as Map<String, dynamic>, source),
       ];
       if (book.bookUrl != bookUrl || !_validCatalog(source, book, chapters)) {
         return null;
@@ -421,14 +421,29 @@ Map<String, Object?> _chapterToJson(OnlineChapter chapter) => {
   'requestOptions': chapter.requestOptions,
 };
 
-OnlineChapter _chapterFromJson(Map<String, dynamic> json) => OnlineChapter(
-  index: json['index'] as int,
-  title: json['title'] as String,
-  url: json['url'] as String,
-  volume: json['volume'] as String,
-  updateTime: json['updateTime'] as String,
-  requestOptions: (json['requestOptions'] as Map).cast<String, Object?>(),
-);
+OnlineChapter _chapterFromJson(Map<String, dynamic> json, BookSource source) =>
+    OnlineChapter(
+      index: json['index'] as int,
+      title: json['title'] as String,
+      url: json['url'] as String,
+      volume: _cachedVolume(json, source),
+      updateTime: json['updateTime'] as String,
+      requestOptions: (json['requestOptions'] as Map).cast<String, Object?>(),
+    );
+
+String _cachedVolume(Map<String, dynamic> json, BookSource source) {
+  final volume = json['volume'] as String;
+  if (volume.isNotEmpty || !source.toc.updateTime.contains(r'$.volume_name')) {
+    return volume;
+  }
+  // 旧书源把卷名和时间写在同一个字段，只有明确声明该卷字段时才恢复前缀。
+  final time = json['updateTime'] as String;
+  return RegExp(r'^(.*?)\s+\d{4}年\d{1,2}月\d{1,2}日(?:\s|$)')
+          .firstMatch(time)
+          ?.group(1)
+          ?.trim() ??
+      '';
+}
 
 class _RecentBook {
   const _RecentBook(this.sourceId, this.bookUrl, this.lastReadAt);

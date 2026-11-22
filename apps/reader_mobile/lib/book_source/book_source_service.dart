@@ -1066,6 +1066,15 @@ class BookSourceService {
               chapterUrl = chapterUrl.ifBlank(link?.attributes['href'] ?? '');
             }
           } else if (node is Map) {
+            // JSON 目录常将卷名放在每章上，而没有独立的卷头节点。
+            // 显式卷头规则优先，逐章卷名不改变章节请求身份。
+            if (!isVolume && source.toc.isVolume.trim().isEmpty) {
+              final chapterVolume = _commonJsonField(node, const [
+                'volume_name',
+                'volumeName',
+              ]).trim();
+              volume = chapterVolume;
+            }
             name = name.ifBlank(
               _commonJsonField(node, const <String>[
                 'chapterName',

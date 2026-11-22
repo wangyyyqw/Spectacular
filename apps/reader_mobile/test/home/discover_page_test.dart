@@ -171,7 +171,7 @@ void main() {
       findsNWidgets(4),
     );
     expect(find.text('10章 · 最新：第十章'), findsOneWidget);
-    expect(find.text('连载 / 25万字 / 玄幻 · 今天'), findsOneWidget);
+    expect(find.text('25万字 / 玄幻 · 今天'), findsOneWidget);
     expect(find.textContaining('/ 测试平台'), findsNothing);
     final categoryText = tester.widget<Text>(find.text('最近更新'));
     final categoryTheme = Theme.of(tester.element(find.text('最近更新')));
@@ -284,7 +284,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('作者 · 连载'), findsOneWidget);
     expect(find.text('10章 · 最新：第十章'), findsOneWidget);
-    expect(find.text('连载 / 25万字 / 番茄小说 / 都市脑洞 · 今天'), findsOneWidget);
+    expect(find.text('25万字 / 番茄小说 / 都市脑洞 · 今天'), findsOneWidget);
     expect(find.byTooltip('分类分组'), findsNothing);
     expect(requested.last.host, 'second.example.com');
     final selected = controller.selectedDiscoverSourceId;
@@ -623,7 +623,7 @@ void main() {
     );
     await pumpReaderUntil(tester, find.text('简介：列表返回的简介。'));
     await tester.pumpAndSettle();
-    expect(find.text('玄幻 修仙'), findsOneWidget);
+    expect(find.text('玄幻 / 修仙'), findsOneWidget);
     final details = find
         .ancestor(
           of: find.text('列表作者'),
@@ -652,7 +652,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('online-search-submit')));
       await pumpReaderUntil(tester, find.text('列表作者'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('玄幻 修仙'), findsOneWidget);
+      expect(find.textContaining('玄幻 / 修仙'), findsOneWidget);
       expect(find.text('详情加载中'), findsNothing);
     }
     expect(requested.where((path) => path == '/search'), hasLength(2));

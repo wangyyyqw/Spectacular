@@ -46,9 +46,36 @@ void main() {
       expect(onlineSearchTagLine(), '');
       expect(
         onlineSearchTagLine(kind: '玄幻 修仙', lastChapter: '第十章'),
-        '玄幻 修仙 / 最新：第十章',
+        '玄幻 / 修仙 / 最新：第十章',
       );
       expect(onlineSearchTagLine(intro: '<p>列表简介</p>'), '简介：列表简介');
+    });
+
+    test('卡片和搜索状态与分类按项目去重，不删除非状态标签', () {
+      for (final status in ['完结', '连载']) {
+        final summary = onlineBookCardSummary(
+          OnlineBook(
+            sourceId: 'source',
+            sourceName: '来源',
+            name: '测试书',
+            author: '作者',
+            bookUrl: 'https://example.com/book',
+            status: status,
+            kind: '$status / 悬疑脑洞 悬疑脑洞',
+          ),
+        );
+        expect(summary.author, '作者 · $status');
+        expect(summary.latest, '悬疑脑洞');
+        expect(summary.description, '');
+        expect(
+          onlineSearchTagLine(status: status, kind: '$status / 悬疑脑洞 $status'),
+          '$status / 悬疑脑洞',
+        );
+      }
+      expect(
+        onlineSearchTagLine(status: '连载', kind: '连载中 都市高武 都市高武'),
+        '连载 / 都市高武',
+      );
     });
 
     test('状态文本与末章推断', () {

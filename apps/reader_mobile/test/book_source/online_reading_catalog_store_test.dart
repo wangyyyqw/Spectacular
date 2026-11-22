@@ -80,6 +80,41 @@ OnlineBook _book([String id = 'one', BookSource source = _source]) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('旧缓存从明确卷名时间规则恢复分卷，普通更新时间不误识别', () async {
+    final library = LibraryStore.memory();
+    final store = OnlineReadingCatalogStore(library);
+    final source = _source.copyWith(
+      toc: const TocRule(
+        chapterList: r'$.chapters',
+        chapterName: r'$.title',
+        chapterUrl: r'$.url',
+        updateTime: r'{{$.volume_name}} {{$.first_pass_time}}',
+      ),
+    );
+    final book = _book('one', source);
+    await store.save(source, book, [
+      const OnlineChapter(
+        index: 0,
+        title: '第一章',
+        url: 'https://example.test/1',
+        updateTime: '第一卷：我听到了你们 2022年12月4日 17:03:22',
+      ),
+    ]);
+    expect(
+      (await store.read(source, book))!.chapters.single.volume,
+      '第一卷：我听到了你们',
+    );
+    await store.save(_source, _book(), [
+      const OnlineChapter(
+        index: 0,
+        title: '第一章',
+        url: 'https://example.test/1',
+        updateTime: '普通文本 2022年12月4日 17:03:22',
+      ),
+    ]);
+    expect((await store.read(_source, _book()))!.chapters.single.volume, '');
+  });
+
   test('详情与目录持久化到现有设置，保留同地址不同请求的章节', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);

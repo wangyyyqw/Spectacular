@@ -13,10 +13,9 @@ import 'book_source_models.dart';
   final kind = onlineBookPlatformAndTags(book.kind);
   final status = book.status.trim();
   final labels = <String>{
-    if (status.isNotEmpty) status,
     if (book.wordCount.trim().isNotEmpty) book.wordCount.trim(),
     if (kind.platform.isNotEmpty) kind.platform,
-    if (kind.tags.isNotEmpty && kind.tags != status) kind.tags,
+    ..._uniqueBookTags(kind.tags, excluded: {status}),
   };
   final latest = [
     if (book.chapterCount > 0) '${book.chapterCount}章',
@@ -39,6 +38,21 @@ import 'book_source_models.dart';
           ].where((value) => value.isNotEmpty).join(' · '),
   );
 }
+
+/// 标签按独立项目去重，已在其他行显示的状态不再占用标签行。
+List<String> _uniqueBookTags(String raw, {Set<String> excluded = const {}}) {
+  final seen = <String>{for (final value in excluded) _bookTagIdentity(value)};
+  return [
+    for (final tag in raw.split(RegExp(r'[\s/／,，、;；|·]+')))
+      if (tag.isNotEmpty && seen.add(_bookTagIdentity(tag))) tag,
+  ];
+}
+
+String _bookTagIdentity(String tag) => switch (tag.trim()) {
+  '已完结' || '已完' || '完结' => '完结',
+  '连载中' || '连载' => '连载',
+  _ => tag.trim(),
+};
 
 /// 规范在线书籍字数，兼容 `12.3万`、`123456` 等常见站点写法。
 String normalizeOnlineWordCount(String raw) {
@@ -156,7 +170,10 @@ String onlineSearchTagLine({
     wordCount.trim(),
     if (chapterCount > 0) '$chapterCount章',
     time,
-    onlineBookPlatformAndTags(kind).tags,
+    ..._uniqueBookTags(
+      onlineBookPlatformAndTags(kind).tags,
+      excluded: {platform, status.trim(), wordCount.trim()},
+    ),
     if (lastChapter.trim().isNotEmpty) '最新：${lastChapter.trim()}',
     if (description.isNotEmpty) '简介：$description',
   ];

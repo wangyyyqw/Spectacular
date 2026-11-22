@@ -63,6 +63,54 @@ class _DelayedChapterCache extends OnlineChapterContentStore {
 }
 
 void main() {
+  test('逐章JSON卷名形成连续分卷，不丢章节或混用缺失卷名', () async {
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'data': {
+                'item_data_list': [
+                  {'title': '第一章', 'url': '/1', 'volume_name': '上卷'},
+                  {'title': '第二章', 'url': '/2', 'volume_name': '上卷'},
+                  {'title': '第三章', 'url': '/3', 'volumeName': '下卷'},
+                  {'title': '附录', 'url': '/4'},
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          ),
+        ),
+      ),
+    );
+    addTearDown(service.dispose);
+    final source = _source.copyWith(
+      toc: const TocRule(
+        chapterList: r'$..data.item_data_list[*]',
+        chapterName: r'$.title',
+        chapterUrl: r'$.url',
+      ),
+    );
+    final chapters = await service.fetchToc(
+      source,
+      const OnlineBook(
+        sourceId: 'source-1',
+        sourceName: '示例源',
+        name: '分卷书',
+        author: '',
+        bookUrl: 'https://example.com/catalog',
+      ),
+    );
+    expect(chapters.map((chapter) => chapter.volume), ['上卷', '上卷', '下卷', '']);
+    expect(chapters.map((chapter) => chapter.url), [
+      'https://example.com/1',
+      'https://example.com/2',
+      'https://example.com/3',
+      'https://example.com/4',
+    ]);
+  });
+
   test('真实后台详情和下载保持前台计时器响应，慢网络下载可立即取消', () async {
     final directory = await Directory.systemTemp.createTemp('online-worker-');
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -76,7 +124,7 @@ void main() {
           'intro': '后台简介',
           'toc': '/toc',
           'chapters': [
-            {'name': '第一章', 'url': '/chapter'},
+            {'name': '第一章', 'url': '/chapter', 'volume_name': '第一卷'},
           ],
           'content': '<p>后台正文。</p>',
         }),
@@ -124,6 +172,8 @@ void main() {
     );
     final info = await service.loadBookInfo(source, book);
     expect(info.intro, '后台简介');
+    final chapters = await service.fetchToc(source, info);
+    expect(chapters.single.volume, '第一卷');
     final completed = await service.download(source, book);
     expect(completed.bytes, isNotEmpty);
     var cancelled = false;
