@@ -52,6 +52,14 @@ class BookDetailSheet extends StatelessWidget {
       bookId: entry.id,
       now: DateTime.now(),
     );
+    final hasRecentReading = recentDurations.any(
+      (duration) => duration > Duration.zero,
+    );
+    final spineCount = entry.spineCount ?? 0;
+    final chapterProgress = spineCount <= 0
+        ? null
+        : (((progress?.spineIndex ?? -1) + 1).clamp(0, spineCount)) /
+              spineCount;
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -105,17 +113,42 @@ class BookDetailSheet extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          formatReadingChapters(
-                            progress?.spineIndex,
-                            entry.spineCount,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            height: 1.3,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                formatReadingChapters(
+                                  progress?.spineIndex,
+                                  entry.spineCount,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  height: 1.3,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            if (chapterProgress != null) ...[
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(2),
+                                  child: LinearProgressIndicator(
+                                    key: const ValueKey(
+                                      'book-detail-chapter-progress',
+                                    ),
+                                    value: chapterProgress,
+                                    minHeight: 3,
+                                    color: theme.colorScheme.primary,
+                                    backgroundColor: theme
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
@@ -123,13 +156,14 @@ class BookDetailSheet extends StatelessWidget {
                 ],
               ),
             ),
-            if (recentDurations.any(
-              (duration) => duration > Duration.zero,
-            )) ...[
+            if (hasRecentReading) ...[
               const SizedBox(height: 16),
               BookReadingChart(durations: recentDurations),
             ],
-            const Divider(height: 24),
+            if (hasRecentReading)
+              const SizedBox(height: 20)
+            else
+              const Divider(height: 24),
             FutureBuilder<List<String>>(
               future: library.pendingLocationReasons(entry.id),
               builder: (context, snapshot) {
@@ -183,21 +217,15 @@ class BookDetailSheet extends StatelessWidget {
                     FutureBuilder<bool>(
                       future: TxtBookService(library).canRechapter(entry),
                       builder: (context, snapshot) => snapshot.data == true
-                          ? Column(
-                              children: [
-                                _actionDivider(theme),
-                                _DetailAction(
-                                  key: const ValueKey('book-detail-chapters'),
-                                  icon: AppGlyph.listBulleted,
-                                  label: '章节正则',
-                                  onTap: () =>
-                                      Navigator.of(context).pop('chapters'),
-                                ),
-                              ],
+                          ? _DetailAction(
+                              key: const ValueKey('book-detail-chapters'),
+                              icon: AppGlyph.listBulleted,
+                              label: '章节正则',
+                              onTap: () =>
+                                  Navigator.of(context).pop('chapters'),
                             )
                           : const SizedBox.shrink(),
                     ),
-                    _actionDivider(theme),
                     _DetailActionPair(
                       left: _DetailAction(
                         key: const ValueKey<String>('book-detail-update'),
@@ -212,7 +240,6 @@ class BookDetailSheet extends StatelessWidget {
                         onTap: () => Navigator.of(context).pop('create-group'),
                       ),
                     ),
-                    _actionDivider(theme),
                     _DetailActionPair(
                       left: _DetailAction(
                         key: const ValueKey<String>('book-detail-export'),
@@ -238,9 +265,6 @@ class BookDetailSheet extends StatelessWidget {
   }
 }
 
-Divider _actionDivider(ThemeData theme) =>
-    Divider(height: 1, thickness: 1, color: theme.colorScheme.outlineVariant);
-
 class _DetailActionPair extends StatelessWidget {
   const _DetailActionPair({required this.left, required this.right});
 
@@ -249,19 +273,11 @@ class _DetailActionPair extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: left),
-          VerticalDivider(
-            width: 1,
-            thickness: 1,
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-          Expanded(child: right),
-        ],
-      ),
+    return Row(
+      children: [
+        Expanded(child: left),
+        Expanded(child: right),
+      ],
     );
   }
 }

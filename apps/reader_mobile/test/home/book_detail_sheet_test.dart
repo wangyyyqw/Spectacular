@@ -62,7 +62,7 @@ void main() {
     );
   });
 
-  testWidgets('长按菜单操作区使用一个大圆角边框并以细线分隔按钮', (tester) async {
+  testWidgets('长按菜单操作区使用一个大圆角边框且内部无分隔线', (tester) async {
     final entry = BookEntry(
       id: 'style-book',
       title: '样式样本',
@@ -90,24 +90,12 @@ void main() {
     expect(material.color, scheme.surfaceContainerLow);
     expect(
       find.descendant(of: panel, matching: find.byType(Divider)),
-      findsNWidgets(2),
+      findsNothing,
     );
     expect(
       find.descendant(of: panel, matching: find.byType(VerticalDivider)),
-      findsNWidgets(3),
+      findsNothing,
     );
-    for (final divider in tester.widgetList<Divider>(
-      find.descendant(of: panel, matching: find.byType(Divider)),
-    )) {
-      expect(divider.thickness, 1);
-      expect(divider.color, scheme.outlineVariant);
-    }
-    for (final divider in tester.widgetList<VerticalDivider>(
-      find.descendant(of: panel, matching: find.byType(VerticalDivider)),
-    )) {
-      expect(divider.thickness, 1);
-      expect(divider.color, scheme.outlineVariant);
-    }
     expect(tester.takeException(), isNull);
   });
 
@@ -246,6 +234,18 @@ void main() {
     await tester.pumpAndSettle();
     final progress = find.text('已读 4 / 15 章');
     expect(progress, findsOneWidget);
+    final progressBarFinder = find.byKey(
+      const ValueKey('book-detail-chapter-progress'),
+    );
+    final progressBar = tester.widget<LinearProgressIndicator>(
+      progressBarFinder,
+    );
+    expect(progressBar.value, closeTo(4 / 15, 1e-9));
+    expect(progressBar.minHeight, 3);
+    expect(
+      tester.getRect(progressBarFinder).left,
+      greaterThan(tester.getRect(progress).right),
+    );
     final duration = find.text('已读 2 小时 15 分');
     expect(duration, findsOneWidget);
     expect(
@@ -318,6 +318,13 @@ void main() {
     expect(chart, findsOneWidget);
     expect(find.text('最近 7 天'), findsOneWidget);
     expect(
+      find.descendant(
+        of: find.byType(BookDetailSheet),
+        matching: find.byType(Divider),
+      ),
+      findsNothing,
+    );
+    expect(
       tester.getRect(chart).top,
       greaterThan(tester.getRect(cover).bottom),
     );
@@ -380,7 +387,7 @@ void main() {
         final leftRect = tester.getRect(leftButton);
         final rightRect = tester.getRect(rightButton);
         expect(leftRect.center.dy, closeTo(rightRect.center.dy, 0.1));
-        expect(leftRect.right, lessThan(rightRect.left));
+        expect(leftRect.right, lessThanOrEqualTo(rightRect.left));
         expect(leftRect.height, greaterThanOrEqualTo(48));
         expect(rightRect.height, greaterThanOrEqualTo(48));
         expect(leftButton.hitTestable(), findsOneWidget);
