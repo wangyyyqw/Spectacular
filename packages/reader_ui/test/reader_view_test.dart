@@ -19,7 +19,7 @@ Future<void> _scrollWheel(WidgetTester tester, Offset delta) async {
 
 Future<void> _pumpGestureView(
   WidgetTester tester,
-  ReaderView view, {
+  Widget view, {
   double? touchSlop,
   Offset origin = Offset.zero,
 }) async {
@@ -685,7 +685,7 @@ void main() {
       expect(previous.value, 1);
     });
 
-    testWidgets('起点略偏纵向后横向滑动仍进入拖动', (tester) async {
+    testWidgets('起点抖动未越过容差后横向滑动仍进入拖动', (tester) async {
       final previous = ValueNotifier<int>(0);
       final next = ValueNotifier<int>(0);
       final toolbar = ValueNotifier<int>(0);
@@ -702,11 +702,106 @@ void main() {
       final gesture = await tester.startGesture(
         origin + const Offset(150, 100),
       );
-      await gesture.moveBy(const Offset(-12, 25));
+      await gesture.moveBy(const Offset(-12, 15));
       await gesture.moveBy(const Offset(-60, 0));
       await gesture.up();
 
       expect(started, isTrue);
+    });
+
+    for (final slop in [18.0, 40.0]) {
+      testWidgets('普通分页斜拉交给纵向主方向，锁定后横移不翻页：$slop', (tester) async {
+        final events = <String>[];
+        await _pumpGestureView(
+          tester,
+          GestureDetector(
+            onVerticalDragStart: (_) => events.add('纵向'),
+            child: ReaderView(
+              onDragStart: (_) => events.add('横向'),
+              onNext: () => events.add('翻页'),
+              onPrevious: () => events.add('翻页'),
+              onToggleToolbar: () => events.add('菜单'),
+            ),
+          ),
+          touchSlop: slop,
+        );
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byType(ReaderView)),
+        );
+        await gesture.moveBy(Offset(slop + 4, slop + 20));
+        await tester.pump();
+        await gesture.moveBy(const Offset(-150, 0));
+        await gesture.up();
+        await tester.pump();
+        expect(events, ['纵向']);
+      });
+    }
+
+    testWidgets('普通分页水平主方向锁定后纵移仍保留拖动生命周期', (tester) async {
+      final events = <String>[];
+      await _pumpGestureView(
+        tester,
+        GestureDetector(
+          onVerticalDragStart: (_) => events.add('纵向'),
+          child: ReaderView(
+            onDragStart: (_) => events.add('开始'),
+            onDragEnd: (_) => events.add('结束'),
+          ),
+        ),
+      );
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(ReaderView)),
+      );
+      await gesture.moveBy(const Offset(-40, 24));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 80));
+      await gesture.moveBy(const Offset(-50, 0));
+      await gesture.up();
+      await tester.pump();
+      expect(events, ['开始', '结束']);
+    });
+
+    testWidgets('普通分页纵向主方向拒绝后回正不进入横向拖动', (tester) async {
+      var started = 0;
+      await _pumpGestureView(tester, ReaderView(onDragStart: (_) => started++));
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(ReaderView)),
+      );
+      for (final delta in [
+        const Offset(-12, 15),
+        const Offset(0, 30),
+        const Offset(-150, 0),
+      ]) {
+        await gesture.moveBy(delta);
+        await tester.pump();
+      }
+      await gesture.up();
+      expect(started, 0);
+    });
+
+    testWidgets('普通分页按设备容差等待累计主方向，临界距离和同幅斜拉不锁定', (tester) async {
+      var started = 0;
+      await _pumpGestureView(
+        tester,
+        ReaderView(onDragStart: (_) => started++),
+        touchSlop: 40,
+      );
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(ReaderView)),
+      );
+      for (final delta in [
+        const Offset(40, 0),
+        const Offset(0, 40),
+        const Offset(1, 1),
+      ]) {
+        await gesture.moveBy(delta);
+        await tester.pump();
+        expect(started, 0);
+      }
+      await gesture.moveBy(const Offset(10, 0));
+      await tester.pump();
+      expect(started, 1);
+      await gesture.up();
     });
 
     testWidgets('首尾边界不回调、不抛异常', (tester) async {
@@ -1100,38 +1195,40 @@ void main() {
       expect(started, 0);
     });
 
-    testWidgets('可配置水平快扫保留辅助功能滚动生命周期', (tester) async {
-      final semantics = tester.ensureSemantics();
-      final events = <Object>[];
-      await _pumpGestureView(
-        tester,
-        ReaderView(
-          config: const ReaderGestureConfig(minimumFlingVelocity: 20),
-          onDragStart: events.add,
-          onDragUpdate: events.add,
-          onDragEnd: events.add,
-        ),
-      );
-      tester.semantics.scrollLeft(
-        scrollable: find.semantics.scrollable(axis: Axis.horizontal),
-      );
-      await tester.pump();
-      expect(events, [
-        isA<DragStartDetails>(),
-        isA<DragUpdateDetails>(),
-        isA<DragEndDetails>(),
-      ]);
-      expect(
-        (events[0] as DragStartDetails).localPosition,
-        const Offset(150, 100),
-      );
-      expect((events[1] as DragUpdateDetails).delta, const Offset(-240, 0));
-      expect(
-        (events[2] as DragEndDetails).localPosition,
-        const Offset(-90, 100),
-      );
-      expect((events[2] as DragEndDetails).primaryVelocity, 0);
-      semantics.dispose();
-    });
+    for (final minimum in <double?>[null, 20]) {
+      testWidgets('水平手势保留辅助功能滚动生命周期：$minimum', (tester) async {
+        final semantics = tester.ensureSemantics();
+        final events = <Object>[];
+        await _pumpGestureView(
+          tester,
+          ReaderView(
+            config: ReaderGestureConfig(minimumFlingVelocity: minimum),
+            onDragStart: events.add,
+            onDragUpdate: events.add,
+            onDragEnd: events.add,
+          ),
+        );
+        tester.semantics.scrollLeft(
+          scrollable: find.semantics.scrollable(axis: Axis.horizontal),
+        );
+        await tester.pump();
+        expect(events, [
+          isA<DragStartDetails>(),
+          isA<DragUpdateDetails>(),
+          isA<DragEndDetails>(),
+        ]);
+        expect(
+          (events[0] as DragStartDetails).localPosition,
+          const Offset(150, 100),
+        );
+        expect((events[1] as DragUpdateDetails).delta, const Offset(-240, 0));
+        expect(
+          (events[2] as DragEndDetails).localPosition,
+          const Offset(-90, 100),
+        );
+        expect((events[2] as DragEndDetails).primaryVelocity, 0);
+        semantics.dispose();
+      });
+    }
   });
 }

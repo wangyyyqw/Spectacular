@@ -254,6 +254,48 @@ class ReaderView extends StatefulWidget {
   State<ReaderView> createState() => _ReaderViewState();
 }
 
+/// 普通分页先锁定累计位移的主方向，避免斜拉被子层横向手势抢走。
+class _ReaderDominantHorizontalDragRecognizer
+    extends HorizontalDragGestureRecognizer {
+  _ReaderDominantHorizontalDragRecognizer({super.debugOwner});
+
+  Offset _distance = Offset.zero;
+  bool _horizontal = false;
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (!_horizontal) {
+      _distance += switch (event) {
+        PointerMoveEvent() => event.delta,
+        PointerPanZoomUpdateEvent() => event.panDelta,
+        _ => Offset.zero,
+      };
+      final slop = computeHitSlop(event.kind, gestureSettings);
+      if (_distance.dy.abs() > slop &&
+          _distance.dy.abs() > _distance.dx.abs()) {
+        rejectGesture(event.pointer);
+        return;
+      }
+      _horizontal =
+          _distance.dx.abs() > slop && _distance.dx.abs() > _distance.dy.abs();
+    }
+    super.handleEvent(event);
+  }
+
+  @override
+  bool hasSufficientGlobalDistanceToAccept(
+    PointerDeviceKind pointerDeviceKind,
+    double? deviceTouchSlop,
+  ) => _horizontal;
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {
+    super.didStopTrackingLastPointer(pointer);
+    _distance = Offset.zero;
+    _horizontal = false;
+  }
+}
+
 /// 配置路径沿用原生起拖采样，快扫距离与设备规则沿用 Flutter。
 class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   _ReaderHorizontalDragRecognizer({super.debugOwner});
@@ -549,16 +591,20 @@ class _ReaderViewState extends State<ReaderView> {
     Widget child,
   ) {
     final minimumVelocity = widget.config.minimumFlingVelocity;
-    if (widget.continuousScroll || minimumVelocity == null) return child;
+    if (widget.continuousScroll) return child;
     void onEnd(DragEndDetails details) => _horizontalDragEnd(details, width);
     return RawGestureDetector(
       behavior: HitTestBehavior.opaque,
       gestures: {
-        _ReaderHorizontalDragRecognizer: _horizontalDragFactory(
-          context,
-          minimumVelocity,
-          onEnd,
-        ),
+        if (minimumVelocity == null)
+          _ReaderDominantHorizontalDragRecognizer:
+              _dominantHorizontalDragFactory(context, onEnd)
+        else
+          _ReaderHorizontalDragRecognizer: _horizontalDragFactory(
+            context,
+            minimumVelocity,
+            onEnd,
+          ),
       },
       semantics: _ReaderHorizontalDragSemantics(
         _horizontalDragStart,
@@ -568,6 +614,28 @@ class _ReaderViewState extends State<ReaderView> {
       child: child,
     );
   }
+
+  GestureRecognizerFactory<_ReaderDominantHorizontalDragRecognizer>
+  _dominantHorizontalDragFactory(
+    BuildContext context,
+    GestureDragEndCallback onEnd,
+  ) =>
+      GestureRecognizerFactoryWithHandlers<
+        _ReaderDominantHorizontalDragRecognizer
+      >(() => _ReaderDominantHorizontalDragRecognizer(debugOwner: this), (
+        recognizer,
+      ) {
+        recognizer
+          ..onStart = _horizontalDragStart
+          ..onUpdate = _horizontalDragUpdate
+          ..onEnd = onEnd
+          ..onCancel = widget.onDragCancel
+          ..dragStartBehavior = DragStartBehavior.start
+          ..onlyAcceptDragOnThreshold = true
+          ..multitouchDragStrategy = ScrollConfiguration.of(context)
+              .getMultitouchDragStrategy(context)
+          ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context);
+      });
 
   GestureRecognizerFactory<_ReaderHorizontalDragRecognizer>
   _horizontalDragFactory(
@@ -636,7 +704,6 @@ class _ReaderViewState extends State<ReaderView> {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
         final customHorizontal = widget.config.minimumFlingVelocity != null;
-        final horizontalPaging = !widget.continuousScroll && !customHorizontal;
         return Listener(
           onPointerSignal: _pointerSignal,
           onPointerDown: _pointerDown,
@@ -752,18 +819,6 @@ class _ReaderViewState extends State<ReaderView> {
                 _longPressTap = true;
                 widget.onLongPressAt?.call(details.localPosition);
               },
-              onHorizontalDragStart: horizontalPaging
-                  ? _horizontalDragStart
-                  : null,
-              onHorizontalDragUpdate: horizontalPaging
-                  ? _horizontalDragUpdate
-                  : null,
-              onHorizontalDragEnd: horizontalPaging
-                  ? (details) => _horizontalDragEnd(details, width)
-                  : null,
-              onHorizontalDragCancel: horizontalPaging
-                  ? widget.onDragCancel
-                  : null,
               // 阅读页不消费纵向滑动。无观察回调时不注册纵向识别器，
               // 避免起手略偏纵向时抢走后续水平翻页手势。
               onVerticalDragEnd:

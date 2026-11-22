@@ -2850,6 +2850,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           children: [
             BookmarkPullTarget(
               bookmarked: _hasBookmarkOn(page),
+              pageAnchor: _session.cfiAtPageOffset(page, null),
               onToggle:
                   widget.bookmarks != null &&
                       _bookmarkStyle.pullEnabled &&
