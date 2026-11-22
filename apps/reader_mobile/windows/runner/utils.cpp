@@ -1,4 +1,4 @@
-#include "utils.h"
+﻿#include "utils.h"
 
 #include <flutter_windows.h>
 #include <io.h>
@@ -22,7 +22,7 @@ void CreateAndAttachConsole() {
 }
 
 std::vector<std::string> GetCommandLineArguments() {
-  // Convert the UTF-16 command line arguments to UTF-8 for the Engine to use.
+  // 将 UTF-16 命令行参数转为 UTF-8，供引擎使用。
   int argc;
   wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
   if (argv == nullptr) {
@@ -31,7 +31,7 @@ std::vector<std::string> GetCommandLineArguments() {
 
   std::vector<std::string> command_line_arguments;
 
-  // Skip the first argument as it's the binary name.
+  // 首个参数是可执行文件名，予以跳过。
   for (int i = 1; i < argc; i++) {
     command_line_arguments.push_back(Utf8FromUtf16(argv[i]));
   }
@@ -45,12 +45,11 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string) {
   if (utf16_string == nullptr) {
     return std::string();
   }
-  // First, find the length of the string with a safe upper bound (CWE-126).
-  // UNICODE_STRING_MAX_CHARS (32767) is the maximum length of a UNICODE_STRING.
+  // 先在安全上限内计算字符串长度，避免越界读取（CWE-126）。
+  // UNICODE_STRING_MAX_CHARS（32767）是 UNICODE_STRING 的最大长度。
   int input_length = static_cast<int>(wcsnlen(utf16_string, UNICODE_STRING_MAX_CHARS));
-  // Now use that bounded length to determine the required buffer size.
-  // When an explicit length is passed, WideCharToMultiByte does not include
-  // the null terminator in its returned size.
+  // 使用已限制的长度确定缓冲区大小。显式传入长度时，
+  // WideCharToMultiByte 返回的大小不包含末尾空字符。
   int target_length = ::WideCharToMultiByte(
       CP_UTF8, WC_ERR_INVALID_CHARS, utf16_string,
       input_length, nullptr, 0, nullptr, nullptr);

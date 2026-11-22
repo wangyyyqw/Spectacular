@@ -1,4 +1,4 @@
-#ifndef RUNNER_WIN32_WINDOW_H_
+﻿#ifndef RUNNER_WIN32_WINDOW_H_
 #define RUNNER_WIN32_WINDOW_H_
 
 #include <windows.h>
@@ -7,9 +7,7 @@
 #include <memory>
 #include <string>
 
-// A class abstraction for a high DPI-aware Win32 Window. Intended to be
-// inherited from by classes that wish to specialize with custom
-// rendering and input handling
+// 支持高 DPI 的 Win32 窗口抽象，供需要自定义渲染和输入处理的子类继承。
 class Win32Window {
  public:
   struct Point {
@@ -28,65 +26,55 @@ class Win32Window {
   Win32Window();
   virtual ~Win32Window();
 
-  // Creates a win32 window with |title| that is positioned and sized using
-  // |origin| and |size|. New windows are created on the default monitor. Window
-  // sizes are specified to the OS in physical pixels, hence to ensure a
-  // consistent size this function will scale the inputted width and height as
-  // as appropriate for the default monitor. The window is invisible until
-  // |Show| is called. Returns true if the window was created successfully.
+  // 在默认显示器上创建标题为 |title| 的窗口，以 |origin| 和 |size| 定位并设置大小。
+  // 操作系统采用物理像素，此函数会按默认显示器缩放输入尺寸以保持显示大小一致。
+  // 调用 |Show| 前窗口不可见；创建成功时返回 true。
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
-  // Show the current window. Returns true if the window was successfully shown.
+  // 显示当前窗口；显示成功时返回 true。
   bool Show();
 
-  // Release OS resources associated with window.
+  // 释放窗口关联的操作系统资源。
   void Destroy();
 
-  // Inserts |content| into the window tree.
+  // 将 |content| 加入窗口树。
   void SetChildContent(HWND content);
 
-  // Returns the backing Window handle to enable clients to set icon and other
-  // window properties. Returns nullptr if the window has been destroyed.
+  // 返回底层窗口句柄，供调用方设置图标等属性；窗口销毁后返回 nullptr。
   HWND GetHandle();
 
-  // If true, closing this window will quit the application.
+  // 为 true 时，关闭此窗口会退出应用。
   void SetQuitOnClose(bool quit_on_close);
 
-  // Return a RECT representing the bounds of the current client area.
+  // 返回表示当前客户区边界的 RECT。
   RECT GetClientArea();
 
  protected:
   void SetTitleBarDarkMode(bool dark);
 
-  // Processes and route salient window messages for mouse handling,
-  // size change and DPI. Delegates handling of these to member overloads that
-  // inheriting classes can handle.
+  // 处理并分发鼠标、尺寸变化和 DPI 相关窗口消息，委托给子类可重写的成员函数。
   virtual LRESULT MessageHandler(HWND window,
                                  UINT const message,
                                  WPARAM const wparam,
                                  LPARAM const lparam) noexcept;
 
-  // Called when CreateAndShow is called, allowing subclass window-related
-  // setup. Subclasses should return false if setup fails.
+  // 创建窗口时调用，供子类完成窗口相关初始化；初始化失败时子类应返回 false。
   virtual bool OnCreate();
 
-  // Called when Destroy is called.
+  // 调用 Destroy 时触发。
   virtual void OnDestroy();
 
  private:
   friend class WindowClassRegistrar;
 
-  // OS callback called by message pump. Handles the WM_NCCREATE message which
-  // is passed when the non-client area is being created and enables automatic
-  // non-client DPI scaling so that the non-client area automatically
-  // responds to changes in DPI. All other messages are handled by
-  // MessageHandler.
+  // 由消息循环调用的系统回调。在非客户区创建时处理 WM_NCCREATE，启用非客户区
+  // 自动 DPI 缩放，使其响应 DPI 变化；其余消息由 MessageHandler 处理。
   static LRESULT CALLBACK WndProc(HWND const window,
                                   UINT const message,
                                   WPARAM const wparam,
                                   LPARAM const lparam) noexcept;
 
-  // Retrieves a class instance pointer for |window|
+  // 获取 |window| 对应的类实例指针。
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
   void UpdateTitleBar(HWND const window);
@@ -99,10 +87,10 @@ class Win32Window {
   bool dark_title_bar_ = false;
   UINT show_command_ = SW_SHOWNORMAL;
 
-  // window handle for top level window.
+  // 顶层窗口句柄。
   HWND window_handle_ = nullptr;
 
-  // window handle for hosted content.
+  // 承载内容的窗口句柄。
   HWND child_content_ = nullptr;
 };
 
