@@ -62,7 +62,7 @@ void main() {
     );
   });
 
-  testWidgets('长按菜单操作按钮使用与阅读统计图一致的圆角描边', (tester) async {
+  testWidgets('长按菜单操作区使用一个大圆角边框并以细线分隔按钮', (tester) async {
     final entry = BookEntry(
       id: 'style-book',
       title: '样式样本',
@@ -79,29 +79,34 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final panel = find.byKey(const ValueKey('book-detail-actions'));
     final scheme = Theme.of(
       tester.element(find.byKey(const ValueKey('book-detail-open-page'))),
     ).colorScheme;
-    for (final key in [
-      'book-detail-open-page',
-      'book-detail-pin',
-      'book-detail-update',
-      'book-detail-create-group',
-      'book-detail-export',
-      'book-detail-delete',
-    ]) {
-      final material = tester.widget<Material>(
-        find
-            .descendant(
-              of: find.byKey(ValueKey(key)),
-              matching: find.byType(Material),
-            )
-            .first,
-      );
-      final shape = material.shape! as RoundedRectangleBorder;
-      expect(shape.borderRadius, BorderRadius.circular(10));
-      expect(shape.side.color, scheme.outlineVariant);
-      expect(material.color, scheme.surfaceContainerLow);
+    final material = tester.widget<Material>(panel);
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(shape.borderRadius, BorderRadius.circular(10));
+    expect(shape.side.color, scheme.outlineVariant);
+    expect(material.color, scheme.surfaceContainerLow);
+    expect(
+      find.descendant(of: panel, matching: find.byType(Divider)),
+      findsNWidgets(2),
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(VerticalDivider)),
+      findsNWidgets(3),
+    );
+    for (final divider in tester.widgetList<Divider>(
+      find.descendant(of: panel, matching: find.byType(Divider)),
+    )) {
+      expect(divider.thickness, 1);
+      expect(divider.color, scheme.outlineVariant);
+    }
+    for (final divider in tester.widgetList<VerticalDivider>(
+      find.descendant(of: panel, matching: find.byType(VerticalDivider)),
+    )) {
+      expect(divider.thickness, 1);
+      expect(divider.color, scheme.outlineVariant);
     }
     expect(tester.takeException(), isNull);
   });
