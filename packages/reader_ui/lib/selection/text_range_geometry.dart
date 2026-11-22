@@ -69,15 +69,20 @@ abstract final class ReaderTextRangeGeometry {
           );
   }
 
-  /// 只核验可见行中的真实点位置，避免为页尾凭空增加字符偏移。
+  /// 分页切片采用半开区间，只允许原段真实末尾作为可定位终点。
   static bool containsPoint(PageContent page, String cfi) =>
       TextHitTester.lineBoxes(page).any((box) {
-        final offset = box.slice.block.offsetForCfi(cfi);
+        final coordinates = box.slice.block.textCoordinates;
+        if (coordinates == null) return false;
+        final offset = coordinates.offsetFor(cfi);
         if (offset == null) return false;
         final start = box.blockTextOffset;
         final end = start + box.text.length;
         return offset >= start &&
             (offset < end ||
-                offset == end && end == box.slice.block.layout.text.length);
+                offset == end &&
+                    end == box.slice.block.layout.text.length &&
+                    coordinates.originStart + end ==
+                        coordinates.origin.textLength);
       });
 }
