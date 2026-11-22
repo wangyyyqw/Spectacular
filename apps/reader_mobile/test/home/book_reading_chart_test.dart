@@ -34,11 +34,12 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
-        home: const Scaffold(
+        home: Scaffold(
           body: Padding(
-            padding: EdgeInsets.all(20),
+            padding: const EdgeInsets.all(20),
             child: BookReadingChart(
-              durations: <Duration>[
+              endDate: DateTime(2026, 11, 22),
+              durations: const <Duration>[
                 Duration(minutes: 2),
                 Duration(minutes: 12),
                 Duration(minutes: 6),
@@ -58,6 +59,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('最近 7 天'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('横轴 11/16 至 11/22')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('纵轴 0 至 25分')), findsOneWidget);
     expect(
       find.bySemanticsLabel(RegExp('14 分钟')),
       findsOneWidget,
