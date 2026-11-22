@@ -6,7 +6,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_edges.dart';
 
-/// 接续的一段原始快照；裁剪沿段间留白切分，整段文字、图片和装饰一起移动。
+/// 接续的一行或完整装饰块快照；裁剪沿行间留白切分，保留原始墨迹。
 class ContinuationPartGeometry {
   const ContinuationPartGeometry({required this.clip, required this.bounds});
 
@@ -112,18 +112,12 @@ class ContinuationPageGeometry {
             block.isReplaced ||
             block.table != null ||
             block.gallery != null ||
-            block.multicolContent != null;
+            block.multicolContent != null ||
+            block.bleedTop ||
+            block.bleedBottom;
         if (decorated) {
           start -= block.topInset;
           end += block.bottomInset;
-        } else {
-          final lines = slice.lines.toList();
-          if (lines.isNotEmpty && style != null) {
-            final first = textLineEdges(block.layout, lines.first, style);
-            final last = textLineEdges(block.layout, lines.last, style);
-            start += first.top;
-            end += last.bottomOverflow - last.bottom;
-          }
         }
         // 注音、着重号和大字号行内内容可以超出行框，切口留在它们之外。
         var overhang = 2.0;
@@ -136,15 +130,21 @@ class ContinuationPageGeometry {
             overhang = math.max(overhang, run.style.fontSize * 0.75);
           }
         }
-        if (block.bleedTop) start = -pageInsets.top;
-        if (block.bleedBottom) end = size.height - pageInsets.top;
-        bands.add(
-          _Band(
-            pageInsets.top + start - overhang,
-            pageInsets.top + end + overhang,
-            owners,
-          ),
-        );
+        if (!decorated && slice.lines.isNotEmpty) {
+          bands.addAll(
+            _textLineBands(slice, pageInsets.top + start, overhang, owners),
+          );
+        } else {
+          if (block.bleedTop) start = -pageInsets.top;
+          if (block.bleedBottom) end = size.height - pageInsets.top;
+          bands.add(
+            _Band(
+              pageInsets.top + start - overhang,
+              pageInsets.top + end + overhang,
+              owners,
+            ),
+          );
+        }
       }
       if (!slice.overlay) y += slice.height;
     }
@@ -189,7 +189,7 @@ class ContinuationPageGeometry {
     );
   }
 
-  /// 同一行由旧段先让位、新段再进入；按空间边界排序，不按段落数量排序。
+  /// 同一行由旧内容先让位、新内容再进入；按实际空间边界错峰。
   double progressFor(
     ContinuationPartGeometry part,
     double progress, {
@@ -217,6 +217,28 @@ class ContinuationPageGeometry {
       start + 0.80,
       curve: Curves.easeInOutSine,
     ).transform(progress.clamp(0.0, 1.0));
+  }
+}
+
+Iterable<_Band> _textLineBands(
+  PageBlockSlice slice,
+  double top,
+  double overhang,
+  Set<Object> owners,
+) sync* {
+  final layout = slice.block.layout;
+  final style = slice.block.style;
+  var lineTop = top;
+  for (final line in slice.lines) {
+    final edges = style == null
+        ? const PageTextEdges()
+        : textLineEdges(layout, line, style);
+    yield _Band(
+      lineTop + edges.top - overhang,
+      lineTop + line.height - edges.bottom + edges.bottomOverflow + overhang,
+      Set.of(owners),
+    );
+    lineTop += line.height;
   }
 }
 

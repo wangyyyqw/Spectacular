@@ -506,7 +506,7 @@ class PageTurnController extends ChangeNotifier {
     if (mode != PageTurnMode.simulation3d && !_released) {
       _startPositionCatchUp();
     }
-    // 接续的正文保持原始不透明度，冷页就绪后只追赶同一个段落时钟。
+    // 接续的正文保持原始不透明度，冷页就绪后只追赶同一个逐行时钟。
     if (mode != PageTurnMode.continuation) _targetFade.forward(from: 0);
     if (mode == PageTurnMode.simulation3d && !_released) _updateDragFrame();
   }
@@ -668,7 +668,7 @@ class PageTurnController extends ChangeNotifier {
             3.0,
           )
         : 0.0;
-    // 接续的各段自身已经缓入缓出，整体时钟保持线性，松手不会重播段落入场。
+    // 接续的各行自身已经缓入缓出，整体时钟保持线性，松手不会重播逐行入场。
     _settlingCurve = continuation
         ? Curves.linear
         : velocity > 0

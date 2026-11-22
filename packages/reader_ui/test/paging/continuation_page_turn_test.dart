@@ -227,7 +227,7 @@ void main() {
     expect(PageTurnMode.continuation, isNot(PageTurnMode.scroll));
   });
 
-  test('正式分页的多段保留独立条带并按空间位置接力', () {
+  test('正式分页的多段按实际行框独立接力', () {
     final page = Paginator(pageHeight: 400)
         .measureChapter(spineIndex: 0, blocks: _blocks(0, 308))
         .pages
@@ -238,7 +238,7 @@ void main() {
       _sheet,
       pageInsets: insets,
     );
-    expect(geometry.parts, hasLength(4));
+    expect(geometry.parts, hasLength(6));
     expect(geometry.parts.first.clip.top, 0);
     expect(geometry.parts.last.clip.bottom, _sheet.height);
     expect(geometry.body, const Rect.fromLTWH(30, 60, 308, 398));
@@ -254,7 +254,7 @@ void main() {
       outgoing: true,
       direction: 1,
     );
-    expect(first, greaterThan(last), reason: '上方段落先退出，不能退化成整页平移');
+    expect(first, greaterThan(last), reason: '上方行先退出，不能退化成整页平移');
     for (final part in geometry.parts) {
       final old = geometry.progressFor(part, 0.5, outgoing: true, direction: 1);
       final next = geometry.progressFor(
@@ -263,7 +263,44 @@ void main() {
         outgoing: false,
         direction: 1,
       );
-      expect(old, greaterThan(next), reason: '同一条带旧段先给新段让位');
+      expect(old, greaterThan(next), reason: '同一行旧内容先给新内容让位');
+    }
+  });
+
+  test('普通段落自动折行与跨页续段都逐行切分', () {
+    final style = _style();
+    final layout = TextLayoutEngine.layout(
+      text: 'ABCDEFGHIJKLMNOP ' * 15,
+      style: style,
+      maxWidth: 308,
+    );
+    final pages = Paginator(pageHeight: 108)
+        .measureChapter(
+          spineIndex: 0,
+          blocks: [
+            PageBlock.styled(
+              layout: layout,
+              style: style,
+              containingWidth: 308,
+            ),
+          ],
+        )
+        .pages;
+    expect(pages.length, greaterThan(1));
+    expect(pages[1].slices.single.startLine, greaterThan(0));
+    for (final page in pages) {
+      final geometry = ContinuationPageGeometry.resolve(
+        page,
+        _sheet,
+        pageInsets: _padding,
+      );
+      expect(
+        geometry.parts,
+        hasLength(page.slices.single.lines.length),
+        reason: '只拆分本页实际可见行，段落跨页后仍逐行接续',
+      );
+      expect(geometry.parts.first.clip.top, 0);
+      expect(geometry.parts.last.clip.bottom, _sheet.height);
     }
   });
 
@@ -346,7 +383,7 @@ void main() {
     );
   });
 
-  testWidgets('正式阅读页保留实际内缩、固定纸底和页脚，段落完整不透明横移', (tester) async {
+  testWidgets('正式阅读页逐行不透明横移，保留实际内缩、固定纸底和页脚', (tester) async {
     _configure(tester);
     final source = _Source();
     final store = MemoryReaderProgressStore();
@@ -366,6 +403,36 @@ void main() {
     final middle = await _frame(tester, boundary, name: 'continuation-middle');
     expect(_solidInk(middle, _oldInk), greaterThan(0));
     expect(_solidInk(middle, _newInk), greaterThan(0));
+    final page = session.page!;
+    final multiline = page.slices[1];
+    var lineTop =
+        view.widget.pageInsets.top +
+        page.topPadding +
+        page.slices.first.height +
+        multiline.leadingExtent;
+    final rightEdges = <int>[];
+    for (final line in multiline.lines) {
+      final y = (lineTop + line.height / 2).round();
+      var right = -1;
+      for (var x = 0; x < _sheet.width; x++) {
+        final pixel = _pixel(middle, x, y);
+        if (pixel[0] == 0x15 &&
+            pixel[1] == 0x5E &&
+            pixel[2] == 0x9B &&
+            pixel[3] == 255) {
+          right = x;
+        }
+      }
+      expect(right, greaterThanOrEqualTo(0));
+      rightEdges.add(right);
+      lineTop += line.height;
+    }
+    expect(rightEdges, hasLength(2));
+    expect(
+      rightEdges.first,
+      lessThan(rightEdges.last),
+      reason: '同段内上行比下行先移出，不能仍把整个段落一起移动',
+    );
     expect(_pixel(middle, 359, 0), _pixel(before, 359, 0));
     for (var y = 480; y < 520; y++) {
       for (var x = 0; x < 360; x++) {
