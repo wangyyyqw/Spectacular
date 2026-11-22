@@ -461,27 +461,55 @@ class _CalendarDaySheet extends StatelessWidget {
       (sum, portion) => sum + portion.duration,
     );
     final bookCount = {for (final portion in portions) portion.bookId}.length;
+    final span = portions.isEmpty
+        ? null
+        : '${_formatTimelineClock(portions.first.startedAt)}'
+              '–${_formatTimelineClock(portions.last.endedAt)}';
     final lastIndexByBook = <String, int>{
       for (var index = 0; index < portions.length; index++)
         portions[index].bookId: index,
     };
     return SizedBox(
-      height: MediaQuery.sizeOf(context).height * 0.6,
+      height: math.min(MediaQuery.sizeOf(context).height * 0.72, 680),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              _isoDate(date),
-              key: const ValueKey('stats-calendar-detail-date'),
-              style: Theme.of(context).textTheme.titleSmall,
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 2,
+              children: [
+                Text(
+                  _isoDate(date),
+                  key: const ValueKey('stats-calendar-detail-date'),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                Text(
+                  '合计 ${formatReadingDuration(total)}',
+                  key: const ValueKey('stats-calendar-detail-total'),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
-              '$bookCount 本书 · 合计 ${formatReadingDuration(total)}',
-              key: const ValueKey('stats-calendar-detail-total'),
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              [
+                '$bookCount 本书',
+                '${portions.length} 段阅读',
+                if (span != null) '时段 $span',
+              ].join(' · '),
+              key: const ValueKey('stats-calendar-detail-meta'),
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                color: scheme.onSurfaceVariant,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -588,7 +616,7 @@ class _CalendarDaySheet extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Padding(
-              padding: EdgeInsets.only(bottom: isLast ? 0 : 18),
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -665,6 +693,11 @@ String _isoDate(DateTime date) =>
 String _formatTimelineTime(DateTime time) {
   String two(int value) => value.toString().padLeft(2, '0');
   return '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
+}
+
+String _formatTimelineClock(DateTime time) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${two(time.hour)}:${two(time.minute)}';
 }
 
 String _formatTimelineDuration(Duration duration) {

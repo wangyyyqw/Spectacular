@@ -306,7 +306,7 @@ void main() {
     await tester.tapAt(Offset(day.center.dx, bar.center.dy));
     await tester.pumpAndSettle();
     expect(find.text('2026-11-02'), findsOneWidget);
-    expect(find.text('1 本书 · 合计 20 分钟'), findsOneWidget);
+    expect(find.text('合计 20 分钟'), findsOneWidget);
     expect(find.text('已读'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -334,7 +334,7 @@ void main() {
     expect(find.text('+2'), findsNothing);
     expect(find.text(title), findsNothing);
     await _tap(tester, 'day-2026-11-15');
-    expect(find.text('6 本书 · 合计 1 小时'), findsOneWidget);
+    expect(find.text('合计 1 小时'), findsOneWidget);
     await tester.scrollUntilVisible(
       _key('detail-5'),
       100,
@@ -387,6 +387,12 @@ void main() {
     expect(find.text('32秒'), findsOneWidget);
     expect(find.text('2秒'), findsOneWidget);
     expect(find.text('51秒'), findsOneWidget);
+    expect(find.text('合计 2 分钟'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('stats-calendar-detail-meta')),
+      findsOneWidget,
+    );
+    expect(find.text('2 本书 · 3 段阅读 · 时段 00:23–00:36'), findsOneWidget);
     expect(find.textContaining('《素食者》', findRichText: true), findsNWidgets(2));
     expect(
       find.textContaining('《现代雷达系统分析与设计》', findRichText: true),
@@ -423,7 +429,7 @@ void main() {
         );
       }
       await _tap(tester, 'day-2026-11-2');
-      expect(find.text('5 本书 · 合计 2 小时 30 分'), findsOneWidget);
+      expect(find.text('合计 2 小时 30 分'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -526,7 +532,7 @@ void main() {
     expect(find.text('2026年10月'), findsOneWidget);
     expect(find.text('1 天阅读 · 2 本 · 40 分钟'), findsOneWidget);
     await _tap(tester, 'day-2026-10-31');
-    expect(find.text('2 本书 · 合计 40 分钟'), findsOneWidget);
+    expect(find.text('合计 40 分钟'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
