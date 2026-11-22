@@ -30,14 +30,13 @@ void _expectInkInside(Uint8List pixels) {
   final ink = <int>[];
   for (var index = 0; index < pixels.length; index += 4) {
     final x = index ~/ 4 % 300;
-    if (pixels[index] < 20 &&
-        pixels[index + 1] > 220 &&
-        pixels[index + 2] < 20) {
+    final red = pixels[index];
+    final green = pixels[index + 1];
+    final blue = pixels[index + 2];
+    if (green > 80 && green > red + 20 && green > blue + 20) {
       border.add(x);
     }
-    if (pixels[index] < 40 &&
-        pixels[index + 1] < 40 &&
-        pixels[index + 2] > 200) {
+    if (blue > 80 && blue > red + 20 && blue > green + 20) {
       ink.add(x);
     }
   }
