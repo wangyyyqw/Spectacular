@@ -341,7 +341,7 @@ void main() {
   testWidgets('作者、关联、在线来源和时长按顺序显示且样式一致', (tester) async {
     final entry = BookEntry(
       id: 'metadata',
-      title: '测试书',
+      title: '  测试书\r\n  较长副标题需要在窄屏自然换行显示  ',
       author: '测试作者',
       filePath: '',
       addedAt: DateTime(2026),
@@ -360,7 +360,15 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final title = tester.widget<Text>(find.text('测试书 较长副标题需要在窄屏自然换行显示'));
+    expect(title.style?.fontSize, 15);
+    expect(title.maxLines, 2);
     final fields = ['测试作者', '测试出版方', '在线来源：测试书源', '已读 15 分钟'];
+    expect(
+      tester.getRect(find.text(fields.first)).top -
+          tester.getRect(find.text(title.data!)).bottom,
+      closeTo(4, .01),
+    );
     final texts = [
       for (final field in fields) tester.widget<Text>(find.text(field)),
     ];
@@ -371,6 +379,11 @@ void main() {
         greaterThanOrEqualTo(
           tester.getRect(find.text(fields[index - 1])).bottom,
         ),
+      );
+      expect(
+        tester.getRect(find.text(fields[index])).top -
+            tester.getRect(find.text(fields[index - 1])).bottom,
+        closeTo(4, .01),
       );
     }
     expect(tester.takeException(), isNull);

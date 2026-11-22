@@ -143,7 +143,8 @@ void main() {
       final cover = tester.getRect(
         find.byKey(const ValueKey('online-book-cover')),
       );
-      expect(tabs.bottom, lessThanOrEqualTo(cover.bottom + .01));
+      expect(tabs.bottom, closeTo(cover.bottom, .01));
+      expect(tabs.center.dx, closeTo(width / 2, .01));
       if (scale == 1) expect(tabs.height, lessThanOrEqualTo(32));
       expect(tester.takeException(), isNull);
     }
@@ -193,6 +194,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('online-book-toc-tab')));
     await tester.pump();
     expect(find.byKey(const ValueKey('online-book-full-toc')), findsNothing);
+    final order = tester.getRect(
+      find.byKey(const ValueKey('online-book-order')),
+    );
+    final toggle = tester.getRect(
+      find.byKey(const ValueKey('online-book-toggle-volumes')),
+    );
+    final arrow = tester.getRect(
+      find.byKey(const ValueKey('online-book-volume-arrow-1')),
+    );
+    expect(order.size, toggle.size);
+    expect(order.center.dy, toggle.center.dy);
+    expect(arrow.center.dx, closeTo(order.center.dx, .01));
     await tester.tap(find.byKey(const ValueKey('online-book-volume-1')));
     await tester.pump();
     expect(find.byKey(const ValueKey('online-book-chapter-1')), findsNothing);

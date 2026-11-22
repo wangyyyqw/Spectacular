@@ -424,6 +424,10 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
             ),
             IconButton(
               key: const ValueKey('online-book-toggle-volumes'),
+              style: IconButton.styleFrom(
+                fixedSize: const Size(48, 48),
+                visualDensity: VisualDensity.standard,
+              ),
               tooltip: hasExpandedVolume ? '折叠全部' : '展开全部',
               onPressed: namedVolumes.isEmpty
                   ? null
@@ -436,22 +440,20 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                         }
                       }
                     }),
-              icon: AppIcon(
-                hasExpandedVolume ? AppGlyph.chevronUp : AppGlyph.chevronDown,
-                size: 20,
-              ),
+              icon: _catalogChevron(hasExpandedVolume),
             ),
             IconButton(
               key: const ValueKey('online-book-order'),
+              style: IconButton.styleFrom(
+                fixedSize: const Size(48, 48),
+                visualDensity: VisualDensity.standard,
+              ),
               tooltip: _catalogReversed ? '正序排列' : '倒序排列',
               isSelected: _catalogReversed,
               onPressed: () =>
                   setState(() => _catalogReversed = !_catalogReversed),
-              icon: const AppIcon(AppGlyph.sort, size: 20),
-              selectedIcon: const RotatedBox(
-                quarterTurns: 2,
-                child: AppIcon(AppGlyph.sort, size: 20),
-              ),
+              icon: _catalogSort(false),
+              selectedIcon: _catalogSort(true),
             ),
           ],
         ),
@@ -470,6 +472,9 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                     key: ValueKey('online-book-volume-${volume.start}'),
                     contentPadding: EdgeInsets.zero,
                     dense: true,
+                    minTileHeight: 36,
+                    minVerticalPadding: 2,
+                    visualDensity: VisualDensity.compact,
                     onTap: () => setState(() {
                       if (expanded) {
                         _collapsedVolumes.add(volume.id);
@@ -490,10 +495,13 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                           '${volume.end - volume.start}章',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
-                        const SizedBox(width: 8),
-                        AppIcon(
-                          expanded ? AppGlyph.chevronUp : AppGlyph.chevronDown,
-                          size: 18,
+                        SizedBox(
+                          key: ValueKey(
+                            'online-book-volume-arrow-${volume.start}',
+                          ),
+                          width: 48,
+                          height: 32,
+                          child: Center(child: _catalogChevron(expanded)),
                         ),
                       ],
                     ),
@@ -508,6 +516,9 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                   left: chapter.volume.trim().isEmpty ? 0 : 12,
                 ),
                 dense: true,
+                minTileHeight: 36,
+                minVerticalPadding: 2,
+                visualDensity: VisualDensity.compact,
                 onTap: _canRead && !_downloading && !_opening
                     ? () => _read(chapter)
                     : null,
@@ -523,6 +534,32 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       ],
     );
   }
+
+  Widget _catalogChevron(bool expanded) => SizedBox(
+    width: 20,
+    height: 20,
+    child: Transform.translate(
+      // 两个箭头的路径中心分别在 11.75 和 12.25，统一到画布中心。
+      offset: Offset(0, expanded ? 20 / 96 : -20 / 96),
+      child: AppIcon(
+        expanded ? AppGlyph.chevronUp : AppGlyph.chevronDown,
+        size: 20,
+      ),
+    ),
+  );
+
+  Widget _catalogSort(bool reversed) => SizedBox(
+    width: 20,
+    height: 20,
+    child: RotatedBox(
+      quarterTurns: reversed ? 2 : 0,
+      child: Transform.translate(
+        // 排序线条的视觉中心是 9.25，移动到 24 单位画布的中心。
+        offset: const Offset(2.75 * 20 / 24, 0),
+        child: const AppIcon(AppGlyph.sort, size: 20),
+      ),
+    ),
+  );
 
   List<_CatalogVolume> _catalogVolumes(List<OnlineChapter> chapters) {
     if (identical(_groupedChapters, chapters)) return _volumes;
@@ -600,79 +637,90 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
 
   Widget _header(OnlineBook info) {
     final kind = onlineBookPlatformAndTags(info.kind);
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: SizedBox(
-              key: const ValueKey('online-book-cover'),
-              width: 96,
-              height: 130,
-              child: _BookCover(
-                source: widget.source,
-                service: widget.controller.service,
-                url: info.coverUrl,
-                fallbackUrl: widget.book.coverUrl,
-                referer: info.bookUrl,
+    return Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  key: const ValueKey('online-book-cover'),
+                  width: 96,
+                  height: 130,
+                  child: _BookCover(
+                    source: widget.source,
+                    service: widget.controller.service,
+                    url: info.coverUrl,
+                    fallbackUrl: widget.book.coverUrl,
+                    referer: info.bookUrl,
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  info.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      info.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        info.author.isEmpty ? '未知作者' : info.author,
+                        if (info.status.isNotEmpty) info.status,
+                        if (info.wordCount.isNotEmpty) info.wordCount,
+                        if (kind.platform.isNotEmpty) kind.platform,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (info.lastChapter.isNotEmpty ||
+                        info.chapterCount > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          if (info.chapterCount > 0) '${info.chapterCount}章',
+                          if (info.lastChapter.isNotEmpty)
+                            '最新：${info.lastChapter}',
+                        ].join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    if (kind.tags.isNotEmpty || info.updateTime.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          if (info.updateTime.isNotEmpty) info.updateTime,
+                          if (kind.tags.isNotEmpty) kind.tags,
+                        ].join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    // 为屏幕居中的切换按钮预留底部高度，大字模式随文字一起增高。
+                    SizedBox(
+                      height:
+                          34 + MediaQuery.textScalerOf(context).scale(12) - 12,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  [
-                    info.author.isEmpty ? '未知作者' : info.author,
-                    if (info.status.isNotEmpty) info.status,
-                    if (info.wordCount.isNotEmpty) info.wordCount,
-                    if (kind.platform.isNotEmpty) kind.platform,
-                  ].join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                if (info.lastChapter.isNotEmpty || info.chapterCount > 0) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    [
-                      if (info.chapterCount > 0) '${info.chapterCount}章',
-                      if (info.lastChapter.isNotEmpty) '最新：${info.lastChapter}',
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-                if (kind.tags.isNotEmpty || info.updateTime.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    [
-                      if (info.updateTime.isNotEmpty) info.updateTime,
-                      if (kind.tags.isNotEmpty) kind.tags,
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-                const SizedBox(height: 4),
-                _contentTabs(),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        _contentTabs(),
+      ],
     );
   }
 

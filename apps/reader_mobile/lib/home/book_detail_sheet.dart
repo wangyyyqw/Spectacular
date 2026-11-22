@@ -97,19 +97,19 @@ class BookDetailSheet extends StatelessWidget {
                     child: Column(
                       key: const ValueKey('book-detail-metadata'),
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.start,
                       children: [
                         Text(
-                          entry.title,
+                          entry.title.replaceAll(RegExp(r'\s+'), ' ').trim(),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleMedium?.copyWith(
-                            fontSize: 17,
+                            fontSize: 15,
                             height: 1.2,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
                         Text(
                           entry.author.isEmpty ? '未知作者' : entry.author,
                           maxLines: 1,
@@ -131,18 +131,13 @@ class BookDetailSheet extends StatelessWidget {
                                 ),
                                 onTap: () =>
                                     Navigator.of(context).pop('reamicro-link'),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 4,
-                                  ),
-                                  child: Text(
-                                    linked
-                                        ? (name.isEmpty ? '已关联' : name)
-                                        : '未关联',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: metadataStyle,
-                                  ),
+                                child: Text(
+                                  linked
+                                      ? (name.isEmpty ? '已关联' : name)
+                                      : '未关联',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: metadataStyle,
                                 ),
                               ),
                             );
@@ -166,6 +161,7 @@ class BookDetailSheet extends StatelessWidget {
                           style: metadataStyle,
                         ),
                         if (chapterProgress != null) ...[
+                          const Spacer(),
                           Semantics(
                             label: formatReadingChapters(
                               progress?.spineIndex,
