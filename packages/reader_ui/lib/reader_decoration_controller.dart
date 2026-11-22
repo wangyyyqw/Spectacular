@@ -50,20 +50,8 @@ extension _ReaderDecorationController on _ReaderPageState {
       letterSpacingEm: style.letterSpacingEm,
       color: style.textColor,
       colorOpacity: style.textColorOpacity,
-      paddingLogicalPixels:
-          [
-            style.paddingLeft,
-            style.paddingTop,
-            style.paddingRight,
-            style.paddingBottom,
-          ].any((v) => v > 0)
-          ? EdgeInsets.fromLTRB(
-              style.paddingLeft,
-              style.paddingTop,
-              style.paddingRight,
-              style.paddingBottom,
-            )
-          : null,
+      // 样式留白由装饰绘制盒消费，不能撑大正文行盒或改变断行。
+      // 点九的内容区仍单独参与测量，避免文字盖住图片边角。
       paddingByTextHeight: _decorationPadding(style),
     );
   }

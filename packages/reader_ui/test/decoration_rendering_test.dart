@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -989,7 +988,7 @@ void main() {
     );
   });
 
-  test('绘制内边距不改变布局，垂直扩展受行距余量和8dp双重限制', () {
+  test('绘制内边距不改变布局，背景越过选择盒覆盖字形且最多外扩8dp', () {
     final page = _page();
     final layout = page.slices.single.block.layout;
     final boxes = ReaderDecorationGeometry.boxesFor(page, [
@@ -1005,16 +1004,15 @@ void main() {
     for (final box in boxes) {
       final original = box.range.rects.single;
       final expanded = box.rects.single;
-      final line = box.range.line.rect;
       expect(expanded.left, original.left - 12);
       expect(expanded.right, original.right + 12);
       expect(
         original.top - expanded.top,
-        math.min(8, math.max(0, original.top - line.top)),
+        8,
       );
       expect(
         expanded.bottom - original.bottom,
-        math.min(8, math.max(0, line.bottom - original.bottom)),
+        8,
       );
     }
     expect(page.slices.single.block.layout, same(layout));

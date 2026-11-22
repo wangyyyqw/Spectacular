@@ -69,22 +69,15 @@ class ReaderDecorationBox {
           );
   }
 
-  /// 绘制内边距不参与断行，垂直扩展不得越过行距余量或 8dp。
+  /// 绘制内边距不参与断行；留白允许越过选择行盒，最多外扩 8dp。
+  /// 选择盒包含字体行高，不能把它的边缘当作字形背景的裁切边界。
   List<Rect> get rects => [
     for (final rect in range.rects)
       Rect.fromLTRB(
         rect.left - style.paddingLeft,
-        rect.top -
-            math.min(
-              style.paddingTop,
-              math.min(8, math.max(0, rect.top - range.line.rect.top)),
-            ),
+        rect.top - math.min(style.paddingTop, 8),
         rect.right + style.paddingRight,
-        rect.bottom +
-            math.min(
-              style.paddingBottom,
-              math.min(8, math.max(0, range.line.rect.bottom - rect.bottom)),
-            ),
+        rect.bottom + math.min(style.paddingBottom, 8),
       ),
   ];
 }
