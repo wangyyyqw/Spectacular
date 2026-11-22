@@ -247,19 +247,38 @@ class OnlineEpubBuilder {
     final isPlainText = fragment.children.isEmpty;
     _sanitizeFragment(fragment);
     _removeLeadingTitle(fragment, chapter.title);
+    // 接口可能自带同名 h1；开头的目录标题也走统一格式，保留锚点与属性。
+    Element? leadingHeading;
+    for (final node in fragment.nodes) {
+      if (node is Text && node.text.trim().isEmpty) continue;
+      if (node is Element &&
+          const {'h1', 'h2', 'h3'}.contains(node.localName) &&
+          node.text.replaceAll(RegExp(r'\s+'), '') ==
+              chapter.title.replaceAll(RegExp(r'\s+'), '')) {
+        leadingHeading = node;
+      }
+      break;
+    }
+    if (leadingHeading != null) {
+      leadingHeading.classes.add('chapter-title');
+      leadingHeading.innerHtml = _chapterHeadingContent(chapter.title);
+    }
     final body = isPlainText
         ? _serializeParagraphs(fragment.text ?? '')
         : _serializeNodes(fragment.nodes);
-    final headingText = fragment.querySelector('h1,h2,h3')?.text.trim() ?? '';
-    final heading = headingText == chapter.title.trim()
-        ? ''
-        : _chapterHeading(chapter.title);
+    final heading = leadingHeading == null
+        ? _chapterHeading(chapter.title)
+        : '';
     return '$heading$body';
   }
 
   /// 参考阅微：章节编号和名称分别一行，保留目录中的完整标题。
   String _chapterHeading(String title) {
-    final clean = title.trim();
+    return '<h1 class="chapter-title">${_chapterHeadingContent(title)}</h1>';
+  }
+
+  String _chapterHeadingContent(String title) {
+    final clean = title.replaceAll(RegExp(r'\s+'), ' ').trim();
     final match = RegExp(
       r'^(第\s*[0-9０-９一二三四五六七八九十百千万〇零两]+\s*[章节卷回集部篇]|chapter\s*\d+|番外|后日谈|后记|序章|楔子|终章)\s*[:：/／、，,。.!！?？\-—_；;]*\s*(.+)$',
       caseSensitive: false,
@@ -268,7 +287,7 @@ class OnlineEpubBuilder {
         ? _escapeXml(clean)
         : '${_escapeXml(match.group(1)!.trim())}<br/>'
               '${_escapeXml(match.group(2)!.trim())}';
-    return '<h1 class="chapter-title">$content</h1>';
+    return content;
   }
 
   /// 只去掉正文开头与目录标题完全相同的一行，保留正文后面的同名引用。
@@ -466,7 +485,7 @@ class OnlineEpubBuilder {
       'body { margin: 0; line-height: 1.75; word-wrap: break-word; }\n'
       'p { margin: 0 0 .8em; text-indent: 2em; }\n'
       'h1, h2, h3 { text-indent: 0; font-weight: bold; }\n'
-      '.chapter-title { font-size: 1.5em; margin: 0 0 1.2em; text-align: center; }\n'
+      '.chapter-title { font-size: calc(1.5em - 2px); margin: 0 0 1.2em; text-align: center; }\n'
       'img { max-width: 100%; height: auto; }\n'
       '.cover { margin: 0; padding: 0; text-align: center; }\n'
       '.cover img { max-height: 100%; }\n';

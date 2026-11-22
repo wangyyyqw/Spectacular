@@ -5,9 +5,50 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart' show BookMeta;
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
 
 void main() {
+  test('接口开头的同名标题应用编号换行和缩小字号，正文标题样式保留', () async {
+    final source = await _openChapter(
+      const OnlineEpubChapter(
+        title: '第1章 天天告白',
+        html:
+            '<h1 class="source-heading" id="heading_id_2" idx="10000">'
+            '第1章 天天告白</h1><p>黄昏时刻。</p>'
+            '<h2 style="font-size:18px">正文小标题</h2><p>后续正文。</p>',
+      ),
+    );
+    // 反馈手机 1220px / 3.25，左右各 12dp，正文字号 22。
+    await source.applyOverrides(
+      const ReaderOverrides(fontSize: 22, lineHeight: 1.4),
+    );
+    await source.applyContentSize(width: 351.4, height: 681.2);
+    final page = (await source.loadChapter(0)).first;
+    final heading = page.slices.first.block;
+    expect(heading.layout.text, '第1章\n天天告白');
+    expect(heading.layout.lines, hasLength(2));
+    final body = page.slices[1].block;
+    expect(
+      heading.style!.fontSize,
+      // 标题与正文沿用相同的用户字号缩放，基础 16px 时标题缩小 2px。
+      closeTo(body.style!.fontSize * (22 / 16), .01),
+    );
+    final subtitle = page.slices
+        .map((slice) => slice.block)
+        .firstWhere((block) => block.layout.text == '正文小标题');
+    expect(subtitle.style!.fontSize, 18);
+    final xhtml = const OnlineEpubBuilder().buildChapterDocument(
+      const OnlineEpubChapter(
+        title: '第1章 天天告白',
+        html: '<h1 class="source-heading" id="heading_id_2">第1章 天天告白</h1>',
+      ),
+    );
+    expect(xhtml, contains('id="heading_id_2"'));
+    expect(xhtml, contains('source-heading chapter-title'));
+    expect('天天告白'.allMatches(xhtml), hasLength(2)); // 文档标题与正文标题各一处。
+  });
+
   test('章节编号与标题另起一行，特殊标题和无编号标题保留文本', () async {
     final source = await _openChapter(
       const OnlineEpubChapter(title: '第1章 穿越？（魔法，异能等）', html: '<p>正文</p>'),
