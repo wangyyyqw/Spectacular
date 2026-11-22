@@ -3691,7 +3691,8 @@ String? _tocTitleForSpine(List<TocEntry> entries, int spineIndex) {
       final title = entry.title.trim();
       if (title.isNotEmpty) {
         if (entry.spineIndex == spineIndex) {
-          exact ??= entry;
+          // 卷组与首章共用 spine，页眉优先显示更具体的章节叶标题。
+          if (exact == null || entry.children.isEmpty) exact = entry;
         } else if (entry.spineIndex < spineIndex &&
             (nearest == null || entry.spineIndex > nearest!.spineIndex)) {
           nearest = entry;

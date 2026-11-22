@@ -59,7 +59,12 @@ class FullPageChapterLayout {
     final margin = style.margin;
     return authored.height != null &&
         authored.backgroundImage != null &&
-        authored.backgroundSize.mode == CssBackgroundSizeMode.cover &&
+        (authored.backgroundSize.mode == CssBackgroundSizeMode.cover ||
+            (authored.backgroundSize.mode == CssBackgroundSizeMode.contain &&
+                authored.bleed.left &&
+                authored.bleed.right &&
+                authored.bleed.top &&
+                authored.bleed.bottom)) &&
         style.backgroundImage == authored.backgroundImage &&
         [
           margin.top,

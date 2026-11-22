@@ -251,10 +251,11 @@ class OnlineEpubBuilder {
     Element? leadingHeading;
     for (final node in fragment.nodes) {
       if (node is Text && node.text.trim().isEmpty) continue;
+      if (node is Element && _titleText(node).trim().isEmpty) continue;
       if (node is Element &&
           const {'h1', 'h2', 'h3'}.contains(node.localName) &&
-          node.text.replaceAll(RegExp(r'\s+'), '') ==
-              chapter.title.replaceAll(RegExp(r'\s+'), '')) {
+          _normalizedTitle(_titleText(node)) ==
+              _normalizedTitle(chapter.title)) {
         leadingHeading = node;
       }
       break;
@@ -263,13 +264,67 @@ class OnlineEpubBuilder {
       leadingHeading.classes.add('chapter-title');
       leadingHeading.innerHtml = _chapterHeadingContent(chapter.title);
     }
+    final images = fragment.querySelectorAll('img');
+    var artwork = '';
+    // 带图正文中的卷标是独立的章首图片；保留同章正文，仅让图片独占一页。
+    if (chapter.volume.isNotEmpty &&
+        images.isNotEmpty &&
+        (fragment.text ?? '').trim().isNotEmpty) {
+      final first = fragment.children.firstOrNull;
+      final leadingImage = first?.localName == 'img'
+          ? first
+          : first?.children.length == 1 && (first?.text.trim().isEmpty ?? false)
+          ? first?.querySelector('img')
+          : null;
+      if (leadingImage != null) {
+        final page = Element.tag('div');
+        final src = leadingImage.attributes['src']!;
+        double? imageDimension(String name) => double.tryParse(
+          (leadingImage.attributes['img-$name'] ??
+                  leadingImage.attributes[name] ??
+                  '')
+              .replaceFirst(RegExp(r'px$'), ''),
+        );
+        final width = imageDimension('width');
+        final height = imageDimension('height');
+        // 源声明的竖向卷标等比铺满；横图完整居中，不按屏幕比例拉伸。
+        final fit = width != null && height != null && height > width
+            ? 'cover'
+            : 'contain';
+        if (leadingImage.id.isNotEmpty) page.id = leadingImage.id;
+        page.attributes['style'] =
+            'height:100vh;margin:0;padding:0;duokan-bleed:all;'
+            'background-image:url("${src.replaceAll('"', '%22')}");'
+            'background-size:$fit;background-position:center;'
+            'background-repeat:no-repeat;'
+            'page-break-before:always;page-break-after:always;';
+        artwork = _serializeNodes([page]);
+        leadingImage.remove();
+        if (first != leadingImage) first?.remove();
+      }
+    }
+    if (images.length == 1) {
+      // 在线单图章只保留图片，不插入会阻断正式引擎整页判定的标题。
+      // 同名开头标题属于接口重复信息，其他正文和多图仍走原排版。
+      final content = fragment.clone(true);
+      if (leadingHeading != null) {
+        content.querySelector('.chapter-title')?.remove();
+      }
+      if (artwork.isEmpty && (content.text ?? '').trim().isEmpty) {
+        final image = images.single.clone(true);
+        image.attributes.remove('width');
+        image.attributes.remove('height');
+        image.attributes.remove('style');
+        return _serializeNodes([image]);
+      }
+    }
     final body = isPlainText
         ? _serializeParagraphs(fragment.text ?? '')
         : _serializeNodes(fragment.nodes);
     final heading = leadingHeading == null
         ? _chapterHeading(chapter.title)
         : '';
-    return '$heading$body';
+    return '$artwork$heading$body';
   }
 
   /// 参考阅微：章节编号和名称分别一行，保留目录中的完整标题。
@@ -285,16 +340,14 @@ class OnlineEpubBuilder {
     ).firstMatch(clean);
     final content = match == null
         ? _escapeXml(clean)
-        : '${_escapeXml(match.group(1)!.trim())}<br/>'
+        : '<span class="chapter-number">${_escapeXml(match.group(1)!.trim())}</span><br/>'
               '${_escapeXml(match.group(2)!.trim())}';
     return content;
   }
 
   /// 只去掉正文开头与目录标题完全相同的一行，保留正文后面的同名引用。
   void _removeLeadingTitle(DocumentFragment fragment, String title) {
-    String normalized(String value) =>
-        value.replaceAll(RegExp(r'\s+'), '').trim();
-    final expected = normalized(title);
+    final expected = _normalizedTitle(title);
     if (expected.isEmpty) return;
     for (final node in List<Node>.of(fragment.nodes)) {
       if (node is Text) {
@@ -302,19 +355,73 @@ class OnlineEpubBuilder {
         if (text.trim().isEmpty) continue;
         final lines = text.split('\n');
         final first = lines.indexWhere((line) => line.trim().isNotEmpty);
-        if (first >= 0 && normalized(lines[first]) == expected) {
+        if (first >= 0 && _normalizedTitle(lines[first]) == expected) {
           node.text = lines.skip(first + 1).join('\n');
         }
       } else if (node is Element) {
+        // 章首卷标及空容器不是正文标题，继续检查第一段文字。
+        if (_titleText(node).trim().isEmpty) continue;
         if (const {'h1', 'h2', 'h3'}.contains(node.localName)) return;
         if (const {'p', 'div'}.contains(node.localName) &&
-            node.querySelector('img,a,br,p,div') == null &&
-            normalized(node.text) == expected) {
+            node.querySelector('img,br,p,div') == null &&
+            _normalizedTitle(_titleText(node)) == expected) {
           node.remove();
         }
       }
       return;
     }
+  }
+
+  String _titleText(Element node) {
+    final copy = node.clone(true);
+    for (final action in copy.querySelectorAll(
+      'a[data-reader-action="true"]',
+    )) {
+      action.remove();
+    }
+    return copy.text;
+  }
+
+  String _normalizedTitle(String value) {
+    final clean = value.replaceAll(RegExp(r'[\s\u200B-\u200D\uFEFF]'), '');
+    return clean.replaceFirstMapped(
+      RegExp(r'^第([0-9０-９一二三四五六七八九十百千万〇零两]+)([章节卷回集部篇])'),
+      (match) {
+        final raw = match.group(1)!;
+        const digits = '零一二三四五六七八九';
+        const units = {'十': 10, '百': 100, '千': 1000, '万': 10000};
+        var total = 0;
+        var section = 0;
+        var number = 0;
+        for (final rune in raw.runes) {
+          final char = String.fromCharCode(rune);
+          final digit = digits.indexOf(
+            char == '〇'
+                ? '零'
+                : char == '两'
+                ? '二'
+                : char,
+          );
+          if (digit >= 0) {
+            number = number * 10 + digit;
+          } else if (units[char] case final unit?) {
+            if (unit == 10000) {
+              total += (section + number) * unit;
+              section = 0;
+            } else {
+              section += (number == 0 ? 1 : number) * unit;
+            }
+            number = 0;
+          } else {
+            final ascii = rune >= 0xFF10 && rune <= 0xFF19
+                ? rune - 0xFF10
+                : rune - 0x30;
+            number = number * 10 + ascii;
+          }
+        }
+        return '第${total + section + number}${match.group(2)}';
+      },
+    );
   }
 
   String _serializeParagraphs(String text) => text
@@ -486,6 +593,7 @@ class OnlineEpubBuilder {
       'p { margin: 0 0 .8em; text-indent: 2em; }\n'
       'h1, h2, h3 { text-indent: 0; font-weight: bold; }\n'
       '.chapter-title { font-size: calc(1.5em - 2px); margin: 0 0 1.2em; text-align: center; }\n'
+      '.chapter-number { font-size: calc(1em - 2px); }\n'
       'img { max-width: 100%; height: auto; }\n'
       '.cover { margin: 0; padding: 0; text-align: center; }\n'
       '.cover img { max-height: 100%; }\n';

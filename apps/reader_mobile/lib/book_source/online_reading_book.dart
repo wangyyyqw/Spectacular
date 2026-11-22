@@ -49,6 +49,7 @@ class OnlineReadingBook {
       identifier: id,
     ),
     chapterTitles: [for (final chapter in chapters) chapter.title],
+    chapterVolumes: [for (final chapter in chapters) chapter.volume],
     resources: {'style.css': utf8.encode(OnlineEpubBuilder.chapterStylesheet)},
     loadChapterXhtml: (index) async {
       final chapter = chapters[index];
@@ -62,6 +63,7 @@ class OnlineReadingBook {
         OnlineEpubChapter(
           title: chapter.title,
           html: prepareOnlineReviewHtml(html),
+          volume: chapter.volume,
         ),
       );
     },

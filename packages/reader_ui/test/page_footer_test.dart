@@ -10,6 +10,7 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_core/source/chapter_source.dart';
+import 'package:reader_core/api.dart' show TocEntry;
 
 PageContent _page(int spine, int index) {
   const text = '页脚测试内容，多页填充。';
@@ -79,6 +80,19 @@ class _SizedPageSource implements ResizableChapterSource {
   ];
 }
 
+class _VolumePageSource extends _MultiPageSource implements TocChapterSource {
+  _VolumePageSource() : super(chapters: 1, pagesPerChapter: 2);
+
+  @override
+  List<TocEntry> get toc => const [
+    TocEntry(
+      title: '第一卷',
+      spineIndex: 0,
+      children: [TocEntry(title: '第1章 空屋', spineIndex: 0)],
+    ),
+  ];
+}
+
 void _expectFurniture(WidgetTester tester, {int? chapter}) {
   expect(
     find.byType(ReaderPageHeader),
@@ -94,6 +108,26 @@ void _expectFurniture(WidgetTester tester, {int? chapter}) {
 }
 
 void main() {
+  testWidgets('卷组与首章共用位置时页眉显示章名', (tester) async {
+    late ReaderSession session;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPage(
+          source: _VolumePageSource(),
+          store: MemoryReaderProgressStore(),
+          bookId: 'volume-header',
+          pageTurnMode: PageTurnMode.none,
+          onSessionReady: (value) => session = value,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await session.next();
+    await tester.pumpAndSettle();
+    expect(find.text('第1章 空屋'), findsOneWidget);
+    expect(find.text('第一卷'), findsNothing);
+  });
+
   for (final explicit in [false, true]) {
     testWidgets('隐藏四角回收页家具高度，${explicit ? '保留显式内边距' : '回收默认信息间距'}并可恢复', (
       tester,

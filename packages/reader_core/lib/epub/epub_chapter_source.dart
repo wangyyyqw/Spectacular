@@ -105,6 +105,7 @@ class EpubChapterSource
   factory EpubChapterSource.fromChapterLoader({
     required BookMeta meta,
     required List<String> chapterTitles,
+    List<String> chapterVolumes = const [],
     required Future<String> Function(int spineIndex) loadChapterXhtml,
     Map<String, Uint8List> resources = const {},
     Future<Uint8List?> Function(String url)? loadNetworkImage,
@@ -135,10 +136,7 @@ class EpubChapterSource
         opfPath: opfPath,
       ),
       opfPath: opfPath,
-      toc: [
-        for (final (index, title) in chapterTitles.indexed)
-          TocEntry(title: title, spineIndex: index),
-      ],
+      toc: _onlineToc(chapterTitles, chapterVolumes),
       tocSource: '在线目录',
       report: const ImportReport(ok: true),
     );
@@ -151,6 +149,31 @@ class EpubChapterSource
       loadChapterXhtml: loadChapterXhtml,
       loadNetworkImage: loadNetworkImage,
     );
+  }
+
+  static List<TocEntry> _onlineToc(List<String> titles, List<String> volumes) {
+    final result = <TocEntry>[];
+    var index = 0;
+    while (index < titles.length) {
+      final volume = index < volumes.length ? volumes[index].trim() : '';
+      if (volume.isEmpty) {
+        result.add(TocEntry(title: titles[index], spineIndex: index));
+        index++;
+        continue;
+      }
+      final start = index;
+      final children = <TocEntry>[];
+      while (index < titles.length &&
+          index < volumes.length &&
+          volumes[index].trim() == volume) {
+        children.add(TocEntry(title: titles[index], spineIndex: index));
+        index++;
+      }
+      result.add(
+        TocEntry(title: volume, spineIndex: start, children: children),
+      );
+    }
+    return result;
   }
 
   /// 打开 EPUB 并创建来源。

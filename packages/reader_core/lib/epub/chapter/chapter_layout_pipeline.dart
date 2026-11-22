@@ -179,7 +179,11 @@ class ChapterLayoutPipeline {
       content,
       flow,
       onRootChild: traits.supported
-          ? () => head!.collect(flow, background)
+          ? () {
+              // 首屏交付前消费整页背景标记，稳定页不能在完整排版后再补扩展。
+              _expandPageBackground(input, resolver, flow, explicitOnly: true);
+              return head!.collect(flow, background);
+            }
           : null,
     ).build(input.document);
     _trace(ReaderTraceName.chapterCollect, watch, input.traceBook);
@@ -207,9 +211,31 @@ class ChapterLayoutPipeline {
   void _expandPageBackground(
     PreparedChapterLayout input,
     ChapterStyleResolver resolver,
-    ChapterFlow flow,
-  ) {
-    if (flow.blocks.length != 1 || flow.fixedBlocks.isNotEmpty) return;
+    ChapterFlow flow, {
+    bool explicitOnly = false,
+  }) {
+    final pageLayout = FullPageChapterLayout(
+      resources,
+      input.snapshot,
+      input.imageCfi,
+    );
+    for (var index = 0; index < flow.blocks.length; index++) {
+      final block = flow.blocks[index];
+      final style = block.style;
+      if (style != null &&
+          style.bleed.left &&
+          style.bleed.right &&
+          style.bleed.top &&
+          style.bleed.bottom &&
+          style.values['break-before'] == 'page' &&
+          style.values['break-after'] == 'page') {
+        // 混合章节中的独立整页背景也消费自己的显式出血，不影响后续正文。
+        flow.blocks[index] = pageLayout.expandBackground(block, style);
+      }
+    }
+    if (explicitOnly || flow.blocks.length != 1 || flow.fixedBlocks.isNotEmpty) {
+      return;
+    }
     final root = input.selectors.htmlElement?.childElements.singleOrNull;
     if (root?.tag != 'body' || root!.childElements.length != 1) return;
     final authored = resolver.chainStyle([root, root.childElements.single]);

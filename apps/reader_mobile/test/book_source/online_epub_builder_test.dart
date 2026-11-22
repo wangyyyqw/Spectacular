@@ -1,14 +1,130 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart' show BookMeta;
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
 
 void main() {
+  test('在线单图章不插标题，竖图与横图均完整居中并取消阅读边距', () async {
+    for (final size in [const Size(375, 816), const Size(640, 320)]) {
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawColor(const Color(0xFFEC985C), BlendMode.src);
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(
+        size.width.toInt(),
+        size.height.toInt(),
+      );
+      final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!
+          .buffer
+          .asUint8List();
+      image.dispose();
+      picture.dispose();
+      final source = await _openChapter(
+        const OnlineEpubChapter(
+          title: '第一卷 卷标',
+          html:
+              '<div><img id="volume-art" src="../images/volume.png" '
+              'width="120" height="200" style="width:120px"/></div>',
+        ),
+        resources: {'images/volume.png': bytes},
+      );
+      await source.applyOverrides(
+        const ReaderOverrides(
+          fontSize: 22,
+          lineHeight: 1.4,
+          paragraphSpacing: 8,
+        ),
+      );
+      await source.applyContentSize(width: 351.4, height: 681.2);
+      final page = (await source.loadChapter(0)).single;
+      final block = page.slices.single.block;
+      expect(block.layout.text, '');
+      expect(block.bleedLeft && block.bleedRight, isTrue);
+      expect(block.bleedTop && block.bleedBottom, isTrue);
+      expect(block.style!.backgroundSize.mode, CssBackgroundSizeMode.contain);
+      expect(block.style!.backgroundImage, contains('images/volume.png'));
+      expect(block.startCfi, isNotNull);
+      final mixed = await _openChapter(
+        const OnlineEpubChapter(
+          title: '第1章 空屋',
+          volume: '第一卷',
+          html:
+              '<img src="../images/volume.png" img-width="390px" img-height="844px"/>\n'
+              '第一章 空屋\n\n后续正文必须完整保留。',
+        ),
+        resources: {'images/volume.png': bytes},
+      );
+      await mixed.applyOverrides(
+        const ReaderOverrides(
+          fontSize: 22,
+          lineHeight: 1.4,
+          paragraphSpacing: 8,
+        ),
+      );
+      await mixed.applyContentSize(
+        width: 351.4,
+        height: 681.2,
+        topInset: 54,
+        sideInsets: (left: 12, right: 12),
+      );
+      final handle = mixed.scheduleProgressiveChapter(0);
+      final firstPages = await handle.firstPages;
+      expect(firstPages.first.slices.single.block.bleedLeft, isTrue);
+      expect(firstPages.first.slices.single.block.bleedTop, isTrue);
+      final mixedPages = await handle.result;
+      final artBlock = mixedPages.first.slices.single.block;
+      expect(artBlock.bleedLeft && artBlock.bleedRight, isTrue);
+      expect(artBlock.bleedTop && artBlock.bleedBottom, isTrue);
+      expect(artBlock.style!.backgroundSize.mode, CssBackgroundSizeMode.cover);
+      expect(
+        mixedPages
+            .skip(1)
+            .expand((page) => page.slices)
+            .map((slice) => slice.block.layout.text)
+            .join(),
+        contains('后续正文必须完整保留。'),
+      );
+    }
+    const builder = OnlineEpubBuilder();
+    expect(
+      builder.buildChapterDocument(
+        const OnlineEpubChapter(
+          title: '第一卷',
+          html: '<h1>第一卷</h1><img src="a.png"/>',
+        ),
+      ),
+      isNot(contains('<h1')),
+    );
+    for (final html in [
+      '<p>说明</p><img src="a.png"/>',
+      '<img src="a.png"/><img src="b.png"/>',
+    ]) {
+      expect(
+        builder.buildChapterDocument(
+          OnlineEpubChapter(title: '第一卷', html: html),
+        ),
+        contains('<h1'),
+      );
+    }
+    expect(
+      builder.buildChapterDocument(
+        const OnlineEpubChapter(
+          title: '第一章',
+          volume: '第一卷',
+          html: '<img src="a.png" img-width="640px" img-height="320px"/><p>正文</p>',
+        ),
+      ),
+      contains('background-size:contain'),
+    );
+  });
+
   test('接口开头的同名标题应用编号换行和缩小字号，正文标题样式保留', () async {
     final source = await _openChapter(
       const OnlineEpubChapter(
@@ -28,6 +144,10 @@ void main() {
     final heading = page.slices.first.block;
     expect(heading.layout.text, '第1章\n天天告白');
     expect(heading.layout.lines, hasLength(2));
+    final numberRun = heading.layout.runs.firstWhere(
+      (run) => run.start == 0 && run.style.fontSize < heading.style!.fontSize,
+    );
+    expect(numberRun.style.fontSize, closeTo(heading.style!.fontSize - 2, .01));
     final body = page.slices[1].block;
     expect(
       heading.style!.fontSize,
@@ -63,13 +183,13 @@ void main() {
       builder.buildChapterDocument(
         const OnlineEpubChapter(title: '第1章 穿越？（魔法，异能等）', html: '正文'),
       ),
-      contains('第1章<br/>穿越？（魔法，异能等）'),
+      contains('第1章</span><br/>穿越？（魔法，异能等）'),
     );
     expect(
       builder.buildChapterDocument(
         const OnlineEpubChapter(title: '番外：尾声', html: '正文'),
       ),
-      contains('番外<br/>尾声'),
+      contains('番外</span><br/>尾声'),
     );
     expect(
       builder.buildChapterDocument(
@@ -93,6 +213,23 @@ void main() {
       '第二段',
       '第1章 测试',
     ]);
+  });
+
+  test('卷首图后汉字编号与段评不阻断标题去重，正文引用保留', () async {
+    final source = await _openChapter(
+      const OnlineEpubChapter(
+        title: '第1章 空屋',
+        volume: '第一卷',
+        html:
+            '<img src="../images/volume.png"/>\n'
+            '第一章\u200B空屋<a href="reader-review:test" data-reader-action="true">〔31〕</a>\n'
+            '正文不能删除。\n第一章空屋',
+      ),
+    );
+    final chapter = await source.loadAnchorChapter(0);
+    expect(chapter.text, isNot(contains('〔31〕')));
+    expect(chapter.text, contains('正文不能删除。'));
+    expect('空屋'.allMatches(chapter.text), hasLength(2));
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();

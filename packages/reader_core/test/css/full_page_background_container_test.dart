@@ -126,13 +126,37 @@ Color _pixel(ByteData pixels, int x, int y) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('混合章节显式整页背景独占一页并出血，后续文字保留普通边距', () async {
+    final background = await _background();
+    addTearDown(background.dispose);
+    final pages = await _pages(
+      background,
+      extraCss:
+          '.surface {background-size:contain;duokan-bleed:all;'
+          'page-break-before:always;page-break-after:always;}',
+      body: '<div class="surface"></div><p>BODY</p>',
+    );
+    final artwork = pages.first.slices.single.block;
+    expect(artwork.bleedLeft && artwork.bleedRight, isTrue);
+    expect(artwork.bleedTop && artwork.bleedBottom, isTrue);
+    final body = pages.last.slices.last.block;
+    expect(body.layout.text, 'BODY');
+    expect(
+      body.bleedLeft || body.bleedRight || body.bleedTop || body.bleedBottom,
+      isFalse,
+    );
+    final pixels = await _paint(pages.first, background);
+    expect(_pixel(pixels, 192, 8), _bands.first);
+    expect(_pixel(pixels, 192, 840), _bands.last);
+  });
+
   test('独立整页背景容器铺满四边，保留作者文字、CFI 与命中位置', () async {
     final background = await _background();
     addTearDown(background.dispose);
     final page = (await _pages(background)).single;
     final block = page.slices.single.block;
     expect(block.layout.text, 'TEXT');
-    expect(block.startCfi, 'epubcfi(/6/2!/4/2/2/1)');
+    expect(block.startCfi, 'epubcfi(/6/2!/4/2/2/1:0)');
     final cell = block.table!.cells.single;
     expect(cell.layout.text, 'TEXT');
     expect(cell.startCfi, block.startCfi);

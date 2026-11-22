@@ -26,6 +26,32 @@ import '../support/reader_pump.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('在线阅读目录复用分卷树且不改变章节索引', () {
+    final service = BookSourceService();
+    addTearDown(service.dispose);
+    final base = _book(service, [1, 2, 3]);
+    final book = OnlineReadingBook(
+      source: base.source,
+      book: base.book,
+      service: service,
+      chapters: [
+        for (final (index, chapter) in base.chapters.indexed)
+          OnlineChapter(
+            index: index,
+            title: chapter.title,
+            url: chapter.url,
+            volume: index < 2 ? '第一卷' : '第二卷',
+          ),
+      ],
+    );
+    final source = book.open();
+    addTearDown(source.close);
+    expect(source.chapterCount, 3);
+    expect(source.toc.map((entry) => entry.title), ['第一卷', '第二卷']);
+    expect(source.toc.first.children.map((entry) => entry.spineIndex), [0, 1]);
+    expect(source.toc.last.children.single.spineIndex, 2);
+  });
+
   testWidgets('详情页目录可直达在线阅读，关闭后保留位置和离线下载入口', (tester) async {
     final directory = Directory.systemTemp.createTempSync('online-detail-');
     addTearDown(() => directory.delete(recursive: true));
@@ -99,6 +125,8 @@ void main() {
     expect(find.text(book.source.name), findsNothing);
     expect(find.text('测试作者'), findsOneWidget);
     expect(requested, ['/book', '/toc']);
+    await tester.tap(find.text('目录'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('2. 第2章'));
     await pumpReaderUntil(tester, find.byKey(const ValueKey('reader-content')));
     expect(tester.widget<ReaderPage>(find.byType(ReaderPage)).onSearch, isNull);
