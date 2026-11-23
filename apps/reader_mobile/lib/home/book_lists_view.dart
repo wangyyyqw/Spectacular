@@ -189,7 +189,7 @@ class _BookListCard extends StatelessWidget {
         key: ValueKey<String>('booklist-card-${bookList.id}'),
         onTap: onTap,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 168),
+          constraints: const BoxConstraints(minHeight: 148),
           child: Stack(
             children: [
               Padding(
