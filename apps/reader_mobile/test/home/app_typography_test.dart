@@ -113,7 +113,11 @@ void main() {
               matching: find.text(book.title),
             )
             .last;
-        expect(_style(tester, reviewTitle).fontSize, primary.fontSize);
+        // 票根书名是视觉主标题，字号大于列表主文字但沿用同一字体。
+        expect(
+          _style(tester, reviewTitle).fontSize,
+          greaterThan(primary.fontSize!),
+        );
         expect(_style(tester, reviewTitle).fontFamily, primary.fontFamily);
         await _select(tester, '我的');
         expect(_style(tester, find.text('界面主题')).fontSize, primary.fontSize);

@@ -78,7 +78,7 @@ void main() {
 
       // 书名同时出现在主标题与无封面时的占位封面上。
       expect(find.text('长夜与灯火'), findsWidgets);
-      expect(find.text('林川'), findsOneWidget);
+      expect(find.textContaining('林川'), findsOneWidget);
       expect(find.text('标记读完'), findsOneWidget);
       expect(find.text('2026.06.10'), findsOneWidget);
       expect(find.text('书评更新'), findsNothing);
@@ -91,17 +91,15 @@ void main() {
         findsOneWidget,
       );
 
-      // 封面左边缘、上边缘与下边缘贴齐卡片纸边，宽高保持 3:4。
+      // 封面内缩 6dp、垂直居中，宽高保持 3:4。
       final face = tester.getRect(
         find.byKey(const ValueKey<String>('review-ticket-face')),
       );
       final cover = tester.getRect(
         find.byKey(const ValueKey<String>('review-ticket-cover')),
       );
-      expect(cover.left, closeTo(face.left, .01));
-      expect(cover.top, closeTo(face.top, .01));
-      expect(cover.bottom, closeTo(face.bottom, .01));
-      expect(cover.height, closeTo(face.height, .01));
+      expect(cover.left, closeTo(face.left + 6, .01));
+      expect(cover.center.dy, closeTo(face.center.dy, .01));
       expect(cover.width / cover.height, closeTo(3 / 4, .01));
       expect(cover.right, lessThan(face.right));
       expect(tester.takeException(), isNull);
@@ -120,7 +118,8 @@ void main() {
     expect(find.text('写书评'), findsOneWidget);
     expect(find.text('最近阅读'), findsOneWidget);
     expect(find.text('2026.06.09'), findsOneWidget);
-    expect(find.text('暂无时长记录'), findsOneWidget);
+    // 没有阅读时长时保留空位，不显示占位文案。
+    expect(find.textContaining('暂无时长记录'), findsNothing);
     expect(_starCount(tester), 0);
   });
 
