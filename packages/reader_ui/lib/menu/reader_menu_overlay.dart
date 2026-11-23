@@ -53,7 +53,6 @@ class ReaderMenuOverlay extends StatelessWidget {
     this.drawerEntry,
     this.inkMode = false,
     this.safeTop = 0,
-    this.safeBottom = 0,
     this.onTts,
     this.onEdit,
     this.onAddBookmark,
@@ -117,9 +116,6 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 顶部安全区，随状态栏显隐更新，不改变正文的缓存边距。
   final double safeTop;
 
-  /// 底部安全区。
-  final double safeBottom;
-
   /// 听书（为 null 时不显示入口图标）。
   final VoidCallback? onTts;
 
@@ -180,7 +176,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                     _EntriesRow(
                       fg: fg,
                       onEntry: onEntry,
-                      safeBottom: safeBottom,
                     ),
                   ],
                 ),
@@ -330,7 +325,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                     theme: drawer.theme,
                     onClose: drawer.onClose,
                     inkMode: drawer.inkMode,
-                    safeBottom: drawer.safeBottom,
                     entry: drawer.entry,
                     onEntry: drawer.onEntry,
                     animation: animation,
@@ -345,7 +339,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                         theme: theme,
                         onClose: onCloseDrawer,
                         inkMode: inkMode,
-                        safeBottom: safeBottom,
                         entry: drawerEntry,
                         onEntry: onEntry,
                         child: drawerChild!,
@@ -634,18 +627,18 @@ class _EntriesRow extends StatelessWidget {
     required this.fg,
     required this.onEntry,
     this.selected,
-    this.safeBottom = 0,
     this.keyPrefix = 'menu-entry',
   });
 
   final Color fg;
   final ValueChanged<ReaderMenuEntry> onEntry;
   final ReaderMenuEntry? selected;
-  final double safeBottom;
   final String keyPrefix;
 
-  static const double itemHeight = 48;
-  static const padding = EdgeInsets.fromLTRB(0, 6, 0, 22);
+  // 与 main 底栏的点击区对齐：条目高 56，左右 14，底部留出 22+6。
+  // 不叠加系统栏安全区，否则开关状态栏和导航栏时整条底栏会上下跳。
+  static const double itemHeight = 56;
+  static const padding = EdgeInsets.fromLTRB(14, 6, 14, 28);
 
   static const Map<ReaderMenuEntry, ({AppGlyph icon, String label})> items =
       <ReaderMenuEntry, ({AppGlyph icon, String label})>{
@@ -656,10 +649,8 @@ class _EntriesRow extends StatelessWidget {
       };
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    minimum: EdgeInsets.only(bottom: safeBottom),
-    child: Padding(
+  Widget build(BuildContext context) {
+    return Padding(
       padding: padding,
       child: Row(
         children: [
@@ -677,8 +668,8 @@ class _EntriesRow extends StatelessWidget {
             ),
         ],
       ),
-    ),
-  );
+    );
+  }
 
   Widget _buildItem(
     ReaderMenuEntry entry,
@@ -726,7 +717,6 @@ class _DrawerLayer extends StatefulWidget {
     required this.inkMode,
     required this.entry,
     required this.onEntry,
-    required this.safeBottom,
     this.animation = const AlwaysStoppedAnimation(1),
   });
 
@@ -737,7 +727,6 @@ class _DrawerLayer extends StatefulWidget {
   final bool inkMode;
   final ReaderMenuEntry? entry;
   final ValueChanged<ReaderMenuEntry> onEntry;
-  final double safeBottom;
   final Animation<double> animation;
 
   @override
@@ -807,12 +796,8 @@ class _DrawerLayerState extends State<_DrawerLayer>
       // 抽屉固定在屏幕底部，输入法覆盖底栏而不抬升整块面板。
       const bottom = 0.0;
       _height = (constraints.maxHeight - media.padding.top) * 0.75;
-      final bottomInset = media.padding.bottom.clamp(
-        widget.safeBottom,
-        double.infinity,
-      );
       final navigationHeight =
-          _EntriesRow.itemHeight + _EntriesRow.padding.vertical + bottomInset;
+          _EntriesRow.itemHeight + _EntriesRow.padding.vertical;
       final contentHeight = _height - navigationHeight;
       return AnimatedBuilder(
         animation: Listenable.merge([widget.animation, _drag]),
@@ -952,7 +937,6 @@ class _DrawerLayerState extends State<_DrawerLayer>
         child: _EntriesRow(
           fg: scheme.onSurface,
           selected: widget.entry,
-          safeBottom: widget.safeBottom,
           keyPrefix: 'drawer-entry',
           onEntry: _switchEntry,
         ),

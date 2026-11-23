@@ -63,6 +63,50 @@ Finder _button(String direction) =>
     find.byKey(ValueKey('menu-$direction-chapter'));
 
 void main() {
+  testWidgets('状态栏和导航栏显隐不改变阅读底栏位置', (tester) async {
+    final padding = ValueNotifier<EdgeInsets>(EdgeInsets.zero);
+    addTearDown(padding.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ValueListenableBuilder<EdgeInsets>(
+          valueListenable: padding,
+          builder: (context, value, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              padding: value,
+              viewPadding: const EdgeInsets.only(bottom: 34),
+            ),
+            child: child!,
+          ),
+          child: ReaderPage(
+            source: _Source(3),
+            store: MemoryReaderProgressStore(),
+            bookId: 'system-bars',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    final surface = find.byKey(
+      const ValueKey<String>('reader-menu-bottom-surface'),
+    );
+    final before = tester.getRect(surface);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('menu-entry-settings'))).bottom,
+      before.bottom - 28,
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('menu-entry-settings'))).height,
+      56,
+    );
+
+    padding.value = const EdgeInsets.only(bottom: 34);
+    await tester.pumpAndSettle();
+
+    expect(tester.getRect(surface), before);
+  });
+
   testWidgets('目录面板左右滑动切换可用标签并支持点击返回', (tester) async {
     final session = await _open(tester, 3, searchEnabled: true);
     final progress = session.progress;

@@ -402,7 +402,7 @@ void main() {
         expect(button.hitTestable(), findsOneWidget);
         expect(
           tester.getRect(button).bottom,
-          lessThanOrEqualTo(surface.bottom - 24 - 16),
+          lessThanOrEqualTo(surface.bottom - 28),
         );
       }
       await tester.timedDrag(

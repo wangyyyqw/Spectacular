@@ -258,7 +258,6 @@ void main() {
     await tester.pumpAndSettle();
     final menu = tester.widget<ReaderMenuOverlay>(_menu);
     expect(menu.safeTop, 30);
-    expect(menu.safeBottom, 0);
     expect(tester.getRect(find.byType(ReaderView)), before);
     expect(
       tester.getTopLeft(find.byKey(const ValueKey('menu-back'))).dy,
