@@ -11,6 +11,7 @@ import 'package:reader_ui/theme/reader_sheet_form.dart';
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
+import 'book_lists_view.dart';
 import 'book_notes_list.dart';
 import 'desktop_layout.dart';
 import 'review_ticket.dart';
@@ -81,13 +82,17 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   bool get _notes => _section == 0;
 
+  bool get _reviewTab => _section == 1;
+
+  bool get _bookListsTab => _section == 2;
+
   BookReviewStore? get _store =>
       widget.reviewStore ?? widget.library.reviewStore();
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this)..addListener(_changeSection);
+    _tabs = TabController(length: 3, vsync: this)..addListener(_changeSection);
     widget.library.addListener(_onLibraryChanged);
     if (widget.active) _reload();
   }
@@ -137,7 +142,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       _searchController.clear();
     });
     if (usesDesktopLayout(context)) _keyboardFocus.requestFocus();
-    if (widget.active) _reload();
+    if (widget.active && !_bookListsTab) _reload();
   }
 
   void _onLibraryChanged() {
@@ -177,6 +182,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   Future<void> _reload() async {
+    if (_bookListsTab) return;
     final token = ++_reloadToken;
     final library = widget.library;
     final notes = _notes;
@@ -321,7 +327,7 @@ class _ReviewsPageState extends State<ReviewsPage>
     final desktop = usesDesktopLayout(context);
     return CallbackShortcuts(
       bindings: {
-        if (desktop && widget.active && !_notes)
+        if (desktop && widget.active && _reviewTab)
           SingleActivator(
             LogicalKeyboardKey.keyF,
             meta: Theme.of(context).platform == TargetPlatform.macOS,
@@ -337,7 +343,7 @@ class _ReviewsPageState extends State<ReviewsPage>
             appBar: AppBar(
               centerTitle: false,
               scrolledUnderElevation: 0,
-              title: _searching ? _searchField() : Text(_notes ? '笔记' : '书评'),
+              title: _searching ? _searchField() : null,
               actions: _actions(),
             ),
             body: Center(
@@ -367,7 +373,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           SizedBox(
-            width: desktop ? math.min(260, bounds.maxWidth) : bounds.maxWidth,
+            width: desktop ? math.min(320, bounds.maxWidth) : bounds.maxWidth,
             child: TabBar(
               controller: _tabs,
               isScrollable: true,
@@ -383,10 +389,11 @@ class _ReviewsPageState extends State<ReviewsPage>
               tabs: const [
                 Tab(key: ValueKey('notes-tab'), text: '笔记'),
                 Tab(key: ValueKey('reviews-tab'), text: '书评'),
+                Tab(key: ValueKey('booklists-tab'), text: '书单'),
               ],
             ),
           ),
-          if (desktop && !_notes)
+          if (desktop && _reviewTab)
             SizedBox(
               width: math.min(360, bounds.maxWidth),
               child: _searchField(),
@@ -450,38 +457,38 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   List<Widget> _actions() {
     final books = _books;
-    return _searching
-        ? [
-            IconButton(
-              tooltip: '关闭搜索',
-              onPressed: _toggleSearch,
-              icon: const AppIcon(AppGlyph.close),
-            ),
-          ]
-        : [
-            if (!_notes && books != null && books.isNotEmpty)
-              IconButton(
-                key: const ValueKey<String>('reviews-sort'),
-                tooltip: '书评排序',
-                onPressed: _chooseSort,
-                icon: const AppIcon(AppGlyph.sort),
-              ),
-            if (!_notes && books != null && books.isNotEmpty)
-              IconButton(
-                tooltip: '搜索书评',
-                onPressed: _toggleSearch,
-                icon: const AppIcon(AppGlyph.search),
-              ),
-            IconButton(
-              key: ValueKey(_notes ? 'notes-refresh' : 'reviews-refresh'),
-              tooltip: _notes ? '刷新笔记' : '刷新书评',
-              onPressed: _reload,
-              icon: const AppIcon(AppGlyph.refresh),
-            ),
-          ];
+    if (_searching) {
+      return [
+        IconButton(
+          tooltip: '关闭搜索',
+          onPressed: _toggleSearch,
+          icon: const AppIcon(AppGlyph.close),
+        ),
+      ];
+    }
+    if (!_reviewTab || books == null || books.isEmpty) return const <Widget>[];
+    return [
+      IconButton(
+        key: const ValueKey<String>('reviews-sort'),
+        tooltip: '书评排序',
+        onPressed: _chooseSort,
+        icon: const AppIcon(AppGlyph.sort),
+      ),
+      IconButton(
+        tooltip: '搜索书评',
+        onPressed: _toggleSearch,
+        icon: const AppIcon(AppGlyph.search),
+      ),
+    ];
   }
 
   Widget _sectionBody() {
+    if (_bookListsTab) {
+      return BookListsView(
+        library: widget.library,
+        active: widget.active,
+      );
+    }
     final books = _books;
     if (books == null) {
       return _error == null

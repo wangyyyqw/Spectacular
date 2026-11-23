@@ -95,7 +95,7 @@ void main() {
 
         await _select(tester, '统计');
         expect(_style(tester, find.text('图书时长')).fontSize, primary.fontSize);
-        await _select(tester, '书评');
+        await _select(tester, '笔记');
         final notesTitle = find
             .descendant(
               of: find.byType(BookNotesList),

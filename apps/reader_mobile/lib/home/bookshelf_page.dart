@@ -24,6 +24,7 @@ import '../txt/txt_encoding_dialog.dart';
 import 'desktop_layout.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
+import 'book_lists_view.dart';
 import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
 import 'reading_insights.dart';
@@ -821,6 +822,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       await _pickBookUpdate(entry);
     } else if (action == 'create-group') {
       await _groupBook(entry);
+    } else if (action == 'booklists') {
+      await showBookListMembership(
+        context,
+        library: widget.library,
+        bookId: entry.id,
+      );
     } else if (action == 'multi-select') {
       _startSelection(entry);
     } else if (action == 'export') {

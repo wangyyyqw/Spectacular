@@ -81,7 +81,7 @@ Future<void> _selectMode(
 void main() {
   testWidgets('应用四页保留可见的状态栏和导航栏图标样式', (tester) async {
     await _showApp(tester);
-    for (final label in ['书架', '统计', '书评', '我的']) {
+    for (final label in ['书架', '统计', '笔记', '我的']) {
       await tester.tap(
         find.descendant(
           of: find.byType(BottomNavigationBar),

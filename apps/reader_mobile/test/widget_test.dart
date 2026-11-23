@@ -47,7 +47,7 @@ void main() {
     );
     await _settle(tester);
 
-    for (final label in <String>['书架', '统计', '书评', '我的']) {
+    for (final label in <String>['书架', '统计', '笔记', '我的']) {
       expect(find.text(label), findsWidgets);
     }
     expect(find.text('书架还是空的'), findsOneWidget);
@@ -57,10 +57,16 @@ void main() {
     await _settle(tester);
     expect(find.text('图书时长'), findsOneWidget);
 
-    await tester.tap(find.text('书评'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('笔记'),
+      ),
+    );
     await _settle(tester);
     expect(find.byKey(const ValueKey('notes-tab')), findsOneWidget);
-    expect(find.byTooltip('刷新笔记'), findsOneWidget);
+    expect(find.byKey(const ValueKey('booklists-tab')), findsOneWidget);
+    expect(find.byTooltip('刷新笔记'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await _settle(tester);
     expect(find.text('标记读完后，可以在这里评分和写书评'), findsOneWidget);
@@ -139,7 +145,7 @@ void main() {
     expect(find.text('书架还是空的'), findsNothing);
     expect(tester.widget<BookshelfPage>(find.byType(BookshelfPage)).allowImport,
         isFalse);
-    for (final label in ['统计', '书评', '我的', '书架']) {
+    for (final label in ['统计', '笔记', '我的', '书架']) {
       await tester.tap(find.descendant(
         of: find.byType(BottomNavigationBar),
         matching: find.text(label),

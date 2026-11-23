@@ -24,6 +24,7 @@ import 'package:reader_ui/decorations/decoration_image_store.dart';
 
 import '../reader/reader_decoration_image_store.dart';
 import '../storage/book_review_store.dart';
+import 'book_list_store.dart';
 import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
 import '../storage/drift_decoration_store.dart';
@@ -850,6 +851,9 @@ class LibraryStore {
     final db = _db;
     return db == null ? null : DriftBookReviewStore(db);
   }
+
+  /// 书单存储；序列化到 settings 表，内存模式同样可用。
+  BookListStore bookListStore() => BookListStore(this);
 
   Future<Set<String>> finishedBookIds() async {
     final db = _db;

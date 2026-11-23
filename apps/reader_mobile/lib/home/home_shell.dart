@@ -217,7 +217,7 @@ class _HomeShellState extends State<HomeShell> {
       for (final (label, glyph) in [
         ('书架', AppGlyph.bookshelf),
         ('统计', AppGlyph.stats),
-        ('书评', AppGlyph.review),
+        ('笔记', AppGlyph.review),
         if (usesDesktopLayout(context)) ('编辑器', AppGlyph.code),
         ('我的', AppGlyph.profile),
       ])

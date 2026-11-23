@@ -118,7 +118,7 @@ void main() {
         ? find.byType(NavigationRail)
         : find.byType(BottomNavigationBar);
     await _select(tester, navigation, '统计');
-    await _select(tester, navigation, '书评');
+    await _select(tester, navigation, '笔记');
     await tester.pumpAndSettle();
 
     final rebuilt = <Type>[];
@@ -131,7 +131,7 @@ void main() {
     };
     addTearDown(() => debugOnRebuildDirtyWidget = previous);
     await _select(tester, navigation, '我的');
-    await _select(tester, navigation, '书评');
+    await _select(tester, navigation, '笔记');
     await tester.pumpAndSettle();
     expect(rebuilt, isEmpty);
     expect(tester.takeException(), isNull);
@@ -281,7 +281,7 @@ void main() {
     final pages = <(String, Type)>[
       ('书架', BookshelfPage),
       ('统计', StatsPage),
-      ('书评', ReviewsPage),
+      ('笔记', ReviewsPage),
       if (desktop) ('编辑器', EpubFileEditorPage),
       ('我的', ProfilePage),
     ];
@@ -315,7 +315,7 @@ void main() {
   testWidgets('桌面往返书评页后搜索快捷键仍可聚焦', (tester) async {
     await _showHome(tester, LibraryStore.memory());
     final rail = find.byType(NavigationRail);
-    await _select(tester, rail, '书评');
+    await _select(tester, rail, '笔记');
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await tester.pump();
     final search = find.byKey(const ValueKey('reviews-search-field'));
@@ -330,7 +330,7 @@ void main() {
       await tester.pump();
       expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
       await _select(tester, rail, '统计');
-      await _select(tester, rail, '书评');
+      await _select(tester, rail, '笔记');
     }
     expect(tester.takeException(), isNull);
   }, variant: _desktopPlatforms);
@@ -353,7 +353,7 @@ void main() {
 
     await _select(tester, rail, '统计');
     expect(find.text('图书时长'), findsOneWidget);
-    await _select(tester, rail, '书评');
+    await _select(tester, rail, '笔记');
     expect(find.byKey(const ValueKey('notes-tab')), findsOneWidget);
     await _select(tester, rail, '我的');
     expect(find.text('书架排序'), findsOneWidget);
@@ -363,7 +363,7 @@ void main() {
     expect(rail, findsOneWidget);
     expect(bottom, findsNothing);
     expect(tester.widget<NavigationRail>(rail).selectedIndex, 4);
-    await _select(tester, rail, '书评');
+    await _select(tester, rail, '笔记');
     tester.view.physicalSize = _desktop;
     await tester.pump();
     expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);

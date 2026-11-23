@@ -80,7 +80,7 @@ void main() {
     expect(find.byType(BottomNavigationBar), findsOneWidget);
     expect(find.text('山海之间'), findsWidgets);
     await _savePreview(tester, '书架');
-    for (final label in ['统计', '书评', '我的']) {
+    for (final label in ['统计', '笔记', '我的']) {
       await tester.tap(
         find.descendant(
           of: find.byType(BottomNavigationBar),
