@@ -178,8 +178,11 @@ class _BookListCard extends StatelessWidget {
     final covers = books.take(3).toList(growable: false);
     final description = bookList.description.trim();
     return Material(
-      color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(8),
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         key: ValueKey<String>('booklist-card-${bookList.id}'),

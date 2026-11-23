@@ -109,6 +109,32 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('书单卡片沿用阅读日历的底色与细边框', (tester) async {
+    final library = LibraryStore.memory();
+    final bookList = await library.bookListStore().create(name: '样式书单');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ReviewsPage(library: library),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('booklists-tab')));
+    await _settle(tester);
+
+    final card = find.byKey(ValueKey('booklist-card-${bookList.id}'));
+    final material = tester.widget<Material>(
+      find.ancestor(of: card, matching: find.byType(Material)).first,
+    );
+    final scheme = Theme.of(tester.element(card)).colorScheme;
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(material.color, scheme.surface);
+    expect(shape.side.color, scheme.outlineVariant);
+    expect(shape.side.width, 1);
+    expect(shape.borderRadius, BorderRadius.circular(20));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('长按书架卡片可把书加入书单', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry entry;
