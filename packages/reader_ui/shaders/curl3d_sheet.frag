@@ -92,7 +92,7 @@ vec4 shadowColor(vec2 source) {
       covered = false;
     }
   }
-  // alpha 已在几何中乘 0.5；在片元写回时截断并按原 RGBA8 源色阶混合。
+  // alpha 已在几何中乘 0.5；在片元写回时截断并按 RGBA8 源色阶混合。
   float alpha = clamp(dot(vec3(source, 1.0), uShadowAlphaPlane), 0.0, 0.5);
   float stored = floor(halfTrunc(alpha) * 255.0 + 0.5) / 255.0;
   return vec4(0.0, 0.0, 0.0, covered ? stored : 0.0);
@@ -124,7 +124,7 @@ vec4 paperColor(vec2 source) {
     vec4 background = sample565(uHasBackground > 0.5
         ? texture(uBackground, nearestUV(uv, uBackgroundSize)) : uPaperColor);
     vec4 mixed = front * 0.05 + background * 0.95;
-    // 原 Adreno GLSL 在混色写回时向零截断，最后光照乘法按最近偶数取整。
+    // 混色写回时向零截断，最后光照乘法按最近偶数取整，以匹配 GLES 半精度路径。
     vec3 stored = vec3(halfTrunc(mixed.r), halfTrunc(mixed.g), halfTrunc(mixed.b));
     color = halfRound(vec4(stored * (0.5 + abs(normal.z) * 0.5), mixed.a));
   }

@@ -966,11 +966,7 @@ class ReaderSettingsStore {
     if (raw == null || raw.isEmpty) {
       return null;
     }
-    const supported = <String>{
-      ReaderSettingsDefaults.fontSong,
-      ReaderSettingsDefaults.fontSans,
-    };
-    return supported.contains(raw) ||
+    return raw == ReaderSettingsDefaults.fontSong ||
             RegExp(r'^user_[0-9a-f]{64}$').hasMatch(raw)
         ? raw
         : null;

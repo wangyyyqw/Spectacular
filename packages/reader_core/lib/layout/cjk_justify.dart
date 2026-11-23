@@ -8,10 +8,7 @@ import '../text/script.dart';
 /// 返回「间隙左侧字符」的代码单元偏移：绘制时给这些字符加额外字距，间距只
 /// 落在字符之间，末字之后不产生间隙。
 ///
-/// 与阅微 `AnnotatedStringExtKt.cjkJustifyGapIndices` 的差异：阅微的 `isCjk`
-/// 把 `0 <= c < 42720` 整段算作 CJK（ASCII 也被算进去），导致拉丁词内部也会
-/// 被加字距；这里改用 [isCjkCodePoint]（只含真正的 CJK 区块），再按
-/// 「拉丁字母/数字内部不拆」扣除。
+/// 使用 [isCjkCodePoint] 识别 CJK 区块，并排除拉丁字母与数字内部的间隙。
 ///
 /// 规则（[mode] 为 `auto` 时，即现状）：
 /// 1. 取相邻字符 `(i, i+1)` 之间；

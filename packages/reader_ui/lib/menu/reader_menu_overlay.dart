@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_ink.dart';
 import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
 import '../theme/reader_frosted_surface.dart';
@@ -52,7 +53,7 @@ class ReaderMenuOverlay extends StatelessWidget {
     required this.onCloseDrawer,
     this.drawerEntry,
     this.inkMode = false,
-    this.safeTop = 0,
+    this.safeBottom = 0,
     this.onTts,
     this.onEdit,
     this.onAddBookmark,
@@ -113,8 +114,8 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 墨水屏模式：主题固定为纯黑白，禁用日夜切换。
   final bool inkMode;
 
-  /// 顶部安全区，随状态栏显隐更新，不改变正文的缓存边距。
-  final double safeTop;
+  /// 底部安全区。
+  final double safeBottom;
 
   /// 听书（为 null 时不显示入口图标）。
   final VoidCallback? onTts;
@@ -134,7 +135,6 @@ class ReaderMenuOverlay extends StatelessWidget {
     final fg = panelTheme.text;
     final line = theme?.line ?? fg.withValues(alpha: 0.12);
     final fill = theme?.fill ?? fg.withValues(alpha: 0.08);
-    final topInset = safeTop;
     final reduceMotion = inkMode || MediaQuery.disableAnimationsOf(context);
     final duration = reduceMotion ? Duration.zero : (open ? _enter : _exit);
 
@@ -161,6 +161,82 @@ class ReaderMenuOverlay extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
+                    SizedBox(
+                      height: 48,
+                      child: Row(
+                        children: <Widget>[
+                          _IconButton(
+                            icon: AppGlyph.arrowBack,
+                            iconSize: 22,
+                            color: fg,
+                            onTap: onBack,
+                            tooltip: '返回书架',
+                            buttonKey: const ValueKey<String>('menu-back'),
+                          ),
+                          const SizedBox(width: 2),
+                          Flexible(
+                            child: Text(
+                              bookTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(color: fg),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (onShowShortcuts != null)
+                            _IconButton(
+                              icon: AppGlyph.info,
+                              color: fg,
+                              onTap: onShowShortcuts,
+                              tooltip: '桌面操作与快捷键（F1）',
+                            ),
+                          _IconButton(
+                            icon: nightMode
+                                ? AppGlyph.lightMode
+                                : AppGlyph.darkMode,
+                            iconSize: 19,
+                            color: fg,
+                            onTap: inkMode ? null : onToggleDayNight,
+                            tooltip: inkMode
+                                ? '墨水屏模式固定纯黑白'
+                                : nightMode
+                                ? '日间'
+                                : '夜间',
+                            buttonKey: const ValueKey<String>('menu-daynight'),
+                          ),
+                          if (onAddBookmark != null)
+                            _IconButton(
+                              icon: bookmarked
+                                  ? AppGlyph.bookmark
+                                  : AppGlyph.bookmarkAdd,
+                              color: fg,
+                              onTap: onAddBookmark,
+                              tooltip: bookmarked ? '当前页已有书签' : '添加书签',
+                              buttonKey: const ValueKey('menu-add-bookmark'),
+                            ),
+                          if (onEdit != null)
+                            _IconButton(
+                              icon: AppGlyph.editNote,
+                              iconSize: 22,
+                              color: fg,
+                              onTap: onEdit,
+                              tooltip: '编辑书籍',
+                              buttonKey: const ValueKey<String>('menu-edit'),
+                            ),
+                          if (onTts != null)
+                            _IconButton(
+                              icon: AppGlyph.headphones,
+                              iconSize: 19,
+                              color: fg,
+                              onTap: onTts!,
+                              tooltip: '听书',
+                              buttonKey: const ValueKey<String>('menu-tts'),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Container(height: .5, color: line),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
                       child: _ProgressRow(
@@ -193,115 +269,6 @@ class ReaderMenuOverlay extends StatelessWidget {
         type: MaterialType.transparency,
         child: Stack(
           children: <Widget>[
-            // 顶部栏
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: _SlidingMenuBar(
-                open: open,
-                closedOffset: const Offset(0, -1.01),
-                duration: duration,
-                child: IgnorePointer(
-                  ignoring: !open,
-                  child: ExcludeFocus(
-                    excluding: drawerChild != null,
-                    child: ReaderFrostedSurface(
-                      key: const ValueKey('reader-menu-top-surface'),
-                      radius: 0,
-                      inkMode: inkMode,
-                      child: Container(
-                        padding: EdgeInsets.only(top: topInset),
-                        decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: line)),
-                        ),
-                        child: SizedBox(
-                          height: 56,
-                          child: Row(
-                            children: <Widget>[
-                              _IconButton(
-                                icon: AppGlyph.arrowBack,
-                                iconSize: 22,
-                                color: fg,
-                                onTap: onBack,
-                                tooltip: '返回书架',
-                                buttonKey: const ValueKey<String>('menu-back'),
-                              ),
-                              const SizedBox(width: 2),
-                              Flexible(
-                                child: Text(
-                                  bookTitle,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.titleSmall
-                                      ?.copyWith(color: fg),
-                                ),
-                              ),
-                              const Spacer(),
-                              if (onShowShortcuts != null)
-                                _IconButton(
-                                  icon: AppGlyph.info,
-                                  color: fg,
-                                  onTap: onShowShortcuts,
-                                  tooltip: '桌面操作与快捷键（F1）',
-                                ),
-                              _IconButton(
-                                icon: nightMode
-                                    ? AppGlyph.lightMode
-                                    : AppGlyph.darkMode,
-                                iconSize: 19,
-                                color: fg,
-                                onTap: inkMode ? null : onToggleDayNight,
-                                tooltip: inkMode
-                                    ? '墨水屏模式固定纯黑白'
-                                    : nightMode
-                                    ? '日间'
-                                    : '夜间',
-                                buttonKey: const ValueKey<String>(
-                                  'menu-daynight',
-                                ),
-                              ),
-                              if (onAddBookmark != null)
-                                _IconButton(
-                                  icon: bookmarked
-                                      ? AppGlyph.bookmark
-                                      : AppGlyph.bookmarkAdd,
-                                  color: fg,
-                                  onTap: onAddBookmark,
-                                  tooltip: bookmarked ? '当前页已有书签' : '添加书签',
-                                  buttonKey: const ValueKey(
-                                    'menu-add-bookmark',
-                                  ),
-                                ),
-                              if (onEdit != null)
-                                _IconButton(
-                                  icon: AppGlyph.editNote,
-                                  iconSize: 22,
-                                  color: fg,
-                                  onTap: onEdit,
-                                  tooltip: '编辑书籍',
-                                  buttonKey: const ValueKey<String>(
-                                    'menu-edit',
-                                  ),
-                                ),
-                              if (onTts != null)
-                                _IconButton(
-                                  icon: AppGlyph.headphones,
-                                  iconSize: 19,
-                                  color: fg,
-                                  onTap: onTts!,
-                                  tooltip: '听书',
-                                  buttonKey: const ValueKey<String>('menu-tts'),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
             // 抽屉
             Positioned.fill(
               key: const ValueKey('reader-drawer-host'),
@@ -404,17 +371,21 @@ class _IconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      key: buttonKey,
-      icon: AppIcon(
-        icon,
-        size: iconSize,
-        color: color.withValues(alpha: onTap == null ? 0.3 : 0.9),
+    return Theme(
+      // 顶部图标不显示点击高亮与水波。
+      data: quietInk(Theme.of(context)),
+      child: IconButton(
+        key: buttonKey,
+        icon: AppIcon(
+          icon,
+          size: iconSize,
+          color: color.withValues(alpha: onTap == null ? 0.3 : 0.9),
+        ),
+        tooltip: tooltip,
+        onPressed: onTap,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
       ),
-      tooltip: tooltip,
-      onPressed: onTap,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
     );
   }
 }
@@ -661,6 +632,12 @@ class _EntriesRow extends StatelessWidget {
                 child: InkWell(
                   key: ValueKey<String>('$keyPrefix-${entry.key.name}'),
                   borderRadius: BorderRadius.circular(4),
+                  // 底栏入口不显示点击高亮与水波。
+                  splashFactory: NoSplash.splashFactory,
+                  splashColor: Colors.transparent,
+                  highlightColor: Colors.transparent,
+                  hoverColor: Colors.transparent,
+                  focusColor: Colors.transparent,
                   onTap: () => onEntry(entry.key),
                   child: _buildItem(entry.key, entry.value),
                 ),

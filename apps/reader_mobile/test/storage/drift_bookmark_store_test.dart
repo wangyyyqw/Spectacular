@@ -46,7 +46,11 @@ void main() {
 
   test('同一位置重复添加不产生第二条', () async {
     final store = library.bookmarkStore(book.id)!;
-    await store.add(cfi: 'epubcfi(/6/6!/4/2/1:0)', spineIndex: 2, label: '第 3 章');
+    await store.add(
+      cfi: 'epubcfi(/6/6!/4/2/1:0)',
+      spineIndex: 2,
+      label: '第 3 章',
+    );
     final again = await store.add(
       cfi: 'epubcfi(/6/6!/4/2/1:0)',
       spineIndex: 2,
@@ -67,12 +71,35 @@ void main() {
     expect(await store.list(), isEmpty);
   });
 
-  test('列表按章节顺序排序', () async {
+  test('列表按目录顺序排序：章节升序，章内按正文位置', () async {
     final store = library.bookmarkStore(book.id)!;
-    await store.add(cfi: 'epubcfi(/6/10!/4/2/1:0)', spineIndex: 4, label: '第 5 章');
-    await store.add(cfi: 'epubcfi(/6/4!/4/2/1:0)', spineIndex: 1, label: '第 2 章');
+    await store.add(
+      cfi: 'epubcfi(/6/10!/4/2/1:0)',
+      spineIndex: 4,
+      label: '第 5 章',
+    );
+    await store.add(
+      cfi: 'epubcfi(/6/4!/4/2/1:10)',
+      spineIndex: 1,
+      label: '第 2 章 后段',
+    );
+    await store.add(
+      cfi: 'epubcfi(/6/4!/4/2/1:2)',
+      spineIndex: 1,
+      label: '第 2 章 前段',
+    );
+    await store.add(
+      cfi: 'epubcfi(/6/2!/4/2/1:0)',
+      spineIndex: 0,
+      label: '第 1 章',
+    );
     final list = await store.list();
-    expect(list.map((item) => item.spineIndex), <int>[1, 4]);
+    expect(list.map((item) => item.cfi), <String>[
+      'epubcfi(/6/2!/4/2/1:0)',
+      'epubcfi(/6/4!/4/2/1:2)',
+      'epubcfi(/6/4!/4/2/1:10)',
+      'epubcfi(/6/10!/4/2/1:0)',
+    ]);
   });
 
   test('内存模式没有书签能力时返回 null', () {

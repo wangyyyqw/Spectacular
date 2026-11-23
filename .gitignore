@@ -68,6 +68,7 @@
 
 # 根目录 README 作为项目介绍上传 GitHub
 !/README.md
+!/THIRD_PARTY_NOTICES.md
 
 # 必须保留的许可证、版权声明、构建文件及字符数据
 ![Ll][Ii][Cc][Ee][Nn][Ss][Ee]*

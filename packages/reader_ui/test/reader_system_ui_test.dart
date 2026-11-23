@@ -245,7 +245,7 @@ void main() {
     expect(requests.last, {'statusBar': true, 'navigationBar': false});
   });
 
-  testWidgets('菜单按实时状态栏安全区避让，正文边距不随系统栏改变', (tester) async {
+  testWidgets('菜单标题栏位于底部浮层，正文边距不随系统栏改变', (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(_app());
@@ -257,11 +257,22 @@ void main() {
     await tester.tap(find.byType(ReaderView));
     await tester.pumpAndSettle();
     final menu = tester.widget<ReaderMenuOverlay>(_menu);
-    expect(menu.safeTop, 30);
+    expect(menu.safeBottom, 0);
     expect(tester.getRect(find.byType(ReaderView)), before);
+    // 书名与返回按钮跟随进度条放在底部浮层，不再占用顶部状态栏。
     expect(
-      tester.getTopLeft(find.byKey(const ValueKey('menu-back'))).dy,
-      greaterThanOrEqualTo(30),
+      find.descendant(
+        of: find.byKey(const ValueKey('reader-menu-bottom-surface')),
+        matching: find.byKey(const ValueKey('menu-back')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('reader-menu-bottom-surface')),
+        matching: find.byKey(const ValueKey('menu-daynight')),
+      ),
+      findsOneWidget,
     );
   });
 

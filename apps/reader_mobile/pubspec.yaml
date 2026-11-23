@@ -99,6 +99,8 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/branding/app_icon.png
+    - assets/fonts/LICENSE.txt
     - assets/textures/
     - assets/ye_she/
     - assets/ye_she/items/
@@ -106,21 +108,14 @@ flutter:
     - assets/rea_micro/search/
     - integration_test/m0_page_sequence.json
 
-  # 内置正文宋体与黑体（OFL）。宋体使用阅微精简思源宋体子集，
-  # Regular/Bold 分别对应 serif_medium/serif_bold；字体别名表把
-  # 宋体/serif、黑体/sans-serif 映射到对应规范族，楷体仍走系统字族回退。
+  # 仅内置基于思源宋体的中文精简版（OFL），保留常规与粗体。
+  # 宋体/serif 映射到 builtin_song；书内黑体、楷体由系统字体回退。
   fonts:
     - family: builtin_song
       fonts:
-        - asset: assets/fonts/SourceHanSerifCN-Regular.otf
+        - asset: assets/fonts/MoyuSerif-Regular.otf
           weight: 400
-        - asset: assets/fonts/SourceHanSerifCN-Bold.otf
-          weight: 700
-    - family: builtin_hei
-      fonts:
-        - asset: assets/fonts/SourceHanSansSC-Regular.otf
-          weight: 400
-        - asset: assets/fonts/SourceHanSansSC-Bold.otf
+        - asset: assets/fonts/MoyuSerif-Bold.otf
           weight: 700
 
   # To add assets to your application, add an assets section, like this:

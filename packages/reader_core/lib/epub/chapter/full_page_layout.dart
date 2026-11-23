@@ -105,7 +105,7 @@ class FullPageChapterLayout {
         warning: warning,
       );
     }
-    // 自动单图页和阅微一样取消阅读边距；没有裁切声明时仍完整等比显示。
+    // 自动单图页取消阅读边距；没有裁切声明时仍完整等比显示。
     return (
       block: analysis.isFullBleed
           ? _block(source, (contain: true, bleed: true, aspect: null))

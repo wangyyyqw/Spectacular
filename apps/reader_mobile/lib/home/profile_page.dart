@@ -430,7 +430,13 @@ class _ProfilePageState extends State<ProfilePage> {
     final info = _packageInfo;
     return Row(
       children: [
-        const AppIcon(AppGlyph.menuBook, size: 36),
+        Image.asset(
+          'assets/branding/app_icon.png',
+          width: 36,
+          height: 36,
+          cacheWidth: (36 * MediaQuery.devicePixelRatioOf(context)).round(),
+          excludeFromSemantics: true,
+        ),
         const SizedBox(width: 16),
         Expanded(
           child: Column(

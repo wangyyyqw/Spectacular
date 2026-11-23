@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_ink.dart';
 
 import '../book_source/online_book_controller.dart';
 import '../editing/epub_file_editor_page.dart';
@@ -402,12 +403,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                 color: theme.colorScheme.surface,
                 elevation: 2,
                 shadowColor: theme.colorScheme.shadow.withValues(alpha: .12),
-                child: BottomNavigationBar(
-                  backgroundColor: theme.colorScheme.surface,
-                  elevation: 0,
-                  currentIndex: _index,
-                  onTap: _selectDestination,
-                  items: items,
+                child: Theme(
+                  // 底栏四个入口不显示点击高亮与水波。
+                  data: quietInk(theme),
+                  child: BottomNavigationBar(
+                    backgroundColor: theme.colorScheme.surface,
+                    elevation: 0,
+                    currentIndex: _index,
+                    onTap: _selectDestination,
+                    items: items,
+                  ),
                 ),
               ),
       ),

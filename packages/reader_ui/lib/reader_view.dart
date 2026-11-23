@@ -296,7 +296,7 @@ class _ReaderDominantHorizontalDragRecognizer
   }
 }
 
-/// 配置路径沿用原生起拖采样，快扫距离与设备规则沿用 Flutter。
+/// 配置路径沿用既有起拖采样，快扫距离与设备规则沿用 Flutter。
 class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   _ReaderHorizontalDragRecognizer({super.debugOwner});
 
@@ -307,7 +307,7 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   int? _acceptedPointer;
   bool _panZoom = false;
 
-  /// 原生仅在起拖前停止多指检测，由 SDK 拒绝竞争并发出取消回调。
+  /// 仅在起拖前停止多指检测，由 SDK 拒绝竞争并发出取消回调。
   bool cancelPending() {
     if (_started) return false;
     final pointer = _acceptedPointer;

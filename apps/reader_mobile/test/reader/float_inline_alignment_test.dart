@@ -133,10 +133,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     for (final family in ['align_song', 'align_caption']) {
-      await (FontLoader(family)..addFont(
-            rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-          ))
-          .load();
+      await (FontLoader(
+        family,
+      )..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))).load();
     }
   });
 

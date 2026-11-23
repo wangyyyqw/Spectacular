@@ -1818,7 +1818,7 @@ abstract final class TextLayoutEngine {
             leadingDistribution: leadingDistribution,
             transformText: false,
           );
-    // 段尾换行不产生空行（与阅微一致：content 末尾的 '\n' 先剥离）。
+    // 先剥离 content 末尾的 '\n'，避免段尾换行产生空行。
     var measuredEnd = text.length;
     while (measuredEnd > 0 && text.codeUnitAt(measuredEnd - 1) == 10) {
       measuredEnd -= 1;

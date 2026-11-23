@@ -28,7 +28,7 @@ ReaderAnnotation _annotation({
 
 void main() {
   for (final brightness in Brightness.values) {
-    testWidgets('标注搜索框与搜索页一致且排序同行：${brightness.name}', (tester) async {
+    testWidgets('标注搜索框与搜索页一致：${brightness.name}', (tester) async {
       final theme = ThemeData(brightness: brightness);
       await tester.pumpWidget(
         MaterialApp(
@@ -65,12 +65,10 @@ void main() {
       final surface = tester.widget<Material>(
         find.byKey(const ValueKey('annotation-search-surface')),
       );
-      final sort = find.byKey(const ValueKey('annotation-sort'));
       expect(find.text('标注'), findsNothing);
-      expect(tester.getCenter(sort).dy, closeTo(tester.getCenter(input).dy, 1));
       expect(
-        tester.getTopLeft(sort).dx,
-        greaterThanOrEqualTo(tester.getTopRight(input).dx),
+        find.byKey(const ValueKey<String>('annotation-sort')),
+        findsNothing,
       );
       expect(field.style, reference.style);
       expect(field.decoration?.border, reference.decoration?.border);
@@ -227,7 +225,7 @@ void main() {
     expect(find.text('春风又绿江南岸'), findsOneWidget);
   });
 
-  testWidgets('标注面板：可切换最近更新与阅读顺序', (tester) async {
+  testWidgets('标注面板：固定按书籍内容顺序排列', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -255,22 +253,13 @@ void main() {
       ),
     );
 
-    expect(
-      tester.getTopLeft(find.text('书中靠后的内容')).dy,
-      lessThan(tester.getTopLeft(find.text('书中靠前的内容')).dy),
-    );
-
-    await tester.tap(find.byKey(const ValueKey<String>('annotation-sort')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('annotation-sort-position')),
-    );
-    await tester.pumpAndSettle();
-
+    // 即使靠后的内容更晚更新，也按正文位置排列；排序按钮已移除。
     expect(
       tester.getTopLeft(find.text('书中靠前的内容')).dy,
       lessThan(tester.getTopLeft(find.text('书中靠后的内容')).dy),
     );
+    expect(find.byKey(const ValueKey<String>('annotation-sort')), findsNothing);
+    expect(find.byTooltip('标注排序'), findsNothing);
   });
 
   testWidgets('标注面板：展示章节并支持按章节搜索', (tester) async {

@@ -19,7 +19,7 @@ class ReaderTapZones {
   /// 创建配置。
   const ReaderTapZones(this.actions);
 
-  /// 默认布局与多看一致：左右翻页，中间打开菜单。
+  /// 默认布局：左右翻页，中间打开菜单。
   static const ReaderTapZones defaults = ReaderTapZones(<ReaderTapAction>[
     ReaderTapAction.previousPage,
     ReaderTapAction.previousPage,

@@ -18,11 +18,6 @@ class PageTurnPainter extends CustomPainter {
     this.pageInsets = EdgeInsets.zero,
     this.curl3dResources,
   }) : _besselPainter = BesselPainter(paperColor: paperColor),
-       _curl3dPainter = Curl3dPainter(
-         paperColor: paperColor,
-         backgroundImage: backgroundImage,
-         resources: curl3dResources,
-       ),
        super(repaint: controller);
 
   final PageTurnController controller;
@@ -32,7 +27,11 @@ class PageTurnPainter extends CustomPainter {
   final Curl3dPaintResources? curl3dResources;
   final Paint _imagePaint = Paint()..filterQuality = FilterQuality.low;
   final BesselPainter _besselPainter;
-  final Curl3dPainter _curl3dPainter;
+  late final _curl3dPainter = Curl3dPainter(
+    paperColor: paperColor,
+    backgroundImage: backgroundImage,
+    resources: curl3dResources,
+  );
   final _continuationPainter = ContinuationPainter();
   Object? _continuationPages;
   ContinuationPageGeometry? _originContinuation;
@@ -55,7 +54,7 @@ class PageTurnPainter extends CustomPainter {
       return;
     }
     final opacity = controller.targetOpacity;
-    if (opacity < 1 && controller.mode.is3d) {
+    if (opacity < 1 && controller.mode == PageTurnMode.simulation3d) {
       _paintTurn(canvas, size, origin, origin);
       if (opacity > 0) {
         canvas.saveLayer(
@@ -128,7 +127,7 @@ class PageTurnPainter extends CustomPainter {
 
   void _paintTurn(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
     final p = controller.progress;
-    final curl3d = controller.mode.is3d;
+    final curl3d = controller.mode == PageTurnMode.simulation3d;
     // 3D 的可见程度由折角几何决定，不看进度。
     if (!curl3d && (p <= 0 || p >= 1)) {
       if (p >= 1) {

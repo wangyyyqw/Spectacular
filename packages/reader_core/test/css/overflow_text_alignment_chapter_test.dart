@@ -122,9 +122,8 @@ void main() {
       loader.addFont(
         Future.value(
           ByteData.sublistView(
-            File(
-              '../../apps/reader_mobile/assets/fonts/SourceHanSansSC-$weight.otf',
-            ).readAsBytesSync(),
+            File('../../test_fonts/SourceHanSansSC-$weight.otf')
+                .readAsBytesSync(),
           ),
         ),
       );

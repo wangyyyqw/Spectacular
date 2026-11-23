@@ -96,7 +96,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     final bytes = await File(
-      '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
+      '../../apps/reader_mobile/assets/fonts/MoyuSerif-Regular.otf',
     ).readAsBytes();
     await (FontLoader(
       'EmphasisShapesSerif',

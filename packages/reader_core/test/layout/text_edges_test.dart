@@ -16,7 +16,7 @@ const _text =
 
 Future<void> _fonts() async {
   for (final (family, stem) in [
-    ('edge_song', 'SourceHanSerifCN'),
+    ('edge_song', 'MoyuSerif'),
     ('edge_hei', 'SourceHanSansSC'),
   ]) {
     final loader = FontLoader(family);
@@ -24,8 +24,11 @@ Future<void> _fonts() async {
       loader.addFont(
         Future.value(
           ByteData.sublistView(
-            File('../../apps/reader_mobile/assets/fonts/$stem-$weight.otf')
-                .readAsBytesSync(),
+            File(
+              stem == 'SourceHanSansSC'
+                  ? '../../test_fonts/$stem-$weight.otf'
+                  : '../../apps/reader_mobile/assets/fonts/$stem-$weight.otf',
+            ).readAsBytesSync(),
           ),
         ),
       );

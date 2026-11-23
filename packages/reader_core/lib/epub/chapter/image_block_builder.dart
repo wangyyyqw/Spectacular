@@ -312,8 +312,7 @@ class _ImageSizing {
   }
 }
 
-/// 多看把 `.imgd` 内唯一的图片按正文宽铺满；原书常见的
-/// `width="60%"` 只参与多看以外的回退排版。
+/// `.imgd` 扩展约定将容器内唯一图片铺满正文宽，优先于图片的 width 属性。
 bool _duokanFullWidthImage(_ImageDescription input) {
   if (input.chain.isEmpty) return false;
   final classes = input.chain.last.attributes['class'];

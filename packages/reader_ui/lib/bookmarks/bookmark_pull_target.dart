@@ -98,7 +98,7 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
     return (_thresholdDp * ratio).round() / ratio;
   }
 
-  // 阅微先扣除 144 个物理像素，再用纸面位移判断 128dp 阈值。
+  // 先扣除 144 个物理像素，再用纸面位移判断 128dp 阈值。
   double get _pageOffset =>
       (_dragOffset - _dragInsetPixels / MediaQuery.devicePixelRatioOf(context))
           .clamp(0, double.infinity);

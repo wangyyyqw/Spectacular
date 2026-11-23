@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import 'curl3d_geometry.dart';
-import 'duokan_curl_shader.dart';
+import 'curl3d_shader.dart';
 
 /// 阅读视口持有的绘制资源；着色器首次使用时创建，随视口销毁。
 class Curl3dPaintResources {
@@ -14,14 +14,14 @@ class Curl3dPaintResources {
 
   ui.FragmentShader get _sheet {
     assert(!_disposed);
-    final program = DuokanCurlShader.program;
+    final program = Curl3dShader.program;
     if (program == null) throw StateError('3D 翻页着色器尚未加载');
     return _sheetShader ??= program.fragmentShader();
   }
 
   ui.FragmentShader get _shadow {
     assert(!_disposed);
-    return _shadowShader ??= DuokanCurlShader.shadowProgram!.fragmentShader();
+    return _shadowShader ??= Curl3dShader.shadowProgram!.fragmentShader();
   }
 
   @visibleForTesting
@@ -43,7 +43,7 @@ class Curl3dPaintResources {
   }
 }
 
-/// 按多看的扫描顺序绘制投影、纸面和自阴影，纹理始终使用原纸面坐标。
+/// 按扫描顺序绘制投影、纸面和自阴影，纹理始终使用纸面坐标。
 class Curl3dPainter {
   Curl3dPainter({
     required this.paperColor,
@@ -123,7 +123,7 @@ class Curl3dPainter {
     try {
       for (final strip in geometry.strips) {
         _setProjectionProfile(shader, geometry, strip.profile);
-        // 片元按原纸面和截面范围判断覆盖，避免 MSAA 折边混入底页。
+        // 片元按纸面和截面范围判断覆盖，避免 MSAA 折边混入底页。
         // 只裁掉投影包围盒以外的片元，绘制坐标与公共边插值保持不变。
         canvas.save();
         canvas.clipRect(strip.projectedBounds, doAntiAlias: false);
@@ -140,15 +140,15 @@ class Curl3dPainter {
     Curl3dGeometry geometry,
     List<Curl3dProjectionStop> profile,
   ) {
-    assert(profile.length <= DuokanCurlShader.profileCapacity);
+    assert(profile.length <= Curl3dShader.profileCapacity);
     shader.setFloat(12, geometry.creaseCenter.dx);
     shader.setFloat(13, geometry.creaseCenter.dy);
     shader.setFloat(14, geometry.u.dx);
     shader.setFloat(15, geometry.u.dy);
     shader.setFloat(16, profile.length.toDouble());
-    for (var index = 0; index < DuokanCurlShader.profileCapacity; index++) {
+    for (var index = 0; index < Curl3dShader.profileCapacity; index++) {
       final stop = index < profile.length ? profile[index] : profile.last;
-      final offset = DuokanCurlShader.profileOffset + index * 4;
+      final offset = Curl3dShader.profileOffset + index * 4;
       shader.setFloat(offset, stop.x);
       shader.setFloat(offset + 1, stop.sourceX);
       shader.setFloat(offset + 2, stop.normalSin);
@@ -163,7 +163,7 @@ class Curl3dPainter {
     Curl3dPaintResources resources,
   ) {
     if (shadow.length < 3) return;
-    const capacity = DuokanCurlShader.shadowTriangleCapacity;
+    const capacity = Curl3dShader.shadowTriangleCapacity;
     final shader = resources._shadow;
     _shadowPaint.shader = shader;
     try {
@@ -277,7 +277,7 @@ class Curl3dPainter {
     final shader = _shader(size, image, mirror, resources);
     // 静态底页也来自 RGB565 快照，与卷纸共用相同的编码和采样。
     shader.setFloat(16, 1);
-    shader.setFloat(DuokanCurlShader.profileOffset + 3, 1);
+    shader.setFloat(Curl3dShader.profileOffset + 3, 1);
     _sheetPaint.shader = shader;
     try {
       canvas.drawRect(Offset.zero & size, _sheetPaint);

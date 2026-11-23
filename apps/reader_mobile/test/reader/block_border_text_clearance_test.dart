@@ -104,10 +104,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     await (FontLoader('builtin_song')
-          ..addFont(
-            rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-          )
-          ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Bold.otf')))
+          ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))
+          ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Bold.otf')))
         .load();
   });
 

@@ -91,7 +91,7 @@ void main() {
   });
 
   test('字体 URL 应相对样式表目录解析', () async {
-    final fontBytes = File('assets/fonts/SourceHanSerifCN-Regular.otf')
+    final fontBytes = File('assets/fonts/MoyuSerif-Regular.otf')
         .readAsBytesSync();
     final source = await openCssChapter(
       body: '<p>字体目录复现</p>',
@@ -153,7 +153,7 @@ void main() {
   });
 
   test('导入 CSS 与内嵌样式分别以自身来源解析字体 URL', () async {
-    final fontBytes = File('assets/fonts/SourceHanSerifCN-Regular.otf')
+    final fontBytes = File('assets/fonts/MoyuSerif-Regular.otf')
         .readAsBytesSync();
     for (final inline in [false, true]) {
       final source = await openCssChapter(

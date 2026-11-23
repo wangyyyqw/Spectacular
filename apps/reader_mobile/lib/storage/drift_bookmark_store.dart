@@ -38,8 +38,23 @@ class DriftBookmarkStore
               )
               ..orderBy([(table) => OrderingTerm(expression: table.createdAt)]))
             .get();
-    return [for (final row in rows) _toBookmark(row)]
-      ..sort((a, b) => a.spineIndex.compareTo(b.spineIndex));
+    final items = [for (final row in rows) _toBookmark(row)];
+    items.sort(_compareByReadingOrder);
+    return items;
+  }
+
+  /// 按目录顺序排列：先章节，同一章内按正文位置，位置相同才按创建时间。
+  static int _compareByReadingOrder(ReaderBookmark left, ReaderBookmark right) {
+    if (left.spineIndex != right.spineIndex) {
+      return left.spineIndex.compareTo(right.spineIndex);
+    }
+    final leftCfi = EpubCfi.parse(left.cfi);
+    final rightCfi = EpubCfi.parse(right.cfi);
+    if (leftCfi != null && rightCfi != null) {
+      final compared = leftCfi.compareTo(rightCfi);
+      if (compared != 0) return compared;
+    }
+    return left.createdAt.compareTo(right.createdAt);
   }
 
   ReaderBookmark _toBookmark(AnnotationRow row) {

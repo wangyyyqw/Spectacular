@@ -113,20 +113,10 @@ void main() {
       description: '书签菜单首屏正文',
     );
 
-    // 打开菜单 → 目录抽屉 → 「加书签」。
+    // 顶部菜单直接加书签。
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('drawer-tab-bookmarks')),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey<String>('drawer-add-bookmark')),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const ValueKey<String>('drawer-add-bookmark')));
+    await tester.tap(find.byKey(const ValueKey<String>('menu-add-bookmark')));
     await tester.pumpAndSettle();
     expect(find.byType(SnackBar), findsNothing);
 
@@ -141,12 +131,15 @@ void main() {
     await pumpReaderTask(tester, session.jumpToChapter(2));
     expect(session.progress!.spineIndex, 2);
 
+    await tester.tap(find.byKey(const ValueKey<String>('menu-entry-toc')));
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('drawer-tab-bookmarks')),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('共 1 条'), findsOneWidget);
-    await tester.tap(find.text(saved.single.label));
+    await tester.tap(
+      find.byKey(ValueKey<String>('bookmark-row-${saved.single.id}')),
+    );
     await pumpReaderUntilComplete(
       tester,
       () =>

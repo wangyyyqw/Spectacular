@@ -5,7 +5,7 @@ import 'package:reader_core/position/cfi.dart';
 import '../decorations/decoration.dart';
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
-import '../theme/reader_drawer_style.dart';
+import '../theme/reader_ink.dart';
 
 /// 只管理手工装饰的抽屉页签。
 class ReaderDecorationPanel extends StatefulWidget {
@@ -50,15 +50,6 @@ class ReaderDecorationPanel extends StatefulWidget {
 }
 
 class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
-  final _search = TextEditingController();
-  String _query = '';
-  bool _readingOrder = false;
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
   String _chapter(ReaderDecoration decoration) {
     final cfi = EpubCfi.parse(decoration.startCfi);
     final spine = cfi == null ? null : spineIndexOfCfi(cfi);
@@ -74,78 +65,22 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
         '第 ${spine + 1} 章';
   }
 
-  List<ReaderDecoration> get _items {
-    final query = _query.trim().toLowerCase();
-    final items = widget.decorations
-        .where(
-          (item) =>
-              query.isEmpty ||
-              item.quote.toLowerCase().contains(query) ||
-              _chapter(item).toLowerCase().contains(query) ||
-              item.style.summary.toLowerCase().contains(query),
-        )
-        .toList();
-    items.sort((left, right) {
-      if (_readingOrder) {
-        final leftCfi = EpubCfi.parse(left.startCfi);
-        final rightCfi = EpubCfi.parse(right.startCfi);
-        if (leftCfi != null && rightCfi != null) {
-          final result = leftCfi.compareTo(rightCfi);
-          if (result != 0) return result;
-        }
-      }
-      return right.updatedAt.compareTo(left.updatedAt);
-    });
-    return items;
-  }
+  List<ReaderDecoration> get _items =>
+      List<ReaderDecoration>.of(widget.decorations)
+        ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
 
   @override
   Widget build(BuildContext context) {
     final items = _items;
-    final theme = Theme.of(context);
-    final muted = ReaderDrawerStyle.mutedOf(theme);
-    final searchBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
-    );
-    final searchStyle = theme.textTheme.bodyMedium!.copyWith(
-      fontSize: 14,
-      height: 1.5,
-      fontWeight: FontWeight.w400,
-      color: ReaderDrawerStyle.textOf(theme),
-    );
     return Material(
       color: ReaderFrostedSurface.panelColorOf(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ListTile(
-            title: const Text('装饰'),
-            subtitle: Text('共 ${widget.decorations.length} 条手工装饰'),
-            trailing: PopupMenuButton<bool>(
-              key: const ValueKey<String>('decoration-sort'),
-              tooltip: '装饰排序',
-              initialValue: _readingOrder,
-              onSelected: (value) => setState(() => _readingOrder = value),
-              icon: const AppIcon(AppGlyph.sort),
-              itemBuilder: (_) => [
-                appCheckedMenuItem(
-                  value: false,
-                  checked: !_readingOrder,
-                  child: const Text('最近更新'),
-                ),
-                appCheckedMenuItem(
-                  value: true,
-                  checked: _readingOrder,
-                  child: const Text('阅读顺序'),
-                ),
-              ],
-            ),
-          ),
-          ListTile(
             key: const ValueKey<String>('decoration-rules-entry'),
             leading: const AppIcon(AppGlyph.autoFix),
-            title: const Text('自动装饰规则'),
+            title: const Text('规则'),
             subtitle: Text(
               widget.ruleCount == 0
                   ? '暂无规则'
@@ -154,67 +89,22 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
             trailing: const AppIcon(AppGlyph.chevronRight),
             onTap: widget.onRules,
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 10, 24, 12),
-            child: Material(
-              key: const ValueKey('decoration-search-surface'),
-              color: ReaderDrawerStyle.searchSurfaceOf(theme),
-              borderRadius: searchBorder.borderRadius,
-              elevation: 3,
-              surfaceTintColor: Colors.transparent,
-              shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
-              child: TextField(
-                key: const ValueKey<String>('decoration-search'),
-                controller: _search,
-                onChanged: (value) => setState(() => _query = value),
-                textInputAction: TextInputAction.search,
-                style: searchStyle,
-                cursorColor: ReaderDrawerStyle.textOf(theme),
-                decoration: InputDecoration(
-                  hintText: '搜索原文、章节或样式',
-                  hintStyle: searchStyle.copyWith(color: muted),
-                  isDense: true,
-                  filled: true,
-                  fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                  border: searchBorder,
-                  enabledBorder: searchBorder,
-                  focusedBorder: searchBorder,
-                  prefixIconConstraints: const BoxConstraints.tightFor(
-                    width: 40,
-                    height: 40,
-                  ),
-                  suffixIconConstraints: const BoxConstraints.tightFor(
-                    width: 40,
-                    height: 40,
-                  ),
-                  prefixIcon: AppIcon(AppGlyph.search, size: 20, color: muted),
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: '清除搜索',
-                          icon: AppIcon(AppGlyph.close, size: 18, color: muted),
-                          onPressed: () {
-                            _search.clear();
-                            setState(() => _query = '');
-                          },
-                        ),
-                ),
-              ),
-            ),
-          ),
           const SizedBox(height: 10),
           const Divider(height: 1),
           Expanded(
-            child: items.isEmpty
-                ? Center(child: Text(_query.isEmpty ? '还没有手工装饰' : '没有匹配的装饰'))
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) =>
-                        _card(context, items[index]),
-                  ),
+            child: Theme(
+              // 装饰列表行不显示点击高亮与水波。
+              data: quietInk(Theme.of(context)),
+              child: items.isEmpty
+                  ? const Center(child: Text('还没有手工装饰'))
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) =>
+                          _card(context, items[index]),
+                    ),
+            ),
           ),
         ],
       ),

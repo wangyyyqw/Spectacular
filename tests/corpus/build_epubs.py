@@ -841,12 +841,12 @@ def make_duokan_fullscreen() -> tuple[dict, dict[str, bytes]]:
             "正文",
             "<h1>正文</h1><p>前面的封面和插图应整页显示；本页应按普通章节分页。</p>",
         ).encode(),
-        "OEBPS/images/a.jpg": (ASSET_DIR / "duokan-a.jpg").read_bytes(),
+        "OEBPS/images/a.jpg": (ASSET_DIR / "fullscreen-cover.jpg").read_bytes(),
         "OEBPS/images/a~slim.jpg": (
-            ASSET_DIR / "duokan-a-slim.jpg"
+            ASSET_DIR / "fullscreen-cover-slim.jpg"
         ).read_bytes(),
         "OEBPS/images/illustration.jpg": (
-            ASSET_DIR / "duokan-illustration.jpg"
+            ASSET_DIR / "fullscreen-illustration.jpg"
         ).read_bytes(),
     }
     manifest = [

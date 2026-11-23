@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../icons/app_icon.dart';
 import '../reader_session.dart';
 import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_ink.dart';
 
 /// 书签面板（P4-13）：列表 + 点击跳转 + 删除。
 class BookmarkPanel extends StatelessWidget {
@@ -12,9 +13,6 @@ class BookmarkPanel extends StatelessWidget {
     required this.bookmarks,
     required this.onSelect,
     required this.onDelete,
-    this.onAdd,
-    this.onBack,
-    this.onStyle,
     this.emptyHint = '还没有书签',
   });
 
@@ -27,15 +25,6 @@ class BookmarkPanel extends StatelessWidget {
   /// 删除书签。
   final ValueChanged<ReaderBookmark> onDelete;
 
-  /// 新增书签；null 时不显示入口。
-  final VoidCallback? onAdd;
-
-  /// 返回回调（嵌在菜单 sheet 内时显示返回按钮）。
-  final VoidCallback? onBack;
-
-  /// 自定义右上角书签外观。
-  final VoidCallback? onStyle;
-
   /// 空态提示。
   final String emptyHint;
 
@@ -44,99 +33,124 @@ class BookmarkPanel extends StatelessWidget {
     final theme = Theme.of(context);
     return Material(
       color: ReaderFrostedSurface.panelColorOf(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Row(
-              children: [
-                if (onBack != null)
-                  IconButton(
-                    icon: const AppIcon(AppGlyph.arrowBack, size: 20),
-                    onPressed: onBack,
-                    tooltip: '返回',
-                  ),
-                Text('书签', style: theme.textTheme.titleMedium),
-                const Spacer(),
-                Text(
-                  '共 ${bookmarks.length} 条',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-                if (onAdd != null)
-                  IconButton(
-                    key: const ValueKey<String>('drawer-add-bookmark'),
-                    onPressed: onAdd,
-                    tooltip: '加书签',
-                    icon: const AppIcon(AppGlyph.bookmarkAdd, size: 18),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                if (onStyle != null)
-                  TextButton(onPressed: onStyle, child: const Text('样式')),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: bookmarks.isEmpty
-                ? Center(
-                    child: Text(
-                      emptyHint,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.outline,
+      child: Theme(
+        data: quietInk(theme),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: bookmarks.isEmpty
+                  ? Center(
+                      child: Text(
+                        emptyHint,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
                       ),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: bookmarks.length,
-                    itemBuilder: (context, index) {
-                      final bookmark = bookmarks[index];
-                      return ListTile(
-                        key: ValueKey<String>('bookmark-row-${bookmark.id}'),
-                        dense: true,
-                        leading: AppIcon(
-                          AppGlyph.bookmark,
-                          size: 18,
-                          color: theme.colorScheme.primary,
-                        ),
-                        title: Text(
-                          bookmark.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          [
-                            _formatTime(bookmark.createdAt),
-                            if (bookmark.needsRelocation) '待确认 · 点击重新定位',
-                            if (bookmark.needsRelocation &&
-                                bookmark.relocationReason != null)
-                              bookmark.relocationReason!,
-                          ].join('\n'),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.outline,
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      itemCount: bookmarks.length,
+                      separatorBuilder: (_, _) => Divider(
+                        height: 1,
+                        indent: 48,
+                        endIndent: 16,
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                      itemBuilder: (context, index) {
+                        final bookmark = bookmarks[index];
+                        final (:title, :snippet) = _splitLabel(bookmark.label);
+                        final subtitle = <String>[
+                          if (snippet.isNotEmpty) snippet,
+                          if (bookmark.needsRelocation) '待确认 · 点击重新定位',
+                          if (bookmark.needsRelocation &&
+                              bookmark.relocationReason != null)
+                            bookmark.relocationReason!,
+                        ].join('\n');
+                        return InkWell(
+                          key: ValueKey<String>('bookmark-row-${bookmark.id}'),
+                          onTap: () => onSelect(bookmark),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                            child: Row(
+                              children: [
+                                AppIcon(
+                                  AppGlyph.bookmark,
+                                  size: 18,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                      if (subtitle.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          subtitle,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '删除书签',
+                                  visualDensity: VisualDensity.compact,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 36,
+                                    height: 36,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  icon: const AppIcon(
+                                    AppGlyph.delete,
+                                    size: 18,
+                                  ),
+                                  onPressed: () => onDelete(bookmark),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        trailing: IconButton(
-                          tooltip: '删除书签',
-                          icon: const AppIcon(AppGlyph.delete, size: 18),
-                          onPressed: () => onDelete(bookmark),
-                        ),
-                        onTap: () => onSelect(bookmark),
-                      );
-                    },
-                  ),
-          ),
-        ],
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  static String _formatTime(DateTime time) {
-    final local = time.toLocal();
-    String two(int value) => value.toString().padLeft(2, '0');
-    return '${local.year}-${two(local.month)}-${two(local.day)} '
-        '${two(local.hour)}:${two(local.minute)}';
+  /// 书签标签形如「章节 · 第 N 页 · 页面文字」：拆出标题与页面文字，
+  /// 列表不展示页码与添加时间。
+  static ({String title, String snippet}) _splitLabel(String label) {
+    final match = RegExp(
+      r' · 第 \d+ 页(?: · (.*))?$',
+      dotAll: true,
+    ).firstMatch(label);
+    if (match == null) return (title: label, snippet: '');
+    return (
+      title: label.substring(0, match.start),
+      snippet: match.group(1) ?? '',
+    );
   }
 }

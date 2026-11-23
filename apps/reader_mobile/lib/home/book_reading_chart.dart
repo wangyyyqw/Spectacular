@@ -187,11 +187,6 @@ class _ReadingLinePainter extends CustomPainter {
       canvas.drawLine(Offset(plot.left, y), Offset(plot.right, y), gridPaint);
     }
     canvas.drawLine(
-      Offset(plot.left, plot.top),
-      Offset(plot.left, plot.bottom),
-      axisPaint,
-    );
-    canvas.drawLine(
       Offset(plot.left, plot.bottom),
       Offset(plot.right, plot.bottom),
       axisPaint,

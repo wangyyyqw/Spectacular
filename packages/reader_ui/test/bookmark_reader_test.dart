@@ -152,11 +152,9 @@ Future<void> _openMenu(WidgetTester tester) async {
 }
 
 Future<void> _openBookmarkStyle(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
+  await tester.tap(find.byKey(const ValueKey('menu-entry-settings')));
   await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('样式'));
+  await tester.tap(find.byKey(const ValueKey('settings-bookmark-style')));
   await tester.pumpAndSettle();
 }
 
@@ -705,7 +703,11 @@ void main() {
       final mask = find.byKey(const ValueKey('menu-drawer-mask'));
       await tester.tapAt(tester.getTopLeft(mask) + const Offset(10, 10));
       await tester.pumpAndSettle();
-      await _openMenu(tester);
+      // 点遮罩直接退出菜单，回到正文后再验证下拉手势。
+      expect(
+        tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+        isFalse,
+      );
       if (enabled) {
         await _pullBookmark(tester);
         expect(bookmarks.items, hasLength(1));
@@ -755,10 +757,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('drawer-tab-bookmarks')));
       await tester.pumpAndSettle();
-      expect(find.text('共 1 条'), findsOneWidget);
+      expect(find.byTooltip('删除书签'), findsOneWidget);
       await tester.tap(find.byTooltip('删除书签'));
       await tester.pumpAndSettle();
-      expect(find.text('共 0 条'), findsOneWidget);
+      expect(find.text('还没有书签'), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
       expect(
         find.byKey(const ValueKey('reader-bookmark-ribbon')),
@@ -923,7 +925,7 @@ void main() {
     expect(find.byKey(const ValueKey('reader-bookmark-ribbon')), findsNothing);
   });
 
-  testWidgets('重排后按文本位置恢复标记，书签样式可从面板修改并保存', (tester) async {
+  testWidgets('重排后按文本位置恢复标记，书签样式可从设置修改并保存', (tester) async {
     final bookmarks = _Bookmarks();
     ReaderBookmarkStyle? saved;
     final session = await _open(

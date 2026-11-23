@@ -15,7 +15,7 @@ void paintTiledBackgroundImage(Canvas canvas, ui.Image image, Rect bounds) {
 
 /// 按 `background-repeat/size/position` 绘制背景图（P2-18 收口）。
 ///
-/// 参考阅微 `CSSBackgroundNode.draw()`：默认 `position: 0 0`、`size: auto`
+/// 默认使用 `position: 0 0`、`size: auto`
 /// （原生尺寸）、`repeat`。[bounds] 是定位区，显式 [paintingBounds] 是裁剪区。
 ///
 /// 图片由调用方在帧外解码并缓存后传入；本函数不做解码，也不做网络/文件 IO。

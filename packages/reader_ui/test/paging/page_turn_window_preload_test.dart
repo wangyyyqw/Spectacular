@@ -83,10 +83,7 @@ Future<List<int>> _firstPixel(ui.Image image) async {
 }
 
 void main() {
-  for (final mode in [
-    PageTurnMode.simulation3d,
-    PageTurnMode.simulation3dNext,
-  ]) {
+  for (final mode in [PageTurnMode.simulation3d]) {
     testWidgets('${mode.label} 视口复用资源，缓存失效和退出释放对应着色器', (tester) async {
       final session = await _open();
       addTearDown(session.dispose);

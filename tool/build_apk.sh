@@ -9,7 +9,6 @@ name=spectacular-reader-release
 # dist 已在 .gitignore（APK 不入库）；下载文件夹仅在存在时才复制。
 dist="$app/dist"
 build_apk="$app/build/app/outputs/flutter-apk/app-release.apk"
-symbols_dir="$(cd "$app" && pwd)/build/symbols"
 downloads="${HOME}/Downloads"
 
 cache_option=--offline
@@ -24,6 +23,8 @@ kotlin_incremental=
 case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*) kotlin_incremental='-Pkotlin.incremental=false' ;;
 esac
+symbols="$PWD/$dist/symbols/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$symbols"
 flutter_sdk="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent.parent)' "$(command -v flutter)")"
 
 if [ ! -f "$app/.dart_tool/package_config.json" ] || [ -z "$cache_option" ]; then
@@ -35,20 +36,22 @@ fi
 
 (
   cd "$app"
-  flutter build apk --release --no-pub --config-only --target-platform=android-arm64
+  flutter build apk --release --no-pub --config-only --target-platform=android-arm64 \
+    --split-debug-info="$symbols"
   dart --packages="$flutter_sdk/packages/flutter_tools/.dart_tool/package_config.json" \
     ../../tool/generate_release_plugins.dart "$flutter_sdk"
   cd android
   ./gradlew ${cache_option:+"$cache_option"} --console=plain :app:assembleRelease \
     -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
     -Pdisable-abi-filtering=true \
-    -Psplit-debug-info="$symbols_dir" \
+    -Psplit-debug-info="$symbols" \
     -Pbase-application-name=android.app.Application \
     -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true \
     ${kotlin_incremental:+"$kotlin_incremental"}
 )
 
 [ -f "$build_apk" ] || { echo "构建产物缺失：$build_apk" >&2; exit 1; }
+[ -s "$symbols/app.android-arm64.symbols" ] || { echo "调试符号缺失：$symbols" >&2; exit 1; }
 
 mkdir -p "$dist"
 cp "$build_apk" "$dist/$name.apk"
@@ -62,7 +65,8 @@ fi
 
 ls -lh "$dist/$name.apk"
 if command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 "$dist/$name.apk"
+  shasum -a 256 "$dist/$name.apk" | tee "$symbols/apk.sha256"
 elif command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$dist/$name.apk"
+  sha256sum "$dist/$name.apk" | tee "$symbols/apk.sha256"
 fi
+echo "调试符号：$symbols"

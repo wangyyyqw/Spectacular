@@ -3135,7 +3135,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       decorationRuleCount: _decorationRules.length,
                       decorationRulesEnabled: _hasEnabledDecorationRules,
                       markSettings: _markSettings,
-                      hasCfi: _session.currentCfi != null,
+                      bookmarkStyle: _bookmarkStyle,
                       overrides: _overrides,
                       themeId: (_effectiveTheme ?? ReaderTheme.white).id,
                       customTheme: _customTheme,
@@ -3194,9 +3194,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                         _dismissReaderMenu();
                         unawaited(_selectBookmark(bookmark));
                       },
-                      onAddBookmark: () {
-                        unawaited(_addBookmark());
-                      },
                       onAnnotationSelect: (annotation) {
                         _dismissReaderMenu();
                         unawaited(_selectAnnotation(annotation));
@@ -3226,8 +3223,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       },
                       onOpenTapZoneEditor: _openTapZoneEditor,
                     ),
-              onCloseDrawer: _closeDrawer,
-              safeTop: MediaQuery.viewPaddingOf(context).top,
+              // 抽屉下拉或点遮罩直接退出阅读菜单，而不是收回成菜单浮层。
+              onCloseDrawer: _dismissReaderMenu,
             ),
             // 九宫格点击区域编辑页：每个格子循环切换点击动作。
             if (_editingTapZones)
@@ -3432,7 +3429,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       config: ReaderGestureConfig(
         tapZones: _tapZones,
         verticalWriting: _readingRtl,
-        minimumFlingVelocity: _effectiveTurnMode.is3d ? 20 : null,
+        minimumFlingVelocity: _effectiveTurnMode == PageTurnMode.simulation3d
+            ? 20
+            : null,
       ),
       onPrevious: () => _requestPageTurn(false),
       onNext: () => _requestPageTurn(true),
@@ -3750,7 +3749,6 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.decorationRuleCount,
     required this.decorationRulesEnabled,
     required this.markSettings,
-    required this.hasCfi,
     required this.overrides,
     required this.themeId,
     required this.customTheme,
@@ -3787,7 +3785,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onTocSelect,
     required this.onChapterRules,
     required this.onBookmarkSelect,
-    required this.onAddBookmark,
+    required this.bookmarkStyle,
     required this.onAnnotationSelect,
     required this.onAnnotationEdit,
     required this.onAnnotationDelete,
@@ -3820,7 +3818,6 @@ class _ReaderDrawerContent extends StatefulWidget {
   final int decorationRuleCount;
   final bool decorationRulesEnabled;
   final ReaderMarkSettings markSettings;
-  final bool hasCfi;
   final ReaderOverrides overrides;
   final String themeId;
   final ReaderTheme? customTheme;
@@ -3862,7 +3859,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<TocEntry> onTocSelect;
   final VoidCallback? onChapterRules;
   final ValueChanged<ReaderBookmark> onBookmarkSelect;
-  final VoidCallback onAddBookmark;
+  final ReaderBookmarkStyle bookmarkStyle;
   final ValueChanged<ReaderAnnotation> onAnnotationSelect;
   final ValueChanged<ReaderAnnotation> onAnnotationEdit;
   final Future<void> Function(List<ReaderAnnotation>) onAnnotationDelete;
@@ -3994,6 +3991,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           onOpenTapZoneEditor: widget.onOpenTapZoneEditor,
           onOpenMarkSettings: widget.onOpenMarkSettings,
           markSettings: widget.markSettings,
+          bookmarkStyle: widget.bookmarkStyle,
+          onOpenBookmarkStyle: widget.onBookmarkStyle,
         );
     }
   }
@@ -4064,10 +4063,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
               ),
               _DrawerTab.bookmarks => BookmarkPanel(
                 bookmarks: widget.bookmarkItems,
-                onAdd: widget.hasCfi ? widget.onAddBookmark : null,
                 onSelect: widget.onBookmarkSelect,
                 onDelete: widget.onDeleteBookmark,
-                onStyle: widget.onBookmarkStyle,
               ),
               _DrawerTab.annotations => AnnotationPanel(
                 annotations: widget.annotationItems,
@@ -4137,34 +4134,15 @@ class _DrawerTabButton extends StatelessWidget {
         onTap: onTap,
         child: SizedBox(
           height: 44,
-          child: Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  color: selected ? activeColor : inactiveColor,
-                ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                color: selected ? activeColor : inactiveColor,
               ),
-              if (selected)
-                Positioned(
-                  bottom: 0,
-                  child: SizedBox(
-                    width: 16,
-                    height: 2,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: activeColor,
-                        borderRadius: const BorderRadius.all(
-                          Radius.circular(2),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),

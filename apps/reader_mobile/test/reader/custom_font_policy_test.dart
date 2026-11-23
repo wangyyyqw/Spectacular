@@ -10,8 +10,7 @@ import 'support/css_chapter_book.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  final bytes = File('assets/fonts/SourceHanSerifCN-Regular.otf')
-      .readAsBytesSync();
+  final bytes = File('assets/fonts/MoyuSerif-Regular.otf').readAsBytesSync();
   const selected = ReaderOverrides(fontFamily: 'user_policy');
   const css = '''
     @font-face { font-family: embedded; src: url('../Fonts/book.otf'); }

@@ -74,6 +74,7 @@ android {
             useLegacyPackaging = true
         }
     }
+
 }
 
 kotlin {

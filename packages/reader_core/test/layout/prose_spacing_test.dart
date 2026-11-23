@@ -61,7 +61,7 @@ Future<void> _loadFonts() async {
   final loader = FontLoader(_family);
   for (final weight in ['Regular', 'Bold']) {
     final bytes = await File(
-      '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-$weight.otf',
+      '../../apps/reader_mobile/assets/fonts/MoyuSerif-$weight.otf',
     ).readAsBytes();
     loader.addFont(Future.value(ByteData.sublistView(bytes)));
   }

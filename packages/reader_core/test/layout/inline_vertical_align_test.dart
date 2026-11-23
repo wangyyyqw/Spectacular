@@ -39,7 +39,7 @@ TextLayoutResult _layout(
   runs: runs,
 );
 
-/// 按旧口径（阅微 0.4em/0.15em）写入 run，验证排版层会按父字号重算。
+/// 按计算样式写入 run，验证排版层正确处理基线偏移。
 StyledRun _runOn(ComputedStyle style, int start, int end) => StyledRun(
   start: start,
   end: end,

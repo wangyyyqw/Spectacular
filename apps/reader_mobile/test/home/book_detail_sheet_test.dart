@@ -12,6 +12,7 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/txt/txt_book_service.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
@@ -70,7 +71,7 @@ void main() {
     );
   });
 
-  testWidgets('长按菜单操作区使用一个大圆角边框和两列分隔', (tester) async {
+  testWidgets('长按菜单分为操作卡与删除卡，行间用缩进分隔线', (tester) async {
     final entry = BookEntry(
       id: 'style-book',
       title: '样式样本',
@@ -88,29 +89,41 @@ void main() {
     );
     await tester.pumpAndSettle();
     final panel = find.byKey(const ValueKey('book-detail-actions'));
+    final deletePanel = find.byKey(
+      const ValueKey('book-detail-delete-actions'),
+    );
     final scheme = Theme.of(
       tester.element(find.byKey(const ValueKey('book-detail-open-page'))),
     ).colorScheme;
-    final material = tester.widget<Material>(panel);
-    final shape = material.shape! as RoundedRectangleBorder;
-    expect(shape.borderRadius, BorderRadius.circular(10));
-    expect(shape.side.color, scheme.outlineVariant);
-    expect(material.color, scheme.surface);
+    for (final card in [panel, deletePanel]) {
+      final material = tester.widget<Material>(card);
+      final shape = material.shape! as RoundedRectangleBorder;
+      expect(shape.borderRadius, BorderRadius.circular(16));
+      expect(shape.side.color, scheme.outlineVariant);
+      expect(material.color, scheme.surface);
+    }
     expect(
       find.descendant(of: panel, matching: find.byType(Divider)),
-      findsNWidgets(2),
+      findsWidgets,
     );
     expect(
       find.descendant(of: panel, matching: find.byType(VerticalDivider)),
-      findsNWidgets(3),
+      findsWidgets,
     );
-    expect(find.text('收藏'), findsOneWidget);
+    expect(find.descendant(of: panel, matching: find.text('删除')), findsNothing);
+    expect(
+      find.descendant(of: deletePanel, matching: find.text('删除')),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
         of: panel,
-        matching: find.byKey(const ValueKey('book-detail-delete-actions')),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is AppIcon && widget.glyph == AppGlyph.chevronRight,
+        ),
       ),
-      findsNothing,
+      findsWidgets,
     );
     final deleteText = tester.widget<Text>(
       find.descendant(
@@ -119,6 +132,7 @@ void main() {
       ),
     );
     expect(deleteText.style?.color, scheme.error);
+    expect(find.text('收藏'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -473,7 +487,7 @@ void main() {
     );
   });
 
-  testWidgets('窄屏和放大文字下三组操作分别同行，遮罩和下拉仍可关闭', (tester) async {
+  testWidgets('窄屏和放大文字下操作两两同行，遮罩和下拉仍可关闭', (tester) async {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final entry = BookEntry(
       id: 'layout-book',
@@ -555,6 +569,11 @@ void main() {
           0.1,
         ),
       );
+      for (final key in ['book-detail-delete']) {
+        final button = find.byKey(ValueKey(key));
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+        expect(button.hitTestable(), findsOneWidget);
+      }
       expect(tester.takeException(), isNull);
       await tester.tapAt(const Offset(10, 80));
       await tester.pumpAndSettle();

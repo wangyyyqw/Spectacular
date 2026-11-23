@@ -12,7 +12,6 @@ import 'package:reader_ui/system_ui.dart';
 import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
 import 'library/library_store.dart';
-import 'reader/bundled_font_punctuation.dart';
 import 'reader/reader_font_store.dart';
 import 'reader/reader_text_warmup.dart';
 import 'storage/startup_storage.dart';
@@ -61,16 +60,6 @@ Future<void> main() async {
     unawaited(
       log.log(
         'text_warmup_failed',
-        fields: <String, Object?>{'error': '$error', 'stack': '$stack'},
-      ),
-    );
-  }
-  try {
-    await registerBundledSongPunctuation();
-  } catch (error, stack) {
-    unawaited(
-      log.log(
-        'bundled_font_punctuation_failed',
         fields: <String, Object?>{'error': '$error', 'stack': '$stack'},
       ),
     );

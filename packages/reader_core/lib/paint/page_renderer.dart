@@ -3186,7 +3186,7 @@ class PagePainter {
 
   /// 画块背景：跨页切片只在块真正开始/结束时带上下圆角。
   ///
-  /// 顺序与阅微 `CSSBackgroundNode.draw()` 一致：先铺背景色，再画背景图。
+  /// 先铺背景色，再画背景图。
   /// 背景图按 CSS 默认（左上、原生尺寸、repeat）平铺，并裁剪到块盒子；
   /// 有圆角时按同一圆角矩形裁剪，圆角外不露图。
   void _paintBackground(
@@ -3911,8 +3911,7 @@ class PagePainter {
     )) {
       return;
     }
-    // 四边一致且实线：整块（首尾都在本页）用整框描边，圆角生效
-    //（与阅微整框描边路径一致）。
+    // 四边一致且实线：整块（首尾都在本页）用整框描边，圆角生效。
     if (borders.isUniform && borders.top.style == CssBorderStyle.solid) {
       if (startsBlock && endsBlock) {
         final half = borders.top.width / 2;
@@ -4505,7 +4504,7 @@ class PagePainter {
         blue: (color.b * factor).clamp(0.0, 1.0),
       );
 
-  /// 沿线段画虚线/点线（阅微 straight 边用 dashPathEffect，这里手工切段）。
+  /// 沿线段按虚线或点线的间距切段绘制。
   void _paintDashes(
     Canvas canvas,
     Offset start,
@@ -5037,8 +5036,7 @@ class PagePainter {
 
   /// 画一行：有上下标（基线偏移）时按段分别绘制，其余情况整行一次绘制。
   ///
-  /// 与阅微 `BaselineShift` 一致：偏移段在正常基线基础上整体上下移动
-  /// （super −0.4em、sub +0.15em），行高与行宽不受影响。
+  /// 偏移段在正常基线基础上整体上下移动；位移使用排版阶段计算的结果。
   void _paintLineText(
     Canvas canvas,
     TextPainter painter,

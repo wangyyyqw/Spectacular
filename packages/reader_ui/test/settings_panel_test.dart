@@ -215,12 +215,7 @@ void main() {
     expect(backgrounds, isEmpty);
   });
 
-  testWidgets('设置面板可切换正文字体', (tester) async {
-    expect(
-      FontFamilyAliases.resolve(ReaderSettingsDefaults.fontSans),
-      FontFamilyAliases.hei,
-      reason: '黑体选项必须命中中文无衬线回退链',
-    );
+  testWidgets('内置字体仅提供宋体，可恢复书籍字体', (tester) async {
     final changes = <ReaderOverrides>[];
     await tester.pumpWidget(
       MaterialApp(
@@ -240,6 +235,7 @@ void main() {
       find.byKey(const ValueKey<String>('settings-font-picker')),
     );
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-font-hei')), findsNothing);
     await tester.tap(find.byKey(const ValueKey<String>('settings-font-song')));
     await tester.pumpAndSettle();
 
@@ -249,9 +245,9 @@ void main() {
       find.byKey(const ValueKey<String>('settings-font-picker')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('settings-font-hei')));
+    await tester.tap(find.byKey(const ValueKey<String>('settings-font-book')));
     await tester.pumpAndSettle();
-    expect(changes.last.fontFamily, ReaderSettingsDefaults.fontSans);
+    expect(changes.last.fontFamily, isNull);
   });
 
   testWidgets('设置面板支持返回按钮', (tester) async {
@@ -304,7 +300,7 @@ void main() {
     );
   });
 
-  testWidgets('设置段标题统一，窄屏可滚动选择新旧 3D、接续与滚动', (tester) async {
+  testWidgets('设置段标题统一，窄屏可滚动选择 3D、接续与滚动', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(320, 720);
     addTearDown(tester.view.reset);
@@ -337,7 +333,6 @@ void main() {
     expect(titleStyles[2], titleStyles[0]);
     const choices = {
       '3D（旧版）': PageTurnMode.simulation3d,
-      '3D（新版）': PageTurnMode.simulation3dNext,
       '接续': PageTurnMode.continuation,
       '滚动': PageTurnMode.scroll,
     };
@@ -353,65 +348,6 @@ void main() {
       await tester.tap(option);
     }
     expect(changes, orderedEquals(choices.values));
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('新旧 3D 各自显示选中状态并可相互切换', (tester) async {
-    final changes = <PageTurnMode>[];
-    for (final mode in [
-      PageTurnMode.simulation3d,
-      PageTurnMode.simulation3dNext,
-    ]) {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SettingsPanel(
-              section: SettingsSection.settings,
-              overrides: ReaderSettingsDefaults.overrides,
-              themeId: 'white',
-              pageTurnMode: mode,
-              onPageTurnModeChanged: changes.add,
-              onOverridesChanged: (_) {},
-              onThemeChanged: (_) {},
-            ),
-          ),
-        ),
-      );
-      final selectedOption = find.byKey(
-        ValueKey<String>('settings-page-turn-${mode.id}'),
-      );
-      await tester.ensureVisible(selectedOption);
-      expect(
-        tester
-            .widget<Text>(
-              find.descendant(
-                of: selectedOption,
-                matching: find.text(mode.label),
-              ),
-            )
-            .style!
-            .fontWeight,
-        FontWeight.w500,
-      );
-      final other = mode == PageTurnMode.simulation3d
-          ? PageTurnMode.simulation3dNext
-          : PageTurnMode.simulation3d;
-      final option = find.byKey(
-        ValueKey<String>('settings-page-turn-${other.id}'),
-      );
-      await tester.ensureVisible(option);
-      expect(
-        tester
-            .widget<Text>(
-              find.descendant(of: option, matching: find.text(other.label)),
-            )
-            .style!
-            .fontWeight,
-        FontWeight.w400,
-      );
-      await tester.tap(option);
-    }
-    expect(changes, [PageTurnMode.simulation3dNext, PageTurnMode.simulation3d]);
     expect(tester.takeException(), isNull);
   });
 

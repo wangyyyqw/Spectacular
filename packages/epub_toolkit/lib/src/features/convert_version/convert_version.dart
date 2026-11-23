@@ -69,7 +69,7 @@ class ConvertVersionOperation {
 
     // 重新打包并保存
     // 用 EpubPacker 而非 ZipEncoder：强制 mimetype 第一个 + STORED，
-    // 符合 EPUB 规范，否则 Kindle/多看/Sigil 严格模式会拒绝导入。
+    // 遵守 EPUB 规范，保证严格校验时也能导入。
     EpubPacker.ensureMimetype(archive);
     await EpubPacker.pack(archive: archive, outputPath: outputPath);
   }

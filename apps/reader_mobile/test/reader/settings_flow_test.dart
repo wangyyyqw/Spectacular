@@ -87,7 +87,7 @@ void main() {
     final settings = legacy.copyWithTheme('moss');
     for (final changed in [
       settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 22)),
-      settings.copyWithFont(ReaderSettingsDefaults.fontSans),
+      settings.copyWithFont(ReaderSettingsDefaults.fontSong),
       settings.copyWithBackground('paper'),
       settings.copyWithInkMode(true),
       settings.copyWithMargins(ReaderMargins.defaults()),
@@ -187,11 +187,18 @@ void main() {
     final reloaded = await store.load();
     expect(reloaded.fontSize, greaterThan(ReaderSettingsDefaults.fontSize));
 
-    // 切主题：关掉排版抽屉 → 主题入口 → 选米黄（设计稿四入口把主题独立成面板）。
+    // 切主题：点遮罩退出菜单，再重新进菜单 → 主题入口 → 选米黄。
     final mask = find.byKey(const ValueKey<String>('menu-drawer-mask'));
     await tester.tapAt(tester.getTopLeft(mask) + const Offset(10, 10));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPanel), findsNothing, reason: '关闭排版抽屉');
+    expect(
+      find.byKey(const ValueKey<String>('menu-entry-theme')),
+      findsNothing,
+      reason: '遮罩关闭整个菜单',
+    );
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-theme')));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPanel), findsOneWidget, reason: '主题抽屉打开');
@@ -247,15 +254,8 @@ void main() {
     await store.save(settings);
     expect((await store.load()).fontFamily, FontFamilyAliases.song);
 
-    await store.save(
-      ReaderSettings.fromOverrides(
-        settings.overrides.copyWith(
-          fontFamily: ReaderSettingsDefaults.fontSans,
-        ),
-        themeId: settings.themeId,
-      ),
-    );
-    expect((await store.load()).fontFamily, ReaderSettingsDefaults.fontSans);
+    await library.setSetting(ReaderSettingsStore.keyFontFamily, 'sans-serif');
+    expect((await store.load()).fontFamily, isNull, reason: '已移除的字体选项回落书籍字体');
 
     await library.setSetting(ReaderSettingsStore.keyFontFamily, 'missing-font');
     expect((await store.load()).fontFamily, isNull);
@@ -288,7 +288,6 @@ void main() {
 
     for (final entry in const {
       'simulation3d': PageTurnMode.simulation3d,
-      'simulation3dNext': PageTurnMode.simulation3dNext,
       'removed-mode': PageTurnMode.cover,
     }.entries) {
       await library.setSetting(ReaderSettingsStore.keyPageTurnMode, entry.key);

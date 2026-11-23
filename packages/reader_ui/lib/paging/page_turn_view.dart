@@ -10,7 +10,7 @@ import '../reader_session.dart';
 import '../reader_ui_diagnostics.dart';
 import 'chapter_preload_controller.dart';
 import 'curl3d_painter.dart';
-import 'duokan_curl_shader.dart';
+import 'curl3d_shader.dart';
 import 'page_snapshot_cache.dart';
 import 'page_turn_controller.dart';
 import 'page_turn_mode.dart';
@@ -84,7 +84,7 @@ class PageTurnViewState extends State<PageTurnView>
   final _currentBoundary = GlobalKey();
   final _captureBoundary = GlobalKey();
   final _cache = PageSnapshotCache();
-  final _curl3dResources = Curl3dPaintResources();
+  Curl3dPaintResources? _curl3dResources;
   Future<void> _captureQueue = Future.value();
   PageContent? _capturePage;
   Size _size = Size.zero;
@@ -191,7 +191,7 @@ class PageTurnViewState extends State<PageTurnView>
     _revisionDirty = false;
     _pageCountsDirty = false;
     if (controller.active) controller.cancel();
-    _curl3dResources.releaseImages();
+    _releaseSamplerImages();
     _captureToken++;
     _pauseWarmup();
     _capturePage = null;
@@ -217,7 +217,7 @@ class PageTurnViewState extends State<PageTurnView>
 
   void _refreshPageCounts() {
     _pageCountsDirty = false;
-    _curl3dResources.releaseImages();
+    _releaseSamplerImages();
     bool stale(PageContent page) =>
         _snapshotPageCounts[page] !=
         widget.session.pageCountOf(page.spineIndex);
@@ -239,6 +239,10 @@ class PageTurnViewState extends State<PageTurnView>
   void _clearBackgroundImage() {
     _backgroundImage?.dispose();
     _backgroundImage = null;
+  }
+
+  void _releaseSamplerImages() {
+    _curl3dResources?.releaseImages();
   }
 
   void _controllerChanged() {
@@ -400,8 +404,8 @@ class PageTurnViewState extends State<PageTurnView>
   Future<void> _prepareTurnBackground() async {
     final token = _captureToken;
     final generation = widget.session.generation;
-    if (widget.mode.is3d) {
-      await DuokanCurlShader.load();
+    if (widget.mode == PageTurnMode.simulation3d) {
+      await Curl3dShader.load();
     }
     if (!mounted ||
         token != _captureToken ||
@@ -439,7 +443,7 @@ class PageTurnViewState extends State<PageTurnView>
       }
     } else {
       // 远跳后的新窗口不再持有旧页的 GPU 采样器。
-      _curl3dResources.releaseImages();
+      _releaseSamplerImages();
     }
     _window
       ..clear()
@@ -920,7 +924,9 @@ class PageTurnViewState extends State<PageTurnView>
                     paperColor: widget.paperColor,
                     backgroundImage: _backgroundImage,
                     pageInsets: widget.pageInsets,
-                    curl3dResources: _curl3dResources,
+                    curl3dResources: widget.mode == PageTurnMode.simulation3d
+                        ? _curl3dResources ??= Curl3dPaintResources()
+                        : null,
                   ),
                 ),
               ),
@@ -941,7 +947,7 @@ class PageTurnViewState extends State<PageTurnView>
     widget.session.cancelTurnPrefetch();
     controller.removeListener(_controllerChanged);
     controller.dispose();
-    _curl3dResources.dispose();
+    _curl3dResources?.dispose();
     widget.session.setBackgroundLayoutPaused(false);
     _cache.clear();
     _clearBackgroundImage();

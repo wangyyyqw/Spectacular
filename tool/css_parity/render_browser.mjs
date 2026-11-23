@@ -17,8 +17,8 @@ const CASES = join(ROOT, 'tool/css_parity/cases');
 const OUT = process.env.CSS_PARITY_OUT || '/tmp/css_parity';
 const OUT_ABS = resolve(OUT);
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const FONT_REG = join(ROOT, 'apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf');
-const FONT_BOLD = join(ROOT, 'apps/reader_mobile/assets/fonts/SourceHanSerifCN-Bold.otf');
+const FONT_REG = join(ROOT, 'apps/reader_mobile/assets/fonts/MoyuSerif-Regular.otf');
+const FONT_BOLD = join(ROOT, 'apps/reader_mobile/assets/fonts/MoyuSerif-Bold.otf');
 const WIDTH = 350;
 const HEIGHT = 800;
 // 默认调试端口；并行时用 CSS_PARITY_PORT 换端口，避免抢占。

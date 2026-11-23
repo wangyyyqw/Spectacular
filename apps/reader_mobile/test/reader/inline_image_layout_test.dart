@@ -141,10 +141,9 @@ Future<void> _expectSeparatedInk(PageContent page) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
-    await (FontLoader('relic_song')..addFont(
-          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-        ))
-        .load();
+    await (FontLoader(
+      'relic_song',
+    )..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))).load();
     _leftBytes = await _imageBytes(const Color(0xffff0000));
     _rightBytes = await _imageBytes(const Color(0xff0000ff));
     _leftImage = await _decode(_leftBytes);

@@ -14,7 +14,7 @@ ReaderBookmark _bookmark(String id, String label, {int spine = 0}) =>
     );
 
 void main() {
-  testWidgets('书签面板：列表、点击跳转、删除', (tester) async {
+  testWidgets('书签面板：标题与页面文字分行，不显示页码和时间', (tester) async {
     final selected = <ReaderBookmark>[];
     final deleted = <ReaderBookmark>[];
     await tester.pumpWidget(
@@ -23,7 +23,7 @@ void main() {
           body: BookmarkPanel(
             bookmarks: <ReaderBookmark>[
               _bookmark('a', '第 2 章 · 第 1 页', spine: 1),
-              _bookmark('b', '第 5 章 · 第 3 页', spine: 4),
+              _bookmark('b', '第 5 章 · 第 3 页 · 页面正文里的一句话', spine: 4),
             ],
             onSelect: selected.add,
             onDelete: deleted.add,
@@ -32,11 +32,34 @@ void main() {
       ),
     );
 
-    expect(find.text('书签'), findsOneWidget);
-    expect(find.text('共 2 条'), findsOneWidget);
-    expect(find.text('第 2 章 · 第 1 页'), findsOneWidget);
+    expect(find.text('第 2 章'), findsOneWidget);
+    expect(find.text('页面正文里的一句话'), findsOneWidget);
+    expect(find.textContaining('第 1 页'), findsNothing);
+    expect(find.textContaining('2026-01-01'), findsNothing);
+    // 相邻书签之间有分隔线。
+    expect(
+      find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Divider),
+      ),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.text('第 5 章 · 第 3 页'));
+    // 书签图标相对整行垂直居中。
+    final row = tester.getRect(
+      find.byKey(const ValueKey<String>('bookmark-row-a')),
+    );
+    final icon = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('bookmark-row-a')),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is AppIcon && widget.glyph == AppGlyph.bookmark,
+        ),
+      ),
+    );
+    expect(icon.center.dy, closeTo(row.center.dy, .01));
+
+    await tester.tap(find.text('第 5 章'));
     expect(selected.single.id, 'b');
 
     final deleteIcon = find.byWidgetPredicate(

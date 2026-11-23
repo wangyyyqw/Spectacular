@@ -49,7 +49,7 @@ DEFAULT_OUT = REPO_ROOT / "test_corpus" / "generated"
 REAL_IMAGE_BOOKS = ["monk-and-robot.epub", "mj-003.epub", "ludingji-1.epub"]
 REAL_TEXT_BOOKS = ["monk-and-robot.epub", "mj-003.epub", "agatha-linear-no.epub"]
 
-FALLBACK_IMAGES = ["duokan-a.jpg", "duokan-illustration.jpg", "duokan-a-slim.jpg"]
+FALLBACK_IMAGES = ["fullscreen-cover.jpg", "fullscreen-illustration.jpg", "fullscreen-cover-slim.jpg"]
 
 FALLBACK_PARAGRAPH = (
     "远山在薄雾里显出轮廓，溪水从石缝间穿过，声音清脆而连续。"

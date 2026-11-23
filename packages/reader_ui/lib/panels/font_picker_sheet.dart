@@ -194,7 +194,6 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
         label: '宋体',
         family: FontFamilyAliases.song,
       ),
-      _tile(key: 'settings-font-hei', label: '黑体', family: 'sans-serif'),
       for (final font in _fonts)
         _tile(
           key: 'settings-custom-font-${font.family}',

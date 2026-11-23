@@ -57,7 +57,7 @@ import '../book_source/online_reading_book.dart';
 import '../book_source/online_review.dart';
 import '../book_source/online_review_launcher.dart';
 
-/// 默认阅读设置：段距 10dp（对齐阅微默认档，约 0.625em @16dp 字号）。
+/// 默认阅读设置：段距 10dp，16dp 字号下约为 0.625em。
 ///
 /// 字号/行高/对齐默认不覆盖，跟随书籍 CSS；用户设置面板接入后由
 /// `ReaderOverrides` 覆盖作者声明（reader origin 高于 author）。

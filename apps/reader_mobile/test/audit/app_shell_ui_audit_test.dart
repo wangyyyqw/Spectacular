@@ -49,8 +49,8 @@ void main() {
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final font = FontLoader('builtin_hei')
-      ..addFont(rootBundle.load('assets/fonts/SourceHanSansSC-Regular.otf'));
+    final font = FontLoader('builtin_song')
+      ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'));
     await font.load();
     final icons = FontLoader('MaterialIcons')
       ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));

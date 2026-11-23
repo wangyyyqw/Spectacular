@@ -18,9 +18,6 @@ enum PageTurnMode {
   /// 固定 UV 的圆柱卷曲，带纸背与明暗。
   simulation3d('simulation3d', '3D（旧版）'),
 
-  /// 与旧版共享圆柱模型和手势时钟，保留独立的阅读设置标识。
-  simulation3dNext('simulation3dNext', '3D（新版）'),
-
   /// 按文本行或竖排列的空间位置错峰横移，旧内容先退出、新内容随后进入。
   continuation('continuation', '接续'),
 
@@ -41,8 +38,8 @@ enum PageTurnMode {
   /// 设置面板名称。
   final String label;
 
-  /// 两个 3D 入口使用相同的绘制、触摸与资源准备流程。
-  bool get is3d => this == simulation3d || this == simulation3dNext;
+  /// 3D 模式需要整张纸面快照和相邻页资源。
+  bool get is3d => this == simulation3d;
 
   /// 兼容旧设置和损坏值。
   static PageTurnMode fromId(String? id) =>

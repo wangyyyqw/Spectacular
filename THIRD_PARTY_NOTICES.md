@@ -1,0 +1,52 @@
+# 第三方资源与来源说明
+
+项目根目录的 Apache License 2.0 仅适用于有权按该协议发布的原创代码。第三方代码、字体和数据继续遵守其原始许可证；文件改名、注释整理和删除本地参考资料不改变来源或授权状态。
+
+## 自有项目迁入代码
+
+`packages/epub_toolkit/lib/` 中部分处理逻辑迁自项目作者自有的 [wangyyyqw/epub-toolkit](https://github.com/wangyyyqw/epub-toolkit)，快照为 `de0c056c2bbb376c0f42f84f9d8a9c3612739524`。迁入本仓库的自有原创代码采用根目录的 [Apache License 2.0](LICENSE)；其中使用的第三方代码与资源继续遵守各自许可证。
+
+## 已随仓库保留的声明
+
+| 内容 | 声明与许可证 |
+| --- | --- |
+| 内置宋体 | [Adobe 版权声明与 SIL Open Font License 1.1](apps/reader_mobile/assets/fonts/LICENSE.txt) |
+| 仅供测试的思源黑体 | [Adobe 版权声明与 SIL Open Font License 1.1](test_fonts/OFL-SourceHanSans.txt) |
+| 英文断词数据 | [原始归属与 BSD 风格许可证](packages/reader_core/third_party/hyph_en_US/LICENSE.txt) |
+| OpenCC 字典 | [Apache License 2.0](packages/epub_toolkit/assets/opencc/LICENSE) |
+| HarfBuzz FFI 绑定 | [MIT 许可证及本地修改说明](packages/epub_toolkit/third_party/harfbuzz_ffi/LICENSE) |
+| HarfBuzz 源码 | [原始版权与 Old MIT 许可证](packages/epub_toolkit/third_party/harfbuzz_ffi/third_party/harfbuzz/COPYING) |
+
+桌面构建时加入的 WebP 工具及动态库，由 `packages/epub_toolkit/tool/bundle_cwebp_macos.sh` 复制对应许可证。Dart 与 Flutter 依赖按锁定版本及各自的上游许可证使用。
+
+## 内置思源宋体
+
+正文与应用界面只内置基于 Adobe [Source Han Serif 2.003R](https://github.com/adobe-fonts/source-han-serif/releases/tag/2.003R) 制作的中文精简版，固定上游快照为 `7889f11bf31170b5d092a083b357c8c8130f89e0`。派生字体的内部名称和文件名改为 `Moyu Serif` / `MoyuSerif`，保留 Adobe 原始版权及 OFL 声明。
+
+| 资源 | 官方原始文件 | SHA-256 |
+| --- | --- | --- |
+| 常规，字重 400 | [SourceHanSerifSC-Regular.otf](https://raw.githubusercontent.com/adobe-fonts/source-han-serif/7889f11bf31170b5d092a083b357c8c8130f89e0/OTF/SimplifiedChinese/SourceHanSerifSC-Regular.otf) | `78aa7a328fd974df2d688c8a9fd74a33d8334dfa84ab24d9d11efb2ffc464117` |
+| 粗体，字重 700 | [SourceHanSerifSC-Bold.otf](https://raw.githubusercontent.com/adobe-fonts/source-han-serif/7889f11bf31170b5d092a083b357c8c8130f89e0/OTF/SimplifiedChinese/SourceHanSerifSC-Bold.otf) | `706b8c0de2deff6cbc0c87e2cdedfd33a78b7ffd76cebb4549012f197ba611fe` |
+
+精简后每个字重保留 **33,104 个字符、30,256 个汉字码点、42,647 个字形**。原字库全部汉字码点（含扩展区、兼容汉字）均保留，简体／繁体／港台地区字形、标点、拉丁字母、数字、常用符号、注音和假名仍可用。保留原字库的 25 组汉字异体字序列；删除韩文字符及日韩地区替换字形，保留字距、标点挤压、竖排等 OpenType 特性和字形提示；未覆盖字符继续由书内或系统字体回退。
+
+| 打包资源 | 字重 | SHA-256 |
+| --- | --- | --- |
+| `MoyuSerif-Regular.otf` | 400 | `31769352272eb94d5544821db34c933850eb37f534fe708c1912ff2335bf5ec8` |
+| `MoyuSerif-Bold.otf` | 700 | `2adc7ec027629f051da5e4d66da40f580437c9cb0c24a3b1e670701fe592c51d` |
+
+生成脚本为 [tool/subset_bundled_fonts.py](tool/subset_bundled_fonts.py)，使用 `fonttools==4.68.0`。将上表两份官方原始文件下载到本地目录后，执行：
+
+```bash
+python3 tool/subset_bundled_fonts.py \
+  --source-dir /path/to/source-han-serif-2.003 \
+  --output-dir apps/reader_mobile/assets/fonts
+```
+
+脚本验证上游 SHA-256、保留码点清单、每个保留字符的字形边界及横竖度量。字体与派生文件均遵守 [OFL 1.1](apps/reader_mobile/assets/fonts/LICENSE.txt)，许可随源码和应用资源分发。`test_fonts/` 和 `assets/test_fonts/` 中的测试字库不作为正式 APK 资产打包。
+
+## EPUB 兼容标记
+
+源码与合成测试中的厂商 CSS 前缀、OPF 属性、脚注类名及数据属性属于输入文件格式。为继续读取已有 EPUB，这些协议字符串和对应转换功能按原样保留。它们不表示与相关产品存在隶属、合作或背书关系。
+
+私人书籍、原书摘录、截图、数据库、日志及历史验收附件不作为开源素材，留在 Git 忽略的本地目录中。

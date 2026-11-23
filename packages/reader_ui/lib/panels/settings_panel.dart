@@ -10,6 +10,7 @@ import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
 import '../annotations/mark_settings.dart';
+import '../bookmarks/bookmark_style.dart';
 import '../icons/app_icon.dart';
 import '../paging/page_turn_mode.dart';
 import '../page_furniture/corner_info.dart';
@@ -25,7 +26,7 @@ import '../theme/reader_frosted_surface.dart';
 
 export 'font_picker_sheet.dart' show ReaderFontOption;
 
-/// 阅读设置默认值（P4-21，与 Reeden/阅微的默认一致）。
+/// 阅读设置默认值（P4-21）。
 abstract final class ReaderSettingsDefaults {
   /// 字号。
   static const double fontSize = 17;
@@ -41,9 +42,6 @@ abstract final class ReaderSettingsDefaults {
 
   /// 内置宋体字族。
   static const String fontSong = FontFamilyAliases.song;
-
-  /// 系统无衬线字族；经字体别名映射到系统中文字体回退链。
-  static const String fontSans = 'sans-serif';
 
   /// 默认主题。
   static const String themeId = 'white';
@@ -110,6 +108,8 @@ class SettingsPanel extends StatefulWidget {
     this.onOpenTapZoneEditor,
     this.onOpenMarkSettings,
     this.markSettings = const ReaderMarkSettings(),
+    this.onOpenBookmarkStyle,
+    this.bookmarkStyle = const ReaderBookmarkStyle(),
     this.marginsActive = false,
     this.pageTurnMode = PageTurnMode.cover,
     this.onPageTurnModeChanged,
@@ -197,6 +197,12 @@ class SettingsPanel extends StatefulWidget {
   /// 当前划线默认外观。
   final ReaderMarkSettings markSettings;
 
+  /// 打开书签外观设置。
+  final VoidCallback? onOpenBookmarkStyle;
+
+  /// 当前书签外观。
+  final ReaderBookmarkStyle bookmarkStyle;
+
   /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
   final bool marginsActive;
 
@@ -240,7 +246,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
     PageTurnMode.cover,
     PageTurnMode.simulationBessel,
     PageTurnMode.simulation3d,
-    PageTurnMode.simulation3dNext,
     PageTurnMode.continuation,
     PageTurnMode.scroll,
     PageTurnMode.slideHorizontal,
@@ -390,7 +395,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
   String get _fontLabel {
     if (_fontFamily == null) return '书籍字体';
     if (_fontFamily == ReaderSettingsDefaults.fontSong) return '宋体';
-    if (_fontFamily == ReaderSettingsDefaults.fontSans) return '黑体';
     return _customFonts
             .where((font) => font.family == _fontFamily)
             .firstOrNull
@@ -986,6 +990,35 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   List<Widget> _settingsChildren(ThemeData theme, {bool includeReset = true}) {
     return <Widget>[
+      if (widget.onOpenBookmarkStyle != null) ...[
+        Text(
+          '书签样式',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: ReaderDrawerStyle.textOf(theme),
+          ),
+        ),
+        const SizedBox(height: 4),
+        _SettingsEntryRow(
+          key: const ValueKey<String>('settings-bookmark-style'),
+          icon: AppGlyph.bookmark,
+          label: '外形尺寸与下拉开关',
+          onTap: widget.onOpenBookmarkStyle!,
+        ),
+        Text(
+          '宽 ${widget.bookmarkStyle.width.toStringAsFixed(0)} · '
+          '长 ${widget.bookmarkStyle.length.toStringAsFixed(0)} · '
+          '${widget.bookmarkStyle.pullEnabled ? '下拉添加已开启' : '下拉添加已关闭'}',
+          style: TextStyle(
+            fontSize: 12,
+            color: ReaderDrawerStyle.secondaryOf(theme),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+        const SizedBox(height: 12),
+      ],
       if (widget.onOpenMarkSettings != null) ...[
         Text(
           '划线设置',
@@ -1326,7 +1359,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     PageTurnMode.coverStack => '堆叠',
     PageTurnMode.cover => '覆盖',
     PageTurnMode.simulationBessel => '仿真',
-    PageTurnMode.simulation3d || PageTurnMode.simulation3dNext => mode.label,
+    PageTurnMode.simulation3d => mode.label,
     PageTurnMode.continuation => '接续',
     PageTurnMode.scroll => '滚动',
     PageTurnMode.slideHorizontal => '滑动',

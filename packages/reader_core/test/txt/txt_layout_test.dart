@@ -22,7 +22,7 @@ void main() {
       Future.value(
         ByteData.sublistView(
           await File(
-            '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
+            '../../apps/reader_mobile/assets/fonts/MoyuSerif-Regular.otf',
           ).readAsBytes(),
         ),
       ),

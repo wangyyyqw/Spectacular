@@ -124,18 +124,15 @@ void main() {
     expect(surface, findsNothing);
   });
 
-  testWidgets('阅读菜单上下栏与目录抽屉使用同一不透明底板', (tester) async {
+  testWidgets('阅读菜单底部栏与目录抽屉使用同一不透明底板', (tester) async {
     await tester.pumpWidget(_menu(open: true));
     await tester.pumpAndSettle();
-    final bars = tester.widgetList<GlassContainer>(find.byType(GlassContainer));
-    expect(bars, hasLength(2));
-    final settings = bars.first.settings!;
+    // 书名栏已并入底部浮层，菜单只剩一块底板。
+    final bar = tester.widget<GlassContainer>(find.byType(GlassContainer));
+    final settings = bar.settings!;
     expect(settings.glassColor.a, 1);
     expect(settings.blur, 0);
-    for (final bar in bars) {
-      expect(bar.quality, GlassQuality.minimal);
-      expect(bar.settings, settings);
-    }
+    expect(bar.quality, GlassQuality.minimal);
     await tester.pumpWidget(_menu(open: true, drawer: true));
     await tester.pumpAndSettle();
     final drawer = tester.widget<GlassContainer>(
@@ -446,7 +443,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(closes, 1);
     expect(surface, findsOneWidget);
-    expect(find.byType(ReaderFrostedSurface), findsNWidgets(2));
+    expect(find.byType(ReaderFrostedSurface), findsOneWidget);
   });
 
   testWidgets('列表先滚动，顶部下拉才移动抽屉，短列表同样可收起', (tester) async {

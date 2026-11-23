@@ -5,7 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/paging/bessel_geometry.dart';
-import 'package:reader_ui/paging/duokan_curl_shader.dart';
+import 'package:reader_ui/paging/curl3d_shader.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_painter.dart';
@@ -64,7 +64,7 @@ ui.Image _splitImage(Color left, Color right) {
 
 Future<ByteData> _render(PageTurnController controller) async {
   if (controller.mode == PageTurnMode.simulation3d) {
-    await DuokanCurlShader.load();
+    await Curl3dShader.load();
   }
   final recorder = ui.PictureRecorder();
   PageTurnPainter(

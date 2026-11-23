@@ -9,6 +9,7 @@ import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
 import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_ink.dart';
 import '../theme/reader_frosted_popup.dart';
 import '../theme/reader_frosted_surface.dart';
 
@@ -63,21 +64,11 @@ class AnnotationPanel extends StatefulWidget {
 
 enum _AnnotationFilter { all, note, highlight }
 
-enum _AnnotationSort {
-  updated('最近更新'),
-  position('阅读顺序');
-
-  const _AnnotationSort(this.label);
-
-  final String label;
-}
-
 class _AnnotationPanelState extends State<AnnotationPanel> {
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = <String>{};
   final Set<String> _expandedIds = <String>{};
   late _AnnotationFilter _filter;
-  _AnnotationSort _sort = _AnnotationSort.updated;
   String _query = '';
   bool _selecting = false;
   bool _deleting = false;
@@ -108,11 +99,8 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   }
 
   List<ReaderAnnotation> get _sorted {
+    // 固定按书籍内容顺序：章节与正文位置升序，无法解析位置时按更新时间倒序。
     final items = List<ReaderAnnotation>.of(widget.annotations);
-    if (_sort == _AnnotationSort.updated) {
-      items.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
-      return items;
-    }
     items.sort((left, right) {
       final leftCfi = EpubCfi.parse(left.startCfi);
       final rightCfi = EpubCfi.parse(right.startCfi);
@@ -460,33 +448,15 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       ),
                     ),
                   ),
-                  if (!_selecting) ...[
-                    PopupMenuButton<_AnnotationSort>(
-                      key: const ValueKey<String>('annotation-sort'),
-                      tooltip: '标注排序',
-                      initialValue: _sort,
-                      onSelected: (value) => setState(() => _sort = value),
-                      icon: const AppIcon(AppGlyph.sort, size: 20),
-                      itemBuilder: (_) => <PopupMenuEntry<_AnnotationSort>>[
-                        for (final sort in _AnnotationSort.values)
-                          appCheckedMenuItem<_AnnotationSort>(
-                            key: ValueKey<String>(
-                              'annotation-sort-${sort.name}',
-                            ),
-                            value: sort,
-                            checked: sort == _sort,
-                            child: Text(sort.label),
-                          ),
-                      ],
+                  if (!_selecting &&
+                      widget.onDelete != null &&
+                      items.isNotEmpty)
+                    IconButton(
+                      key: const ValueKey<String>('annotation-batch-manage'),
+                      tooltip: '批量管理',
+                      onPressed: _enterSelection,
+                      icon: const AppIcon(AppGlyph.checklist, size: 20),
                     ),
-                    if (widget.onDelete != null && items.isNotEmpty)
-                      IconButton(
-                        key: const ValueKey<String>('annotation-batch-manage'),
-                        tooltip: '批量管理',
-                        onPressed: _enterSelection,
-                        icon: const AppIcon(AppGlyph.checklist, size: 20),
-                      ),
-                  ],
                 ],
               ),
             ),
@@ -535,42 +505,46 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
           ],
           const Divider(height: 1),
           Expanded(
-            child: items.isEmpty
-                ? Center(
-                    child: Text(
-                      _emptyText,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.outline,
+            child: Theme(
+              // 标注列表行不显示点击高亮与水波。
+              data: quietInk(theme),
+              child: items.isEmpty
+                  ? Center(
+                      child: Text(
+                        _emptyText,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
                       ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final annotation = items[index];
+                        return _AnnotationCard(
+                          annotation: annotation,
+                          chapterTitle: _chapterTitleOf(annotation),
+                          inkMode: widget.inkMode,
+                          selecting: _selecting,
+                          selected: _selectedIds.contains(annotation.id),
+                          expanded: _expandedIds.contains(annotation.id),
+                          onToggleSelection: () =>
+                              _toggleSelection(annotation.id),
+                          onSelect: () => widget.onSelect(annotation),
+                          onEdit: () => widget.onEdit(annotation),
+                          onToggleExpanded: () {
+                            setState(() {
+                              if (!_expandedIds.add(annotation.id)) {
+                                _expandedIds.remove(annotation.id);
+                              }
+                            });
+                          },
+                        );
+                      },
                     ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final annotation = items[index];
-                      return _AnnotationCard(
-                        annotation: annotation,
-                        chapterTitle: _chapterTitleOf(annotation),
-                        inkMode: widget.inkMode,
-                        selecting: _selecting,
-                        selected: _selectedIds.contains(annotation.id),
-                        expanded: _expandedIds.contains(annotation.id),
-                        onToggleSelection: () =>
-                            _toggleSelection(annotation.id),
-                        onSelect: () => widget.onSelect(annotation),
-                        onEdit: () => widget.onEdit(annotation),
-                        onToggleExpanded: () {
-                          setState(() {
-                            if (!_expandedIds.add(annotation.id)) {
-                              _expandedIds.remove(annotation.id);
-                            }
-                          });
-                        },
-                      );
-                    },
-                  ),
+            ),
           ),
         ],
       ),
