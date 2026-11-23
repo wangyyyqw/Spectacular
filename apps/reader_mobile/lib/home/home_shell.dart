@@ -293,7 +293,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ('书架', AppGlyph.bookshelf),
         ('发现', AppGlyph.discover),
         ('统计', AppGlyph.stats),
-        ('笔记', AppGlyph.review),
+        ('书评', AppGlyph.review),
         if (usesDesktopLayout(context)) ('编辑器', AppGlyph.code),
         ('我的', AppGlyph.profile),
       ])

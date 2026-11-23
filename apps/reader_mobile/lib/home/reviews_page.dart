@@ -220,7 +220,11 @@ class _ReviewsPageState extends State<ReviewsPage>
     final library = widget.library;
     final notes = _notes;
     try {
-      final books = await library.list();
+      final books = <BookEntry>[
+        ...await library.list(),
+        // 软删除的书仍保留笔记和书单关联，继续在此页展示。
+        ...await library.retainedBooks(),
+      ];
       final finished = notes ? _finishedBooks : await library.finishedBookIds();
       final counts = notes ? await library.bookNoteCounts() : _counts;
       final reviews = notes
@@ -561,6 +565,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   List<Widget> _actions() {
+    if (!_reviewTab) return const <Widget>[];
     final books = _books;
     return _searching
         ? [
@@ -585,8 +590,8 @@ class _ReviewsPageState extends State<ReviewsPage>
                 icon: const AppIcon(AppGlyph.search),
               ),
             IconButton(
-              key: ValueKey(_notes ? 'notes-refresh' : 'reviews-refresh'),
-              tooltip: _notes ? '刷新笔记' : '刷新书评',
+              key: const ValueKey('reviews-refresh'),
+              tooltip: '刷新书评',
               onPressed: _reload,
               icon: const AppIcon(AppGlyph.refresh),
             ),

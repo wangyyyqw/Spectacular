@@ -1011,7 +1011,7 @@ class LibraryStore {
     final updatedAt = notes.updatedAt.max();
     final query = db.selectOnly(notes)
       ..join([
-        innerJoin(books, books.id.equalsExp(notes.bookId), useColumns: false),
+        leftOuterJoin(books, books.id.equalsExp(notes.bookId), useColumns: false),
       ])
       ..addColumns([books.uuid, thoughts, marks, updatedAt])
       ..where(thought | mark)
