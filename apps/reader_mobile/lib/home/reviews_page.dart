@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -341,10 +339,10 @@ class _ReviewsPageState extends State<ReviewsPage>
           autofocus: widget.active,
           child: Scaffold(
             appBar: AppBar(
+              toolbarHeight: 0,
+              automaticallyImplyLeading: false,
               centerTitle: false,
               scrolledUnderElevation: 0,
-              title: _searching ? _searchField() : null,
-              actions: _actions(),
             ),
             body: Center(
               child: ConstrainedBox(
@@ -364,16 +362,29 @@ class _ReviewsPageState extends State<ReviewsPage>
     );
   }
 
-  Widget _header(bool desktop) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-    child: LayoutBuilder(
-      builder: (context, bounds) => Wrap(
-        spacing: 24,
-        runSpacing: 12,
-        crossAxisAlignment: WrapCrossAlignment.center,
+  Widget _header(bool desktop) {
+    if (_searching) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+        child: Row(
+          children: [
+            Expanded(child: _searchField()),
+            IconButton(
+              tooltip: '关闭搜索',
+              onPressed: _toggleSearch,
+              icon: const AppIcon(AppGlyph.close),
+            ),
+          ],
+        ),
+      );
+    }
+    final books = _books;
+    final hasBooks = books != null && books.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+      child: Row(
         children: [
-          SizedBox(
-            width: desktop ? math.min(320, bounds.maxWidth) : bounds.maxWidth,
+          Expanded(
             child: TabBar(
               controller: _tabs,
               isScrollable: true,
@@ -383,8 +394,9 @@ class _ReviewsPageState extends State<ReviewsPage>
               dividerColor: Colors.transparent,
               labelColor: Theme.of(context).colorScheme.onSurface,
               unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
-              labelStyle: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
               unselectedLabelStyle: Theme.of(context).textTheme.bodyMedium,
               tabs: const [
                 Tab(key: ValueKey('notes-tab'), text: '笔记'),
@@ -394,14 +406,24 @@ class _ReviewsPageState extends State<ReviewsPage>
             ),
           ),
           if (desktop && _reviewTab)
-            SizedBox(
-              width: math.min(360, bounds.maxWidth),
-              child: _searchField(),
+            SizedBox(width: 300, child: _searchField()),
+          if (_reviewTab && hasBooks) ...[
+            IconButton(
+              key: const ValueKey<String>('reviews-sort'),
+              tooltip: '书评排序',
+              onPressed: _chooseSort,
+              icon: const AppIcon(AppGlyph.sort),
             ),
+            IconButton(
+              tooltip: '搜索书评',
+              onPressed: _toggleSearch,
+              icon: const AppIcon(AppGlyph.search),
+            ),
+          ],
         ],
       ),
-    ),
-  );
+    );
+  }
 
   Widget _searchField() {
     final theme = Theme.of(context);
@@ -453,33 +475,6 @@ class _ReviewsPageState extends State<ReviewsPage>
         onChanged: (value) => setState(() => _query = value),
       ),
     );
-  }
-
-  List<Widget> _actions() {
-    final books = _books;
-    if (_searching) {
-      return [
-        IconButton(
-          tooltip: '关闭搜索',
-          onPressed: _toggleSearch,
-          icon: const AppIcon(AppGlyph.close),
-        ),
-      ];
-    }
-    if (!_reviewTab || books == null || books.isEmpty) return const <Widget>[];
-    return [
-      IconButton(
-        key: const ValueKey<String>('reviews-sort'),
-        tooltip: '书评排序',
-        onPressed: _chooseSort,
-        icon: const AppIcon(AppGlyph.sort),
-      ),
-      IconButton(
-        tooltip: '搜索书评',
-        onPressed: _toggleSearch,
-        icon: const AppIcon(AppGlyph.search),
-      ),
-    ];
   }
 
   Widget _sectionBody() {

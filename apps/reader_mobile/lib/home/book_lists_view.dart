@@ -115,39 +115,40 @@ class _BookListsViewState extends State<BookListsView> {
           ? const Center(child: CircularProgressIndicator())
           : _LoadError(message: _error!, onRetry: _reload);
     }
+    if (bookLists.isEmpty) return _EmptyBookLists(onCreate: _create);
     return Stack(
       children: [
-        if (bookLists.isEmpty)
-          _EmptyBookLists(onCreate: _create)
-        else
-          RefreshIndicator(
-            onRefresh: _reload,
-            child: ListView.builder(
-              key: const ValueKey<String>('booklists-list'),
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-              itemCount: bookLists.length,
-              itemBuilder: (context, index) {
-                final bookList = bookLists[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: _BookListCard(
-                    bookList: bookList,
-                    books: _resolve(bookList),
-                    onTap: () => _open(bookList),
-                  ),
-                );
-              },
-            ),
+        RefreshIndicator(
+          onRefresh: _reload,
+          child: ListView.builder(
+            key: const ValueKey<String>('booklists-list'),
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 76),
+            itemCount: bookLists.length,
+            itemBuilder: (context, index) {
+              final bookList = bookLists[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: _BookListCard(
+                  bookList: bookList,
+                  books: _resolve(bookList),
+                  onTap: () => _open(bookList),
+                ),
+              );
+            },
           ),
+        ),
         Positioned(
           right: 16,
-          bottom: 16,
-          child: FloatingActionButton.extended(
+          bottom: 12,
+          child: FloatingActionButton.small(
             key: const ValueKey<String>('booklist-create'),
+            tooltip: '新建书单',
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             onPressed: _create,
-            icon: const AppIcon(AppGlyph.add),
-            label: const Text('新建书单'),
+            child: const AppIcon(AppGlyph.add),
           ),
         ),
       ],
@@ -188,15 +189,15 @@ class _BookListCard extends StatelessWidget {
         key: ValueKey<String>('booklist-card-${bookList.id}'),
         onTap: onTap,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 172),
+          constraints: const BoxConstraints(minHeight: 168),
           child: Stack(
             children: [
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   18,
                   18,
-                  covers.isEmpty ? 18 : 132,
-                  16,
+                  covers.isEmpty ? 18 : 128,
+                  44,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -212,7 +213,7 @@ class _BookListCard extends StatelessWidget {
                       ),
                     ),
                     if (description.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
                         description,
                         key: ValueKey<String>(
@@ -226,22 +227,25 @@ class _BookListCard extends StatelessWidget {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 18),
-                    Text(
-                      '${books.length} 本书',
-                      key: ValueKey<String>('booklist-card-count-${bookList.id}'),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        letterSpacing: .3,
-                      ),
-                    ),
                   ],
+                ),
+              ),
+              Positioned(
+                left: 18,
+                bottom: 14,
+                child: Text(
+                  '${books.length} 本书',
+                  key: ValueKey<String>('booklist-card-count-${bookList.id}'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    letterSpacing: .3,
+                  ),
                 ),
               ),
               if (covers.isNotEmpty)
                 Positioned(
                   right: 10,
-                  bottom: 12,
+                  bottom: 10,
                   child: _CoverStack(
                     books: covers,
                     keyPrefix: bookList.id,

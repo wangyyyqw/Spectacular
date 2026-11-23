@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/reviews_page.dart';
+import 'package:reader_mobile/library/book_list_store.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 
@@ -132,6 +133,58 @@ void main() {
     expect(shape.side.color, scheme.outlineVariant);
     expect(shape.side.width, 1);
     expect(shape.borderRadius, BorderRadius.circular(20));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('窄屏大字号下书单卡片与操作不溢出', (tester) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final library = LibraryStore.memory();
+    late BookList bookList;
+    await tester.runAsync(() async {
+      final entries = <BookEntry>[];
+      for (final title in <String>['甲', '乙', '丙']) {
+        entries.add(
+          await library.importBytes(buildTestEpub(title: '很长的书名$title')),
+        );
+      }
+      final store = library.bookListStore();
+      bookList = await store.create(
+        name: '一个需要换行的很长很长的书单名称',
+        description: '这是一段同样需要换行展示的书单简介，用来检查窄屏布局',
+      );
+      await store.addBooks(bookList.id, entries.map((entry) => entry.id));
+    });
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.3)),
+          child: child!,
+        ),
+        home: ReviewsPage(library: library),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('booklists-tab')));
+    await _settle(tester);
+
+    final card = find.byKey(ValueKey('booklist-card-${bookList.id}'));
+    final cardRect = tester.getRect(card);
+    final count = find.byKey(
+      ValueKey('booklist-card-count-${bookList.id}'),
+    );
+    expect(cardRect.contains(tester.getRect(count).center), isTrue);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('booklists-tab'))).bottom,
+      lessThan(cardRect.top),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('booklist-create')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
