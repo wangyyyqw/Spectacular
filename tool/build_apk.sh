@@ -41,7 +41,10 @@ fi
   dart --packages="$flutter_sdk/packages/flutter_tools/.dart_tool/package_config.json" \
     ../../tool/generate_release_plugins.dart "$flutter_sdk"
   cd android
+  build_time="$(date '+%Y-%m-%d %H:%M:%S %z')"
+  build_defines="$(python3 -c 'import base64,sys; print(base64.b64encode(("APP_BUILD_TIME="+sys.argv[1]).encode()).decode())' "$build_time")"
   ./gradlew ${cache_option:+"$cache_option"} --console=plain :app:assembleRelease \
+    -Pdart-defines="$build_defines" \
     -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
     -Pdisable-abi-filtering=true \
     -Psplit-debug-info="$symbols" \

@@ -13,6 +13,8 @@ import '../book_source/online_source_page.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../reader/reader_font_store.dart';
+import '../reader/reader_settings.dart';
+import 'about_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_color_settings.dart';
 import 'app_font_picker.dart';
@@ -71,6 +73,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   late String _appFontFamily;
   BookSortOrder _shelfSort = BookSortOrder.recent;
   bool _showShelfTitles = true;
+  bool _inkMode = false;
   List<ReaderFontEntry> _appFonts = const [];
 
   @override
@@ -113,10 +116,14 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Future<void> _loadShelfPreferences() async {
     final value = await widget.library.getSetting(bookshelfSortKey);
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
+    final inkMode = await widget.library.getSetting(
+      ReaderSettingsStore.keyInkMode,
+    );
     if (mounted) {
       setState(() {
         _shelfSort = BookSortOrder.fromValue(value);
         _showShelfTitles = showTitles != 'false';
+        _inkMode = inkMode == 'true';
       });
     }
   }
@@ -380,11 +387,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                 ),
               ]),
               const SizedBox(height: 24),
-              Text('关于', style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 10),
-              Text(
-                '本地 EPUB 阅读。书籍、阅读进度与笔记保存在设备上。',
-                style: Theme.of(context).textTheme.bodyMedium,
+              ListTile(
+                key: const ValueKey('about-entry'),
+                title: const Text('关于'),
+                trailing: const AppIcon(AppGlyph.chevronRight),
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(builder: (_) => const AboutPage()),
+                ),
               ),
             ],
           ),
@@ -396,6 +405,18 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Widget _appearance(BuildContext context) {
     final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
     return _section(context, '外观', [
+      SwitchListTile(
+        key: const ValueKey('appearance-ink-mode'),
+        title: const Text('墨水屏模式'),
+        value: _inkMode,
+        onChanged: (value) async {
+          await widget.library.setSetting(
+            ReaderSettingsStore.keyInkMode,
+            '$value',
+          );
+          if (mounted) setState(() => _inkMode = value);
+        },
+      ),
       ListTile(
         key: const ValueKey('theme-color-settings-entry'),
         leading: const AppIcon(AppGlyph.palette),

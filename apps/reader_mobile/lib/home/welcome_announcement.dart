@@ -65,11 +65,13 @@ class WelcomeAnnouncementDialog extends StatefulWidget {
     required this.onAgree,
     required this.onExit,
     this.onOpenLink,
+    this.showActions = true,
   });
 
   final Future<void> Function() onAgree;
   final Future<void> Function() onExit;
   final Future<void> Function(Uri)? onOpenLink;
+  final bool showActions;
 
   @override
   State<WelcomeAnnouncementDialog> createState() =>
@@ -140,7 +142,7 @@ class _WelcomeAnnouncementDialogState extends State<WelcomeAnnouncementDialog> {
       decoration: TextDecoration.underline,
     );
     return PopScope(
-      canPop: false,
+      canPop: !widget.showActions,
       child: ReaderFrostedDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         constraints: const BoxConstraints(maxWidth: 520),
@@ -227,18 +229,20 @@ class _WelcomeAnnouncementDialogState extends State<WelcomeAnnouncementDialog> {
                     style: TextStyle(color: theme.colorScheme.error),
                   ),
                 ],
-                const SizedBox(height: 18),
-                FilledButton(
-                  key: const ValueKey('welcome-agree-login'),
-                  onPressed: _saving ? null : _agree,
-                  child: Text(_saving ? '正在保存…' : '同意并登录'),
-                ),
-                const SizedBox(height: 6),
-                TextButton(
-                  key: const ValueKey('welcome-disagree-exit'),
-                  onPressed: _saving ? null : widget.onExit,
-                  child: const Text('不同意，退出应用'),
-                ),
+                if (widget.showActions) ...[
+                  const SizedBox(height: 18),
+                  FilledButton(
+                    key: const ValueKey('welcome-agree-login'),
+                    onPressed: _saving ? null : _agree,
+                    child: Text(_saving ? '正在保存…' : '同意并登录'),
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton(
+                    key: const ValueKey('welcome-disagree-exit'),
+                    onPressed: _saving ? null : widget.onExit,
+                    child: const Text('不同意，退出应用'),
+                  ),
+                ],
               ],
             ),
           ),

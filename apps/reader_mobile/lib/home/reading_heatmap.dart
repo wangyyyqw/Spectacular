@@ -200,26 +200,36 @@ class _ReadingHeatmapState extends State<ReadingHeatmap> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  '$dateLabel · $duration',
-                  key: const ValueKey('heatmap-selected-day'),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 6),
                 Row(
                   children: [
-                    Text('少', style: Theme.of(context).textTheme.bodySmall),
+                    Expanded(
+                      child: Text(
+                        '$dateLabel · $duration',
+                        key: const ValueKey('heatmap-selected-day'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '少',
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(fontSize: 10),
+                    ),
                     const SizedBox(width: 6),
                     for (var level = 0; level <= 4; level++)
                       Padding(
                         padding: const EdgeInsets.only(right: 3),
                         child: SizedBox.square(
-                          dimension: 9,
+                          dimension: 6,
                           child: ColoredBox(color: _cellColor(scheme, level)),
                         ),
                       ),
                     const SizedBox(width: 3),
-                    Text('多', style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      '多',
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(fontSize: 10),
+                    ),
                   ],
                 ),
               ],
@@ -257,10 +267,11 @@ class _HeatmapPainter extends CustomPainter {
     const step = _ReadingHeatmapState._step;
     const top = _ReadingHeatmapState._top;
     int? month;
+    final firstMonth = DateTime(data.end.year, data.end.month - 11);
     final paint = Paint();
     for (var week = 0; week < data.weeks; week++) {
       final first = data.dayAt(week, 0);
-      if (first.month != month) {
+      if (!first.isBefore(firstMonth) && first.month != month) {
         month = first.month;
         final label = TextPainter(
           text: TextSpan(

@@ -243,8 +243,11 @@ class BookOpener {
     return opening;
   }
 
-  Future<ReaderSettings> _loadSettings() async =>
-      _settings ??= await ReaderSettingsStore(library).load();
+  Future<ReaderSettings> _loadSettings() async {
+    // 外观页可修改全局阅读偏好，每次打开重新读取，保存队列先完成。
+    await _settingsSave;
+    return _settings = await ReaderSettingsStore(library).load();
+  }
 
   Future<String> _loadContentRevision(
     BookEntry entry, {

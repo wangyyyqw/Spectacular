@@ -1116,21 +1116,18 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 value ? ReaderTapZones.fullScreenNext : ReaderTapZones.defaults,
               ),
       ),
-      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
       _compactSwitchRow(
         key: const ValueKey<String>('settings-keep-screen-on'),
         label: '屏幕常亮',
         value: widget.keepScreenOn,
         onChanged: widget.onKeepScreenOnChanged,
       ),
-      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
       _compactSwitchRow(
         key: const ValueKey<String>('settings-volume-key-paging'),
         label: '音量键翻页',
         value: widget.volumeKeyPaging,
         onChanged: widget.onVolumeKeyPagingChanged,
       ),
-      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
       _compactSwitchRow(
         key: const ValueKey<String>('settings-show-system-bars'),
         label: '状态栏和导航栏',
@@ -1138,7 +1135,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
         onChanged: widget.onShowSystemBarsChanged,
       ),
       if (widget.onOpenTapZoneEditor != null ||
-          widget.onInkModeChanged != null ||
           (includeReset && widget.onReset != null)) ...<Widget>[
         const SizedBox(height: 12),
         _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
@@ -1149,13 +1145,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
             icon: AppGlyph.grid,
             label: '点击区域设置',
             onTap: widget.onOpenTapZoneEditor!,
-          ),
-        if (widget.onInkModeChanged != null)
-          _compactSwitchRow(
-            key: const ValueKey<String>('settings-ink-mode'),
-            label: '墨水屏模式',
-            value: widget.inkMode,
-            onChanged: widget.onInkModeChanged,
           ),
         if (includeReset && widget.onReset != null)
           Align(
