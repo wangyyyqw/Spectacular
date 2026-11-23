@@ -5,7 +5,9 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_duration_summary.dart';
+import 'reading_book_color.dart';
 import 'reading_insights.dart';
+import 'voxel_duration_chart.dart';
 
 const _tagTitleStyle = TextStyle(
   fontSize: 14,
@@ -97,7 +99,7 @@ class _BookDurationChartState extends State<BookDurationChart>
     }
   }
 
-  void _selectSlice(_DurationSlice slice, BookDurationSummary summary) {
+  void _selectSlice(DurationBarData slice, BookDurationSummary summary) {
     if (slice.id == null) {
       _openAll(context, _period, summary.start);
       return;
@@ -249,36 +251,66 @@ class _BookDurationChartState extends State<BookDurationChart>
     style: const TextStyle(fontSize: 13, height: 1.5),
   );
 
-  Widget _summaryActions(BookDurationSummary summary) => Row(
-    children: [
-      Expanded(
-        child: Text(
-          _countingHint,
-          style: TextStyle(
-            fontSize: 12,
-            height: 1.4,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
+  Widget _summaryActions(BookDurationSummary summary) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.only(top: 12),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
       ),
-      const SizedBox(width: 8),
-      TextButton.icon(
-        key: const ValueKey('stats-book-duration-all'),
-        onPressed: () => _openAll(context, _period, summary.start),
-        style: TextButton.styleFrom(
-          minimumSize: const Size(48, 48),
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          textStyle: TextStyle(
-            fontSize: 12,
-            fontFamily: Theme.of(context).textTheme.bodyMedium?.fontFamily,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: AppIcon(
+                  AppGlyph.info,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _countingHint,
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.5,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        iconAlignment: IconAlignment.end,
-        icon: const AppIcon(AppGlyph.chevronRight, size: 16),
-        label: Text('全部 ${summary.entries.length} 本'),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const ValueKey('stats-book-duration-all'),
+              onPressed: () => _openAll(context, _period, summary.start),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(48, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: TextStyle(
+                  fontSize: 12,
+                  fontFamily: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.fontFamily,
+                ),
+              ),
+              iconAlignment: IconAlignment.end,
+              icon: const AppIcon(AppGlyph.chevronRight, size: 16),
+              label: Text('查看全部 ${summary.entries.length} 本'),
+            ),
+          ),
+        ],
       ),
-    ],
-  );
+    );
+  }
 
   Widget _selectionDetail(BookDurationSummary summary) {
     final entry = summary.entries
@@ -290,28 +322,54 @@ class _BookDurationChartState extends State<BookDurationChart>
     return _selectedEntryDetail(entry, summary.total);
   }
 
-  Widget _selectedEntryDetail(
-    BookDurationEntry entry,
-    Duration total,
-  ) => Semantics(
-    liveRegion: true,
-    child: Container(
-      key: const ValueKey('stats-book-duration-selection'),
-      padding: const EdgeInsets.all(12),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(entry.title, style: const TextStyle(fontSize: 14, height: 1.5)),
-          const SizedBox(height: 6),
-          Text(
-            '${formatReadingDuration(entry.duration)} · 占比 ${_share(entry.duration, total)}',
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-        ],
+  Widget _selectedEntryDetail(BookDurationEntry entry, Duration total) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        key: const ValueKey('stats-book-duration-selection'),
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: _colorDot(
+                readingBookColor(entry.bookId, brightness: scheme.brightness),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.title,
+                    style: const TextStyle(fontSize: 14, height: 1.5),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${formatReadingDuration(entry.duration)} · 占比 ${_share(entry.duration, total)}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _emptyState(BuildContext context, BookDurationSummary summary) =>
       Padding(
@@ -343,137 +401,203 @@ class _BookDurationChartState extends State<BookDurationChart>
       );
 
   Widget _breakdown(BuildContext context, BookDurationSummary summary) {
-    final slices = _slices(
-      summary,
-      _chartColors(Theme.of(context).colorScheme),
+    final scheme = Theme.of(context).colorScheme;
+    final slices = _slices(summary, scheme);
+    final timeBars = _timeBars(summary, slices);
+    final chart = VoxelDurationChart(
+      bars: slices,
+      timeBars: timeBars,
+      total: summary.total,
+      bookCount: summary.entries.length,
+      selectedBookId: _selectedBookId,
+      onSelected: (slice) => _selectSlice(slice, summary),
+    );
+    final legend = Column(
+      key: const ValueKey('stats-book-duration-legend'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [for (final slice in slices) _legendRow(summary, slice)],
     );
     return Padding(
-      padding: const EdgeInsets.only(top: 12, bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: SizedBox.square(
-              dimension: (160 * MediaQuery.textScalerOf(context).scale(14) / 14)
-                  .clamp(160, 240),
-              child: _ring(summary, slices),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Column(
-            key: const ValueKey('stats-book-duration-legend'),
+      padding: const EdgeInsets.only(top: 16, bottom: 4),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+          final wide = constraints.maxWidth >= 600 && textScale <= 1.35;
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 6, child: chart),
+                const SizedBox(width: 24),
+                Expanded(flex: 4, child: legend),
+              ],
+            );
+          }
+          return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [for (final slice in slices) _legendRow(summary, slice)],
-          ),
-        ],
+            children: [chart, const SizedBox(height: 18), legend],
+          );
+        },
       ),
     );
   }
 
-  Widget _ring(BookDurationSummary summary, List<_DurationSlice> slices) =>
-      _DurationRing(
-        summary: summary,
-        slices: slices,
-        selectedBookId: _selectedBookId,
-        onSelected: (slice) => _selectSlice(slice, summary),
-      );
+  List<TimeOfDayBarData> _timeBars(
+    BookDurationSummary summary,
+    List<DurationBarData> slices,
+  ) {
+    final buckets = List.generate(12, (_) => <String, Duration>{});
+    final entryIndex = {
+      for (var index = 0; index < summary.entries.length; index++)
+        summary.entries[index].bookId: index,
+    };
+    final end = _period.shift(summary.start, 1);
+    for (final portion in widget.insights.portions) {
+      if (portion.date.isBefore(summary.start) || !portion.date.isBefore(end)) {
+        continue;
+      }
+      final span = portion.endedAt.difference(portion.startedAt).inMicroseconds;
+      if (span <= 0 || portion.duration <= Duration.zero) continue;
+      final position = entryIndex[portion.bookId];
+      final sliceKey = position == null
+          ? 'short-reading'
+          : position < 4
+          ? portion.bookId
+          : 'other';
+      _addPortionToBuckets(buckets, portion, span, sliceKey);
+    }
+    return [
+      for (var index = 0; index < buckets.length; index++)
+        _timeBarData(index, buckets[index], slices),
+    ];
+  }
 
-  Widget _legendRow(BookDurationSummary summary, _DurationSlice slice) {
-    final isOther = slice.id == null;
-    final selected = !isOther && _selectedBookId == slice.id;
+  Widget _legendRow(BookDurationSummary summary, DurationBarData slice) {
+    final opensList = slice.id == null;
+    final selected = slice.id != null && _selectedBookId == slice.id;
     final duration = formatReadingDuration(slice.duration);
+    final scheme = Theme.of(context).colorScheme;
     return Semantics(
       button: true,
       selected: selected,
       label:
-          '${slice.title}，$duration，占比 ${_share(slice.duration, summary.total)}'
-          '${isOther ? '，打开图书时长列表' : ''}',
+          '${slice.title}，$duration，占比 ${slice.share}'
+          '${opensList ? '，打开图书时长列表' : ''}',
       onTap: () => _selectSlice(slice, summary),
       excludeSemantics: true,
       child: Material(
-        color: selected
-            ? Theme.of(context).colorScheme.surfaceContainerHighest
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(4),
+        color: selected ? scheme.surfaceContainerHighest : Colors.transparent,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: selected ? scheme.outlineVariant : Colors.transparent,
+          ),
+        ),
         child: InkWell(
-          key: ValueKey('stats-book-duration-tag-${slice.id ?? 'other'}'),
+          key: ValueKey('stats-book-duration-tag-${slice.key}'),
           onTap: () => _selectSlice(slice, summary),
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(10),
           child: _legendContent(slice, summary.total),
         ),
       ),
     );
   }
 
-  Widget _legendContent(_DurationSlice slice, Duration total) => Container(
+  Widget _legendContent(DurationBarData slice, Duration total) => Container(
     constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
-    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+    padding: const EdgeInsets.fromLTRB(6, 10, 6, 10),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _legendText(slice, total),
-        const SizedBox(height: 6),
+        const SizedBox(height: 9),
         LinearProgressIndicator(
           value: slice.duration.inMicroseconds / total.inMicroseconds,
           color: slice.color,
-          backgroundColor: Theme.of(context).colorScheme.outlineVariant,
-          minHeight: 3,
-          borderRadius: BorderRadius.circular(2),
+          backgroundColor: Theme.of(context).colorScheme.outlineVariant
+              .withValues(alpha: .6),
+          minHeight: 4,
+          borderRadius: BorderRadius.circular(99),
         ),
       ],
     ),
   );
 
-  Widget _legendText(_DurationSlice slice, Duration total) => LayoutBuilder(
+  Widget _legendText(DurationBarData slice, Duration total) => LayoutBuilder(
     builder: (context, constraints) {
       final stacked =
-          constraints.maxWidth < 280 ||
+          constraints.maxWidth < 290 ||
           MediaQuery.textScalerOf(context).scale(14) > 18;
       if (stacked) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _legendTitle(slice),
+            Row(
+              children: [
+                Expanded(child: _legendTitle(slice)),
+                if (slice.id == null) _legendChevron(),
+              ],
+            ),
             const SizedBox(height: 4),
-            _legendValues(slice, total),
+            _legendValues(slice, total, stacked: true),
           ],
         );
       }
       return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(child: _legendTitle(slice)),
-          const SizedBox(width: 16),
-          _legendValues(slice, total),
+          const SizedBox(width: 12),
+          _legendValues(slice, total, stacked: false),
+          if (slice.id == null) _legendChevron(),
         ],
       );
     },
   );
 
-  Widget _legendValues(_DurationSlice slice, Duration total) => Wrap(
-    spacing: 8,
-    crossAxisAlignment: WrapCrossAlignment.center,
-    children: [
-      Text(
-        formatReadingDuration(slice.duration),
-        key: ValueKey('stats-book-duration-value-${slice.id ?? 'other'}'),
-        style: _tagDurationStyle.copyWith(fontWeight: FontWeight.w500),
+  Widget _legendValues(
+    DurationBarData slice,
+    Duration total, {
+    required bool stacked,
+  }) {
+    final duration = Text(
+      formatReadingDuration(slice.duration),
+      key: ValueKey('stats-book-duration-value-${slice.key}'),
+      style: _tagDurationStyle.copyWith(fontWeight: FontWeight.w600),
+    );
+    final share = Text(
+      slice.share,
+      key: ValueKey('stats-book-duration-share-${slice.key}'),
+      style: _tagDurationStyle.copyWith(
+        fontSize: 11,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
-      Text(
-        _share(slice.duration, total),
-        key: ValueKey('stats-book-duration-share-${slice.id ?? 'other'}'),
-        style: _tagDurationStyle.copyWith(
-          fontSize: 12,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ),
-    ],
-  );
+    );
+    if (!stacked) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [duration, const SizedBox(height: 1), share],
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 2,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [duration, share],
+    );
+  }
 
-  Widget _legendTitle(_DurationSlice slice) => Row(
-    mainAxisSize: MainAxisSize.min,
+  Widget _legendTitle(DurationBarData slice) => Row(
     children: [
-      Flexible(
+      Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: _colorDot(slice.color),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
         child: Text(
           slice.title,
           maxLines: 2,
@@ -481,8 +605,18 @@ class _BookDurationChartState extends State<BookDurationChart>
           style: _tagTitleStyle,
         ),
       ),
-      if (slice.id == null) const AppIcon(AppGlyph.chevronRight, size: 16),
     ],
+  );
+
+  Widget _legendChevron() => const Padding(
+    padding: EdgeInsets.only(left: 4, top: 2),
+    child: AppIcon(AppGlyph.chevronRight, size: 16),
+  );
+
+  static Widget _colorDot(Color color) => Container(
+    width: 8,
+    height: 8,
+    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
   );
 }
 
@@ -695,50 +829,83 @@ class _DurationListRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final share = _share(entry.duration, total);
+    final color = readingBookColor(entry.bookId, brightness: theme.brightness);
     return Semantics(
       label:
           '第 $rank 名，${entry.title}，${formatReadingDuration(entry.duration)}，占比 $share',
       excludeSemantics: true,
       child: Padding(
         key: ValueKey('stats-book-duration-list-row-$rank'),
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(
-              width: 32,
-              child: Text(
-                '$rank',
-                style: TextStyle(
-                  color: rank <= 3
-                      ? theme.colorScheme.onSurface
-                      : theme.colorScheme.onSurfaceVariant,
-                  fontSize: 13,
-                  fontWeight: rank <= 3 ? FontWeight.w600 : FontWeight.w400,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    entry.title,
-                    style: const TextStyle(fontSize: 14, height: 1.4),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${formatReadingDuration(entry.duration)} · $share',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      fontSize: 12,
-                      height: 1.4,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 24,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      '$rank',
+                      style: TextStyle(
+                        color: rank <= 3
+                            ? theme.colorScheme.onSurface
+                            : theme.colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight: rank <= 3
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ),
-                ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.title,
+                        style: const TextStyle(fontSize: 14, height: 1.4),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '${formatReadingDuration(entry.duration)} · $share',
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                          height: 1.4,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: entry.duration.inMicroseconds / total.inMicroseconds,
+              color: color,
+              backgroundColor: theme.colorScheme.outlineVariant.withValues(
+                alpha: .6,
               ),
+              minHeight: 4,
+              borderRadius: BorderRadius.circular(99),
             ),
           ],
         ),
@@ -747,213 +914,123 @@ class _DurationListRow extends StatelessWidget {
   }
 }
 
-typedef _DurationSlice = ({
-  String? id,
-  String title,
-  Duration duration,
-  Color color,
-});
-
 String _share(Duration duration, Duration total) {
   if (total <= Duration.zero) return '0%';
   final percentage = duration.inMicroseconds / total.inMicroseconds * 100;
   return percentage < .1 ? '<0.1%' : '${percentage.toStringAsFixed(1)}%';
 }
 
-List<Color> _chartColors(ColorScheme scheme) => [
-  for (final blend in [0.0, 0.18, 0.36, 0.52, 0.66])
-    Color.lerp(scheme.primary, scheme.surface, blend)!,
-];
-
-List<_DurationSlice> _slices(BookDurationSummary summary, List<Color> colors) {
+List<DurationBarData> _slices(BookDurationSummary summary, ColorScheme scheme) {
   final count = math.min(4, summary.entries.length);
   final displayed = summary.entries.fold(
     Duration.zero,
     (sum, entry) => sum + entry.duration,
   );
+  final otherCount = summary.entries.length - count;
+  final otherDuration = summary.entries
+      .skip(count)
+      .fold(Duration.zero, (sum, entry) => sum + entry.duration);
+  final shortDuration = summary.total - displayed;
+  final otherColor = scheme.onSurfaceVariant;
+  final shortColor = Color.lerp(otherColor, scheme.surface, .45)!;
   return [
     for (var index = 0; index < count; index++)
       (
+        key: summary.entries[index].bookId,
         id: summary.entries[index].bookId,
         title: summary.entries[index].title,
+        shortTitle: _shortBookTitle(summary.entries[index].title),
+        share: _share(summary.entries[index].duration, summary.total),
         duration: summary.entries[index].duration,
-        color: colors[index],
+        color: readingBookColor(
+          summary.entries[index].bookId,
+          brightness: scheme.brightness,
+        ),
       ),
-    if (summary.entries.length > 4)
+    if (otherCount > 0)
       (
+        key: 'other',
         id: null,
-        title: '其他${summary.entries.length - 4}本',
-        duration: summary.entries
-            .skip(4)
-            .fold(Duration.zero, (sum, entry) => sum + entry.duration),
-        color: colors.last,
+        title: '其他$otherCount本',
+        shortTitle: '其他$otherCount本',
+        share: _share(otherDuration, summary.total),
+        duration: otherDuration,
+        color: otherColor,
       ),
-    if (summary.total > displayed)
+    if (shortDuration > Duration.zero)
       (
+        key: 'short-reading',
         id: null,
         title: '短时阅读',
-        duration: summary.total - displayed,
-        color: colors.last,
+        shortTitle: '短时阅读',
+        share: _share(shortDuration, summary.total),
+        duration: shortDuration,
+        color: shortColor,
       ),
   ];
 }
 
-class _DurationRing extends StatelessWidget {
-  const _DurationRing({
-    required this.summary,
-    required this.slices,
-    required this.selectedBookId,
-    required this.onSelected,
-  });
-
-  final BookDurationSummary summary;
-  final List<_DurationSlice> slices;
-  final String? selectedBookId;
-  final ValueChanged<_DurationSlice> onSelected;
-
-  _DurationSlice? get _selected => slices
-      .where((slice) => slice.id != null && slice.id == selectedBookId)
-      .firstOrNull;
-
-  void _onTap(Offset position, Size size) {
-    final offset = position - size.center(Offset.zero);
-    final radius = (size.shortestSide - 18) / 2;
-    if ((offset.distance - radius).abs() > 16) return;
-    final angle =
-        (math.atan2(offset.dy, offset.dx) + math.pi / 2) % (2 * math.pi);
-    var end = 0.0;
-    for (final slice in slices) {
-      end +=
-          slice.duration.inMicroseconds /
-          summary.total.inMicroseconds *
-          2 *
-          math.pi;
-      if (angle < end) {
-        onSelected(slice);
-        return;
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label:
-        '${summary.entries.length} 本书，合计 ${formatReadingDuration(summary.total)}',
-    child: ExcludeSemantics(
-      child: LayoutBuilder(
-        builder: (context, constraints) => GestureDetector(
-          onTapUp: (details) =>
-              _onTap(details.localPosition, constraints.biggest),
-          child: CustomPaint(
-            key: const ValueKey('stats-book-duration-ring'),
-            painter: _DurationRingPainter(
-              slices: slices,
-              total: summary.total,
-              selectedBookId: _selected?.id,
-            ),
-            child: Center(child: _centerLabel(context)),
-          ),
-        ),
-      ),
-    ),
-  );
-
-  Widget _centerLabel(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(22),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            formatReadingDuration(summary.total),
-            key: const ValueKey('stats-book-duration-total'),
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              height: 1.25,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            _selected == null
-                ? '${summary.entries.length} 本书'
-                : '本书占比 ${_share(_selected!.duration, summary.total)}',
-            key: const ValueKey('stats-book-duration-ring-value'),
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
+String _shortBookTitle(String title) {
+  const limit = 7;
+  final runes = title.runes.toList(growable: false);
+  if (runes.length <= limit) return title;
+  return '${String.fromCharCodes(runes.take(limit - 1))}…';
 }
 
-class _DurationRingPainter extends CustomPainter {
-  const _DurationRingPainter({
-    required this.slices,
-    required this.total,
-    required this.selectedBookId,
-  });
+void _addPortionToBuckets(
+  List<Map<String, Duration>> buckets,
+  ReadingDayPortion portion,
+  int span,
+  String sliceKey,
+) {
+  int allocatedAt(DateTime time) =>
+      (portion.duration.inMicroseconds *
+              (time.difference(portion.startedAt).inMicroseconds / span))
+          .round();
 
-  final List<_DurationSlice> slices;
-  final Duration total;
-  final String? selectedBookId;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const stroke = 18.0;
-    final radius = (size.shortestSide - stroke) / 2;
-    final rect = Rect.fromCircle(
-      center: size.center(Offset.zero),
-      radius: radius,
+  for (var hour = 0; hour < 24; hour += 2) {
+    final bucketStart = DateTime(
+      portion.startedAt.year,
+      portion.startedAt.month,
+      portion.startedAt.day,
+      hour,
     );
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke;
-    if (slices.length == 1) {
-      canvas.drawCircle(
-        rect.center,
-        radius,
-        paint..color = slices.single.color,
-      );
-      return;
-    }
-    var angle = -math.pi / 2;
-    for (final slice in slices) {
-      final sweep =
-          slice.duration.inMicroseconds / total.inMicroseconds * 2 * math.pi;
-      paint.color = selectedBookId == null || slice.id == selectedBookId
-          ? slice.color
-          : slice.color.withValues(alpha: .25);
-      _drawSegment(canvas, rect, paint, angle, sweep);
-      angle += sweep;
-    }
+    final bucketEnd = bucketStart.add(const Duration(hours: 2));
+    final overlapStart = portion.startedAt.isAfter(bucketStart)
+        ? portion.startedAt
+        : bucketStart;
+    final overlapEnd = portion.endedAt.isBefore(bucketEnd)
+        ? portion.endedAt
+        : bucketEnd;
+    final overlap = overlapEnd.difference(overlapStart).inMicroseconds;
+    if (overlap <= 0) continue;
+    final allocated = allocatedAt(overlapEnd) - allocatedAt(overlapStart);
+    if (allocated <= 0) continue;
+    final bucket = buckets[hour ~/ 2];
+    bucket[sliceKey] =
+        (bucket[sliceKey] ?? Duration.zero) + Duration(microseconds: allocated);
   }
+}
 
-  void _drawSegment(
-    Canvas canvas,
-    Rect rect,
-    Paint paint,
-    double angle,
-    double sweep,
-  ) {
-    final cap = 2 * math.asin(paint.strokeWidth / rect.width);
-    final rounded = sweep > cap + 0.035;
-    // 极小时段保留真实角度，不为圆角强行放大占比。
-    final gap = rounded ? cap + 0.035 : math.min(0.035, sweep * 0.15);
-    paint.strokeCap = rounded ? StrokeCap.round : StrokeCap.butt;
-    canvas.drawArc(rect, angle + gap / 2, sweep - gap, false, paint);
-  }
-
-  @override
-  bool shouldRepaint(_DurationRingPainter oldDelegate) =>
-      oldDelegate.slices != slices ||
-      oldDelegate.total != total ||
-      oldDelegate.selectedBookId != selectedBookId;
+TimeOfDayBarData _timeBarData(
+  int index,
+  Map<String, Duration> bucket,
+  List<DurationBarData> slices,
+) {
+  final segments = [
+    for (final slice in slices)
+      if ((bucket[slice.key] ?? Duration.zero) > Duration.zero)
+        (
+          key: slice.key,
+          title: slice.title,
+          color: slice.color,
+          duration: bucket[slice.key]!,
+        ),
+  ];
+  final total = segments.fold(
+    Duration.zero,
+    (sum, segment) => sum + segment.duration,
+  );
+  final label = '${index * 2}-${index * 2 + 2}';
+  return (key: label, label: label, duration: total, segments: segments);
 }

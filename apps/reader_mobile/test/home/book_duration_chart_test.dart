@@ -51,6 +51,8 @@ Future<void> _pump(
 
 Finder _key(String suffix) =>
     find.byKey(ValueKey('stats-book-duration-$suffix'));
+Finder _legendText(String text) =>
+    find.descendant(of: _key('legend'), matching: find.text(text));
 String _text(WidgetTester tester, String suffix) =>
     tester.widget<Text>(_key(suffix)).data!;
 
@@ -90,7 +92,7 @@ void main() {
     controller.jumpTo(0);
     await tester.pumpAndSettle();
     expect(_text(tester, 'range'), '本季度 · 2026年 第4季度');
-    expect(_key('ring'), findsOneWidget);
+    expect(_key('bars'), findsOneWidget);
     expect(_key('tag-other'), findsOneWidget);
   });
 
@@ -150,7 +152,7 @@ void main() {
   testWidgets('无记录的周期显示空状态，历史空隙仍可往前浏览', (tester) async {
     await _pump(tester, [_session('old', DateTime(2026, 11, 13, 8), 10)]);
     expect(_key('empty'), findsOneWidget);
-    expect(_key('ring'), findsNothing);
+    expect(_key('bars'), findsNothing);
     await _tap(tester, 'previous');
     expect(_key('empty'), findsOneWidget);
     await _tap(tester, 'previous');
@@ -170,9 +172,9 @@ void main() {
       ],
       titles: {'7': '书架中的新书名'},
     );
-    expect(find.text('书架中的新书名'), findsOneWidget);
+    expect(_legendText('书架中的新书名'), findsOneWidget);
     expect(_text(tester, 'total'), '4 小时 40 分');
-    expect(find.text('其他3本'), findsOneWidget);
+    expect(_legendText('其他3本'), findsOneWidget);
     expect(_text(tester, 'value-other'), '1 小时');
     expect(_key('tag-1'), findsNothing);
     await _tap(tester, 'tag-other');
@@ -194,7 +196,7 @@ void main() {
     expect(_text(tester, 'range'), '今天 · 2026年11月15日');
   });
 
-  testWidgets('圆环下方的书目与其他共用同一刻度，条长对应当前周期时长占比', (tester) async {
+  testWidgets('柱状图下方的书目与其他共用同一刻度，条长对应当前周期时长占比', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2026, 11, 15, 8), 100),
       _session('b', DateTime(2026, 11, 15, 9), 80),
@@ -203,15 +205,15 @@ void main() {
       for (var i = 1; i <= 6; i++)
         _session('small$i', DateTime(2026, 11, 15, 12 + i ~/ 2), 10),
     ]);
-    final ring = tester.getRect(_key('ring'));
+    final chart = tester.getRect(_key('bars'));
     final list = tester.getRect(_key('legend'));
-    expect(list.top, greaterThanOrEqualTo(ring.bottom));
+    expect(list.top, greaterThanOrEqualTo(chart.bottom));
     final rows = find.descendant(
       of: _key('legend'),
       matching: find.byType(InkWell),
     );
     expect(rows, findsNWidgets(5));
-    var previousBottom = ring.bottom;
+    var previousBottom = chart.bottom;
     Rect? firstTrack;
     for (final (id, minutes, share) in [
       ('a', 100, '29.4%'),
@@ -246,6 +248,55 @@ void main() {
     expect(_text(tester, 'list-summary'), '10 本书 · 合计 5 小时 40 分');
   });
 
+  testWidgets('柱图可切换为一天时段，跨时段按分钟拆分并保留书目贡献', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await _pump(tester, [
+        _session('a', DateTime(2026, 11, 15, 1), 90),
+        _session('b', DateTime(2026, 11, 15, 3, 30), 40),
+      ]);
+      await tester.ensureVisible(_key('chart-mode'));
+      await tester.tap(_key('chart-mode'));
+      await tester.pump();
+      expect(_key('morph'), findsOneWidget);
+      await tester.pumpAndSettle();
+
+      expect(_key('morph'), findsNothing);
+      for (var hour = 0; hour < 24; hour += 2) {
+        expect(_key('time-bar-$hour-${hour + 2}'), findsOneWidget);
+      }
+      expect(find.bySemanticsLabel('0-2 时，共 1 小时，书籍 a 1 小时'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('2-4 时，共 1 小时，书籍 a 30 分钟，书籍 b 30 分钟'),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('4-6 时，共 10 分钟，书籍 b 10 分钟'), findsOneWidget);
+
+      await tester.tap(_key('chart-mode'));
+      await tester.pumpAndSettle();
+      expect(_key('bar-a'), findsOneWidget);
+      expect(_key('time-bar-0-2'), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('320 宽、2 倍字号下一天时段柱图不溢出', (tester) async {
+    await _pump(
+      tester,
+      [_session('long', DateTime(2026, 11, 15, 0), 600)],
+      width: 320,
+      scale: 2,
+    );
+    await tester.ensureVisible(_key('chart-mode'));
+    await tester.tap(_key('chart-mode'));
+    await tester.pumpAndSettle();
+    expect(_key('time-bar-0-2'), findsOneWidget);
+    expect(_key('time-bar-8-10'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final count in [4, 5, 6]) {
     testWidgets('$count 本书最多展示四本书名，第五本起合并为其他', (tester) async {
       await _pump(tester, [
@@ -264,7 +315,7 @@ void main() {
       if (count == 4) {
         expect(_key('tag-other'), findsNothing);
       } else {
-        expect(find.text('其他${count - 4}本'), findsOneWidget);
+        expect(_legendText('其他${count - 4}本'), findsOneWidget);
         expect(_text(tester, 'value-other'), count == 5 ? '10 分钟' : '30 分钟');
         await _tap(tester, 'tag-other');
         expect(find.text('书籍 5'), findsOneWidget);
@@ -295,7 +346,7 @@ void main() {
     expect(_text(tester, 'total'), '40 分钟');
   });
 
-  testWidgets('点选书名或扇区显示相同详情，重复点选和切换日期清除选中', (tester) async {
+  testWidgets('点选书名或柱体显示相同详情，重复点选和切换日期清除选中', (tester) async {
     final semantics = tester.ensureSemantics();
     try {
       await _pump(tester, [
@@ -304,8 +355,9 @@ void main() {
         _session('a', DateTime(2026, 11, 14, 8), 5),
       ]);
       await _tap(tester, 'tag-a');
-      expect(_text(tester, 'ring-value'), '本书占比 75.0%');
+      expect(_text(tester, 'chart-value'), '本书占比 75.0%');
       expect(find.text('30 分钟 · 占比 75.0%'), findsOneWidget);
+      expect(find.bySemanticsLabel('柱状图，书籍 a，30 分钟，占比 75.0%'), findsOneWidget);
       expect(
         tester.getSemantics(_key('tag-a')),
         matchesSemantics(
@@ -319,10 +371,8 @@ void main() {
       expect(_text(tester, 'total'), '40 分钟');
       await _tap(tester, 'tag-a');
       expect(_key('selection'), findsNothing);
-      final ring = tester.getRect(_key('ring'));
-      await tester.tapAt(Offset(ring.right - 9, ring.center.dy));
-      await tester.pumpAndSettle();
-      expect(_text(tester, 'ring-value'), '本书占比 75.0%');
+      await _tap(tester, 'bar-a');
+      expect(_text(tester, 'chart-value'), '本书占比 75.0%');
       await _tap(tester, 'previous');
       expect(_key('selection'), findsNothing);
       expect(_text(tester, 'total'), '5 分钟');
@@ -363,7 +413,7 @@ void main() {
     expect(_key('selection'), findsNothing);
     await _pump(tester, sessions);
     expect(_key('selection'), findsNothing);
-    expect(_text(tester, 'ring-value'), '1 本书');
+    expect(_text(tester, 'chart-value'), '1 本书');
   });
 
   testWidgets('书架名称改变同值排名后，刷新按实际可见书目保留或清除选择', (tester) async {
@@ -376,11 +426,11 @@ void main() {
     await _tap(tester, 'tag-f');
     await _pump(tester, sessions, titles: titles);
     expect(_key('selection'), findsOneWidget);
-    expect(_text(tester, 'ring-value'), '本书占比 16.7%');
+    expect(_text(tester, 'chart-value'), '本书占比 16.7%');
     await _pump(tester, sessions);
     expect(_key('tag-f'), findsNothing);
     expect(_key('selection'), findsNothing);
-    expect(_text(tester, 'ring-value'), '6 本书');
+    expect(_text(tester, 'chart-value'), '6 本书');
   });
 
   testWidgets('历史选择器取消不改变日期，空记录也能返回当前周期', (tester) async {
@@ -421,34 +471,29 @@ void main() {
           scale: scale,
           titles: {'long': title},
         );
-        expect(find.text(title), findsOneWidget);
+        expect(_legendText(title), findsOneWidget);
         expect(_text(tester, 'value-tiny'), '<1 分钟');
         expect(find.bySemanticsLabel('$title，10 小时，占比 100.0%'), findsOneWidget);
         final total = tester.widget<Text>(_key('total'));
-        expect(
-          total.style!.fontSize,
-          Theme.of(tester.element(_key('total')))
-              .textTheme
-              .bodyMedium!
-              .fontSize,
-        );
+        expect(total.style!.fontSize, greaterThanOrEqualTo(20));
+        expect(total.style!.fontWeight, FontWeight.w600);
         final longTag = tester.getRect(_key('tag-long'));
-        final ring = tester.getRect(_key('ring'));
-        expect(longTag.overlaps(ring), isFalse);
+        final bars = tester.getRect(_key('bars'));
+        expect(longTag.overlaps(bars), isFalse);
+        expect(_key('bar-long'), findsOneWidget);
+        expect(_key('bar-tiny'), findsOneWidget);
         expect(_key('total'), findsOneWidget);
         final timeRect = tester.getRect(_key('total'));
-        expect(timeRect.center.dx, closeTo(ring.center.dx, .01));
-        expect(timeRect.left, greaterThan(ring.left + 18));
-        expect(timeRect.right, lessThan(ring.right - 18));
-        expect(timeRect.top, greaterThan(ring.top + 18));
-        expect(timeRect.bottom, lessThan(ring.bottom - 18));
+        expect(bars.contains(timeRect.center), isTrue);
         await _tap(tester, 'tag-long');
         expect(
           find.descendant(of: _key('selection'), matching: find.text(title)),
           findsOneWidget,
         );
-        expect(_text(tester, 'ring-value'), '本书占比 100.0%');
+        expect(_text(tester, 'chart-value'), '本书占比 100.0%');
         expect(_text(tester, 'total'), '10 小时 1 分');
+        await tester.ensureVisible(_key('period-day'));
+        await tester.pumpAndSettle();
         expect(
           tester.getSemantics(find.bySemanticsLabel('日')),
           matchesSemantics(

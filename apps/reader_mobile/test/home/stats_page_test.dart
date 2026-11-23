@@ -948,7 +948,13 @@ void main() {
       find.byKey(const ValueKey('stats-book-duration-value-b')),
       findsNothing,
     );
-    expect(find.text('短时阅读'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('stats-book-duration-legend')),
+        matching: find.text('短时阅读'),
+      ),
+      findsOneWidget,
+    );
     await _tapControl(
       tester,
       'stats-calendar-day-${now.year}-${now.month}-${now.day}',
