@@ -19,6 +19,10 @@
 
 桌面构建时加入的 WebP 工具及动态库，由 `packages/epub_toolkit/tool/bundle_cwebp_macos.sh` 复制对应许可证。Dart 与 Flutter 依赖按锁定版本及各自的上游许可证使用。
 
+## ReaMicro 分支图标
+
+ReaMicro 分支的应用图标使用用户指定的本地 `reamicro` 项目墨白素材（`ic_launcher_02`）；Android 直接复用原尺寸与单色层，其他平台仅适配图标尺寸。素材来源和权利仍归原项目。
+
 ## 内置思源宋体
 
 正文与应用界面只内置基于 Adobe [Source Han Serif 2.003R](https://github.com/adobe-fonts/source-han-serif/releases/tag/2.003R) 制作的中文精简版，固定上游快照为 `7889f11bf31170b5d092a083b357c8c8130f89e0`。派生字体的内部名称和文件名改为 `Moyu Serif` / `MoyuSerif`，保留 Adobe 原始版权及 OFL 声明。

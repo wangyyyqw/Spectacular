@@ -1,13 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
-    <foreground>
-        <!-- 完整图案缩入 72dp 显示区域，避免 108dp 自适应图层放大后裁掉月亮。 -->
-        <inset
-            android:drawable="@mipmap/ic_launcher_foreground"
-            android:insetLeft="16.6667%"
-            android:insetTop="16.6667%"
-            android:insetRight="16.6667%"
-            android:insetBottom="16.6667%" />
-    </foreground>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>
