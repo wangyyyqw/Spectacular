@@ -44,11 +44,7 @@ void main() {
     await log.initialize();
     await log.log(
       'page_turn',
-      fields: <String, Object?>{
-        'spine': 3,
-        'page': 7,
-        'mode': 'simulation3dNext',
-      },
+      fields: <String, Object?>{'spine': 3, 'page': 7, 'mode': 'simulation3d'},
     );
     final text = await log.exportText();
     expect(text, contains('device_model=UnitTestPhone'));
@@ -58,7 +54,7 @@ void main() {
     expect(path, isNotNull);
     final fileText = File(path!).readAsStringSync();
     expect(fileText, contains('page_turn'));
-    expect(fileText, contains('mode=simulation3dNext'));
+    expect(fileText, contains('mode=simulation3d'));
     expect(fileText, contains('device_model=UnitTestPhone'));
     expect(log.lineCount, greaterThan(0));
     expect(log.isReady, isTrue);

@@ -1,13 +1,12 @@
 /// 按「字形覆盖」选择字体族的字符分段（P2-12）。
 ///
-/// 参考阅微 `ContentDom.applyScriptFontFallback()` + `buildScriptRanges()`：
 /// 先选择能覆盖完整字簇的族，无法覆盖时逐码点回退，连续同族合并成一段；
 /// 没有命中任何族的字符不产出区间，继续沿用块的字体。
 library;
 
 import 'package:flutter/widgets.dart' show StringCharacters;
 
-/// 一段使用指定字体族的字符区间（参考阅微 buildScriptRanges）。
+/// 一段使用指定字体族的字符区间。
 class ScriptFontRun {
   /// 创建区间。
   const ScriptFontRun({

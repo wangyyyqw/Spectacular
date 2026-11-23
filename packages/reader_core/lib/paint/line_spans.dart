@@ -98,7 +98,7 @@ Iterable<({int start, int end, double advance})> lineTextFragments(
 /// 带 [LineBox.spacing] 的行直接消费测量结果，不重复判定标点或间隙。
 /// 无此数据的旧入口继续使用 [punctCompression] 纯文本兼容规则。
 ///
-/// 与阅微 `adaptiveJustify` 同构；差异只在 gap 判定（见 `cjk_justify.dart`）。
+/// 间隙判定由 `cjk_justify.dart` 提供。
 InlineSpan buildLineSpan({
   required TextLayoutResult layout,
   required LineBox line,

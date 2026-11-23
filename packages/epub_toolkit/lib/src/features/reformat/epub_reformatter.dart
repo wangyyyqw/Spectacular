@@ -29,7 +29,7 @@ import 'epub_packer.dart';
 ///
 /// 对齐原 Wail (Python) 项目 `reformat_epub.py` 的功能集。
 /// 设计目标：处理来源不规范的 EPUB（如 zhangyue 转换器、在线转换器输出），
-/// 把内部结构修复为 Sigil 规范的多看/Kindle/标准阅读器都能正常导入的形式。
+/// 修复 EPUB 内部结构，保持资源与导航引用可解析。
 class EpubReformatter {
   /// 输入 EPUB 路径
   final String epubPath;

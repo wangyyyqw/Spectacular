@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-/// 多看圆柱卷页的正交投影，页面坐标始终作为固定纹理坐标。
+/// 圆柱卷页的正交投影，页面坐标始终作为固定纹理坐标。
 ///
-/// 输入采用从左到右、y 向下的页面坐标。支持右缘与原生虚拟左页抓点；
+/// 输入采用从左到右、y 向下的页面坐标。支持右缘与虚拟左页抓点；
 /// 当前控制器前后翻页均从右缘起手，由调用方镜像为实际起卷侧。
 class Curl3dGeometry {
   Curl3dGeometry({
@@ -15,7 +15,7 @@ class Curl3dGeometry {
     radius = state.radius;
     creaseCenter = state.center;
     active = state.active;
-    // 保留原生 acos 旋转，水平拖动时的边界角点也按原扫描顺序插入。
+    // 旋转使用 acos 计算，水平拖动时按扫描顺序插入边界角点。
     final angle = math.acos(state.direction.dx.clamp(-1.0, 1.0));
     final rotation = state.direction.dy < 0 ? -angle : angle;
     u = active ? Offset(math.cos(rotation), math.sin(rotation)) : Offset.zero;
@@ -26,7 +26,7 @@ class Curl3dGeometry {
 
   final Size size;
 
-  /// 固定起手点：右缘 x 为 width；原生虚拟左页抓点 x 为 -width。
+  /// 固定起手点：右缘 x 为 width；虚拟左页抓点 x 为 -width。
   final Offset grab;
 
   /// 当前实际指针位置，允许越过页面边界。
@@ -35,20 +35,20 @@ class Curl3dGeometry {
   /// 沿当前指针减去有效起手点的卷曲方向，已包含页边约束。
   late final Offset u;
 
-  /// 折痕方向，保留原生 GL 网格的扫描上下顺序。
+  /// 折痕方向由网格扫描的上下顺序确定。
   late final Offset e;
 
   late final Offset creaseCenter;
   late final double radius;
   late final bool active;
 
-  /// 原生连续三角形带；source 是原页面的像素纹理坐标。
+  /// 连续三角形带；source 是纸面的像素纹理坐标。
   late final List<Curl3dSample> mesh = List.unmodifiable(_buildMesh());
 
-  /// 在投影最远处拆开原 strip，直接在屏幕片元内反查纸面坐标及法线。
+  /// 在投影最远处拆分三角形带，直接在屏幕片元内反查纸面坐标及法线。
   late final List<Curl3dStrip> strips = _buildStrips();
 
-  /// 半影位移已合并，alpha 已包含原片元着色器的 0.5 系数。
+  /// 半影位移已合并，alpha 已包含片元混合的 0.5 系数。
   late final List<Curl3dShadowSample> dropShadow = List.unmodifiable(
     _buildShadow(self: false),
   );
@@ -364,7 +364,7 @@ class Curl3dGeometry {
   }
 }
 
-/// 保留原覆盖顺序的一段单调投影，最多前后两段。
+/// 保留覆盖顺序的一段单调投影，最多前后两段。
 class Curl3dStrip {
   Curl3dStrip(this.mesh, this.profile);
 
@@ -418,7 +418,7 @@ class Curl3dPoint {
   final double normalZ;
 }
 
-/// 原页面像素 UV 与变形后的顶点成对保存。
+/// 纸面像素 UV 与变形后的顶点成对保存。
 class Curl3dSample {
   const Curl3dSample(this.source, this.point);
 

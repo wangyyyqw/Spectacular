@@ -5,14 +5,14 @@ import 'package:reader_ui/paging/curl3d_geometry.dart';
 
 const _size = Size(400, 600);
 
-// 数值来自多看 7.44.21 CurlMesh 的 Java 执行结果；仅按 DEX 修正 JADX 的
-// 排序循环、求交循环和扫描分母，再把 GL 坐标及归一化 UV 换算成页面像素。
-const _nativeCenter20 = {
+// 基准数值用于锁定页面中心、上下角和阴影边界的几何输出；
+// 坐标已换算为页面像素与归一化 UV。
+const _expectedCenter20 = {
   0: [0.0, 600.0, 0.0, 600.0, 0.0, 0.0, 0.0, 1.0],
   9: [368.348541, 600.0, 367.008972, 600.0, 8.035083, 0.475947, 0.0, 0.879474],
   17: [400.0, 0.0, 390.302155, 0.0, 29.024744, 0.825345, 0.0, 0.564629],
 };
-const _nativeUpper = {
+const _expectedUpper = {
   0: [0.0, 600.0, 0.0, 600.0, 0.0, 0.0, 0.0, 1.0],
   20: [
     237.996170,
@@ -35,7 +35,7 @@ const _nativeUpper = {
     -0.909599,
   ],
 };
-const _nativeLower = {
+const _expectedLower = {
   0: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
   20: [
     400.0,
@@ -133,7 +133,7 @@ void _expectFiniteGeometry(Curl3dGeometry geometry) {
 }
 
 void _testFixedRadius() {
-  test('中心拖动保持页面宽度六分之一的原生半径', () {
+  test('中心拖动保持页面宽度六分之一的固定半径', () {
     for (final x in [380.0, 280.0, 160.0]) {
       final geometry = _geometry(touch: Offset(x, 300));
       expect(geometry.active, isTrue);
@@ -145,14 +145,14 @@ void _testFixedRadius() {
 }
 
 void _testInitialCurl() {
-  test('四百像素页面初拖二十像素符合原生折痕与页角数值', () {
+  test('四百像素页面初拖二十像素符合折痕与页角数值', () {
     final geometry = _geometry(touch: const Offset(380, 300));
     _expectOffset(geometry.creaseCenter, const Offset(335.279144, 300));
     final corner = geometry.pointAt(const Offset(400, 300));
     _expectOffset(corner.position, const Offset(390.302155, 300));
     expect(corner.z, closeTo(29.024744, 0.001));
     expect(corner.normalZ, closeTo(0.564629, 0.000001));
-    // 原生起卷让页角沿圆柱渐入，初期页角并不精确落到手指上。
+    // 起卷让页角沿圆柱渐入，初期页角并不精确落到手指上。
     expect(corner.position.dx, greaterThan(geometry.touch.dx + 10));
     _expectOffset(
       geometry.pointAt(const Offset(100, 120)).position,
@@ -178,11 +178,11 @@ void _testFlatPage() {
   });
 }
 
-void _testNativeScan() {
-  test('水平起卷按原生连续扫描顺序保留固定像素纹理坐标', () {
+void _testScan() {
+  test('水平起卷按连续扫描顺序保留固定像素纹理坐标', () {
     final geometry = _geometry(touch: const Offset(380, 300));
     expect(geometry.mesh.length, 18);
-    for (final entry in _nativeCenter20.entries) {
+    for (final entry in _expectedCenter20.entries) {
       _expectSample(geometry.mesh[entry.key], entry.value);
     }
     expect(geometry.dropShadow.length, 26);
@@ -191,15 +191,15 @@ void _testNativeScan() {
 }
 
 void _testCornerScan() {
-  test('上下角插点及法线符合原生网格', () {
+  test('上下角插点及法线符合网格', () {
     final cases = [
       (
         _geometry(grab: const Offset(400, 0), touch: const Offset(300, 120)),
-        _nativeUpper,
+        _expectedUpper,
       ),
       (
         _geometry(grab: const Offset(400, 600), touch: const Offset(300, 480)),
-        _nativeLower,
+        _expectedLower,
       ),
     ];
     for (final (geometry, expected) in cases) {
@@ -212,7 +212,7 @@ void _testCornerScan() {
 }
 
 void _testPageEdgeConstraint() {
-  test('触点越过上下边缘时采用原生页边方向约束', () {
+  test('触点越过上下边缘时采用页边方向约束', () {
     final upper = _geometry(
       grab: const Offset(400, 0),
       touch: const Offset(380, -40),
@@ -283,8 +283,8 @@ void _testBackwardAnchor() {
   });
 }
 
-void _testNativeShadows() {
-  test('两类阴影沿原生轮廓排序并包含最终半影与透明度', () {
+void _testReferenceShadows() {
+  test('两类阴影沿轮廓排序并包含最终半影与透明度', () {
     final geometry = _geometry();
     expect(geometry.mesh.length, 36);
     expect(geometry.dropShadow.length, 36);
@@ -359,7 +359,7 @@ double _projectedArea(List<Curl3dSample> triangle) {
 }
 
 void _testProjectionProfile() {
-  test('屏幕片元反查保留原 strip 的全部非退化三角形、UV 与完整法线', () {
+  test('屏幕片元反查保留三角形带的全部非退化三角形、UV 与完整法线', () {
     for (final (grab, touch) in [
       (const Offset(400, 300), const Offset(380, 300)),
       (const Offset(400, 300), const Offset(347, 300)),
@@ -437,11 +437,11 @@ void main() {
   _testFixedRadius();
   _testInitialCurl();
   _testFlatPage();
-  _testNativeScan();
+  _testScan();
   _testCornerScan();
   _testPageEdgeConstraint();
   _testLeftEdgeShrink();
   _testBackwardAnchor();
-  _testNativeShadows();
+  _testReferenceShadows();
   _testFiniteTopology();
 }

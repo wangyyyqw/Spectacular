@@ -364,7 +364,6 @@ const _stateValues = {
     'coverStack',
     'simulationBessel',
     'simulation3d',
-    'simulation3dNext',
     'scroll',
     'slideHorizontal',
     'none',

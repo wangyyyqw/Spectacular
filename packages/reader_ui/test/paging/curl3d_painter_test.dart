@@ -5,7 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/paging/curl3d_geometry.dart';
 import 'package:reader_ui/paging/curl3d_painter.dart';
-import 'package:reader_ui/paging/duokan_curl_shader.dart';
+import 'package:reader_ui/paging/curl3d_shader.dart';
 
 const _size = Size(400, 600);
 const _red = Color(0xFFFF0000);
@@ -66,7 +66,7 @@ Future<ByteData> _render(
   Color paperColor = _paper,
   double ratio = 1,
 }) async {
-  await DuokanCurlShader.load();
+  await Curl3dShader.load();
   final recorder = ui.PictureRecorder();
   Curl3dPainter(
     paperColor: paperColor,

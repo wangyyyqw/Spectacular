@@ -7,7 +7,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/position/location_anchor.dart';
-import 'package:reader_ui/paging/duokan_curl_shader.dart';
+import 'package:reader_ui/paging/curl3d_shader.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
@@ -358,7 +358,7 @@ void main() {
   });
 
   testWidgets('3D 起手等待着色器期间取消后不把旧页作为新任务截图', (tester) async {
-    await tester.runAsync(DuokanCurlShader.load);
+    await tester.runAsync(Curl3dShader.load);
     final session = await _openInputSession();
     addTearDown(session.dispose);
     final key = GlobalKey<PageTurnViewState>();

@@ -4,7 +4,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/paging/curl3d_geometry.dart';
 import 'package:reader_ui/paging/curl3d_painter.dart';
-import 'package:reader_ui/paging/duokan_curl_shader.dart';
+import 'package:reader_ui/paging/curl3d_shader.dart';
 
 /// 单独观察正式绘制入口的阴影，避免纸面遮住公共边上的漏画。
 class _ShadowGeometry extends Curl3dGeometry {
@@ -47,7 +47,7 @@ Future<void> verifyCurlShadowSeams({
   Size size = const Size(768, 830),
   double ratio = 1.75,
 }) async {
-  await DuokanCurlShader.load();
+  await Curl3dShader.load();
   final recorder = ui.PictureRecorder();
   Canvas(recorder).drawColor(const Color(0xFFFFFFFF), BlendMode.src);
   final picture = recorder.endRecording();

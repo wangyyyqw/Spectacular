@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_ui/paging/duokan_curl_shader.dart';
+import 'package:reader_ui/paging/curl3d_shader.dart';
 
 Future<ui.Image> _paper() async {
   final recorder = ui.PictureRecorder();
@@ -33,11 +33,11 @@ ui.FragmentShader _shader(
   List<double> normals, {
   Color background = const Color(0xFFFFFFFF),
 }) {
-  final shader = DuokanCurlShader.program!.fragmentShader();
+  final shader = Curl3dShader.program!.fragmentShader();
   // 引擎使用未初始化的 uniform 内存，夹具需明确设置阴影平面与边界。
   for (
     var index = 0;
-    index < DuokanCurlShader.shadowEdgesOffset + 12;
+    index < Curl3dShader.shadowEdgesOffset + 12;
     index++
   ) {
     shader.setFloat(index, 0);
@@ -64,7 +64,7 @@ ui.FragmentShader _shader(
     0,
     normals[0],
     normals[2],
-    for (var index = 1; index < DuokanCurlShader.profileCapacity; index++) ...[
+    for (var index = 1; index < Curl3dShader.profileCapacity; index++) ...[
       200,
       100,
       normals[3],
@@ -84,7 +84,7 @@ Future<ByteData> _render(
   List<double> normals, {
   Color background = const Color(0xFFFFFFFF),
 }) async {
-  await DuokanCurlShader.load();
+  await Curl3dShader.load();
   final shader = _shader(paper, normals, background: background);
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
@@ -109,11 +109,11 @@ Future<ByteData> _readPixels(ui.PictureRecorder recorder) async {
 }
 
 Future<ByteData> _renderShadow(int alphaIndex) async {
-  await DuokanCurlShader.load();
-  final shader = DuokanCurlShader.shadowProgram!.fragmentShader();
+  await Curl3dShader.load();
+  final shader = Curl3dShader.shadowProgram!.fragmentShader();
   for (
     var index = 0;
-    index < DuokanCurlShader.shadowTriangleCapacity * 16;
+    index < Curl3dShader.shadowTriangleCapacity * 16;
     index++
   ) {
     shader.setFloat(index, 0);
@@ -136,7 +136,7 @@ Future<ByteData> _renderShadow(int alphaIndex) async {
 }
 
 Future<ByteData> _renderPair(ui.Image paper) async {
-  await DuokanCurlShader.load();
+  await Curl3dShader.load();
   final shader = _shader(paper, [0, 0, 1, 0, 0, 1, 0, 0, 1]);
   final paint = Paint()..shader = shader;
   final vertices = ui.Vertices(ui.VertexMode.triangles, const [
@@ -163,8 +163,8 @@ List<int> _pixel(ByteData bytes, int x, int y) {
 }
 
 void main() {
-  testWidgets('阴影片元写回匹配原 GLES 透明度端点和敏感色阶', (tester) async {
-    // 原 CurlStatic 阴影 shader 的 RGBA8 读回；包含最近取整会误加一级的位置。
+  testWidgets('阴影片元写回匹配 GLES 透明度端点和敏感色阶', (tester) async {
+    // 阴影像素的 RGBA8 读回；包含最近取整会误加一级的位置。
     for (final swatch in {
       0: 0,
       1: 0,
@@ -187,7 +187,7 @@ void main() {
     const Color(0xFF123456): [16, 53, 82, 255],
     const Color(0xFF84A7C3): [132, 166, 197, 255],
   }.entries) {
-    testWidgets('RGB565 正面采样匹配原 GLES 色块 ${swatch.key}', (tester) async {
+    testWidgets('RGB565 正面采样匹配 GLES 色块 ${swatch.key}', (tester) async {
       final paper = (await tester.runAsync(() => _colorPaper(swatch.key)))!;
       addTearDown(paper.dispose);
       final bytes = (await tester.runAsync(
@@ -197,7 +197,7 @@ void main() {
     });
   }
 
-  testWidgets('纸背按原 GLES 的混色写回顺序取整', (tester) async {
+  testWidgets('纸背按混色写回顺序取整', (tester) async {
     final paper = (await tester.runAsync(
       () => _colorPaper(const Color(0xFF123456)),
     ))!;
@@ -215,7 +215,7 @@ void main() {
         -1,
       ], background: const Color(0xFFFFFDF4)),
     ))!;
-    // 原 GLSL + RGB565 多色色带，平直纸背、无阴影位置的实际读回值。
+    // GLSL + RGB565 多色色带，平直纸背、无阴影位置的实际读回值。
     expect(_pixel(bytes, 20, 20), [243, 245, 238, 255]);
   });
 

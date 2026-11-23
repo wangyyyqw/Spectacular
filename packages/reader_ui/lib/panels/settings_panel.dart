@@ -26,7 +26,7 @@ import '../theme/reader_frosted_surface.dart';
 
 export 'font_picker_sheet.dart' show ReaderFontOption;
 
-/// 阅读设置默认值（P4-21，与 Reeden/阅微的默认一致）。
+/// 阅读设置默认值（P4-21）。
 abstract final class ReaderSettingsDefaults {
   /// 字号。
   static const double fontSize = 17;
@@ -241,7 +241,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
     PageTurnMode.cover,
     PageTurnMode.simulationBessel,
     PageTurnMode.simulation3d,
-    PageTurnMode.simulation3dNext,
     PageTurnMode.continuation,
     PageTurnMode.scroll,
     PageTurnMode.slideHorizontal,
@@ -1349,7 +1348,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     PageTurnMode.coverStack => '堆叠',
     PageTurnMode.cover => '覆盖',
     PageTurnMode.simulationBessel => '仿真',
-    PageTurnMode.simulation3d || PageTurnMode.simulation3dNext => mode.label,
+    PageTurnMode.simulation3d => mode.label,
     PageTurnMode.continuation => '接续',
     PageTurnMode.scroll => '滚动',
     PageTurnMode.slideHorizontal => '滑动',

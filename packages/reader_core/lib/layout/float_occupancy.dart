@@ -3,7 +3,7 @@ import 'dart:ui' show Rect;
 /// 浮动方向。
 enum FloatSide { left, right }
 
-/// 一个浮动元素在文档坐标中占据的区域（P3-12，技术方案 §48.1 阅微模型）。
+/// 一个浮动元素在文档坐标中占据的区域。
 class BoxOccupied {
   const BoxOccupied({
     required this.rect,

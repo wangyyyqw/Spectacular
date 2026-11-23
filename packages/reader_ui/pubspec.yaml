@@ -26,8 +26,8 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   shaders:
-    - shaders/duokan_curl.frag
-    - shaders/duokan_shadow.frag
+    - shaders/curl3d_sheet.frag
+    - shaders/curl3d_shadow.frag
 
   # To add assets to your package, add an assets section, like this:
   # assets:

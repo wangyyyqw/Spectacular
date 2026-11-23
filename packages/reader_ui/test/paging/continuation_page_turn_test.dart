@@ -306,7 +306,7 @@ void main() {
 
   test('中文宋体在真机字号和行距下仍逐行接续', () async {
     final font = await File(
-      '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
+      '../../apps/reader_mobile/assets/fonts/MoyuSerif-Regular.otf',
     ).readAsBytes();
     final loader = FontLoader('接续宋体回归')
       ..addFont(Future.value(ByteData.sublistView(font)));

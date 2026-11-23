@@ -2,8 +2,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 
-/// 多看单页卷曲的片元着色器；起手前完成加载，在屏幕片元内反查纸面与法线。
-class DuokanCurlShader {
+/// 单页卷曲的片元着色器；起手前完成加载，在屏幕片元内反查纸面与法线。
+class Curl3dShader {
   static const profileOffset = 17;
   static const profileCapacity = 24;
   static const shadowPlaneOffset = profileOffset + profileCapacity * 4;
@@ -25,13 +25,13 @@ class DuokanCurlShader {
   static Future<ui.FragmentProgram> _load() async {
     try {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-      const packaged = 'packages/reader_ui/shaders/duokan_curl.frag';
+      const packaged = 'packages/reader_ui/shaders/curl3d_sheet.frag';
       final asset = manifest.listAssets().contains(packaged)
           ? packaged
-          : 'shaders/duokan_curl.frag';
+          : 'shaders/curl3d_sheet.frag';
       final shadowAsset = asset.replaceFirst(
-        'duokan_curl.frag',
-        'duokan_shadow.frag',
+        'curl3d_sheet.frag',
+        'curl3d_shadow.frag',
       );
       _shadowProgram = await ui.FragmentProgram.fromAsset(shadowAsset);
       return _program = await ui.FragmentProgram.fromAsset(asset);

@@ -562,8 +562,7 @@ BlockFlow createFlowBox({
 
 /// 绝对/固定定位盒：按容器约束独立测量，不占流高度（§60.2 第 1 条）。
 ///
-/// 阅微这里按 `position: absolute` 的 computed width 新建容器约束；我们还未解析
-/// `width`，先用容器约束，等宽度解析接入后再换成自身宽度。
+/// 当前使用传入的容器约束；此分支不单独应用元素的 computed width。
 class AbsoluteFlowBlock extends BlockFlow {
   /// 包裹内容盒。
   AbsoluteFlowBlock(this.content);
