@@ -47,6 +47,12 @@ import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
 import 'reader_font_store.dart';
+import 'reader_tts_controller.dart';
+import 'reader_offline_tts.dart';
+import 'reader_tts_voice_store.dart';
+import 'reader_tts_voice_page.dart';
+
+import 'package:reader_ui/theme/reader_dropdown.dart';
 
 /// 默认阅读设置：段距 10dp，16dp 字号下约为 0.625em。
 ///
@@ -91,12 +97,16 @@ class EpubReaderPage extends StatefulWidget {
     this.book,
     this.reviewStore,
     this.dictionaryStore,
+    this.ttsVoiceStore,
   });
 
   final BookEditRepository? bookEditorRepository;
   final BookEntry? book;
   final BookReviewStore? reviewStore;
   final DictionaryStore? dictionaryStore;
+
+  /// 可注入的离线音色仓库；为空时由阅读页创建。
+  final ReaderTtsVoiceStore? ttsVoiceStore;
 
   /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
   final Uint8List? bytes;
@@ -264,6 +274,443 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     unawaited(scope.onModeChanged(dark ? ThemeMode.light : ThemeMode.dark));
   }
 
+  Future<void> _toggleTts() async {
+    final controller = _ttsController;
+    if (controller?.speaking == true) {
+      await controller?.stop();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('已暂停听书')));
+      }
+      return;
+    }
+    final session = _readerSession;
+    if (session == null || !session.hasContent) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('正文尚未准备好')));
+      }
+      return;
+    }
+    final settings = await _showTtsSettings();
+    if (settings == null || !mounted) return;
+    _changeSettings(_settings.copyWithTts(settings));
+    if (_readerSession?.currentText.trim().isEmpty != false) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('当前页没有可朗读的文字')));
+      return;
+    }
+    unawaited(_ensureTtsController().start(settings));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('开始听书，再点一次暂停')));
+  }
+
+  Future<ReaderTtsSettings?> _showTtsSettings() async {
+    final systemVoices = await loadReaderTtsVoices();
+    final store = _ensureTtsVoiceStore();
+    var installedVoices = await store.listInstalled();
+    var availableVoices = await store.availableVoices();
+    if (!mounted) return null;
+    var draft = _settings.tts;
+    if (draft.hasVoice &&
+        !systemVoices.any(
+          (voice) =>
+              voice.name == draft.voiceName &&
+              voice.locale == draft.voiceLocale,
+        )) {
+      draft = draft.copyWith(voiceName: '', voiceLocale: '');
+    }
+    if (installedVoices.isNotEmpty &&
+        !installedVoices.any((voice) => voice.id == draft.narratorVoiceId)) {
+      draft = draft.copyWith(narratorVoiceId: installedVoices.first.id);
+    }
+    if (draft.dialogueVoiceId.isNotEmpty &&
+        !installedVoices.any((voice) => voice.id == draft.dialogueVoiceId)) {
+      draft = draft.copyWith(dialogueVoiceId: '');
+    }
+    if (draft.dialogueVoiceId == draft.narratorVoiceId) {
+      draft = draft.copyWith(dialogueVoiceId: '');
+    }
+    return showModalBottomSheet<ReaderTtsSettings>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          ReaderOfflineVoice? selectedNarrator;
+          for (final voice in installedVoices) {
+            if (voice.id == draft.narratorVoiceId) {
+              selectedNarrator = voice;
+              break;
+            }
+          }
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              24 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text('听书设置', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                SegmentedButton<ReaderTtsMode>(
+                  segments: const <ButtonSegment<ReaderTtsMode>>[
+                    ButtonSegment<ReaderTtsMode>(
+                      value: ReaderTtsMode.system,
+                      label: Text('系统语音'),
+                      icon: Icon(Icons.record_voice_over_outlined),
+                    ),
+                    ButtonSegment<ReaderTtsMode>(
+                      value: ReaderTtsMode.offline,
+                      label: Text('离线伴听'),
+                      icon: Icon(Icons.offline_bolt_outlined),
+                    ),
+                  ],
+                  selected: <ReaderTtsMode>{draft.mode},
+                  onSelectionChanged: (selection) {
+                    setSheetState(
+                      () => draft = draft.copyWith(mode: selection.first),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (draft.mode == ReaderTtsMode.system) ...<Widget>[
+                  if (systemVoices.isNotEmpty) ...<Widget>[
+                    ReaderDropdownButtonFormField<String>(
+                      key: ValueKey<String>(
+                        'tts-voice-${draft.voiceName}-${draft.voiceLocale}',
+                      ),
+                      initialValue: draft.hasVoice
+                          ? '${draft.voiceName}|${draft.voiceLocale}'
+                          : '',
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: '音色'),
+                      items: <DropdownMenuItem<String>>[
+                        const DropdownMenuItem<String>(
+                          value: '',
+                          child: Text('系统默认音色'),
+                        ),
+                        for (final voice in systemVoices)
+                          DropdownMenuItem<String>(
+                            value: voice.key,
+                            child: Text(
+                              voice.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        if (value.isEmpty) {
+                          setSheetState(
+                            () => draft = draft.copyWith(
+                              voiceName: '',
+                              voiceLocale: '',
+                            ),
+                          );
+                          return;
+                        }
+                        final voice = systemVoices.firstWhere(
+                          (item) => item.key == value,
+                          orElse: () => systemVoices.first,
+                        );
+                        setSheetState(
+                          () => draft = draft.copyWith(
+                            voiceName: voice.name,
+                            voiceLocale: voice.locale,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  _TtsSlider(
+                    label: '语速',
+                    value: draft.rate,
+                    min: 0.2,
+                    max: 1,
+                    onChanged: (value) => setSheetState(
+                      () => draft = draft.copyWith(rate: value),
+                    ),
+                  ),
+                  _TtsSlider(
+                    label: '音调',
+                    value: draft.pitch,
+                    min: 0.5,
+                    max: 2,
+                    onChanged: (value) => setSheetState(
+                      () => draft = draft.copyWith(pitch: value),
+                    ),
+                  ),
+                ] else if (installedVoices.isEmpty) ...<Widget>[
+                  Text(
+                    '尚未下载离线音色。下载后可使用离线伴听，'
+                    '模型较大，建议连接 Wi-Fi。',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ReaderTtsVoiceLibraryPage(
+                            store: store,
+                            voices: availableVoices,
+                          ),
+                        ),
+                      );
+                      if (!context.mounted) return;
+                      final installed = await store.listInstalled();
+                      final available = await store.availableVoices();
+                      if (!context.mounted) return;
+                      setSheetState(() {
+                        installedVoices = installed;
+                        availableVoices = available;
+                        if (installed.isNotEmpty) {
+                          draft = draft.copyWith(
+                            narratorVoiceId: installed.first.id,
+                          );
+                        }
+                      });
+                    },
+                    icon: const Icon(Icons.download_outlined),
+                    label: const Text('管理离线音色'),
+                  ),
+                ] else ...<Widget>[
+                  ReaderDropdownButtonFormField<String>(
+                    key: ValueKey<String>(
+                      'tts-narrator-${draft.narratorVoiceId}',
+                    ),
+                    initialValue: draft.narratorVoiceId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '旁白音色'),
+                    items: <DropdownMenuItem<String>>[
+                      for (final voice in installedVoices)
+                        DropdownMenuItem<String>(
+                          value: voice.id,
+                          child: Text(
+                            voice.displayName,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setSheetState(
+                        () => draft = draft.copyWith(
+                          narratorVoiceId: value,
+                          dialogueVoiceId: draft.dialogueVoiceId == value
+                              ? ''
+                              : draft.dialogueVoiceId,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  ReaderDropdownButtonFormField<String>(
+                    key: ValueKey<String>(
+                      'tts-dialogue-${draft.dialogueVoiceId}',
+                    ),
+                    initialValue: draft.dialogueVoiceId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '对白音色'),
+                    items: <DropdownMenuItem<String>>[
+                      const DropdownMenuItem<String>(
+                        value: '',
+                        child: Text('跟随旁白'),
+                      ),
+                      for (final voice in installedVoices)
+                        if (voice.id != draft.narratorVoiceId)
+                          DropdownMenuItem<String>(
+                            value: voice.id,
+                            child: Text(
+                              voice.displayName,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setSheetState(
+                        () => draft = draft.copyWith(dialogueVoiceId: value),
+                      );
+                    },
+                  ),
+                  _TtsSlider(
+                    label: '旁白语速',
+                    value: draft.narratorSpeed,
+                    min: 0.5,
+                    max: 2,
+                    onChanged: (value) => setSheetState(
+                      () => draft = draft.copyWith(narratorSpeed: value),
+                    ),
+                  ),
+                  _TtsSlider(
+                    label: '对白语速',
+                    value: draft.dialogueSpeed,
+                    min: 0.5,
+                    max: 2,
+                    onChanged: (value) => setSheetState(
+                      () => draft = draft.copyWith(dialogueSpeed: value),
+                    ),
+                  ),
+                  if ((selectedNarrator?.speakerCount ?? 1) > 1) ...[
+                    ReaderDropdownButtonFormField<int>(
+                      key: ValueKey<int>(draft.narratorSpeakerId),
+                      initialValue: draft.narratorSpeakerId.clamp(
+                        0,
+                        (selectedNarrator?.speakerCount ?? 1) - 1,
+                      ),
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: '旁白说话人'),
+                      items: <DropdownMenuItem<int>>[
+                        for (
+                          var index = 0;
+                          index < (selectedNarrator?.speakerCount ?? 1);
+                          index++
+                        )
+                          DropdownMenuItem<int>(
+                            value: index,
+                            child: Text('说话人 ${index + 1}'),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setSheetState(
+                          () =>
+                              draft = draft.copyWith(narratorSpeakerId: value),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        await Navigator.of(context).push<void>(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ReaderTtsVoiceLibraryPage(
+                              store: store,
+                              voices: availableVoices,
+                            ),
+                          ),
+                        );
+                        if (!context.mounted) return;
+                        final installed = await store.listInstalled();
+                        final available = await store.availableVoices();
+                        if (!context.mounted) return;
+                        setSheetState(() {
+                          installedVoices = installed;
+                          availableVoices = available;
+                          if (!installed.any(
+                            (voice) => voice.id == draft.narratorVoiceId,
+                          )) {
+                            draft = draft.copyWith(
+                              narratorVoiceId: installed.isEmpty
+                                  ? ''
+                                  : installed.first.id,
+                            );
+                          }
+                          if (!installed.any(
+                            (voice) => voice.id == draft.dialogueVoiceId,
+                          )) {
+                            draft = draft.copyWith(dialogueVoiceId: '');
+                          }
+                          if (draft.dialogueVoiceId == draft.narratorVoiceId) {
+                            draft = draft.copyWith(dialogueVoiceId: '');
+                          }
+                        });
+                      },
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('管理离线音色'),
+                    ),
+                  ),
+                ],
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('读完后自动翻页'),
+                  value: draft.autoTurnPage,
+                  onChanged: (value) => setSheetState(
+                    () => draft = draft.copyWith(autoTurnPage: value),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  key: const ValueKey<String>('tts-start'),
+                  onPressed: () {
+                    if (draft.mode == ReaderTtsMode.offline &&
+                        !draft.hasOfflineVoice) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('请先下载并选择离线旁白音色')),
+                      );
+                      return;
+                    }
+                    Navigator.of(context).pop(draft);
+                  },
+                  icon: const Icon(Icons.headphones),
+                  label: const Text('开始朗读'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  ReaderTtsController _ensureTtsController() {
+    final existing = _ttsController;
+    if (existing != null) return existing;
+    final voiceStore = _ensureTtsVoiceStore();
+    final controller = ReaderTtsController(
+      textProvider: () async => _readerSession?.currentText ?? '',
+      nextPage: () async => await _readerSession?.next() ?? false,
+      offlineSynthesizer: const SherpaReaderOfflineTtsSynthesizer(),
+      player: AudioplayersReaderTtsPlayer(),
+      resolveOfflineVoice: (id) async {
+        final model = await voiceStore.modelFor(id);
+        if (model == null) return null;
+        return ReaderOfflineVoiceInstance(
+          id: id,
+          rootPath: await voiceStore.localPathFor(id),
+          model: model,
+        );
+      },
+    );
+    controller.onError = (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('听书失败：$error')));
+    };
+    controller.onFallback = (message) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    };
+    _ttsController = controller;
+    return controller;
+  }
+
+  ReaderTtsVoiceStore _ensureTtsVoiceStore() {
+    final existing = _ttsVoiceStore;
+    if (existing != null) return existing;
+    final injected = widget.ttsVoiceStore;
+    if (injected != null) {
+      _ttsVoiceStore = injected;
+      _ownsTtsVoiceStore = false;
+      return injected;
+    }
+    final created = ReaderTtsVoiceStore();
+    _ttsVoiceStore = created;
+    _ownsTtsVoiceStore = true;
+    return created;
+  }
+
   @override
   void didUpdateWidget(covariant EpubReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -309,6 +756,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   ReaderSession? _readerSession;
+  ReaderTtsController? _ttsController;
+  ReaderTtsVoiceStore? _ttsVoiceStore;
+  bool _ownsTtsVoiceStore = false;
   late final Future<EpubChapterSource> _sourceTask;
   Future<void Function()>? _anchorBinding;
   Future<void>? _sourceCloseTask;
@@ -485,9 +935,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
         unawaited(tracker?.pause() ?? Future<void>.value());
+        unawaited(_ttsController?.stop() ?? Future<void>.value());
         _flushProgressInBackground();
       case AppLifecycleState.detached:
         unawaited(tracker?.finish() ?? Future<void>.value());
+        unawaited(_ttsController?.stop() ?? Future<void>.value());
         _flushProgressInBackground();
     }
   }
@@ -532,6 +984,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final onClosed = widget.onClosed;
     session?.removeListener(_syncReadingStats);
     _readerSession = null;
+    unawaited(_ttsController?.dispose() ?? Future<void>.value());
+    _ttsController = null;
+    if (_ownsTtsVoiceStore) _ttsVoiceStore?.close();
+    _ttsVoiceStore = null;
     WidgetsBinding.instance.removeObserver(this);
     _search?.dispose();
     _imageCache?.clear();
@@ -682,6 +1138,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onVolumeKeyPagingChanged: (enabled) =>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
+      onTts: _toggleTts,
       onBookEnd: _openFinishPage,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
       onChapterRules: _canRechapter ? _openChapterRules : null,
@@ -899,6 +1356,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   void _bindReaderSession(ReaderSession session) {
+    unawaited(_ttsController?.stop() ?? Future<void>.value());
     _readerSession?.removeListener(_syncReadingStats);
     _readerSession = session;
     _trackedPageTurns = session.pageTurns;
@@ -963,6 +1421,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       _readingTracker?.start();
     } else {
       unawaited(_readingTracker?.pause() ?? Future<void>.value());
+      unawaited(_ttsController?.stop() ?? Future<void>.value());
     }
   }
 
@@ -1005,3 +1464,38 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 /// 路径兼容与归档解压统一交给书籍资源，解压不再占用阅读界面线程。
 Future<Uint8List?> _loadImageBytes(EpubChapterSource source, String url) =>
     source.readImageBytes(url);
+
+class _TtsSlider extends StatelessWidget {
+  const _TtsSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: <Widget>[
+      SizedBox(width: label.length > 2 ? 72 : 42, child: Text(label)),
+      Expanded(
+        child: Slider(
+          value: value.clamp(min, max),
+          min: min,
+          max: max,
+          onChanged: onChanged,
+        ),
+      ),
+      SizedBox(
+        width: 42,
+        child: Text(value.toStringAsFixed(2), textAlign: TextAlign.end),
+      ),
+    ],
+  );
+}

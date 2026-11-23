@@ -45,6 +45,19 @@ python3 tool/subset_bundled_fonts.py \
 
 脚本验证上游 SHA-256、保留码点清单、每个保留字符的字形边界及横竖度量。字体与派生文件均遵守 [OFL 1.1](apps/reader_mobile/assets/fonts/LICENSE.txt)，许可随源码和应用资源分发。`test_fonts/` 和 `assets/test_fonts/` 中的测试字库不作为正式 APK 资产打包。
 
+## 听书组件与音色
+
+系统朗读通过 [flutter_tts](https://pub.dev/packages/flutter_tts) 调用设备引擎；离线合成使用 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)，音频播放使用 [audioplayers](https://pub.dev/packages/audioplayers)。依赖版本固定在应用的 `pubspec.lock`，各组件遵守上游许可证。
+
+超文、小雅音色原包取自 [sherpa-onnx 音色发布页](https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models)，应用从项目上传的 Streamshare 链接按需下载并校验 SHA-256，模型不随仓库或 APK 内置。下载包中的模型卡及许可文件原样保留，项目的 Apache 2.0 许可不覆盖这些模型。
+
+| 音色 | 下载地址 | 原包 SHA-256 |
+| --- | --- | --- |
+| 超文 | [Streamshare](https://streamshare.wireway.ch/download/9wqtzm51) | `1b69bdcf10bb6331c7f8a7591940febeb175c6bb86caa3802d96531f8e4ad211` |
+| 小雅 | [Streamshare](https://streamshare.wireway.ch/download/fyhe1qeg) | `9396a3dffbb95b037acaa18094500f58d0db9a7c4f2689554e2539717cf0db65` |
+
+超文模型卡声明数据集为 CC0，并注明从小雅音色微调；小雅模型卡声明数据集限非商业用途。使用或再分发模型时应核对完整上游条款，不能把整个模型视为项目自有的 Apache 2.0 资源。
+
 ## EPUB 兼容标记
 
 源码与合成测试中的厂商 CSS 前缀、OPF 属性、脚注类名及数据属性属于输入文件格式。为继续读取已有 EPUB，这些协议字符串和对应转换功能按原样保留。它们不表示与相关产品存在隶属、合作或背书关系。

@@ -15,6 +15,201 @@ import 'package:reader_ui/tap_zones.dart';
 
 import '../library/library_store.dart';
 
+/// 听书使用的语音引擎。
+enum ReaderTtsMode {
+  /// 系统语音引擎。
+  system,
+
+  /// 离线伴听引擎。
+  offline;
+
+  /// 从持久化值解析；旧设置默认系统语音。
+  static ReaderTtsMode fromId(String? value) =>
+      value == offline.name ? offline : system;
+}
+
+/// 听书偏好。
+class ReaderTtsSettings {
+  /// 创建听书偏好。
+  const ReaderTtsSettings({
+    this.mode = ReaderTtsMode.system,
+    this.rate = 0.5,
+    this.pitch = 1,
+    this.volume = 1,
+    this.autoTurnPage = true,
+    this.voiceName = '',
+    this.voiceLocale = '',
+    this.narratorVoiceId = '',
+    this.dialogueVoiceId = '',
+    this.narratorSpeed = 1,
+    this.dialogueSpeed = 1,
+    this.narratorSpeakerId = 0,
+  });
+
+  /// 语音引擎。
+  final ReaderTtsMode mode;
+
+  /// 语速（0～1，平台默认正常语速约为 0.5）。
+  final double rate;
+
+  /// 音调。
+  final double pitch;
+
+  /// 音量。
+  final double volume;
+
+  /// 读完当前页后是否自动翻页。
+  final bool autoTurnPage;
+
+  /// 选中的系统音色名称；为空时使用系统默认音色。
+  final String voiceName;
+
+  /// 选中音色的语言区域。
+  final String voiceLocale;
+
+  /// 离线旁白音色标识。
+  final String narratorVoiceId;
+
+  /// 离线对白音色标识；为空时跟随旁白。
+  final String dialogueVoiceId;
+
+  /// 离线旁白语速（1 为模型原始语速）。
+  final double narratorSpeed;
+
+  /// 离线对白语速（1 为模型原始语速）。
+  final double dialogueSpeed;
+
+  /// 多说话人音色的旁白说话人编号。
+  final int narratorSpeakerId;
+
+  /// 是否选择了明确的系统音色。
+  bool get hasVoice =>
+      voiceName.trim().isNotEmpty && voiceLocale.trim().isNotEmpty;
+
+  /// 是否选择了离线旁白音色。
+  bool get hasOfflineVoice => narratorVoiceId.trim().isNotEmpty;
+
+  /// 默认听书偏好。
+  static const ReaderTtsSettings defaults = ReaderTtsSettings();
+
+  /// 复制并替换指定字段。
+  ReaderTtsSettings copyWith({
+    ReaderTtsMode? mode,
+    double? rate,
+    double? pitch,
+    double? volume,
+    bool? autoTurnPage,
+    String? voiceName,
+    String? voiceLocale,
+    String? narratorVoiceId,
+    String? dialogueVoiceId,
+    double? narratorSpeed,
+    double? dialogueSpeed,
+    int? narratorSpeakerId,
+  }) => ReaderTtsSettings(
+    mode: mode ?? this.mode,
+    rate: rate ?? this.rate,
+    pitch: pitch ?? this.pitch,
+    volume: volume ?? this.volume,
+    autoTurnPage: autoTurnPage ?? this.autoTurnPage,
+    voiceName: voiceName ?? this.voiceName,
+    voiceLocale: voiceLocale ?? this.voiceLocale,
+    narratorVoiceId: narratorVoiceId ?? this.narratorVoiceId,
+    dialogueVoiceId: dialogueVoiceId ?? this.dialogueVoiceId,
+    narratorSpeed: narratorSpeed ?? this.narratorSpeed,
+    dialogueSpeed: dialogueSpeed ?? this.dialogueSpeed,
+    narratorSpeakerId: narratorSpeakerId ?? this.narratorSpeakerId,
+  );
+
+  /// 从 JSON 还原。
+  factory ReaderTtsSettings.fromJson(Map<String, Object?> json) =>
+      ReaderTtsSettings(
+        mode: ReaderTtsMode.fromId(
+          json['mode'] is String ? json['mode']! as String : null,
+        ),
+        rate: _double(json['rate'], defaults.rate).clamp(0.1, 1),
+        pitch: _double(json['pitch'], defaults.pitch).clamp(0.5, 2),
+        volume: _double(json['volume'], defaults.volume).clamp(0, 1),
+        autoTurnPage: json['autoTurnPage'] is bool
+            ? json['autoTurnPage']! as bool
+            : defaults.autoTurnPage,
+        voiceName: json['voiceName'] is String
+            ? json['voiceName']! as String
+            : defaults.voiceName,
+        voiceLocale: json['voiceLocale'] is String
+            ? json['voiceLocale']! as String
+            : defaults.voiceLocale,
+        narratorVoiceId: json['narratorVoiceId'] is String
+            ? json['narratorVoiceId']! as String
+            : defaults.narratorVoiceId,
+        dialogueVoiceId: json['dialogueVoiceId'] is String
+            ? json['dialogueVoiceId']! as String
+            : defaults.dialogueVoiceId,
+        narratorSpeed: _double(
+          json['narratorSpeed'],
+          defaults.narratorSpeed,
+        ).clamp(0.5, 2),
+        dialogueSpeed: _double(
+          json['dialogueSpeed'],
+          defaults.dialogueSpeed,
+        ).clamp(0.5, 2),
+        narratorSpeakerId: json['narratorSpeakerId'] is int
+            ? (json['narratorSpeakerId']! as int).clamp(0, 999)
+            : defaults.narratorSpeakerId,
+      );
+
+  /// 序列化。
+  Map<String, Object?> toJson() => <String, Object?>{
+    'mode': mode.name,
+    'rate': rate,
+    'pitch': pitch,
+    'volume': volume,
+    'autoTurnPage': autoTurnPage,
+    'voiceName': voiceName,
+    'voiceLocale': voiceLocale,
+    'narratorVoiceId': narratorVoiceId,
+    'dialogueVoiceId': dialogueVoiceId,
+    'narratorSpeed': narratorSpeed,
+    'dialogueSpeed': dialogueSpeed,
+    'narratorSpeakerId': narratorSpeakerId,
+  };
+
+  static double _double(Object? value, double fallback) =>
+      value is num ? value.toDouble() : fallback;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReaderTtsSettings &&
+      other.mode == mode &&
+      other.rate == rate &&
+      other.pitch == pitch &&
+      other.volume == volume &&
+      other.autoTurnPage == autoTurnPage &&
+      other.voiceName == voiceName &&
+      other.voiceLocale == voiceLocale &&
+      other.narratorVoiceId == narratorVoiceId &&
+      other.dialogueVoiceId == dialogueVoiceId &&
+      other.narratorSpeed == narratorSpeed &&
+      other.dialogueSpeed == dialogueSpeed &&
+      other.narratorSpeakerId == narratorSpeakerId;
+
+  @override
+  int get hashCode => Object.hash(
+    mode,
+    rate,
+    pitch,
+    volume,
+    autoTurnPage,
+    voiceName,
+    voiceLocale,
+    narratorVoiceId,
+    dialogueVoiceId,
+    narratorSpeed,
+    dialogueSpeed,
+    narratorSpeakerId,
+  );
+}
+
 /// 阅读排版与主题设置（P4-21）：持久化在 settings 表。
 class ReaderSettings {
   /// 创建设置。
@@ -39,6 +234,7 @@ class ReaderSettings {
     this.volumeKeyPaging = false,
     this.markSettings = const ReaderMarkSettings(),
     this.bookmarkStyle = const ReaderBookmarkStyle(),
+    this.tts = ReaderTtsSettings.defaults,
   });
 
   /// 字号。
@@ -102,6 +298,9 @@ class ReaderSettings {
   /// 阅读页右上角书签的全局外观。
   final ReaderBookmarkStyle bookmarkStyle;
 
+  /// 听书偏好。
+  final ReaderTtsSettings tts;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -147,6 +346,7 @@ class ReaderSettings {
     bool volumeKeyPaging = false,
     ReaderMarkSettings markSettings = const ReaderMarkSettings(),
     ReaderBookmarkStyle bookmarkStyle = const ReaderBookmarkStyle(),
+    ReaderTtsSettings tts = ReaderTtsSettings.defaults,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -168,6 +368,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -194,6 +395,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -218,6 +420,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换主题。
@@ -244,6 +447,7 @@ class ReaderSettings {
       volumeKeyPaging: volumeKeyPaging,
       markSettings: markSettings,
       bookmarkStyle: bookmarkStyle,
+      tts: tts,
     );
   }
 
@@ -269,6 +473,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换墨水屏开关。
@@ -293,6 +498,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换页边距。
@@ -317,6 +523,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 修改四角显示，保留全部阅读偏好。
@@ -341,6 +548,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -365,6 +573,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换翻页方式。
@@ -389,6 +598,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换屏幕常亮开关。
@@ -413,6 +623,7 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换音量键翻页开关。
@@ -437,6 +648,7 @@ class ReaderSettings {
     volumeKeyPaging: enabled,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 修改划线偏好，保留全部正文排版与阅读交互设置。
@@ -462,6 +674,7 @@ class ReaderSettings {
         volumeKeyPaging: volumeKeyPaging,
         markSettings: value,
         bookmarkStyle: bookmarkStyle,
+        tts: tts,
       );
 
   /// 修改书签样式，保留全部正文排版与阅读交互设置。
@@ -487,7 +700,33 @@ class ReaderSettings {
         volumeKeyPaging: volumeKeyPaging,
         markSettings: markSettings,
         bookmarkStyle: value,
+        tts: tts,
       );
+
+  /// 修改听书偏好，保留全部正文排版与阅读交互设置。
+  ReaderSettings copyWithTts(ReaderTtsSettings value) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    inkMode: inkMode,
+    cornerInfo: cornerInfo,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
+    tts: value,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -511,7 +750,8 @@ class ReaderSettings {
       other.keepScreenOn == keepScreenOn &&
       other.volumeKeyPaging == volumeKeyPaging &&
       other.markSettings == markSettings &&
-      other.bookmarkStyle == bookmarkStyle;
+      other.bookmarkStyle == bookmarkStyle &&
+      other.tts == tts;
 
   @override
   int get hashCode => Object.hash(
@@ -534,7 +774,7 @@ class ReaderSettings {
     keepScreenOn,
     volumeKeyPaging,
     markSettings,
-    bookmarkStyle,
+    Object.hash(bookmarkStyle, tts),
   );
 }
 
@@ -566,6 +806,9 @@ class ReaderSettingsStore {
   static const String keyKeepScreenOn = 'reader.keepScreenOn';
   static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
   static const String keyBookmarkStyle = 'reader.bookmarkStyle';
+
+  /// 听书偏好（JSON）。
+  static const String keyTts = 'reader.tts';
   static const String keyMarkLastColor = 'reader.mark.lastColor';
   static const String keyMarkLastStyle = 'reader.mark.lastStyle';
   static const String keyMarkStrokeWidth = 'reader.mark.strokeWidth';
@@ -616,6 +859,7 @@ class ReaderSettingsStore {
       volumeKeyPaging:
           (await _library.getSetting(keyVolumeKeyPaging)) == 'true',
       markSettings: await _loadMarkSettings(),
+      tts: _readTts(await _library.getSetting(keyTts)),
       bookmarkStyle: _readBookmarkStyle(
         await _library.getSetting(keyBookmarkStyle),
       ),
@@ -652,6 +896,18 @@ class ReaderSettingsStore {
       return ReaderTapZones.fromJson(jsonDecode(raw));
     } catch (_) {
       return ReaderTapZones.defaults;
+    }
+  }
+
+  static ReaderTtsSettings _readTts(String? raw) {
+    if (raw == null || raw.isEmpty) return ReaderTtsSettings.defaults;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, Object?>
+          ? ReaderTtsSettings.fromJson(value)
+          : ReaderTtsSettings.defaults;
+    } catch (_) {
+      return ReaderTtsSettings.defaults;
     }
   }
 
@@ -770,6 +1026,7 @@ class ReaderSettingsStore {
       keyBookmarkStyle,
       jsonEncode(settings.bookmarkStyle.toJson()),
     );
+    await _library.setSetting(keyTts, jsonEncode(settings.tts.toJson()));
     final mark = settings.markSettings;
     final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff
         ? mark.lastColor

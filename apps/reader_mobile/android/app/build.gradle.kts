@@ -27,6 +27,10 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 发布脚本只构建 arm64，离线语音库也只保留相同架构。
+        if (project.findProperty("target-platform") == "android-arm64") {
+            ndk.abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {

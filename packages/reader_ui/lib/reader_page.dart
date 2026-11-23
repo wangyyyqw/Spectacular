@@ -147,6 +147,7 @@ class ReaderPage extends StatefulWidget {
     this.onInkModeChanged,
     this.onSearch,
     this.onSessionReady,
+    this.onTts,
     this.onBookEnd,
     this.editMode = false,
     this.onEditTarget,
@@ -326,6 +327,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
+
+  /// 打开或停止听书，由宿主管理平台语音。
+  final VoidCallback? onTts;
 
   final void Function(ReaderSession session, bool rtl)? onBookEnd;
 
@@ -2991,6 +2995,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             // 沉浸式菜单（设计稿 .menu-top / .menu-bottom / .drawer）。
             ReaderMenuOverlay(
+              onTts: widget.onTts,
               open: _menuOpen,
               theme: _effectiveTheme,
               bookTitle: widget.bookTitle,

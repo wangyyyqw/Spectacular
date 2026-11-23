@@ -56,7 +56,8 @@ void main() {
     expect(legacy.themeForBrightness(Brightness.light), ReaderTheme.sepia);
     expect(legacy.themeForBrightness(Brightness.dark), ReaderTheme.black);
 
-    final settings = legacy.copyWithTheme('moss');
+    const tts = ReaderTtsSettings(rate: 0.7, autoTurnPage: false);
+    final settings = legacy.copyWithTheme('moss').copyWithTts(tts);
     for (final changed in [
       settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 22)),
       settings.copyWithFont(ReaderSettingsDefaults.fontSong),
@@ -69,10 +70,12 @@ void main() {
       settings.copyWithKeepScreenOn(true),
       settings.copyWithVolumeKeyPaging(true),
       settings.copyWithMarkSettings(settings.markSettings),
+      settings.copyWithBookmarkStyle(settings.bookmarkStyle),
     ]) {
       await store.save(changed);
       final reloaded = await store.load();
       expect(reloaded, changed);
+      expect(reloaded.tts, tts);
       expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.sepia);
       expect(reloaded.themeForBrightness(Brightness.dark), ReaderTheme.moss);
     }

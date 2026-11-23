@@ -37,7 +37,7 @@ fi
     ../../tool/generate_release_plugins.dart "$flutter_sdk"
   cd android
   ./gradlew ${cache_option:+"$cache_option"} --console=plain :app:assembleRelease \
-    -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
+    -Ptarget-platform=android-arm64 -Pdisable-abi-filtering=true -Ptarget=lib/main.dart \
     -Pbase-application-name=android.app.Application \
     -Psplit-debug-info="$symbols" \
     -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true
