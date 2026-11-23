@@ -146,10 +146,9 @@ void _boxModelTests() {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
-    await (FontLoader('caption_song')..addFont(
-          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-        ))
-        .load();
+    await (FontLoader(
+      'caption_song',
+    )..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))).load();
   });
   _boxModelTests();
 

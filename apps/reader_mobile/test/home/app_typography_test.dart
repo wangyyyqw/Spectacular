@@ -47,7 +47,7 @@ Future<void> _select(WidgetTester tester, String label) async {
 void main() {
   setUp(() {
     PackageInfo.setMockInitialValues(
-      appName: 'Spectacular Reader',
+      appName: '墨屿',
       packageName: 'com.spectacular.reader_mobile',
       version: '1.0.0',
       buildNumber: '1',

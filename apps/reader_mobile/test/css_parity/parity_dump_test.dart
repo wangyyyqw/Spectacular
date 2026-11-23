@@ -29,11 +29,13 @@ const _maxPages = 2;
 double? _n(double value) => value.isFinite ? value : null;
 
 Uint8List _book(String body, String css) {
-  final chapter = '<?xml version="1.0" encoding="UTF-8"?>'
+  final chapter =
+      '<?xml version="1.0" encoding="UTF-8"?>'
       '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title>'
       '<link rel="stylesheet" type="text/css" href="../Styles/s.css"/>'
       '</head><body>$body</body></html>';
-  const opf = '<?xml version="1.0" encoding="UTF-8"?>'
+  const opf =
+      '<?xml version="1.0" encoding="UTF-8"?>'
       '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
       'unique-identifier="b"><metadata '
       'xmlns:dc="http://purl.org/dc/elements/1.1/">'
@@ -44,7 +46,8 @@ Uint8List _book(String body, String css) {
       '<item id="c" href="Text/c.xhtml" media-type="application/xhtml+xml"/>'
       '<item id="s" href="Styles/s.css" media-type="text/css"/>'
       '</manifest><spine><itemref idref="c"/></spine></package>';
-  const container = '<?xml version="1.0" encoding="UTF-8"?>'
+  const container =
+      '<?xml version="1.0" encoding="UTF-8"?>'
       '<container version="1.0" '
       'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
       '<rootfiles><rootfile full-path="OEBPS/content.opf" '
@@ -87,12 +90,7 @@ Future<Map<String, ui.Image>> _loadDataImages(String source) async {
 
 Map<String, Object?> _color(Color? color) => color == null
     ? <String, Object?>{}
-    : <String, Object?>{
-        'r': color.r,
-        'g': color.g,
-        'b': color.b,
-        'a': color.a,
-      };
+    : <String, Object?>{'r': color.r, 'g': color.g, 'b': color.b, 'a': color.a};
 
 Map<String, Object?> _rectJson(double x, double y, double w, double h) =>
     <String, Object?>{'x': _n(x), 'y': _n(y), 'w': _n(w), 'h': _n(h)};
@@ -122,7 +120,9 @@ Map<String, Object?> _transformJson(CssTransform transform) {
       json['axDeg'] = _n(transform.axDeg);
       json['ayDeg'] = _n(transform.ayDeg);
     case CssTransformKind.matrix:
-      json['values'] = <double?>[for (final v in transform.values ?? const <double>[]) _n(v)];
+      json['values'] = <double?>[
+        for (final v in transform.values ?? const <double>[]) _n(v),
+      ];
   }
   return json;
 }
@@ -138,7 +138,11 @@ List<double> _mmul(List<double> a, List<double> b) => <double>[
 ];
 
 /// 单个 transform 函数的矩阵；百分比位移按边框盒宽/高解算。
-List<double> _transformMatrix(CssTransform transform, double width, double height) {
+List<double> _transformMatrix(
+  CssTransform transform,
+  double width,
+  double height,
+) {
   switch (transform.kind) {
     case CssTransformKind.translate:
       final tx = transform.x?.resolve(width) ?? 0;
@@ -162,7 +166,14 @@ List<double> _transformMatrix(CssTransform transform, double width, double heigh
       if (values.length < 6) {
         return <double>[1, 0, 0, 1, 0, 0];
       }
-      return <double>[values[0], values[1], values[2], values[3], values[4], values[5]];
+      return <double>[
+        values[0],
+        values[1],
+        values[2],
+        values[3],
+        values[4],
+        values[5],
+      ];
   }
 }
 
@@ -187,10 +198,14 @@ Map<String, Object?>? _transformedBbox(
   // transform-origin 是相对边框盒的偏移，先换算成绝对坐标再做绕点旋转。
   final originX = x + (style.transformOriginX.resolve(width) ?? width / 2);
   final originY = y + (style.transformOriginY.resolve(height) ?? height / 2);
-  final full = _mmul(
-    <double>[1, 0, 0, 1, originX, originY],
-    _mmul(matrix, <double>[1, 0, 0, 1, -originX, -originY]),
-  );
+  final full = _mmul(<double>[
+    1,
+    0,
+    0,
+    1,
+    originX,
+    originY,
+  ], _mmul(matrix, <double>[1, 0, 0, 1, -originX, -originY]));
   var minX = double.infinity;
   var minY = double.infinity;
   var maxX = double.negativeInfinity;
@@ -376,8 +391,7 @@ Map<String, Object?> _cellJson(
     CssVerticalAlign.bottom => freeSpace,
     _ => 0.0,
   };
-  final contentLeft =
-      cellLeft + style.padding.left + style.borders.left.width;
+  final contentLeft = cellLeft + style.padding.left + style.borders.left.width;
   var lineY = cellTop + topInset + alignOffset;
   final lines = <Map<String, Object?>>[];
   for (final line in cell.layout.lines) {
@@ -392,12 +406,7 @@ Map<String, Object?> _cellJson(
   return <String, Object?>{
     'row': cell.row,
     'col': cellIndex,
-    'rect': _rectJson(
-      cellLeft,
-      cellTop,
-      cell.rect.width,
-      cell.rect.height,
-    ),
+    'rect': _rectJson(cellLeft, cellTop, cell.rect.width, cell.rect.height),
     'text': cell.layout.text,
     'lines': lines,
     'style': _styleJson(style),
@@ -644,16 +653,17 @@ void main() {
     )..createSync(recursive: true);
 
     final song = FontLoader('builtin_song')
-      ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'))
-      ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Bold.otf'));
+      ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))
+      ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Bold.otf'));
     await song.load();
 
-    final files = casesDir
-        .listSync()
-        .whereType<File>()
-        .where((file) => file.path.endsWith('.json'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final files =
+        casesDir
+            .listSync()
+            .whereType<File>()
+            .where((file) => file.path.endsWith('.json'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
     final selectedCases = (Platform.environment['CSS_PARITY_CASES'] ?? '')
         .split(',')
         .map((name) => name.trim())
@@ -687,8 +697,7 @@ void main() {
 
         // 用例可用 maxPages 指定导出页数（竖排跨页探针需要看全部分页）；
         // 默认只导 2 页，供普通单/双页用例比对。
-        final maxPages =
-            (caseData['maxPages'] as num?)?.toInt() ?? _maxPages;
+        final maxPages = (caseData['maxPages'] as num?)?.toInt() ?? _maxPages;
         final pageJson = <Map<String, Object?>>[
           for (final item in pages.take(maxPages)) _pageJson(item),
         ];
@@ -709,11 +718,7 @@ void main() {
           textColor: const Color(0xFF000000),
           imageLookup: (url) => dataImages[url],
           listMarkerImageOf: (block) => block.style?.listStyleImage,
-        ).paint(
-          Canvas(recorder),
-          page,
-          pageSize: const Size(_width, _height),
-        );
+        ).paint(Canvas(recorder), page, pageSize: const Size(_width, _height));
         final image = await recorder.endRecording().toImage(
           _width.toInt(),
           _height.toInt(),

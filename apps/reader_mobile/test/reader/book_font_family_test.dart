@@ -10,7 +10,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   // 用 app 自带字体改名塞进书内，避免依赖系统字体。
-  final fontFile = File('assets/fonts/SourceHanSerifCN-Regular.otf');
+  final fontFile = File('assets/fonts/MoyuSerif-Regular.otf');
   final skip = fontFile.existsSync() ? null : '缺少内置字体文件，跳过';
 
   test('书内 @font-face 字族被改写成引擎族名（块样式 + 行内 run）', () async {

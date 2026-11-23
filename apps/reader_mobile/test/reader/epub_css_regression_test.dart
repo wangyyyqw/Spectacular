@@ -281,7 +281,7 @@ void main() {
 
   test('字体精确路径优先，不能被同名兜底覆盖', () async {
     final exactBytes = const <int>[0, 1, 2, 3];
-    final fallbackBytes = File('assets/fonts/SourceHanSerifCN-Regular.otf')
+    final fallbackBytes = File('assets/fonts/MoyuSerif-Regular.otf')
         .readAsBytesSync();
     String digestOf(List<int> bytes) => sha256
         .convert(utf8.encode('w400i0:${sha256.convert(bytes)}'))

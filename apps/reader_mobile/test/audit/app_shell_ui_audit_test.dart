@@ -49,14 +49,14 @@ void main() {
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final font = FontLoader('builtin_hei')
-      ..addFont(rootBundle.load('assets/fonts/SourceHanSansSC-Regular.otf'));
+    final font = FontLoader('builtin_song')
+      ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'));
     await font.load();
     final icons = FontLoader('MaterialIcons')
       ..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
     await icons.load();
     PackageInfo.setMockInitialValues(
-      appName: 'Spectacular Reader',
+      appName: '墨屿',
       packageName: 'com.spectacular.reader_mobile',
       version: '1.0.0',
       buildNumber: '1',

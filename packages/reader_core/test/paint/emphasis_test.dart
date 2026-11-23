@@ -21,7 +21,7 @@ Future<void> _loadFont() async {
   )..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer)))).load();
   // 测试子集字体缺少部分着重号，加载与宿主一致的内置回退字体。
   final fallback = await File(
-    '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
+    '../../apps/reader_mobile/assets/fonts/MoyuSerif-Regular.otf',
   ).readAsBytes();
   await (FontLoader(
     'builtin_song',

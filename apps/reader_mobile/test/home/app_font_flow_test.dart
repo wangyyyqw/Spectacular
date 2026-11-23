@@ -17,7 +17,7 @@ void main() {
     final directory = Directory.systemTemp.createTempSync('app-font-flow');
     addTearDown(() => directory.delete(recursive: true));
     PackageInfo.setMockInitialValues(
-      appName: 'Spectacular Reader',
+      appName: '墨屿',
       packageName: 'com.spectacular.reader_mobile',
       version: '1.0.0',
       buildNumber: '1',

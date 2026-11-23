@@ -89,9 +89,8 @@ void main() {
     loader.addFont(
       Future.value(
         ByteData.sublistView(
-          File(
-            '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
-          ).readAsBytesSync(),
+          File('../../apps/reader_mobile/assets/fonts/MoyuSerif-Regular.otf')
+              .readAsBytesSync(),
         ),
       ),
     );

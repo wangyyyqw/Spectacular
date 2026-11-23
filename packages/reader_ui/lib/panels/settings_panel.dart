@@ -43,9 +43,6 @@ abstract final class ReaderSettingsDefaults {
   /// 内置宋体字族。
   static const String fontSong = FontFamilyAliases.song;
 
-  /// 系统无衬线字族；经字体别名映射到系统中文字体回退链。
-  static const String fontSans = 'sans-serif';
-
   /// 默认主题。
   static const String themeId = 'white';
 
@@ -390,7 +387,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
   String get _fontLabel {
     if (_fontFamily == null) return '书籍字体';
     if (_fontFamily == ReaderSettingsDefaults.fontSong) return '宋体';
-    if (_fontFamily == ReaderSettingsDefaults.fontSans) return '黑体';
     return _customFonts
             .where((font) => font.family == _fontFamily)
             .firstOrNull

@@ -59,7 +59,7 @@ void main() {
     final settings = legacy.copyWithTheme('moss');
     for (final changed in [
       settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 22)),
-      settings.copyWithFont(ReaderSettingsDefaults.fontSans),
+      settings.copyWithFont(ReaderSettingsDefaults.fontSong),
       settings.copyWithBackground('paper'),
       settings.copyWithInkMode(true),
       settings.copyWithMargins(ReaderMargins.defaults()),
@@ -220,15 +220,8 @@ void main() {
     await store.save(settings);
     expect((await store.load()).fontFamily, FontFamilyAliases.song);
 
-    await store.save(
-      ReaderSettings.fromOverrides(
-        settings.overrides.copyWith(
-          fontFamily: ReaderSettingsDefaults.fontSans,
-        ),
-        themeId: settings.themeId,
-      ),
-    );
-    expect((await store.load()).fontFamily, ReaderSettingsDefaults.fontSans);
+    await library.setSetting(ReaderSettingsStore.keyFontFamily, 'sans-serif');
+    expect((await store.load()).fontFamily, isNull, reason: '已移除的字体选项回落书籍字体');
 
     await library.setSetting(ReaderSettingsStore.keyFontFamily, 'missing-font');
     expect((await store.load()).fontFamily, isNull);
@@ -261,7 +254,6 @@ void main() {
 
     for (final entry in const {
       'simulation3d': PageTurnMode.simulation3d,
-      'simulation3dNext': PageTurnMode.simulation3dNext,
       'removed-mode': PageTurnMode.cover,
     }.entries) {
       await library.setSetting(ReaderSettingsStore.keyPageTurnMode, entry.key);

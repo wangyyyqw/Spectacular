@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 Future<Uint8List> _loadAsset(String name) async {
-  final data = await rootBundle.load('assets/test_fonts/$name');
+  final data = await rootBundle.load('assets/fonts/$name');
   return data.buffer.asUint8List();
 }
 
@@ -77,8 +77,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('S5 同 family 多字重在模拟器/桌面上按 fontWeight 选中 bold', (tester) async {
-    final regular = await _loadAsset('SourceHanSerifSC-Regular.otf');
-    final bold = await _loadAsset('SourceHanSerifSC-Bold.otf');
+    final regular = await _loadAsset('MoyuSerif-Regular.otf');
+    final bold = await _loadAsset('MoyuSerif-Bold.otf');
 
     await _loadFamily('S5Multi', <Uint8List>[regular, bold]);
     await _loadFamily('S5OnlyRegular', <Uint8List>[regular]);

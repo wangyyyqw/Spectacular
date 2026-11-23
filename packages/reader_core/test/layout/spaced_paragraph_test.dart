@@ -13,7 +13,7 @@ const _fragment =
 
 Future<void> _fonts() async {
   for (final (families, stem) in [
-    (['builtin_song', 'SpacedSongOracle'], 'SourceHanSerifCN'),
+    (['builtin_song', 'SpacedSongOracle'], 'MoyuSerif'),
     (['builtin_hei', 'SpacedHeiOracle'], 'SourceHanSansSC'),
   ]) {
     for (final family in families) {
@@ -22,8 +22,11 @@ Future<void> _fonts() async {
         loader.addFont(
           Future.value(
             ByteData.sublistView(
-              File('../../apps/reader_mobile/assets/fonts/$stem-$weight.otf')
-                  .readAsBytesSync(),
+              File(
+                stem == 'SourceHanSansSC'
+                    ? '../../test_fonts/$stem-$weight.otf'
+                    : '../../apps/reader_mobile/assets/fonts/$stem-$weight.otf',
+              ).readAsBytesSync(),
             ),
           ),
         );

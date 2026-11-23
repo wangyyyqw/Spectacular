@@ -9,8 +9,8 @@ void main() {
 
   setUpAll(() async {
     final song = FontLoader('builtin_song')
-      ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'))
-      ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Bold.otf'));
+      ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))
+      ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Bold.otf'));
     await song.load();
   });
 

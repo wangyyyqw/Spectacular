@@ -33,9 +33,7 @@ class DemoChapterSource implements ReaderChapterSource {
     if (_fontLoaded) {
       return;
     }
-    final data = await rootBundle.load(
-      'assets/test_fonts/SourceHanSerifSC-Regular.otf',
-    );
+    final data = await rootBundle.load('assets/fonts/MoyuSerif-Regular.otf');
     await (FontLoader(
       _fontFamily,
     )..addFont(Future<ByteData>.value(data))).load();

@@ -14,7 +14,7 @@ import 'package:reader_mobile/reader/reader_settings.dart';
 
 /// 按外部清单导出原书页面，版权语料与截图均不写入仓库。
 /// 清单格式：[{"id":"001","path":"/绝对路径.epub","spines":[0,1]}]。
-/// 此入口检查实际分页和绘制；样式是否与多看一致仍需逐图核对。
+/// 此入口检查实际分页和绘制；样式正确性仍需结合书内 CSS 与截图核对。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final manifest = Platform.environment['FEEDBACK_MANIFEST'];
@@ -69,8 +69,8 @@ Future<void> _dumpBook(Map<String, dynamic> entry) async {
 
 Future<void> _loadFonts() async {
   final fonts = FontLoader('builtin_song')
-    ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'))
-    ..addFont(rootBundle.load('assets/fonts/SourceHanSerifCN-Bold.otf'));
+    ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))
+    ..addFont(rootBundle.load('assets/fonts/MoyuSerif-Bold.otf'));
   await fonts.load();
 }
 

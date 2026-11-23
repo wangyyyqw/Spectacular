@@ -215,12 +215,7 @@ void main() {
     expect(backgrounds, isEmpty);
   });
 
-  testWidgets('设置面板可切换正文字体', (tester) async {
-    expect(
-      FontFamilyAliases.resolve(ReaderSettingsDefaults.fontSans),
-      FontFamilyAliases.hei,
-      reason: '黑体选项必须命中中文无衬线回退链',
-    );
+  testWidgets('内置字体仅提供宋体，可恢复书籍字体', (tester) async {
     final changes = <ReaderOverrides>[];
     await tester.pumpWidget(
       MaterialApp(
@@ -240,6 +235,7 @@ void main() {
       find.byKey(const ValueKey<String>('settings-font-picker')),
     );
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-font-hei')), findsNothing);
     await tester.tap(find.byKey(const ValueKey<String>('settings-font-song')));
     await tester.pumpAndSettle();
 
@@ -249,9 +245,9 @@ void main() {
       find.byKey(const ValueKey<String>('settings-font-picker')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('settings-font-hei')));
+    await tester.tap(find.byKey(const ValueKey<String>('settings-font-book')));
     await tester.pumpAndSettle();
-    expect(changes.last.fontFamily, ReaderSettingsDefaults.fontSans);
+    expect(changes.last.fontFamily, isNull);
   });
 
   testWidgets('设置面板支持返回按钮', (tester) async {

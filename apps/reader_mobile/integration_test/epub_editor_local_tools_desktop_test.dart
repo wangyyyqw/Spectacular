@@ -192,9 +192,7 @@ void main() {
     }
     await webp!.dispose();
 
-    final data = await rootBundle.load(
-      'assets/fonts/SourceHanSerifCN-Regular.otf',
-    );
+    final data = await rootBundle.load('assets/fonts/MoyuSerif-Regular.otf');
     final font = data.buffer.asUint8List(
       data.offsetInBytes,
       data.lengthInBytes,

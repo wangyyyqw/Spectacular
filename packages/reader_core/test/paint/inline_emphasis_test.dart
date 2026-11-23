@@ -18,7 +18,7 @@ const _blue = Color(0xFF0066CC);
 
 Future<void> _loadFont() async {
   final bytes = await File(
-    '../../apps/reader_mobile/assets/fonts/SourceHanSerifCN-Regular.otf',
+    '../../apps/reader_mobile/assets/fonts/MoyuSerif-Regular.otf',
   ).readAsBytes();
   await (FontLoader(
     'InlineEmphasisFont',

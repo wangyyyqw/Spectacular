@@ -11,23 +11,21 @@ void warmUpReaderTextRendering() {
   if (_readerTextWarmedUp) {
     return;
   }
-  for (final family in const <String>['builtin_song', 'builtin_hei']) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: '第一章',
-        style: TextStyle(
-          fontFamily: family,
-          fontSize: 24,
-          fontWeight: FontWeight.w700,
-        ),
+  final painter = TextPainter(
+    text: const TextSpan(
+      text: '第一章',
+      style: TextStyle(
+        fontFamily: 'builtin_song',
+        fontSize: 24,
+        fontWeight: FontWeight.w700,
       ),
-      textDirection: TextDirection.ltr,
-    );
-    try {
-      painter.layout(maxWidth: 344);
-    } finally {
-      painter.dispose();
-    }
+    ),
+    textDirection: TextDirection.ltr,
+  );
+  try {
+    painter.layout(maxWidth: 344);
+  } finally {
+    painter.dispose();
   }
   _readerTextWarmedUp = true;
 }

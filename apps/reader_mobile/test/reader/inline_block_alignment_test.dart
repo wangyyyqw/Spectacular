@@ -84,10 +84,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    await (FontLoader('builtin_song')..addFont(
-          rootBundle.load('assets/fonts/SourceHanSerifCN-Regular.otf'),
-        ))
-        .load();
+    await (FontLoader(
+      'builtin_song',
+    )..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))).load();
   });
 
   for (final align in ['left', 'center', 'right']) {

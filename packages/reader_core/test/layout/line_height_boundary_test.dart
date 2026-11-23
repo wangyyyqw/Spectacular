@@ -55,7 +55,7 @@ void main() {
       style: _style(),
       maxWidth: 200,
     );
-    expect(trailing.lineCount, 1, reason: '与阅微一致：段尾换行被剥离');
+    expect(trailing.lineCount, 1, reason: '段尾换行被剥离，不产生额外空行');
     expect(trailing.height, closeTo(24, 0.01));
   });
 
