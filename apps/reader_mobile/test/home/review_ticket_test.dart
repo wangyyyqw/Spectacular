@@ -76,7 +76,8 @@ void main() {
         duration: const Duration(hours: 4, minutes: 24),
       );
 
-      expect(find.text('长夜与灯火'), findsOneWidget);
+      // 书名同时出现在主标题与无封面时的占位封面上。
+      expect(find.text('长夜与灯火'), findsWidgets);
       expect(find.text('林川'), findsOneWidget);
       expect(find.text('标记读完'), findsOneWidget);
       expect(find.text('2026.06.10'), findsOneWidget);

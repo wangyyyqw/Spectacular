@@ -9,12 +9,16 @@ import 'book_cover_image.dart';
 /// 封面宽高比。
 const _coverRatio = 3 / 4;
 
+/// 票纸外圆角。
+const _paperRadius = 4.0;
+
 /// 书评区最小高度与内边距；封面在左右分栏时按这两项换算成 3:4。
 const _faceMinHeight = 94.0;
-const _facePadding = 14.0;
+const _facePadding = 12.0;
 const _coverHeight = _faceMinHeight + _facePadding * 2;
 
-/// 书评票根：左联展示书籍与书评，封面贴齐左侧纸边；副联显示标记读完日期与累计时长。
+/// 书评票根：左联是整幅封面、书名和阅读信息，副联仿电影票根用大字评分、
+/// 星级和标记读完日期呈现，两联之间保留票纸裁切缺口。
 class ReviewTicket extends StatelessWidget {
   const ReviewTicket({
     super.key,
@@ -109,7 +113,7 @@ class ReviewTicket extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(_facePadding),
-              child: _bookFace(context),
+              child: _bookFace(context, time),
             ),
           ),
         ],
@@ -125,7 +129,7 @@ class ReviewTicket extends StatelessWidget {
         color: scheme.surface,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      child: _stub(context, date, time, stacked),
+      child: _stub(context, date, stacked),
     );
     if (stacked) {
       return Column(
@@ -153,7 +157,9 @@ class ReviewTicket extends StatelessWidget {
       book: book,
     );
     return ClipRRect(
-      borderRadius: const BorderRadius.horizontal(left: Radius.circular(2)),
+      borderRadius: const BorderRadius.horizontal(
+        left: Radius.circular(_paperRadius),
+      ),
       // 左右分栏时封面高度跟随票纸，宽度按 3:4 换算并贴齐上、左、下边缘。
       child: stretch
           ? _CoverAspect(child: image)
@@ -165,83 +171,116 @@ class ReviewTicket extends StatelessWidget {
     );
   }
 
-  Widget _bookFace(BuildContext context) => ConstrainedBox(
-    constraints: const BoxConstraints(minHeight: _faceMinHeight),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Column(
+  Widget _bookFace(BuildContext context, List<(String, String)> time) =>
+      ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: _faceMinHeight),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               book.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(height: 1.32, fontWeight: FontWeight.w600),
-            ),
-            if (book.author.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  book.author,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _caption(context),
-                ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontSize: 17,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: _meta(context, time),
+            ),
           ],
         ),
-        Padding(padding: const EdgeInsets.only(top: 8), child: _marks(context)),
-      ],
-    ),
-  );
+      );
 
-  TextStyle _caption(BuildContext context) =>
-      Theme.of(context).textTheme.bodySmall!.copyWith(height: 1.4);
-
-  Widget _marks(BuildContext context) {
+  /// 书名下方的斜线分隔信息，模仿票根的“时长 / 类型 / 导演”一行。
+  Widget _meta(BuildContext context, List<(String, String)> time) {
     final style = _caption(context);
-    final rating = review?.rating;
+    final duration = time.isEmpty
+        ? '暂无时长记录'
+        : time
+              .map((part) => '${part.$1 == '<1' ? '不足 1' : part.$1} ${part.$2}')
+              .join(' ');
+    final parts = <String>[if (book.author.isNotEmpty) book.author, duration];
     return Wrap(
-      spacing: 3,
-      runSpacing: 3,
+      spacing: 6,
+      runSpacing: 2,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (review == null) ...[
-          AppIcon(AppGlyph.editNote, size: 15, color: style.color),
-          Text('写书评', style: style),
-        ] else if (rating == null)
-          Text('未评分', style: style)
-        else
-          for (var star = 1; star <= 5; star++)
-            AppIcon(
-              AppGlyph.star,
-              size: 14,
-              color: Theme.of(context).colorScheme.onSurface,
-              filled: star <= rating,
-            ),
-        if (_hasBody)
-          Padding(
-            padding: const EdgeInsets.only(left: 4),
-            child: AppIcon(AppGlyph.article, size: 15, color: style.color),
-          ),
+        for (var index = 0; index < parts.length; index++) ...[
+          if (index > 0) Text('/', style: style),
+          Text(parts[index], style: style),
+        ],
       ],
     );
   }
 
-  Widget _stub(
-    BuildContext context,
-    DateTime? date,
-    List<(String, String)> time,
-    bool stacked,
-  ) {
+  TextStyle _caption(BuildContext context) =>
+      Theme.of(context).textTheme.bodySmall!.copyWith(height: 1.4);
+
+  Widget _badge(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(
+        review == null ? '写书评' : '我的评分',
+        style: Theme.of(context).textTheme.bodySmall!.copyWith(
+          fontSize: 11,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+          color: scheme.onPrimaryContainer,
+        ),
+      ),
+    );
+  }
+
+  Widget _stars(BuildContext context, int rating) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (var star = 1; star <= 5; star++)
+        Padding(
+          padding: const EdgeInsets.only(right: 1),
+          child: AppIcon(
+            AppGlyph.star,
+            size: 12,
+            color: Theme.of(context).colorScheme.onSurface,
+            filled: star <= rating,
+          ),
+        ),
+    ],
+  );
+
+  Widget _stub(BuildContext context, DateTime? date, bool stacked) {
+    final theme = Theme.of(context);
     final caption = _caption(context);
+    final rating = review?.rating;
+    final score = FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(
+        rating == null ? '—' : rating.toStringAsFixed(1),
+        maxLines: 1,
+        softWrap: false,
+        style: theme.textTheme.bodyMedium!.copyWith(
+          fontSize: 28,
+          height: 1.1,
+          fontWeight: FontWeight.w700,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+    );
+    final marks = rating == null
+        ? (review == null ? null : Text('未评分', style: caption))
+        : _stars(context, rating);
     final stamp = Column(
-      crossAxisAlignment: stacked
-          ? CrossAxisAlignment.start
-          : CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(date == null ? '暂无阅读日期' : _dateLabel, style: caption),
         if (date != null)
@@ -253,49 +292,30 @@ class ReviewTicket extends StatelessWidget {
           ),
       ],
     );
-    final amounts = [
-      for (final (value, unit) in time)
-        Text.rich(
-          TextSpan(
-            children: [
-              TextSpan(
-                text: value,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  height: 1.16,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              TextSpan(text: ' $unit', style: caption),
-            ],
-          ),
-          textAlign: TextAlign.end,
-        ),
-      if (time.isEmpty) Text('暂无时长记录', style: caption),
-    ];
+    final badge = _badge(context);
     if (stacked) {
       return Wrap(
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 12,
+        spacing: 16,
         runSpacing: 8,
-        children: [
-          stamp,
-          Wrap(spacing: 6, children: amounts),
-        ],
+        children: [badge, score, ?marks, stamp],
       );
     }
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        stamp,
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: amounts,
-          ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            badge,
+            const SizedBox(height: 6),
+            score,
+            if (marks != null) ...[const SizedBox(height: 2), marks],
+          ],
         ),
+        Padding(padding: const EdgeInsets.only(top: 8), child: stamp),
       ],
     );
   }
@@ -352,7 +372,9 @@ class _PaperEdge extends ShapeBorder {
   @override
   Path getOuterPath(Rect rect, {TextDirection? textDirection}) {
     final paper = Path()
-      ..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(2)));
+      ..addRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(_paperRadius)),
+      );
     final cutouts = Path();
     for (final notch in [firstNotch, lastNotch]) {
       cutouts.addOval(
