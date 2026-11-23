@@ -18,6 +18,8 @@ elif [ "$#" -ne 0 ]; then
   echo '用法：tool/build_apk.sh [--allow-downloads]' >&2
   exit 2
 fi
+symbols="$PWD/$dist/symbols/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$symbols"
 flutter_sdk="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent.parent)' "$(command -v flutter)")"
 
 if [ ! -f "$app/.dart_tool/package_config.json" ] || [ -z "$cache_option" ]; then
@@ -29,17 +31,20 @@ fi
 
 (
   cd "$app"
-  flutter build apk --release --no-pub --config-only --target-platform=android-arm64
+  flutter build apk --release --no-pub --config-only --target-platform=android-arm64 \
+    --split-debug-info="$symbols"
   dart --packages="$flutter_sdk/packages/flutter_tools/.dart_tool/package_config.json" \
     ../../tool/generate_release_plugins.dart "$flutter_sdk"
   cd android
   ./gradlew ${cache_option:+"$cache_option"} --console=plain :app:assembleRelease \
     -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
     -Pbase-application-name=android.app.Application \
+    -Psplit-debug-info="$symbols" \
     -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true
 )
 
 [ -f "$build_apk" ] || { echo "构建产物缺失：$build_apk" >&2; exit 1; }
+[ -s "$symbols/app.android-arm64.symbols" ] || { echo "调试符号缺失：$symbols" >&2; exit 1; }
 
 mkdir -p "$dist"
 cp "$build_apk" "$dist/$name.apk"
@@ -52,4 +57,5 @@ else
 fi
 
 ls -lh "$dist/$name.apk"
-shasum -a 256 "$dist/$name.apk"
+shasum -a 256 "$dist/$name.apk" | tee "$symbols/apk.sha256"
+echo "调试符号：$symbols"

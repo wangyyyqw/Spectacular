@@ -21,6 +21,10 @@ if name == 'gradlew':
     apk = root / 'apps/reader_mobile/build/app/outputs/flutter-apk/app-release.apk'
     apk.parent.mkdir(parents=True, exist_ok=True)
     apk.write_bytes(b'APK test fixture')
+    symbols = next(arg.split('=', 1)[1] for arg in sys.argv[1:]
+                   if arg.startswith('-Psplit-debug-info='))
+    if not os.environ.get('SPECTACULAR_TEST_SKIP_SYMBOLS'):
+        Path(symbols, 'app.android-arm64.symbols').write_bytes(b'Symbol test fixture')
 if name == 'cp' and Path(sys.argv[-1]).resolve().is_relative_to(root):
     shutil.copyfile(sys.argv[1], sys.argv[-1])
 '''
@@ -72,8 +76,25 @@ class ApkBuildTest(unittest.TestCase):
         self.assertIn("--target-platform=android-arm64", commands[0])
         self.assertIn("--offline", commands[2])
         self.assertIn("-Ptarget-platform=android-arm64", commands[2])
+        symbols = next(arg.split("=", 1)[1] for arg in commands[0]
+                       if arg.startswith("--split-debug-info="))
+        self.assertIn(f"-Psplit-debug-info={symbols}", commands[2])
+        self.assertTrue((Path(symbols) / "app.android-arm64.symbols").is_file())
+        self.assertIn("spectacular-reader-release.apk",
+                      (Path(symbols) / "apk.sha256").read_text())
         self.assertTrue((self.root / "apps/reader_mobile/dist/"
                          "spectacular-reader-release.apk").is_file())
+
+    def test_missing_symbols_stops_export(self):
+        result = subprocess.run(
+            ["bash", "tool/build_apk.sh"], cwd=self.root,
+            env=self.env | {"SPECTACULAR_TEST_SKIP_SYMBOLS": "1"},
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("调试符号缺失", result.stderr)
+        self.assertFalse((self.root / "apps/reader_mobile/dist/"
+                          "spectacular-reader-release.apk").exists())
 
     def test_missing_dart_configuration_first_uses_local_cache(self):
         (self.root / "apps/reader_mobile/.dart_tool/package_config.json").unlink()

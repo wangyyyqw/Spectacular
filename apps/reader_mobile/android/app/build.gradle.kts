@@ -36,6 +36,11 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    packaging {
+        // 缩小 APK 下载体积；原生库由系统在安装时解压。
+        jniLibs.useLegacyPackaging = true
+    }
 }
 
 kotlin {
