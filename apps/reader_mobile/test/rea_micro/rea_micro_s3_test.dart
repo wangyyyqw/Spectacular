@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -11,10 +12,26 @@ import 'package:reader_mobile/rea_micro/rea_micro_api_client.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_cbor.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_s3.dart';
+import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/storage/drift_progress_store.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final databases = <LibraryStore, AppDatabase>{};
+  Future<LibraryStore> openLibrary(Directory root) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => root,
+    );
+    databases[library] = db;
+    return library;
+  }
+
   test('账号 S3 配置加密与阅微使用的 AES-128-CBC 格式一致', () {
     const encrypted =
         'AAECAwQFBgcICQoLDA0OD5p8bTcR0DDhb+8tWXAtCLpdEXIYtpGeZD4cKGjGIOFc'
@@ -230,6 +247,129 @@ void main() {
     expect(result.failed, 0);
     expect(store.manifestPuts, 2);
     expect(store.object('team/read/manifest.cbor'), isNotNull);
+  });
+
+  test('恢复图书后改变标题和文件大小，下一轮用保存UUID匹配而不重下', () async {
+    final root = await Directory.systemTemp.createTemp('s3-identity-');
+    addTearDown(() => root.delete(recursive: true));
+    final remote = _TestLibrary(root, 'remote');
+    final local = _TestLibrary(root, 'local');
+    final store = _MemoryS3();
+    await remote.add(buildTestEpub(title: '云端书', identifier: 'source'));
+    await _engine(remote, store, userId: '7', deviceId: 'remote').sync();
+    final restored = await _engine(
+      local,
+      store,
+      userId: '7',
+      deviceId: 'local',
+    ).sync();
+    expect(restored.downloaded, 1);
+    final old = local.books.single;
+    final bytes = buildTestEpub(
+      title: '改名后',
+      identifier: 'changed',
+      paragraphs: ['修改后的内容' * 30],
+    );
+    await File(old.filePath).writeAsBytes(bytes);
+    local.books[0] = old.copyWith(
+      title: '改名后',
+      contentRevision: sha256Hex(bytes),
+    );
+    final again = await _engine(
+      local,
+      store,
+      userId: '7',
+      deviceId: 'local',
+      localBookUuids: restored.localBookUuids,
+    ).sync();
+    expect(again.downloaded, 0);
+    expect(again.uploaded, 1);
+    expect(local.books, hasLength(1));
+    expect(again.localBookUuids, restored.localBookUuids);
+  });
+
+  test('云同步补回缺失文件沿用原记录，保留书评和读完状态', () async {
+    final root = await Directory.systemTemp.createTemp('s3-missing-source-');
+    addTearDown(() => root.delete(recursive: true));
+    final local = await openLibrary(root);
+    final remote = _TestLibrary(root, 'remote');
+    final store = _MemoryS3();
+    final remoteBook = await remote.add(
+      buildTestEpub(title: '云端版本', identifier: 'remote-version'),
+    );
+    await _engine(remote, store, userId: '7', deviceId: 'remote').sync();
+    final original = await local.importBytes(
+      buildTestEpub(title: '本地书名', identifier: 'local-version'),
+    );
+    final progress = DriftProgressStore(databases[local]!);
+    await progress.save(
+      original.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 0, finished: true),
+    );
+    await local.reviewStore()!.save(original.id, rating: 4, content: '保留的书评');
+    await File(original.filePath).delete();
+    final result = await _engine(
+      local,
+      store,
+      userId: '7',
+      deviceId: 'local',
+      localBookUuids: {original.id: remoteBook.id},
+    ).sync();
+    expect(result.failed, 0);
+    expect(result.downloaded, 1);
+    final restored = (await local.list()).single;
+    expect(restored.id, original.id);
+    expect(await File(restored.filePath).exists(), isTrue);
+    expect(
+      (await local.reviewStore()!.snapshot())[restored.id]!.content,
+      '保留的书评',
+    );
+    expect((await progress.load(restored.id))!.finished, isTrue);
+    final again = await _engine(
+      local,
+      store,
+      userId: '7',
+      deviceId: 'local',
+      localBookUuids: result.localBookUuids,
+    ).sync();
+    expect(again.failed, 0);
+    expect(again.downloaded, 0);
+    expect(await local.list(), hasLength(1));
+  });
+
+  test('清单提交连续失败时已导入身份先保存，重试与下次同步均不重下', () async {
+    final root = await Directory.systemTemp.createTemp('s3-import-retry-');
+    addTearDown(() => root.delete(recursive: true));
+    final local = await openLibrary(root);
+    final remote = _TestLibrary(root, 'remote');
+    final store = _MemoryS3();
+    await remote.add(buildTestEpub(title: '失败重试书', identifier: 'retry-source'));
+    await _engine(remote, store, userId: '7', deviceId: 'remote').sync();
+    store.manifestConflicts = 3;
+    final saved = <String, String>{};
+    await expectLater(
+      _engine(
+        local,
+        store,
+        userId: '7',
+        deviceId: 'local',
+        onBookIdentified: (id, uuid) async => saved[id] = uuid,
+      ).sync(),
+      throwsA(isA<ReaMicroS3ConflictException>()),
+    );
+    expect(saved, hasLength(1));
+    expect(await local.list(), hasLength(1));
+    expect(store.bookDownloads, 1);
+    final again = await _engine(
+      local,
+      store,
+      userId: '7',
+      deviceId: 'local',
+      localBookUuids: saved,
+    ).sync();
+    expect(again.downloaded, 0);
+    expect(store.bookDownloads, 1);
+    expect(await local.list(), hasLength(1));
   });
 
   test('S3 双向同步书签并保留摘要备注', () async {
@@ -624,7 +764,7 @@ class _FakeMoteApi implements ReaMicroMoteSyncApi {
 }
 
 ReaMicroS3SyncEngine _engine(
-  _TestLibrary library,
+  LibraryStore library,
   _MemoryS3 store, {
   required String userId,
   required String deviceId,
@@ -632,6 +772,7 @@ ReaMicroS3SyncEngine _engine(
   Map<String, String> bookmarkBases = const <String, String>{},
   Map<String, String> localBookUuids = const <String, String>{},
   Set<String> pendingDeletions = const <String>{},
+  Future<void> Function(String, String)? onBookIdentified,
 }) => ReaMicroS3SyncEngine(
   library: library,
   config: const ReaMicroS3Config(
@@ -649,6 +790,7 @@ ReaMicroS3SyncEngine _engine(
   bookmarkBases: bookmarkBases,
   localBookUuids: localBookUuids,
   pendingDeletions: pendingDeletions,
+  onBookIdentified: onBookIdentified,
 );
 
 class _MemoryS3 implements ReaMicroS3Client {
@@ -656,6 +798,7 @@ class _MemoryS3 implements ReaMicroS3Client {
   var _etag = 0;
   var manifestConflicts = 0;
   var manifestPuts = 0;
+  var bookDownloads = 0;
 
   Iterable<String> get keys => objects.keys;
 
@@ -666,7 +809,10 @@ class _MemoryS3 implements ReaMicroS3Client {
   }
 
   @override
-  Future<ReaMicroS3Object?> get(String key) async => objects[key];
+  Future<ReaMicroS3Object?> get(String key) async {
+    if (key.endsWith('/book.epub')) bookDownloads += 1;
+    return objects[key];
+  }
 
   @override
   Future<String> put(
@@ -793,6 +939,7 @@ class _TestLibrary extends LibraryStore {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) async {
     final parsed = await LibraryStore.memory().importBytes(
       bytes,

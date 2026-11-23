@@ -21,6 +21,7 @@ class _SlowLibrary extends LibraryStore {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) async {
     onProgress?.call(0.2);
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -29,6 +30,7 @@ class _SlowLibrary extends LibraryStore {
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
       isCancelled: isCancelled,
+      onConflict: onConflict,
     );
   }
 }

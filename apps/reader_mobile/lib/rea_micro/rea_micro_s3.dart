@@ -138,9 +138,8 @@ class ReaMicroS3Config {
     if (isGitHub) {
       return normalizedPrefix.isNotEmpty &&
           accessKey.trim().isNotEmpty &&
-          RegExp(
-            r'^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9_.-]+$',
-          ).hasMatch(_githubRepositoryText) &&
+          RegExp(r'^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9_.-]+$')
+              .hasMatch(_githubRepositoryText) &&
           !_githubRepositoryText.split('/').any((part) => part == '..');
     }
     return normalizedEndpoint.isNotEmpty &&
@@ -957,6 +956,7 @@ class ReaMicroS3SyncEngine {
     this.localBookUuids = const <String, String>{},
     this.pendingDeletions = const <String>{},
     this.onStatus,
+    this.onBookIdentified,
   });
 
   /// 本地书架。
@@ -988,6 +988,15 @@ class ReaMicroS3SyncEngine {
 
   /// 进度回调。
   final void Function(String message)? onStatus;
+
+  /// 在后续书签或清单写入前保存图书身份，失败重试仍能识别已导入图书。
+  final Future<void> Function(String bookId, String uuid)? onBookIdentified;
+  final _identifiedUuids = <String, String>{};
+
+  Future<void> _rememberBook(String bookId, String uuid) async {
+    _identifiedUuids[bookId] = uuid;
+    await onBookIdentified?.call(bookId, uuid);
+  }
 
   static const String _shardId = 'spectacular';
   static const String _manifestContentType = 'application/cbor';
@@ -1103,6 +1112,12 @@ class ReaMicroS3SyncEngine {
     final links = <String, int>{};
     final nextBookmarkBases = Map<String, String>.of(bookmarkBases);
     final currentLocalUuids = <String, String>{};
+    final resolvedUuids = <String, String>{};
+    final knownUuids = <String, String>{...localBookUuids, ..._identifiedUuids};
+    for (final entry in knownUuids.entries) {
+      final local = await library.bookBySyncId(entry.key);
+      if (local != null) resolvedUuids[local.id] = entry.value;
+    }
     var uploaded = 0;
     var skipped = 0;
     var failed = 0;
@@ -1110,7 +1125,7 @@ class ReaMicroS3SyncEngine {
     var deleted = 0;
 
     for (final local in localBooks) {
-      currentLocalUuids[local.id] = localBookUuids[local.id] ?? local.id;
+      currentLocalUuids[local.id] = resolvedUuids[local.id] ?? local.id;
       final file = File(local.filePath);
       if (!await file.exists()) {
         skipped += 1;
@@ -1129,18 +1144,31 @@ class ReaMicroS3SyncEngine {
         continue;
       }
       final fingerprint = _bookFingerprint(local.title, local.author, size);
-      ReaMicroS3Book? matched = books[local.id];
+      // 已恢复的原版 UUID 必须参与下一轮匹配；编辑后大小或摘要会变化。
+      ReaMicroS3Book? matched =
+          books[resolvedUuids[local.id]] ?? books[local.id];
       if (matched == null) {
-        for (final book in books.values) {
-          if (book.fingerprint == fingerprint &&
-              (book.size == 0 || book.size == size)) {
-            matched = book;
-            break;
-          }
-        }
+        final sameContent = books.values
+            .where(
+              (book) =>
+                  book.epub.sha256 == sha || book.epub.sourceSha256 == sha,
+            )
+            .toList();
+        if (sameContent.length == 1) matched = sameContent.single;
+      }
+      if (matched == null) {
+        final candidates = books.values
+            .where(
+              (book) =>
+                  book.fingerprint == fingerprint &&
+                  (book.size == 0 || book.size == size),
+            )
+            .toList();
+        if (candidates.length == 1) matched = candidates.single;
       }
       final uuid = matched?.uuid ?? local.id;
       currentLocalUuids[local.id] = uuid;
+      await _rememberBook(local.id, uuid);
       final now = DateTime.now().millisecondsSinceEpoch;
       final epubMatches =
           matched != null &&
@@ -1256,7 +1284,7 @@ class ReaMicroS3SyncEngine {
     final deletionCandidates =
         <String>{
           ...pendingDeletions,
-          for (final entry in localBookUuids.entries)
+          for (final entry in knownUuids.entries)
             if (!currentLocalIds.contains(entry.key) &&
                 !currentLocalUuidValues.contains(entry.value))
               entry.value,
@@ -1333,6 +1361,14 @@ class ReaMicroS3SyncEngine {
       }
       for (final book in books.values) {
         if (matchedRemote.contains(book.uuid)) continue;
+        if (currentLocalUuidValues.contains(book.uuid) &&
+            localBooks.any(
+              (local) =>
+                  currentLocalUuids[local.id] == book.uuid &&
+                  File(local.filePath).existsSync(),
+            )) {
+          continue;
+        }
         if (localFingerprints.contains(book.fingerprint)) continue;
         onStatus?.call('下载《${book.title}》…');
         try {
@@ -1349,10 +1385,21 @@ class ReaMicroS3SyncEngine {
             onStatus?.call('《${book.title}》校验失败，已跳过');
             continue;
           }
-          final imported = await library.importBytes(
-            object.bytes,
-            fallbackTitle: book.title,
-          );
+          final existing = localBooks
+              .where((local) => currentLocalUuids[local.id] == book.uuid)
+              .toList();
+          final imported = existing.length == 1
+              ? await library.updateBytes(
+                  existing.single.id,
+                  object.bytes,
+                  preserveIdentity: true,
+                )
+              : await library.importBytes(
+                  object.bytes,
+                  fallbackTitle: book.title,
+                );
+          currentLocalUuids[imported.id] = book.uuid;
+          await _rememberBook(imported.id, book.uuid);
           final bookmarkOutcome = await _importRemoteBookmarks(
             book: imported,
             remote: book,
@@ -1364,7 +1411,6 @@ class ReaMicroS3SyncEngine {
           if (book.cloudId > 0) {
             links[imported.id] = book.cloudId;
           }
-          currentLocalUuids[imported.id] = book.uuid;
           downloaded += 1;
           localFingerprints.add(book.fingerprint);
         } catch (error) {

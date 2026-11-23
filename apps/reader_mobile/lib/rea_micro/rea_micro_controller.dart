@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -874,6 +875,14 @@ class ReaMicroController extends ChangeNotifier {
         },
         bookmarkBases: _s3BookmarkBases,
         localBookUuids: _s3LocalBookUuids,
+        onBookIdentified: (bookId, uuid) async {
+          if (_user?.id != user.id) {
+            throw const ReaMicroException('账号已变化，同步已停止');
+          }
+          if (_s3LocalBookUuids[bookId] == uuid) return;
+          _s3LocalBookUuids[bookId] = uuid;
+          await _store.saveS3LocalBookUuids(_s3LocalBookUuids);
+        },
         pendingDeletions: _s3PendingDeletions,
         onStatus: (message) {
           if (_disposed) return;
@@ -3512,8 +3521,26 @@ class ReaMicroController extends ChangeNotifier {
     );
   }
 
-  /// 从局域网设备下载缺失图书并合并阅读位置。
-  Future<String> syncWithLanPeer(ReaMicroLanSyncPeer peer) async {
+  /// 先获取清单供用户选书，确认时沿用清单。
+  Future<ReaMicroLanManifest> fetchLanSyncManifest(
+    ReaMicroLanSyncPeer peer,
+  ) async {
+    final user = _user;
+    if (user == null) throw const ReaMicroException('请先登录阅微账号');
+    final manifest = await _lan.fetchManifest(peer);
+    if (_user?.id != user.id || manifest.userId != user.id) {
+      throw const ReaMicroException('该设备与当前阅微账号不一致');
+    }
+    return manifest;
+  }
+
+  /// 从所选局域网图书下载缺失文件并合并阅读位置。
+  Future<String> syncWithLanPeer(
+    ReaMicroLanSyncPeer peer, {
+    ReaMicroLanManifest? selectedManifest,
+    Set<String>? selectedUuids,
+    BookImportConflictHandler? onConflict,
+  }) async {
     if (_user == null) {
       throw const ReaMicroException('请先登录阅微账号');
     }
@@ -3530,8 +3557,9 @@ class ReaMicroController extends ChangeNotifier {
         peer: peer,
         fields: const <String, Object?>{'books': 0},
       );
-      final manifest = await _lan.fetchManifest(peer);
-      if (manifest.userId != _user!.id) {
+      final accountId = _user!.id;
+      final manifest = selectedManifest ?? await fetchLanSyncManifest(peer);
+      if (_user?.id != accountId || manifest.userId != accountId) {
         throw const ReaMicroException('该设备与当前阅微账号不一致');
       }
       _logLanSync(
@@ -3563,10 +3591,26 @@ class ReaMicroController extends ChangeNotifier {
       var unmatched = 0;
       var mergedMarks = 0;
       final matchedBooks = <String, (BookEntry, ReaMicroLanBookProgress)>{};
+      final identityKey = 'reamicro.lan.bookUuids.$accountId';
+      final aliases = <String, String>{};
+      try {
+        final raw = await _library.getSetting(identityKey);
+        if (raw != null) {
+          aliases.addAll(Map<String, String>.from(jsonDecode(raw) as Map));
+        }
+      } catch (_) {
+        // 旧版本没有映射或映射损坏时重新按书籍信息匹配。
+      }
       for (final remote in manifest.books) {
+        if (selectedUuids != null && !selectedUuids.contains(remote.uuid)) {
+          continue;
+        }
+        if (_user?.id != accountId) {
+          throw const ReaMicroException('账号已变化，同步已停止');
+        }
         BookEntry? localBook;
         try {
-          localBook = await _matchLanBook(remote);
+          localBook = await _matchLanBook(remote, aliases);
         } catch (error) {
           failed += 1;
           _logLanSyncError(
@@ -3577,7 +3621,13 @@ class ReaMicroController extends ChangeNotifier {
           );
           continue;
         }
-        if (localBook == null && remote.hasFiles && remote.title.isNotEmpty) {
+        final missingFile =
+            localBook != null &&
+            _library.supportsPersistence &&
+            !await File(localBook.filePath).exists();
+        if ((localBook == null || missingFile) &&
+            remote.hasFiles &&
+            remote.title.isNotEmpty) {
           _logLanSync(
             _LanSyncStage.downloadStart,
             peer: peer,
@@ -3612,10 +3662,17 @@ class ReaMicroController extends ChangeNotifier {
             continue;
           }
           try {
-            final importedBook = await _library.importBytes(
-              bytes,
-              fallbackTitle: remote.title,
-            );
+            final importedBook = localBook != null && missingFile
+                ? await _library.updateBytes(
+                    localBook.id,
+                    bytes,
+                    preserveIdentity: true,
+                  )
+                : await _library.importBytes(
+                    bytes,
+                    fallbackTitle: remote.title,
+                    onConflict: onConflict,
+                  );
             localBook = importedBook;
             if (importedBook.importOutcome != BookImportOutcome.unchanged) {
               imported += 1;
@@ -3630,6 +3687,11 @@ class ReaMicroController extends ChangeNotifier {
               },
             );
           } catch (error) {
+            if (error is LibraryImportException &&
+                error.errorCode == 'E_IMPORT_CANCELLED') {
+              skipped += 1;
+              continue;
+            }
             importFailed += 1;
             _logLanSyncError(
               _LanSyncStage.importFailed,
@@ -3652,6 +3714,11 @@ class ReaMicroController extends ChangeNotifier {
           continue;
         }
         final bookId = localBook.id;
+        // 先保存身份，位置或标注后续失败也不会再次下载原书。
+        if (remote.uuid.isNotEmpty && aliases[remote.uuid] != bookId) {
+          aliases[remote.uuid] = bookId;
+          await _library.setSetting(identityKey, jsonEncode(aliases));
+        }
         matchedBooks[bookId] = (localBook, remote);
         if (remote.cloudId > 0 && !nextLinks.containsKey(bookId)) {
           try {
@@ -3955,8 +4022,16 @@ class ReaMicroController extends ChangeNotifier {
   ///
   /// 阅微的书籍 UUID 与 Spectacular 的本地书籍标识来源不同，不能只按 UUID
   /// 查找；依次尝试本地标识、已有云端关联和唯一的书名加作者匹配。
-  Future<BookEntry?> _matchLanBook(ReaMicroLanBookProgress remote) async {
-    final direct = await _library.bookById(remote.uuid);
+  Future<BookEntry?> _matchLanBook(
+    ReaMicroLanBookProgress remote,
+    Map<String, String> aliases,
+  ) async {
+    final alias = aliases[remote.uuid];
+    if (alias != null) {
+      final stored = await _library.bookBySyncId(alias);
+      if (stored != null) return stored;
+    }
+    final direct = await _library.bookBySyncId(remote.uuid);
     if (direct != null) return direct;
     if (remote.cloudId > 0) {
       for (final entry in _links.entries) {

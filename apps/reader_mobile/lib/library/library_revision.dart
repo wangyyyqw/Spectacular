@@ -61,6 +61,7 @@ extension LibraryRevisionOperations on LibraryStore {
     Uint8List bytes, {
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    bool preserveIdentity = false,
   }) {
     if (_isMemory) {
       throw const LibraryImportException('当前模式不支持强制更新');
@@ -96,6 +97,7 @@ extension LibraryRevisionOperations on LibraryStore {
           analysis: analysis,
           onProgress: onProgress,
           isCancelled: isCancelled,
+          preserveIdentity: preserveIdentity,
         );
       } finally {
         parsed.document!.archive.close();
@@ -113,14 +115,17 @@ extension LibraryRevisionOperations on LibraryStore {
     required ImportAnalysis analysis,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    bool preserveIdentity = false,
   }) async {
     final document = parsed.document!;
     final identifier = originalEpubIdentifier(document);
-    final id = generateBookId(
-      title: document.meta.title,
-      author: document.meta.author,
-      identifier: identifier,
-    );
+    final id = preserveIdentity
+        ? old.uuid
+        : generateBookId(
+            title: document.meta.title,
+            author: document.meta.author,
+            identifier: identifier,
+          );
     await _checkRevisionConflict(old.id, id);
     final revision = analysis.revision;
     final oldFile = old.sourcePath == null ? null : File(old.sourcePath!);
@@ -157,6 +162,28 @@ extension LibraryRevisionOperations on LibraryStore {
       await stage.create(recursive: true);
       final file = File(p.join(stage.path, 'source.epub'));
       await file.writeAsBytes(bytes, flush: true);
+      // 相同内容只补回文件；已有文字锚点、页码和待确认状态无需迁移。
+      if (!oldExists && old.contentRevision == revision && id == old.uuid) {
+        final coverExists =
+            old.coverPath != null && await File(old.coverPath!).exists();
+        final cover = coverExists
+            ? old.coverPath
+            : await _restoreRevisionCover(stage, analysis.summary!);
+        await _verifyImportSnapshot(file, revision);
+        _checkImportCancelled(isCancelled);
+        await (_db!.update(
+          _db.books,
+        )..where((table) => table.id.equals(old.id))).write(
+          BooksCompanion(sourcePath: Value(file.path), coverPath: Value(cover)),
+        );
+        committed = true;
+        onProgress?.call(1);
+        _notify();
+        return _withImportOutcome(
+          _entryFromRow((await _bookRowOfUuid(id))!),
+          BookImportOutcome.updated,
+        );
+      }
       final retainedCover = old.deletedAt == null ? null : old.coverPath;
       final keepRetainedCover =
           retainedCover != null && await File(retainedCover).exists();
@@ -183,6 +210,7 @@ extension LibraryRevisionOperations on LibraryStore {
         migration,
         _RevisionCommit(parsed, file, weights, counts, restoredCover),
         isCancelled: isCancelled,
+        identity: preserveIdentity ? old.uuid : null,
       );
       committed = true;
       // 数据库已指向可读的新文件后才删除旧 EPUB；失败留给启动扫描。
@@ -371,14 +399,17 @@ extension LibraryRevisionOperations on LibraryStore {
     _RevisionMigration migration,
     _RevisionCommit commit, {
     bool Function()? isCancelled,
+    String? identity,
   }) async {
     final document = commit.parsed.document!;
     final identifier = originalEpubIdentifier(document);
-    final id = generateBookId(
-      title: document.meta.title,
-      author: document.meta.author,
-      identifier: identifier,
-    );
+    final id =
+        identity ??
+        generateBookId(
+          title: document.meta.title,
+          author: document.meta.author,
+          identifier: identifier,
+        );
     await _db!.transaction(() async {
       _checkImportCancelled(isCancelled);
       await _verifyRevisionSnapshot(migration);

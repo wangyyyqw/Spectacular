@@ -8,6 +8,7 @@ extension LibraryTxtOperations on LibraryStore {
     String? encoding,
     void Function(double)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) => _enqueueOperation(
     () => _importTxt(
       source: File(path),
@@ -15,6 +16,7 @@ extension LibraryTxtOperations on LibraryStore {
       encoding: encoding,
       onProgress: onProgress,
       isCancelled: isCancelled,
+      onConflict: onConflict,
     ),
   );
 
@@ -24,6 +26,7 @@ extension LibraryTxtOperations on LibraryStore {
     String? encoding,
     void Function(double)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) => _enqueueOperation(
     () => _importTxt(
       bytes: bytes,
@@ -31,6 +34,7 @@ extension LibraryTxtOperations on LibraryStore {
       encoding: encoding,
       onProgress: onProgress,
       isCancelled: isCancelled,
+      onConflict: onConflict,
     ),
   );
 
@@ -41,6 +45,7 @@ extension LibraryTxtOperations on LibraryStore {
     String? encoding,
     void Function(double)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) async {
     _checkImportCancelled(isCancelled);
     final stage = await Directory.systemTemp.createTemp('spectacular-txt-');
@@ -54,7 +59,7 @@ extension LibraryTxtOperations on LibraryStore {
       final digest = await hashImportFile(input.path);
       _checkImportCancelled(isCancelled);
       final existing = await _existingTxtBook('$txtIdentifierPrefix$digest');
-      if (existing != null) {
+      if (existing != null && onConflict == null) {
         onProgress?.call(1);
         return _withImportOutcome(existing, BookImportOutcome.unchanged);
       }
@@ -84,6 +89,7 @@ extension LibraryTxtOperations on LibraryStore {
             : _ImportPayload.file(converted.filePath),
         onProgress: (value) => onProgress?.call(0.65 + value * 0.35),
         isCancelled: isCancelled,
+        onConflict: onConflict,
       );
     } finally {
       await stage.delete(recursive: true);

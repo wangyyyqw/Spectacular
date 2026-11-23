@@ -28,6 +28,7 @@ import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import '../txt/txt_encoding_dialog.dart';
 import 'desktop_layout.dart';
+import 'book_import_conflict_dialog.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
 import 'book_lists_view.dart';
@@ -172,8 +173,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onReadingFinished: widget.onReadingFinished,
           loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
         );
-    _queue = ImportQueue(widget.library, readFile: widget.readFile)
-      ..addListener(_onQueueChanged);
+    _queue = ImportQueue(
+      widget.library,
+      readFile: widget.readFile,
+      onConflict: (conflict) => mounted
+          ? chooseBookImport(context, conflict)
+          : Future.value(BookImportChoice.cancel),
+    )..addListener(_onQueueChanged);
     _reload();
     _loadPreferences();
   }
@@ -1269,12 +1275,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
       titleSpacing: 16,
       title: _buildSearchField(),
       actions: [
-        if (_selectionMode)
-          TextButton(
-            key: const ValueKey<String>('bookshelf-select-all'),
-            onPressed: _removing ? null : () => _toggleSelectAll(items),
-            child: Text(_allSelected(items) ? '取消全选' : '全选'),
-          ),
         Padding(
           padding: const EdgeInsets.only(right: 16),
           child: Center(child: _buildImportButton(busy)),
@@ -1374,11 +1374,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onManage: _manageGroup,
         ),
       ),
-      IconButton(
-        tooltip: _grid ? '列表视图' : '网格视图',
-        onPressed: _toggleView,
-        icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
-      ),
+      if (_selectionMode)
+        IconButton(
+          key: const ValueKey('bookshelf-select-all'),
+          tooltip: _allSelected(items) ? '取消全选' : '全选',
+          onPressed: _removing ? null : () => _toggleSelectAll(items),
+          icon: AppIcon(
+            _allSelected(items) ? AppGlyph.check : AppGlyph.multiSelect,
+          ),
+        ),
       IconButton(
         key: const ValueKey('bookshelf-multi-select'),
         tooltip: _selectionMode ? '退出多选' : '多选',
@@ -1391,6 +1395,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
             : _startSelection,
         icon: AppIcon(_selectionMode ? AppGlyph.close : AppGlyph.multiSelect),
       ),
+      if (!_selectionMode)
+        IconButton(
+          key: const ValueKey('bookshelf-view-style'),
+          tooltip: _grid ? '列表视图' : '网格视图',
+          onPressed: _toggleView,
+          icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
+        ),
       const SizedBox(width: 8),
     ],
   );

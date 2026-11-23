@@ -1,5 +1,10 @@
 import 'dart:async';
 
+import '../library/library_store.dart';
+
+import '../home/book_import_conflict_dialog.dart';
+import 'rea_micro_lan_book_picker.dart';
+
 import 'package:flutter/material.dart';
 
 import 'rea_micro_controller.dart';
@@ -19,6 +24,7 @@ class ReaMicroLanPage extends StatefulWidget {
 }
 
 class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
+  bool _choosingBooks = false;
   @override
   void initState() {
     super.initState();
@@ -48,11 +54,30 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
   }
 
   Future<void> _sync(ReaMicroLanSyncPeer peer) async {
+    if (_choosingBooks || widget.controller.lanSyncing) return;
+    setState(() => _choosingBooks = true);
     try {
-      final message = await widget.controller.syncWithLanPeer(peer);
+      final manifest = await widget.controller.fetchLanSyncManifest(peer);
+      if (!mounted) return;
+      final selected = await Navigator.of(context).push<Set<String>>(
+        MaterialPageRoute(
+          builder: (_) => ReaMicroLanBookPicker(books: manifest.books),
+        ),
+      );
+      if (!mounted || selected == null || selected.isEmpty) return;
+      final message = await widget.controller.syncWithLanPeer(
+        peer,
+        selectedManifest: manifest,
+        selectedUuids: selected,
+        onConflict: (conflict) => mounted
+            ? chooseBookImport(context, conflict)
+            : Future.value(BookImportChoice.cancel),
+      );
       if (mounted) _showMessage(message);
     } catch (error) {
       if (mounted) _showMessage('同步失败：$error');
+    } finally {
+      if (mounted) setState(() => _choosingBooks = false);
     }
   }
 
@@ -290,7 +315,9 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.sync),
-            onTap: controller.lanSyncing ? null : () => _sync(peer),
+            onTap: controller.lanSyncing || _choosingBooks
+                ? null
+                : () => _sync(peer),
           ),
         ),
     ];

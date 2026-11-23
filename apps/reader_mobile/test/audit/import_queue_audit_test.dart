@@ -21,6 +21,7 @@ class _GatedLibrary extends LibraryStore {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) async {
     calls++;
     if (calls == 1) {
@@ -32,6 +33,7 @@ class _GatedLibrary extends LibraryStore {
       fallbackTitle: fallbackTitle,
       onProgress: onProgress,
       isCancelled: isCancelled,
+      onConflict: onConflict,
     );
   }
 }

@@ -54,9 +54,14 @@ void main() {
     final multiple = tester.getRect(find.byTooltip('多选'));
     final view = tester.getRect(find.byTooltip('列表视图'));
     expect(multiple.center.dy, closeTo(view.center.dy, .1));
-    expect(multiple.left, greaterThanOrEqualTo(view.right));
+    expect(view.left, greaterThanOrEqualTo(multiple.right));
 
     await _enterMultiSelect(tester, first.id);
+    expect(find.byKey(const ValueKey('bookshelf-view-style')), findsNothing);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('bookshelf-select-all'))).right,
+      lessThanOrEqualTo(tester.getRect(find.byTooltip('退出多选')).left),
+    );
     expect(find.text('已选 1 本'), findsOneWidget);
 
     await tester.tap(
@@ -64,7 +69,7 @@ void main() {
     );
     await _settle(tester, frames: 3);
     expect(find.text('已选 3 本'), findsOneWidget);
-    expect(find.text('取消全选'), findsOneWidget);
+    expect(find.byTooltip('取消全选'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('bookshelf-select-all')),

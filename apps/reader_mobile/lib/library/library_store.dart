@@ -42,6 +42,28 @@ part 'library_edit_drafts.dart';
 part 'library_sweep_paths.dart';
 part 'library_txt.dart';
 
+/// 重名导入由界面选择，覆盖保留书架身份和原有用户记录。
+enum BookImportChoice { overwrite, independent, cancel }
+
+class BookImportConflict {
+  const BookImportConflict({required this.title, required this.books});
+  final String title;
+  final List<BookEntry> books;
+}
+
+typedef BookImportConflictHandler = Future<BookImportChoice> Function(
+  BookImportConflict conflict,
+);
+
+String? _epubUuid(String identifier) {
+  final value = identifier.trim().toLowerCase().replaceFirst('urn:uuid:', '');
+  return RegExp(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      ).hasMatch(value)
+      ? value
+      : null;
+}
+
 /// 导入成功的实际结果，覆盖更新不会新建用户数据。
 enum BookImportOutcome { added, updated, unchanged }
 
@@ -328,6 +350,7 @@ class LibraryStore {
   final Map<String, Uint8List> _memoryBytes = <String, Uint8List>{};
   final Map<String, BookEntry> _memoryEntries = <String, BookEntry>{};
   final Map<String, String> _memorySettings = <String, String>{};
+  final Map<String, String> _memoryIdentifiers = {};
   final Map<String, ReaderFontEntry> _memoryFonts = <String, ReaderFontEntry>{};
   final Map<String, ShelfGroup> _memoryGroups = <String, ShelfGroup>{};
   final Map<String, String> _memoryBookGroups = <String, String>{};
@@ -1011,7 +1034,11 @@ class LibraryStore {
     final updatedAt = notes.updatedAt.max();
     final query = db.selectOnly(notes)
       ..join([
-        leftOuterJoin(books, books.id.equalsExp(notes.bookId), useColumns: false),
+        leftOuterJoin(
+          books,
+          books.id.equalsExp(notes.bookId),
+          useColumns: false,
+        ),
       ])
       ..addColumns([books.uuid, thoughts, marks, updatedAt])
       ..where(thought | mark)
@@ -1185,6 +1212,24 @@ class LibraryStore {
     return row == null || row.deletedAt != null ? null : _entryFromRow(row);
   }
 
+  /// 同步身份保留旧书籍标识，改版重键后仍能找回同一条本地记录。
+  Future<BookEntry?> bookBySyncId(String id) async {
+    final current = await bookById(id);
+    if (current != null || _isMemory) return current;
+    final db = _db!;
+    final alias = await (db.select(
+      db.bookIdAliases,
+    )..where((table) => table.aliasId.equals(id))).getSingleOrNull();
+    if (alias == null) return null;
+    final row =
+        await (db.select(db.books)..where(
+              (table) =>
+                  table.id.equals(alias.bookId) & table.deletedAt.isNull(),
+            ))
+            .getSingleOrNull();
+    return row == null ? null : _entryFromRow(row);
+  }
+
   /// 旧版导入漏存简介时，详情页只读 OPF 补齐空值，不覆盖用户已写的简介。
   Future<BookEntry?> restoreBookDescription(String id) async {
     final entry = await bookById(id);
@@ -1315,7 +1360,9 @@ class LibraryStore {
     final oldPath = row.coverPath;
     if (oldPath != null && oldPath != coverFile.path) {
       final normalizedOld = p.normalize(oldPath);
-      final retainedCovers = p.normalize(p.join((await _root()).path, 'covers'));
+      final retainedCovers = p.normalize(
+        p.join((await _root()).path, 'covers'),
+      );
       if (p.isWithin(directory.path, normalizedOld) ||
           p.isWithin(retainedCovers, normalizedOld)) {
         final oldFile = File(oldPath);
@@ -1341,11 +1388,13 @@ class LibraryStore {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) => _enqueueOperation(
     () => _import(
       _ImportPayload.bytes(bytes),
       onProgress: onProgress,
       isCancelled: isCancelled,
+      onConflict: onConflict,
     ),
   );
 
@@ -1357,6 +1406,7 @@ class LibraryStore {
     String? fallbackTitle,
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) {
     if (_isMemory) {
       return importBytes(
@@ -1364,6 +1414,7 @@ class LibraryStore {
         fallbackTitle: fallbackTitle,
         onProgress: onProgress,
         isCancelled: isCancelled,
+        onConflict: onConflict,
       );
     }
     return _enqueueOperation(
@@ -1371,6 +1422,7 @@ class LibraryStore {
         _ImportPayload.file(path),
         onProgress: onProgress,
         isCancelled: isCancelled,
+        onConflict: onConflict,
       ),
     );
   }
@@ -1381,6 +1433,7 @@ class LibraryStore {
     _ImportPayload payload, {
     void Function(double progress)? onProgress,
     bool Function()? isCancelled,
+    BookImportConflictHandler? onConflict,
   }) async {
     _checkImportCancelled(isCancelled);
     onProgress?.call(0.1);
@@ -1391,6 +1444,7 @@ class LibraryStore {
     BookEntry? unchangedEntry;
     final analysis = await payload.analyze(
       shouldSkip: (revision) async {
+        if (onConflict != null) return false;
         final db = _db;
         if (db == null) return false;
         final rows =
@@ -1429,12 +1483,77 @@ class LibraryStore {
     final report = analysis.report;
     final meta = summary.meta;
     final identifier = summary.identifier;
-    final id = generateBookId(
+    var id = generateBookId(
       title: meta.title,
       author: meta.author,
       identifier: identifier,
     );
-    final existing = _isMemory ? null : await _bookRowOfUuid(id);
+    var existing = _isMemory ? null : await _bookRowOfUuid(id);
+    var preserveIdentity = false;
+    // EPUB 的真实 UUID 不依赖文件名、书名或作者；保留第一次导入的书架身份。
+    final uuidIdentifier = _epubUuid(identifier);
+    if (!_isMemory && existing == null && uuidIdentifier != null) {
+      final matches =
+          await (_db!.select(_db.books)..where(
+                (table) =>
+                    table.epubIdentifier.isNotNull() & table.deletedAt.isNull(),
+              ))
+              .get();
+      final sameUuid = matches
+          .where((row) => _epubUuid(row.epubIdentifier ?? '') == uuidIdentifier)
+          .toList();
+      if (sameUuid.length == 1) {
+        existing = sameUuid.single;
+        id = existing.uuid;
+        preserveIdentity = true;
+      }
+    }
+    if (_isMemory &&
+        !_memoryEntries.containsKey(id) &&
+        uuidIdentifier != null) {
+      final sameUuid = _memoryEntries.keys
+          .where(
+            (key) => _epubUuid(_memoryIdentifiers[key] ?? '') == uuidIdentifier,
+          )
+          .toList();
+      if (sameUuid.length == 1) id = sameUuid.single;
+    }
+    if (onConflict != null) {
+      final titleKey = meta.title.trim().toLowerCase();
+      final conflicts = (await list())
+          .where(
+            (book) =>
+                book.id == id || book.title.trim().toLowerCase() == titleKey,
+          )
+          .toList();
+      if (conflicts.isNotEmpty) {
+        final choice = await onConflict(
+          BookImportConflict(
+            title: meta.title,
+            books: List.unmodifiable(conflicts),
+          ),
+        );
+        _checkImportCancelled(isCancelled);
+        if (choice == BookImportChoice.cancel) {
+          throw const LibraryImportException(
+            '已取消导入',
+            errorCode: 'E_IMPORT_CANCELLED',
+          );
+        }
+        if (choice == BookImportChoice.independent) {
+          id =
+              '$id-${DateTime.now().microsecondsSinceEpoch}-${math.Random().nextInt(1 << 30)}';
+          existing = null;
+        } else {
+          final target =
+              conflicts.where((book) => book.id == id).firstOrNull ??
+              conflicts.first;
+          id = target.id;
+          existing = _isMemory ? null : await _bookRowOfUuid(id);
+          preserveIdentity = true;
+        }
+      }
+    }
     // 同版本缺失文件只补回原书，不能重写位置锚点与版式恢复提示。
     if (existing != null && existing.contentRevision != analysis.revision) {
       final updateBytes = await payload.readBytes(analysis.revision);
@@ -1461,6 +1580,7 @@ class LibraryStore {
           analysis: analysis,
           onProgress: onProgress,
           isCancelled: isCancelled,
+          preserveIdentity: preserveIdentity,
         );
       } finally {
         document.archive.close();
@@ -1471,6 +1591,7 @@ class LibraryStore {
       final same = listEquals(_memoryBytes[id], bytes);
       _checkImportCancelled(isCancelled);
       _memoryBytes[id] = bytes;
+      _memoryIdentifiers[id] = identifier;
       final current = _memoryEntries[id]!;
       final entry = _withImportOutcome(
         current.copyWith(contentRevision: analysis.revision),
@@ -1553,6 +1674,7 @@ class LibraryStore {
       );
       if (_isMemory) {
         _memoryBytes[id] = payload.bytes!;
+        _memoryIdentifiers[id] = identifier;
         _memoryEntries[id] = entry;
       } else {
         final db = _db!;

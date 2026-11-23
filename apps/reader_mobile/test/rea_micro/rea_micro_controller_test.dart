@@ -3517,6 +3517,77 @@ function search(key){return JSON.stringify({code:200,data:[
     expect(controller.links[books.single.id]?.cloudBookId, 22);
   });
 
+  test('互联仅同步所选书籍，重启并改名后按持久UUID识别而不重复下载', () async {
+    final library = await _openDbLibrary();
+    final manifest = ReaMicroLanManifest.fromJson({
+      'userId': 1,
+      'deviceId': 'peer',
+      'generatedAt': 1,
+      'books': [
+        for (final uuid in ['remote-a', 'remote-b'])
+          {
+            'uuid': uuid,
+            'book': {'title': uuid, 'author': '作者'},
+            'files': [
+              {'relativePath': 'mimetype', 'size': 20, 'md5': ''},
+            ],
+          },
+      ],
+    });
+    final lan = _FakeLan(
+      manifest,
+      archive: buildTestEpub(
+        title: 'remote-a',
+        author: '作者',
+        identifier: 'local-a',
+      ),
+    );
+    var controller = await _createController(library, _FakeApi(), lan: lan);
+    const peer = ReaMicroLanSyncPeer(
+      host: '127.0.0.1',
+      port: 1,
+      userId: 1,
+      deviceId: 'peer',
+      nickname: '',
+      deviceName: '',
+    );
+    await controller.syncWithLanPeer(peer, selectedUuids: {'remote-a'});
+    expect(lan.downloadCalls, 1);
+    final local = (await library.list()).single;
+    await library.updateBookMetadata(
+      local.id,
+      title: '已改名',
+      author: '已修改作者',
+      description: '',
+    );
+    controller.dispose();
+    controller = await _createController(library, _FakeApi(), lan: lan);
+    addTearDown(controller.dispose);
+    await controller.syncWithLanPeer(peer, selectedUuids: {'remote-a'});
+    expect(lan.downloadCalls, 1);
+    expect(await library.list(), hasLength(1));
+    expect((await library.list()).single.title, '已改名');
+    final renamed = (await library.list()).single;
+    await DriftProgressStore(library.db).setFinished(renamed.id, true);
+    await library.reviewStore()!.save(renamed.id, rating: 4, content: '已有书评');
+    await File(renamed.filePath).delete();
+    await controller.syncWithLanPeer(peer, selectedUuids: {'remote-a'});
+    expect(lan.downloadCalls, 2);
+    final restored = (await library.list()).single;
+    expect(restored.id, renamed.id);
+    expect(await File(restored.filePath).exists(), isTrue);
+    expect(
+      (await library.reviewStore()!.snapshot())[restored.id]!.content,
+      '已有书评',
+    );
+    expect(
+      (await DriftProgressStore(library.db).load(restored.id))!.finished,
+      isTrue,
+    );
+    await controller.syncWithLanPeer(peer, selectedUuids: {'remote-a'});
+    expect(lan.downloadCalls, 2);
+  });
+
   test('云端较新标注导入本地并保留颜色、想法与时间戳', () async {
     final library = await _openDbLibrary();
     final book = await library.importBytes(

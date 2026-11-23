@@ -94,9 +94,10 @@ class ImportJob {
 /// 失败可重试。
 class ImportQueue extends ChangeNotifier {
   /// 创建队列。
-  ImportQueue(this._library, {this.readFile});
+  ImportQueue(this._library, {this.readFile, this.onConflict});
 
   final LibraryStore _library;
+  final BookImportConflictHandler? onConflict;
 
   /// 按路径读取文件；测试可注入计数或失败行为。
   final Future<Uint8List> Function(String path)? readFile;
@@ -322,6 +323,7 @@ class ImportQueue extends ChangeNotifier {
                 encoding: job.encodingOverride,
                 onProgress: progress,
                 isCancelled: () => job.status == ImportStatus.cancelled,
+                onConflict: onConflict,
               )
             : await _library.importTxtBytes(
                 job.bytes ?? (loadedBytes = await readFile!(job.sourcePath!)),
@@ -329,6 +331,7 @@ class ImportQueue extends ChangeNotifier {
                 encoding: job.encodingOverride,
                 onProgress: progress,
                 isCancelled: () => job.status == ImportStatus.cancelled,
+                onConflict: onConflict,
               );
       } else if (canStreamFile) {
         // 默认路径：文件直接流式导入，不整本读入内存。
@@ -337,6 +340,7 @@ class ImportQueue extends ChangeNotifier {
           fallbackTitle: job.fallbackTitle,
           onProgress: progress,
           isCancelled: () => job.status == ImportStatus.cancelled,
+          onConflict: onConflict,
         );
       } else {
         final bytes =
@@ -348,6 +352,7 @@ class ImportQueue extends ChangeNotifier {
                 fallbackTitle: job.fallbackTitle,
                 onProgress: progress,
                 isCancelled: () => job.status == ImportStatus.cancelled,
+                onConflict: onConflict,
               )
             : await _library.updateBytes(
                 job.updateBookId!,
@@ -370,6 +375,10 @@ class ImportQueue extends ChangeNotifier {
         ..encodingCandidates = error.encodingCandidates;
     } on LibraryImportException catch (error) {
       if (job.status == ImportStatus.cancelled) return;
+      if (error.errorCode == 'E_IMPORT_CANCELLED') {
+        job.status = ImportStatus.cancelled;
+        return;
+      }
       job
         ..status = ImportStatus.failed
         ..error = error.message
