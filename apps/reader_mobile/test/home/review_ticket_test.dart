@@ -66,7 +66,7 @@ int _starCount(WidgetTester tester) => tester
     .length;
 
 void main() {
-  testWidgets('已写书评显示评分、更新日期和真实累计时长', (tester) async {
+  testWidgets('已写书评显示评分、标记读完日期和真实累计时长', (tester) async {
     final semantics = tester.ensureSemantics();
     try {
       await _pump(
@@ -78,15 +78,30 @@ void main() {
 
       expect(find.text('长夜与灯火'), findsOneWidget);
       expect(find.text('林川'), findsOneWidget);
-      expect(find.text('书评更新'), findsOneWidget);
-      expect(find.text('2026.06.13'), findsOneWidget);
+      expect(find.text('标记读完'), findsOneWidget);
+      expect(find.text('2026.06.10'), findsOneWidget);
+      expect(find.text('书评更新'), findsNothing);
+      expect(find.text('2026.06.13'), findsNothing);
       expect(_starCount(tester), 5);
       expect(
         find.bySemanticsLabel(
-          '长夜与灯火，林川，4 星，有书评正文，书评更新：2026年6月13日，累计阅读4 小时 24 分钟',
+          '长夜与灯火，林川，4 星，有书评正文，标记读完：2026年6月10日，累计阅读4 小时 24 分钟',
         ),
         findsOneWidget,
       );
+
+      // 封面左边缘、上边缘与下边缘贴齐卡片纸边。
+      final face = tester.getRect(
+        find.byKey(const ValueKey<String>('review-ticket-face')),
+      );
+      final cover = tester.getRect(
+        find.byKey(const ValueKey<String>('review-ticket-cover')),
+      );
+      expect(cover.left, closeTo(face.left, .01));
+      expect(cover.top, closeTo(face.top, .01));
+      expect(cover.bottom, closeTo(face.bottom, .01));
+      expect(cover.height, greaterThan(94));
+      expect(cover.right, lessThan(face.right));
       expect(tester.takeException(), isNull);
     } finally {
       semantics.dispose();
@@ -120,7 +135,7 @@ void main() {
     );
 
     expect(find.text('长夜与灯火'), findsOneWidget);
-    expect(find.text('书评更新'), findsOneWidget);
+    expect(find.text('标记读完'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('ticket')));
     expect(taps, 1);
     expect(tester.takeException(), isNull);

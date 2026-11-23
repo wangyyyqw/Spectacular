@@ -5,7 +5,7 @@ import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 
-/// 书评票根：左联展示书籍与书评，副联只使用已有的日期和阅读时长。
+/// 书评票根：左联展示书籍与书评，封面贴齐左侧纸边；副联显示标记读完日期与累计时长。
 class ReviewTicket extends StatelessWidget {
   const ReviewTicket({
     super.key,
@@ -21,7 +21,7 @@ class ReviewTicket extends StatelessWidget {
   final VoidCallback onTap;
 
   bool get _hasBody => review?.content.trim().isNotEmpty ?? false;
-  String get _dateLabel => review == null ? '最近阅读' : '书评更新';
+  String get _dateLabel => review == null ? '最近阅读' : '标记读完';
 
   List<(String, String)> get _timeParts {
     final elapsed = duration;
@@ -36,7 +36,7 @@ class ReviewTicket extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final date = (review?.updatedAt ?? book.lastReadAt)?.toLocal();
+    final date = (review?.createdAt ?? book.lastReadAt)?.toLocal();
     final time = _timeParts;
     final label = [
       book.title,
@@ -82,6 +82,7 @@ class ReviewTicket extends StatelessWidget {
     final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
     final stacked = width < 300 * scale || scale >= 1.5;
     final face = Ink(
+      key: const ValueKey<String>('review-ticket-face'),
       decoration: ShapeDecoration(
         shape: _PaperEdge(
           stacked ? Alignment.bottomLeft : Alignment.topRight,
@@ -90,8 +91,31 @@ class ReviewTicket extends StatelessWidget {
         ),
         color: scheme.surface,
       ),
-      padding: const EdgeInsets.all(14),
-      child: _bookFace(context),
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(92, 14, 14, 14),
+            child: _bookFace(context),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(2),
+              ),
+              child: SizedBox(
+                width: 66,
+                child: BookCoverImage(
+                  key: const ValueKey<String>('review-ticket-cover'),
+                  book: book,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
     final stub = Ink(
       decoration: ShapeDecoration(
@@ -125,48 +149,42 @@ class ReviewTicket extends StatelessWidget {
     );
   }
 
-  Widget _bookFace(BuildContext context) => Row(
-    children: [
-      BookCoverImage(book: book, width: 66, height: 94),
-      const SizedBox(width: 12),
-      Expanded(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 94),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    book.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium
-                        ?.copyWith(height: 1.32, fontWeight: FontWeight.w600),
-                  ),
-                  if (book.author.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        book.author,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: _caption(context),
-                      ),
-                    ),
-                ],
+  Widget _bookFace(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(minHeight: 94),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              book.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                height: 1.32,
+                fontWeight: FontWeight.w600,
               ),
+            ),
+            if (book.author.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: _marks(context),
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  book.author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _caption(context),
+                ),
               ),
-            ],
-          ),
+          ],
         ),
-      ),
-    ],
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: _marks(context),
+        ),
+      ],
+    ),
   );
 
   TextStyle _caption(BuildContext context) =>
