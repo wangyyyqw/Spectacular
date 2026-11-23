@@ -33,11 +33,13 @@ void main() {
     }
   });
 
-  test('删书后导入修订版重新提取封面并恢复可打开的书籍', () async {
+  test('删书后导入修订版保留封面副本并恢复可打开的书籍', () async {
     final old = await library.importBytes(
       buildTestEpub(identifier: 'restore-cover', cover: true),
     );
     await library.remove(old.id);
+    final retainedCover = (await library.retainedBooks()).single.coverPath;
+    expect(retainedCover, isNotNull);
     final updated = buildTestEpub(
       identifier: 'restore-cover',
       cover: true,
@@ -46,7 +48,7 @@ void main() {
     final restored = await library.importBytes(updated);
     expect((await library.list()).single.id, old.id);
     expect(await library.readBytes(restored), updated);
-    expect(restored.coverPath, isNotNull);
+    expect(restored.coverPath, retainedCover);
     expect(await File(restored.coverPath!).readAsBytes(), isNotEmpty);
   });
 
@@ -131,8 +133,13 @@ void main() {
     expect(await db.select(db.readingSessions).get(), hasLength(1));
     expect(await progressStore.snapshot(), isEmpty);
     expect(await library.finishedBookIds(), isEmpty);
-    expect(await library.reviewStore()!.snapshot(), isEmpty);
-    expect(await library.readingSessionStore()!.list(), isEmpty);
+    // 书评不跟随书架增删：移出后仍可读到。
+    expect(
+      (await library.reviewStore()!.snapshot())[book.id]?.content,
+      '保留的书评',
+    );
+    // 阅读记录同样不跟随书架增删，移出后仍可统计。
+    expect(await library.readingSessionStore()!.list(), hasLength(1));
 
     final restored = await library.importBytes(bytes);
 

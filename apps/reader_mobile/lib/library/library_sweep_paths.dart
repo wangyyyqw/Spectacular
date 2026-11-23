@@ -95,7 +95,18 @@ class _LibrarySweepPaths {
     if (p.isWithin(booksDirectory.path, path)) return path;
     final parts = p.split(path);
     final books = parts.lastIndexOf('books');
-    if (books < 0 || books + 1 == parts.length) return null;
-    return p.joinAll([booksDirectory.path, ...parts.skip(books + 1)]);
+    if (books >= 0 && books + 1 != parts.length) {
+      return p.joinAll([booksDirectory.path, ...parts.skip(books + 1)]);
+    }
+    // 已移出书籍的保留封面位于书库根目录的 covers/。
+    final covers = parts.lastIndexOf('covers');
+    if (covers >= 0 && covers + 1 != parts.length) {
+      return p.joinAll([
+        p.dirname(booksDirectory.path),
+        'covers',
+        ...parts.skip(covers + 1),
+      ]);
+    }
+    return null;
   }
 }

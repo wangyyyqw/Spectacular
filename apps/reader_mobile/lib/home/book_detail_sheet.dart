@@ -13,7 +13,8 @@ import 'reading_insights.dart';
 ///
 /// 长按书架卡片打开；返回 `'detail'` 打开完整详情页，`'delete'` 表示删除，
 /// `'create-group'` 将本书移入已有或新建分组，`'export'` 导出本书 EPUB，
-/// `'pin'` 切换置顶状态，`'reamicro-link'` 进入阅微关联与公开阅读。
+/// `'pin'` 切换置顶状态，`'reamicro-link'` 进入阅微关联与公开阅读，
+/// `'booklists'` 选择所属书单。
 class BookDetailSheet extends StatelessWidget {
   /// 创建详情面板。
   const BookDetailSheet({
@@ -245,6 +246,12 @@ class BookDetailSheet extends StatelessWidget {
                 clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
+                    _DetailAction(
+                      key: const ValueKey<String>('book-detail-booklists'),
+                      icon: AppGlyph.bookmarkAdd,
+                      label: '加入书单',
+                      onTap: () => Navigator.of(context).pop('booklists'),
+                    ),
                     _DetailActionPair(
                       left: _DetailAction(
                         key: const ValueKey<String>('book-detail-open-page'),

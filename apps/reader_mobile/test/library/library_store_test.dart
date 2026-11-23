@@ -9,6 +9,9 @@ import 'package:reader_core/editing.dart' show EpubEditSummary;
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/storage/drift_progress_store.dart';
+import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 
@@ -795,5 +798,72 @@ void main() {
     expect(orphanFile.existsSync(), isFalse);
     expect(File(entry.filePath).existsSync(), isTrue, reason: '在册书不受影响');
     expect(await store.list(), hasLength(1));
+  });
+
+  test('删除书籍保留封面副本，重新导入后封面仍在', () async {
+    final dir = Directory.systemTemp.createTempSync('library_retained_cover');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = _open(dir).store;
+    final entry = await store.importBytes(buildTestEpub(cover: true));
+    final original = File(entry.coverPath!);
+    expect(original.existsSync(), isTrue);
+
+    await store.remove(entry.id);
+
+    final retained = (await store.retainedBooks()).single;
+    expect(retained.coverPath, isNotNull);
+    final retainedFile = File(retained.coverPath!);
+    expect(retainedFile.existsSync(), isTrue);
+    expect(p.isWithin(p.join(dir.path, 'covers'), retainedFile.path), isTrue);
+    expect(original.existsSync(), isFalse, reason: '原书目录已清理');
+    expect(retainedFile.lengthSync(), greaterThan(0));
+
+    final restored = await store.importBytes(
+      buildTestEpub(cover: true, paragraphs: ['重新导入的正文']),
+    );
+    expect(restored.coverPath, retained.coverPath);
+    expect(File(restored.coverPath!).existsSync(), isTrue);
+  });
+
+  test('移出书架后笔记、书评与阅读时长仍保留并可查询', () async {
+    final dir = Directory.systemTemp.createTempSync('library_retained');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final opened = _open(dir);
+    final store = opened.store;
+    final entry = await store.importBytes(buildTestEpub(title: '保留的书'));
+
+    await store
+        .annotationStore(entry.id)!
+        .add(
+          type: ReaderAnnotationType.thought,
+          startCfi: 'epubcfi(/6/2!/4/2/1:1)',
+          endCfi: 'epubcfi(/6/2!/4/2/1:3)',
+          quote: '保留的划线',
+          note: '保留的想法',
+        );
+    await store.readingSessionStore()!.add(
+      bookId: entry.id,
+      startedAt: DateTime(2026, 6, 1, 8),
+      endedAt: DateTime(2026, 6, 1, 9),
+    );
+    await DriftProgressStore(opened.db).save(
+      entry.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 1, finished: true),
+    );
+    await store.reviewStore()!.save(entry.id, rating: 4, content: '保留的书评');
+
+    await store.remove(entry.id);
+
+    expect(await store.list(), isEmpty, reason: '书架不再展示已移除书籍');
+    final retained = await store.retainedBooks();
+    expect(retained.single.title, '保留的书');
+    expect(retained.single.filePath, isEmpty);
+    expect((await store.bookNoteCounts())[entry.id]?.thoughts, 1);
+    expect(
+      (await store.bookReadingDurations())[entry.id],
+      const Duration(hours: 1),
+    );
+    expect((await store.reviewStore()!.snapshot())[entry.id]?.content, '保留的书评');
+    expect(await store.annotationStore(entry.id)!.list(), hasLength(1));
   });
 }

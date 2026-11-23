@@ -66,7 +66,7 @@ int _starCount(WidgetTester tester) => tester
     .length;
 
 void main() {
-  testWidgets('已写书评显示评分、更新日期和真实累计时长', (tester) async {
+  testWidgets('已写书评显示评分、标记读完日期和真实累计时长', (tester) async {
     final semantics = tester.ensureSemantics();
     try {
       await _pump(
@@ -76,17 +76,32 @@ void main() {
         duration: const Duration(hours: 4, minutes: 24),
       );
 
-      expect(find.text('长夜与灯火'), findsOneWidget);
-      expect(find.text('林川'), findsOneWidget);
-      expect(find.text('书评更新'), findsOneWidget);
-      expect(find.text('2026.06.13'), findsOneWidget);
+      // 书名同时出现在主标题与无封面时的占位封面上。
+      expect(find.text('长夜与灯火'), findsWidgets);
+      expect(find.textContaining('林川'), findsOneWidget);
+      expect(find.text('标记读完'), findsOneWidget);
+      expect(find.text('2026.06.10'), findsOneWidget);
+      expect(find.text('书评更新'), findsNothing);
+      expect(find.text('2026.06.13'), findsNothing);
       expect(_starCount(tester), 5);
       expect(
         find.bySemanticsLabel(
-          '长夜与灯火，林川，4 星，有书评正文，书评更新：2026年6月13日，累计阅读4 小时 24 分钟',
+          '长夜与灯火，林川，4 星，有书评正文，标记读完：2026年6月10日，累计阅读4 小时 24 分钟',
         ),
         findsOneWidget,
       );
+
+      // 封面内缩 6dp、垂直居中，宽高保持 3:4。
+      final face = tester.getRect(
+        find.byKey(const ValueKey<String>('review-ticket-face')),
+      );
+      final cover = tester.getRect(
+        find.byKey(const ValueKey<String>('review-ticket-cover')),
+      );
+      expect(cover.left, closeTo(face.left + 6, .01));
+      expect(cover.center.dy, closeTo(face.center.dy, .01));
+      expect(cover.width / cover.height, closeTo(3 / 4, .01));
+      expect(cover.right, lessThan(face.right));
       expect(tester.takeException(), isNull);
     } finally {
       semantics.dispose();
@@ -103,7 +118,8 @@ void main() {
     expect(find.text('写书评'), findsOneWidget);
     expect(find.text('最近阅读'), findsOneWidget);
     expect(find.text('2026.06.09'), findsOneWidget);
-    expect(find.text('暂无时长记录'), findsOneWidget);
+    // 没有阅读时长时保留空位，不显示占位文案。
+    expect(find.textContaining('暂无时长记录'), findsNothing);
     expect(_starCount(tester), 0);
   });
 
@@ -120,7 +136,11 @@ void main() {
     );
 
     expect(find.text('长夜与灯火'), findsOneWidget);
-    expect(find.text('书评更新'), findsOneWidget);
+    expect(find.text('标记读完'), findsOneWidget);
+    final cover = tester.getRect(
+      find.byKey(const ValueKey<String>('review-ticket-cover')),
+    );
+    expect(cover.width / cover.height, closeTo(3 / 4, .01));
     await tester.tap(find.byKey(const ValueKey('ticket')));
     expect(taps, 1);
     expect(tester.takeException(), isNull);

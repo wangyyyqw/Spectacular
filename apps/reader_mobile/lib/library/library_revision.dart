@@ -157,7 +157,10 @@ extension LibraryRevisionOperations on LibraryStore {
       await stage.create(recursive: true);
       final file = File(p.join(stage.path, 'source.epub'));
       await file.writeAsBytes(bytes, flush: true);
-      final restoredCover = old.deletedAt == null
+      final retainedCover = old.deletedAt == null ? null : old.coverPath;
+      final keepRetainedCover =
+          retainedCover != null && await File(retainedCover).exists();
+      final restoredCover = old.deletedAt == null || keepRetainedCover
           ? null
           : await _restoreRevisionCover(stage, analysis.summary!);
       onProgress?.call(0.5);
@@ -406,13 +409,16 @@ extension LibraryRevisionOperations on LibraryStore {
             BookIdAliasesCompanion.insert(aliasId: old.uuid, bookId: old.id),
           );
     }
+    final retainedCover = old.deletedAt == null ? null : old.coverPath;
+    final keepRetainedCover =
+        retainedCover != null && await File(retainedCover).exists();
     await (db.update(
       db.books,
     )..where((table) => table.id.equals(old.id))).write(
       BooksCompanion(
         sourcePath: Value(commit.file.path),
         deletedAt: const Value(null),
-        coverPath: old.deletedAt == null
+        coverPath: old.deletedAt == null || keepRetainedCover
             ? const Value.absent()
             : Value(commit.restoredCover),
         contentDir: Value(

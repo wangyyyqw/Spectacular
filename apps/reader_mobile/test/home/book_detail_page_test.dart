@@ -150,6 +150,40 @@ void main() {
     expect(find.text('阅读记录'), findsOneWidget);
   });
 
+  testWidgets('详情页可打开书单选择并加入书单', (tester) async {
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(buildTestEpub(title: '入单详情書'));
+    });
+    final bookList = await store.bookListStore().create(name: '详情书单');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final entryTile = find.byKey(
+      const ValueKey<String>('book-detail-booklists'),
+    );
+    await tester.scrollUntilVisible(
+      entryTile,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(entryTile);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('booklist-membership')), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('booklist-membership-${bookList.id}')));
+    await tester.pumpAndSettle();
+    expect(
+      (await store.bookListStore().list()).single.bookIds,
+      <String>[entry.id],
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('读完信息支持长书评，保存失败保留草稿且不提前标记读完', (tester) async {
     late BookEntry entry;
     await tester.runAsync(() async {

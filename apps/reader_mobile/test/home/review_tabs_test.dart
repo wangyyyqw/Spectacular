@@ -60,16 +60,24 @@ void main() {
 
     final tabs = tester.widget<TabBar>(find.byType(TabBar));
     expect(tabs.controller!.index, 0);
+    expect(tabs.controller!.length, 3);
     expect(find.text('还没有笔记'), findsOneWidget);
-    expect(find.byTooltip('刷新笔记'), findsOneWidget);
+    expect(find.byTooltip('刷新笔记'), findsNothing);
+    expect(find.byTooltip('刷新书评'), findsNothing);
     expect(find.byTooltip('搜索书评'), findsNothing);
+    expect(store.snapshots, 0);
+
+    await tester.tap(find.byKey(const ValueKey('booklists-tab')));
+    await tester.pumpAndSettle();
+    expect(tabs.controller!.index, 2);
+    expect(find.text('还没有书单'), findsOneWidget);
     expect(store.snapshots, 0);
 
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await tester.pumpAndSettle();
     expect(tabs.controller!.index, 1);
     expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
-    expect(find.byTooltip('刷新书评'), findsOneWidget);
+    expect(find.byTooltip('刷新书评'), findsNothing);
     expect(find.byTooltip('搜索书评'), findsOneWidget);
     expect(store.snapshots, 1);
 

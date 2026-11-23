@@ -9,15 +9,24 @@ import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 class _FakeLibrary extends LibraryStore {
-  _FakeLibrary(this.books, {Set<String>? finishedIds})
-    : finishedIds = finishedIds ?? {for (final book in books) book.id},
-      super.memory();
+  _FakeLibrary(
+    this.books, {
+    Set<String>? finishedIds,
+    this.retained = const <BookEntry>[],
+  }) : finishedIds = finishedIds ?? {for (final book in books) book.id},
+       super.memory();
 
   final List<BookEntry> books;
+
+  /// 已移出书架但仍保留书评的书籍。
+  final List<BookEntry> retained;
   final Set<String> finishedIds;
 
   @override
   Future<List<BookEntry>> list() async => books;
+
+  @override
+  Future<List<BookEntry>> retainedBooks() async => retained;
 
   @override
   Future<Set<String>> finishedBookIds() async => Set.of(finishedIds);
@@ -93,6 +102,7 @@ Future<void> _pumpReviews(
   WidgetTester tester, {
   required List<BookEntry> books,
   required _MemoryReviewStore store,
+  List<BookEntry> retained = const <BookEntry>[],
   Set<String>? finishedIds,
   Size size = const Size(1080, 2400),
   double textScale = 1,
@@ -108,7 +118,11 @@ Future<void> _pumpReviews(
         child: child!,
       ),
       home: ReviewsPage(
-        library: _FakeLibrary(books, finishedIds: finishedIds),
+        library: _FakeLibrary(
+          books,
+          finishedIds: finishedIds,
+          retained: retained,
+        ),
         reviewStore: store,
       ),
     ),
@@ -257,6 +271,37 @@ void main() {
     expect(find.byKey(const ValueKey('review-editor')), findsNothing);
     expect(store.items[book.id], same(review));
     expect(store.saveCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('移出书架的书评继续展示，详情只读不可编辑', (tester) async {
+    final removed = _book('removed-review', '已移出的书', '作者');
+    final review = _review(removed.id, '删书后仍要显示的书评', rating: 4);
+    final store = _MemoryReviewStore()..items[removed.id] = review;
+    await _pumpReviews(
+      tester,
+      books: const <BookEntry>[],
+      retained: [removed],
+      store: store,
+      finishedIds: const <String>{},
+    );
+
+    expect(find.text('已写 1 篇 · 待写 0 本 · 平均 4.0 星'), findsOneWidget);
+    expect(find.byKey(ValueKey('review-card-${removed.id}')), findsOneWidget);
+
+    await tester.tap(find.byKey(ValueKey('review-card-${removed.id}')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-detail')), findsOneWidget);
+    expect(find.text(review.content), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('review-detail-edit')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

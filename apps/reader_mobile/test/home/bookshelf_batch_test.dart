@@ -83,7 +83,7 @@ void main() {
     );
     await _settle(tester);
     expect(find.text('删除选中的 2 本书？'), findsOneWidget);
-    expect(find.textContaining('书签、笔记和高亮'), findsOneWidget);
+    expect(find.textContaining('笔记、书评、书单'), findsOneWidget);
     expect(find.byType(ReaderFrostedSurface), findsOneWidget);
     expect(
       tester.widget<Dialog>(find.byType(Dialog)).backgroundColor,

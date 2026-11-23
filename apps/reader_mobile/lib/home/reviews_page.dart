@@ -14,6 +14,7 @@ import '../rea_micro/rea_micro_annotation_cfi.dart';
 import '../rea_micro/rea_micro_models.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
+import 'book_lists_view.dart';
 import 'book_notes_list.dart';
 import 'desktop_layout.dart';
 import 'review_ticket.dart';
@@ -92,17 +93,21 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   bool get _notes => _section == 0;
 
+  bool get _reviewTab => _section == 1;
+
+  bool get _bookListsTab => _section == 2;
+
   BookReviewStore? get _store =>
       widget.reviewStore ?? widget.library.reviewStore();
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this)..addListener(_changeSection);
+    _tabs = TabController(length: 3, vsync: this)..addListener(_changeSection);
     widget.library.addListener(_onLibraryChanged);
     widget.reaMicro?.addListener(_onReaMicroChanged);
     _signedIn = widget.reaMicro?.signedIn ?? false;
-    if (widget.active) _reload();
+    if (widget.active && !_bookListsTab) _reload();
   }
 
   @override
@@ -159,7 +164,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       _searchController.clear();
     });
     if (usesDesktopLayout(context)) _keyboardFocus.requestFocus();
-    if (widget.active) _reload();
+    if (widget.active && !_bookListsTab) _reload();
   }
 
   void _onLibraryChanged() {
@@ -486,13 +491,14 @@ class _ReviewsPageState extends State<ReviewsPage>
               labelStyle: Theme.of(context).textTheme.bodyMedium
                   ?.copyWith(fontWeight: FontWeight.w600),
               unselectedLabelStyle: Theme.of(context).textTheme.bodyMedium,
-              tabs: const [
+        tabs: const [
                 Tab(key: ValueKey('notes-tab'), text: '笔记'),
                 Tab(key: ValueKey('reviews-tab'), text: '书评'),
+          Tab(key: ValueKey('booklists-tab'), text: '书单'),
               ],
             ),
           ),
-          if (desktop && !_notes)
+          if (desktop && _reviewTab)
             SizedBox(
               width: math.min(360, bounds.maxWidth),
               child: _searchField(),
@@ -619,6 +625,12 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   Widget _sectionBody() {
+    if (_bookListsTab) {
+      return BookListsView(
+        library: widget.library,
+        active: widget.active,
+      );
+    }
     final books = _books;
     if (books == null) {
       return _error == null

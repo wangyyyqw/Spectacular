@@ -72,6 +72,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _exporting = false;
   bool _savingTheme = false;
   BookSortOrder _shelfSort = BookSortOrder.recent;
+  bool _showShelfTitles = true;
   List<ReaderFontEntry> _appFonts = const [];
 
   @override
@@ -84,7 +85,7 @@ class _ProfilePageState extends State<ProfilePage> {
           }
         })
         .catchError((_) {});
-    _loadShelfSort();
+    _loadShelfPreferences();
     _loadAppFonts();
   }
 
@@ -110,11 +111,20 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> _loadShelfSort() async {
+  Future<void> _loadShelfPreferences() async {
     final value = await widget.library.getSetting(bookshelfSortKey);
+    final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
     if (mounted) {
-      setState(() => _shelfSort = BookSortOrder.fromValue(value));
+      setState(() {
+        _shelfSort = BookSortOrder.fromValue(value);
+        _showShelfTitles = showTitles != 'false';
+      });
     }
+  }
+
+  Future<void> _toggleShelfTitles(bool value) async {
+    setState(() => _showShelfTitles = value);
+    await widget.library.setSetting(bookshelfShowTitlesKey, value.toString());
   }
 
   Future<void> _chooseShelfSort() async {
@@ -325,6 +335,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   subtitle: Text(_shelfSort.label),
                   trailing: const AppIcon(AppGlyph.chevronRight),
                   onTap: _chooseShelfSort,
+                ),
+                SwitchListTile(
+                  key: const ValueKey<String>('bookshelf-title-setting'),
+                  secondary: const AppIcon(AppGlyph.textFields),
+                  title: const Text('显示书名'),
+                  subtitle: const Text('关闭后书架只显示封面'),
+                  value: _showShelfTitles,
+                  onChanged: _toggleShelfTitles,
                 ),
                 if (widget.onlineBooks != null)
                   _OnlineSourceEntry(

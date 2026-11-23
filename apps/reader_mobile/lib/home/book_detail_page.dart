@@ -12,6 +12,7 @@ import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import 'book_cover_image.dart';
+import 'book_lists_view.dart';
 import 'finish_book_sheet.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
@@ -466,6 +467,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
     }
   }
 
+  Future<void> _openBookLists() => showBookListMembership(
+    context,
+    library: widget.library,
+    bookId: _entry.id,
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -601,6 +608,16 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   canEdit: widget.progressStore != null,
                   onEdit: _editFinished,
                   onUnmark: _unmarkFinished,
+                ),
+                const Divider(height: 40),
+                ListTile(
+                  key: const ValueKey<String>('book-detail-booklists'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const AppIcon(AppGlyph.bookmarkAdd),
+                  title: const Text('加入书单'),
+                  subtitle: const Text('选择这本书所在的书单'),
+                  trailing: const AppIcon(AppGlyph.chevronRight),
+                  onTap: _openBookLists,
                 ),
               ],
             ),
