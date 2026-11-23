@@ -94,11 +94,11 @@ void main() {
     final before = tester.getRect(surface);
     expect(
       tester.getRect(find.byKey(const ValueKey('menu-entry-settings'))).bottom,
-      before.bottom - 28,
+      before.bottom - 22,
     );
     expect(
       tester.getRect(find.byKey(const ValueKey('menu-entry-settings'))).height,
-      56,
+      48,
     );
 
     padding.value = const EdgeInsets.only(bottom: 34);

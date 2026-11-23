@@ -635,10 +635,10 @@ class _EntriesRow extends StatelessWidget {
   final ReaderMenuEntry? selected;
   final String keyPrefix;
 
-  // 与 main 底栏的点击区对齐：条目高 56，左右 14，底部留出 22+6。
-  // 不叠加系统栏安全区，否则开关状态栏和导航栏时整条底栏会上下跳。
-  static const double itemHeight = 56;
-  static const padding = EdgeInsets.fromLTRB(14, 6, 14, 28);
+  // 几何与 main 保持一致：条目高 48，左右 0，底部留出 6+22。
+  // 不叠加系统栏安全区，否则显示状态栏和导航栏时整条底栏会上移。
+  static const double itemHeight = 48;
+  static const padding = EdgeInsets.fromLTRB(0, 6, 0, 22);
 
   static const Map<ReaderMenuEntry, ({AppGlyph icon, String label})> items =
       <ReaderMenuEntry, ({AppGlyph icon, String label})>{
