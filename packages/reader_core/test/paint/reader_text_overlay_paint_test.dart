@@ -150,6 +150,28 @@ void main() {
     expect(_pixels(blue, const Color(0xff0000ff)), greaterThan(0));
   });
 
+  test('同一绘制器列表原地换色、清空及重添后不复用旧区间', () async {
+    final page = _page();
+    final overlays = [_color(1, 4, 0xffff0000)];
+    final painter = PagePainter(textOverlays: overlays);
+    expect(
+      _pixels(await _render(page, painter), const Color(0xffff0000)),
+      greaterThan(0),
+    );
+    overlays[0] = _color(2, 3, 0xff0000ff);
+    final blue = await _render(page, painter);
+    expect(_pixels(blue, const Color(0xffff0000)), 0);
+    expect(_pixels(blue, const Color(0xff0000ff)), greaterThan(0));
+    overlays.clear();
+    final clear = await _render(page, painter);
+    expect(_pixels(clear, const Color(0xff0000ff)), 0);
+    overlays.add(_color(1, 4, 0xffff0000));
+    expect(
+      _pixels(await _render(page, painter), const Color(0xffff0000)),
+      greaterThan(0),
+    );
+  });
+
   test('后应用文字色覆盖前者，墨水屏保持黑白', () async {
     final page = _page();
     final overlays = [_color(1, 4, 0xffff0000), _color(1, 4, 0xff0000ff)];

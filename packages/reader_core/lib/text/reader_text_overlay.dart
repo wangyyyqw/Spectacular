@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart';
 
 import '../css/computed_style.dart';
 import '../layout/line_breaker.dart';
+import '../perf/trace.dart';
 import '../position/cfi.dart';
 import '../position/text_cfi_map.dart';
 
@@ -108,12 +109,12 @@ class ReaderTextOverlayResolver {
     this.typography = true,
     this.colors = true,
   }) : _ranges = [
-         for (final overlay in overlays)
+         for (final (order, overlay) in overlays.indexed)
            if (typography &&
                    (overlay.affectsTypography ||
                        overlay.paddingByTextHeight != null) ||
                colors && overlay.color != null)
-             ?_TextOverlayRange.parse(overlay),
+             ?_TextOverlayRange.parse(overlay, order),
        ];
 
   /// 是否覆盖字体度量。
@@ -123,6 +124,12 @@ class ReaderTextOverlayResolver {
   final bool colors;
 
   final List<_TextOverlayRange> _ranges;
+  late final _TextOverlayNode? _index = _TextOverlayNode.build(_ranges);
+
+  /// 仅性能采样启用时累计；章节调用方读取差值，不逐段写入全局埋点。
+  final ReaderTextOverlayMetrics? metrics = readerTraceEnabled
+      ? ReaderTextOverlayMetrics()
+      : null;
 
   /// 有效覆盖的字体度量指纹；颜色及无效区间不会改变它。
   late final String typographyFingerprint = jsonEncode([
@@ -149,11 +156,32 @@ class ReaderTextOverlayResolver {
     required ComputedStyle style,
     required List<StyledRun> runs,
   }) {
+    final sample = metrics;
+    final watch = sample == null ? null : (Stopwatch()..start());
+    try {
+      return _resolve(blockCfi, textCfis, text, style, runs);
+    } finally {
+      if (sample != null) {
+        sample.resolveCalls += 1;
+        sample.elapsedMicroseconds += watch!.elapsedMicroseconds;
+      }
+    }
+  }
+
+  List<StyledRun> _resolve(
+    String? blockCfi,
+    TextCfiMap? textCfis,
+    String text,
+    ComputedStyle style,
+    List<StyledRun> runs,
+  ) {
+    if (_ranges.isEmpty || text.isEmpty) return runs;
     final block = blockCfi == null ? null : EpubCfi.parse(blockCfi);
-    if (block == null || text.isEmpty) return runs;
-    final ranges = [
-      for (final range in _ranges) ?range.inBlock(block, text.length, textCfis),
-    ];
+    if (block == null) return runs;
+    final map = textCfis ?? TextCfiMap.linear(block, text.length);
+    final candidates = _candidates(map);
+    metrics?.candidateChecks += candidates.length;
+    final ranges = [for (final range in candidates) ?range.inBlock(map)];
     if (ranges.isEmpty) return runs;
     final boundaries = <int>{0, text.length};
     for (final range in ranges) {
@@ -171,6 +199,19 @@ class ReaderTextOverlayResolver {
       for (var index = 0; index < ordered.length - 1; index++)
         ?_resolveRun((ordered[index], ordered[index + 1]), style, runs, ranges),
     ];
+  }
+
+  List<_TextOverlayRange> _candidates(TextCfiMap map) {
+    final selected = <_TextOverlayRange>{};
+    for (final run in map.runs) {
+      _index?.query(
+        run.pointAt(run.start),
+        run.pointAt(run.end, endPoint: true),
+        run.cfi.segments.last.steps.last.index.isEven,
+        selected,
+      );
+    }
+    return selected.toList()..sort((a, b) => a.order.compareTo(b.order));
   }
 
   StyledRun? _resolveRun(
@@ -299,13 +340,14 @@ class ReaderTextOverlayResolver {
 }
 
 class _TextOverlayRange {
-  _TextOverlayRange(this.overlay, this.start, this.end);
+  _TextOverlayRange(this.overlay, this.start, this.end, this.order);
 
   final ReaderTextOverlay overlay;
   final EpubCfi start;
   final EpubCfi end;
+  final int order;
 
-  static _TextOverlayRange? parse(ReaderTextOverlay overlay) {
+  static _TextOverlayRange? parse(ReaderTextOverlay overlay, int order) {
     final start = EpubCfi.parse(overlay.startCfi);
     final end = EpubCfi.parse(overlay.endCfi);
     if (start == null ||
@@ -315,17 +357,76 @@ class _TextOverlayRange {
         start.compareTo(end) >= 0) {
       return null;
     }
-    return _TextOverlayRange(overlay, start, end);
+    return _TextOverlayRange(overlay, start, end, order);
   }
 
-  _LocalOverlayRange? inBlock(EpubCfi block, int length, TextCfiMap? textCfis) {
-    final mapped = (textCfis ?? TextCfiMap.linear(block, length)).rangeFor(
-      start.serialize(),
-      end.serialize(),
-    );
+  _LocalOverlayRange? inBlock(TextCfiMap map) {
+    final mapped = map.rangeForPoints(start, end);
     return mapped == null
         ? null
         : _LocalOverlayRange(overlay, mapped.$1, mapped.$2);
+  }
+}
+
+/// 一次解析器生命周期内的累计值；正式 Release 默认不创建。
+class ReaderTextOverlayMetrics {
+  int resolveCalls = 0;
+  int candidateChecks = 0;
+  int elapsedMicroseconds = 0;
+}
+
+/// 按起点平衡构建，子树最大终点用于排除已经结束的覆盖。
+class _TextOverlayNode {
+  _TextOverlayNode(this.range, this.left, this.right) : maxEnd = range.end {
+    for (final child in [left, right]) {
+      if (child != null && TextCfiMap.comparePoints(child.maxEnd, maxEnd) > 0) {
+        maxEnd = child.maxEnd;
+      }
+    }
+  }
+
+  final _TextOverlayRange range;
+  final _TextOverlayNode? left;
+  final _TextOverlayNode? right;
+  EpubCfi maxEnd;
+
+  static _TextOverlayNode? build(List<_TextOverlayRange> ranges) {
+    final sorted =
+        ranges
+            .where(
+              (range) => TextCfiMap.comparePoints(range.start, range.end) < 0,
+            )
+            .toList()
+          ..sort((a, b) => TextCfiMap.comparePoints(a.start, b.start));
+    return _build(sorted, 0, sorted.length);
+  }
+
+  static _TextOverlayNode? _build(
+    List<_TextOverlayRange> sorted,
+    int start,
+    int end,
+  ) {
+    if (start >= end) return null;
+    final middle = (start + end) ~/ 2;
+    return _TextOverlayNode(
+      sorted[middle],
+      _build(sorted, start, middle),
+      _build(sorted, middle + 1, end),
+    );
+  }
+
+  void query(
+    EpubCfi first,
+    EpubCfi last,
+    bool element,
+    Set<_TextOverlayRange> result,
+  ) {
+    if (TextCfiMap.comparePoints(maxEnd, first) <= 0) return;
+    left?.query(first, last, element, result);
+    final startOrder = TextCfiMap.comparePoints(range.start, last);
+    if (startOrder > 0 || startOrder == 0 && !element) return;
+    if (TextCfiMap.comparePoints(range.end, first) > 0) result.add(range);
+    right?.query(first, last, element, result);
   }
 }
 

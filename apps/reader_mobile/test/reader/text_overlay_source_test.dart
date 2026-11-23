@@ -97,10 +97,11 @@ void main() {
     );
     final original = _firstTextBlock(await source.loadChapter(0));
     final author = original.layout.runs.firstWhere((run) => run.start == 1);
+    // span 内文字属于另一来源字符块，不能在段首 CFI 上线性追加偏移。
     await source.applyTextOverlays([
       ReaderTextOverlay(
-        startCfi: cfiWithCharOffset(original.startCfi!, 1),
-        endCfi: cfiWithCharOffset(original.startCfi!, 3),
+        startCfi: original.cfiAt(1)!,
+        endCfi: original.cfiAt(3, end: true)!,
         fontSizeScale: 1.5,
         fontFamily: '测试字体',
       ),

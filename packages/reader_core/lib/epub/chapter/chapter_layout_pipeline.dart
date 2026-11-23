@@ -102,7 +102,7 @@ class ChapterLayoutPipeline {
           pageIndex: cached?.pageIndex ?? pageIndex,
         );
     budget.check();
-    _trace(ReaderTraceName.chapterPagination, watch, input.traceBook);
+    _trace(ReaderTraceName.chapterPagination, watch, input);
     return (
       layout: await CompletedChapterLayout.createAsync(
         key: input.snapshot.key,
@@ -172,6 +172,12 @@ class ChapterLayoutPipeline {
         ? await ChapterHeadLayout.inspect(resolver, budget)
         : (supported: false, mayClone: false);
     head?.waitForClone = traits.mayClone;
+    final metrics = input.snapshot.textOverlays.metrics;
+    final before = (
+      calls: metrics?.resolveCalls ?? 0,
+      checks: metrics?.candidateChecks ?? 0,
+      micros: metrics?.elapsedMicroseconds ?? 0,
+    );
     final watch = Stopwatch()..start();
     await ChapterBlockWalker(
       resolver,
@@ -182,7 +188,26 @@ class ChapterLayoutPipeline {
           ? () => head!.collect(flow, background)
           : null,
     ).build(input.document);
-    _trace(ReaderTraceName.chapterCollect, watch, input.traceBook);
+    _trace(ReaderTraceName.chapterCollect, watch, input);
+    if (readerTraceEnabled) {
+      ReaderTrace.instance.record(
+        ReaderTraceName.chapterTextMeasure,
+        measure.measuredMicroseconds,
+        bookId: input.traceBook,
+        spineIndex: input.snapshot.spineIndex,
+        fields: {'calls': measure.measuredCalls},
+      );
+      ReaderTrace.instance.record(
+        ReaderTraceName.chapterTextOverlays,
+        (metrics?.elapsedMicroseconds ?? 0) - before.micros,
+        bookId: input.traceBook,
+        spineIndex: input.snapshot.spineIndex,
+        fields: {
+          'calls': (metrics?.resolveCalls ?? 0) - before.calls,
+          'candidate_checks': (metrics?.candidateChecks ?? 0) - before.checks,
+        },
+      );
+    }
     await budget.checkpoint();
     flow.blocks = await configureContainerDecorationAsync(
       flow.blocks,
@@ -220,8 +245,17 @@ class ChapterLayoutPipeline {
     ).expandBackground(flow.blocks.single, authored);
   }
 
-  static void _trace(ReaderTraceName name, Stopwatch watch, String? book) {
+  static void _trace(
+    ReaderTraceName name,
+    Stopwatch watch,
+    PreparedChapterLayout input,
+  ) {
     if (!readerTraceEnabled) return;
-    ReaderTrace.instance.record(name, watch.elapsedMicroseconds, bookId: book);
+    ReaderTrace.instance.record(
+      name,
+      watch.elapsedMicroseconds,
+      bookId: input.traceBook,
+      spineIndex: input.snapshot.spineIndex,
+    );
   }
 }

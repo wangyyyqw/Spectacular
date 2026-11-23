@@ -8,18 +8,13 @@ void main() {
 
     test('计时记录：耗时进采样，平均/最大可算', () {
       final trace = ReaderTrace.instance;
-      final handle = trace.start(ReaderTraceName.chapterLayout, bookId: 'book-1');
+      final handle = trace.start(
+        ReaderTraceName.chapterLayout,
+        bookId: 'book-1',
+      );
       handle.stop();
-      trace.record(
-        ReaderTraceName.chapterLayout,
-        2000,
-        bookId: 'book-1',
-      );
-      trace.record(
-        ReaderTraceName.chapterLayout,
-        4000,
-        bookId: 'book-1',
-      );
+      trace.record(ReaderTraceName.chapterLayout, 2000, bookId: 'book-1');
+      trace.record(ReaderTraceName.chapterLayout, 4000, bookId: 'book-1');
       final summary = trace.summary(bookId: 'book-1');
       expect(summary.counts[ReaderTraceName.chapterLayout], 3);
       expect(summary.maxMs(ReaderTraceName.chapterLayout), 4);
@@ -36,7 +31,38 @@ void main() {
         trace.summary(bookId: 'b').counts[ReaderTraceName.pageRenderReuse],
         1,
       );
-      expect(trace.summary(bookId: 'a').counts[ReaderTraceName.chapterLayout], isNull);
+      expect(
+        trace.summary(bookId: 'a').counts[ReaderTraceName.chapterLayout],
+        isNull,
+      );
+    });
+
+    test('阶段明细按时间过滤并保留章号，计数快照有界且可清空', () {
+      final trace = ReaderTrace(capacity: 2);
+      final since = DateTime.now();
+      final fields = <String, num>{'candidate_checks': 3};
+      trace.record(ReaderTraceName.bookOpen, 20, bookId: 'book');
+      trace.record(
+        ReaderTraceName.chapterTextOverlays,
+        10,
+        bookId: 'book',
+        spineIndex: 8,
+        fields: fields,
+      );
+      fields['candidate_checks'] = 100;
+      trace.record(ReaderTraceName.chapterLayout, 30, spineIndex: 9);
+      final events = trace.eventsSince(since);
+      expect(events.length, 2);
+      expect(events.first.bookId, 'book');
+      expect(events.first.spineIndex, 8);
+      expect(events.first.fields['candidate_checks'], 3);
+      expect(events.last.spineIndex, 9);
+      expect(
+        trace.eventsSince(DateTime.now().add(const Duration(days: 1))),
+        isEmpty,
+      );
+      trace.reset();
+      expect(trace.eventsSince(since), isEmpty);
     });
 
     test('页缓存命中率 = 命中 /（命中 + 未命中）', () {
@@ -55,7 +81,10 @@ void main() {
       for (var i = 0; i < 10; i++) {
         trace.record(ReaderTraceName.pageRenderBuild, i, bookId: 'd');
       }
-      expect(trace.summary(bookId: 'd').counts[ReaderTraceName.pageRenderBuild], 4);
+      expect(
+        trace.summary(bookId: 'd').counts[ReaderTraceName.pageRenderBuild],
+        4,
+      );
     });
 
     test('开销：一万次记录远低于 1ms/次（P4-31 验收）', () {

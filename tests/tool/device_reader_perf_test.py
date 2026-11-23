@@ -61,7 +61,8 @@ class BaselineWorkspaceTest(unittest.TestCase):
                 write(destination, "apps/reader_mobile/pubspec.yaml",
                       "dev_dependencies:\n  integration_test:\n    sdk: flutter\n")
                 write(destination, "apps/reader_mobile/android/app/src/main/AndroidManifest.xml",
-                      '    <application android:label="CSS 真机测试"/>')
+                      '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                      '<application android:label="CSS 真机测试"/></manifest>')
 
             archive = archive_files({
                 "apps/reader_mobile/lib/old.dart": "旧版",
@@ -121,6 +122,29 @@ class IsolatedManifestTest(unittest.TestCase):
             application = root.find("application")
             self.assertEqual(application.get(android + "usesCleartextTraffic"), "true")
             self.assertEqual(application.get(android + "label"), "阅读性能测试")
+
+    def test_prepare_sets_isolated_label_and_network_on_current_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            manifest = write(
+                workspace,
+                "apps/reader_mobile/android/app/src/main/AndroidManifest.xml",
+                '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                '<application android:label="墨屿" android:usesCleartextTraffic="false">'
+                '<activity android:name=".MainActivity"/></application></manifest>',
+            )
+            write(workspace, "apps/reader_mobile/pubspec.yaml",
+                  "dev_dependencies:\n  integration_test:\n    sdk: flutter\n")
+            with patch.object(perf, "prepare_workspace"):
+                perf.prepare(workspace, None)
+            root = ET.parse(manifest).getroot()
+            android = "{http://schemas.android.com/apk/res/android}"
+            application = root.find("application")
+            self.assertEqual(application.get(android + "label"), "阅读性能测试")
+            self.assertEqual(application.get(android + "usesCleartextTraffic"), "true")
+            self.assertEqual(application.find("activity").get(android + "name"), ".MainActivity")
+            self.assertEqual([item.get(android + "name") for item in root.findall("uses-permission")],
+                             ["android.permission.INTERNET"])
 
     def test_prepare_workspace_rewrites_every_kotlin_package(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -197,7 +221,8 @@ class ProvenanceTest(unittest.TestCase):
                 if name.startswith("apps/"):
                     write(workspace, name, f"实际复制入口：{name}")
             write(workspace, "apps/reader_mobile/lib/main.dart", "业务")
-            args = argparse.Namespace(book=book, output=root / "report", rounds=5, revision="old")
+            args = argparse.Namespace(book=book, output=root / "report", rounds=5,
+                                      revision="old", scenario_dir=None)
             revisions = {"source": {"revision": "resolved"},
                          "harness": {"revision": "current"}, "working_tree": {"dirty": True}}
             with patch.object(perf, "ROOT", root), patch.object(sys, "argv", ["perf.py", "--rounds", "5"]):
@@ -253,6 +278,7 @@ class ProvenanceTest(unittest.TestCase):
                 handler.headers = {"Content-Length": str(len(data))}
                 handler.rfile = io.BytesIO(data)
                 handler.output = Path(directory) / "report.json"
+                handler.runtime = {"config": {}}
                 handler.provenance = {"source": {"revision": "resolved"}}
                 handler.done = threading.Event()
                 handler.send_response = Mock()
@@ -262,6 +288,47 @@ class ProvenanceTest(unittest.TestCase):
                 saved = json.loads(handler.output.read_text())
                 self.assertEqual(saved["provenance"], handler.provenance)
                 self.assertEqual(handler.done.is_set(), endpoint == "/done")
+
+
+class ProcessRoutingTest(unittest.TestCase):
+    def test_each_process_gets_current_config_and_writes_its_own_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            runtime = {"config": {"cache_mode": "warm", "scope": "共同作用域"}}
+            done = threading.Event()
+            for index, label in enumerate(("warmup", "run-1", "run-2")):
+                done.clear()
+                runtime["config"].update(index=index, warmup=label == "warmup")
+                runtime["output"] = output / f"{label}.json"
+                handler = object.__new__(perf.ReportHandler)
+                handler.runtime = runtime
+                handler.path = "/run.json"
+                handler.send_response = Mock()
+                handler.send_header = Mock()
+                handler.end_headers = Mock()
+                handler.wfile = io.BytesIO()
+                handler.do_GET()
+                config = json.loads(handler.wfile.getvalue())
+                self.assertEqual(config["index"], index)
+                self.assertEqual(config["warmup"], label == "warmup")
+                self.assertEqual(config["scope"], "共同作用域")
+
+                data = json.dumps({"process": {"pid": index + 100}}).encode()
+                handler.path = "/done"
+                handler.headers = {"Content-Length": str(len(data))}
+                handler.rfile = io.BytesIO(data)
+                handler.output = output / "report.json"
+                handler.provenance = {"source": {"revision": "冻结源码"}}
+                handler.done = done
+                with patch("builtins.print"):
+                    handler.do_POST()
+                self.assertTrue(done.is_set())
+                saved = json.loads(runtime["output"].read_text())
+                self.assertEqual(saved["process"]["pid"], index + 100)
+                self.assertEqual(saved["provenance"], handler.provenance)
+            self.assertFalse((output / "report.json").exists())
+            self.assertEqual(json.loads((output / "warmup.json").read_text())["process"]["pid"], 100)
+            self.assertEqual(json.loads((output / "run-1.json").read_text())["process"]["pid"], 101)
 
 
 if __name__ == "__main__":

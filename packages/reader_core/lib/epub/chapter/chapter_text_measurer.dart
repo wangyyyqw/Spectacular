@@ -9,6 +9,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/paint/image_size.dart';
 import 'package:reader_core/position/text_cfi_map.dart';
+import 'package:reader_core/perf/trace.dart';
 
 import '../../util/bounded_cache.dart';
 import 'chapter_layout_job.dart';
@@ -29,6 +30,10 @@ class ChapterTextMeasurer {
   double get contentWidth => snapshot.width;
   double get contentHeight => snapshot.height;
 
+  /// 仅性能采样时累计，章节结束后统一上报。
+  int measuredMicroseconds = 0;
+  int measuredCalls = 0;
+
   static bool isOrdinaryHorizontalBlock(ComputedStyle style) =>
       style.writingMode == CssWritingMode.horizontalTb &&
       style.cssFloat == CssFloat.none &&
@@ -47,6 +52,38 @@ class ChapterTextMeasurer {
     bool preserveContentWidth = false,
     ComputedStyle? firstLineStyle,
     List<StyledRun>? firstLineRuns,
+  }) async {
+    final watch = readerTraceEnabled ? (Stopwatch()..start()) : null;
+    try {
+      return await _layout(
+        text: text,
+        style: style,
+        maxWidth: maxWidth,
+        runs: runs,
+        rubies: rubies,
+        inlineBoxes: inlineBoxes,
+        preserveContentWidth: preserveContentWidth,
+        firstLineStyle: firstLineStyle,
+        firstLineRuns: firstLineRuns,
+      );
+    } finally {
+      if (watch != null) {
+        measuredCalls += 1;
+        measuredMicroseconds += watch.elapsedMicroseconds;
+      }
+    }
+  }
+
+  Future<TextLayoutResult> _layout({
+    required String text,
+    required ComputedStyle style,
+    required double maxWidth,
+    required List<StyledRun> runs,
+    required List<RubyAnnotation> rubies,
+    required List<InlineBoxSpec> inlineBoxes,
+    required bool preserveContentWidth,
+    required ComputedStyle? firstLineStyle,
+    required List<StyledRun>? firstLineRuns,
   }) async {
     if (inlineBoxes.isEmpty) {
       return _layoutCache.layoutAsync(
