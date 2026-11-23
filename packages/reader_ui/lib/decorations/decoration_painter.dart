@@ -245,6 +245,17 @@ abstract final class ReaderDecorationPainter {
       }
       if (image != null) {
         if (nineSlice == null) {
+          canvas.save();
+          final fitted = applyBoxFit(
+            style.backgroundImageFit.fit,
+            Size(image.width.toDouble(), image.height.toDouble()),
+            rect.size,
+          );
+          final imageRect =
+              style.backgroundImageFit == ReaderDecorationImageFit.contain
+              ? Alignment.center.inscribe(fitted.destination, rect)
+              : rect;
+          _clipImageCorners(canvas, imageRect, style.borderRadius);
           paintImage(
             canvas: canvas,
             rect: rect,
@@ -256,6 +267,7 @@ abstract final class ReaderDecorationPainter {
             opacity: style.backgroundOpacity,
             filterQuality: FilterQuality.low,
           );
+          canvas.restore();
         } else {
           canvas.save();
           final anchor = imageAnchor ?? rect;
@@ -272,6 +284,7 @@ abstract final class ReaderDecorationPainter {
             target,
             nineSlice,
             style.backgroundOpacity,
+            style.borderRadius,
           );
           canvas.restore();
         }
@@ -287,11 +300,14 @@ abstract final class ReaderDecorationPainter {
     Rect text,
     ReaderDecorationNineSlice nineSlice,
     double opacity,
+    double borderRadius,
   ) {
     final size = Size(image.width.toDouble(), image.height.toDouble());
     final factor = nineSlice.scaleFor(text, size);
     final destination = nineSlice.imageRectFor(text, size);
     canvas.save();
+    // 点九图含文字区以外的素材边角，圆角应裁切完整图案而非文字区。
+    _clipImageCorners(canvas, destination, borderRadius);
     canvas.translate(destination.left, destination.top);
     canvas.scale(factor);
     canvas.drawImageNine(
@@ -308,6 +324,18 @@ abstract final class ReaderDecorationPainter {
         ..filterQuality = FilterQuality.low,
     );
     canvas.restore();
+  }
+
+  static void _clipImageCorners(Canvas canvas, Rect rect, double radius) {
+    if (radius <= 0) return;
+    canvas.clipRRect(
+      RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(
+          math.min(radius, math.min(rect.width, rect.height) / 2),
+        ),
+      ),
+    );
   }
 
   static void _paintBorders(

@@ -1,3 +1,5 @@
+import '../theme/reader_dropdown.dart';
+
 import 'package:flutter/material.dart';
 
 import '../annotations/annotation_appearance_editor.dart';
@@ -15,7 +17,7 @@ class ReaderDecorationImageFitField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      DropdownButtonFormField<ReaderDecorationImageFit>(
+      ReaderDropdownButtonFormField<ReaderDecorationImageFit>(
         key: ValueKey('decoration-image-fit-${value.name}'),
         initialValue: value,
         isExpanded: true,
@@ -171,7 +173,7 @@ class ReaderBorderStyleField extends StatelessWidget {
   final ValueChanged<ReaderDecorationBorderStyle> onChanged;
   @override
   Widget build(BuildContext context) =>
-      DropdownButtonFormField<ReaderDecorationBorderStyle>(
+      ReaderDropdownButtonFormField<ReaderDecorationBorderStyle>(
         icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: value,
         decoration: const InputDecoration(labelText: '边框线型'),

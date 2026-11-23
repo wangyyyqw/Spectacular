@@ -250,7 +250,9 @@ void main() {
     expect(File(path).existsSync(), isTrue);
     await otherStore.remove(otherRecord.id);
     expect(File(path).existsSync(), isTrue, reason: '正则规则仍引用图片时，删除手工装饰不能清理图片');
-    final restoredRule = (await ruleStore.listRules()).single;
+    final restoredRule = (await ruleStore.listRules()).singleWhere(
+      (rule) => rule.id == 'image-rule',
+    );
     expect(restoredRule.isRegex, isTrue);
     expect(
       restoredRule.style.backgroundImageFit,

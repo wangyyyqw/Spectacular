@@ -49,7 +49,8 @@ BlockDocument buildAnchorDisplayDocument(
   return BlockBuilder.build(
     parsed,
     // 空段落仍可通过作者级联承担 clear，必须保留到浮动布局完成。
-    preserveEmptyParagraph: (node) => styles.styleOf(node).clear != CssClear.none,
+    preserveEmptyParagraph: (node) =>
+        styles.styleOf(node).clear != CssClear.none,
     skipElement: (element) =>
         visibility.hidden.contains(element) ||
         FootnoteParser.isDefinitionElement(element.tag, element.attributes),
@@ -136,6 +137,17 @@ class _AnchorBlocks {
   final List<AnchorBlock> blocks = [];
   final Map<String, int> elementOffsets = {};
   int _offset = 0;
+  bool _ruleEligible = true;
+  static const _ordinaryTags = {
+    'html',
+    'body',
+    'div',
+    'p',
+    'span',
+    'section',
+    'article',
+    'main',
+  };
 
   void walk(EpubNode node, ComputedStyle parent) {
     if (node is TextContentNode) {
@@ -146,15 +158,19 @@ class _AnchorBlocks {
     if (style.display == CssDisplay.none) return;
     final visible = style.visibility == CssVisibility.visible;
     if (node is BlockNode) {
+      final previousEligible = _ruleEligible;
+      _ruleEligible = _ruleEligible && _ordinaryTags.contains(node.tag);
       if (visible) _recordElementPath(node.cfi, _offset);
       if (visible && const {'td', 'th', 'caption'}.contains(node.tag)) {
         final text = _cellText(node);
         if (text.text.isNotEmpty) {
           _appendBlock(node.cfi, text.text, text.textCfis);
         }
+        _ruleEligible = previousEligible;
         return;
       }
-      if (visible && const {'img', 'image', 'svg', 'object'}.contains(node.tag)) {
+      if (visible &&
+          const {'img', 'image', 'svg', 'object'}.contains(node.tag)) {
         final imageCfi = styles.selectors.imageCfiOf(node);
         if (imageCfi != null) {
           _recordElementPath(EpubCfi.parse(imageCfi)!, _offset);
@@ -163,6 +179,7 @@ class _AnchorBlocks {
       for (final child in node.children) {
         walk(child, style);
       }
+      _ruleEligible = previousEligible;
     } else if (node is InlineNode) {
       if (visible) _recordElementPath(node.cfi, _offset);
       for (final child in node.children) {
@@ -198,6 +215,21 @@ class _AnchorBlocks {
           cfi: node.textCfis?.cfiAt(0) ?? node.cfi.serialize(),
           text: node.text,
           textCfis: node.textCfis,
+          ruleEligible: _ruleEligible,
+          ruleExcluded: [
+            for (var i = 0; i < node.text.length; i++)
+              if (node.text.codeUnitAt(i) == 0xFFFC) (i, i + 1),
+            for (final mark in node.inlineMarks)
+              if (mark.tag == 'a' &&
+                  (mark.chain.lastOrNull?.attributes['epub:type']?.contains(
+                        'noteref',
+                      ) ??
+                      false))
+                (mark.start, mark.end),
+          ],
+          ruleProtected: [
+            for (final mark in node.inlineMarks) (mark.start, mark.end),
+          ],
         ),
       );
       _offset += node.text.length;
@@ -206,7 +238,12 @@ class _AnchorBlocks {
 
   void _appendBlock(EpubCfi cfi, String text, TextCfiMap textCfis) {
     blocks.add(
-      AnchorBlock(cfi: cfi.serialize(), text: text, textCfis: textCfis),
+      AnchorBlock(
+        cfi: cfi.serialize(),
+        text: text,
+        textCfis: textCfis,
+        ruleEligible: false,
+      ),
     );
     for (final run in textCfis.runs) {
       _recordElementPath(run.cfi, _offset + run.start);

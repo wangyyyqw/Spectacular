@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/text_cfi_map.dart';
+import 'package:reader_core/position/location_anchor.dart';
 
 import 'decoration_rule_preview.dart';
 import 'decoration_rules.dart';
@@ -55,6 +56,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     required List<ReaderDecorationRuleGroup> groups,
     required List<ReaderDecorationRule> rules,
     required String bookId,
+    Set<String>? globalRuleIds,
   }) {
     final enabled =
         groups
@@ -80,7 +82,14 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     for (final group in enabled) {
       final items =
           rules
-              .where((rule) => rule.enabled && rule.groupId == group.id)
+              .where(
+                (rule) =>
+                    rule.enabled &&
+                    rule.groupId == group.id &&
+                    (group.bookId != null ||
+                        globalRuleIds == null ||
+                        globalRuleIds.contains(rule.id)),
+              )
               .toList()
             ..sort((left, right) {
               final order = left.sortOrder.compareTo(right.sortOrder);
@@ -88,7 +97,11 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
             });
       result.addAll(items);
     }
-    return result;
+    // 对话先铺底，固定词覆盖其上，单引号词组最后应用。
+    return [
+      for (var priority = 0; priority <= 2; priority++)
+        ...result.where((rule) => rule.effectiveType.priority == priority),
+    ];
   }
 
   /// 同章节原文与规则版本只计算一次，字体重排复用相同 CFI 命中。
@@ -97,10 +110,17 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     required List<ReaderDecorationRuleGroup> groups,
     required List<ReaderDecorationRule> rules,
     required String bookId,
+    List<DecorationRuleTextBlock>? sourceBlocks,
+    Set<String>? globalRuleIds,
   }) {
-    final ordered = orderedRules(groups: groups, rules: rules, bookId: bookId);
+    final ordered = orderedRules(
+      groups: groups,
+      rules: rules,
+      bookId: bookId,
+      globalRuleIds: globalRuleIds,
+    );
     if (ordered.isEmpty) return Future.value(const []);
-    final blocks = textBlocks(pages);
+    final blocks = sourceBlocks ?? textBlocks(pages);
     final key = jsonEncode([
       for (final block in blocks)
         [
@@ -119,6 +139,10 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
           [
             for (final range in block.excluded) [range.$1, range.$2],
           ],
+          [
+            for (final range in block.protected) [range.$1, range.$2],
+          ],
+          block.boundary,
         ],
       for (final rule in ordered)
         [rule.id, _fingerprint(rule), rule.style.toJson()],
@@ -144,7 +168,17 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
       if (_failed[rule.id]?.$1 == fingerprint) continue;
       _clearFailure(rule.id);
       try {
-        matches.addAll(await _run(rule, blocks));
+        matches.addAll(
+          await _run(
+            rule,
+            blocks,
+            excludeSingleQuotes: rules.any(
+              (item) =>
+                  item.effectiveType ==
+                  ReaderDecorationRuleType.singleQuotePhrase,
+            ),
+          ),
+        );
       } on FormatException catch (error) {
         _recordFailure(rule, error.message);
       }
@@ -155,10 +189,15 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
   /// 预览当前章前 50 条，不访问存储，也不改变已保存规则。
   Future<List<ReaderDecorationRulePreview>> preview(
     ReaderDecorationRule rule,
-    List<PageContent> pages,
-  ) async {
+    List<PageContent> pages, {
+    List<DecorationRuleTextBlock>? sourceBlocks,
+  }) async {
     try {
-      final matches = await _run(rule, textBlocks(pages), limit: 50);
+      final matches = await _run(
+        rule,
+        sourceBlocks ?? textBlocks(pages),
+        limit: 50,
+      );
       _clearFailure(rule.id);
       return [
         for (final match in matches)
@@ -179,13 +218,28 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     ReaderDecorationRule rule,
     List<DecorationRuleTextBlock> blocks, {
     int? limit,
+    bool excludeSingleQuotes = false,
   }) async {
+    if (rule.effectiveType == ReaderDecorationRuleType.doubleQuoteDialogue &&
+        !blocks.any(
+          (block) =>
+              RegExp('[“「『"]').hasMatch(block.text) || block.text.contains('"'),
+        )) {
+      return const [];
+    }
+    if (rule.effectiveType == ReaderDecorationRuleType.singleQuotePhrase &&
+        !blocks.any((block) => RegExp("[‘']").hasMatch(block.text))) {
+      return const [];
+    }
     final hits = await _matcher.match(
       pattern: rule.pattern,
       isRegex: rule.isRegex,
       caseSensitive: rule.caseSensitive,
       blocks: blocks,
       limit: limit,
+      type: rule.effectiveType,
+      allowCrossParagraph: rule.allowCrossParagraph,
+      excludeSingleQuotes: excludeSingleQuotes,
     );
     final matches = <ReaderDecorationRuleMatch>[];
     for (final hit in hits) {
@@ -210,8 +264,12 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     return matches;
   }
 
-  static String _fingerprint(ReaderDecorationRule rule) =>
-      jsonEncode([rule.pattern, rule.isRegex, rule.caseSensitive]);
+  static String _fingerprint(ReaderDecorationRule rule) => jsonEncode([
+    rule.pattern,
+    rule.effectiveType.name,
+    rule.caseSensitive,
+    rule.allowCrossParagraph,
+  ]);
 
   void _recordFailure(ReaderDecorationRule rule, String message) {
     _failed[rule.id] = (_fingerprint(rule), message);
@@ -227,6 +285,29 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
 
   /// 清除章缓存；同条件的超时错误仍在本会话跳过。
   void clearCache() => _cache.clear();
+
+  /// 排版前使用正式原文入口，跨段匹配不会递归触发分页。
+  static List<DecorationRuleTextBlock> anchorBlocks(AnchorChapter chapter) {
+    var boundary = 0;
+    final result = <DecorationRuleTextBlock>[];
+    for (final block in chapter.blocks) {
+      if (!block.ruleEligible) {
+        boundary++;
+        continue;
+      }
+      result.add(
+        DecorationRuleTextBlock(
+          cfi: block.cfi,
+          text: block.text,
+          textCfis: block.textCfis,
+          excluded: block.ruleExcluded,
+          protected: block.ruleProtected,
+          boundary: boundary,
+        ),
+      );
+    }
+    return result;
+  }
 
   /// 释放后台 isolate。
   @override

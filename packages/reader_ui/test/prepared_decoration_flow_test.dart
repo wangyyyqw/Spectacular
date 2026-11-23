@@ -13,6 +13,8 @@ import 'package:reader_core/text/reader_text_overlay.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/relocator.dart';
 import 'package:reader_ui/decorations/decoration.dart';
+import 'package:reader_ui/decorations/decoration_rule_defaults.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_editor_sheet.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
@@ -267,6 +269,7 @@ Widget _reader(
   Future<void> Function(String)? loadFont,
   ValueChanged<ReaderSession>? ready,
   PageTurnMode mode = PageTurnMode.none,
+  ReaderDecorationRuleStore? rules,
 }) => MaterialApp(
   home: Scaffold(
     body: ReaderPage(
@@ -275,6 +278,7 @@ Widget _reader(
       bookId: 'prepared',
       contentRevision: 'r1',
       decorations: decorations,
+      decorationRules: rules,
       onLoadFont: loadFont,
       onSessionReady: ready,
       pageTurnMode: mode,
@@ -308,6 +312,26 @@ void _expectIdlePreparations(_PreparedSource source) {
 }
 
 void main() {
+  testWidgets('默认图片高亮的绘制留白不传入排版行盒', (tester) async {
+    final source = _PreparedSource();
+    await tester.pumpWidget(
+      _reader(source, await _saved(), _Store([]), rules: _DefaultRuleStore()),
+    );
+    for (var frame = 0; frame < 60 && source.loads.isEmpty; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+    final overlay = source.loads.first.overlays.single;
+    expect(overlay.fontSizeScale, 0.9);
+    expect(overlay.paddingByTextHeight, EdgeInsets.zero);
+    final style = readerDecorationBuiltInStyles.first.style.decorationStyle;
+    expect(style.paddingTop, 9);
+    expect(style.paddingBottom, 9);
+    expect(style.backgroundImagePath, isNotNull);
+  });
+
   testWidgets('连续滚动选字保存装饰后立即可点击编辑，位置不跳动', (tester) async {
     final source = _PreparedSource();
     final decorations = _Store([]);
@@ -635,4 +659,22 @@ void main() {
     expect(resolved.first.page, isNull);
     expect(resolved.last.isResolved, isFalse);
   });
+}
+
+class _DefaultRuleStore implements ReaderDecorationRuleStore {
+  @override
+  Future<List<ReaderDecorationRuleGroup>> listGroups() async => [
+    const ReaderDecorationRuleGroup(id: 'default', name: '默认'),
+  ];
+  @override
+  Future<List<ReaderDecorationRule>> listRules() async => [
+    ReaderDecorationRule(
+      id: 'highlight',
+      groupId: 'default',
+      pattern: 'defgh',
+      style: readerDecorationBuiltInStyles.first.style,
+    ),
+  ];
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

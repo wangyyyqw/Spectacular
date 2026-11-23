@@ -1,6 +1,26 @@
 import 'decoration_style.dart';
 import 'style_values.dart';
 
+/// 自动高亮的匹配类型，旧规则按原正则开关解析。
+enum ReaderDecorationRuleType {
+  fixedText('固定文本'),
+  regex('正则表达式'),
+  range('分隔符范围'),
+  doubleQuoteDialogue('双引号对话'),
+  singleQuotePhrase('单引号词组');
+
+  const ReaderDecorationRuleType(this.label);
+  final String label;
+  bool get needsPattern =>
+      this != doubleQuoteDialogue && this != singleQuotePhrase;
+  bool get supportsCrossParagraph => this == regex || this == range;
+  int get priority => this == doubleQuoteDialogue
+      ? 0
+      : this == singleQuotePhrase
+      ? 2
+      : 1;
+}
+
 /// 本书或全局规则的分组。
 class ReaderDecorationRuleGroup {
   /// 创建分组。
@@ -46,7 +66,7 @@ class ReaderDecorationRuleGroup {
   );
 }
 
-/// 仅包含绘制属性的规则样式。
+/// 可复用的文字、背景与盒样式。
 class ReaderDecorationRuleStyle {
   /// 创建规则样式。
   const ReaderDecorationRuleStyle({
@@ -61,6 +81,8 @@ class ReaderDecorationRuleStyle {
     this.borderStyle = ReaderDecorationBorderStyle.solid,
     this.borderWidth = 0,
     this.borderColor,
+    this.typography = const ReaderDecorationStyle(),
+    this.darkStyle,
   });
 
   /// 文字颜色。
@@ -90,7 +112,15 @@ class ReaderDecorationRuleStyle {
   /// 边框颜色。
   final int? borderColor;
 
-  /// 转为绘制样式，不含任何字体度量字段。
+  /// 规则字体参与正式排版，留白用于装饰绘制，保留原文 CFI。
+  final ReaderDecorationStyle typography;
+
+  /// 未指定夜间样式时沿用日间。
+  final ReaderDecorationRuleStyle? darkStyle;
+  ReaderDecorationRuleStyle forTheme(bool dark) =>
+      dark ? darkStyle ?? this : this;
+
+  /// 转为正式排版与绘制样式。
   ReaderDecorationStyle get decorationStyle {
     final side = ReaderDecorationBorderSide(
       width: borderWidth,
@@ -110,6 +140,15 @@ class ReaderDecorationRuleStyle {
       borderRight: side,
       borderBottom: side,
       borderLeft: side,
+      fontFamily: typography.fontFamily,
+      fontSizeScale: typography.fontSizeScale,
+      fontWeight: typography.fontWeight,
+      italic: typography.italic,
+      letterSpacingEm: typography.letterSpacingEm,
+      paddingTop: typography.paddingTop,
+      paddingRight: typography.paddingRight,
+      paddingBottom: typography.paddingBottom,
+      paddingLeft: typography.paddingLeft,
     );
   }
 
@@ -129,6 +168,8 @@ class ReaderDecorationRuleStyle {
     'borderStyle': borderStyle.name,
     'borderWidth': borderWidth,
     'borderColor': borderColor,
+    'typography': typography.toJson(),
+    if (darkStyle != null) 'darkStyle': darkStyle!.toJson(),
   };
 
   /// 更新规则样式。
@@ -169,6 +210,10 @@ class ReaderDecorationRuleStyle {
         max: 6,
       ),
       borderColor: styleColor(json['borderColor']),
+      typography: ReaderDecorationStyle.fromJson(json['typography']),
+      darkStyle: json['darkStyle'] == null
+          ? null
+          : ReaderDecorationRuleStyle.fromJson(json['darkStyle']),
     );
   }
 }
@@ -186,6 +231,10 @@ class ReaderDecorationRule {
     this.caseSensitive = false,
     this.enabled = true,
     this.sortOrder = 0,
+    this.type,
+    this.allowCrossParagraph = false,
+    this.styleId,
+    this.darkStyleId,
   });
 
   /// 唯一标识。
@@ -209,11 +258,22 @@ class ReaderDecorationRule {
   /// 单条开关。
   final bool enabled;
 
-  /// 不影响排版的样式。
+  /// 规则使用的排版与绘制样式。
   final ReaderDecorationRuleStyle style;
 
   /// 组内顺序。
   final int sortOrder;
+  final ReaderDecorationRuleType? type;
+  ReaderDecorationRuleType get effectiveType =>
+      type ??
+      (isRegex
+          ? ReaderDecorationRuleType.regex
+          : ReaderDecorationRuleType.fixedText);
+  final bool allowCrossParagraph;
+
+  /// 可复用样式引用；空值使用规则内嵌样式。
+  final String? styleId;
+  final String? darkStyleId;
 
   /// 创建更新后的规则。
   ReaderDecorationRule copyWith({
@@ -225,6 +285,10 @@ class ReaderDecorationRule {
     bool? enabled,
     ReaderDecorationRuleStyle? style,
     int? sortOrder,
+    ReaderDecorationRuleType? type,
+    bool? allowCrossParagraph,
+    String? styleId,
+    String? darkStyleId,
   }) => ReaderDecorationRule(
     id: id,
     groupId: groupId ?? this.groupId,
@@ -235,7 +299,33 @@ class ReaderDecorationRule {
     enabled: enabled ?? this.enabled,
     style: style ?? this.style,
     sortOrder: sortOrder ?? this.sortOrder,
+    type: type ?? this.type,
+    allowCrossParagraph: allowCrossParagraph ?? this.allowCrossParagraph,
+    styleId: styleId ?? this.styleId,
+    darkStyleId: darkStyleId ?? this.darkStyleId,
   );
+}
+
+/// 保存可复用样式与本书全局规则选择，宿主可用现有设置表实现。
+abstract interface class ReaderDecorationRulePreferences {
+  Future<List<ReaderDecorationNamedStyle>> listStyles();
+  Future<void> saveStyle(ReaderDecorationNamedStyle style);
+  Future<void> removeStyle(String id);
+  Future<Set<String>?> loadGlobalRuleSelection();
+  Future<void> saveGlobalRuleSelection(Set<String>? ids);
+}
+
+class ReaderDecorationNamedStyle {
+  const ReaderDecorationNamedStyle({
+    required this.id,
+    required this.name,
+    required this.style,
+    this.builtIn = false,
+  });
+  final String id;
+  final String name;
+  final ReaderDecorationRuleStyle style;
+  final bool builtIn;
 }
 
 /// 只存分组和规则；命中结果只存在于阅读会话中。

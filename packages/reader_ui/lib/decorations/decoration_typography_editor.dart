@@ -1,3 +1,5 @@
+import '../theme/reader_dropdown.dart';
+
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
@@ -5,7 +7,7 @@ import '../panels/settings_panel.dart' show ReaderFontOption;
 import 'decoration_style.dart';
 import 'style_controls.dart';
 
-/// 只有手工装饰可以编辑的字体度量属性。
+/// 手工装饰与自动规则共用的字体度量编辑器。
 class ReaderDecorationTypographyEditor extends StatelessWidget {
   /// 创建字体编辑器。
   const ReaderDecorationTypographyEditor({
@@ -28,7 +30,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      DropdownButtonFormField<String>(
+      ReaderDropdownButtonFormField<String>(
         key: const ValueKey<String>('decoration-font'),
         icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.fontFamily ?? '',
@@ -59,7 +61,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
         suffix: '%',
         onChanged: (value) => _set('fontSizeScale', value / 100),
       ),
-      DropdownButtonFormField<int>(
+      ReaderDropdownButtonFormField<int>(
         key: const ValueKey<String>('decoration-weight'),
         icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.fontWeight ?? 0,
@@ -72,7 +74,7 @@ class ReaderDecorationTypographyEditor extends StatelessWidget {
         onChanged: (value) => _set('fontWeight', value == 0 ? null : value),
       ),
       const SizedBox(height: 14),
-      DropdownButtonFormField<String>(
+      ReaderDropdownButtonFormField<String>(
         key: const ValueKey<String>('decoration-italic'),
         icon: const AppIcon(AppGlyph.chevronDown),
         initialValue: style.italic == null

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
@@ -20,6 +21,7 @@ import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
 import 'package:reader_ui/decorations/decoration_image_codec.dart';
 import 'package:reader_ui/decorations/decoration_nine_slice_editor.dart';
+import 'package:reader_ui/decorations/style_controls.dart';
 
 import 'support/decoration_test_images.dart';
 
@@ -591,11 +593,19 @@ void main() {
               .onPressed !=
           null,
     );
-    final fit = find.byType(DropdownButtonFormField<ReaderDecorationImageFit>);
+    final fit = find.byType(
+      ReaderDropdownButtonFormField<ReaderDecorationImageFit>,
+    );
     await tester.ensureVisible(fit);
     await tester.tap(fit);
     await tester.pumpAndSettle();
     await tester.tap(find.text('平铺').last);
+    await tester.pumpAndSettle();
+    final radius = find.byWidgetPredicate(
+      (widget) => widget is ReaderStyleSlider && widget.label == '圆角',
+    );
+    await tester.ensureVisible(radius);
+    tester.widget<ReaderStyleSlider>(radius).onChanged(12);
     await tester.pumpAndSettle();
     final preview = find.byKey(const ValueKey<String>('rule-preview'));
     await tester.ensureVisible(preview);
@@ -610,7 +620,8 @@ void main() {
         (item) =>
             item.images == images &&
             item.style.backgroundImagePath == '/local/texture.png' &&
-            item.style.backgroundImageFit == ReaderDecorationImageFit.tile,
+            item.style.backgroundImageFit == ReaderDecorationImageFit.tile &&
+            item.style.borderRadius == 12,
       ),
       isTrue,
     );
@@ -620,6 +631,8 @@ void main() {
     expect(saved!.pattern, r'甲|乙\d+');
     expect(saved!.style.backgroundImagePath, '/local/texture.png');
     expect(saved!.style.backgroundImageFit, ReaderDecorationImageFit.tile);
+    expect(saved!.style.borderRadius, 12);
+    expect(saved!.style.decorationStyle.borderRadius, 12);
     expect(tester.takeException(), isNull);
   });
 
@@ -792,7 +805,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('字体加载失败，请选择其他字体或跟随正文'), findsOneWidget);
     expect(_saveButton(tester).onPressed, isNull);
-    final weight = tester.widget<DropdownButtonFormField<int>>(
+    final weight = tester.widget<ReaderDropdownButtonFormField<int>>(
       find.byKey(const ValueKey<String>('decoration-weight')),
     );
     weight.onChanged!(700);
@@ -846,7 +859,7 @@ void main() {
     );
     await _openTypography(tester);
     await _selectFont(tester, '本地测试字体');
-    final font = tester.widget<DropdownButtonFormField<String>>(
+    final font = tester.widget<ReaderDropdownButtonFormField<String>>(
       find.byKey(const ValueKey<String>('decoration-font')),
     );
     font.onChanged!('');
@@ -884,9 +897,12 @@ void main() {
       find.byKey(const ValueKey<String>('rule-pattern')),
       '(',
     );
-    final regex = find.byKey(const ValueKey<String>('rule-regex'));
+    expect(find.byKey(const ValueKey<String>('rule-regex')), findsNothing);
+    final regex = find.byKey(const ValueKey<String>('rule-match-type'));
     await tester.ensureVisible(regex);
     await tester.tap(regex);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('正则表达式').last);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('rule-save')));
     await tester.pump();

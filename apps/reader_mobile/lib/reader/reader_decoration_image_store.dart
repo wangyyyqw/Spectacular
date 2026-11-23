@@ -1,5 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
+
+import 'package:flutter/services.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -37,8 +38,14 @@ class ReaderDecorationImages implements ReaderDecorationNinePatchImageStore {
       import(bytes, ninePatch: true);
 
   @override
-  Future<Uint8List> loadImage(String path) =>
-      _store.load(ReaderBackground.image(path).id);
+  Future<Uint8List> loadImage(String path) async {
+    if (path == 'asset://reader_highlight/rainbow_glass.png') {
+      return (await rootBundle.load(
+        'assets/reader_highlight/rainbow_glass.png',
+      )).buffer.asUint8List();
+    }
+    return _store.load(ReaderBackground.image(path).id);
+  }
 
   @override
   Future<void> removeUnused(Set<String> referencedPaths) async {

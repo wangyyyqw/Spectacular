@@ -12,11 +12,23 @@ const String currentAnchorSemanticVersion = 'source-text-v1';
 
 /// 阅读器实际使用的文本块；显示 UTF-16 偏移通过映射定位原 XML 字符块。
 class AnchorBlock {
-  const AnchorBlock({required this.cfi, required this.text, this.textCfis});
+  const AnchorBlock({
+    required this.cfi,
+    required this.text,
+    this.textCfis,
+    this.ruleEligible = true,
+    this.ruleExcluded = const [],
+    this.ruleProtected = const [],
+  });
 
   final String cfi;
   final String text;
   final TextCfiMap? textCfis;
+
+  /// 原文规则匹配元信息，不参与锚点身份与持久化。
+  final bool ruleEligible;
+  final List<(int, int)> ruleExcluded;
+  final List<(int, int)> ruleProtected;
 
   TextCfiMap? get _coordinates {
     if (textCfis != null) return textCfis;

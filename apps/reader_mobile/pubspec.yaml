@@ -91,6 +91,7 @@ flutter:
 
   assets:
     - assets/branding/app_icon.png
+    - assets/reader_highlight/rainbow_glass.png
     - assets/fonts/LICENSE.txt
     - assets/textures/
     - integration_test/m0_page_sequence.json

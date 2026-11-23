@@ -420,7 +420,7 @@ class _ReaderDecorationEditorSheetState
         ),
       Text(
         _style.backgroundImageFit == ReaderDecorationImageFit.nineSlice
-            ? '点九图按每行文字拉伸，保留素材边角；可调整透明度，图片不可用时回退到底色。'
+            ? '点九图按每行文字拉伸，保留素材边角；可调整透明度与圆角，图片不可用时回退到底色。'
             : '图片按每行装饰区间铺放，可调整透明度与圆角；图片不可用时回退到底色。',
       ),
       const SizedBox(height: 12),
