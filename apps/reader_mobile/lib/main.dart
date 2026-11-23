@@ -72,19 +72,21 @@ Future<void> main() async {
   );
 }
 
-/// 应用壳：四底栏（书架/统计/书评/我的）+ EPUB 导入 + 阅读页。
+/// 应用壳：书架、发现、统计、书评与我的，以及 EPUB 导入和阅读页。
 class ReaderApp extends StatelessWidget {
   /// 创建应用。
   const ReaderApp({
     super.key,
     required this.library,
     required this.progressStore,
+    this.showWelcomeAnnouncement = false,
   }) : _startupStorage = null;
 
   /// 正式启动入口，监听数据库失败与恢复后的存储替换。
   ReaderApp.withStorage({super.key, required StartupStorage storage})
     : library = storage.library,
       progressStore = storage.progressStore,
+      showWelcomeAnnouncement = true,
       _startupStorage = storage;
 
   /// 构造时传入的书架存储；正式恢复入口在监听中使用最新启动存储。
@@ -94,6 +96,7 @@ class ReaderApp extends StatelessWidget {
   final ReaderProgressStore progressStore;
 
   final StartupStorage? _startupStorage;
+  final bool showWelcomeAnnouncement;
 
   @override
   Widget build(BuildContext context) {
@@ -118,6 +121,7 @@ class ReaderApp extends StatelessWidget {
     library: library,
     progressStore: progressStore,
     recovery: recovery,
+    showWelcomeAnnouncement: showWelcomeAnnouncement,
   );
 }
 
@@ -127,11 +131,13 @@ class _ThemedReaderApp extends StatefulWidget {
     required this.library,
     required this.progressStore,
     this.recovery,
+    required this.showWelcomeAnnouncement,
   });
 
   final LibraryStore library;
   final ReaderProgressStore progressStore;
   final StartupStorage? recovery;
+  final bool showWelcomeAnnouncement;
 
   @override
   State<_ThemedReaderApp> createState() => _ThemedReaderAppState();
@@ -309,6 +315,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         appFontFamily: fontFamily,
         appFontStore: _fontStore,
         onAppFontFamilyChanged: _setFontFamily,
+        showWelcomeAnnouncement: widget.showWelcomeAnnouncement,
       ),
     );
   }

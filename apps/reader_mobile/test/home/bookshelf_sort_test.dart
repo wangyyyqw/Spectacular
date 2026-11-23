@@ -47,6 +47,8 @@ void main() {
 
     await tester.tap(find.text('我的'));
     await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
+    await _settle(tester);
     expect(find.text('书架排序'), findsOneWidget);
     ListTile sortTile() => tester.widget<ListTile>(
       find.byKey(const ValueKey<String>('bookshelf-sort-setting')),
@@ -64,6 +66,8 @@ void main() {
     expect(await library.getSetting(bookshelfSortKey), 'title');
     expect((sortTile().subtitle! as Text).data, '书名');
 
+    await tester.pageBack();
+    await _settle(tester);
     await tester.tap(find.text('书架'));
     await _settle(tester);
     await tester.tap(find.byTooltip('列表视图'));

@@ -44,7 +44,7 @@ Future<void> _savePreview(WidgetTester tester, String name) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('窄屏四页导航与排序保留，界面采用中性小圆角并可生成预览', (tester) async {
+  testWidgets('窄屏五页导航与设置排序保留，界面采用中性小圆角并可生成预览', (tester) async {
     tester.view.physicalSize = const Size(720, 1600);
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.resetPhysicalSize);
@@ -80,7 +80,7 @@ void main() {
     expect(find.byType(BottomNavigationBar), findsOneWidget);
     expect(find.text('山海之间'), findsWidgets);
     await _savePreview(tester, '书架');
-    for (final label in ['统计', '笔记', '我的']) {
+    for (final label in ['统计', '书评', '我的']) {
       await tester.tap(
         find.descendant(
           of: find.byType(BottomNavigationBar),
@@ -91,6 +91,8 @@ void main() {
       expect(tester.takeException(), isNull);
       await _savePreview(tester, label);
     }
+    await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
+    await _pumpFrames(tester);
     await tester.tap(find.byKey(const ValueKey('bookshelf-sort-setting')));
     await _pumpFrames(tester, frames: 8);
     expect(find.text('书架排序'), findsWidgets);

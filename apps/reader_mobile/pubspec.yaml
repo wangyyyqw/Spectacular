@@ -66,6 +66,7 @@ dependencies:
   pointycastle: ^4.0.0
   flutter_js: 0.8.7
   enough_convert: ^1.7.1
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

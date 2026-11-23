@@ -22,6 +22,7 @@ import 'desktop_layout.dart';
 import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
+import 'welcome_announcement.dart';
 import '../diagnostics/reader_log.dart';
 
 /// 首页应用壳：桌面平台使用侧栏，移动平台使用底栏。
@@ -37,6 +38,7 @@ class HomeShell extends StatefulWidget {
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
+    this.showWelcomeAnnouncement = false,
   });
 
   /// 书架存储。
@@ -62,6 +64,9 @@ class HomeShell extends StatefulWidget {
 
   /// 切换并保存应用字体。
   final Future<void> Function(String family)? onAppFontFamilyChanged;
+
+  /// 正式应用启动启用公告；独立组件测试可直接构造壳。
+  final bool showWelcomeAnnouncement;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -94,7 +99,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       onReadingFinished: _onReadingFinished,
       loadTtsVoices: _loadTtsVoices,
     );
-    unawaited(_reaMicro.initialize());
+    if (widget.showWelcomeAnnouncement) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(
+          runWelcomeFlow(
+            context: context,
+            library: widget.library,
+            controller: _reaMicro,
+          ),
+        );
+      });
+    } else {
+      unawaited(_reaMicro.initialize());
+    }
     unawaited(_onlineBooks.initialize());
   }
 

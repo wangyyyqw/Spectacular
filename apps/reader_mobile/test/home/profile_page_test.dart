@@ -4,10 +4,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
 import 'package:reader_mobile/home/profile_page.dart';
+import 'package:reader_mobile/home/app_settings_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+
+class _AccountController extends ReaMicroController {
+  _AccountController()
+    : super(library: LibraryStore.memory(), enableLanLoginServer: false);
+  ReaMicroUser? account = const ReaMicroUser(
+    id: 123,
+    nickName: '测试读者',
+    avatar: 'https://example.test/avatar.png',
+    totalReadTimeSeconds: 7260,
+  );
+  @override
+  bool get signedIn => account != null;
+  @override
+  ReaMicroUser? get user => account;
+  void clearAccount() {
+    account = null;
+    notifyListeners();
+  }
+}
 
 class _FakeAppFontStore extends ReaderFontStore {
   _FakeAppFontStore(
@@ -38,9 +59,70 @@ class _FakeAppFontStore extends ReaderFontStore {
 }
 
 void main() {
-  testWidgets('我的页可查看诊断日志且不显示浮动提示', (tester) async {
+  testWidgets('我的页设置入口承接原有选项，头像进入阅微同步', (tester) async {
+    final controller = _AccountController();
+    addTearDown(controller.dispose);
     await tester.pumpWidget(
-      MaterialApp(home: ProfilePage(library: LibraryStore.memory())),
+      MaterialApp(
+        home: ProfilePage(
+          library: LibraryStore.memory(),
+          reaMicro: controller,
+          onThemeModeChanged: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('外观'), findsNothing);
+    expect(find.text('阅读'), findsNothing);
+    expect(find.text('帮助与诊断'), findsNothing);
+    expect(find.text('关于'), findsNothing);
+    expect(find.byKey(const ValueKey('reamicro-entry')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AppSettingsPage), findsOneWidget);
+    expect(find.text('外观'), findsOneWidget);
+    expect(find.text('阅读'), findsOneWidget);
+    expect(find.text('词典设置'), findsOneWidget);
+    expect(find.text('帮助与诊断'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('关于'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('关于'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('profile-account-entry')));
+    await tester.pumpAndSettle();
+    expect(find.text('阅微同步'), findsOneWidget);
+  });
+
+  testWidgets('我的页展示登录账号头像昵称时长与ID并响应退出', (tester) async {
+    final controller = _AccountController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProfilePage(library: LibraryStore.memory(), reaMicro: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('测试读者'), findsOneWidget);
+    expect(find.text('累计阅读 2 小时 1 分\n阅微 ID：123'), findsOneWidget);
+    final image = tester.widget<Image>(find.byType(Image).first);
+    expect(
+      (image.image as ResizeImage).imageProvider,
+      const NetworkImage('https://example.test/avatar.png'),
+    );
+    controller.clearAccount();
+    await tester.pumpAndSettle();
+    expect(find.text('测试读者'), findsNothing);
+    expect(find.text('登录后查看阅读时长与阅微 ID'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('设置页可查看诊断日志且不显示浮动提示', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AppSettingsPage(library: LibraryStore.memory())),
     );
     await tester.pumpAndSettle();
     expect(find.text('查看诊断日志'), findsOneWidget);
@@ -66,7 +148,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(),
-          home: ProfilePage(
+          home: AppSettingsPage(
             library: LibraryStore.memory(),
             themeMode: ThemeMode.light,
             onThemeModeChanged: (mode) async {
@@ -95,6 +177,18 @@ void main() {
       pending.complete();
       await tester.pumpAndSettle();
       expect(tester.widget<ListTile>(themeTile).onTap, isNotNull);
+      expect(
+        (tester.widget<ListTile>(themeTile).subtitle! as Text).data,
+        '夜间模式',
+      );
+      await tester.tap(themeTile);
+      await tester.pumpAndSettle();
+      final group = tester.widget<RadioGroup<ThemeMode>>(
+        find.byType(RadioGroup<ThemeMode>),
+      );
+      expect(group.groupValue, ThemeMode.dark);
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
     variant: const TargetPlatformVariant({
@@ -111,7 +205,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(),
-          home: ProfilePage(library: library),
+          home: AppSettingsPage(library: library),
         ),
       );
       await tester.pumpAndSettle();
@@ -156,7 +250,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
-        home: ProfilePage(
+        home: AppSettingsPage(
           library: library,
           themeMode: ThemeMode.light,
           onThemeModeChanged: (_) async {},
@@ -202,7 +296,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
-        home: ProfilePage(
+        home: AppSettingsPage(
           library: LibraryStore.memory(),
           themeMode: ThemeMode.light,
           onThemeModeChanged: (_) async {},
@@ -221,10 +315,10 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('app-font-setting')));
     await tester.pumpAndSettle();
-    final existingTile = find.byKey(const ValueKey('app-font-user_existing'));
-    await tester.ensureVisible(existingTile);
+    final importedTile = find.byKey(const ValueKey('app-font-user_imported'));
+    await tester.ensureVisible(importedTile);
     await tester.tap(
-      find.byKey(const ValueKey('app-font-actions-user_existing')),
+      find.byKey(const ValueKey('app-font-actions-user_imported')),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('移除字体'));
@@ -232,7 +326,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('app-font-remove-confirm')));
     await tester.pumpAndSettle();
 
-    expect(store.removed, [existing.family]);
+    expect(store.removed, [imported.family]);
     expect(selected.last, AppFonts.defaultFamily);
     expect(
       tester
@@ -247,11 +341,12 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
-        home: ProfilePage(library: LibraryStore.memory()),
+        home: AppSettingsPage(library: LibraryStore.memory()),
       ),
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const ValueKey('logs-clear')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('logs-clear')));
     await tester.pumpAndSettle();
     final confirmation = find.byWidgetPredicate(

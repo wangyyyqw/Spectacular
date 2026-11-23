@@ -13,7 +13,7 @@ import 'package:reader_ui/reader_session.dart';
 import '../support/reader_pump.dart';
 
 void main() {
-  testWidgets('我的页切换自定义应用字体，全局生效并在重启后恢复', (tester) async {
+  testWidgets('设置页切换自定义应用字体，全局生效并在重启后恢复', (tester) async {
     final directory = Directory.systemTemp.createTempSync('app-font-flow');
     addTearDown(() => directory.delete(recursive: true));
     PackageInfo.setMockInitialValues(
@@ -68,6 +68,11 @@ void main() {
         matching: find.text('我的'),
       ),
     );
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('profile-settings-entry')),
+    );
+    await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await pumpReaderUntil(tester, find.text('应用字体'));
     await tester.tap(find.byKey(const ValueKey('app-font-setting')));
     await pumpReaderUntil(
@@ -84,6 +89,16 @@ void main() {
       description: '应用字体生效',
     );
     expect(await library.getSetting(AppFonts.settingKey), font.family);
+    expect(
+      (tester
+                  .widget<ListTile>(
+                    find.byKey(const ValueKey('app-font-setting')),
+                  )
+                  .subtitle!
+              as Text)
+          .data,
+      font.displayName,
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -95,6 +110,11 @@ void main() {
         matching: find.text('我的'),
       ),
     );
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('profile-settings-entry')),
+    );
+    await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await pumpReaderUntil(tester, find.text('应用字体'));
     final setting = tester.widget<ListTile>(
       find.byKey(const ValueKey('app-font-setting')),
