@@ -63,7 +63,11 @@ class _BookListsViewState extends State<BookListsView> {
 
   Future<void> _reload() async {
     try {
-      final books = await widget.library.list();
+      final books = <BookEntry>[
+        ...await widget.library.list(),
+        // 已移除的书籍仍保留在书单中。
+        ...await widget.library.retainedBooks(),
+      ];
       final bookLists = List<BookList>.of(await _store.list())
         ..sort((left, right) => right.createdAt.compareTo(left.createdAt));
       if (!mounted) return;
@@ -404,7 +408,11 @@ class _BookListDetailSheetState extends State<_BookListDetailSheet> {
 
   Future<void> _reload() async {
     try {
-      final books = await widget.library.list();
+      final books = <BookEntry>[
+        ...await widget.library.list(),
+        // 已移除的书籍仍保留在书单中。
+        ...await widget.library.retainedBooks(),
+      ];
       final bookLists = await _store.list();
       if (!mounted) return;
       setState(() {
@@ -450,8 +458,10 @@ class _BookListDetailSheetState extends State<_BookListDetailSheet> {
   }
 
   Future<void> _addBooks() async {
-    final books = _books.values.toList()
+    // 选择器只列书架上的书；已移除的书籍仍保留在 selected 里，不会被移出。
+    final books = (await widget.library.list()).toList()
       ..sort((left, right) => left.title.compareTo(right.title));
+    if (!mounted) return;
     final selected = await showReaderDrawer<Set<String>>(
       context: context,
       builder: (_) => _BookPickerSheet(

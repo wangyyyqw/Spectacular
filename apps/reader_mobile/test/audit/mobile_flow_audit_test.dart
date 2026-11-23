@@ -75,7 +75,11 @@ void main() {
     expect(await library().list(), isEmpty);
     expect(await library().finishedBookIds(), isEmpty);
     expect(File(entry.filePath).existsSync(), isFalse);
-    expect(await DriftBookReviewStore(db).snapshot(), isEmpty);
+    // 软删除后书评仍保留，笔记与书评不跟随书架增删。
+    expect(
+      (await DriftBookReviewStore(db).snapshot())[entry.id]?.content,
+      '审计书评',
+    );
     await library().importBytes(bytes);
     expect(await library().finishedBookIds(), {entry.id});
     expect(

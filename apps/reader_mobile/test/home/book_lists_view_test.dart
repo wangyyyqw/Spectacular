@@ -1,10 +1,15 @@
+import 'dart:io';
+
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/reviews_page.dart';
 import 'package:reader_mobile/library/book_list_store.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/annotations/annotation.dart';
 
 import '../support/test_epub.dart';
 
@@ -255,6 +260,54 @@ void main() {
     expect(await store.list(), isEmpty);
     expect(find.text('还没有书单'), findsOneWidget);
     expect((await library.list()).single.id, entry.id);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('移出书架的书仍留在书单并继续出现在笔记中', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('booklists-retained');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final library = LibraryStore(
+      database: db,
+      directoryProvider: () async => dir,
+    );
+    late BookEntry entry;
+    late BookList bookList;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(buildTestEpub(title: '移出的书'));
+      await library.annotationStore(entry.id)!.add(
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/2!/4/2/1:1)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:3)',
+        quote: '保留下来的划线',
+        note: '移出书架后仍要显示的想法',
+      );
+      final store = library.bookListStore();
+      bookList = await store.create(name: '保留书单');
+      await store.addBooks(bookList.id, <String>[entry.id]);
+      await library.remove(entry.id);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ReviewsPage(library: library),
+      ),
+    );
+    await _settle(tester);
+    expect(find.text('移出的书'), findsOneWidget, reason: '笔记页仍展示这本书');
+
+    await tester.tap(find.byKey(const ValueKey('booklists-tab')));
+    await _settle(tester);
+    expect(find.text('保留书单'), findsOneWidget);
+    expect(find.text('1 本书'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('booklist-card-${bookList.id}')));
+    await _settle(tester);
+    expect(
+      find.byKey(ValueKey('booklist-book-${entry.id}')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }

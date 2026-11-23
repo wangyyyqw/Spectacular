@@ -777,7 +777,7 @@ class LibraryStore {
         innerJoin(books, books.id.equalsExp(notes.bookId), useColumns: false),
       ])
       ..addColumns([books.uuid, thoughts, marks, updatedAt])
-      ..where(books.deletedAt.isNull() & (thought | mark))
+      ..where(thought | mark)
       ..groupBy([books.uuid]);
     return {
       for (final row in await query.get())
@@ -805,8 +805,7 @@ class LibraryStore {
       ])
       ..addColumns([books.uuid, total])
       ..where(
-        books.deletedAt.isNull() &
-            sessions.endedAt.isBiggerThan(sessions.startedAt) &
+        sessions.endedAt.isBiggerThan(sessions.startedAt) &
             sessions.durationMs.isBiggerThanValue(0),
       )
       ..groupBy([books.uuid]);
@@ -920,6 +919,26 @@ class LibraryStore {
     return <BookEntry>[for (final row in rows) _entryFromRow(row)];
   }
 
+  /// 已从书架移除但仍保留笔记、书评、书单归属的书籍。
+  ///
+  /// 书籍按软删除处理，行内仍保留书名、作者等元数据；这里只返回已移除的
+  /// 条目，供笔记、书评和书单继续展示，不进入书架列表。
+  Future<List<BookEntry>> retainedBooks() async {
+    if (_isMemory) return const <BookEntry>[];
+    final db = _db!;
+    final rows =
+        await (db.select(db.books)
+              ..where((table) => table.deletedAt.isNotNull())
+              ..orderBy([
+                (table) => OrderingTerm(
+                  expression: table.createdAt,
+                  mode: OrderingMode.desc,
+                ),
+              ]))
+            .get();
+    return <BookEntry>[for (final row in rows) _entryFromRow(row)];
+  }
+
   /// 按 uuid 读取当前书籍；不存在或已从书架移除时返回 null。
   Future<BookEntry?> bookById(String id) async {
     if (_isMemory) {
@@ -1019,7 +1038,9 @@ class LibraryStore {
     final oldPath = row.coverPath;
     if (oldPath != null && oldPath != coverFile.path) {
       final normalizedOld = p.normalize(oldPath);
-      if (p.isWithin(directory.path, normalizedOld)) {
+      final retainedCovers = p.normalize(p.join((await _root()).path, 'covers'));
+      if (p.isWithin(directory.path, normalizedOld) ||
+          p.isWithin(retainedCovers, normalizedOld)) {
         final oldFile = File(oldPath);
         if (await oldFile.exists()) {
           try {
@@ -1369,8 +1390,10 @@ class LibraryStore {
     }
     final row = await _bookRowOfUuid(id);
     if (row == null) return;
-    final directories = await _removalDirectories(await _root(), row);
-    await _markBookRemoved(row.id);
+    final root = await _root();
+    final retainedCover = await _retainCover(root, row);
+    final directories = await _removalDirectories(root, row);
+    await _markBookRemoved(row.id, retainedCover);
     _notify();
     for (final directory in directories) {
       try {
@@ -1378,6 +1401,29 @@ class LibraryStore {
       } on FileSystemException {
         // 权限或占用失败时保留，下一次启动扫描再清理。
       }
+    }
+  }
+
+  /// 删除书籍前把封面复制到独立目录，供笔记、书评和书单继续展示。
+  Future<String?> _retainCover(Directory root, BookRow book) async {
+    final coverPath = book.coverPath;
+    if (coverPath == null) return null;
+    final source = File(coverPath);
+    if (!await source.exists()) return null;
+    final directory = Directory(p.join(root.path, 'covers'));
+    final target = File(
+      p.join(directory.path, '${book.uuid}${p.extension(coverPath)}'),
+    );
+    if (p.equals(p.normalize(source.path), p.normalize(target.path))) {
+      return target.path;
+    }
+    try {
+      await directory.create(recursive: true);
+      await source.copy(target.path);
+      return target.path;
+    } on FileSystemException {
+      // 复制失败时退回无封面，内容仍按软删除保留。
+      return null;
     }
   }
 
@@ -1421,25 +1467,26 @@ class LibraryStore {
     });
   }
 
-  Future<void> _markBookRemoved(int bookId) => _db!.transaction(() async {
-    final db = _db;
-    // 软删除保留阅读数据；编辑记录与文件指针在同一事务中清理。
-    await (db.update(
-      db.books,
-    )..where((table) => table.id.equals(bookId))).write(
-      BooksCompanion(
-        deletedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
-        sourcePath: const Value<String?>(null),
-        coverPath: const Value<String?>(null),
-      ),
-    );
-    await (db.delete(
-      db.editDrafts,
-    )..where((t) => t.bookId.equals(bookId))).go();
-    await (db.delete(
-      db.editVersions,
-    )..where((t) => t.bookId.equals(bookId))).go();
-  });
+  Future<void> _markBookRemoved(int bookId, String? retainedCover) =>
+      _db!.transaction(() async {
+        final db = _db;
+        // 软删除保留阅读数据；源文件指针清理，封面改指保留副本。
+        await (db.update(
+          db.books,
+        )..where((table) => table.id.equals(bookId))).write(
+          BooksCompanion(
+            deletedAt: Value<int>(DateTime.now().millisecondsSinceEpoch),
+            sourcePath: const Value<String?>(null),
+            coverPath: Value<String?>(retainedCover),
+          ),
+        );
+        await (db.delete(
+          db.editDrafts,
+        )..where((t) => t.bookId.equals(bookId))).go();
+        await (db.delete(
+          db.editVersions,
+        )..where((t) => t.bookId.equals(bookId))).go();
+      });
 
   /// 写入 spine 行（§36.1）：字符数与章前累计供进度量化（§76.1）。
   Future<void> _writeSpineItems(

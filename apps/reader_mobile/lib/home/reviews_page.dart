@@ -185,7 +185,11 @@ class _ReviewsPageState extends State<ReviewsPage>
     final library = widget.library;
     final notes = _notes;
     try {
-      final books = await library.list();
+      final books = <BookEntry>[
+        ...await library.list(),
+        // 已移除书籍的笔记与书评继续展示，不跟随书架增删。
+        ...await library.retainedBooks(),
+      ];
       final finished = notes ? _finishedBooks : await library.finishedBookIds();
       final counts = notes ? await library.bookNoteCounts() : _counts;
       final reviews = notes
