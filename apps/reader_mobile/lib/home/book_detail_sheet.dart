@@ -178,87 +178,133 @@ class BookDetailSheet extends StatelessWidget {
                 );
               },
             ),
-            SizedBox(
-              width: double.infinity,
-              child: Material(
-                key: const ValueKey('book-detail-actions'),
-                color: theme.colorScheme.surface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  side: BorderSide(color: theme.colorScheme.outlineVariant),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-                    _DetailAction(
-                      key: const ValueKey<String>('book-detail-booklists'),
-                      icon: AppGlyph.bookmarkAdd,
-                      label: '加入书单',
-                      onTap: () => Navigator.of(context).pop('booklists'),
-                    ),
-                    _DetailActionPair(
-                      left: _DetailAction(
-                        key: const ValueKey<String>('book-detail-open-page'),
-                        icon: AppGlyph.menuBook,
-                        label: '详情',
-                        onTap: () => Navigator.of(context).pop('detail'),
-                      ),
-                      right: _DetailAction(
-                        key: const ValueKey<String>('book-detail-pin'),
-                        icon: AppGlyph.pushPin,
-                        label: pinned ? '取消置顶' : '置顶',
-                        onTap: () => Navigator.of(context).pop('pin'),
-                      ),
-                    ),
-                    FutureBuilder<bool>(
-                      future: TxtBookService(library).canRechapter(entry),
-                      builder: (context, snapshot) => snapshot.data == true
-                          ? _DetailAction(
-                              key: const ValueKey('book-detail-chapters'),
-                              icon: AppGlyph.listBulleted,
-                              label: '章节正则',
-                              onTap: () =>
-                                  Navigator.of(context).pop('chapters'),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                    _DetailActionPair(
-                      left: _DetailAction(
-                        key: const ValueKey<String>('book-detail-update'),
-                        icon: AppGlyph.refresh,
-                        label: '更新',
-                        onTap: () => Navigator.of(context).pop('update'),
-                      ),
-                      right: _DetailAction(
-                        key: const ValueKey<String>('book-detail-create-group'),
-                        icon: AppGlyph.folderMove,
-                        label: '分组',
-                        onTap: () => Navigator.of(context).pop('create-group'),
-                      ),
-                    ),
-                    _DetailActionPair(
-                      left: _DetailAction(
-                        key: const ValueKey<String>('book-detail-export'),
-                        icon: AppGlyph.upload,
-                        label: '导出',
-                        onTap: () => Navigator.of(context).pop('export'),
-                      ),
-                      right: _DetailAction(
-                        key: const ValueKey<String>('book-detail-delete'),
-                        icon: AppGlyph.delete,
-                        label: '删除',
-                        onTap: () => Navigator.of(context).pop('delete'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            _DetailMenu(entry: entry, library: library, pinned: pinned),
           ],
         ),
       ),
     );
   }
+}
+
+class _DetailMenu extends StatefulWidget {
+  const _DetailMenu({
+    required this.entry,
+    required this.library,
+    required this.pinned,
+  });
+
+  final BookEntry entry;
+  final LibraryStore library;
+  final bool pinned;
+
+  @override
+  State<_DetailMenu> createState() => _DetailMenuState();
+}
+
+class _DetailMenuState extends State<_DetailMenu> {
+  late final Future<bool> _rechapter = TxtBookService(widget.library)
+      .canRechapter(widget.entry);
+
+  Widget _card(List<Widget> children, {Key? key}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      key: key,
+      color: scheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: scheme.outlineVariant, width: .5),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool>(
+    future: _rechapter,
+    builder: (context, snapshot) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _card(key: const ValueKey('book-detail-actions'), [
+          _DetailActionPair(
+            left: _DetailAction(
+              key: const ValueKey<String>('book-detail-booklists'),
+              icon: AppGlyph.bookmarkAdd,
+              label: '加入书单',
+              onTap: () => Navigator.of(context).pop('booklists'),
+            ),
+            right: _DetailAction(
+              key: const ValueKey<String>('book-detail-open-page'),
+              icon: AppGlyph.menuBook,
+              label: '详情',
+              onTap: () => Navigator.of(context).pop('detail'),
+            ),
+          ),
+          const _MenuDivider(),
+          _DetailActionPair(
+            left: _DetailAction(
+              key: const ValueKey<String>('book-detail-create-group'),
+              icon: AppGlyph.folderMove,
+              label: '分组',
+              onTap: () => Navigator.of(context).pop('create-group'),
+            ),
+            right: _DetailAction(
+              key: const ValueKey<String>('book-detail-pin'),
+              icon: AppGlyph.pushPin,
+              label: widget.pinned ? '取消置顶' : '置顶',
+              onTap: () => Navigator.of(context).pop('pin'),
+            ),
+          ),
+          const _MenuDivider(),
+          _DetailActionPair(
+            left: _DetailAction(
+              key: const ValueKey<String>('book-detail-update'),
+              icon: AppGlyph.refresh,
+              label: '更新',
+              onTap: () => Navigator.of(context).pop('update'),
+            ),
+            right: _DetailAction(
+              key: const ValueKey<String>('book-detail-export'),
+              icon: AppGlyph.upload,
+              label: '导出',
+              onTap: () => Navigator.of(context).pop('export'),
+            ),
+          ),
+          if (snapshot.data == true) ...[
+            const _MenuDivider(),
+            _DetailAction(
+              key: const ValueKey<String>('book-detail-chapters'),
+              icon: AppGlyph.listBulleted,
+              label: '章节正则',
+              onTap: () => Navigator.of(context).pop('chapters'),
+            ),
+          ],
+        ]),
+        const SizedBox(height: 10),
+        _card(key: const ValueKey('book-detail-actions-delete'), [
+          _DetailAction(
+            key: const ValueKey<String>('book-detail-delete'),
+            icon: AppGlyph.delete,
+            label: '删除',
+            destructive: true,
+            onTap: () => Navigator.of(context).pop('delete'),
+          ),
+        ]),
+      ],
+    ),
+  );
+}
+
+class _MenuDivider extends StatelessWidget {
+  const _MenuDivider();
+
+  @override
+  Widget build(BuildContext context) => Divider(
+    height: 1,
+    thickness: 1,
+    indent: 48,
+    color: Theme.of(context).colorScheme.outlineVariant,
+  );
 }
 
 class _DetailActionPair extends StatelessWidget {
@@ -268,14 +314,20 @@ class _DetailActionPair extends StatelessWidget {
   final Widget right;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
+  Widget build(BuildContext context) => IntrinsicHeight(
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(child: left),
+        VerticalDivider(
+          width: 1,
+          thickness: 1,
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
         Expanded(child: right),
       ],
-    );
-  }
+    ),
+  );
 }
 
 class _DetailAction extends StatelessWidget {
@@ -283,26 +335,32 @@ class _DetailAction extends StatelessWidget {
     super.key,
     required this.icon,
     required this.label,
+    this.destructive = false,
     required this.onTap,
   });
 
   final AppGlyph icon;
   final String label;
+  final bool destructive;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurface;
+    final scheme = theme.colorScheme;
+    final color = destructive ? scheme.error : scheme.onSurface;
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14),
       minLeadingWidth: 22,
-      horizontalTitleGap: 10,
+      horizontalTitleGap: 12,
       leading: AppIcon(icon, size: 22, color: color),
       title: Text(
         label,
-        style: theme.textTheme.bodyMedium?.copyWith(color: color),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15, color: color),
       ),
+      trailing: AppIcon(AppGlyph.chevronRight, size: 20, color: scheme.outline),
       onTap: onTap,
     );
   }
