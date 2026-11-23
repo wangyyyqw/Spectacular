@@ -174,6 +174,7 @@ class ReaderPage extends StatefulWidget {
     this.onKeepScreenOnChanged,
     this.volumeKeyPaging = false,
     this.onVolumeKeyPagingChanged,
+    this.onDictionary,
   });
 
   /// 编辑预览中单击正文直接请求编辑；普通阅读仍保留翻页和脚注语义。
@@ -183,6 +184,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 仅宿主确认 TXT 来源后提供，目录面板才显示重新分章入口。
   final VoidCallback? onChapterRules;
+
+  /// 词典由宿主配置服务，UI 只交付选中的原文。
+  final Future<void> Function(String text)? onDictionary;
 
   /// 章节页来源。
   final ReaderChapterSource source;

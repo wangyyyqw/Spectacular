@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../diagnostics/reader_log.dart';
+import '../dictionary/dictionary_store.dart';
 import '../library/library_store.dart';
 import '../editing/book_edit_repository.dart';
 import 'book_opening_reader.dart';
@@ -198,6 +199,7 @@ class BookOpener {
     final reviews = library.reviewStore();
     final fontStore = ReaderFontStore(library);
     return (onReady, readingActive) => EpubReaderPage(
+      dictionaryStore: DictionaryStore(library),
       bytesFuture: opening.bytes,
       sourcePath: entry.filePath.isEmpty ? null : entry.filePath,
       bookId: entry.id,

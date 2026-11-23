@@ -7,6 +7,8 @@ import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../diagnostics/reader_log.dart';
+import '../dictionary/dictionary_store.dart';
+import '../dictionary/dictionary_settings_page.dart';
 import '../library/library_store.dart';
 import '../reader/reader_font_store.dart';
 import '../theme/app_theme.dart';
@@ -295,6 +297,20 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 24),
               ],
               _section(context, '阅读', [
+                ListTile(
+                  key: const ValueKey('dictionary-settings-entry'),
+                  leading: const AppIcon(AppGlyph.bookshelf),
+                  title: const Text('词典设置'),
+                  subtitle: const Text('释义服务、模型与查询预设'),
+                  trailing: const AppIcon(AppGlyph.chevronRight),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => DictionarySettingsPage(
+                        store: DictionaryStore(widget.library),
+                      ),
+                    ),
+                  ),
+                ),
                 ListTile(
                   key: const ValueKey<String>('bookshelf-sort-setting'),
                   leading: const AppIcon(AppGlyph.sort),

@@ -26,6 +26,8 @@ import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 import '../home/finish_book_sheet.dart';
+import '../dictionary/dictionary_store.dart';
+import '../dictionary/dictionary_sheet.dart';
 import '../theme/app_theme.dart';
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
@@ -88,11 +90,13 @@ class EpubReaderPage extends StatefulWidget {
     this.bookEditorRepository,
     this.book,
     this.reviewStore,
+    this.dictionaryStore,
   });
 
   final BookEditRepository? bookEditorRepository;
   final BookEntry? book;
   final BookReviewStore? reviewStore;
+  final DictionaryStore? dictionaryStore;
 
   /// EPUB 字节（内存入口；与 [sourcePath] 二选一）。
   final Uint8List? bytes;
@@ -620,6 +624,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       decorations: widget.decorations,
       decorationRules: widget.decorationRules,
       decorationImages: widget.decorationImages,
+      onDictionary: widget.dictionaryStore == null
+          ? null
+          : (text) => showDictionary(context, widget.dictionaryStore!, text),
       markSettings: settings.markSettings,
       onMarkSettingsChanged: (mark) =>
           _changeSettings(_settings.copyWithMarkSettings(mark)),

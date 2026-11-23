@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -112,6 +113,7 @@ Future<void> _show(
   WidgetTester tester,
   _Fixture fixture, {
   ReaderDecorationImageStore? images,
+  Future<void> Function(String)? onDictionary,
 }) async {
   tester.view.physicalSize = const Size(320, 600);
   tester.view.devicePixelRatio = 1;
@@ -131,6 +133,7 @@ Future<void> _show(
             images: fixture.images,
           ),
           decorationImages: images ?? fixture.images,
+          onDictionary: onDictionary,
           decorationRules: fixture.library.decorationRuleStore(
             fixture.book.id,
             images: fixture.images,
@@ -195,6 +198,41 @@ void main() {
     };
   });
   tearDown(() => ReaderUiDiagnostics.onEvent = null);
+  testWidgets('词典交付真实选区原文，关闭后恢复菜单且不写入批注', (tester) async {
+    final fixture = await _fixture(tester, body: '<p>测试词典原文</p>');
+    addTearDown(() => tester.runAsync(fixture.close));
+    String? selected;
+    final closing = Completer<void>();
+    await _show(
+      tester,
+      fixture,
+      onDictionary: (text) async {
+        selected = text;
+        await closing.future;
+      },
+    );
+    await _selectText(tester, fixture);
+    await tester.tap(find.byKey(const ValueKey('selection-action-dictionary')));
+    await tester.pump();
+    expect(selected, isNotEmpty);
+    expect('测试词典原文'.contains(selected!), isTrue);
+    expect(
+      find.byKey(const ValueKey('selection-action-dictionary')),
+      findsNothing,
+    );
+    closing.complete();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('selection-action-dictionary')),
+      findsOneWidget,
+    );
+    expect(
+      await fixture.database.select(fixture.database.annotations).get(),
+      isEmpty,
+    );
+    expect(fixture.session.pageTurns, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('默认对话规则在正式排版前应用，留白字号与原文位置保留', (tester) async {
     final fixture = await _fixture(
       tester,
@@ -434,7 +472,7 @@ void main() {
     expect(positions[3].dy, greaterThan(positions[0].dy));
     await tester.tap(find.byKey(const ValueKey('selection-action-dictionary')));
     await tester.pumpAndSettle();
-    expect(_messages, contains('词典功能开发中'));
+    expect(_messages, contains('请在词典设置中配置释义服务'));
     final more = find.byKey(const ValueKey('selection-action-more'));
     await tester.tap(more);
     await tester.pumpAndSettle();
