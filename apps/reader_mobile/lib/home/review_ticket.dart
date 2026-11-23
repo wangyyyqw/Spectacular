@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
+
+/// 封面宽高比。
+const _coverRatio = 3 / 4;
+
+/// 书评区最小高度与内边距；封面在左右分栏时按这两项换算成 3:4。
+const _faceMinHeight = 94.0;
+const _facePadding = 14.0;
+const _coverHeight = _faceMinHeight + _facePadding * 2;
 
 /// 书评票根：左联展示书籍与书评，封面贴齐左侧纸边；副联显示标记读完日期与累计时长。
 class ReviewTicket extends StatelessWidget {
@@ -91,27 +100,16 @@ class ReviewTicket extends StatelessWidget {
         ),
         color: scheme.surface,
       ),
-      child: Stack(
+      child: Row(
+        crossAxisAlignment: stacked
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(92, 14, 14, 14),
-            child: _bookFace(context),
-          ),
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: ClipRRect(
-              borderRadius: const BorderRadius.horizontal(
-                left: Radius.circular(2),
-              ),
-              child: SizedBox(
-                width: 66,
-                child: BookCoverImage(
-                  key: const ValueKey<String>('review-ticket-cover'),
-                  book: book,
-                ),
-              ),
+          _cover(stretch: !stacked),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(_facePadding),
+              child: _bookFace(context),
             ),
           ),
         ],
@@ -149,8 +147,26 @@ class ReviewTicket extends StatelessWidget {
     );
   }
 
+  Widget _cover({required bool stretch}) {
+    final image = BookCoverImage(
+      key: const ValueKey<String>('review-ticket-cover'),
+      book: book,
+    );
+    return ClipRRect(
+      borderRadius: const BorderRadius.horizontal(left: Radius.circular(2)),
+      // 左右分栏时封面高度跟随票纸，宽度按 3:4 换算并贴齐上、左、下边缘。
+      child: stretch
+          ? _CoverAspect(child: image)
+          : SizedBox(
+              width: _coverHeight * _coverRatio,
+              height: _coverHeight,
+              child: image,
+            ),
+    );
+  }
+
   Widget _bookFace(BuildContext context) => ConstrainedBox(
-    constraints: const BoxConstraints(minHeight: 94),
+    constraints: const BoxConstraints(minHeight: _faceMinHeight),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -162,10 +178,8 @@ class ReviewTicket extends StatelessWidget {
               book.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                height: 1.32,
-                fontWeight: FontWeight.w600,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(height: 1.32, fontWeight: FontWeight.w600),
             ),
             if (book.author.isNotEmpty)
               Padding(
@@ -179,10 +193,7 @@ class ReviewTicket extends StatelessWidget {
               ),
           ],
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: _marks(context),
-        ),
+        Padding(padding: const EdgeInsets.only(top: 8), child: _marks(context)),
       ],
     ),
   );
@@ -287,6 +298,41 @@ class ReviewTicket extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// 高度由票纸决定、宽度固定为高度的 3/4 的封面槽。
+///
+/// 固有高度固定为 0，卡片高度仍由文字内容决定；布局时再按实际高度换算宽度，
+/// 保证封面既是 3:4 又贴齐票纸的上、左、下边缘。
+class _CoverAspect extends SingleChildRenderObjectWidget {
+  const _CoverAspect({super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderCoverAspect();
+}
+
+class _RenderCoverAspect extends RenderProxyBox {
+  @override
+  double computeMinIntrinsicHeight(double width) => 0;
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => 0;
+
+  @override
+  double computeMinIntrinsicWidth(double height) =>
+      height.isFinite ? height * _coverRatio : 0;
+
+  @override
+  double computeMaxIntrinsicWidth(double height) =>
+      height.isFinite ? height * _coverRatio : 0;
+
+  @override
+  void performLayout() {
+    final height = constraints.maxHeight;
+    final width = height.isFinite ? height * _coverRatio : 0.0;
+    size = constraints.constrain(Size(width, height));
+    child?.layout(BoxConstraints.tight(size));
   }
 }
 

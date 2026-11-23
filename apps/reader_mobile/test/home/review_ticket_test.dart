@@ -90,7 +90,7 @@ void main() {
         findsOneWidget,
       );
 
-      // 封面左边缘、上边缘与下边缘贴齐卡片纸边。
+      // 封面左边缘、上边缘与下边缘贴齐卡片纸边，宽高保持 3:4。
       final face = tester.getRect(
         find.byKey(const ValueKey<String>('review-ticket-face')),
       );
@@ -100,7 +100,8 @@ void main() {
       expect(cover.left, closeTo(face.left, .01));
       expect(cover.top, closeTo(face.top, .01));
       expect(cover.bottom, closeTo(face.bottom, .01));
-      expect(cover.height, greaterThan(94));
+      expect(cover.height, closeTo(face.height, .01));
+      expect(cover.width / cover.height, closeTo(3 / 4, .01));
       expect(cover.right, lessThan(face.right));
       expect(tester.takeException(), isNull);
     } finally {
@@ -136,6 +137,10 @@ void main() {
 
     expect(find.text('长夜与灯火'), findsOneWidget);
     expect(find.text('标记读完'), findsOneWidget);
+    final cover = tester.getRect(
+      find.byKey(const ValueKey<String>('review-ticket-cover')),
+    );
+    expect(cover.width / cover.height, closeTo(3 / 4, .01));
     await tester.tap(find.byKey(const ValueKey('ticket')));
     expect(taps, 1);
     expect(tester.takeException(), isNull);
