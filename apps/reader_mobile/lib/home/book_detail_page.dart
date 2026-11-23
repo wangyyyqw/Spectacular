@@ -614,7 +614,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   key: const ValueKey<String>('book-detail-booklists'),
                   contentPadding: EdgeInsets.zero,
                   leading: const AppIcon(AppGlyph.bookmarkAdd),
-                  title: const Text('加入书单'),
+                  title: const Text('收藏'),
                   subtitle: const Text('选择这本书所在的书单'),
                   trailing: const AppIcon(AppGlyph.chevronRight),
                   onTap: _openBookLists,
