@@ -356,7 +356,7 @@ void main() {
     await _select(tester, rail, '书评');
     await tester.tap(find.byKey(const ValueKey<String>('reviews-tab')));
     await tester.pump();
-    expect(find.byTooltip('刷新书评'), findsOneWidget);
+    expect(find.byTooltip('刷新书评'), findsNothing);
     await _select(tester, rail, '我的');
     expect(find.text('书架排序'), findsOneWidget);
 

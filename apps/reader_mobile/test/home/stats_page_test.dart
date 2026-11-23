@@ -190,6 +190,18 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _startPullToRefresh(WidgetTester tester) async {
+  final indicator = tester.widget<RefreshIndicator>(
+    find.byType(RefreshIndicator).first,
+  );
+  await indicator.onRefresh();
+}
+
+Future<void> _pullToRefresh(WidgetTester tester) async {
+  await _startPullToRefresh(tester);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('切入等待和切出复用统计图表，刷新成功更新且失败保留旧内容', (tester) async {
     final log = ReaderLog.instance;
@@ -252,13 +264,12 @@ void main() {
     sessions.pending = null;
     await tester.pumpAndSettle();
     expect(rebuilt, isEmpty, reason: '新对象的值相同，返回刷新仍复用图表');
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
-    await tester.pumpAndSettle();
+    await _pullToRefresh(tester);
     expect(sessions.listCalls, 3);
     expect(rebuilt, isEmpty, reason: '显式刷新仍重新查询，但不重建相同内容');
 
     final changed = sessions.pending = Completer<List<ReadingSession>>();
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    unawaited(_startPullToRefresh(tester));
     await tester.pump();
     changed.complete([_todaySession(10)]);
     await tester.pumpAndSettle();
@@ -269,7 +280,7 @@ void main() {
     expect(scroll.position.pixels, 40);
     rebuilt.clear();
     final failed = sessions.pending = Completer<List<ReadingSession>>();
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    unawaited(_startPullToRefresh(tester));
     await tester.pump();
     failed.completeError(StateError('读取失败'));
     await tester.pumpAndSettle();
@@ -321,8 +332,7 @@ void main() {
       find.byType(BookDurationChart),
     );
     library.weights['a'] = ProgressWeights.fromCharCounts([1, 3]);
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
-    await tester.pumpAndSettle();
+    await _pullToRefresh(tester);
     expect(
       tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
       isNot(same(original)),
@@ -339,8 +349,7 @@ void main() {
       readingPercent: .6,
       finished: true,
     );
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
-    await tester.pumpAndSettle();
+    await _pullToRefresh(tester);
     expect(_valueOf(tester, 'stats-book-a'), '60%');
     expect(find.text('新书名'), findsWidgets);
     expect(find.text('旧书名'), findsNothing);
@@ -401,7 +410,7 @@ void main() {
       find.byType(BookDurationChart),
     );
     final pending = sessions.pending = Completer<List<ReadingSession>>();
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    unawaited(_startPullToRefresh(tester));
     await tester.pump();
     expect(sessions.listCalls, 2);
     await tester.pumpWidget(page(false));
@@ -931,7 +940,7 @@ void main() {
         duration: const Duration(seconds: 1),
       ),
     );
-    await _tapControl(tester, 'stats-refresh');
+    await _pullToRefresh(tester);
     expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
     expect(
       find.byKey(const ValueKey('stats-book-duration-value-a')),
@@ -949,7 +958,7 @@ void main() {
         duration: const Duration(minutes: 3),
       ),
     );
-    await _tapControl(tester, 'stats-refresh');
+    await _pullToRefresh(tester);
     expect(_valueOf(tester, 'stats-book-duration-total'), '8 分钟');
     expect(_valueOf(tester, 'stats-book-duration-value-a'), '6 分钟');
     expect(

@@ -511,7 +511,11 @@ class _PeriodPicker extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Text(
               '选择阅读时段',
-              style: Theme.of(context).textTheme.titleSmall,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
             ),
           ),
           Padding(
@@ -868,8 +872,11 @@ class _DurationRing extends StatelessWidget {
           child: Text(
             formatReadingDuration(summary.total),
             key: const ValueKey('stats-book-duration-total'),
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            style: TextStyle(
+              fontSize: 24,
               height: 1.25,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),

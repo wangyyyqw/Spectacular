@@ -173,7 +173,10 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
           Text(
             '日均 ${_formatCenterDuration(_averageDay)}',
             key: const ValueKey('stats-weekday-average-value'),
-            style: Theme.of(context).textTheme.titleSmall,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 12),
           for (final average in averages) _weekdayListRow(context, average),
@@ -284,7 +287,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
                         'stats-weekday-average-value',
                       ),
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 15,
                         height: 1.2,
                         fontWeight: FontWeight.w600,
                         color: theme.colorScheme.onSurface,
@@ -510,7 +513,7 @@ class _WeekdayDetail extends StatelessWidget {
                     : formatReadingDuration(average.average),
                 key: const ValueKey<String>('stats-weekday-detail-value'),
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   height: 1.2,
                   color: theme.colorScheme.onSurface,

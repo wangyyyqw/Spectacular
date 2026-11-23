@@ -415,15 +415,6 @@ class _StatsPageState extends State<StatsPage> {
         centerTitle: false,
         scrolledUnderElevation: 0,
         title: const Text('统计'),
-        actions: [
-          IconButton(
-            key: const ValueKey<String>('stats-refresh'),
-            tooltip: '刷新统计',
-            onPressed: _refresh,
-            icon: const AppIcon(AppGlyph.refresh),
-          ),
-        ],
-        bottom: const _AppBarHairline(),
       ),
       body: content == null
           ? _error == null
@@ -440,15 +431,6 @@ class _StatsPageState extends State<StatsPage> {
         centerTitle: false,
         scrolledUnderElevation: 0,
         title: const Text('统计'),
-        actions: <Widget>[
-          IconButton(
-            key: const ValueKey<String>('stats-refresh'),
-            tooltip: '刷新阅微统计',
-            onPressed: _refresh,
-            icon: const AppIcon(AppGlyph.refresh),
-          ),
-        ],
-        bottom: const _AppBarHairline(),
       ),
       body: stats == null
           ? controller.loadingCloudStats
@@ -493,9 +475,9 @@ class _StatsContent extends StatelessWidget {
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
-            desktop ? 28 : 16,
+            desktop ? 28 : 20,
             20,
-            desktop ? 28 : 16,
+            desktop ? 28 : 20,
             36,
           ),
           children: [
@@ -689,17 +671,6 @@ class _BookReadingStat {
 
 /// 数字统一使用等宽字形，避免刷新时左右跳动。
 const _tabularFigures = <FontFeature>[FontFeature.tabularFigures()];
-
-class _AppBarHairline extends StatelessWidget implements PreferredSizeWidget {
-  const _AppBarHairline();
-
-  @override
-  Size get preferredSize => const Size.fromHeight(1);
-
-  @override
-  Widget build(BuildContext context) =>
-      Container(height: 1, color: Theme.of(context).colorScheme.outlineVariant);
-}
 
 /// 加载骨架：几何结构与最终页面一致，避免布局跳变。
 class _StatsSkeleton extends StatelessWidget {

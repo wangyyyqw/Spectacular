@@ -79,7 +79,9 @@ void main() {
     await tester.tap(stats);
     await tester.pumpAndSettle();
     expect(library.sessionStore.listCalls, 1);
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator).first)
+        .onRefresh();
     await tester.pumpAndSettle();
     expect(library.sessionStore.listCalls, 2);
     expect(tester.takeException(), isNull);

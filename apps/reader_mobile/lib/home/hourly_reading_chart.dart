@@ -49,7 +49,7 @@ class HourlyReadingPage extends StatelessWidget {
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
         children: [
           Center(
             child: ConstrainedBox(
@@ -61,7 +61,11 @@ class HourlyReadingPage extends StatelessWidget {
                     '${date.year}年${date.month}月${date.day}日 · '
                     '周${weekdays[date.weekday - 1]}',
                     key: const ValueKey<String>('stats-hourly-page-date'),
-                    style: theme.textTheme.titleSmall?.copyWith(height: 1.3),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -445,7 +449,7 @@ class _HourlyDetail extends StatelessWidget {
                 formatReadingDuration(duration),
                 key: const ValueKey<String>('stats-hourly-selected-duration'),
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   height: 1.2,
                   color: theme.colorScheme.onSurface,

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -450,10 +448,10 @@ class _ReviewsPageState extends State<ReviewsPage>
           autofocus: widget.active,
           child: Scaffold(
             appBar: AppBar(
+              toolbarHeight: 0,
+              automaticallyImplyLeading: false,
               centerTitle: false,
               scrolledUnderElevation: 0,
-              title: _searching ? _searchField() : Text(_notes ? '笔记' : '书评'),
-              actions: _actions(),
             ),
             body: Center(
               child: ConstrainedBox(
@@ -473,16 +471,29 @@ class _ReviewsPageState extends State<ReviewsPage>
     );
   }
 
-  Widget _header(bool desktop) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-    child: LayoutBuilder(
-      builder: (context, bounds) => Wrap(
-        spacing: 24,
-        runSpacing: 12,
-        crossAxisAlignment: WrapCrossAlignment.center,
+  Widget _header(bool desktop) {
+    final theme = Theme.of(context);
+    if (_searching) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+        child: Row(
+          children: [
+            Expanded(child: _searchField()),
+            IconButton(
+              tooltip: '关闭搜索',
+              onPressed: _toggleSearch,
+              icon: const AppIcon(AppGlyph.close),
+            ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+      child: Row(
         children: [
-          SizedBox(
-            width: desktop ? math.min(260, bounds.maxWidth) : bounds.maxWidth,
+          Expanded(
+            flex: 3,
             child: TabBar(
               controller: _tabs,
               isScrollable: true,
@@ -490,27 +501,35 @@ class _ReviewsPageState extends State<ReviewsPage>
               labelPadding: const EdgeInsets.only(right: 20),
               indicator: const BoxDecoration(),
               dividerColor: Colors.transparent,
-              labelColor: Theme.of(context).colorScheme.onSurface,
-              unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
-              labelStyle: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
-              unselectedLabelStyle: Theme.of(context).textTheme.bodyMedium,
-        tabs: const [
+              labelColor: theme.colorScheme.onSurface,
+              unselectedLabelColor: theme.colorScheme.onSurface,
+              labelStyle: theme.textTheme.bodyMedium?.copyWith(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+              ),
+              unselectedLabelStyle: theme.textTheme.bodyMedium?.copyWith(
+                fontSize: 14,
+              ),
+              tabs: const [
                 Tab(key: ValueKey('notes-tab'), text: '笔记'),
                 Tab(key: ValueKey('reviews-tab'), text: '书评'),
-          Tab(key: ValueKey('booklists-tab'), text: '书单'),
+                Tab(key: ValueKey('booklists-tab'), text: '书单'),
               ],
             ),
           ),
           if (desktop && _reviewTab)
-            SizedBox(
-              width: math.min(360, bounds.maxWidth),
-              child: _searchField(),
+            Flexible(
+              flex: 2,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 300),
+                child: _searchField(),
+              ),
             ),
+          ..._actions(),
         ],
       ),
-    ),
-  );
+    );
+  }
 
   Widget _searchField() {
     final theme = Theme.of(context);
@@ -589,12 +608,6 @@ class _ReviewsPageState extends State<ReviewsPage>
                 onPressed: _toggleSearch,
                 icon: const AppIcon(AppGlyph.search),
               ),
-            IconButton(
-              key: const ValueKey('reviews-refresh'),
-              tooltip: '刷新书评',
-              onPressed: _reload,
-              icon: const AppIcon(AppGlyph.refresh),
-            ),
           ];
   }
 
