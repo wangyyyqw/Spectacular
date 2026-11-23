@@ -70,7 +70,7 @@ void main() {
     );
   });
 
-  testWidgets('长按菜单操作区为无外框的纵向列表且无分隔线', (tester) async {
+  testWidgets('长按菜单操作区使用一个大圆角边框和两列分隔', (tester) async {
     final entry = BookEntry(
       id: 'style-book',
       title: '样式样本',
@@ -88,22 +88,37 @@ void main() {
     );
     await tester.pumpAndSettle();
     final panel = find.byKey(const ValueKey('book-detail-actions'));
-    expect(tester.widget(panel), isA<Column>());
+    final scheme = Theme.of(
+      tester.element(find.byKey(const ValueKey('book-detail-open-page'))),
+    ).colorScheme;
+    final material = tester.widget<Material>(panel);
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(shape.borderRadius, BorderRadius.circular(10));
+    expect(shape.side.color, scheme.outlineVariant);
+    expect(material.color, scheme.surface);
     expect(
       find.descendant(of: panel, matching: find.byType(Divider)),
-      findsNothing,
+      findsNWidgets(2),
     );
     expect(
       find.descendant(of: panel, matching: find.byType(VerticalDivider)),
+      findsNWidgets(3),
+    );
+    expect(find.text('收藏'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: panel,
+        matching: find.byKey(const ValueKey('book-detail-delete-actions')),
+      ),
       findsNothing,
     );
-    final detail = tester.getRect(
-      find.byKey(const ValueKey('book-detail-open-page')),
+    final deleteText = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey('book-detail-delete')),
+        matching: find.text('删除'),
+      ),
     );
-    final pin = tester.getRect(find.byKey(const ValueKey('book-detail-pin')));
-    expect(pin.top, greaterThanOrEqualTo(detail.bottom));
-    expect(pin.left, detail.left);
-    expect(detail.width, closeTo(tester.getRect(panel).width, 0.1));
+    expect(deleteText.style?.color, scheme.error);
     expect(tester.takeException(), isNull);
   });
 
@@ -448,13 +463,6 @@ void main() {
     expect(chart, findsOneWidget);
     expect(find.text('最近 7 天'), findsOneWidget);
     expect(
-      find.descendant(
-        of: find.byType(BookDetailSheet),
-        matching: find.byType(Divider),
-      ),
-      findsNothing,
-    );
-    expect(
       tester.getRect(chart).top,
       greaterThan(tester.getRect(cover).bottom),
     );
@@ -465,7 +473,7 @@ void main() {
     );
   });
 
-  testWidgets('窄屏和放大文字下操作纵向排列，遮罩和下拉仍可关闭', (tester) async {
+  testWidgets('窄屏和放大文字下三组操作分别同行，遮罩和下拉仍可关闭', (tester) async {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final entry = BookEntry(
       id: 'layout-book',
@@ -517,30 +525,38 @@ void main() {
       );
       expect(metadata.top, closeTo(cover.top, 0.1));
       expect(metadata.bottom, closeTo(cover.bottom, 0.1));
-      final actions = [
-        'book-detail-open-page',
-        'book-detail-pin',
-        'book-detail-update',
-        'book-detail-create-group',
-        'book-detail-export',
-        'book-detail-delete',
-      ];
-      final rects = [
-        for (final key in actions)
-          tester.getRect(find.byKey(ValueKey(key))),
-      ];
-      for (var index = 0; index < rects.length; index++) {
-        final rect = rects[index];
-        expect(rect.height, greaterThanOrEqualTo(48));
-        expect(rect.left, closeTo(rects.first.left, 0.1));
-        expect(rect.right, closeTo(rects.first.right, 0.1));
-        if (index > 0) {
-          expect(rect.top, greaterThanOrEqualTo(rects[index - 1].bottom));
-        }
+      for (final (left, right) in [
+        ('book-detail-booklists', 'book-detail-open-page'),
+        ('book-detail-create-group', 'book-detail-pin'),
+        ('book-detail-update', 'book-detail-export'),
+      ]) {
+        final leftButton = find.byKey(ValueKey(left));
+        final rightButton = find.byKey(ValueKey(right));
+        final leftRect = tester.getRect(leftButton);
+        final rightRect = tester.getRect(rightButton);
+        expect(leftRect.center.dy, closeTo(rightRect.center.dy, 0.1));
+        expect(leftRect.right, lessThanOrEqualTo(rightRect.left));
+        expect(leftRect.height, greaterThanOrEqualTo(48));
+        expect(rightRect.height, greaterThanOrEqualTo(48));
+        expect(leftButton.hitTestable(), findsOneWidget);
+        expect(rightButton.hitTestable(), findsOneWidget);
       }
+      final export = tester.getRect(
+        find.byKey(const ValueKey('book-detail-export')),
+      );
+      final delete = tester.getRect(
+        find.byKey(const ValueKey('book-detail-delete')),
+      );
+      expect(delete.top, greaterThan(export.bottom));
+      expect(
+        delete.width,
+        closeTo(
+          tester.getRect(find.byKey(const ValueKey('book-detail-actions'))).width,
+          0.1,
+        ),
+      );
       expect(tester.takeException(), isNull);
-      final sheetRect = tester.getRect(find.byType(BottomSheet));
-      await tester.tapAt(Offset(10, (sheetRect.top / 2).clamp(4.0, 80.0)));
+      await tester.tapAt(const Offset(10, 80));
       await tester.pumpAndSettle();
       expect(find.byType(BookDetailSheet), findsNothing);
       await tester.tap(find.text('打开'));
