@@ -281,7 +281,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     final mode = _selectedMode ?? preferences.mode;
     final fontFamily = _selectedFontFamily ?? preferences.fontFamily;
     return MaterialApp(
-      title: 'Spectacular Reader',
+      title: '墨屿',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(fontFamily: fontFamily),
       darkTheme: buildAppTheme(

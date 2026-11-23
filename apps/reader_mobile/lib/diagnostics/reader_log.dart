@@ -222,7 +222,7 @@ class ReaderLog {
     return SharePlus.instance.share(
       ShareParams(
         files: <XFile>[XFile(path, mimeType: 'text/plain')],
-        subject: 'Spectacular Reader 日志',
+        subject: '墨屿 日志',
         text: '诊断日志已移除书名、检索词和异常正文，请检查后再分享。',
       ),
     );

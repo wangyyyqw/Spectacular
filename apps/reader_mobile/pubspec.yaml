@@ -90,6 +90,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/branding/app_icon.png
     - assets/fonts/LICENSE.txt
     - assets/textures/
     - integration_test/m0_page_sequence.json
