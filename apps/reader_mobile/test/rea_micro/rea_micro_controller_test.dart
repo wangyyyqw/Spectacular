@@ -342,6 +342,8 @@ class _FakeApi implements ReaMicroApi {
       id: 1,
       nickName: '测试用户',
       totalReadTimeSeconds: 600,
+      userType: 3,
+      vipExpireTime: '2027-01-01 00:00:00',
     );
   }
 

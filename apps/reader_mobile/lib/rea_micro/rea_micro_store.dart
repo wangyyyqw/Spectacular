@@ -31,7 +31,40 @@ class ReaMicroStore {
   static const String _s3LocalBookUuidsKey = 'reamicro.s3.localBookUuids';
   static const String _s3PendingDeletionsKey = 'reamicro.s3.pendingDeletions';
   static const String _markIdsKey = 'reamicro.mark.ids';
+  static const String _finishedKey = 'reamicro.finished.pending';
+  static const String _finishedMirrorKey = 'reamicro.finished.mirror';
   static const int _maxUploadedKeys = 5000;
+
+  /// 正数为待标记读完，负数为待取消；绝对值是本地修改时间。
+  Future<Map<String, int>> loadPendingFinished() async {
+    final raw = await _library.getSetting(_finishedKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as Map<String, dynamic>).map(
+        (key, value) => MapEntry(key, (value as num).toInt()),
+      );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> savePendingFinished(Map<String, int> values) =>
+      _library.setSetting(_finishedKey, jsonEncode(values));
+
+  Future<Map<String, bool>> loadFinishedMirror() async {
+    final raw = await _library.getSetting(_finishedMirrorKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as Map<String, dynamic>).map(
+        (key, value) => MapEntry(key, value == true),
+      );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveFinishedMirror(Map<String, bool> values) =>
+      _library.setSetting(_finishedMirrorKey, jsonEncode(values));
 
   /// 读取访问令牌。
   Future<String?> loadToken() async {

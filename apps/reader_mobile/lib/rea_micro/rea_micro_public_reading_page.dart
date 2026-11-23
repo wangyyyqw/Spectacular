@@ -6,7 +6,6 @@ import '../home/book_cover_image.dart';
 import '../library/library_store.dart';
 import 'rea_micro_controller.dart';
 import 'rea_micro_models.dart';
-import 'rea_micro_manual_association_page.dart';
 import 'rea_micro_source_icon.dart';
 
 /// 将本地书籍公开关联到阅微云端书籍。
@@ -100,7 +99,7 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
       if (!mounted || generation != _searchGeneration) return;
       update(groups);
       setState(() {
-        if (groups.isEmpty) _error = '没有找到匹配版本，可重新搜索或手动关联';
+        if (groups.isEmpty) _error = '没有找到匹配版本，请重新搜索';
       });
     } catch (error) {
       if (!mounted || generation != _searchGeneration) return;
@@ -123,19 +122,6 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
         thirdParty: candidate.thirdParty,
       ),
     );
-  }
-
-  Future<void> _createAndPublish() async {
-    if (_linking) return;
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ReaMicroManualAssociationPage(
-          controller: widget.controller,
-          book: widget.book,
-        ),
-      ),
-    );
-    if (changed == true && mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _unlink() async {
@@ -287,28 +273,11 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
                       : const Icon(Icons.cloud_upload_outlined),
                   label: Text(_linking ? '关联中…' : '关联所选版本'),
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        key: const ValueKey<String>('public-reading-new-book'),
-                        onPressed: _linking ? null : _createAndPublish,
-                        icon: const Icon(Icons.add_link),
-                        label: const Text('手动关联'),
-                      ),
-                    ),
-                    if (link != null) ...[
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextButton(
-                          onPressed: _linking ? null : _unlink,
-                          child: const Text('解除关联'),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+                if (link != null)
+                  TextButton(
+                    onPressed: _linking ? null : _unlink,
+                    child: const Text('解除关联'),
+                  ),
               ],
             ),
           ),

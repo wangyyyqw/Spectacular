@@ -866,7 +866,7 @@ class ReaMicroApiClient
     await _post('rest/rating/rate-review', <String, Object?>{
       if (bookId != null && bookId > 0) 'bookId': bookId,
       if (cloudBookId != null && cloudBookId > 0) 'cloudBookId': cloudBookId,
-      'rating': rating.clamp(1, 10),
+      'rating': rating.clamp(0, 10),
       'comment': comment.trim(),
       'status': publish ? 2 : 1,
     }, token: token);
@@ -975,6 +975,13 @@ class ReaMicroApiClient
         <String, Object?>{'pageNum': page, 'pageSize': pageSize},
         token: token,
       );
+      if (data is! List<Object?> &&
+          !(data is Map<String, Object?> &&
+              (data['milestones'] is List<Object?> ||
+                  data['list'] is List<Object?> ||
+                  data['records'] is List<Object?>))) {
+        throw const ReaMicroException('阅微读完清单格式不正确');
+      }
       final rawItems = switch (data) {
         final Map<String, Object?> map
             when map['milestones'] is List<Object?> =>
@@ -985,12 +992,14 @@ class ReaMicroApiClient
         for (final item in rawItems)
           if (item is Map<String, Object?>) ReaMicroMilestone.fromJson(item),
       ]);
-      if (rawItems.length < pageSize) break;
+      if (rawItems.length < pageSize) {
+        milestones.sort(
+          (left, right) => right.ratingTime.compareTo(left.ratingTime),
+        );
+        return milestones;
+      }
     }
-    milestones.sort(
-      (left, right) => right.ratingTime.compareTo(left.ratingTime),
-    );
-    return milestones;
+    throw const ReaMicroException('阅微读完清单未完整读取，请稍后重试');
   }
 
   @override

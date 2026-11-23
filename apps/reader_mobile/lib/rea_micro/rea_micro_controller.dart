@@ -12,6 +12,7 @@ import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../book_source/book_source_compat.dart';
 import '../storage/reading_session_store.dart';
+import '../storage/drift_progress_store.dart';
 import 'rea_micro_api_client.dart';
 import 'rea_micro_aggregate_search.dart';
 import 'rea_micro_annotation_cfi.dart';
@@ -147,6 +148,9 @@ class ReaMicroController extends ChangeNotifier {
   Map<String, String> _s3LocalBookUuids = <String, String>{};
   Set<String> _s3PendingDeletions = <String>{};
   Map<String, int> _markIds = <String, int>{};
+  Map<String, int> _pendingFinished = {};
+  Map<String, bool> _finishedMirror = {};
+  bool _syncingFinished = false;
   bool _s3Syncing = false;
   String? _s3Message;
   DateTime? _s3LastSyncAt;
@@ -230,6 +234,7 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 是否把阅微作为唯一阅读数据源。
   bool get cloudAsPrimary => _cloudAsPrimary && signedIn;
+  bool get hasQingShi => signedIn && (_user?.hasQingShi ?? false);
 
   /// 最近一次拉取的阅微完整阅读数据。
   ReaMicroCloudStats? get cloudStats => _cloudStats;
@@ -278,6 +283,8 @@ class ReaMicroController extends ChangeNotifier {
     _lastSyncAt = await _store.loadLastSyncAt();
     _progressStates = await _store.loadProgressStates();
     _markIds = await _store.loadMarkIds();
+    _pendingFinished = await _store.loadPendingFinished();
+    _finishedMirror = await _store.loadFinishedMirror();
     _deviceId = await _store.loadOrCreateDeviceId();
     final previouslyCloudPrimary = await _store.loadCloudPrimary();
     // 登录账号默认使用阅微数据，也迁移旧版本保存的关闭状态。
@@ -483,6 +490,7 @@ class ReaMicroController extends ChangeNotifier {
   ) async {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    if (!hasQingShi) throw const ReaMicroException('阅读统计需要阅微青士权限');
     try {
       final records = await switch (period) {
         ReaMicroRecordPeriod.week => _api.fetchBookRecordsByWeek(
@@ -512,7 +520,36 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      return await _api.fetchMarkBooks(token);
+      final books = await _api.fetchMarkBooks(token);
+      try {
+        final marks = await _api.fetchMarks(token);
+        final updated = <String, int>{};
+        for (final mark in marks) {
+          if (mark.updatedAt > (updated[mark.bookId] ?? 0)) {
+            updated[mark.bookId] = mark.updatedAt;
+          }
+        }
+        return [
+          for (final book in books)
+            ReaMicroMarkBook(
+              bookId: book.bookId,
+              cloudBookId: book.cloudBookId,
+              name: book.name,
+              author: book.author,
+              cover: book.cover,
+              thoughtCount: book.thoughtCount,
+              underlineCount: book.underlineCount,
+              updatedAt: [
+                book.updatedAt,
+                updated['${book.bookId}'] ?? 0,
+                updated['${book.cloudBookId}'] ?? 0,
+              ].reduce((a, b) => a > b ? a : b),
+            ),
+        ];
+      } catch (_) {
+        // 时间读取失败仍展示笔记书目，保留已知更新时间。
+        return books;
+      }
     } on ReaMicroException catch (error) {
       await _handleError(error);
       rethrow;
@@ -527,6 +564,45 @@ class ReaMicroController extends ChangeNotifier {
         if (entry.key.startsWith(prefix))
           entry.key.substring(prefix.length): entry.value,
     };
+  }
+
+  /// 云端删除成功后才移除本地副本，失败时保留笔记供重试。
+  Future<ReaMicroActionResult> deleteNote(
+    String bookId,
+    ReaderAnnotation annotation,
+  ) async {
+    final remoteId =
+        _markIds['$bookId|${annotation.id}'] ??
+        (annotation.id.startsWith('mark-cloud-')
+            ? int.tryParse(annotation.id.substring('mark-cloud-'.length))
+            : null);
+    try {
+      if (remoteId != null && remoteId > 0) {
+        final token = _token;
+        if (token == null) throw const ReaMicroException('请先登录阅微账号');
+        await _api.deleteMark(token, id: remoteId);
+      }
+      await _library.removeBookAnnotation(bookId, annotation.id);
+      if (remoteId != null) {
+        final aliases = _markIds.entries
+            .where(
+              (entry) =>
+                  entry.key.startsWith('$bookId|') && entry.value == remoteId,
+            )
+            .toList();
+        for (final entry in aliases) {
+          await _library.removeBookAnnotation(
+            bookId,
+            entry.key.substring(bookId.length + 1),
+          );
+          _markIds.remove(entry.key);
+        }
+        await _store.saveMarkIds(_markIds);
+      }
+      return const ReaMicroActionResult(success: true, message: '笔记已删除');
+    } catch (error) {
+      return ReaMicroActionResult(success: false, message: _messageOf(error));
+    }
   }
 
   /// 按内部书籍身份读取云端标注，公开书库 ID 只用于兼容旧记录。
@@ -696,6 +772,8 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 账号变化后清空与云端标识绑定的同步状态，避免复用上一账号的映射。
   Future<void> _resetAccountSyncState() async {
+    _finishedMirror = {};
+    await _store.saveFinishedMirror(_finishedMirror);
     _cloudStats = null;
     _cloudStatsAt = null;
     _cloudStatsError = null;
@@ -956,6 +1034,7 @@ class ReaMicroController extends ChangeNotifier {
         return;
       }
       await syncProgress();
+      await syncFinishedBooks();
     });
   }
 
@@ -1117,7 +1196,7 @@ class ReaMicroController extends ChangeNotifier {
     bool silent = false,
   }) async {
     final token = _token;
-    if (token == null || _loadingCloudStats) return;
+    if (token == null || _loadingCloudStats || !hasQingShi) return;
     final last = _cloudStatsAt;
     if (!force &&
         _cloudStats != null &&
@@ -1182,6 +1261,7 @@ class ReaMicroController extends ChangeNotifier {
   ) async {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
+    if (!hasQingShi) throw const ReaMicroException('阅读统计需要阅微青士权限');
     final result = await switch (period) {
       ReaMicroRecordPeriod.week => _api.fetchWeekStats(token, date: anchor),
       ReaMicroRecordPeriod.month => _api.fetchMonthStats(
@@ -1232,11 +1312,18 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   /// 读取一本书在阅微的书评。
-  Future<ReaMicroBookReview?> loadBookReview(int cloudBookId) async {
+  Future<ReaMicroBookReview?> loadBookReview(
+    int cloudBookId, {
+    int? bookId,
+  }) async {
     final token = _token;
     if (token == null || cloudBookId <= 0) return null;
     try {
-      return await _api.fetchBookReview(token, cloudBookId: cloudBookId);
+      return await _api.fetchBookReview(
+        token,
+        cloudBookId: cloudBookId,
+        bookId: bookId,
+      );
     } catch (error) {
       await _handleError(error);
       return null;
@@ -1246,6 +1333,7 @@ class ReaMicroController extends ChangeNotifier {
   /// 提交一本书的评分与书评。
   Future<ReaMicroActionResult> saveReview({
     required int cloudBookId,
+    int? bookId,
     required int rating,
     required String comment,
     required bool publish,
@@ -1264,14 +1352,32 @@ class ReaMicroController extends ChangeNotifier {
         message: '当前书籍尚未关联阅微云端书籍',
       );
     }
+    if (comment.length > 2000) {
+      return const ReaMicroActionResult(
+        success: false,
+        message: '阅微书评最多 2000 字',
+      );
+    }
     try {
+      final pendingBefore = Map<String, int>.of(_pendingFinished);
       await _api.rateReview(
         token,
         cloudBookId: cloudBookId,
+        bookId: bookId,
         rating: rating,
         comment: comment,
         publish: publish,
       );
+      if (_token != token) throw const ReaMicroException('账号已变更，请重新加载书评');
+      for (final entry in _links.entries) {
+        if (entry.value.cloudBookId != cloudBookId) continue;
+        if (_pendingFinished[entry.key] == pendingBefore[entry.key]) {
+          _pendingFinished.remove(entry.key);
+          _finishedMirror[entry.key] = true;
+        }
+      }
+      await _store.savePendingFinished(_pendingFinished);
+      await _store.saveFinishedMirror(_finishedMirror);
       await refreshMilestones(silent: true);
       return ReaMicroActionResult(
         success: true,
@@ -1423,6 +1529,8 @@ class ReaMicroController extends ChangeNotifier {
   /// 退出登录，保留本地阅读记录和书籍关联。
   Future<void> logout() async {
     _token = null;
+    _autoSyncTimer?.cancel();
+    _progressSyncTimer?.cancel();
     _stopCloudAutoSync();
     await _stopLanAuthorization();
     _cloudAsPrimary = false;
@@ -1571,7 +1679,7 @@ class ReaMicroController extends ChangeNotifier {
     ]);
     if (cancelled()) return const [];
     if (succeeded == 0 && failures.isNotEmpty) {
-      throw const ReaMicroException('搜索来源暂不可用，请重试或手动关联');
+      throw const ReaMicroException('搜索来源暂不可用，请重试');
     }
     return groups();
   }
@@ -1689,6 +1797,10 @@ class ReaMicroController extends ChangeNotifier {
     };
     await _store.saveLinks(_links);
     await _seedProgressStatesForBook(bookId);
+    if ((await _rawProgressStore?.load(bookId))?.finished == true) {
+      _pendingFinished[bookId] = DateTime.now().millisecondsSinceEpoch;
+      await _store.savePendingFinished(_pendingFinished);
+    }
     _notice = '已关联《${book.name}》';
     _notify();
   }
@@ -1923,6 +2035,7 @@ class ReaMicroController extends ChangeNotifier {
     };
     await _store.saveSyncBooks(_syncBooks);
     await _seedProgressStatesForBook(bookId);
+    scheduleReadingSync();
     var intro =
         thirdParty?.intro ??
         manual?.intro.trim() ??
@@ -2013,6 +2126,10 @@ class ReaMicroController extends ChangeNotifier {
     final next = Map<String, ReaMicroBookLink>.of(_links)..remove(bookId);
     _links = next;
     await _store.saveLinks(_links);
+    _pendingFinished.remove(bookId);
+    _finishedMirror.remove(bookId);
+    await _store.savePendingFinished(_pendingFinished);
+    await _store.saveFinishedMirror(_finishedMirror);
     final state = _progressStates[bookId];
     if (state != null && state.dirty) {
       _progressStates[bookId] = state.copyWith(dirty: false);
@@ -2968,17 +3085,146 @@ class ReaMicroController extends ChangeNotifier {
     final progress = await syncProgress();
     final durations = await syncReadingSessions();
     final marks = await syncMarks();
+    final finished = await syncFinishedBooks();
     final messages = <String>{
       durations.message,
       progress.message,
       marks.message,
+      finished.message,
     }.where((message) => message.trim().isNotEmpty).toList(growable: false);
     return ReaMicroSyncResult(
-      success: durations.success && progress.success && marks.success,
+      success:
+          durations.success &&
+          progress.success &&
+          marks.success &&
+          finished.success,
       message: messages.join('；'),
-      requests: durations.requests + progress.requests + marks.requests,
+      requests:
+          durations.requests +
+          progress.requests +
+          marks.requests +
+          finished.requests,
       durationSeconds: durations.durationSeconds,
     );
+  }
+
+  /// 以里程碑同步已关联书籍的读完状态；待传修改先上传，避免被旧云数据覆盖。
+  Future<ReaMicroSyncResult> syncFinishedBooks() async {
+    final token = _token;
+    final progressStore = _rawProgressStore;
+    if (token == null || progressStore == null || _links.isEmpty) {
+      return const ReaMicroSyncResult(success: true, message: '');
+    }
+    if (_syncingFinished) {
+      return const ReaMicroSyncResult(success: true, message: '');
+    }
+    _syncingFinished = true;
+    var requests = 0;
+    try {
+      final milestones = await _api.fetchMilestones(token);
+      if (_token != token) {
+        return const ReaMicroSyncResult(success: false, message: '账号已变更');
+      }
+      final reviews = await _library.reviewStore()?.snapshot() ?? {};
+      for (final entry in _links.entries.toList()) {
+        if (_token != token) break;
+        final local = await progressStore.load(entry.key);
+        if (!_pendingFinished.containsKey(entry.key) &&
+            !_finishedMirror.containsKey(entry.key) &&
+            local?.finished == true) {
+          _pendingFinished[entry.key] = DateTime.now().millisecondsSinceEpoch;
+          await _store.savePendingFinished(_pendingFinished);
+        }
+        final pending = _pendingFinished[entry.key];
+        final remote = milestones
+            .where((item) => item.cloudBookId == entry.value.cloudBookId)
+            .toList();
+        if (pending != null) {
+          if (pending > 0 && local?.finished == true) {
+            // 自动同步保留已有云端正文与公开状态，只同步本地评分和读完标记。
+            final existing = await _api.fetchBookReview(
+              token,
+              cloudBookId: entry.value.cloudBookId,
+              bookId: entry.value.userBookId,
+            );
+            final review = reviews[entry.key];
+            final milestone = remote.isEmpty ? null : remote.first;
+            final remoteRating = existing?.rating ?? milestone?.rating ?? 0;
+            final rating = review?.rating != null
+                ? (remoteRating > 0 &&
+                          (remoteRating / 2).round() == review!.rating
+                      ? remoteRating
+                      : review!.rating! * 2)
+                : remoteRating;
+            final cloudComment = existing?.comment ?? milestone?.comment ?? '';
+            final comment = cloudComment.trim().isNotEmpty
+                ? cloudComment
+                : review?.content ?? '';
+            final published = existing?.statusKnown == true
+                ? existing!.published
+                : milestone?.status == 2;
+            if (remote.isEmpty ||
+                existing?.rating != rating ||
+                existing?.comment != comment) {
+              await _api.rateReview(
+                token,
+                cloudBookId: entry.value.cloudBookId,
+                bookId: entry.value.userBookId,
+                rating: rating,
+                comment: comment,
+                publish: published,
+              );
+              requests++;
+            }
+          } else if (pending < 0 && local?.finished != true) {
+            for (final item in remote) {
+              await _api.deleteMilestone(token, milestoneId: item.id);
+              requests++;
+            }
+          }
+          if (_token != token || _pendingFinished[entry.key] != pending) {
+            continue;
+          }
+          _pendingFinished.remove(entry.key);
+          _finishedMirror[entry.key] = pending > 0;
+          await _store.savePendingFinished(_pendingFinished);
+          await _store.saveFinishedMirror(_finishedMirror);
+        } else {
+          final finished = remote.isNotEmpty;
+          // 首次关联保留本地已读完状态，后续按已确认的云端状态同步取消。
+          if (finished || _finishedMirror.containsKey(entry.key)) {
+            if ((local?.finished ?? false) != finished) {
+              if (_pendingFinished.containsKey(entry.key)) continue;
+              if (progressStore is DriftProgressStore) {
+                await progressStore.setFinished(entry.key, finished);
+              } else {
+                final current = await progressStore.load(entry.key);
+                if (_pendingFinished.containsKey(entry.key)) continue;
+                await progressStore.save(
+                  entry.key,
+                  (current ?? const ReaderProgress(spineIndex: 0, pageIndex: 0))
+                      .withFinished(finished),
+                );
+              }
+              requests++;
+            }
+          }
+          _finishedMirror[entry.key] = finished;
+        }
+      }
+      await _store.saveFinishedMirror(_finishedMirror);
+      _notify();
+      return ReaMicroSyncResult(success: true, message: '', requests: requests);
+    } catch (error) {
+      _schedulePendingReadingRetry();
+      return ReaMicroSyncResult(
+        success: false,
+        message: '读完状态同步失败：${_messageOf(error)}',
+        requests: requests,
+      );
+    } finally {
+      _syncingFinished = false;
+    }
   }
 
   /// 手动完整同步：按配置先同步 S3 书籍，再上报阅读数据。
@@ -3978,8 +4224,20 @@ class ReaMicroController extends ChangeNotifier {
     }
   }
 
-  void _onLocalProgressSaved(String bookId, ReaderProgress progress) {
+  Future<void> _onLocalProgressSaved(
+    String bookId,
+    ReaderProgress progress,
+  ) async {
     if (_disposed) return;
+    if (_links.containsKey(bookId) &&
+        (progress.finished ||
+            _finishedMirror[bookId] == true ||
+            (_pendingFinished[bookId] ?? 0) > 0)) {
+      final revision = DateTime.now().millisecondsSinceEpoch;
+      _pendingFinished[bookId] = progress.finished ? revision : -revision;
+      await _store.savePendingFinished(_pendingFinished);
+      scheduleProgressSync();
+    }
     final existing = _progressStates[bookId];
     final cfi = progress.cfi?.trim() ?? '';
     if (cfi.isEmpty) return;

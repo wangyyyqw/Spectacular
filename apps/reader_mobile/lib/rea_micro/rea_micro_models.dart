@@ -13,6 +13,8 @@ class ReaMicroUser {
     this.coin = 0,
     this.gem = 0,
     this.voucher = 0,
+    this.userType = 0,
+    this.vipExpireTime = '',
   });
 
   /// 用户标识。
@@ -47,6 +49,14 @@ class ReaMicroUser {
 
   /// 阅券。
   final int voucher;
+  final int userType;
+  final String vipExpireTime;
+
+  /// 与阅微权限判定一致：账号等级至少为青士，且服务端返回有效权限期限。
+  bool get hasQingShi =>
+      userType >= 3 &&
+      vipExpireTime.trim().isNotEmpty &&
+      vipExpireTime != '0000-00-00 00:00:00';
 
   /// 从接口数据解析；缺失字段使用安全默认值。
   factory ReaMicroUser.fromJson(Map<String, Object?> json) => ReaMicroUser(
@@ -65,6 +75,8 @@ class ReaMicroUser {
     coin: _intValue(json['coin']),
     gem: _intValue(json['gem']),
     voucher: _intValue(json['voucher']),
+    userType: _intValue(json['userType']),
+    vipExpireTime: _stringValue(json['vipExpireTime']) ?? '',
   );
 
   /// 序列化到本地缓存。
@@ -80,6 +92,8 @@ class ReaMicroUser {
     'coin': coin,
     'gem': gem,
     'voucher': voucher,
+    'userType': userType,
+    'vipExpireTime': vipExpireTime,
   };
 }
 
@@ -490,6 +504,7 @@ class ReaMicroMarkBook {
     required this.cover,
     required this.thoughtCount,
     required this.underlineCount,
+    this.updatedAt = 0,
   });
 
   /// 阅微内部书籍标识。
@@ -512,6 +527,7 @@ class ReaMicroMarkBook {
 
   /// 划线数量。
   final int underlineCount;
+  final int updatedAt;
 
   /// 标注总数。
   int get markCount => thoughtCount + underlineCount;
@@ -526,6 +542,9 @@ class ReaMicroMarkBook {
         cover: _stringValue(json['bookCover']) ?? '',
         thoughtCount: _intValue(json['thoughtCount']),
         underlineCount: _intValue(json['underlineCount']),
+        updatedAt: _timestampMillis(
+          json['updatedAt'] ?? json['updateTime'] ?? json['lastMarkTime'],
+        ),
       );
 }
 

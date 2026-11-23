@@ -65,7 +65,7 @@ void main() {
       find.byKey(const ValueKey('cloud-stats-period')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('本年').first);
+    await tester.tap(find.text('年').first);
     await tester.pumpAndSettle();
     expect(calls.last.$1, ReaMicroRecordPeriod.year);
     await tester.tap(find.byKey(const ValueKey('cloud-duration-previous')));
@@ -75,7 +75,7 @@ void main() {
       find.byKey(const ValueKey('cloud-stats-period')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('本周').first);
+    await tester.tap(find.text('周').first);
     await tester.pumpAndSettle();
     expect(calls.last, (ReaMicroRecordPeriod.week, DateTime(2025)));
     expect(tester.takeException(), isNull);
@@ -382,6 +382,21 @@ void main() {
     expect(find.text('阅微唯一数据源'), findsNothing);
     expect(find.text('阅读概览'), findsOneWidget);
     expect(find.text('累计阅读'), findsOneWidget);
+    final left = [
+      '累计阅读',
+      '阅读时长',
+      '听书时长',
+    ].map((label) => tester.getRect(find.text(label).first)).toList();
+    final right = [
+      '阅读天数',
+      '阅读书籍',
+      '读完书籍',
+    ].map((label) => tester.getRect(find.text(label).first)).toList();
+    for (var row = 0; row < 3; row++) {
+      expect(left[row].top, right[row].top);
+      expect(left[row].left, lessThan(right[row].left));
+      if (row > 0) expect(left[row].top, greaterThan(left[row - 1].top));
+    }
     expect(find.text('2 小时'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey<String>('cloud-stats-book-21')),

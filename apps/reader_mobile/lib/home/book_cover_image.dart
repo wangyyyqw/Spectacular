@@ -98,11 +98,18 @@ class BookCoverImage extends StatelessWidget {
         errorBuilder: (_, _, _) => placeholder,
       );
     }
-    final remote = _remoteCoverUrl(book.remoteCoverUrl);
+    final remote = normalizeBookCoverUrl(book.remoteCoverUrl);
     if (remote == null) return placeholder;
+    final sourceHeaders = {
+      if (Uri.parse(remote).host.endsWith('.doubanio.com')) ...const {
+        'Referer': 'https://book.douban.com/',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      ...httpHeaders,
+    };
     return Image.network(
       remote,
-      headers: httpHeaders,
+      headers: sourceHeaders,
       key: ValueKey('cover-$remote'),
       width: double.infinity,
       height: double.infinity,
@@ -115,12 +122,33 @@ class BookCoverImage extends StatelessWidget {
       errorBuilder: (_, _, _) => placeholder,
     );
   }
+}
 
-  String? _remoteCoverUrl(String? value) {
-    final url = value?.trim() ?? '';
-    if (url.startsWith('https://') || url.startsWith('http://')) return url;
+/// 兼容协议省略、豆瓣图片节点及过期的番茄签名封面。
+String? normalizeBookCoverUrl(String? value, {DateTime? now}) {
+  var url = value?.trim() ?? '';
+  if (url.startsWith('//')) url = 'https:$url';
+  final uri = Uri.tryParse(url);
+  if (uri == null ||
+      !['https', 'http'].contains(uri.scheme) ||
+      uri.host.isEmpty) {
     return null;
   }
+  if (RegExp(r'^img\d+\.doubanio\.com$').hasMatch(uri.host)) {
+    return uri.replace(scheme: 'https', host: 'img1.doubanio.com').toString();
+  }
+  if (uri.host.endsWith('.fqnovelpic.com') &&
+      uri.path.startsWith('/novel-pic/')) {
+    final expires = int.tryParse(uri.queryParameters['x-expires'] ?? '');
+    if (expires != null &&
+        expires <= (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000) {
+      final image = uri.path.substring('/novel-pic/'.length).split('~').first;
+      if (image.isNotEmpty && !image.contains('/')) {
+        return 'https://p3-novel.byteimg.com/origin/novel-pic/$image';
+      }
+    }
+  }
+  return url;
 }
 
 /// 把阅微封面地址附加到本地书目；本地已有封面时不替换。

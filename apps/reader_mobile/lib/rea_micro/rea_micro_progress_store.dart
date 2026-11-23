@@ -9,7 +9,7 @@ class ReaMicroTrackingProgressStore implements ReaderProgressStore {
   ReaMicroTrackingProgressStore(this._delegate, this._onSaved);
 
   final ReaderProgressStore _delegate;
-  final void Function(String bookId, ReaderProgress progress) _onSaved;
+  final Future<void> Function(String bookId, ReaderProgress progress) _onSaved;
 
   @override
   Future<ReaderProgress?> load(String bookId) => _delegate.load(bookId);
@@ -17,7 +17,7 @@ class ReaMicroTrackingProgressStore implements ReaderProgressStore {
   @override
   Future<void> save(String bookId, ReaderProgress progress) async {
     await _delegate.save(bookId, progress);
-    _onSaved(bookId, progress);
+    await _onSaved(bookId, progress);
   }
 
   @override

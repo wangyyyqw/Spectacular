@@ -234,14 +234,7 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                 title: '阅读概览',
                 detail: '更新于 ${_formatDateTime(stats.fetchedAt)}',
                 showDivider: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    _SummaryGrid(overview: stats.overview),
-                    const SizedBox(height: 10),
-                    _SplitCard(overview: stats.overview),
-                  ],
-                ),
+                child: _SummaryGrid(overview: stats.overview),
               ),
               StatsSection(
                 title: '图书时长',
@@ -254,15 +247,15 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                       segments: const <ButtonSegment<ReaMicroRecordPeriod>>[
                         ButtonSegment<ReaMicroRecordPeriod>(
                           value: ReaMicroRecordPeriod.week,
-                          label: Text('本周'),
+                          label: Text('周'),
                         ),
                         ButtonSegment<ReaMicroRecordPeriod>(
                           value: ReaMicroRecordPeriod.month,
-                          label: Text('本月'),
+                          label: Text('月'),
                         ),
                         ButtonSegment<ReaMicroRecordPeriod>(
                           value: ReaMicroRecordPeriod.year,
-                          label: Text('本年'),
+                          label: Text('年'),
                         ),
                       ],
                       selected: <ReaMicroRecordPeriod>{_period},
@@ -445,7 +438,9 @@ class _SummaryGrid extends StatelessWidget {
     final items = <(String, String)>[
       ('累计阅读', _formatSeconds(overview.totalDurationSeconds)),
       ('阅读天数', '${overview.readDays} 天'),
+      ('阅读时长', _formatSeconds(overview.readingDurationSeconds)),
       ('阅读书籍', '${overview.bookCount} 本'),
+      ('听书时长', _formatSeconds(overview.listeningDurationSeconds)),
       ('读完书籍', '${overview.finishedBookCount} 本'),
     ];
     return LayoutBuilder(
@@ -463,57 +458,6 @@ class _SummaryGrid extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _SplitCard extends StatelessWidget {
-  const _SplitCard({required this.overview});
-
-  final ReaMicroOverview overview;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final total = overview.totalDurationSeconds > 0
-        ? overview.totalDurationSeconds
-        : 1;
-    final reading = overview.readingDurationSeconds.clamp(0, total).toDouble();
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Text('阅读与听书', style: theme.textTheme.labelMedium),
-              const Spacer(),
-              Flexible(
-                child: Text(
-                  '阅读 ${_formatSeconds(overview.readingDurationSeconds)}'
-                  ' · 听书 ${_formatSeconds(overview.listeningDurationSeconds)}',
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: reading / total,
-              minHeight: 6,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

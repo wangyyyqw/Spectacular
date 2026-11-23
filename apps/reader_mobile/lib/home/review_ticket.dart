@@ -17,7 +17,7 @@ const _coverWidth = 76.0;
 const _coverHeight = _coverWidth * 4 / 3;
 
 /// 书评区最小高度。
-const _faceMinHeight = 94.0;
+const _faceMinHeight = _coverHeight;
 
 /// 书评票根：左联是整幅封面、书名和阅读信息，副联仿电影票根用大字评分、
 /// 星级和标记读完日期呈现，两联之间保留票纸裁切缺口。
@@ -108,14 +108,14 @@ class ReviewTicket extends StatelessWidget {
         Padding(padding: const EdgeInsets.all(_coverInset), child: _cover()),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 14, 10, 14),
+            padding: const EdgeInsets.fromLTRB(12, 6, 10, 6),
             child: _bookFace(context, time),
           ),
         ),
       ],
     );
     final stub = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: _stub(context, date, stacked),
     );
     final Widget body;
@@ -196,7 +196,7 @@ class ReviewTicket extends StatelessWidget {
         children: [
           // 书名、作者、阅读天数和时长依次排列，缺字段时保留空位。
           _lineSlot(context, titleStyle, 2, book.title, titleStyle),
-          const SizedBox(height: 6),
+          const SizedBox(height: 3),
           _lineSlot(context, caption, 1, author, caption),
           const SizedBox(height: 2),
           if (readDays != null) ...[
@@ -236,7 +236,7 @@ class ReviewTicket extends StatelessWidget {
 
   TextStyle _caption(BuildContext context) =>
       Theme.of(context).textTheme.bodySmall!
-          .copyWith(fontSize: 13, height: 1.45);
+          .copyWith(fontSize: 12, height: 1.35);
 
   Widget _stars(BuildContext context, int rating) => FittedBox(
     fit: BoxFit.scaleDown,
@@ -287,7 +287,7 @@ class ReviewTicket extends StatelessWidget {
     final marks = rating == null
         ? (review == null ? null : Text('未评分', style: caption))
         : _stars(context, rating);
-    final stampStyle = caption.copyWith(fontSize: 12);
+    final stampStyle = caption.copyWith(fontSize: 11, height: 1.25);
     final stamp = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -319,7 +319,7 @@ class ReviewTicket extends StatelessWidget {
             if (marks != null) ...[const SizedBox(height: 2), marks],
           ],
         ),
-        Padding(padding: const EdgeInsets.only(top: 8), child: stamp),
+        Padding(padding: const EdgeInsets.only(top: 4), child: stamp),
       ],
     );
   }

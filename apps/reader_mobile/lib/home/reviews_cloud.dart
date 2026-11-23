@@ -37,6 +37,9 @@ class CloudReviewMerge {
     required this.durations,
     required this.coverUrls,
     this.readDays = const {},
+    this.targets = const {},
+    this.finishedBooks = const {},
+    this.ratings = const {},
   });
 
   /// 本地书架没有的云端书。
@@ -53,6 +56,9 @@ class CloudReviewMerge {
 
   /// 里程碑的阅读天数，按书籍标识索引。
   final Map<String, int> readDays;
+  final Map<String, ({int cloudBookId, int bookId, bool published})> targets;
+  final Set<String> finishedBooks;
+  final Map<String, int> ratings;
 }
 
 /// 一条可展示的阅微书评。
@@ -70,6 +76,7 @@ class CloudReviewRecord {
     required this.readSeconds,
     this.readDays = 0,
     this.finished = false,
+    this.published = false,
   });
 
   /// 云端书籍标识。
@@ -89,6 +96,7 @@ class CloudReviewRecord {
   final int readSeconds;
   final int readDays;
   final bool finished;
+  final bool published;
 
   /// 是否包含可展示的书评内容。
   bool get usable => finished || rating > 0 || comment.trim().isNotEmpty;
@@ -111,6 +119,7 @@ class CloudReviewRecord {
         readSeconds: milestone.totalReadTimeSeconds,
         readDays: milestone.readDays,
         finished: true,
+        published: milestone.status == 2,
       );
 
   /// 从按书查询的书评解析。
@@ -133,6 +142,8 @@ class CloudReviewRecord {
           : DateTime.now().millisecondsSinceEpoch,
     ),
     readSeconds: review.readTotalTimeSeconds,
+    finished: review.rating > 0 || review.comment.trim().isNotEmpty,
+    published: review.status == 2,
   );
 }
 
@@ -159,14 +170,17 @@ CloudNoteMerge mergeCloudMarkBooks({
     final cloudCount = (
       thoughts: remote.thoughtCount,
       marks: remote.underlineCount,
-      updatedAt: DateTime.now(),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(remote.updatedAt),
     );
     if (local != null) {
       final existing = mergedCounts[local.id];
       mergedCounts[local.id] = (
         thoughts: _larger(existing?.thoughts ?? 0, cloudCount.thoughts),
         marks: _larger(existing?.marks ?? 0, cloudCount.marks),
-        updatedAt: existing?.updatedAt ?? cloudCount.updatedAt,
+        updatedAt:
+            existing != null && existing.updatedAt.isAfter(cloudCount.updatedAt)
+            ? existing.updatedAt
+            : cloudCount.updatedAt,
       );
       markBookByLocal[local.id] = (
         cloudBookId: remote.cloudBookId,
@@ -205,6 +219,9 @@ CloudReviewMerge mergeCloudReviews({
   final coverUrls = <String, String>{};
   final extraBooks = <BookEntry>[];
   final seen = <int>{};
+  final targets = <String, ({int cloudBookId, int bookId, bool published})>{};
+  final finishedBooks = <String>{};
+  final ratings = <String, int>{};
   for (final record in records) {
     if (!record.usable || record.cloudBookId <= 0) continue;
     if (!seen.add(record.cloudBookId)) continue;
@@ -217,6 +234,15 @@ CloudReviewMerge mergeCloudReviews({
       author: record.bookAuthor,
     );
     final target = local ?? cloudReviewBook(record);
+    ratings[target.id] = record.rating;
+    targets[target.id] = (
+      cloudBookId: record.cloudBookId,
+      bookId: record.bookId > 0
+          ? record.bookId
+          : links[target.id]?.userBookId ?? 0,
+      published: record.published,
+    );
+    if (record.finished) finishedBooks.add(target.id);
     if (local == null) extraBooks.add(target);
     if (record.bookCover.trim().isNotEmpty) {
       coverUrls[target.id] = record.bookCover.trim();
@@ -245,6 +271,9 @@ CloudReviewMerge mergeCloudReviews({
     durations: durations,
     coverUrls: coverUrls,
     readDays: readDays,
+    targets: targets,
+    finishedBooks: finishedBooks,
+    ratings: ratings,
   );
 }
 

@@ -77,7 +77,137 @@ class _CloudNotesApi implements ReaMicroApiClient {
       throw UnimplementedError('${invocation.memberName} 未在测试中实现');
 }
 
+class _CloudEditApi extends _CloudNotesApi {
+  _CloudEditApi()
+    : super(
+        markBook: const ReaMicroMarkBook(
+          bookId: 8,
+          cloudBookId: 11,
+          name: '云端书评',
+          author: '',
+          cover: '',
+          thoughtCount: 0,
+          underlineCount: 0,
+        ),
+        mark: ReaMicroMark(
+          id: 31,
+          bookId: '8',
+          chapter: '',
+          kind: 0,
+          startCfi: '',
+          endCfi: '',
+          quote: '',
+          note: '',
+          style: 0,
+          color: '',
+          synced: 1,
+          createdAt: 0,
+          updatedAt: 0,
+        ),
+      );
+  bool fail = false;
+  final submissions =
+      <
+        ({
+          int? bookId,
+          int? cloudBookId,
+          int rating,
+          String comment,
+          bool publish,
+        })
+      >[];
+  ReaMicroMilestone milestone = ReaMicroMilestone.fromJson({
+    'id': 7,
+    'cloudBookId': 11,
+    'name': '云端书评',
+    'rating': 9,
+    'comment': '',
+    'status': 1,
+  });
+  @override
+  Future<List<ReaMicroMilestone>> fetchMilestones(
+    String token, {
+    int pageSize = 100,
+  }) async => [milestone];
+  @override
+  Future<void> rateReview(
+    String token, {
+    int? bookId,
+    int? cloudBookId,
+    required int rating,
+    required String comment,
+    required bool publish,
+  }) async {
+    if (fail) throw const ReaMicroException('网络断开');
+    submissions.add((
+      bookId: bookId,
+      cloudBookId: cloudBookId,
+      rating: rating,
+      comment: comment,
+      publish: publish,
+    ));
+    milestone = ReaMicroMilestone.fromJson({
+      'id': 7,
+      'cloudBookId': 11,
+      'name': '云端书评',
+      'rating': rating,
+      'comment': comment,
+      'status': publish ? 2 : 1,
+    });
+  }
+}
+
 void main() {
+  testWidgets('云端书可编辑发布，失败保留草稿，未修改评分保留十分制原值', (tester) async {
+    final library = _CloudNotesLibrary();
+    final api = _CloudEditApi();
+    await ReaMicroStore(library).saveToken('token');
+    final controller = ReaMicroController(
+      library: library,
+      api: api,
+      enableLanLoginServer: false,
+    );
+    await controller.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReviewsPage(library: library, reaMicro: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('书评'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('review-pending-rea-cloud-review-11')),
+    );
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('review-content'));
+    expect(tester.widget<TextField>(input).maxLength, 2000);
+    await tester.enterText(input, '新评价正文');
+    await tester.ensureVisible(find.byKey(const ValueKey('review-publish')));
+    await tester.tap(find.byKey(const ValueKey('review-publish')));
+    await tester.pumpAndSettle();
+    api.fail = true;
+    await tester.ensureVisible(find.byKey(const ValueKey('review-save')));
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-editor')), findsOneWidget);
+    expect(tester.widget<TextField>(input).controller!.text, '新评价正文');
+    expect(find.text('网络断开'), findsOneWidget);
+    api.fail = false;
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pumpAndSettle();
+    expect(api.submissions.single.cloudBookId, 11);
+    expect(api.submissions.single.rating, 9);
+    expect(api.submissions.single.publish, isTrue);
+    expect(api.submissions.single.comment, '新评价正文');
+    expect(find.byKey(const ValueKey('review-editor')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('review-card-rea-cloud-review-11')),
+      findsOneWidget,
+    );
+    controller.dispose();
+  });
+
   for (final imported in [false, true]) {
     testWidgets(imported ? '已导入且 CFI 转换的云端想法在笔记页只显示一次' : '云端笔记书打开后显示正文而不是空状态', (
       tester,

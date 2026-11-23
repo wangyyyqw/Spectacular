@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -19,18 +20,25 @@ class BookNotesList extends StatelessWidget {
     required this.counts,
     required this.loadNotes,
     required this.onRefresh,
+    this.query = '',
+    this.searchMatches = const {},
+    this.onDelete,
   });
 
   final List<BookEntry> books;
   final Map<String, BookNoteCounts> counts;
   final Future<List<ReaderAnnotation>> Function(String bookId) loadNotes;
   final Future<void> Function() onRefresh;
+  final String query;
+  final Set<String> searchMatches;
+  final Future<void> Function(String, ReaderAnnotation)? onDelete;
 
   List<({BookEntry book, BookNoteCounts counts})> get _notedBooks =>
       [
         for (final book in books)
           if (counts[book.id] case final count?
-              when count.thoughts > 0 || count.marks > 0)
+              when (count.thoughts > 0 || count.marks > 0) &&
+                  (query.trim().isEmpty || searchMatches.contains(book.id)))
             (book: book, counts: count),
       ]..sort((left, right) {
         final byTime = right.counts.updatedAt.compareTo(left.counts.updatedAt);
@@ -42,8 +50,14 @@ class BookNotesList extends StatelessWidget {
   Future<void> _openBook(BuildContext context, BookEntry book) =>
       showReaderDrawer<void>(
         context: context,
-        builder: (_) =>
-            _BookNotesPage(title: book.title, load: () => loadNotes(book.id)),
+        builder: (_) => _BookNotesPage(
+          title: book.title,
+          load: () => loadNotes(book.id),
+          query: query,
+          onDelete: onDelete == null
+              ? null
+              : (note) => onDelete!(book.id, note),
+        ),
       );
 
   @override
@@ -56,9 +70,11 @@ class BookNotesList extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           if (noted.isEmpty)
-            const SliverFillRemaining(
+            SliverFillRemaining(
               hasScrollBody: false,
-              child: _NotesMessage('还没有笔记', hint: '阅读时划线或写下想法，就会在这里按书归集。'),
+              child: query.trim().isEmpty
+                  ? const _NotesMessage('还没有笔记', hint: '阅读时划线或写下想法，就会在这里按书归集。')
+                  : const _NotesMessage('没有找到匹配的笔记'),
             )
           else
             SliverPadding(padding: _listInsets, sliver: _bookRows(noted)),
@@ -202,10 +218,17 @@ class _CountBadge extends StatelessWidget {
 }
 
 class _BookNotesPage extends StatefulWidget {
-  const _BookNotesPage({required this.title, required this.load});
+  const _BookNotesPage({
+    required this.title,
+    required this.load,
+    this.query = '',
+    this.onDelete,
+  });
 
   final String title;
   final Future<List<ReaderAnnotation>> Function() load;
+  final String query;
+  final Future<void> Function(ReaderAnnotation)? onDelete;
 
   @override
   State<_BookNotesPage> createState() => _BookNotesPageState();
@@ -213,10 +236,33 @@ class _BookNotesPage extends StatefulWidget {
 
 class _BookNotesPageState extends State<_BookNotesPage> {
   late Future<List<ReaderAnnotation>> _notes = _load();
+  final Set<String> _deleting = {};
 
   Future<List<ReaderAnnotation>> _load() async {
     final notes = await widget.load();
     return notes.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  Future<void> _delete(ReaderAnnotation annotation) async {
+    if (widget.onDelete == null || !_deleting.add(annotation.id)) return;
+    setState(() {});
+    try {
+      await widget.onDelete!(annotation);
+      if (mounted) setState(() => _notes = _load());
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is FormatException ? error.message : '删除失败，请重试',
+            ),
+          ),
+        );
+      }
+    } finally {
+      _deleting.remove(annotation.id);
+      if (mounted) setState(() {});
+    }
   }
 
   @override
@@ -258,7 +304,13 @@ class _BookNotesPageState extends State<_BookNotesPage> {
       return ListView.separated(
         padding: _listInsets,
         itemCount: notes.length,
-        itemBuilder: (_, index) => _NoteCard(notes[index]),
+        itemBuilder: (_, index) => _NoteCard(
+          notes[index],
+          onDelete:
+              widget.onDelete == null || _deleting.contains(notes[index].id)
+              ? null
+              : () => _delete(notes[index]),
+        ),
         separatorBuilder: (_, _) => const SizedBox(height: 10),
       );
     },
@@ -266,9 +318,22 @@ class _BookNotesPageState extends State<_BookNotesPage> {
 }
 
 class _NoteCard extends StatelessWidget {
-  const _NoteCard(this.annotation);
+  const _NoteCard(this.annotation, {this.onDelete});
 
   final ReaderAnnotation annotation;
+  final VoidCallback? onDelete;
+
+  Future<void> _copy(BuildContext context) async {
+    final text = [
+      if (annotation.note?.trim().isNotEmpty == true) annotation.note!.trim(),
+      if (annotation.quote.trim().isNotEmpty) annotation.quote,
+    ].join('\n\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('笔记已复制')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -314,6 +379,23 @@ class _NoteCard extends StatelessWidget {
                             : Theme.of(context).textTheme.bodyMedium)
                         ?.copyWith(fontFamily: _song, height: 1.6),
               ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  key: ValueKey('note-copy-${annotation.id}'),
+                  tooltip: '复制',
+                  onPressed: () => _copy(context),
+                  icon: const Icon(Icons.copy_outlined, size: 18),
+                ),
+                IconButton(
+                  key: ValueKey('note-delete-${annotation.id}'),
+                  tooltip: '删除',
+                  onPressed: onDelete,
+                  icon: const AppIcon(AppGlyph.delete, size: 18),
+                ),
+              ],
             ),
           ],
         ),

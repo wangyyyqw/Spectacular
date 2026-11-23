@@ -14,6 +14,7 @@ import '../reader/reader_font_store.dart';
 import '../theme/app_theme.dart';
 import 'reading_insights.dart';
 import 'app_settings_page.dart';
+import 'navigation_settings.dart';
 
 /// 我的页展示阅微账号、社区与设置入口。
 class ProfilePage extends StatelessWidget {
@@ -29,6 +30,7 @@ class ProfilePage extends StatelessWidget {
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
+    this.navigationSettings,
   });
 
   /// 书架存储。
@@ -55,6 +57,7 @@ class ProfilePage extends StatelessWidget {
 
   /// 切换并保存应用字体。
   final Future<void> Function(String family)? onAppFontFamilyChanged;
+  final NavigationSettings? navigationSettings;
 
   Future<void> _openAccount(BuildContext context) async {
     final controller = reaMicro;
@@ -136,6 +139,7 @@ class ProfilePage extends StatelessWidget {
                           appFontFamily: appFontFamily,
                           appFontStore: appFontStore,
                           onAppFontFamilyChanged: onAppFontFamilyChanged,
+                          navigationSettings: navigationSettings,
                         ),
                       ),
                     ),

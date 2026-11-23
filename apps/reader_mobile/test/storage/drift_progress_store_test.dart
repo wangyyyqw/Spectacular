@@ -149,6 +149,31 @@ void main() {
     }
   });
 
+  test('云端读完状态只更新标记，保留最新文字位置和阅读参数', () async {
+    final entry = await library.importBytes(buildTestEpub(title: '读完同步书'));
+    await store.save(
+      entry.id,
+      ReaderProgress(
+        spineIndex: 0,
+        pageIndex: 1,
+        cfi: 'epubcfi(/6/2!/4/2/1:2)',
+        scrollOffset: 28,
+        layoutFingerprint: '当前排版',
+        chapterTitle: '第一章',
+        contentRevision: entry.contentRevision,
+      ),
+    );
+    final before = await store.load(entry.id);
+    final rowBefore = (await db.select(db.readingProgress).get()).single;
+    await store.setFinished(entry.id, true);
+    expect(await store.load(entry.id), before!.withFinished(true));
+    final rowAfter = (await db.select(db.readingProgress).get()).single;
+    expect(rowAfter.updatedAt, rowBefore.updatedAt);
+    expect(rowAfter.anchorJson, rowBefore.anchorJson);
+    await store.setFinished(entry.id, false);
+    expect(await store.load(entry.id), before);
+  });
+
   test('保存后读回：spine/page 与 updated_at 落库（P4-10）', () async {
     final entry = await library.importBytes(buildTestEpub(title: '进度书'));
     expect(

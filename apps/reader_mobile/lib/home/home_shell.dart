@@ -23,6 +23,7 @@ import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
 import 'welcome_announcement.dart';
+import 'navigation_settings.dart';
 import '../diagnostics/reader_log.dart';
 
 /// 首页应用壳：桌面平台使用侧栏，移动平台使用底栏。
@@ -81,6 +82,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   late final OnlineBookController _onlineBooks;
   late final ReaderProgressStore _progressStore;
   late final BookOpener _bookOpener;
+  late final NavigationSettings _navigation;
+  int _discoveryRevision = 0;
+  bool _promptingDiscovery = false;
 
   @override
   void initState() {
@@ -91,6 +95,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       progressStore: widget.progressStore,
     );
     _onlineBooks = OnlineBookController(library: widget.library);
+    _navigation = NavigationSettings(widget.library, _reaMicro)
+      ..addListener(_navigationChanged);
+    _onlineBooks.addListener(_sourcesChanged);
+    unawaited(_navigation.initialize());
     _progressStore = _reaMicro.trackedProgressStore ?? widget.progressStore;
     _bookOpener = BookOpener(
       library: widget.library,
@@ -120,6 +128,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _reaMicro.dispose();
+    _navigation.removeListener(_navigationChanged);
+    _navigation.dispose();
+    _onlineBooks.removeListener(_sourcesChanged);
     _onlineBooks.dispose();
     super.dispose();
   }
@@ -132,6 +143,66 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   void _onReadingFinished() => _reaMicro.scheduleReadingSync();
+
+  List<int> get _visibleIndices => [
+    for (var index = 0; index < 4; index++)
+      if (_navigation.visible(HomeDestination.values[index])) index,
+    if (_desktop) 4,
+    _desktop ? 5 : 4,
+  ];
+
+  void _navigationChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (!_visibleIndices.contains(_index)) {
+        final old = _index;
+        _index = 0;
+        if (_pages.isNotEmpty) {
+          _pages[old] = _buildPage(old);
+          _pages[0] = _buildPage(0);
+        }
+      }
+    });
+  }
+
+  void _sourcesChanged() {
+    final revision = _onlineBooks.discoveryImportRevision;
+    if (_discoveryRevision == revision) return;
+    _discoveryRevision = revision;
+    if (_navigation.selected(HomeDestination.discover) ||
+        _navigation.discoveryPromptHandled ||
+        _promptingDiscovery) {
+      return;
+    }
+    _promptingDiscovery = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final enable = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('启用发现'),
+          content: const Text('检测到已添加支持发现页面的源，是否启用发现页面。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('禁用发现'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('启用发现'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || enable == null) {
+        _promptingDiscovery = false;
+        return;
+      }
+      await _navigation.markDiscoveryPromptHandled();
+      if (enable) await _navigation.setVisible(HomeDestination.discover, true);
+      _promptingDiscovery = false;
+    });
+  }
 
   Future<List<ReaMicroTtsVoice>> _loadTtsVoices() async {
     try {
@@ -233,6 +304,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       appFontFamily: widget.appFontFamily,
       appFontStore: widget.appFontStore,
       onAppFontFamilyChanged: widget.onAppFontFamilyChanged,
+      navigationSettings: _navigation,
     ),
   };
 
@@ -307,25 +379,30 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final navigationBackground =
         navigationTheme.backgroundColor ?? theme.canvasColor;
     final iconOffset = Offset(0, usesDesktopLayout(context) ? 0 : 2);
+    final definitions = [
+      ('书架', AppGlyph.bookshelf),
+      ('发现', AppGlyph.discover),
+      ('统计', AppGlyph.stats),
+      ('笔记', AppGlyph.review),
+      if (usesDesktopLayout(context)) ('编辑器', AppGlyph.code),
+      ('我的', AppGlyph.profile),
+    ];
     return [
-      for (final (label, glyph) in [
-        ('书架', AppGlyph.bookshelf),
-        ('发现', AppGlyph.discover),
-        ('统计', AppGlyph.stats),
-        ('书评', AppGlyph.review),
-        if (usesDesktopLayout(context)) ('编辑器', AppGlyph.code),
-        ('我的', AppGlyph.profile),
-      ])
+      for (final index in _visibleIndices)
         BottomNavigationBarItem(
-          label: label,
+          label: definitions[index].$1,
           icon: Transform.translate(
             offset: iconOffset,
-            child: AppIcon(glyph, size: 24, color: unselectedColor),
+            child: AppIcon(
+              definitions[index].$2,
+              size: 24,
+              color: unselectedColor,
+            ),
           ),
           activeIcon: Transform.translate(
             offset: iconOffset,
             child: AppIcon(
-              glyph,
+              definitions[index].$2,
               size: 24,
               color: selectedColor,
               filled: true,
@@ -352,8 +429,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       unselectedLabelTextStyle: theme.textTheme.bodyMedium?.copyWith(
         color: theme.colorScheme.onSurfaceVariant,
       ),
-      selectedIndex: _index,
-      onDestinationSelected: _selectDestination,
+      selectedIndex: _visibleIndices.indexOf(_index),
+      onDestinationSelected: (index) =>
+          _selectDestination(_visibleIndices[index]),
       destinations: [
         for (final item in items)
           NavigationRailDestination(
@@ -400,9 +478,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final items = _navigationItems(theme);
     final useRail = usesDesktopLayout(context);
     final pages = Expanded(child: _buildBody(useRail));
+    final items = _navigationItems(theme);
     final scaffold = MediaQuery(
       data: _homeLayoutMedia(),
       child: Scaffold(
@@ -427,8 +505,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   child: BottomNavigationBar(
                     backgroundColor: theme.colorScheme.surface,
                     elevation: 0,
-                    currentIndex: _index,
-                    onTap: _selectDestination,
+                    currentIndex: _visibleIndices.indexOf(_index),
+                    onTap: (index) =>
+                        _selectDestination(_visibleIndices[index]),
                     items: items,
                   ),
                 ),
@@ -453,7 +532,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             includeRepeats: false,
           ): () {
             if (ModalRoute.isCurrentOf(context) != false) {
-              _selectDestination(index);
+              if (index < _visibleIndices.length) {
+                _selectDestination(_visibleIndices[index]);
+              }
             }
           },
       },

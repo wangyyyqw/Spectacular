@@ -16,6 +16,8 @@ import '../reader/reader_font_store.dart';
 import '../theme/app_theme.dart';
 import 'app_font_picker.dart';
 import 'bookshelf_sort.dart';
+import 'navigation_settings.dart';
+import 'navigation_settings_page.dart';
 
 /// 应用设置：外观、阅读、帮助与诊断和关于。
 class AppSettingsPage extends StatefulWidget {
@@ -30,6 +32,7 @@ class AppSettingsPage extends StatefulWidget {
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
+    this.navigationSettings,
   });
 
   /// 书架存储。
@@ -53,6 +56,7 @@ class AppSettingsPage extends StatefulWidget {
 
   /// 切换并保存应用字体。
   final Future<void> Function(String family)? onAppFontFamilyChanged;
+  final NavigationSettings? navigationSettings;
 
   @override
   State<AppSettingsPage> createState() => _AppSettingsPageState();
@@ -306,7 +310,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              if (widget.onThemeModeChanged != null) ...[
+              if (widget.onThemeModeChanged != null ||
+                  widget.navigationSettings != null) ...[
                 _appearance(context),
                 const SizedBox(height: 24),
               ],
@@ -392,17 +397,18 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Widget _appearance(BuildContext context) {
     final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
     return _section(context, '外观', [
-      ListTile(
-        leading: const AppIcon(AppGlyph.palette),
-        title: const Text('界面主题'),
-        subtitle: Text(switch (mode) {
-          ThemeMode.system => '跟随系统',
-          ThemeMode.light => '日间模式',
-          ThemeMode.dark => '夜间模式',
-        }),
-        trailing: const AppIcon(AppGlyph.chevronRight),
-        onTap: _savingTheme ? null : () => _chooseTheme(mode),
-      ),
+      if (widget.onThemeModeChanged != null)
+        ListTile(
+          leading: const AppIcon(AppGlyph.palette),
+          title: const Text('界面主题'),
+          subtitle: Text(switch (mode) {
+            ThemeMode.system => '跟随系统',
+            ThemeMode.light => '日间模式',
+            ThemeMode.dark => '夜间模式',
+          }),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: _savingTheme ? null : () => _chooseTheme(mode),
+        ),
       if (widget.appFontStore != null && widget.onAppFontFamilyChanged != null)
         ListTile(
           key: const ValueKey('app-font-setting'),
@@ -411,6 +417,19 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           subtitle: Text(_appFontLabel),
           trailing: const AppIcon(AppGlyph.chevronRight),
           onTap: _chooseAppFont,
+        ),
+      if (widget.navigationSettings != null)
+        ListTile(
+          key: const ValueKey('navigation-settings-entry'),
+          leading: const AppIcon(AppGlyph.menuBook),
+          title: const Text('底栏设置'),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) =>
+                  NavigationSettingsPage(settings: widget.navigationSettings!),
+            ),
+          ),
         ),
     ]);
   }

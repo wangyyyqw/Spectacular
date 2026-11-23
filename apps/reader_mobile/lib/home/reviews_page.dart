@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
@@ -74,6 +76,12 @@ class _ReviewsPageState extends State<ReviewsPage>
   Map<String, BookNoteCounts> _counts = const {};
   Map<String, Duration> _durations = const {};
   Map<String, int> _readDays = const {};
+  Map<String, ({int cloudBookId, int bookId, bool published})>
+  _cloudReviewTargets = const {};
+  Set<String> _cloudFinishedBooks = const {};
+  Map<String, int> _cloudReviewRatings = const {};
+  Set<String>? _noteSearchMatches;
+  int _noteSearchRequest = 0;
   Map<String, BookReview> _reviews = const <String, BookReview>{};
   Set<String> _finishedBooks = const {};
   final TextEditingController _searchController = TextEditingController();
@@ -91,8 +99,6 @@ class _ReviewsPageState extends State<ReviewsPage>
   Map<String, ({int cloudBookId, int bookId})> _cloudMarkBooks = const {};
 
   bool get _notes => _section == 0;
-
-  bool get _reviewTab => _section == 1;
 
   bool get _bookListsTab => _section == 2;
 
@@ -201,7 +207,60 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   void _clearSearch() {
     _searchController.clear();
-    setState(() => _query = '');
+    _searchChanged('');
+  }
+
+  void _searchChanged(String value) {
+    final request = ++_noteSearchRequest;
+    setState(() {
+      _query = value;
+      _noteSearchMatches = null;
+    });
+    if (!_notes || value.trim().isEmpty) return;
+    unawaited(_searchNotes(value.trim().toLowerCase(), request));
+  }
+
+  Future<void> _searchNotes(String query, int request) async {
+    final matches = <String>{};
+    for (final book in _books ?? const <BookEntry>[]) {
+      if (!mounted || request != _noteSearchRequest || !_notes) return;
+      if (book.title.toLowerCase().contains(query) ||
+          book.author.toLowerCase().contains(query)) {
+        matches.add(book.id);
+        continue;
+      }
+      if ((_counts[book.id]?.thoughts ?? 0) + (_counts[book.id]?.marks ?? 0) ==
+          0) {
+        continue;
+      }
+      try {
+        final notes = await _loadNotes(book.id);
+        if (notes.any(
+          (note) =>
+              note.quote.toLowerCase().contains(query) ||
+              (note.note?.toLowerCase().contains(query) ?? false),
+        )) {
+          matches.add(book.id);
+        }
+      } catch (_) {
+        // 单本笔记不可用时仍允许搜索其余书籍。
+      }
+    }
+    if (mounted && request == _noteSearchRequest && _notes) {
+      setState(() => _noteSearchMatches = matches);
+    }
+  }
+
+  Future<void> _deleteNote(String bookId, ReaderAnnotation annotation) async {
+    final controller = widget.reaMicro;
+    final remote = _cloudMarkBooks[bookId];
+    if (controller != null && controller.signedIn && remote != null) {
+      final result = await controller.deleteNote(bookId, annotation);
+      if (!result.success) throw FormatException(result.message);
+    } else {
+      await widget.library.removeBookAnnotation(bookId, annotation.id);
+    }
+    await _reload();
   }
 
   void _resetSearchAndFilter() {
@@ -237,6 +296,10 @@ class _ReviewsPageState extends State<ReviewsPage>
       var visibleReviews = reviews;
       var visibleDurations = durations;
       var visibleReadDays = const <String, int>{};
+      var targets =
+          const <String, ({int cloudBookId, int bookId, bool published})>{};
+      var cloudFinished = const <String>{};
+      var cloudRatings = const <String, int>{};
       var markBooks = const <String, ({int cloudBookId, int bookId})>{};
       String? cloudError;
       final controller = widget.reaMicro;
@@ -273,7 +336,10 @@ class _ReviewsPageState extends State<ReviewsPage>
             final fetched = await Future.wait<ReaMicroBookReview?>(
               <Future<ReaMicroBookReview?>>[
                 for (final link in limitedLinks)
-                  controller.loadBookReview(link.cloudBookId),
+                  controller.loadBookReview(
+                    link.cloudBookId,
+                    bookId: link.userBookId,
+                  ),
               ],
             );
             for (var index = 0; index < fetched.length; index++) {
@@ -302,6 +368,24 @@ class _ReviewsPageState extends State<ReviewsPage>
               ...merge.durations,
             };
             visibleReadDays = merge.readDays;
+            targets = merge.targets;
+            cloudFinished = merge.finishedBooks;
+            cloudRatings = merge.ratings;
+            for (final book in books) {
+              final link = controller.links[book.id];
+              if (link != null) {
+                targets = {
+                  ...targets,
+                  book.id:
+                      targets[book.id] ??
+                      (
+                        cloudBookId: link.cloudBookId,
+                        bookId: link.userBookId,
+                        published: false,
+                      ),
+                };
+              }
+            }
           }
         } catch (_) {
           cloudError = notes ? '阅微笔记读取失败，已显示本地笔记' : '阅微书评读取失败，已显示本地书评';
@@ -315,6 +399,9 @@ class _ReviewsPageState extends State<ReviewsPage>
           _reviews = notes ? _reviews : visibleReviews;
           _durations = notes ? _durations : visibleDurations;
           _readDays = notes ? _readDays : visibleReadDays;
+          _cloudReviewTargets = notes ? _cloudReviewTargets : targets;
+          _cloudFinishedBooks = notes ? _cloudFinishedBooks : cloudFinished;
+          _cloudReviewRatings = notes ? _cloudReviewRatings : cloudRatings;
           _cloudMarkBooks = markBooks;
           _cloudError = cloudError;
           _error = null;
@@ -333,7 +420,8 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Future<void> _edit(BookEntry book) async {
     final store = _store;
-    if (store == null) {
+    final cloud = _cloudReviewTargets[book.id];
+    if (store == null && cloud == null) {
       recordAppEvent('review_store_unavailable');
       return;
     }
@@ -342,11 +430,14 @@ class _ReviewsPageState extends State<ReviewsPage>
     try {
       final finished = await widget.library.finishedBookIds();
       if (!mounted || !widget.active || token != _editToken) return;
-      if (!finished.contains(book.id)) {
+      if (!finished.contains(book.id) &&
+          !_cloudFinishedBooks.contains(book.id)) {
         recordAppEvent('review_requires_finished_book');
         return;
       }
-      review = (await store.snapshot())[book.id];
+      review = cloud == null
+          ? (await store!.snapshot())[book.id]
+          : _reviews[book.id];
     } catch (error, stackTrace) {
       if (mounted && widget.active && token == _editToken) {
         recordAppError('review_load_failed', error, stackTrace: stackTrace);
@@ -359,16 +450,53 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Future<void> _showEditor(
     BookEntry book,
-    BookReviewStore store,
+    BookReviewStore? store,
     BookReview? review,
   ) async {
     final draft = await _showPanel<_ReviewDraft>(
       (_) => _ReviewEditorSheet(
         book: book,
         review: review,
-        onCommit: (draft) => draft.delete
-            ? store.remove(book.id)
-            : store.save(book.id, rating: draft.rating, content: draft.content),
+        cloud: _cloudReviewTargets.containsKey(book.id),
+        published: _cloudReviewTargets[book.id]?.published ?? false,
+        onCommit: (draft) async {
+          final cloud = _cloudReviewTargets[book.id];
+          if (cloud != null) {
+            final controller = widget.reaMicro;
+            if (controller == null || !controller.signedIn) {
+              throw const FormatException('账号已退出，请重新登录后保存');
+            }
+            final rawRating = _cloudReviewRatings[book.id];
+            final initialCloudRating = rawRating == null || rawRating == 0
+                ? null
+                : (rawRating / 2).round().clamp(1, 5);
+            final result = await controller.saveReview(
+              cloudBookId: cloud.cloudBookId,
+              bookId: cloud.bookId,
+              rating:
+                  (draft.delete ||
+                      (draft.rating == review?.rating &&
+                          draft.rating == initialCloudRating))
+                  ? rawRating ?? (review?.rating ?? 0) * 2
+                  : (draft.rating ?? 0) * 2,
+              comment: draft.delete ? '' : draft.content,
+              publish: !draft.delete && draft.publish,
+            );
+            if (!result.success) throw FormatException(result.message);
+          }
+          if (store != null &&
+              (cloud == null || _finishedBooks.contains(book.id))) {
+            if (draft.delete) {
+              await store.remove(book.id);
+            } else {
+              await store.save(
+                book.id,
+                rating: draft.rating,
+                content: draft.content,
+              );
+            }
+          }
+        },
       ),
       editing: true,
     );
@@ -387,7 +515,9 @@ class _ReviewsPageState extends State<ReviewsPage>
       (_) => _ReviewDetailSheet(
         book: book,
         review: review,
-        canEdit: _finishedBooks.contains(book.id),
+        canEdit:
+            _finishedBooks.contains(book.id) ||
+            _cloudFinishedBooks.contains(book.id),
       ),
     );
     if (edit == true && mounted && widget.active && token == _editToken) {
@@ -438,7 +568,7 @@ class _ReviewsPageState extends State<ReviewsPage>
     final desktop = usesDesktopLayout(context);
     return CallbackShortcuts(
       bindings: {
-        if (desktop && widget.active && !_notes)
+        if (desktop && widget.active && !_bookListsTab)
           SingleActivator(
             LogicalKeyboardKey.keyF,
             meta: Theme.of(context).platform == TargetPlatform.macOS,
@@ -505,6 +635,8 @@ class _ReviewsPageState extends State<ReviewsPage>
               labelPadding: const EdgeInsets.only(right: 20),
               indicator: const BoxDecoration(),
               dividerColor: Colors.transparent,
+              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+              splashFactory: NoSplash.splashFactory,
               labelColor: theme.colorScheme.onSurface,
               unselectedLabelColor: theme.colorScheme.onSurface,
               labelStyle: theme.textTheme.bodyMedium?.copyWith(
@@ -521,7 +653,7 @@ class _ReviewsPageState extends State<ReviewsPage>
               ],
             ),
           ),
-          if (desktop && _reviewTab)
+          if (desktop && !_bookListsTab)
             Flexible(
               flex: 2,
               child: ConstrainedBox(
@@ -556,7 +688,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         textInputAction: TextInputAction.search,
         cursorColor: ReaderDrawerStyle.textOf(theme),
         decoration: InputDecoration(
-          hintText: '搜索书名、作者或书评',
+          hintText: _notes ? '搜索书名、作者或笔记' : '搜索书名、作者或书评',
           hintStyle: TextStyle(color: muted),
           filled: true,
           isDense: true,
@@ -582,13 +714,13 @@ class _ReviewsPageState extends State<ReviewsPage>
                   icon: AppIcon(AppGlyph.close, color: muted),
                 ),
         ),
-        onChanged: (value) => setState(() => _query = value),
+        onChanged: _searchChanged,
       ),
     );
   }
 
   List<Widget> _actions() {
-    if (!_reviewTab) return const <Widget>[];
+    if (_bookListsTab) return const <Widget>[];
     final books = _books;
     return _searching
         ? [
@@ -606,9 +738,9 @@ class _ReviewsPageState extends State<ReviewsPage>
                 onPressed: _chooseSort,
                 icon: const AppIcon(AppGlyph.sort),
               ),
-            if (!_notes && books != null && books.isNotEmpty)
+            if (books != null)
               IconButton(
-                tooltip: '搜索书评',
+                tooltip: _notes ? '搜索笔记' : '搜索书评',
                 onPressed: _toggleSearch,
                 icon: const AppIcon(AppGlyph.search),
               ),
@@ -663,6 +795,9 @@ class _ReviewsPageState extends State<ReviewsPage>
         counts: _counts,
         loadNotes: _loadNotes,
         onRefresh: _reload,
+        query: _query,
+        searchMatches: _noteSearchMatches ?? const {},
+        onDelete: _deleteNote,
       );
     } else if (books.isEmpty) {
       body = const _EmptyReviews();
@@ -671,7 +806,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         onRefresh: _reload,
         child: _ReviewList(
           books: books,
-          finishedBooks: _finishedBooks,
+          finishedBooks: {..._finishedBooks, ..._cloudFinishedBooks},
           reviews: _reviews,
           durations: _durations,
           readDays: _readDays,
@@ -1268,11 +1403,15 @@ class _ReviewEditorSheet extends StatefulWidget {
     required this.book,
     required this.review,
     required this.onCommit,
+    this.cloud = false,
+    this.published = false,
   });
 
   final BookEntry book;
   final BookReview? review;
   final Future<void> Function(_ReviewDraft draft) onCommit;
+  final bool cloud;
+  final bool published;
 
   @override
   State<_ReviewEditorSheet> createState() => _ReviewEditorSheetState();
@@ -1283,6 +1422,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   late final int? _initialRating;
   late final String _initialContent;
   int? _rating;
+  late bool _publish;
   bool _allowPop = false;
   bool _discardDialogVisible = false;
   bool _closing = false;
@@ -1295,6 +1435,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
     _initialRating = widget.review?.rating;
     _initialContent = widget.review?.content ?? '';
     _rating = _initialRating;
+    _publish = widget.published;
     _controller = TextEditingController(text: _initialContent)
       ..addListener(_refresh);
   }
@@ -1315,6 +1456,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       (_rating != null || _controller.text.trim().isNotEmpty);
 
   bool get _dirty =>
+      (widget.cloud && _publish != widget.published) ||
       _rating != _initialRating ||
       _controller.text.trim() != _initialContent.trim();
 
@@ -1388,7 +1530,11 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   Future<void> _save() async {
     if (!_canSave) return;
     await _commit(
-      _ReviewDraft(rating: _rating, content: _controller.text.trim()),
+      _ReviewDraft(
+        rating: _rating,
+        content: _controller.text.trim(),
+        publish: _publish,
+      ),
     );
   }
 
@@ -1424,7 +1570,9 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('删除书评？'),
-        content: const Text('评分和正文都会删除，且不可恢复。'),
+        content: Text(
+          widget.cloud ? '书评正文会从阅微删除，保留评分与读完状态。' : '评分和正文都会删除，且不可恢复。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1514,7 +1662,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
         readOnly: _saving,
         minLines: 4,
         maxLines: 8,
-        maxLength: BookReview.maxContentLength,
+        maxLength: widget.cloud ? 2000 : BookReview.maxContentLength,
         textInputAction: TextInputAction.newline,
         decoration: const InputDecoration(
           hintText: '写下这本书带给你的感受…',
@@ -1533,6 +1681,16 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
         _ratingPicker(theme),
         const SizedBox(height: 16),
         _contentInput(theme),
+        if (widget.cloud)
+          SwitchListTile(
+            key: const ValueKey('review-publish'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('发布到阅微'),
+            value: _publish,
+            onChanged: _saving
+                ? null
+                : (value) => setState(() => _publish = value),
+          ),
       ],
     );
   }
@@ -1545,6 +1703,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
     onClose: _close,
     saving: _saving,
     error: _error,
+    publish: widget.cloud && _publish,
   );
 
   @override
@@ -1575,6 +1734,7 @@ class _ReviewEditorActions extends StatelessWidget {
     required this.onClose,
     required this.saving,
     required this.error,
+    this.publish = false,
   });
 
   final bool isEditing;
@@ -1584,6 +1744,7 @@ class _ReviewEditorActions extends StatelessWidget {
   final VoidCallback onClose;
   final bool saving;
   final String? error;
+  final bool publish;
 
   @override
   Widget build(BuildContext context) {
@@ -1613,7 +1774,13 @@ class _ReviewEditorActions extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const AppIcon(AppGlyph.check),
-          label: Text(saving ? '正在保存…' : '保存书评'),
+          label: Text(
+            saving
+                ? '正在保存…'
+                : publish
+                ? '发布书评'
+                : '保存书评',
+          ),
         ),
         const SizedBox(height: 8),
         TextButton(
@@ -1639,13 +1806,19 @@ class _ReviewEditorActions extends StatelessWidget {
 }
 
 class _ReviewDraft {
-  const _ReviewDraft({this.rating, this.content = ''}) : delete = false;
+  const _ReviewDraft({this.rating, this.content = '', this.publish = false})
+    : delete = false;
 
-  const _ReviewDraft.delete() : rating = null, content = '', delete = true;
+  const _ReviewDraft.delete()
+    : rating = null,
+      content = '',
+      delete = true,
+      publish = false;
 
   final int? rating;
   final String content;
   final bool delete;
+  final bool publish;
 }
 
 String _reviewDate(DateTime time) {

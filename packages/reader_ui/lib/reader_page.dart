@@ -4131,6 +4131,8 @@ class _DrawerTabButton extends StatelessWidget {
     return Expanded(
       child: InkWell(
         key: buttonKey,
+        splashFactory: NoSplash.splashFactory,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         onTap: onTap,
         child: SizedBox(
           height: 44,

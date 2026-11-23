@@ -95,6 +95,15 @@ void main() {
         )
         .last;
     expect(tester.widget<Text>(title).style?.fontSize, 16);
+    final face = tester.getRect(
+      find.byKey(const ValueKey('review-ticket-face')),
+    );
+    final cover = tester.getRect(
+      find.byKey(const ValueKey('review-ticket-cover')),
+    );
+    expect(cover.top - face.top, closeTo(6, .01));
+    expect(face.bottom - cover.bottom, closeTo(6, .01));
+    expect(cover.left - face.left, closeTo(6, .01));
     expect(tester.takeException(), isNull);
   });
   testWidgets('已写书评显示评分、标记读完日期和真实累计时长', (tester) async {

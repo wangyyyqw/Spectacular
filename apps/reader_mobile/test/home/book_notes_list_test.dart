@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_cover_image.dart';
 import 'package:reader_mobile/home/book_notes_list.dart';
@@ -41,6 +42,9 @@ Widget _app({
   Future<List<ReaderAnnotation>> Function(String)? loadNotes,
   Future<void> Function()? onRefresh,
   double scale = 1,
+  String query = '',
+  Set<String> searchMatches = const {},
+  Future<void> Function(String, ReaderAnnotation)? onDelete,
 }) => MaterialApp(
   theme: buildAppTheme(),
   builder: (context, child) => MediaQuery(
@@ -53,11 +57,70 @@ Widget _app({
       counts: counts,
       loadNotes: loadNotes ?? (_) async => const <ReaderAnnotation>[],
       onRefresh: onRefresh ?? () async {},
+      query: query,
+      searchMatches: searchMatches,
+      onDelete: onDelete,
     ),
   ),
 );
 
 void main() {
+  testWidgets('搜索筛选笔记书目，想法可复制并在删除成功后刷新', (tester) async {
+    final notes = [_annotation('选中的原文', note: '自己的想法')];
+    final copied = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await tester.pumpWidget(
+      _app(
+        books: [_book('one', '匹配书'), _book('two', '其他书')],
+        counts: {'one': _counts(1, 0), 'two': _counts(1, 0)},
+        query: '想法',
+        searchMatches: {'one'},
+        loadNotes: (_) async => notes.toList(),
+        onDelete: (id, note) async {
+          expect(id, 'one');
+          notes.remove(note);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('其他书'), findsNothing);
+    await tester.tap(find.text('匹配书'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('复制'));
+    await tester.pump();
+    expect(copied.single, '自己的想法\n\n选中的原文');
+    await tester.tap(find.byTooltip('删除'));
+    await tester.pumpAndSettle();
+    expect(find.text('这本书还没有笔记'), findsOneWidget);
+  });
+
+  testWidgets('删除失败保留笔记并显示错误', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        books: [_book('one', '笔记书')],
+        counts: {'one': _counts(1, 0)},
+        loadNotes: (_) async => [_annotation('保留的原文')],
+        onDelete: (_, _) async => throw const FormatException('网络断开，请重试'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('笔记书'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除'));
+    await tester.pumpAndSettle();
+    expect(find.text('保留的原文'), findsOneWidget);
+    expect(find.text('网络断开，请重试'), findsOneWidget);
+  });
   testWidgets(
     '桌面笔记按可用宽度并排，窄窗大字号不溢出',
     (tester) async {

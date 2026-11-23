@@ -22,6 +22,24 @@ class DriftProgressStore implements ReaderProgressStore {
   final AppDatabase _db;
   final _rejectedSaves = <ReaderProgressSaveResult, int>{};
 
+  /// 云端同步只更新读完标记，保留事务执行时最新的文字位置与排版信息。
+  Future<void> setFinished(String bookId, bool finished) =>
+      _db.transaction(() async {
+        final book = await resolveBookRow(_db, bookId, allowAliases: false);
+        if (book == null || book.deletedAt != null) return;
+        final row = await _rowFor(book.id);
+        if (row == null) {
+          await save(
+            bookId,
+            ReaderProgress(spineIndex: 0, pageIndex: 0, finished: finished),
+          );
+          return;
+        }
+        await (_db.update(_db.readingProgress)
+              ..where((table) => table.bookId.equals(book.id)))
+            .write(ReadingProgressCompanion(finished: Value(finished)));
+      });
+
   Future<void> saveFinishedWithReview(
     String bookId,
     ReaderProgress progress,

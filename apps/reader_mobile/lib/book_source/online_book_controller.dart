@@ -109,6 +109,9 @@ class OnlineBookController extends ChangeNotifier {
   Future<void> _configurationWork = Future.value();
   bool _disposed = false;
   String? selectedDiscoverSourceId;
+
+  /// 成功导入含发现能力的书源后递增，首页据此显示一次启用提示。
+  int discoveryImportRevision = 0;
   Map<String, BookEntry> _shelfEntries = {};
 
   /// 已加入书架按来源与完整详情请求判断，不按标题猜测。
@@ -1014,8 +1017,25 @@ class OnlineBookController extends ChangeNotifier {
 
   Future<BookSource> _import(Future<BookSource> Function() operation) async {
     try {
+      final previousExplore = {
+        for (final source in _sources)
+          if (source.enabled &&
+              source.enabledExplore &&
+              source.exploreUrl.trim().isNotEmpty)
+            source.sourceUrl,
+      };
       final source = await _withConfiguration(operation);
       await initialize(refresh: true);
+      if (_sources.any(
+        (source) =>
+            source.enabled &&
+            source.enabledExplore &&
+            source.exploreUrl.trim().isNotEmpty &&
+            !previousExplore.contains(source.sourceUrl),
+      )) {
+        discoveryImportRevision++;
+        notifyListeners();
+      }
       return source;
     } on BookSourceException {
       rethrow;

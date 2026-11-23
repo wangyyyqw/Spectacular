@@ -25,12 +25,17 @@ class ReaMicroSourceIcon extends StatelessWidget {
     if (asset == null) return const AppIcon(AppGlyph.menuBook, size: 20);
     return ClipRRect(
       borderRadius: BorderRadius.circular(3),
-      child: Image.asset(
-        asset,
-        width: 20,
-        height: 20,
-        fit: BoxFit.contain,
-        excludeFromSemantics: true,
+      child: SizedBox.square(
+        dimension: 22,
+        child: Transform.scale(
+          scale: source == '阅微书库' ? 1.95 : 1,
+          child: Image.asset(
+            asset,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            excludeFromSemantics: true,
+          ),
+        ),
       ),
     );
   }
