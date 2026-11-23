@@ -356,6 +356,65 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('新旧 3D 各自显示选中状态并可相互切换', (tester) async {
+    final changes = <PageTurnMode>[];
+    for (final mode in [
+      PageTurnMode.simulation3d,
+      PageTurnMode.simulation3dNext,
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SettingsPanel(
+              section: SettingsSection.settings,
+              overrides: ReaderSettingsDefaults.overrides,
+              themeId: 'white',
+              pageTurnMode: mode,
+              onPageTurnModeChanged: changes.add,
+              onOverridesChanged: (_) {},
+              onThemeChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      final selectedOption = find.byKey(
+        ValueKey<String>('settings-page-turn-${mode.id}'),
+      );
+      await tester.ensureVisible(selectedOption);
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: selectedOption,
+                matching: find.text(mode.label),
+              ),
+            )
+            .style!
+            .fontWeight,
+        FontWeight.w500,
+      );
+      final other = mode == PageTurnMode.simulation3d
+          ? PageTurnMode.simulation3dNext
+          : PageTurnMode.simulation3d;
+      final option = find.byKey(
+        ValueKey<String>('settings-page-turn-${other.id}'),
+      );
+      await tester.ensureVisible(option);
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(of: option, matching: find.text(other.label)),
+            )
+            .style!
+            .fontWeight,
+        FontWeight.w400,
+      );
+      await tester.tap(option);
+    }
+    expect(changes, [PageTurnMode.simulation3dNext, PageTurnMode.simulation3d]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('设置段可切换全屏点击、屏幕常亮和音量键翻页', (tester) async {
     ReaderTapZones? zones;
     bool? keepScreenOn;

@@ -16,7 +16,7 @@ enum PageTurnMode {
   simulationBessel('simulationBessel', '贝塞尔仿真'),
 
   /// 固定 UV 的圆柱卷曲，带纸背与明暗。
-  simulation3d('simulation3d', '3D仿真'),
+  simulation3d('simulation3d', '3D（旧版）'),
 
   /// 与旧版共享圆柱模型和手势时钟，保留独立的阅读设置标识。
   simulation3dNext('simulation3dNext', '3D（新版）'),
