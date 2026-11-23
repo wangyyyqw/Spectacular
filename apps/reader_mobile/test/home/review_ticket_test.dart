@@ -80,6 +80,20 @@ void main() {
       tester.getTopLeft(find.text('林川')).dy,
       lessThan(tester.getTopLeft(find.text('阅读 24 天')).dy),
     );
+    final titleRect = tester.getRect(
+      find
+          .descendant(
+            of: find.byKey(const ValueKey('review-ticket-face')),
+            matching: find.text('长夜与灯火'),
+          )
+          .last,
+    );
+    final authorRect = tester.getRect(find.text('林川'));
+    expect(authorRect.top - titleRect.bottom, closeTo(3, .1));
+    expect(
+      tester.getTopLeft(find.text('阅读 24 天')).dy - authorRect.bottom,
+      greaterThan(8),
+    );
     expect(
       tester.getTopLeft(find.text('阅读 24 天')).dy,
       lessThan(tester.getTopLeft(find.text('12 小时')).dy),

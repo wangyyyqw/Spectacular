@@ -99,6 +99,15 @@ class ReviewTicket extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
     final stacked = width < 300 * scale || scale >= 1.5;
+    final stubWidth = (width * .31).clamp(100 * scale, 150 * scale);
+    final textWidth = math.max(
+      0.0,
+      width -
+          (stacked ? 0 : stubWidth + 12) -
+          _coverWidth -
+          _coverInset * 2 -
+          22,
+    );
     final face = Row(
       key: const ValueKey<String>('review-ticket-face'),
       crossAxisAlignment: stacked
@@ -109,7 +118,7 @@ class ReviewTicket extends StatelessWidget {
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 6, 10, 6),
-            child: _bookFace(context, time),
+            child: _bookFace(context, time, textWidth),
           ),
         ),
       ],
@@ -131,10 +140,7 @@ class ReviewTicket extends StatelessWidget {
           children: [
             Expanded(child: face),
             _seam(context, horizontal: false),
-            SizedBox(
-              width: (width * .31).clamp(100 * scale, 150 * scale),
-              child: stub,
-            ),
+            SizedBox(width: stubWidth, child: stub),
           ],
         ),
       );
@@ -180,7 +186,11 @@ class ReviewTicket extends StatelessWidget {
     ),
   );
 
-  Widget _bookFace(BuildContext context, List<(String, String)> time) {
+  Widget _bookFace(
+    BuildContext context,
+    List<(String, String)> time,
+    double width,
+  ) {
     final titleStyle = Theme.of(context).textTheme.bodyMedium!
         .copyWith(fontSize: 16, height: 1.25, fontWeight: FontWeight.w600);
     final caption = _caption(context);
@@ -188,24 +198,38 @@ class ReviewTicket extends StatelessWidget {
     final duration = time
         .map((part) => '${part.$1 == '<1' ? '不足 1' : part.$1} ${part.$2}')
         .join(' ');
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: _faceMinHeight),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // 书名、作者、阅读天数和时长依次排列，缺字段时保留空位。
-          _lineSlot(context, titleStyle, 2, book.title, titleStyle),
-          const SizedBox(height: 3),
-          _lineSlot(context, caption, 1, author, caption),
+    final title = TextPainter(
+      text: TextSpan(text: book.title, style: titleStyle),
+      maxLines: 2,
+      ellipsis: '…',
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: width);
+    final titleLines = title.computeLineMetrics().length.clamp(1, 2);
+    title.dispose();
+    final titleHeight = _lineHeight(context, titleStyle) * titleLines;
+    final captionHeight = _lineHeight(context, caption);
+    final contentHeight =
+        titleHeight +
+        3 +
+        captionHeight * 2 +
+        (readDays == null ? 0 : captionHeight + 2);
+    final gap = math.max(2.0, _faceMinHeight - contentHeight);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 书名按实际行数占位，作者紧随书名，余白留在阅读数据上方。
+        _lineSlot(context, titleStyle, titleLines, book.title, titleStyle),
+        const SizedBox(height: 3),
+        _lineSlot(context, caption, 1, author, caption),
+        SizedBox(height: gap),
+        if (readDays != null) ...[
+          _lineSlot(context, caption, 1, '阅读 $readDays 天', caption),
           const SizedBox(height: 2),
-          if (readDays != null) ...[
-            _lineSlot(context, caption, 1, '阅读 $readDays 天', caption),
-            const SizedBox(height: 2),
-          ],
-          _lineSlot(context, caption, 1, duration, caption),
         ],
-      ),
+        _lineSlot(context, caption, 1, duration, caption),
+      ],
     );
   }
 

@@ -300,12 +300,39 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                     ),
                   ),
                 ),
-                if (_cloudLoading)
+                const SizedBox(height: 16),
+                ReaderDropdownButtonFormField<String>(
+                  key: const ValueKey('sync-provider-setting'),
+                  initialValue: _provider,
+                  decoration: const InputDecoration(
+                    labelText: '同步方式',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem<String>(
+                      value: 'MOTE',
+                      child: Text('阅微对象存储'),
+                    ),
+                    DropdownMenuItem<String>(value: 'S3', child: Text('自建 S3')),
+                    DropdownMenuItem<String>(
+                      value: 'WEBDAV',
+                      child: Text('WebDAV'),
+                    ),
+                    DropdownMenuItem<String>(
+                      value: 'GITHUB',
+                      child: Text('GitHub 私有仓库'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => _provider = value);
+                  },
+                ),
+                if (_isMote && _cloudLoading)
                   const Padding(
                     padding: EdgeInsets.only(top: 16),
                     child: LinearProgressIndicator(),
                   )
-                else if (_cloudError != null)
+                else if (_isMote && _cloudError != null)
                   Card(
                     margin: const EdgeInsets.only(top: 16),
                     child: ListTile(
@@ -319,9 +346,10 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                     ),
                   )
                 else ...<Widget>[
-                  if (_quota != null) ...<Widget>[
+                  if (_isMote && _quota != null) ...<Widget>[
                     const SizedBox(height: 16),
                     Card(
+                      key: const ValueKey('sync-storage-quota'),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
@@ -381,9 +409,12 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                       ),
                     ),
                   ],
-                  if (_ledger != null && _ledger!.items.isNotEmpty) ...<Widget>[
+                  if (_isMote &&
+                      _ledger != null &&
+                      _ledger!.items.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 10),
                     Card(
+                      key: const ValueKey('sync-credit-ledger'),
                       child: ExpansionTile(
                         leading: const Icon(Icons.receipt_long_outlined),
                         title: const Text('最近积分流水'),
@@ -430,32 +461,6 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
                     ),
                   ],
                 ],
-                const SizedBox(height: 16),
-                ReaderDropdownButtonFormField<String>(
-                  initialValue: _provider,
-                  decoration: const InputDecoration(
-                    labelText: '同步方式',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const <DropdownMenuItem<String>>[
-                    DropdownMenuItem<String>(
-                      value: 'MOTE',
-                      child: Text('阅微内置存储'),
-                    ),
-                    DropdownMenuItem<String>(value: 'S3', child: Text('自建 S3')),
-                    DropdownMenuItem<String>(
-                      value: 'WEBDAV',
-                      child: Text('WebDAV'),
-                    ),
-                    DropdownMenuItem<String>(
-                      value: 'GITHUB',
-                      child: Text('GitHub 私有仓库'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => _provider = value);
-                  },
-                ),
                 const SizedBox(height: 10),
                 Text(
                   _isMote
