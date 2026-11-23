@@ -106,6 +106,7 @@ flutter:
     - assets/ye_she/items/
     - assets/reader_highlight/
     - assets/rea_micro/search/
+    - assets/rea_micro/platform_icons/
     - integration_test/m0_page_sequence.json
 
   # 仅内置基于思源宋体的中文精简版（OFL），保留常规与粗体。

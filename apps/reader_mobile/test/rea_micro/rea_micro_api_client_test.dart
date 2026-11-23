@@ -13,6 +13,49 @@ http.Response _json(Object? body, {int status = 200}) => http.Response(
 );
 
 void main() {
+  test('阅微书库搜索保留书目与出版版本的封面简介及字数', () async {
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient(
+        (_) async => _json({
+          'code': 0,
+          'data': [
+            {
+              'cloudBookId': 42,
+              'name': '示例书籍',
+              'author': '示例作者',
+              'cover': 'https://example.test/book.jpg',
+              'intro': '书目简介',
+              'wordCount': 123456,
+              'status': '连载',
+              'bookPublishers': [
+                {
+                  'bookPublisherId': 88,
+                  'publisher': '示例平台',
+                  'cover': 'https://example.test/version.jpg',
+                  'intro': '版本简介',
+                  'wordCount': '32.1万',
+                  'status': '完结',
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    addTearDown(api.close);
+    final book = (await api.searchCloudBooks('test', name: '示例书籍')).single;
+    expect(book.cover, 'https://example.test/book.jpg');
+    expect(book.words, '123456字');
+    final candidate = ReaMicroPublicReadingCandidate(
+      book: book,
+      publisher: book.publishers.single,
+    );
+    expect(candidate.cover, 'https://example.test/version.jpg');
+    expect(candidate.intro, '版本简介');
+    expect(candidate.words, '32.1万');
+    expect(candidate.status, '完结');
+  });
   test('原生平台规则目录和 JS 下载使用正确接口，完整字段传入出版创建', () async {
     final api = ReaMicroApiClient(
       baseUrl: 'https://example.test/',

@@ -1158,6 +1158,14 @@ void main() {
             ReaMicroCloudPublisher(publisherId: 88, publisher: '云端出版方'),
           ],
         ),
+        const ReaMicroCloudBook(
+          cloudBookId: 43,
+          name: '书名',
+          author: '其他作者',
+          publishers: [
+            ReaMicroCloudPublisher(publisherId: 89, publisher: '另一出版方'),
+          ],
+        ),
       ];
     final controller = await _createController(
       _TestLibrary(),
@@ -1166,7 +1174,7 @@ void main() {
         rulesLoader: () async => {
           'ciweimao_1': '''
 function search(key){return JSON.stringify({code:200,data:[
-{title:key,author:'不同作者',publisher:'刺猬猫阅读',intro:'完整简介'},
+{title:key,author:'不同作者',publisher:'平台出版方',intro:'完整简介'},
 {title:'其他无关作品',author:'本地作者',publisher:'刺猬猫阅读'}
 ]});}
 ''',
@@ -1181,8 +1189,13 @@ function search(key){return JSON.stringify({code:200,data:[
       onUpdate: updates.add,
     );
     expect(updates, hasLength(2));
-    expect(result.map((group) => group.publisherName), ['云端出版方', '刺猬猫阅读']);
+    expect(result.map((group) => group.publisherName), ['阅微书库', '刺猬猫阅读']);
+    expect(
+      result.first.candidates.map((candidate) => candidate.publisherName),
+      ['云端出版方', '另一出版方'],
+    );
     expect(result.last.candidates.single.book.author, '不同作者');
+    expect(result.last.candidates.single.publisherName, '平台出版方');
     expect(result.last.candidates.single.thirdParty?.intro, '完整简介');
     expect(result.last.candidates.single.linkable, isTrue);
   });

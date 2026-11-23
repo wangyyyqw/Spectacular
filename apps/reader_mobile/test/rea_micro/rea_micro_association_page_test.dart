@@ -8,6 +8,8 @@ import 'package:reader_mobile/rea_micro/rea_micro_manual_association.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_manual_association_page.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_public_reading_page.dart';
+import 'package:reader_mobile/home/book_cover_image.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_source_icon.dart';
 
 final _book = BookEntry(
   id: 'book',
@@ -85,6 +87,117 @@ List<ReaMicroPublicReadingGroup> _groups(String title) => [
 ];
 
 void main() {
+  testWidgets('结果三行与封面等高，出版方资料和豆瓣图片请求头完整展示', (tester) async {
+    final controller = _Controller();
+    addTearDown(controller.dispose);
+    const publisher = ReaMicroCloudPublisher(
+      publisherId: 88,
+      publisher: '示例平台',
+      cover: 'https://img3.doubanio.com/version.jpg',
+      intro: '第一行简介\n第二行简介',
+      words: '32.1万',
+      status: '完结',
+    );
+    const candidate = ReaMicroPublicReadingCandidate(
+      book: ReaMicroCloudBook(
+        cloudBookId: 42,
+        name: '很长的示例书名很长的示例书名',
+        author: '示例作者',
+      ),
+      publisher: publisher,
+      publisherName: '示例平台',
+    );
+    await tester.binding.setSurfaceSize(const Size(320, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: ReaMicroPublicReadingPage(controller: controller, book: _book),
+      ),
+    );
+    controller.searches.single.complete([
+      const ReaMicroPublicReadingGroup(
+        publisherName: '阅微书库',
+        candidates: [candidate],
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    final coverFinder = find.byKey(
+      ValueKey('public-reading-result-cover-${candidate.key}'),
+    );
+    final textFinder = find.byKey(
+      ValueKey('public-reading-result-text-${candidate.key}'),
+    );
+    final cover = tester.widget<BookCoverImage>(coverFinder);
+    expect(cover.book.remoteCoverUrl, publisher.cover);
+    expect(cover.httpHeaders['Referer'], 'https://book.douban.com/');
+    expect(
+      tester.getSize(coverFinder).height,
+      tester.getSize(textFinder).height,
+    );
+    expect(tester.getTopLeft(coverFinder).dy, tester.getTopLeft(textFinder).dy);
+    final texts = find.descendant(of: textFinder, matching: find.byType(Text));
+    expect(texts, findsNWidgets(3));
+    for (final text in tester.widgetList<Text>(texts)) {
+      expect(text.maxLines, 1);
+      expect(text.overflow, TextOverflow.ellipsis);
+    }
+    expect(find.text('第一行简介'), findsOneWidget);
+    expect(find.text('第二行简介'), findsNothing);
+    expect(find.text('示例作者 · 示例平台 · 完结 · 32.1万'), findsOneWidget);
+    expect(find.byType(ReaMicroSourceIcon), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('来源卡片默认只展示第一条并可独立展开折叠', (tester) async {
+    final controller = _Controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaMicroPublicReadingPage(controller: controller, book: _book),
+      ),
+    );
+    controller.searches.single.complete([
+      for (final source in ['阅微书库', '起点中文网'])
+        ReaMicroPublicReadingGroup(
+          publisherName: source,
+          candidates: [
+            for (var id = 1; id <= 2; id++)
+              ReaMicroPublicReadingCandidate(
+                book: ReaMicroCloudBook(
+                  cloudBookId: (source == '阅微书库' ? 0 : 10) + id,
+                  name: '$source结果$id',
+                ),
+                publisher: const ReaMicroCloudPublisher(
+                  publisherId: 88,
+                  publisher: '出版方',
+                ),
+                publisherName: '出版方',
+              ),
+          ],
+        ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('聚合搜索'), findsNothing);
+    expect(find.text('阅微书库结果1'), findsOneWidget);
+    expect(find.text('阅微书库结果2'), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('public-reading-source-toggle-阅微书库')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('阅微书库结果2'), findsOneWidget);
+    expect(find.text('起点中文网结果2'), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('public-reading-source-toggle-阅微书库')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('阅微书库结果2'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('搜索过期响应不覆盖新结果，封面标题固定且等待时可以返回', (tester) async {
     final controller = _Controller();
     addTearDown(controller.dispose);
@@ -108,13 +221,8 @@ void main() {
     await tester.tap(find.text('打开'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.enterText(
-      find.byKey(const ValueKey('public-reading-name')),
-      '新书',
-    );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('public-reading-search')),
-    );
+    expect(find.byKey(const ValueKey('public-reading-name')), findsNothing);
+    expect(find.text('聚合搜索'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('public-reading-search')));
     await tester.pump();
     expect(controller.searches, hasLength(2));

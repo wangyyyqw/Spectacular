@@ -1449,6 +1449,7 @@ class ReaMicroController extends ChangeNotifier {
     bool cancelled() =>
         _disposed || _token != token || isCancelled?.call() == true;
     final candidates = <ReaMicroPublicReadingCandidate>[];
+    final sourcesByCandidate = <String, String>{};
     var succeeded = 0;
     final failures = <String>[];
     List<ReaMicroPublicReadingGroup> groups() {
@@ -1456,7 +1457,8 @@ class ReaMicroController extends ChangeNotifier {
       final seen = <String>{};
       for (final candidate in candidates) {
         if (!seen.add(candidate.key)) continue;
-        byName.putIfAbsent(candidate.publisherName, () => []).add(candidate);
+        final source = sourcesByCandidate[candidate.key] ?? '阅微书库';
+        byName.putIfAbsent(source, () => []).add(candidate);
       }
       final queryTitle = _normalizeBookText(name);
       final queryAuthor = _normalizeBookText(author);
@@ -1515,7 +1517,11 @@ class ReaMicroController extends ChangeNotifier {
                 return;
               }
               succeeded++;
-              candidates.addAll(result.books.map((book) => book.candidate));
+              for (final book in result.books) {
+                final candidate = book.candidate;
+                candidates.add(candidate);
+                sourcesByCandidate[candidate.key] = result.source;
+              }
               onUpdate?.call(groups());
             },
           );

@@ -17,6 +17,7 @@ class CloudStatsView extends StatefulWidget {
     required this.onRefresh,
     required this.onOpenBook,
     this.onLoadMonth,
+    this.onLoadHourlyInsights,
   });
 
   /// 云端数据快照。
@@ -36,6 +37,9 @@ class CloudStatsView extends StatefulWidget {
 
   /// 读取指定月份的阅微统计。
   final Future<ReaMicroPeriodStats> Function(DateTime)? onLoadMonth;
+
+  /// 读取本机真实分时记录；云端仅提供逐日汇总。
+  final Future<ReadingInsights> Function()? onLoadHourlyInsights;
 
   @override
   State<CloudStatsView> createState() => _CloudStatsViewState();
@@ -65,10 +69,6 @@ class _CloudStatsViewState extends State<CloudStatsView> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
             children: <Widget>[
-              if (widget.loading) ...<Widget>[
-                const LinearProgressIndicator(minHeight: 2),
-                const SizedBox(height: 14),
-              ],
               StatsSection(
                 title: '阅读概览',
                 detail: '更新于 ${_formatDateTime(stats.fetchedAt)}',
@@ -134,6 +134,7 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                 child: WeekdayAverageChart(
                   insights: ReadingInsights(const [], now: stats.fetchedAt),
                   dailyTotals: dailyTotals,
+                  onLoadHourlyInsights: widget.onLoadHourlyInsights,
                 ),
               ),
               StatsSection(

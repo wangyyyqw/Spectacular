@@ -7,9 +7,90 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_aggregate_search.dart';
+import 'package:reader_mobile/library/library_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('菠萝包字数与更新时间分离，同版本旧缓存不覆盖内置修复', () async {
+    final library = LibraryStore.memory();
+    await library.setSetting(
+      'reamicro.search.thirdPartyRules',
+      jsonEncode({
+        'sfacg_1':
+            'function search(){return JSON.stringify({code:200,data:[]});}',
+      }),
+    );
+    final search = ReaMicroAggregateSearch(
+      library: library,
+      clientFactory: () => MockClient((request) async {
+        if (request.url.host != 'm.sfacg.com') return http.Response('', 404);
+        return http.Response(
+          request.url.path.contains('HTML5')
+              ? jsonEncode({
+                  'Novels': [
+                    {'NovelID': 123},
+                  ],
+                })
+              : '''
+<span class="book_newtitle">示例书籍</span>
+<div class="book_info2"><span>分类</span><span>连载中</span></div>
+<span class="book_info3">示例作者 / 12572字<br>25-08-14 01:22</span>
+<ul><li>资料</li><li><img src="//example.test/cover.jpg"></li></ul>
+<li class="book_bk_qs1">第一行简介<br>第二行简介</li>
+''',
+          200,
+          headers: {'content-type': 'text/html; charset=utf-8'},
+        );
+      }),
+    );
+    final results = <ReaMicroPlatformSearchResult>[];
+    await search.search(token: 'test', title: '示例书籍', onResult: results.add);
+    final result = results.singleWhere((result) => result.source == '菠萝包轻小说');
+    expect(result.error, isNull);
+    final book = result.books.single;
+    expect(book.words, '1.3万');
+    expect(book.publishDate, '25-08-14 01:22');
+    expect(book.status, '连载中');
+    expect(book.cover, 'https://example.test/cover.jpg');
+  });
+
+  test('豆瓣优先使用大封面并保留简介与出版社，页数标记为页', () async {
+    final search = ReaMicroAggregateSearch(
+      clientFactory: () => MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'books': [
+              {
+                'title': '示例书籍',
+                'author': ['示例作者'],
+                'publisher': '示例出版社',
+                'image': 'https://img3.doubanio.com/small.jpg',
+                'images': {'large': 'https://img3.doubanio.com/large.jpg'},
+                'summary': '详细简介',
+                'pages': 320,
+                'price': '49.00元',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    final result = await search.searchRule(
+      name: 'douban_4',
+      script: await File('assets/rea_micro/search/douban_4.js').readAsString(),
+      title: '示例书籍',
+    );
+    expect(result.error, isNull);
+    final book = result.books.single;
+    expect(book.cover, 'https://img3.doubanio.com/large.jpg');
+    expect(book.intro, '详细简介');
+    expect(book.publisher, '示例出版社');
+    expect(book.words, '320页');
+    expect(book.price, '49.00元');
+  });
 
   test('全部十个阅微原生规则通过正式运行时入口加载', () async {
     final root = Directory('assets/rea_micro/search');

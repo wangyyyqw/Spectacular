@@ -73,6 +73,12 @@ class _StatsPageState extends State<StatsPage> {
   String? _error;
   bool _cloudMode = false;
 
+  Future<ReadingInsights> _loadHourlyInsights() async => ReadingInsights(
+    await (_sessionStore?.list() ??
+        Future<List<ReadingSession>>.value(const [])),
+    now: widget.now ?? DateTime.now(),
+  );
+
   ReadingSessionStore? get _sessionStore =>
       widget.sessionStore ?? widget.library.readingSessionStore();
 
@@ -448,6 +454,7 @@ class _StatsPageState extends State<StatsPage> {
               onRefresh: _refresh,
               onOpenBook: _openCloudBook,
               onLoadMonth: controller.loadCloudMonth,
+              onLoadHourlyInsights: _loadHourlyInsights,
             ),
     );
   }

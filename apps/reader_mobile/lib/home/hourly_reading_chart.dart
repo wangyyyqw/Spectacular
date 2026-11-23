@@ -13,6 +13,7 @@ class HourlyReadingPage extends StatelessWidget {
     required this.insights,
     required this.date,
     this.inDrawer = false,
+    this.cloudDailyTotal,
   });
 
   /// 阅读统计快照。
@@ -23,6 +24,9 @@ class HourlyReadingPage extends StatelessWidget {
 
   /// 内容抽屉提供关闭入口，直接作为页面使用时保留原导航。
   final bool inDrawer;
+
+  /// 云端当天累计；小时图只使用本机有时间戳的记录。
+  final Duration? cloudDailyTotal;
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +73,10 @@ class HourlyReadingPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '按这一天实际前台阅读时长统计',
+                    cloudDailyTotal == null
+                        ? '按这一天实际前台阅读时长统计'
+                        : '阅微当日累计 ${formatReadingDuration(cloudDailyTotal!)}'
+                              '\n小时分布来自本机阅读记录',
                     style: TextStyle(
                       fontSize: 12,
                       color: theme.colorScheme.onSurfaceVariant,
@@ -77,6 +84,14 @@ class HourlyReadingPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (cloudDailyTotal != null &&
+                      !insights.byDay.containsKey(
+                        DateTime(date.year, date.month, date.day),
+                      ))
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: Text('本机没有这一天的分时记录，阅微仅提供当日汇总。'),
+                    ),
                   HourlyReadingChart(insights: insights, date: date),
                 ],
               ),

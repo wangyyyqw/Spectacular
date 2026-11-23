@@ -8,6 +8,71 @@ import 'package:reader_mobile/home/weekday_average_chart.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 
 void main() {
+  testWidgets('静默刷新期间滚动偏移与内容位置保持不变', (tester) async {
+    final snapshot = _snapshot(_period(day: 3, total: 3600));
+    Widget page(bool loading) => MaterialApp(
+      home: Scaffold(
+        body: CloudStatsView(
+          stats: snapshot,
+          linkedCloudBookIds: const {},
+          loading: loading,
+          onRefresh: () async {},
+          onOpenBook: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpWidget(page(false));
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    final scrollable = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    final offset = scrollable.position.pixels;
+    final extent = scrollable.position.maxScrollExtent;
+    await tester.pumpWidget(page(true));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(scrollable.position.pixels, offset);
+    expect(scrollable.position.maxScrollExtent, extent);
+    await tester.pumpWidget(page(false));
+    await tester.pump();
+    expect(scrollable.position.pixels, offset);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史月份自动刷新保留已有内容直到响应返回', (tester) async {
+    final pending = Completer<ReaMicroPeriodStats>();
+    var calls = 0;
+    Widget page(ReaMicroCloudStats stats) => MaterialApp(
+      home: Scaffold(
+        body: CloudReadingCalendar(
+          stats: stats,
+          onLoadMonth: (_) async {
+            if (++calls == 1) return _period(day: 7, total: 7200, books: 4);
+            return pending.future;
+          },
+        ),
+      ),
+    );
+    await tester.pumpWidget(page(_snapshot(_period(day: 3, total: 3600))));
+    await tester.tap(find.byKey(const ValueKey('stats-calendar-previous')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 天阅读 · 4 本 · 2 小时'), findsOneWidget);
+    final height = tester.getSize(find.byType(CloudReadingCalendar)).height;
+    await tester.pumpWidget(page(_snapshot(_period(day: 3, total: 5400))));
+    await tester.pump();
+    expect(find.text('1 天阅读 · 4 本 · 2 小时'), findsOneWidget);
+    expect(tester.getSize(find.byType(CloudReadingCalendar)).height, height);
+    pending.complete(_period(day: 7, total: 10800, books: 4));
+    await tester.pumpAndSettle();
+    expect(find.text('1 天阅读 · 4 本 · 3 小时'), findsOneWidget);
+  });
+
   testWidgets('云日历使用真实月度本数和每日阅读听书汇总', (tester) async {
     final month = _period(day: 3, total: 20 * 3600, books: 23);
     await tester.pumpWidget(

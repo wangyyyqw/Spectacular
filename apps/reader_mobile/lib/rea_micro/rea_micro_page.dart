@@ -103,38 +103,25 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
                   onPressed: controller.busy
                       ? null
                       : () => unawaited(controller.refresh()),
-                  icon: controller.busy
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
+                  icon: const Icon(Icons.refresh),
                 ),
             ],
           ),
           body: SafeArea(
             child: !controller.initialized
-                ? const Center(child: CircularProgressIndicator())
+                ? const SizedBox.shrink()
                 : RefreshIndicator(
                     onRefresh: controller.refresh,
                     child: ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                       children: [
-                        if (controller.error != null)
+                        if (!controller.signedIn && controller.error != null)
                           _MessageBanner(
                             key: const ValueKey<String>('reamicro-error'),
                             icon: Icons.error_outline,
                             color: Theme.of(context).colorScheme.error,
                             text: controller.error!,
-                          ),
-                        if (controller.notice != null)
-                          _MessageBanner(
-                            key: const ValueKey<String>('reamicro-notice'),
-                            icon: Icons.check_circle_outline,
-                            color: Theme.of(context).colorScheme.primary,
-                            text: controller.notice!,
                           ),
                         if (controller.signedIn)
                           ..._accountContent(context, controller)

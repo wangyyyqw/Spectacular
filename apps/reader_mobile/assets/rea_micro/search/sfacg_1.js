@@ -44,9 +44,11 @@ function stripTags(input) {
 }
 
 function formatWanFromText(textWithZi) {
-  const raw = String(textWithZi || "").replace("字", "").trim();
-  const n = Number(raw);
-  if (!isFinite(n) || n <= 0) return raw;
+  const match = String(textWithZi || "").match(/([\d,]+(?:\.\d+)?)\s*(万)?字/);
+  if (!match) return "";
+  if (match[2]) return match[1].replace(/,/g, "") + "万";
+  const n = Number(match[1].replace(/,/g, ""));
+  if (!isFinite(n) || n <= 0) return "";
   return (n / 10000).toFixed(1) + "万";
 }
 
@@ -61,18 +63,20 @@ function parseDetail(html) {
   const info3Matches = [];
   const reInfo3 = /<span[^>]*class=["'][^"']*\bbook_info3\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi;
   let m;
-  while ((m = reInfo3.exec(String(html || "")))) info3Matches.push(stripTags(m[1]));
+  while ((m = reInfo3.exec(String(html || "")))) {
+    info3Matches.push(stripTags(m[1].replace(/<br\s*\/?>/gi, "\n")));
+  }
 
   const firstInfo3 = info3Matches[0] || "";
   const parts = firstInfo3.split("/").map((s) => String(s || "").trim()).filter(Boolean);
   const author = parts[0] || "未知";
-  const words = parts[1] ? formatWanFromText(parts[1]) : "";
+  const words = formatWanFromText(firstInfo3);
 
   let publish_date = "";
   const lastInfo3 = info3Matches.length > 0 ? info3Matches[info3Matches.length - 1] : "";
   if (lastInfo3) {
-    const ls = lastInfo3.split("/").map((s) => String(s || "").trim()).filter(Boolean);
-    publish_date = ls.length > 0 ? ls[ls.length - 1] : "";
+    const time = lastInfo3.match(/\d{2,4}-\d{2}-\d{2}\s+\d{2}:\d{2}/);
+    publish_date = time ? time[0] : "";
   }
 
   const introMatch = String(html || "").match(/<li[^>]*class=["'][^"']*\bbook_bk_qs1\b[^"']*["'][^>]*>([\s\S]*?)<\/li>/i);

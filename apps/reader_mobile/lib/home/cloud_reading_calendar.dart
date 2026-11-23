@@ -45,18 +45,22 @@ class _CloudReadingCalendarState extends State<CloudReadingCalendar>
   void didUpdateWidget(CloudReadingCalendar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.stats, widget.stats)) {
-      _showMonth(_month);
+      _showMonth(_month, preserveData: true);
     }
   }
 
-  Future<void> _showMonth(DateTime month) async {
+  Future<void> _showMonth(DateTime month, {bool preserveData = false}) async {
     final request = ++_request;
     setState(() {
       _month = DateTime(month.year, month.month);
       _error = null;
-      _data = _month == _snapshotMonth ? widget.stats.month : null;
+      if (_month == _snapshotMonth) {
+        _data = widget.stats.month;
+      } else if (!preserveData) {
+        _data = null;
+      }
     });
-    if (_data != null) return;
+    if (_month == _snapshotMonth) return;
     final loader = widget.onLoadMonth;
     if (loader == null) {
       setState(() => _error = '暂无法加载该月阅读记录');

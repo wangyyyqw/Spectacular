@@ -16,20 +16,28 @@ class WeekdayAverageChart extends StatefulWidget {
     super.key,
     required this.insights,
     this.dailyTotals,
+    this.onLoadHourlyInsights,
   });
 
   /// 与其他统计卡片共用的阅读快照。
   final ReadingInsights insights;
 
-  /// 只有逐日汇总的云端数据不构造会话，也不展示小时分布。
+  /// 云端逐日汇总不构造会话，小时分布另读真实记录。
   final Map<DateTime, Duration>? dailyTotals;
+
+  /// 按需读取本机小时分布所需的会话。
+  final Future<ReadingInsights> Function()? onLoadHourlyInsights;
 
   @override
   State<WeekdayAverageChart> createState() => _WeekdayAverageChartState();
 }
 
-class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
+class _WeekdayAverageChartState extends State<WeekdayAverageChart>
+    with AutomaticKeepAliveClientMixin<WeekdayAverageChart> {
   int? _selectedWeekday;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -42,7 +50,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.insights, widget.insights) ||
         !identical(oldWidget.dailyTotals, widget.dailyTotals)) {
-      _selectedWeekday = _defaultWeekday(_buildAverages());
+      _selectedWeekday ??= _defaultWeekday(_buildAverages());
     }
   }
 
@@ -114,6 +122,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final averages = _buildAverages();
@@ -159,7 +168,6 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
                   average: selected,
                   readingDates: readingDates[selected.weekday] ?? const [],
                   onOpenDay: (date) => _openHourlyPage(context, date),
-                  dailyOnly: widget.dailyTotals != null,
                 ),
         ),
       ],
@@ -173,10 +181,7 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
           Text(
             '日均 ${_formatCenterDuration(_averageDay)}',
             key: const ValueKey('stats-weekday-average-value'),
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
           for (final average in averages) _weekdayListRow(context, average),
@@ -335,28 +340,31 @@ class _WeekdayAverageChartState extends State<WeekdayAverageChart> {
     _openHourlyPage(context, dates.first);
   }
 
-  void _openHourlyPage(BuildContext context, DateTime date) {
-    if (widget.dailyTotals != null) {
-      showReaderDrawer<void>(
-        context: context,
-        builder: (_) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            '${date.year}年${date.month}月${date.day}日\n'
-            '阅读与听书 ${formatReadingDuration(_dailyTotals[date] ?? Duration.zero)}',
-          ),
-        ),
-      );
-      return;
+  Future<void> _openHourlyPage(BuildContext context, DateTime date) async {
+    var insights = widget.insights;
+    final loader = widget.onLoadHourlyInsights;
+    if (loader != null) {
+      try {
+        insights = await loader();
+      } catch (_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('小时分布加载失败，请重试')));
+        return;
+      }
     }
-    showReaderDrawer<void>(
+    if (!context.mounted) return;
+    await showReaderDrawer<void>(
       context: context,
       builder: (context) => SizedBox(
         height: MediaQuery.sizeOf(context).height * .85,
         child: HourlyReadingPage(
-          insights: widget.insights,
+          insights: insights,
           date: date,
           inDrawer: true,
+          cloudDailyTotal: widget.dailyTotals == null
+              ? null
+              : _dailyTotals[date],
         ),
       ),
     );
@@ -462,13 +470,11 @@ class _WeekdayDetail extends StatelessWidget {
     required this.average,
     required this.readingDates,
     required this.onOpenDay,
-    this.dailyOnly = false,
   });
 
   final _WeekdayAverage average;
   final List<DateTime> readingDates;
   final ValueChanged<DateTime> onOpenDay;
-  final bool dailyOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -562,7 +568,7 @@ class _WeekdayDetail extends StatelessWidget {
           ),
           iconAlignment: IconAlignment.end,
           icon: const AppIcon(AppGlyph.chevronRight, size: 16),
-          label: Text(dailyOnly ? '当日时长' : '小时分布'),
+          label: const Text('小时分布'),
         ),
       ],
     ),

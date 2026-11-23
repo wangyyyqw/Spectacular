@@ -598,6 +598,8 @@ class ReaMicroCloudPublisher {
     this.publisher = '',
     this.cover = '',
     this.intro = '',
+    this.words = '',
+    this.status = '',
   });
 
   /// 出版方标识；建立用户书关联时使用。
@@ -619,6 +621,10 @@ class ReaMicroCloudPublisher {
   /// 云端简介。
   final String intro;
 
+  /// 来源返回的字数与连载状态。
+  final String words;
+  final String status;
+
   /// 从接口数据解析。
   factory ReaMicroCloudPublisher.fromJson(Map<String, Object?> json) {
     final id = _intValue(
@@ -637,6 +643,8 @@ class ReaMicroCloudPublisher {
             json['intro'] ?? json['description'] ?? json['bookIntro'],
           ) ??
           '',
+      words: _bookWords(json['wordCount'] ?? json['words']),
+      status: _stringValue(json['status']) ?? '',
     );
   }
 }
@@ -651,6 +659,9 @@ class ReaMicroCloudBook {
     this.subtitle = '',
     this.original = '',
     this.intro = '',
+    this.cover = '',
+    this.words = '',
+    this.status = '',
     this.publishers = const <ReaMicroCloudPublisher>[],
   });
 
@@ -689,6 +700,11 @@ class ReaMicroCloudBook {
   /// 云端简介。
   final String intro;
 
+  /// 搜索结果本身的封面、字数与连载状态。
+  final String cover;
+  final String words;
+  final String status;
+
   /// 从接口数据解析。
   factory ReaMicroCloudBook.fromJson(Map<String, Object?> json) {
     final publishers = <ReaMicroCloudPublisher>[];
@@ -724,6 +740,9 @@ class ReaMicroCloudBook {
           ) ??
           '',
       publishers: publishers,
+      cover: _stringValue(json['cover'] ?? json['bookCover']) ?? '',
+      words: _bookWords(json['wordCount'] ?? json['words']),
+      status: _stringValue(json['status']) ?? '',
     );
   }
 }
@@ -763,6 +782,16 @@ class ReaMicroPublicReadingCandidate {
   String get key =>
       thirdParty?.key ??
       '${book.cloudBookId}|$publisherId|${publisherName.trim()}';
+
+  /// 出版版本的封面与简介优先，其次使用云端书目字段。
+  String get cover =>
+      _firstNonEmpty([thirdParty?.cover, publisher?.cover, book.cover]);
+  String get intro =>
+      _firstNonEmpty([thirdParty?.intro, publisher?.intro, book.intro]);
+  String get words =>
+      _firstNonEmpty([thirdParty?.words, publisher?.words, book.words]);
+  String get status =>
+      _firstNonEmpty([thirdParty?.status, publisher?.status, book.status]);
 }
 
 /// 阅微原生 JavaScript 搜索返回的完整第三方书籍资料。
@@ -2269,6 +2298,18 @@ int _intValue(Object? value) {
 }
 
 String? _stringValue(Object? value) => value is String ? value : null;
+
+String _firstNonEmpty(Iterable<String?> values) {
+  for (final value in values) {
+    if (value?.trim().isNotEmpty == true) return value!.trim();
+  }
+  return '';
+}
+
+String _bookWords(Object? value) {
+  final text = value?.toString().trim() ?? '';
+  return RegExp(r'^\d+(?:\.\d+)?$').hasMatch(text) ? '$text字' : text;
+}
 
 List<int> _yearList(Object? value) {
   final years = <int>{};

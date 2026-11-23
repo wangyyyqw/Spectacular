@@ -63,13 +63,13 @@ function normalizeDoubanApiBook(book) {
         subtitle: book.subtitle || "",
         original: book.origin_title || "",
         intro: book.summary || "",
-        cover: book.image || "",
+        cover: book.images?.large || book.images?.medium || book.image || "",
         translator: Array.isArray(book.translator) ? book.translator.filter(Boolean).join(",") : "",
         publisher: book.publisher || "",
         publish_date: book.pubdate || "",
         price: book.price || "",
         isbn: book.isbn13 || book.isbn10 || "",
-        words: book.pages || "",
+        words: book.pages ? String(book.pages) + "页" : "",
         detail: book.alt || (book.id ? ("https://book.douban.com/subject/" + book.id + "/") : ""),
         rating: (book && book.rating && typeof book.rating.average !== "undefined")
             ? Number(book.rating.average) || 0

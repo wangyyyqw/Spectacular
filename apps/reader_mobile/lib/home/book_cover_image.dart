@@ -15,6 +15,7 @@ class BookCoverImage extends StatelessWidget {
     this.showReadabilityBadge = false,
     this.showShadow = false,
     this.shadowOpacity = .12,
+    this.httpHeaders = const {},
   });
 
   final BookEntry book;
@@ -23,6 +24,9 @@ class BookCoverImage extends StatelessWidget {
   final bool showReadabilityBadge;
   final bool showShadow;
   final double shadowOpacity;
+
+  /// 来源图片的必要请求头，例如豆瓣的封面 Referer。
+  final Map<String, String> httpHeaders;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -98,6 +102,7 @@ class BookCoverImage extends StatelessWidget {
     if (remote == null) return placeholder;
     return Image.network(
       remote,
+      headers: httpHeaders,
       key: ValueKey('cover-$remote'),
       width: double.infinity,
       height: double.infinity,

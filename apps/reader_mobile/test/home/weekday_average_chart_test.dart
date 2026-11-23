@@ -43,6 +43,48 @@ Future<void> _pumpChart(
 }
 
 void main() {
+  testWidgets('云端逐日汇总使用本机真实记录显示小时分布', (tester) async {
+    final date = DateTime(2026, 11, 3);
+    var loads = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekdayAverageChart(
+            insights: ReadingInsights(const [], now: date),
+            dailyTotals: {date: const Duration(hours: 2)},
+            onLoadHourlyInsights: () async {
+              loads++;
+              return ReadingInsights([
+                _session(
+                  DateTime(2026, 11, 3, 9, 30),
+                  const Duration(hours: 1),
+                ),
+              ], now: date);
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(loads, 0);
+    await tester.tap(find.byKey(const ValueKey('stats-weekday-open-hourly')));
+    await tester.pumpAndSettle();
+    expect(loads, 1);
+    expect(
+      find.byKey(const ValueKey('stats-hourly-reading-chart')),
+      findsOneWidget,
+    );
+    expect(find.text('合计 1 小时'), findsOneWidget);
+    expect(find.text('阅微当日累计 2 小时\n小时分布来自本机阅读记录'), findsOneWidget);
+    final chart = tester.widget<HourlyReadingChart>(
+      find.byType(HourlyReadingChart),
+    );
+    final durations = hourlyReadingDurations(chart.insights, date);
+    expect(durations[9], const Duration(minutes: 30));
+    expect(durations[10], const Duration(minutes: 30));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('按星期汇总实际阅读日均并允许切换选中日', (tester) async {
     const duration = Duration(minutes: 60);
     final insights = ReadingInsights([

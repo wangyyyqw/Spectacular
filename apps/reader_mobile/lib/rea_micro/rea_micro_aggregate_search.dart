@@ -77,7 +77,7 @@ class ReaMicroAggregateSearch {
             if (rules.keys.any(
               (name) =>
                   _type(name) == _type(entry.key) &&
-                  _version(name) > _version(entry.key),
+                  _version(name) >= _version(entry.key),
             )) {
               continue;
             }
