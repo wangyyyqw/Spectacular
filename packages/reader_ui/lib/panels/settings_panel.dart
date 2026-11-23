@@ -10,6 +10,7 @@ import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 
 import '../annotations/mark_settings.dart';
+import '../bookmarks/bookmark_style.dart';
 import '../icons/app_icon.dart';
 import '../paging/page_turn_mode.dart';
 import '../page_furniture/corner_info.dart';
@@ -110,6 +111,8 @@ class SettingsPanel extends StatefulWidget {
     this.onOpenTapZoneEditor,
     this.onOpenMarkSettings,
     this.markSettings = const ReaderMarkSettings(),
+    this.onOpenBookmarkStyle,
+    this.bookmarkStyle = const ReaderBookmarkStyle(),
     this.marginsActive = false,
     this.pageTurnMode = PageTurnMode.cover,
     this.onPageTurnModeChanged,
@@ -194,6 +197,12 @@ class SettingsPanel extends StatefulWidget {
 
   /// 当前划线默认外观。
   final ReaderMarkSettings markSettings;
+
+  /// 打开书签外观设置。
+  final VoidCallback? onOpenBookmarkStyle;
+
+  /// 当前书签外观。
+  final ReaderBookmarkStyle bookmarkStyle;
 
   /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
   final bool marginsActive;
@@ -978,6 +987,35 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   List<Widget> _settingsChildren(ThemeData theme, {bool includeReset = true}) {
     return <Widget>[
+      if (widget.onOpenBookmarkStyle != null) ...[
+        Text(
+          '书签样式',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: ReaderDrawerStyle.textOf(theme),
+          ),
+        ),
+        const SizedBox(height: 4),
+        _SettingsEntryRow(
+          key: const ValueKey<String>('settings-bookmark-style'),
+          icon: AppGlyph.bookmark,
+          label: '外形尺寸与下拉开关',
+          onTap: widget.onOpenBookmarkStyle!,
+        ),
+        Text(
+          '宽 ${widget.bookmarkStyle.width.toStringAsFixed(0)} · '
+          '长 ${widget.bookmarkStyle.length.toStringAsFixed(0)} · '
+          '${widget.bookmarkStyle.pullEnabled ? '下拉添加已开启' : '下拉添加已关闭'}',
+          style: TextStyle(
+            fontSize: 12,
+            color: ReaderDrawerStyle.secondaryOf(theme),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+        const SizedBox(height: 12),
+      ],
       if (widget.onOpenMarkSettings != null) ...[
         Text(
           '划线设置',

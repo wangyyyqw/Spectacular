@@ -65,8 +65,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(bars.last, {'statusBar': true, 'navigationBar': false});
 
-    // 四个入口共用下拉抽屉；收起只回到阅读菜单，不翻页、不重排。
+    // 四个入口共用下拉抽屉；下拉收起直接退出阅读菜单，不翻页、不重排。
     for (final entry in ['toc', 'theme', 'type', 'settings']) {
+      if (!tester
+          .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+          .open) {
+        await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byKey(ValueKey('menu-entry-$entry')));
       await tester.pumpAndSettle();
       final surface = find.byKey(const ValueKey('reader-drawer-surface'));
@@ -81,15 +87,15 @@ void main() {
       expect(surface, findsNothing);
       expect(
         tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
-        isTrue,
+        isFalse,
+        reason: '下拉收起抽屉应直接退出阅读菜单',
       );
       expect(session.layoutFingerprint, fingerprint);
       expect(session.page, same(pageBefore));
     }
-    expect(
-      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).safeTop,
-      30,
-    );
+    // 重新打开菜单继续验证浮层位置。
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
     expect(session.layoutFingerprint, fingerprint, reason: '开菜单不重排');
     expect(session.page, same(pageBefore), reason: '页码与内容不变');
 
@@ -125,15 +131,13 @@ void main() {
       expect(session.layoutFingerprint, fingerprint);
       expect(session.page, same(pageBefore));
     }
-    // 再点当前入口执行收起，底栏回到未展开位置且阅读位置不变。
-    final selectedButton = find.byKey(const ValueKey('drawer-entry-settings'));
-    final selectedBounds = tester.getRect(selectedButton);
-    await tester.tap(selectedButton);
+    // 再点当前入口同样退出阅读菜单，阅读位置不变。
+    await tester.tap(find.byKey(const ValueKey('drawer-entry-settings')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('reader-drawer-surface')), findsNothing);
     expect(
-      tester.getRect(find.byKey(const ValueKey('menu-entry-settings'))),
-      selectedBounds,
+      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+      isFalse,
     );
     expect(session.page, same(pageBefore));
     expect(session.layoutFingerprint, fingerprint);

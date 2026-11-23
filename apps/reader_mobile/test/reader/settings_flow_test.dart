@@ -153,11 +153,18 @@ void main() {
     final reloaded = await store.load();
     expect(reloaded.fontSize, greaterThan(ReaderSettingsDefaults.fontSize));
 
-    // 切主题：关掉排版抽屉 → 主题入口 → 选米黄（设计稿四入口把主题独立成面板）。
+    // 切主题：点遮罩退出菜单，再重新进菜单 → 主题入口 → 选米黄。
     final mask = find.byKey(const ValueKey<String>('menu-drawer-mask'));
     await tester.tapAt(tester.getTopLeft(mask) + const Offset(10, 10));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPanel), findsNothing, reason: '关闭排版抽屉');
+    expect(
+      find.byKey(const ValueKey<String>('menu-entry-theme')),
+      findsNothing,
+      reason: '遮罩关闭整个菜单',
+    );
+    await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-theme')));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPanel), findsOneWidget, reason: '主题抽屉打开');
