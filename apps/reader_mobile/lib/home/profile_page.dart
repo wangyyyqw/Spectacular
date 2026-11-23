@@ -5,7 +5,9 @@ import '../book_source/online_book_controller.dart';
 import '../book_source/online_book_detail_page.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_lan_page.dart';
 import '../rea_micro/rea_micro_page.dart';
+import '../rea_micro/rea_micro_s3_page.dart';
 import '../ye_she/community_page.dart';
 import '../ye_she/ye_she_page.dart';
 import '../reader/reader_font_store.dart';
@@ -91,6 +93,31 @@ class ProfilePage extends StatelessWidget {
                     _YeSheEntry(controller: reaMicro!),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     _CommunityEntry(controller: reaMicro!),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    ListTile(
+                      key: const ValueKey('profile-lan-entry'),
+                      leading: const Icon(Icons.sync_alt),
+                      title: const Text('互联'),
+                      trailing: const AppIcon(AppGlyph.chevronRight),
+                      onTap: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ReaMicroLanPage(controller: reaMicro!),
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    ListTile(
+                      key: const ValueKey('profile-sync-entry'),
+                      leading: const Icon(Icons.cloud_upload_outlined),
+                      title: const Text('同步'),
+                      trailing: const AppIcon(AppGlyph.chevronRight),
+                      onTap: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) => ReaMicroS3Page(controller: reaMicro!),
+                        ),
+                      ),
+                    ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                   ],
                   ListTile(
@@ -203,7 +230,6 @@ class _YeSheEntry extends StatelessWidget {
         key: const ValueKey<String>('ye-she-entry'),
         leading: const AppIcon(AppGlyph.autoStories),
         title: const Text('野社'),
-        subtitle: Text(controller.signedIn ? '文房、游艺与见闻' : '登录阅微后进入文房、游艺与见闻'),
         trailing: const AppIcon(AppGlyph.chevronRight),
         onTap: () => Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
@@ -234,7 +260,6 @@ class _CommunityEntry extends StatelessWidget {
         key: const ValueKey<String>('community-entry'),
         leading: const AppIcon(AppGlyph.highlighter),
         title: const Text('社区'),
-        subtitle: Text(controller.signedIn ? '收藏与阅微读者的公开想法' : '登录阅微后查看收藏与公开想法'),
         trailing: const AppIcon(AppGlyph.chevronRight),
         onTap: () => Navigator.of(context).push<void>(
           MaterialPageRoute<void>(

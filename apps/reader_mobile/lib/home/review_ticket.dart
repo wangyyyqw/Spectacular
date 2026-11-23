@@ -13,7 +13,7 @@ const _coverInset = 6.0;
 const _coverRadius = 6.0;
 
 /// 封面固定尺寸（3:4）；上下票纸时同样使用这一尺寸。
-const _coverWidth = 88.0;
+const _coverWidth = 76.0;
 const _coverHeight = _coverWidth * 4 / 3;
 
 /// 书评区最小高度。
@@ -28,12 +28,14 @@ class ReviewTicket extends StatelessWidget {
     required this.review,
     required this.duration,
     required this.onTap,
+    this.readDays,
   });
 
   final BookEntry book;
   final BookReview? review;
   final Duration? duration;
   final VoidCallback onTap;
+  final int? readDays;
 
   bool get _hasBody => review?.content.trim().isNotEmpty ?? false;
   String get _dateLabel => review == null ? '最近阅读' : '标记读完';
@@ -59,6 +61,7 @@ class ReviewTicket extends StatelessWidget {
       if (review != null)
         review!.rating == null ? '未评分' : '${review!.rating} 星',
       if (_hasBody) '有书评正文',
+      if (readDays != null) '阅读 $readDays 天',
       if (date == null)
         '暂无阅读日期'
       else
@@ -179,7 +182,7 @@ class ReviewTicket extends StatelessWidget {
 
   Widget _bookFace(BuildContext context, List<(String, String)> time) {
     final titleStyle = Theme.of(context).textTheme.bodyMedium!
-        .copyWith(fontSize: 18, height: 1.25, fontWeight: FontWeight.w600);
+        .copyWith(fontSize: 16, height: 1.25, fontWeight: FontWeight.w600);
     final caption = _caption(context);
     final author = book.author.trim();
     final duration = time
@@ -191,11 +194,15 @@ class ReviewTicket extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // 书名、作者、阅读时长各占固定行高，缺字段时保留空位。
+          // 书名、作者、阅读天数和时长依次排列，缺字段时保留空位。
           _lineSlot(context, titleStyle, 2, book.title, titleStyle),
           const SizedBox(height: 6),
           _lineSlot(context, caption, 1, author, caption),
           const SizedBox(height: 2),
+          if (readDays != null) ...[
+            _lineSlot(context, caption, 1, '阅读 $readDays 天', caption),
+            const SizedBox(height: 2),
+          ],
           _lineSlot(context, caption, 1, duration, caption),
         ],
       ),

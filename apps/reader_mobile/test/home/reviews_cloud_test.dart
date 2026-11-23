@@ -20,6 +20,37 @@ ReaMicroBookLink _link(int cloudBookId) => ReaMicroBookLink(
 );
 
 void main() {
+  test('里程碑提供阅读天数，本地较新正文仍保留且云端阅读指标不丢失', () {
+    final local = _book('local', '本地书', '作者');
+    final newer = BookReview(
+      bookId: local.id,
+      rating: 5,
+      content: '本地较新的正文',
+      createdAt: DateTime(2026, 11, 24),
+      updatedAt: DateTime(2026, 11, 24),
+    );
+    final merge = mergeCloudReviews(
+      books: [local],
+      reviews: {local.id: newer},
+      links: {local.id: _link(21)},
+      records: [
+        CloudReviewRecord.fromMilestone(
+          ReaMicroMilestone.fromJson({
+            'cloudBookId': 21,
+            'name': '本地书',
+            'author': '作者',
+            'rating': 8,
+            'ratingTime': DateTime(2026, 11, 23).millisecondsSinceEpoch,
+            'readDays': 24,
+            'totalReadTime': 7200,
+          }),
+        ),
+      ],
+    );
+    expect(merge.reviews[local.id], same(newer));
+    expect(merge.readDays[local.id], 24);
+    expect(merge.durations[local.id], const Duration(hours: 2));
+  });
   test('云端标注书按关联并入本地计数，本地缺失的书补入列表', () {
     final local = _book('local', '本地书', '作者');
     final merge = mergeCloudMarkBooks(
@@ -80,6 +111,7 @@ void main() {
           comment: '云端书评正文',
           updatedAt: updatedAt,
           readSeconds: 7200,
+          readDays: 12,
         ),
         CloudReviewRecord(
           cloudBookId: 22,
@@ -98,6 +130,7 @@ void main() {
     expect(merge.reviews[local.id]?.rating, 5);
     expect(merge.reviews[local.id]?.content, '云端书评正文');
     expect(merge.durations[local.id], const Duration(hours: 2));
+    expect(merge.readDays[local.id], 12);
     expect(merge.extraBooks.single.title, '仅云端书评');
     expect(merge.reviews[merge.extraBooks.single.id]?.rating, isNull);
     expect(

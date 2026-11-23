@@ -285,7 +285,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
       builder: (context, child) {
         final controller = widget.controller;
         return Scaffold(
-          appBar: AppBar(title: const Text('云端同步')),
+          appBar: AppBar(title: const Text('同步')),
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),

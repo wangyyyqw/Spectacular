@@ -85,7 +85,7 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
         final controller = widget.controller;
         final signedIn = controller.signedIn;
         return Scaffold(
-          appBar: AppBar(title: Text(signedIn ? '局域网设备同步' : '局域网授权登录')),
+          appBar: AppBar(title: const Text('互联')),
           body: SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),

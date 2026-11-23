@@ -455,6 +455,9 @@ class _StatsPageState extends State<StatsPage> {
               onOpenBook: _openCloudBook,
               onLoadMonth: controller.loadCloudMonth,
               onLoadHourlyInsights: _loadHourlyInsights,
+              onLoadPeriod: controller.loadCloudPeriod,
+              onLoadBookRecords: controller.loadBookRecords,
+              onHideBookRecord: controller.hideBookRecord,
             ),
     );
   }

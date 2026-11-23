@@ -1352,7 +1352,8 @@ function search(key){return JSON.stringify({code:200,data:[
     api.onSessionUpload = null;
     controller = await _createController(library, api);
     addTearDown(controller.dispose);
-    expect((await controller.syncReadingSessions()).durationSeconds, 180);
+    // 重启默认启用同步，初始化已重试未完成批次并补传新增尾段。
+    expect((await controller.syncReadingSessions()).durationSeconds, 0);
     final retryLogs = api.sessionLogUploads.expand((logs) => logs).toList();
     expect(retryLogs.where((log) => log.id == failed.id), hasLength(2));
     expect((await controller.syncReadingSessions()).durationSeconds, 0);
@@ -2972,8 +2973,9 @@ function search(key){return JSON.stringify({code:200,data:[
     expect(controller.cloudStats?.overview.years, <int>[2025, 2026]);
   });
 
-  test('登录后未开启唯一数据源也可读取统计页云端数据', () async {
+  test('已有登录账号默认启用阅微数据源并读取统计页云端数据', () async {
     final library = _TestLibrary();
+    await ReaMicroStore(library).saveCloudPrimary(false);
     final api = _FakeApi()
       ..overview = const ReaMicroOverview(
         years: <int>[2026],
@@ -2989,7 +2991,7 @@ function search(key){return JSON.stringify({code:200,data:[
     final controller = await _createController(library, api);
     addTearDown(controller.dispose);
 
-    expect(controller.cloudAsPrimary, isFalse);
+    expect(controller.cloudAsPrimary, isTrue);
     await controller.refreshCloudStats(force: true);
 
     expect(controller.cloudStats?.overview.totalDurationSeconds, 3600);
@@ -3757,12 +3759,6 @@ function search(key){return JSON.stringify({code:200,data:[
     await library.importBookAnnotation(book.id, annotation);
     await ReaMicroStore(library).saveMarkIds({'${book.id}|legacy': 77});
     controller.dispose();
-    final reloaded = await _createController(
-      library,
-      api,
-      progressStore: MemoryReaderProgressStore(),
-    );
-    addTearDown(reloaded.dispose);
     api.marks.add(
       ReaMicroMark(
         id: 77,
@@ -3780,6 +3776,12 @@ function search(key){return JSON.stringify({code:200,data:[
         updatedAt: 2000,
       ),
     );
+    final reloaded = await _createController(
+      library,
+      api,
+      progressStore: MemoryReaderProgressStore(),
+    );
+    addTearDown(reloaded.dispose);
     final result = await reloaded.syncMarks();
     expect(result.success, isTrue);
     expect(api.markUpserts.single.bookId, '46664');

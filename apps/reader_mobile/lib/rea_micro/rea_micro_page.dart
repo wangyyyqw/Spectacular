@@ -6,9 +6,6 @@ import 'rea_micro_book_link_page.dart';
 import 'rea_micro_controller.dart';
 import 'rea_micro_lan_page.dart';
 import 'rea_micro_models.dart';
-import 'rea_micro_rating_page.dart';
-import 'rea_micro_records_page.dart';
-import 'rea_micro_s3_page.dart';
 
 /// 阅微账号、阅读数据与同步设置页。
 class ReaMicroPage extends StatefulWidget {
@@ -25,7 +22,6 @@ class ReaMicroPage extends StatefulWidget {
 class _ReaMicroPageState extends State<ReaMicroPage> {
   final _email = TextEditingController();
   final _code = TextEditingController();
-  bool _switchingCloudSource = false;
 
   @override
   void initState() {
@@ -66,19 +62,6 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
         .showSnackBar(SnackBar(content: Text(result.message)));
   }
 
-  Future<void> _setCloudPrimary(bool value) async {
-    if (_switchingCloudSource) return;
-    setState(() => _switchingCloudSource = true);
-    await widget.controller.setCloudAsPrimary(value);
-    if (!mounted) return;
-    setState(() => _switchingCloudSource = false);
-    final message = widget.controller.error ?? widget.controller.notice;
-    if (message != null && message.trim().isNotEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
   Future<void> _openLanPage() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -95,7 +78,7 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
         final controller = widget.controller;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('阅微同步'),
+            title: const Text('账号'),
             actions: [
               if (controller.signedIn)
                 IconButton(
@@ -246,27 +229,6 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
       const SizedBox(height: 24),
       _ChartCard(points: controller.chart),
       const SizedBox(height: 24),
-      _section(context, '数据源', [
-        SwitchListTile(
-          key: const ValueKey<String>('reamicro-cloud-primary'),
-          secondary: Icon(
-            controller.cloudAsPrimary
-                ? Icons.cloud_done_outlined
-                : Icons.cloud_sync_outlined,
-          ),
-          title: const Text('以阅微为唯一数据源'),
-          subtitle: Text(
-            controller.cloudAsPrimary
-                ? '阅读时长、进度自动上报并按最后修改时间多端合并；统计页显示阅微完整阅读数据'
-                : '开启后以阅微为准同步阅读时长和阅读位置；统计页登录后仍显示阅微数据',
-          ),
-          value: controller.cloudAsPrimary,
-          onChanged: _switchingCloudSource
-              ? null
-              : (value) => unawaited(_setCloudPrimary(value)),
-        ),
-      ]),
-      const SizedBox(height: 24),
       _section(context, '阅读同步', [
         ListTile(
           leading: controller.syncing || controller.syncingProgress
@@ -291,46 +253,9 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
               : _syncNow,
         ),
         ListTile(
-          key: const ValueKey<String>('reamicro-lan-sync'),
-          leading: controller.lanSyncing
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.sync_alt),
-          title: const Text('局域网设备互联'),
-          subtitle: Text(controller.lanMessage ?? '从同一账号的附近设备合并章节与阅读进度'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: _openLanPage,
-        ),
-        ListTile(
-          key: const ValueKey<String>('reamicro-s3-sync'),
-          leading: controller.s3Syncing
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.cloud_upload_outlined),
-          title: const Text('云端同步'),
-          subtitle: Text(
-            controller.s3Configured
-                ? controller.s3Message ?? '已配置，自动同步本地与阅微图书文件'
-                : '配置阅微内置存储、S3、WebDAV 或 GitHub 后多端同步图书文件',
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute<void>(
-              builder: (context) =>
-                  ReaMicroS3Page(controller: widget.controller),
-            ),
-          ),
-        ),
-        ListTile(
           key: const ValueKey<String>('reamicro-book-links'),
           leading: const Icon(Icons.menu_book_outlined),
-          title: const Text('关联阅微公开阅读'),
+          title: const Text('关联书库'),
           subtitle: Text(
             controller.links.isEmpty
                 ? '按出版方关联公开阅读版本；阅读数据会独立同步'
@@ -341,30 +266,6 @@ class _ReaMicroPageState extends State<ReaMicroPage> {
             MaterialPageRoute<void>(
               builder: (context) =>
                   ReaMicroBookLinkPage(controller: controller),
-            ),
-          ),
-        ),
-        ListTile(
-          key: const ValueKey<String>('reamicro-records'),
-          leading: const Icon(Icons.history_edu_outlined),
-          title: const Text('阅读记录与标注'),
-          subtitle: const Text('查看周/月/年阅读记录、隐藏记录和标注书籍'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute<void>(
-              builder: (context) => ReaMicroRecordsPage(controller: controller),
-            ),
-          ),
-        ),
-        ListTile(
-          key: const ValueKey<String>('reamicro-ratings'),
-          leading: const Icon(Icons.workspace_premium_outlined),
-          title: const Text('书评与里程碑'),
-          subtitle: const Text('查看阅微读完记录，发布评分与书评'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute<void>(
-              builder: (context) => ReaMicroRatingPage(controller: controller),
             ),
           ),
         ),

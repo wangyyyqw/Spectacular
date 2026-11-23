@@ -28,6 +28,7 @@ Future<void> _pump(
   BookEntry book, {
   BookReview? review,
   Duration? duration,
+  int? readDays,
   VoidCallback? onTap,
   Size size = const Size(360, 800),
   double scale = 1,
@@ -51,6 +52,7 @@ Future<void> _pump(
             book: book,
             review: review,
             duration: duration,
+            readDays: readDays,
             onTap: onTap ?? () {},
           ),
         ),
@@ -66,6 +68,35 @@ int _starCount(WidgetTester tester) => tester
     .length;
 
 void main() {
+  testWidgets('里程碑阅读天数显示在作者与时长之间，封面和书名缩小', (tester) async {
+    await _pump(
+      tester,
+      _book(),
+      review: _review(),
+      readDays: 24,
+      duration: const Duration(hours: 12),
+    );
+    expect(
+      tester.getTopLeft(find.text('林川')).dy,
+      lessThan(tester.getTopLeft(find.text('阅读 24 天')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('阅读 24 天')).dy,
+      lessThan(tester.getTopLeft(find.text('12 小时')).dy),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('review-ticket-cover'))).width,
+      76,
+    );
+    final title = find
+        .descendant(
+          of: find.byKey(const ValueKey('review-ticket-face')),
+          matching: find.text('长夜与灯火'),
+        )
+        .last;
+    expect(tester.widget<Text>(title).style?.fontSize, 16);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('已写书评显示评分、标记读完日期和真实累计时长', (tester) async {
     final semantics = tester.ensureSemantics();
     try {

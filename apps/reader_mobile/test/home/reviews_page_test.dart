@@ -137,6 +137,47 @@ Future<void> _openReviewsTab(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('仅评分与空白正文归待写，补写正文后进入已写并保留评分', (tester) async {
+    final store = _MemoryReviewStore()
+      ..items['rated'] = _review('rated', ' \n ', rating: 5)
+      ..items['written'] = _review('written', '真正的评价正文');
+    await _pumpReviews(
+      tester,
+      books: [_book('rated', '仅评分', '作者'), _book('written', '有正文', '作者')],
+      store: store,
+    );
+    expect(find.text('已写 1 篇 · 待写 1 本 · 平均 4.5 星'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('reviews-filter-reviewed')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-card-written')), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-pending-rated')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('reviews-filter-pending')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('review-pending-rated')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-editor')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('review-content')),
+      '补写的评价正文',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pumpAndSettle();
+    expect(store.items['rated']?.rating, 5);
+    expect(store.items['rated']?.content, '补写的评价正文');
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('reviews-summary')),
+      -150,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView).last,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(find.text('已写 2 篇 · 待写 0 本 · 平均 4.5 星'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     '桌面书评并排展示、常驻搜索，窄窗编辑抽屉可取消并保存',
     (tester) async {

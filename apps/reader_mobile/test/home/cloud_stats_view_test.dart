@@ -8,6 +8,126 @@ import 'package:reader_mobile/home/weekday_average_chart.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 
 void main() {
+  testWidgets('图书时长共用周月年选择加载完整记录并可浏览历史周期', (tester) async {
+    final calls = <(ReaMicroRecordPeriod, DateTime)>[];
+    final summaryCalls = <(ReaMicroRecordPeriod, DateTime)>[];
+    ReaMicroBookRecord record(String name, int seconds) =>
+        ReaMicroBookRecord.fromJson({
+          'bookId': seconds,
+          'cloudBookId': seconds,
+          'name': name,
+          'totalReadTime': seconds,
+          'readingDuration': seconds,
+          'progress': .5,
+        });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudStatsView(
+            stats: _snapshot(_period(day: 3, total: 3600)),
+            linkedCloudBookIds: const {},
+            loading: false,
+            onRefresh: () async {},
+            onOpenBook: (_) {},
+            onLoadPeriod: (period, date) async {
+              summaryCalls.add((period, date));
+              return _period(day: 1, total: 7200);
+            },
+            onLoadBookRecords: (period, date) async {
+              calls.add((period, date));
+              return [
+                record('${date.month}月短读', 60),
+                record('${date.month}月长读', 3600),
+              ];
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(calls.single, (ReaMicroRecordPeriod.month, DateTime(2026, 11, 20)));
+    expect(find.text('阅读记录 2'), findsOneWidget);
+    expect(find.text('阅读 1 小时'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('cloud-duration-previous')),
+      150,
+    );
+    await tester.tap(find.byKey(const ValueKey('cloud-duration-previous')));
+    await tester.pumpAndSettle();
+    expect(summaryCalls.single, (
+      ReaMicroRecordPeriod.month,
+      DateTime(2026, 10),
+    ));
+    expect(calls.last, (ReaMicroRecordPeriod.month, DateTime(2026, 10)));
+    expect(find.text('10月长读'), findsOneWidget);
+    expect(find.text('11月长读'), findsNothing);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('cloud-stats-period')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本年').first);
+    await tester.pumpAndSettle();
+    expect(calls.last.$1, ReaMicroRecordPeriod.year);
+    await tester.tap(find.byKey(const ValueKey('cloud-duration-previous')));
+    await tester.pumpAndSettle();
+    expect(summaryCalls.last, (ReaMicroRecordPeriod.year, DateTime(2025)));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('cloud-stats-period')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周').first);
+    await tester.pumpAndSettle();
+    expect(calls.last, (ReaMicroRecordPeriod.week, DateTime(2025)));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('图书时长快速翻月忽略旧响应，失败重试不串用当月记录', (tester) async {
+    final october = Completer<ReaMicroPeriodStats>();
+    var septemberCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudStatsView(
+            stats: _snapshot(_period(day: 3, total: 3600)),
+            linkedCloudBookIds: const {},
+            loading: false,
+            onRefresh: () async {},
+            onOpenBook: (_) {},
+            onLoadBookRecords: (_, date) async => [
+              ReaMicroBookRecord.fromJson({
+                'bookId': date.month,
+                'name': '${date.month}月记录',
+                'totalReadTime': 3600,
+              }),
+            ],
+            onLoadPeriod: (_, date) async {
+              if (date.month == 10) return october.future;
+              if (++septemberCalls == 1) throw Exception('离线');
+              return _period(day: 1, total: 7200);
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('cloud-duration-previous')),
+      150,
+    );
+    await tester.tap(find.byKey(const ValueKey('cloud-duration-previous')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('cloud-duration-previous')));
+    await tester.pumpAndSettle();
+    expect(find.text('该周期阅读记录加载失败'), findsOneWidget);
+    expect(find.text('11月记录'), findsNothing);
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    october.complete(_period(day: 1, total: 60));
+    await tester.pumpAndSettle();
+    expect(find.text('9月记录'), findsOneWidget);
+    expect(find.text('10月记录'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('静默刷新期间滚动偏移与内容位置保持不变', (tester) async {
     final snapshot = _snapshot(_period(day: 3, total: 3600));
     Widget page(bool loading) => MaterialApp(

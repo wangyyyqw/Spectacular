@@ -41,6 +41,17 @@ void main() {
       MaterialApp(home: ReaMicroPage(controller: controller)),
     );
     await tester.pumpAndSettle();
+    expect(find.text('账号'), findsOneWidget);
+    expect(find.byType(SwitchListTile), findsNothing);
+    for (final key in [
+      'reamicro-lan-sync',
+      'reamicro-s3-sync',
+      'reamicro-records',
+      'reamicro-ratings',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsNothing);
+    }
+    expect(find.text('关联书库'), findsOneWidget);
     final position = tester.getTopLeft(find.text('测试读者'));
     expect(find.byKey(const ValueKey('reamicro-notice')), findsNothing);
     expect(find.byKey(const ValueKey('reamicro-error')), findsNothing);

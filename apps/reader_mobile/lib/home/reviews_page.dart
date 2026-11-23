@@ -73,6 +73,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   List<BookEntry>? _books;
   Map<String, BookNoteCounts> _counts = const {};
   Map<String, Duration> _durations = const {};
+  Map<String, int> _readDays = const {};
   Map<String, BookReview> _reviews = const <String, BookReview>{};
   Set<String> _finishedBooks = const {};
   final TextEditingController _searchController = TextEditingController();
@@ -235,6 +236,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       var visibleCounts = counts;
       var visibleReviews = reviews;
       var visibleDurations = durations;
+      var visibleReadDays = const <String, int>{};
       var markBooks = const <String, ({int cloudBookId, int bookId})>{};
       String? cloudError;
       final controller = widget.reaMicro;
@@ -299,6 +301,7 @@ class _ReviewsPageState extends State<ReviewsPage>
               ...durations,
               ...merge.durations,
             };
+            visibleReadDays = merge.readDays;
           }
         } catch (_) {
           cloudError = notes ? '阅微笔记读取失败，已显示本地笔记' : '阅微书评读取失败，已显示本地书评';
@@ -311,6 +314,7 @@ class _ReviewsPageState extends State<ReviewsPage>
           _counts = notes ? visibleCounts : _counts;
           _reviews = notes ? _reviews : visibleReviews;
           _durations = notes ? _durations : visibleDurations;
+          _readDays = notes ? _readDays : visibleReadDays;
           _cloudMarkBooks = markBooks;
           _cloudError = cloudError;
           _error = null;
@@ -644,10 +648,7 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Widget _sectionBody() {
     if (_bookListsTab) {
-      return BookListsView(
-        library: widget.library,
-        active: widget.active,
-      );
+      return BookListsView(library: widget.library, active: widget.active);
     }
     final books = _books;
     if (books == null) {
@@ -673,6 +674,7 @@ class _ReviewsPageState extends State<ReviewsPage>
           finishedBooks: _finishedBooks,
           reviews: _reviews,
           durations: _durations,
+          readDays: _readDays,
           query: _query,
           filter: _filter,
           sort: _sort,
@@ -700,6 +702,7 @@ class _ReviewList extends StatelessWidget {
     required this.finishedBooks,
     required this.reviews,
     required this.durations,
+    required this.readDays,
     required this.query,
     required this.filter,
     required this.sort,
@@ -713,6 +716,7 @@ class _ReviewList extends StatelessWidget {
   final Set<String> finishedBooks;
   final Map<String, BookReview> reviews;
   final Map<String, Duration> durations;
+  final Map<String, int> readDays;
   final String query;
   final _ReviewFilter filter;
   final _ReviewSort sort;
@@ -737,7 +741,7 @@ class _ReviewList extends StatelessWidget {
 
     final allReviewed = <BookEntry>[
       for (final book in books)
-        if (reviews[book.id] != null) book,
+        if (reviews[book.id]?.content.trim().isNotEmpty ?? false) book,
     ];
     final reviewed = <BookEntry>[
       for (final book in allReviewed)
@@ -767,14 +771,16 @@ class _ReviewList extends StatelessWidget {
     reviewed.sort(compareBooks);
     final pending = <BookEntry>[
       for (final book in books)
-        if (finishedBooks.contains(book.id) &&
-            reviews[book.id] == null &&
+        if ((finishedBooks.contains(book.id) || reviews[book.id] != null) &&
+            !(reviews[book.id]?.content.trim().isNotEmpty ?? false) &&
             matches(book))
           book,
     ];
     final pendingCount = books
         .where(
-          (book) => finishedBooks.contains(book.id) && reviews[book.id] == null,
+          (book) =>
+              (finishedBooks.contains(book.id) || reviews[book.id] != null) &&
+              !(reviews[book.id]?.content.trim().isNotEmpty ?? false),
         )
         .length;
     if (sort == _ReviewSort.title) {
@@ -841,12 +847,18 @@ class _ReviewList extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 14),
       child: ReviewTicket(
         key: ValueKey(
-          'review-${review == null ? 'pending' : 'card'}-${book.id}',
+          'review-${review?.content.trim().isNotEmpty == true ? 'card' : 'pending'}-${book.id}',
         ),
         book: book,
         review: review,
         duration: durations[book.id],
-        onTap: review == null ? () => onEdit(book) : () => onOpen(book, review),
+        readDays: readDays[book.id],
+        onTap:
+            review == null ||
+                (review.content.trim().isEmpty &&
+                    finishedBooks.contains(book.id))
+            ? () => onEdit(book)
+            : () => onOpen(book, review),
       ),
     );
   }

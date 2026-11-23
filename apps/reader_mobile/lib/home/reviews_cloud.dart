@@ -36,6 +36,7 @@ class CloudReviewMerge {
     required this.reviews,
     required this.durations,
     required this.coverUrls,
+    this.readDays = const {},
   });
 
   /// 本地书架没有的云端书。
@@ -49,6 +50,9 @@ class CloudReviewMerge {
 
   /// 阅微书评书封面地址，按列表中的书籍标识索引。
   final Map<String, String> coverUrls;
+
+  /// 里程碑的阅读天数，按书籍标识索引。
+  final Map<String, int> readDays;
 }
 
 /// 一条可展示的阅微书评。
@@ -64,6 +68,8 @@ class CloudReviewRecord {
     required this.comment,
     required this.updatedAt,
     required this.readSeconds,
+    this.readDays = 0,
+    this.finished = false,
   });
 
   /// 云端书籍标识。
@@ -81,9 +87,11 @@ class CloudReviewRecord {
   final String comment;
   final DateTime updatedAt;
   final int readSeconds;
+  final int readDays;
+  final bool finished;
 
   /// 是否包含可展示的书评内容。
-  bool get usable => rating > 0 || comment.trim().isNotEmpty;
+  bool get usable => finished || rating > 0 || comment.trim().isNotEmpty;
 
   /// 从读完里程碑解析。
   factory CloudReviewRecord.fromMilestone(ReaMicroMilestone milestone) =>
@@ -101,6 +109,8 @@ class CloudReviewRecord {
               : DateTime.now().millisecondsSinceEpoch,
         ),
         readSeconds: milestone.totalReadTimeSeconds,
+        readDays: milestone.readDays,
+        finished: true,
       );
 
   /// 从按书查询的书评解析。
@@ -191,6 +201,7 @@ CloudReviewMerge mergeCloudReviews({
 }) {
   final mergedReviews = Map<String, BookReview>.of(reviews);
   final durations = <String, Duration>{};
+  final readDays = <String, int>{};
   final coverUrls = <String, String>{};
   final extraBooks = <BookEntry>[];
   final seen = <int>{};
@@ -210,6 +221,12 @@ CloudReviewMerge mergeCloudReviews({
     if (record.bookCover.trim().isNotEmpty) {
       coverUrls[target.id] = record.bookCover.trim();
     }
+    if (record.readSeconds > 0) {
+      durations[target.id] = Duration(seconds: record.readSeconds);
+    }
+    if (record.finished || record.readDays > 0) {
+      readDays[target.id] = record.readDays;
+    }
     final existing = mergedReviews[target.id];
     if (existing != null && existing.updatedAt.isAfter(record.updatedAt)) {
       continue;
@@ -221,15 +238,13 @@ CloudReviewMerge mergeCloudReviews({
       createdAt: existing?.createdAt ?? record.updatedAt,
       updatedAt: record.updatedAt,
     );
-    if (record.readSeconds > 0) {
-      durations[target.id] = Duration(seconds: record.readSeconds);
-    }
   }
   return CloudReviewMerge(
     extraBooks: extraBooks,
     reviews: mergedReviews,
     durations: durations,
     coverUrls: coverUrls,
+    readDays: readDays,
   );
 }
 

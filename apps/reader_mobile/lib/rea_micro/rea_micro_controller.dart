@@ -279,7 +279,10 @@ class ReaMicroController extends ChangeNotifier {
     _progressStates = await _store.loadProgressStates();
     _markIds = await _store.loadMarkIds();
     _deviceId = await _store.loadOrCreateDeviceId();
-    _cloudAsPrimary = await _store.loadCloudPrimary();
+    final previouslyCloudPrimary = await _store.loadCloudPrimary();
+    // 登录账号默认使用阅微数据，也迁移旧版本保存的关闭状态。
+    _cloudAsPrimary = _token != null;
+    await _store.saveCloudPrimary(_cloudAsPrimary);
     _s3Config = await _store.loadS3Config();
     _s3BookmarkBases = await _store.loadS3BookmarkBases();
     _s3LocalBookUuids = await _store.loadS3LocalBookUuids();
@@ -297,13 +300,20 @@ class ReaMicroController extends ChangeNotifier {
         await _restoreCloudS3Config(silent: true);
         if (_cloudAsPrimary) {
           _startCloudAutoSync();
-          await _syncCloudNow();
+          if (previouslyCloudPrimary) {
+            await _syncCloudNow();
+          } else {
+            // 首次启用先建立位置基线，再按原有节流补传，避免重复登记进度。
+            await _seedProgressStatesFromLocal(markDirty: false);
+            scheduleReadingSync(delay: const Duration(seconds: 5));
+            scheduleProgressSync(delay: const Duration(seconds: 7));
+          }
         } else {
           await _seedProgressStatesFromLocal(markDirty: false);
           scheduleReadingSync(delay: const Duration(seconds: 5));
           scheduleProgressSync(delay: const Duration(seconds: 7));
         }
-        if (!_cloudAsPrimary && _s3Config != null) {
+        if (!previouslyCloudPrimary && _s3Config != null) {
           scheduleS3Sync(delay: const Duration(seconds: 9));
         }
       }
@@ -474,7 +484,7 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      return await switch (period) {
+      final records = await switch (period) {
         ReaMicroRecordPeriod.week => _api.fetchBookRecordsByWeek(
           token,
           date: anchor,
@@ -489,6 +499,8 @@ class ReaMicroController extends ChangeNotifier {
           year: anchor.year,
         ),
       };
+      if (_token != token) throw const ReaMicroException('账号已变更，请重新加载统计');
+      return records;
     } on ReaMicroException catch (error) {
       await _handleError(error);
       rethrow;
@@ -999,6 +1011,17 @@ class ReaMicroController extends ChangeNotifier {
     await refresh(silent: true);
   }
 
+  /// 登录后启用自动同步，沿用已有位置基线与补传节流。
+  Future<void> _enableDefaultCloudSource() async {
+    if (!signedIn) return;
+    _cloudAsPrimary = true;
+    await _store.saveCloudPrimary(true);
+    _startCloudAutoSync();
+    await refreshCloudStats(force: true, silent: true);
+    scheduleProgressSync(delay: const Duration(seconds: 4));
+    if (s3Configured) scheduleS3Sync(delay: const Duration(seconds: 6));
+  }
+
   /// 切换是否把阅微作为唯一阅读数据源。
   Future<void> setCloudAsPrimary(bool value) async {
     if (value && !signedIn) {
@@ -1149,13 +1172,28 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 读取指定月份，并拒绝账号切换前的旧响应。
   Future<ReaMicroPeriodStats> loadCloudMonth(DateTime month) async {
+    return loadCloudPeriod(ReaMicroRecordPeriod.month, month);
+  }
+
+  /// 读取指定自然周期，并拒绝账号切换前的旧响应。
+  Future<ReaMicroPeriodStats> loadCloudPeriod(
+    ReaMicroRecordPeriod period,
+    DateTime anchor,
+  ) async {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
-    final result = await _api.fetchMonthStats(
-      token,
-      year: month.year,
-      month: month.month,
-    );
+    final result = await switch (period) {
+      ReaMicroRecordPeriod.week => _api.fetchWeekStats(token, date: anchor),
+      ReaMicroRecordPeriod.month => _api.fetchMonthStats(
+        token,
+        year: anchor.year,
+        month: anchor.month,
+      ),
+      ReaMicroRecordPeriod.year => _api.fetchYearStats(
+        token,
+        year: anchor.year,
+      ),
+    };
     if (_token != token) throw const ReaMicroException('账号已变更，请重新加载统计');
     return result;
   }
@@ -1370,6 +1408,7 @@ class ReaMicroController extends ChangeNotifier {
       await _seedProgressStatesFromLocal(markDirty: false);
       await _restoreCloudS3Config(silent: true);
       await _startLanAuthorization();
+      await _enableDefaultCloudSource();
       scheduleReadingSync(delay: const Duration(seconds: 2));
       return true;
     } catch (error) {
@@ -3735,6 +3774,7 @@ class ReaMicroController extends ChangeNotifier {
       await _refreshInternal(token, silent: true);
       await _restoreCloudS3Config(silent: true);
       await _startLanAuthorization();
+      await _enableDefaultCloudSource();
       scheduleReadingSync(delay: const Duration(seconds: 2));
       return true;
     } catch (error) {

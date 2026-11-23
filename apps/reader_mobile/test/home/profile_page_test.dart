@@ -59,7 +59,7 @@ class _FakeAppFontStore extends ReaderFontStore {
 }
 
 void main() {
-  testWidgets('我的页设置入口承接原有选项，头像进入阅微同步', (tester) async {
+  testWidgets('我的页仅显示五个入口标题，头像进入账号', (tester) async {
     final controller = _AccountController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(
@@ -77,6 +77,12 @@ void main() {
     expect(find.text('帮助与诊断'), findsNothing);
     expect(find.text('关于'), findsNothing);
     expect(find.byKey(const ValueKey('reamicro-entry')), findsNothing);
+    for (final title in ['野社', '社区', '互联', '同步', '设置']) {
+      final tile = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, title),
+      );
+      expect(tile.subtitle, isNull);
+    }
     await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await tester.pumpAndSettle();
     expect(find.byType(AppSettingsPage), findsOneWidget);
@@ -94,7 +100,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('profile-account-entry')));
     await tester.pumpAndSettle();
-    expect(find.text('阅微同步'), findsOneWidget);
+    expect(find.text('账号'), findsOneWidget);
   });
 
   testWidgets('我的页展示登录账号头像昵称时长与ID并响应退出', (tester) async {

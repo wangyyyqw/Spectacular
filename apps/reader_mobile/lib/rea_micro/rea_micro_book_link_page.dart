@@ -118,7 +118,7 @@ class _ReaMicroBookLinkPageState extends State<ReaMicroBookLinkPage> {
     final visible = _visibleBooks;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('关联阅微书籍'),
+        title: const Text('关联书库'),
         actions: [
           IconButton(
             key: const ValueKey<String>('reamicro-auto-link'),
