@@ -3,6 +3,7 @@ package com.spectacular.reader_mobile
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
@@ -28,6 +29,21 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.spectacular.reader_mobile/theme_color",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getWallpaperSeed" -> result.success(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        getColor(android.R.color.system_accent1_500).toLong() and 0xFFFFFFFFL
+                    } else {
+                        null
+                    },
+                )
+                else -> result.notImplemented()
+            }
+        }
         epubExport = EpubExportHandler(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/epub_export").setMethodCallHandler(epubExport)

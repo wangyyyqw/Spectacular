@@ -244,6 +244,8 @@ class _FakeApi implements ReaMicroApi {
   _FakeApi({this.unauthorized = false});
 
   bool unauthorized;
+  List<ReaMicroChartPoint> chartPoints = [];
+  final List<int> chartLimits = [];
   final List<List<ReaMicroReadTimeEntry>> uploads =
       <List<ReaMicroReadTimeEntry>>[];
   final List<List<ReaMicroReadSessionLog>> sessionLogUploads =
@@ -355,7 +357,8 @@ class _FakeApi implements ReaMicroApi {
     if (unauthorized) {
       throw const ReaMicroException('登录已失效', unauthorized: true);
     }
-    return const <ReaMicroChartPoint>[];
+    chartLimits.add(limit);
+    return chartPoints;
   }
 
   @override
@@ -927,6 +930,40 @@ Future<ReaMicroController> _createController(
 void main() {
   setUpAll(() {
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+  });
+
+  test('年度热力图请求完整记录，旧图表保留30天，刷新与退出同步更新', () async {
+    final api = _FakeApi();
+    api.chartPoints = [
+      for (var day = 1; day <= 40; day++)
+        ReaMicroChartPoint(
+          day: DateTime(2026, 10, day).toIso8601String().substring(0, 10),
+          durationSeconds: day * 60,
+          readingDurationSeconds: day * 60,
+          listeningDurationSeconds: 0,
+        ),
+    ];
+    final controller = await _createController(LibraryStore.memory(), api);
+    addTearDown(controller.dispose);
+    await controller.refresh();
+    expect(api.chartLimits, isNotEmpty);
+    expect(api.chartLimits.every((limit) => limit == 366), isTrue);
+    expect(controller.heatmapChart, hasLength(40));
+    expect(controller.chart, hasLength(30));
+    expect(controller.chart.first.day, '2026-10-11');
+    api.chartPoints = [
+      const ReaMicroChartPoint(
+        day: '2026-11-24',
+        durationSeconds: 900,
+        readingDurationSeconds: 900,
+        listeningDurationSeconds: 0,
+      ),
+    ];
+    await controller.refreshCloudStats(force: true);
+    expect(controller.heatmapChart.single.durationSeconds, 900);
+    await controller.logout();
+    expect(controller.heatmapChart, isEmpty);
+    expect(controller.chart, isEmpty);
   });
 
   test('未关联登记仅建内部身份，超时重启后关联沿用历史与新增会话', () async {

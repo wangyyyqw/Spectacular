@@ -6,6 +6,7 @@ import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
+
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:reader_core/cache/chapter_pagination_store.dart';
@@ -30,6 +31,7 @@ import '../home/finish_book_sheet.dart';
 import '../dictionary/dictionary_store.dart';
 import '../dictionary/dictionary_sheet.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_color_settings.dart';
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import '../diagnostics/reader_log.dart';
@@ -47,6 +49,7 @@ import 'package:reader_core/epub/epub_format_opener.dart';
 import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
+import 'reader_background_color_theme.dart';
 import 'reader_font_store.dart';
 import 'reader_offline_tts.dart';
 import 'reader_tts_controller.dart';
@@ -1057,11 +1060,19 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       backgroundColor: _pageTheme.background,
       // 阅读页自行处理安全区，并让正文始终铺满可用区域。
       resizeToAvoidBottomInset: false,
-      body: AnimatedSwitcher(
-        duration: widget.readingActive
-            ? const Duration(milliseconds: 250)
-            : Duration.zero,
-        child: _buildBody(),
+      body: ReaderBackgroundColorTheme(
+        enabled:
+            ThemeColorScope.maybeOf(context)?.readerBackgroundEnabled == true &&
+            !_settings.inkMode,
+        theme: _pageTheme,
+        backgroundId: _settings.backgroundId,
+        store: _backgroundStore,
+        child: AnimatedSwitcher(
+          duration: widget.readingActive
+              ? const Duration(milliseconds: 250)
+              : Duration.zero,
+          child: _buildBody(),
+        ),
       ),
     );
   }

@@ -16,6 +16,7 @@ import 'reader/reader_font_store.dart';
 import 'reader/reader_text_warmup.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
+import 'theme/theme_color_settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -151,6 +152,9 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   );
 
   late final ReaderFontStore _fontStore = ReaderFontStore(widget.library);
+  late final ThemeColorSettings _themeColors = ThemeColorSettings(
+    widget.library,
+  );
   late final Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
@@ -160,12 +164,26 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _themeColors.addListener(_colorsChanged);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _themeColors.removeListener(_colorsChanged);
+    _themeColors.dispose();
     super.dispose();
+  }
+
+  void _colorsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_themeColors.refreshWallpaper());
+    }
   }
 
   @override
@@ -177,6 +195,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   Future<_AppPreferences> _loadPreferences() async {
     final mode = _loadMode();
     final fontFamily = _loadFontFamily();
+    await _themeColors.initialize();
     return _AppPreferences(mode: await mode, fontFamily: await fontFamily);
   }
 
@@ -289,21 +308,28 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     return MaterialApp(
       title: '阅微Extend',
       debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(fontFamily: fontFamily),
+      theme: buildAppTheme(
+        fontFamily: fontFamily,
+        colorScheme: _themeColors.wallpaperScheme(Brightness.light),
+      ),
       darkTheme: buildAppTheme(
         brightness: Brightness.dark,
         fontFamily: fontFamily,
+        colorScheme: _themeColors.wallpaperScheme(Brightness.dark),
       ),
       themeMode: mode,
       themeAnimationDuration: Duration.zero,
       builder: (context, child) => AppThemeScope(
         mode: mode,
         onModeChanged: _setMode,
-        child: AnnotatedRegion<SystemUiOverlayStyle>(
-          value: readerSystemBarStyle(
-            Theme.of(context).scaffoldBackgroundColor,
+        child: ThemeColorScope(
+          settings: _themeColors,
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: readerSystemBarStyle(
+              Theme.of(context).scaffoldBackgroundColor,
+            ),
+            child: child!,
           ),
-          child: child!,
         ),
       ),
       home: HomeShell(

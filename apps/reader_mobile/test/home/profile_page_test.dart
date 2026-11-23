@@ -83,6 +83,10 @@ void main() {
       );
       expect(tile.subtitle, isNull);
     }
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('profile-settings-entry')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await tester.pumpAndSettle();
     expect(find.byType(AppSettingsPage), findsOneWidget);
@@ -97,6 +101,12 @@ void main() {
     );
     expect(find.text('关于'), findsOneWidget);
     await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('profile-account-entry')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('profile-account-entry')));
     await tester.pumpAndSettle();

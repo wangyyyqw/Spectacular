@@ -7,6 +7,29 @@ const _shape = RoundedRectangleBorder(
   borderRadius: BorderRadius.all(Radius.circular(4)),
 );
 
+/// 只覆盖阅读面板；继承主题可随菜单捕获到独立的弹层路由。
+class ReaderPanelColorScope extends InheritedTheme {
+  const ReaderPanelColorScope({
+    super.key,
+    required this.scheme,
+    required super.child,
+  });
+
+  final ColorScheme? scheme;
+
+  static ColorScheme? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<ReaderPanelColorScope>()
+      ?.scheme;
+
+  @override
+  bool updateShouldNotify(ReaderPanelColorScope oldWidget) =>
+      scheme != oldWidget.scheme;
+
+  @override
+  Widget wrap(BuildContext context, Widget child) =>
+      ReaderPanelColorScope(scheme: scheme, child: child);
+}
+
 /// 把正文主题映射为菜单、抽屉和编辑弹层；夜间弹层保持同一背景。
 class ReaderPanelTheme extends StatelessWidget {
   /// 创建阅读面板主题。
@@ -20,11 +43,20 @@ class ReaderPanelTheme extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = _panelScheme(theme);
-    var data = _panelTypography(Theme.of(context), theme, scheme);
-    data = _panelSurfaces(data, theme, scheme);
-    data = _panelButtons(data, theme);
-    data = _panelInputs(data, theme, scheme);
+    final override = theme.id == 'ink'
+        ? null
+        : ReaderPanelColorScope.maybeOf(context);
+    final scheme = override ?? _panelScheme(theme);
+    final panel = override == null
+        ? theme
+        : ReaderTheme.custom(
+            background: scheme.surface,
+            text: scheme.onSurface,
+          );
+    var data = _panelTypography(Theme.of(context), panel, scheme);
+    data = _panelSurfaces(data, panel, scheme);
+    data = _panelButtons(data, panel, scheme);
+    data = _panelInputs(data, panel, scheme);
     return ReaderFrostedScope(
       inkMode: theme.id == 'ink',
       child: Theme(data: data, child: child),
@@ -145,10 +177,10 @@ ThemeData _panelSurfaces(
   ),
 );
 
-ThemeData _panelButtons(ThemeData base, ReaderTheme theme) {
+ThemeData _panelButtons(ThemeData base, ReaderTheme theme, ColorScheme scheme) {
   final style = FilledButton.styleFrom(
-    backgroundColor: theme.text,
-    foregroundColor: theme.background,
+    backgroundColor: scheme.primary,
+    foregroundColor: scheme.onPrimary,
     elevation: 0,
     shape: _shape,
   );
@@ -157,13 +189,16 @@ ThemeData _panelButtons(ThemeData base, ReaderTheme theme) {
     elevatedButtonTheme: ElevatedButtonThemeData(style: style),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: theme.text,
+        foregroundColor: scheme.primary,
         side: BorderSide(color: theme.line),
         shape: _shape,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(foregroundColor: theme.text, shape: _shape),
+      style: TextButton.styleFrom(
+        foregroundColor: scheme.primary,
+        shape: _shape,
+      ),
     ),
   );
 }
@@ -177,7 +212,7 @@ ThemeData _panelInputs(ThemeData base, ReaderTheme theme, ColorScheme scheme) =>
         labelStyle: TextStyle(color: theme.text),
         focusedBorder: OutlineInputBorder(
           borderRadius: const BorderRadius.all(Radius.circular(4)),
-          borderSide: BorderSide(color: theme.text),
+          borderSide: BorderSide(color: scheme.primary),
         ),
       ),
       chipTheme: base.chipTheme.copyWith(

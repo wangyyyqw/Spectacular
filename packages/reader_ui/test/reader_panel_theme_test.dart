@@ -8,6 +8,66 @@ import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 void main() {
+  testWidgets('背景取色覆盖面板并传入弹层，墨水模式保持单色', (tester) async {
+    const ink = ReaderTheme(
+      id: 'ink',
+      name: '墨水',
+      background: Colors.white,
+      text: Colors.black,
+    );
+    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFFBF9C62));
+    late ThemeData captured;
+    Widget content(ReaderTheme theme) => ReaderPanelTheme(
+      theme: theme,
+      child: Builder(
+        builder: (context) {
+          captured = Theme.of(context);
+          return TextButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => ReaderPanelTheme(
+                theme: theme,
+                child: Builder(
+                  builder: (context) {
+                    captured = Theme.of(context);
+                    return const AlertDialog(content: Text('取色弹层'));
+                  },
+                ),
+              ),
+            ),
+            child: const Text('打开弹层'),
+          );
+        },
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPanelColorScope(
+          scheme: scheme,
+          child: content(ReaderTheme.white),
+        ),
+      ),
+    );
+    expect(captured.colorScheme, scheme);
+    expect(captured.dialogTheme.backgroundColor, scheme.surface);
+    expect(
+      captured.filledButtonTheme.style!.backgroundColor!.resolve({}),
+      scheme.primary,
+    );
+    await tester.tap(find.text('打开弹层'));
+    await tester.pumpAndSettle();
+    expect(captured.colorScheme, scheme);
+    expect(find.text('取色弹层'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPanelColorScope(scheme: scheme, child: content(ink)),
+      ),
+    );
+    expect(captured.colorScheme.primary, ink.text);
+    expect(captured.colorScheme.surface, ink.background);
+  });
+
   testWidgets('阅读面板主题跟随深色阅读主题', (tester) async {
     late ThemeData captured;
     await tester.pumpWidget(

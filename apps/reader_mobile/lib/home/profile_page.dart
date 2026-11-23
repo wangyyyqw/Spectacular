@@ -15,6 +15,7 @@ import '../theme/app_theme.dart';
 import 'reading_insights.dart';
 import 'app_settings_page.dart';
 import 'navigation_settings.dart';
+import 'reading_heatmap.dart';
 
 /// 我的页展示阅微账号、社区与设置入口。
 class ProfilePage extends StatelessWidget {
@@ -85,6 +86,7 @@ class ProfilePage extends StatelessWidget {
                 child: _identity(context),
               ),
             ),
+            if (reaMicro != null) ReadingHeatmap(controller: reaMicro!),
             const SizedBox(height: 24),
             Material(
               color: Theme.of(context).colorScheme.surface,

@@ -14,10 +14,12 @@ import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../reader/reader_font_store.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_color_settings.dart';
 import 'app_font_picker.dart';
 import 'bookshelf_sort.dart';
 import 'navigation_settings.dart';
 import 'navigation_settings_page.dart';
+import 'theme_color_settings_page.dart';
 
 /// 应用设置：外观、阅读、帮助与诊断和关于。
 class AppSettingsPage extends StatefulWidget {
@@ -310,11 +312,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              if (widget.onThemeModeChanged != null ||
-                  widget.navigationSettings != null) ...[
-                _appearance(context),
-                const SizedBox(height: 24),
-              ],
+              _appearance(context),
+              const SizedBox(height: 24),
               _section(context, '阅读', [
                 ListTile(
                   key: const ValueKey('dictionary-settings-entry'),
@@ -397,6 +396,30 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Widget _appearance(BuildContext context) {
     final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
     return _section(context, '外观', [
+      ListTile(
+        key: const ValueKey('theme-color-settings-entry'),
+        leading: const AppIcon(AppGlyph.palette),
+        title: const Text('主题取色'),
+        trailing: const AppIcon(AppGlyph.chevronRight),
+        onTap: () async {
+          final shared = ThemeColorScope.maybeOf(context);
+          final settings = shared ?? ThemeColorSettings(widget.library);
+          if (shared == null) await settings.initialize();
+          if (!context.mounted) {
+            if (shared == null) settings.dispose();
+            return;
+          }
+          try {
+            await Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => ThemeColorSettingsPage(settings: settings),
+              ),
+            );
+          } finally {
+            if (shared == null) settings.dispose();
+          }
+        },
+      ),
       if (widget.onThemeModeChanged != null)
         ListTile(
           leading: const AppIcon(AppGlyph.palette),

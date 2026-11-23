@@ -165,7 +165,14 @@ class ReaMicroController extends ChangeNotifier {
   ReaMicroUser? get user => _user;
 
   /// 最近若干天的阅读时长。
-  List<ReaMicroChartPoint> get chart => _chart;
+  List<ReaMicroChartPoint> get chart => _chart.length <= 30
+      ? _chart
+      : List<ReaMicroChartPoint>.unmodifiable(
+          _chart.sublist(_chart.length - 30),
+        );
+
+  /// 账号热力图使用完整年度记录，原有近一个月图表保留原来的范围。
+  List<ReaMicroChartPoint> get heatmapChart => _chart;
 
   /// 本地书籍与云端书籍的关联。
   Map<String, ReaMicroBookLink> get links =>
@@ -1060,13 +1067,14 @@ class ReaMicroController extends ChangeNotifier {
     _notify();
     try {
       final userFuture = _api.fetchUser(token);
-      final chartFuture = _api.fetchReadTimeChart(token);
+      final chartFuture = _api.fetchReadTimeChart(token, limit: 366);
       final results = await Future.wait<Object?>(<Future<Object?>>[
         userFuture,
         chartFuture,
       ]);
       final user = results[0]! as ReaMicroUser;
       final chart = results[1]! as List<ReaMicroChartPoint>;
+      if (_token != token) return;
       _user = user;
       _chart = List<ReaMicroChartPoint>.unmodifiable(chart);
       _lastRefreshAt = DateTime.now();
@@ -1214,7 +1222,7 @@ class ReaMicroController extends ChangeNotifier {
         _api.fetchWeekStats(token, date: now),
         _api.fetchMonthStats(token, year: now.year, month: now.month),
         _api.fetchYearStats(token, year: now.year),
-        _api.fetchReadTimeChart(token),
+        _api.fetchReadTimeChart(token, limit: 366),
         _api.fetchBookRecords(token),
       ]);
       if (_token != token) return;
@@ -1226,6 +1234,9 @@ class ReaMicroController extends ChangeNotifier {
               );
               return compared != 0 ? compared : left.name.compareTo(right.name);
             });
+      _chart = List<ReaMicroChartPoint>.unmodifiable(
+        results[4]! as List<ReaMicroChartPoint>,
+      );
       _cloudStats = ReaMicroCloudStats(
         overview: results[0]! as ReaMicroOverview,
         week: results[1]! as ReaMicroPeriodStats,

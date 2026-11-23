@@ -156,8 +156,11 @@ InputDecorationTheme _input(ColorScheme colors) {
 ThemeData buildAppTheme({
   Brightness brightness = Brightness.light,
   String fontFamily = AppFonts.defaultFamily,
+  ColorScheme? colorScheme,
 }) {
-  final colors = brightness == Brightness.dark ? _nightScheme : _dayScheme;
+  final colors =
+      colorScheme ??
+      (brightness == Brightness.dark ? _nightScheme : _dayScheme);
   final fallback = fontFamily == AppFonts.defaultFamily
       ? null
       : AppFonts.fallback;
@@ -178,7 +181,7 @@ ThemeData buildAppTheme({
     inputDecorationTheme: _input(colors),
     bottomNavigationBarTheme: BottomNavigationBarThemeData(
       backgroundColor: colors.surface,
-      selectedItemColor: colors.onSurface,
+      selectedItemColor: colors.primary,
       unselectedItemColor: colors.onSurfaceVariant,
       selectedLabelStyle: TextStyle(
         fontFamily: fontFamily,
