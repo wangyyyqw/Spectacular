@@ -426,7 +426,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   Future<void> _showFontPicker() async {
     if (_busyFont) return;
     setState(() => _choosingFont = true);
-    final selection = await showReaderBottomSheet<ReaderFontSelection>(
+    final selection = await showReaderDrawer<ReaderFontSelection>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

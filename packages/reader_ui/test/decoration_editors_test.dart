@@ -1041,6 +1041,27 @@ void main() {
     expect(selected.single.id, 'manual');
   });
 
+  testWidgets('只有启用自动规则时不显示手工装饰分割线', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderDecorationPanel(
+            decorations: const [],
+            toc: const [],
+            onSelect: (_) {},
+            onEdit: (_) {},
+            onRemove: (_) {},
+            onRules: () {},
+            ruleCount: 2,
+            rulesEnabled: true,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('自动规则会直接应用到正文\n目前没有手工装饰'), findsOneWidget);
+    expect(find.byType(Divider), findsNothing);
+  });
+
   testWidgets('预览计算期间修改匹配内容，不回填过期结果', (tester) async {
     final pending = Completer<List<ReaderDecorationRulePreview>>();
     await _openSheet<ReaderDecorationRule>(

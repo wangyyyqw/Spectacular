@@ -1528,7 +1528,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _openBookmarkStyle() async {
-    final style = await showReaderBottomSheet<ReaderBookmarkStyle>(
+    final style = await showReaderDrawer<ReaderBookmarkStyle>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

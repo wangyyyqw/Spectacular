@@ -196,7 +196,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
           ),
           sortOrder: (rules.lastOrNull?.sortOrder ?? -1) + 1,
         );
-    final next = await showReaderBottomSheet<ReaderDecorationRule>(
+    final next = await showReaderDrawer<ReaderDecorationRule>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

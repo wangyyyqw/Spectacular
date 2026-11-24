@@ -166,32 +166,45 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
       Text('本机授权登录', style: Theme.of(context).textTheme.labelMedium),
       const SizedBox(height: 10),
       Card(
-        child: ListTile(
-          leading: Icon(
-            controller.lanAuthorizationRunning
-                ? Icons.verified_user_outlined
-                : Icons.gpp_maybe_outlined,
-            color: controller.lanAuthorizationRunning
-                ? Theme.of(context).colorScheme.primary
-                : Theme.of(context).colorScheme.error,
-          ),
-          title: Text(
-            controller.lanAuthorizationRunning ? '其他设备可搜索本机并申请登录' : '本机授权服务未启动',
-          ),
-          subtitle: Text(
-            controller.lanAuthorizationRunning
-                ? requests.isEmpty
-                      ? '暂无待授权申请；批准后令牌只加密回传给申请设备'
-                      : '有 ${requests.length} 台设备等待授权'
-                : controller.lanAuthorizationError ?? '请检查本地网络后重试',
-          ),
-          trailing: controller.lanAuthorizationRunning
-              ? const Icon(Icons.radar, size: 20)
-              : TextButton(
-                  onPressed: () =>
-                      unawaited(controller.retryLanAuthorization()),
-                  child: const Text('重试'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _InfoIcon(
+                icon: controller.lanAuthorizationRunning
+                    ? Icons.verified_user_outlined
+                    : Icons.gpp_maybe_outlined,
+                color: controller.lanAuthorizationRunning
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _InfoText(
+                  title: controller.lanAuthorizationRunning
+                      ? '其他设备可搜索本机并申请登录'
+                      : '本机授权服务未启动',
+                  subtitle: controller.lanAuthorizationRunning
+                      ? requests.isEmpty
+                            ? '暂无待授权申请；批准后令牌只加密回传给申请设备'
+                            : '有 ${requests.length} 台设备等待授权'
+                      : controller.lanAuthorizationError ?? '请检查本地网络后重试',
                 ),
+              ),
+              const SizedBox(width: 8),
+              controller.lanAuthorizationRunning
+                  ? const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Icon(Icons.radar, size: 20),
+                    )
+                  : TextButton(
+                      onPressed: () =>
+                          unawaited(controller.retryLanAuthorization()),
+                      child: const Text('重试'),
+                    ),
+            ],
+          ),
         ),
       ),
       if (requests.isNotEmpty) ...<Widget>[
@@ -342,8 +355,8 @@ class _IntroCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Icon(
-              signedIn ? Icons.sync_alt : Icons.wifi_lock,
+            _InfoIcon(
+              icon: signedIn ? Icons.sync_alt : Icons.wifi_lock,
               color: Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(width: 12),
@@ -362,6 +375,34 @@ class _IntroCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _InfoIcon extends StatelessWidget {
+  const _InfoIcon({required this.icon, required this.color});
+
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(width: 28, child: Icon(icon, color: color));
+}
+
+class _InfoText extends StatelessWidget {
+  const _InfoText({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 4),
+      Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+    ],
+  );
 }
 
 class _StatusBanner extends StatelessWidget {

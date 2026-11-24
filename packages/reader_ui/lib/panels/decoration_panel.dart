@@ -89,14 +89,23 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
             trailing: const AppIcon(AppGlyph.chevronRight),
             onTap: widget.onRules,
           ),
-          const SizedBox(height: 10),
-          const Divider(height: 1),
+          if (items.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+          ],
           Expanded(
             child: Theme(
               // 装饰列表行不显示点击高亮与水波。
               data: quietInk(Theme.of(context)),
               child: items.isEmpty
-                  ? const Center(child: Text('还没有手工装饰'))
+                  ? Center(
+                      child: Text(
+                        widget.ruleCount > 0 && widget.rulesEnabled
+                            ? '自动规则会直接应用到正文\n目前没有手工装饰'
+                            : '还没有手工装饰',
+                        textAlign: TextAlign.center,
+                      ),
+                    )
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: items.length,
