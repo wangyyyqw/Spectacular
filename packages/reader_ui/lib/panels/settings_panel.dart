@@ -1578,12 +1578,12 @@ class _PageTurnOption extends StatelessWidget {
       opacity: onTap == null ? 0.42 : 1,
       child: Material(
         color: selected
-            ? const Color(0xFFE8F5E9)
+            ? theme.colorScheme.primaryContainer
             : ReaderDrawerStyle.optionFillOf(theme),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(6),
           side: BorderSide(
-            color: selected ? const Color(0xFFA5D6A7) : Colors.transparent,
+            color: selected ? theme.colorScheme.primary : Colors.transparent,
           ),
         ),
         child: InkWell(
@@ -1597,7 +1597,7 @@ class _PageTurnOption extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
                 color: selected
-                    ? const Color(0xFF2E7D32)
+                    ? theme.colorScheme.onPrimaryContainer
                     : ReaderDrawerStyle.textOf(theme),
               ),
             ),

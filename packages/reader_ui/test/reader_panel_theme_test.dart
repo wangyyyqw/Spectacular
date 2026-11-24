@@ -68,6 +68,51 @@ void main() {
     expect(captured.colorScheme.surface, ink.background);
   });
 
+  testWidgets('翻页选中态随面板取色，不再固定绿色', (tester) async {
+    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF895CB6));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPanelColorScope(
+          scheme: scheme,
+          child: ReaderPanelTheme(
+            theme: ReaderTheme.white,
+            child: Scaffold(
+              body: SettingsPanel(
+                section: SettingsSection.settings,
+                overrides: ReaderSettingsDefaults.overrides,
+                themeId: 'white',
+                pageTurnMode: PageTurnMode.simulation3d,
+                onPageTurnModeChanged: (_) {},
+                onOverridesChanged: (_) {},
+                onThemeChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final option = find.byKey(
+      const ValueKey('settings-page-turn-simulation3d'),
+    );
+    final material = tester.widget<Material>(
+      find.descendant(of: option, matching: find.byType(Material)).first,
+    );
+    expect(material.color, scheme.primaryContainer);
+    expect(
+      (material.shape as RoundedRectangleBorder).side.color,
+      scheme.primary,
+    );
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(of: option, matching: find.byType(Text)),
+          )
+          .style!
+          .color,
+      scheme.onPrimaryContainer,
+    );
+  });
+
   testWidgets('阅读面板主题跟随深色阅读主题', (tester) async {
     late ThemeData captured;
     await tester.pumpWidget(

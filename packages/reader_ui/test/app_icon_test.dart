@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 void main() {
-  testWidgets('发现图标保持参考项目彩色矢量，选中前后保持同一图案', (tester) async {
+  testWidgets('发现恢复单色指南针，选中时填充指针', (tester) async {
     final boundaryKey = GlobalKey();
     List<int>? original;
     for (final filled in [false, true]) {
@@ -39,13 +39,15 @@ void main() {
         final pixels = bytes.buffer.asUint8List();
         var colored = 0;
         for (var i = 0; i < pixels.length; i += 4) {
-          if (pixels[i] != pixels[i + 1] || pixels[i + 1] != pixels[i + 2]) colored++;
+          if (pixels[i] != pixels[i + 1] || pixels[i + 1] != pixels[i + 2]) {
+            colored++;
+          }
         }
-        expect(colored, greaterThan(100));
+        expect(colored, 0);
         if (original == null) {
           original = pixels.toList();
         } else {
-          expect(pixels, orderedEquals(original!));
+          expect(pixels, isNot(orderedEquals(original!)));
         }
         image.dispose();
       });

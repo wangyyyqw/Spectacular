@@ -70,4 +70,4 @@ python3 tool/subset_bundled_fonts.py \
 
 ## ReaMicro 矢量界面图标
 
-界面矢量路径来自 [YGHFv/ReaMicro-Extend](https://github.com/YGHFv/ReaMicro-Extend/tree/bed8e48896e2586c7da2064e180e250909af84d7)：宿主内嵌图标、发现图标及布局图标。Miuix Regular 操作图标来自该版本内置的 compose-miuix-ui 子集，版权归 compose-miuix-ui contributors，采用 Apache-2.0。路径保存在 `packages/reader_ui/lib/icons/rea_micro_glyph.dart`，同步入口为 `tool/sync_reamicro_icons.py`。未在参考项目中找到对应路径的应用字形保留原实现。
+界面矢量路径来自 [YGHFv/ReaMicro-Extend](https://github.com/YGHFv/ReaMicro-Extend/tree/bed8e48896e2586c7da2064e180e250909af84d7)：宿主内嵌图标及布局图标。Miuix Regular 操作图标来自该版本内置的 compose-miuix-ui 子集，版权归 compose-miuix-ui contributors，采用 Apache-2.0。路径保存在 `packages/reader_ui/lib/icons/rea_micro_glyph.dart`，同步入口为 `tool/sync_reamicro_icons.py`。发现图标和未在参考项目中找到对应路径的应用字形保留本项目原实现。

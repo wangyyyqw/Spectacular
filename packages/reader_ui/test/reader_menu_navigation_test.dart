@@ -7,6 +7,10 @@ import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/tap_zones.dart';
+import 'package:reader_ui/theme/reader_panel_theme.dart';
+import 'package:reader_ui/decorations/decoration_rule_page.dart';
+import 'package:reader_ui/decorations/decoration_rules.dart';
+import 'package:reader_ui/decorations/decoration.dart';
 
 class _Source implements TocChapterSource {
   _Source(this.chapterCount, {this.toc = const <TocEntry>[]});
@@ -65,6 +69,51 @@ Finder _button(String direction) =>
     find.byKey(ValueKey('menu-$direction-chapter'));
 
 void main() {
+  testWidgets('从阅读菜单打开自动装饰规则后保留取色', (tester) async {
+    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF895CB6));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPanelColorScope(
+          scheme: scheme,
+          child: ReaderPage(
+            source: _Source(3),
+            store: MemoryReaderProgressStore(),
+            bookId: 'rules',
+            decorations: _EmptyDecorations(),
+            decorationRules: _EmptyRules(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-entry-toc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('drawer-tab-decorations')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('decoration-rules-entry')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderDecorationRulePage), findsOneWidget);
+    expect(
+      Theme.of(tester.element(find.byType(ReaderDecorationRulePage)))
+          .colorScheme,
+      scheme,
+    );
+    expect(
+      tester
+          .widget<Scaffold>(
+            find.descendant(
+              of: find.byType(ReaderDecorationRulePage),
+              matching: find.byType(Scaffold),
+            ),
+          )
+          .backgroundColor,
+      isNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('状态栏和导航栏显隐不改变阅读底栏位置', (tester) async {
     final padding = ValueNotifier<EdgeInsets>(EdgeInsets.zero);
     addTearDown(padding.dispose);
@@ -285,4 +334,20 @@ void main() {
     );
     expect(session.progress, const ReaderProgress(spineIndex: 1, pageIndex: 0));
   });
+}
+
+class _EmptyRules implements ReaderDecorationRuleStore {
+  @override
+  Future<List<ReaderDecorationRuleGroup>> listGroups() async => [];
+  @override
+  Future<List<ReaderDecorationRule>> listRules() async => [];
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _EmptyDecorations implements ReaderDecorationStore {
+  @override
+  Future<List<ReaderDecoration>> list() async => [];
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

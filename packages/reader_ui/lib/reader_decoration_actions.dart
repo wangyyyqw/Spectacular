@@ -151,28 +151,32 @@ extension _ReaderDecorationActions on _ReaderPageState {
       _showToast('当前书籍暂不支持自动装饰');
       return;
     }
-    await Navigator.of(context).push<void>(
+    final navigator = Navigator.of(context);
+    final themes = InheritedTheme.capture(from: context, to: navigator.context);
+    await navigator.push<void>(
       MaterialPageRoute(
-        builder: (context) => ReaderPanelTheme(
-          theme: _effectiveTheme ?? ReaderTheme.white,
-          child: AnimatedBuilder(
-            animation: _ruleEngine,
-            builder: (context, _) => ReaderDecorationRulePage(
-              store: store,
-              bookId: widget.bookId,
-              errors: _ruleEngine.errors,
-              images: widget.decorationImages,
-              inkMode: _inkMode,
-              fonts: _customFonts,
-              onPreview: (rule) async => _ruleEngine.preview(
-                rule,
-                await _session.chapterPages(),
-                sourceBlocks: widget.source is AnchorChapterSource
-                    ? ReaderDecorationRuleEngine.anchorBlocks(
-                        await (widget.source as AnchorChapterSource)
-                            .loadAnchorChapter(_session.page!.spineIndex),
-                      )
-                    : null,
+        builder: (context) => themes.wrap(
+          ReaderPanelTheme(
+            theme: _effectiveTheme ?? ReaderTheme.white,
+            child: AnimatedBuilder(
+              animation: _ruleEngine,
+              builder: (context, _) => ReaderDecorationRulePage(
+                store: store,
+                bookId: widget.bookId,
+                errors: _ruleEngine.errors,
+                images: widget.decorationImages,
+                inkMode: _inkMode,
+                fonts: _customFonts,
+                onPreview: (rule) async => _ruleEngine.preview(
+                  rule,
+                  await _session.chapterPages(),
+                  sourceBlocks: widget.source is AnchorChapterSource
+                      ? ReaderDecorationRuleEngine.anchorBlocks(
+                          await (widget.source as AnchorChapterSource)
+                              .loadAnchorChapter(_session.page!.spineIndex),
+                        )
+                      : null,
+                ),
               ),
             ),
           ),

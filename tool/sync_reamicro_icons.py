@@ -135,8 +135,6 @@ def main():
             commands.append(letter + " ".join(map(str, values)))
         paths[glyph] = svg_path(" ".join(commands))
 
-    artwork = read(prefix + "hook/discover/DiscoverIconArtwork.kt")
-    layers = re.findall(r'0x([A-Fa-f0-9]+)L to "([^"]+)"', artwork)
     output = [
         "part of 'app_glyph.dart';", "",
         f"// 来源：YGHFv/ReaMicro-Extend，版本 {revision}。",
@@ -146,18 +144,10 @@ def main():
     ]
     for glyph, path in paths.items():
         output.append(f"  AppGlyph.{glyph}: {path},")
-    output += ["};", "final _reaMicroDiscover = <(Color, Path)>["]
-    for color, path in layers:
-        output.append(f"  (const Color(0x{color}), {svg_path(path)}),")
     output += [
-        "];", "",
+        "};", "",
+        "// 发现继续使用本项目的指南针图标及选中态。",
         "bool _drawReaMicroGlyph(AppGlyph glyph, AppIconCanvas canvas) {",
-        "  if (glyph == AppGlyph.discover) {",
-        "    for (final layer in _reaMicroDiscover) {",
-        "      canvas._canvas.drawPath(layer.$2, _fillPaint(layer.$1));",
-        "    }",
-        "    return true;",
-        "  }",
         "  final path = _reaMicroPaths[glyph];",
         "  if (path == null) return false;",
         "  canvas._canvas.drawPath(path, _fillPaint(canvas.color));",
@@ -166,7 +156,7 @@ def main():
     ]
     target = Path(__file__).resolve().parents[1] / "packages/reader_ui/lib/icons/rea_micro_glyph.dart"
     target.write_text("\n".join(output), encoding="utf-8")
-    print(f"已同步 {len(paths) + 1} 个矢量图标，来源版本 {revision}")
+    print(f"已同步 {len(paths)} 个矢量图标，来源版本 {revision}")
 
 
 if __name__ == "__main__":
