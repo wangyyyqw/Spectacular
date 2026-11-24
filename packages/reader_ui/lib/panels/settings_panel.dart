@@ -46,6 +46,9 @@ abstract final class ReaderSettingsDefaults {
   /// 默认主题。
   static const String themeId = 'white';
 
+  /// 导入图片默认保留原色。
+  static const double backgroundImageOpacity = 1;
+
   /// 默认覆盖设置。
   static const ReaderOverrides overrides = ReaderOverrides(
     fontSize: fontSize,
@@ -99,6 +102,8 @@ class SettingsPanel extends StatefulWidget {
     this.pickingBackgroundImage = false,
     this.backgroundId = 'none',
     this.onBackgroundChanged,
+    this.backgroundImageOpacity = ReaderSettingsDefaults.backgroundImageOpacity,
+    this.onBackgroundImageOpacityChanged,
     this.inkMode = false,
     this.onInkModeChanged,
     this.onReset,
@@ -167,6 +172,10 @@ class SettingsPanel extends StatefulWidget {
 
   /// 背景变化（纹理或纯色）。
   final ValueChanged<String>? onBackgroundChanged;
+
+  /// 导入图片的可见强度，主题页以淡化百分比调节。
+  final double backgroundImageOpacity;
+  final ValueChanged<double>? onBackgroundImageOpacityChanged;
 
   /// 墨水屏模式（P4-23）。
   final bool inkMode;
@@ -260,8 +269,10 @@ class _SettingsPanelState extends State<SettingsPanel> {
   late double _horizontalPadding =
       widget.overrides.padding?.left ??
       ReaderSettingsDefaults.horizontalPadding;
+  late double _backgroundImageOpacity = widget.backgroundImageOpacity;
   Timer? _sliderCommitTimer;
   ReaderOverrides? _pendingSliderOverrides;
+  double? _pendingBackgroundImageOpacity;
 
   ReaderOverrides _build() => ReaderOverrides(
     fontSize: _fontSize,
@@ -281,19 +292,24 @@ class _SettingsPanelState extends State<SettingsPanel> {
     _pendingSliderOverrides = _build();
     _sliderCommitTimer?.cancel();
     if (immediate) {
-      _flushSliderOverrides();
+      _flushSliderChanges();
       return;
     }
-    _sliderCommitTimer = Timer(_sliderCommitDelay, _flushSliderOverrides);
+    _sliderCommitTimer = Timer(_sliderCommitDelay, _flushSliderChanges);
   }
 
-  void _flushSliderOverrides() {
+  void _flushSliderChanges() {
     _sliderCommitTimer?.cancel();
     _sliderCommitTimer = null;
     final next = _pendingSliderOverrides;
     _pendingSliderOverrides = null;
     if (next != null) {
       widget.onOverridesChanged(next);
+    }
+    final opacity = _pendingBackgroundImageOpacity;
+    _pendingBackgroundImageOpacity = null;
+    if (opacity != null) {
+      widget.onBackgroundImageOpacityChanged?.call(opacity);
     }
   }
 
@@ -324,6 +340,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
     }
     if (oldWidget.cornerInfo != widget.cornerInfo) {
       _cornerInfo = widget.cornerInfo;
+    }
+    if (oldWidget.backgroundImageOpacity != widget.backgroundImageOpacity) {
+      _backgroundImageOpacity = widget.backgroundImageOpacity;
     }
   }
 
@@ -549,6 +568,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     _sliderCommitTimer?.cancel();
     _sliderCommitTimer = null;
     _pendingSliderOverrides = null;
+    _pendingBackgroundImageOpacity = null;
     setState(() {
       _fontSize = ReaderSettingsDefaults.fontSize;
       _fontFamily = null;
@@ -556,6 +576,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       _lineHeight = ReaderSettingsDefaults.lineHeight;
       _paragraphSpacing = ReaderSettingsDefaults.paragraphSpacing;
       _horizontalPadding = ReaderSettingsDefaults.horizontalPadding;
+      _backgroundImageOpacity = ReaderSettingsDefaults.backgroundImageOpacity;
     });
     widget.onReset?.call();
   }
@@ -706,6 +727,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     required String display,
     required String sliderKey,
     required ValueChanged<double> onChanged,
+    bool enabled = true,
   }) {
     final clamped = value.clamp(min, max).toDouble();
     void setValue(double next) {
@@ -730,11 +752,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
           _StepButton(
             key: ValueKey<String>('$sliderKey-decrement'),
             icon: AppGlyph.remove,
-            onTap: clamped <= min
+            onTap: !enabled || clamped <= min
                 ? null
                 : () {
                     setValue(clamped - step);
-                    _flushSliderOverrides();
+                    _flushSliderChanges();
                   },
           ),
           Expanded(
@@ -763,8 +785,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   min: min,
                   max: max,
                   divisions: divisions,
-                  onChanged: setValue,
-                  onChangeEnd: (_) => _flushSliderOverrides(),
+                  onChanged: enabled ? setValue : null,
+                  onChangeEnd: enabled ? (_) => _flushSliderChanges() : null,
                 ),
               ),
             ),
@@ -772,11 +794,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
           _StepButton(
             key: ValueKey<String>('$sliderKey-increment'),
             icon: AppGlyph.add,
-            onTap: clamped >= max
+            onTap: !enabled || clamped >= max
                 ? null
                 : () {
                     setValue(clamped + step);
-                    _flushSliderOverrides();
+                    _flushSliderChanges();
                   },
           ),
           SizedBox(
@@ -831,7 +853,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
               setState(() => _horizontalPadding = value);
               _emit();
             },
-            onChangeEnd: (_) => _flushSliderOverrides(),
+            onChangeEnd: (_) => _flushSliderChanges(),
           ),
         ],
       ),
@@ -975,6 +997,34 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 ),
             ],
           ),
+        ),
+      ],
+      if (ReaderBackground.byId(widget.backgroundId).isImage &&
+          widget.onBackgroundImageOpacityChanged != null) ...<Widget>[
+        const SizedBox(height: 24),
+        _typographyRow(
+          theme: theme,
+          label: '图片淡化',
+          value: (1 - _backgroundImageOpacity) * 100,
+          min: 0,
+          max: 100,
+          step: 1,
+          divisions: 100,
+          display: '${((1 - _backgroundImageOpacity) * 100).round()}%',
+          sliderKey: 'settings-background-image-fade',
+          enabled: !widget.inkMode,
+          onChanged: (value) {
+            setState(() => _backgroundImageOpacity = (100 - value) / 100);
+            _pendingBackgroundImageOpacity = _backgroundImageOpacity;
+            _sliderCommitTimer ??= Timer(
+              _sliderCommitDelay,
+              _flushSliderChanges,
+            );
+          },
+        ),
+        Text(
+          '0% 保留原色，100% 使用主题底色',
+          style: TextStyle(fontSize: 12, color: muted),
         ),
       ],
     ];

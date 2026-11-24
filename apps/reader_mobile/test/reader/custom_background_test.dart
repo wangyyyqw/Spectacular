@@ -28,6 +28,31 @@ void main() {
     expect(loaded.backgroundId, 'image:/test.png');
     expect(loaded.themeId, 'black');
   });
+
+  test('图片强度默认原色，持久化后恢复，旧值和非法值安全回落', () async {
+    final library = LibraryStore.memory();
+    final store = ReaderSettingsStore(library);
+    expect((await store.load()).backgroundImageOpacity, 1);
+    final settings = ReaderSettings.defaults
+        .copyWithBackground('image:/test.png')
+        .copyWithBackgroundImageOpacity(0.37);
+    await store.save(settings);
+    expect((await store.load()), settings);
+    expect(settings, isNot(settings.copyWithBackgroundImageOpacity(1)));
+    for (final entry in const {
+      'bad': 1.0,
+      'NaN': 1.0,
+      '-0.4': 0.0,
+      '2': 1.0,
+    }.entries) {
+      await library.setSetting(
+        ReaderSettingsStore.keyBackgroundImageOpacity,
+        entry.key,
+      );
+      expect((await store.load()).backgroundImageOpacity, entry.value);
+    }
+  });
+
   test('图片缩小复制、恢复与文件校验，清理避开新图片', () async {
     final directory = Directory.systemTemp.createTempSync('reader-background-');
     addTearDown(() => directory.deleteSync(recursive: true));
@@ -49,6 +74,10 @@ void main() {
     final frame = await codec.getNextFrame();
     expect(frame.image.width, 1600);
     expect(frame.image.height, 800);
+    final pixels = await frame.image.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    );
+    expect(pixels!.getUint32(0), 0x5599CCFF, reason: '导入缩放不改变图片原色');
     frame.image.dispose();
     codec.dispose();
     await store.cleanUnused('none');

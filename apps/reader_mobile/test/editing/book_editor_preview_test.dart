@@ -109,6 +109,7 @@ void main() {
     const settings = ReaderSettings(
       fontSize: 22,
       themeId: 'sepia',
+      backgroundImageOpacity: 0.6,
       margins: ReaderMargins(
         left: 28,
         right: 16,
@@ -130,6 +131,10 @@ void main() {
     );
     expect(source.overrides.fontSize, settings.fontSize);
     expect(source.overrides.backgroundColor, settings.theme.background);
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).backgroundImageOpacity,
+      settings.backgroundImageOpacity,
+    );
     expect(source.contentWidth, 316);
     expect(
       source.contentHeight,

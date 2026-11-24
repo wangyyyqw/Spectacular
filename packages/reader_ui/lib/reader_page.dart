@@ -143,8 +143,10 @@ class ReaderPage extends StatefulWidget {
     this.onRenameFont,
     this.onRemoveFont,
     this.backgroundId = 'none',
+    this.backgroundImageOpacity = ReaderSettingsDefaults.backgroundImageOpacity,
     this.inkMode = false,
     this.onBackgroundChanged,
+    this.onBackgroundImageOpacityChanged,
     this.onInkModeChanged,
     this.onSearch,
     this.onSessionReady,
@@ -251,6 +253,10 @@ class ReaderPage extends StatefulWidget {
 
   /// 初始背景 id（P4-22）。
   final String backgroundId;
+
+  /// 导入图片的可见强度；默认保留原色，不影响正文排版。
+  final double backgroundImageOpacity;
+  final ValueChanged<double>? onBackgroundImageOpacityChanged;
 
   /// 墨水屏模式（P4-23）：纯黑白、背景禁用、高亮改下划线。
   final bool inkMode;
@@ -377,6 +383,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 当前背景（P4-22）：纹理解码结果缓存在这里，换背景不重排。
   late String _backgroundId;
+  late double _backgroundImageOpacity = widget.backgroundImageOpacity;
   ui.Image? _backgroundImage;
   int _backgroundRequest = 0;
   bool _pickingBackgroundImage = false;
@@ -674,7 +681,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       pageBackgroundImageTint: ReaderBackground.byId(_backgroundId).tint,
       pageBackgroundImageCover: ReaderBackground.byId(_backgroundId).isImage,
       pageBackgroundImageOpacity: ReaderBackground.byId(_backgroundId).isImage
-          ? 0.18
+          ? _backgroundImageOpacity
           : 0.10,
       imageLookup: widget.imageCache?.lookup,
       listMarkerImageOf: (block) => block.style?.listStyleImage,
@@ -1176,6 +1183,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (oldWidget.backgroundId != widget.backgroundId &&
         widget.backgroundId != _backgroundId) {
       unawaited(_loadBackground(widget.backgroundId));
+    }
+    if (oldWidget.backgroundImageOpacity != widget.backgroundImageOpacity) {
+      _backgroundImageOpacity = widget.backgroundImageOpacity;
+      _painter = _buildPainter();
     }
     if (oldWidget.overrides != widget.overrides && widget.overrides != null) {
       _overrides = widget.overrides!;
@@ -1840,12 +1851,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (await _loadBackground(id)) widget.onBackgroundChanged?.call(id);
   }
 
+  /// 淡化只更新纸面，不重新解码图片或改变阅读位置。
+  void _applyBackgroundImageOpacity(double opacity) {
+    if (opacity == _backgroundImageOpacity) return;
+    setState(() {
+      _backgroundImageOpacity = opacity;
+      _painter = _buildPainter();
+    });
+    widget.onBackgroundImageOpacityChanged?.call(opacity);
+  }
+
   /// 恢复默认设置（P4-21）。
   void _resetSettings() {
     final resetMargins = _savedMargins != null;
     _applyOverrides(ReaderSettingsDefaults.overrides);
     _applyTheme(ReaderSettingsDefaults.themeId);
     _applyBackground(ReaderBackground.none.id);
+    _applyBackgroundImageOpacity(ReaderSettingsDefaults.backgroundImageOpacity);
     unawaited(_applyPageTurnMode(PageTurnMode.cover));
     _applyInkMode(false);
     _applyMarkSettings(const ReaderMarkSettings());
@@ -3091,6 +3113,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       backgroundImageLoader: widget.backgroundImageLoader,
                       pickingBackgroundImage: _pickingBackgroundImage,
                       backgroundId: _backgroundId,
+                      backgroundImageOpacity: _backgroundImageOpacity,
                       inkMode: _inkMode,
                       pageTurnMode: _pageTurnMode,
                       tapZones: _tapZones,
@@ -3107,6 +3130,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onBackgroundChanged: widget.onBackgroundChanged == null
                           ? null
                           : _applyBackground,
+                      onBackgroundImageOpacityChanged:
+                          widget.onBackgroundImageOpacityChanged == null
+                          ? null
+                          : _applyBackgroundImageOpacity,
                       onInkModeChanged: _applyInkMode,
                       onResetSettings: _resetSettings,
                       onSearch: widget.onSearch,
@@ -3721,6 +3748,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.backgroundImageLoader,
     required this.pickingBackgroundImage,
     required this.backgroundId,
+    required this.backgroundImageOpacity,
     required this.inkMode,
     required this.pageTurnMode,
     required this.tapZones,
@@ -3733,6 +3761,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onOverridesChanged,
     required this.onThemeChanged,
     required this.onBackgroundChanged,
+    required this.onBackgroundImageOpacityChanged,
     required this.onInkModeChanged,
     required this.onResetSettings,
     required this.onSearch,
@@ -3789,6 +3818,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final Future<Uint8List> Function(String id)? backgroundImageLoader;
   final bool pickingBackgroundImage;
   final String backgroundId;
+  final double backgroundImageOpacity;
   final bool inkMode;
   final PageTurnMode pageTurnMode;
   final ReaderTapZones tapZones;
@@ -3801,6 +3831,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<ReaderOverrides> onOverridesChanged;
   final ValueChanged<String> onThemeChanged;
   final ValueChanged<String>? onBackgroundChanged;
+  final ValueChanged<double>? onBackgroundImageOpacityChanged;
   final ValueChanged<bool>? onInkModeChanged;
   final VoidCallback onResetSettings;
   final Future<List<SearchPanelResult>> Function(String query)? onSearch;
@@ -3895,10 +3926,13 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           backgroundImageLoader: widget.backgroundImageLoader,
           pickingBackgroundImage: widget.pickingBackgroundImage,
           backgroundId: widget.backgroundId,
+          backgroundImageOpacity: widget.backgroundImageOpacity,
           inkMode: widget.inkMode,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,
           onBackgroundChanged: widget.onBackgroundChanged,
+          onBackgroundImageOpacityChanged:
+              widget.onBackgroundImageOpacityChanged,
           onInkModeChanged: widget.onInkModeChanged,
           onReset: widget.onResetSettings,
         );

@@ -115,6 +115,9 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
     theme: widget.settings?.theme,
     margins: widget.settings?.margins,
     backgroundId: widget.settings?.backgroundId ?? 'none',
+    backgroundImageOpacity:
+        widget.settings?.backgroundImageOpacity ??
+        ReaderSettings.defaults.backgroundImageOpacity,
     backgroundImageLoader: _backgrounds.load,
     inkMode: widget.settings?.inkMode ?? false,
     bookTitle: widget.bookTitle,

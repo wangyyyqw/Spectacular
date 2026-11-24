@@ -96,6 +96,30 @@ void main() {
     expect(await _pixel(image, cover: true, opacity: 0), 0x000000FF);
   });
 
+  test('白色主题下图片可保留原色或按用户强度淡化', () async {
+    final image = await _image();
+    addTearDown(image.dispose);
+    const white = Color(0xFFFFFFFF);
+    expect(
+      await _pixel(image, cover: true, opacity: 1, background: white),
+      0x00FF00FF,
+    );
+    final faded = await _pixel(
+      image,
+      cover: true,
+      opacity: 0.5,
+      background: white,
+    );
+    expect((faded >> 24) & 255, closeTo(128, 1));
+    expect((faded >> 16) & 255, 255);
+    expect((faded >> 8) & 255, closeTo(128, 1));
+    expect(faded & 255, 255);
+    expect(
+      await _pixel(image, cover: true, opacity: 0, background: white),
+      0xFFFFFFFF,
+    );
+  });
+
   for (final cover in [false, true]) {
     test('卷页纸底与完整纸面的主题背景一致，覆盖=$cover', () async {
       final image = await _image();

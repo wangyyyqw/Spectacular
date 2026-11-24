@@ -1159,6 +1159,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               await widget.fontStore!.load(family);
             },
       backgroundId: settings.backgroundId,
+      backgroundImageOpacity: settings.backgroundImageOpacity,
       inkMode: settings.inkMode,
       onOverridesChanged: (overrides) =>
           _changeSettings(_settings.copyWithOverrides(overrides)),
@@ -1168,6 +1169,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           : _toggleDayNight,
       onBackgroundChanged: (backgroundId) =>
           _changeSettings(_settings.copyWithBackground(backgroundId)),
+      onBackgroundImageOpacityChanged: (opacity) =>
+          _changeSettings(_settings.copyWithBackgroundImageOpacity(opacity)),
       onInkModeChanged: (enabled) =>
           _changeSettings(_settings.copyWithInkMode(enabled)),
       onSearch: _searchResults,

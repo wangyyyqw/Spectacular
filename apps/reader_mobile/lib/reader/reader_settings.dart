@@ -224,6 +224,7 @@ class ReaderSettings {
     this.dayThemeId = ReaderSettingsDefaults.themeId,
     this.nightThemeId = 'black',
     this.backgroundId = 'none',
+    this.backgroundImageOpacity = ReaderSettingsDefaults.backgroundImageOpacity,
     this.customThemeId,
     this.inkMode = false,
     this.margins,
@@ -270,6 +271,9 @@ class ReaderSettings {
 
   /// 背景 id（P4-22：none/paper/wood/gray）。
   final String backgroundId;
+
+  /// 导入图片的可见强度，1 为原色、0 为主题底色。
+  final double backgroundImageOpacity;
 
   /// 墨水屏模式（P4-23）。
   final bool inkMode;
@@ -338,6 +342,8 @@ class ReaderSettings {
     String dayThemeId = ReaderSettingsDefaults.themeId,
     String nightThemeId = 'black',
     String backgroundId = 'none',
+    double backgroundImageOpacity =
+        ReaderSettingsDefaults.backgroundImageOpacity,
     String? customThemeId,
     bool inkMode = false,
     ReaderCornerInfo cornerInfo = ReaderCornerInfo.defaults,
@@ -361,6 +367,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     pageTurnMode: pageTurnMode,
@@ -386,6 +393,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -411,6 +419,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -438,6 +447,7 @@ class ReaderSettings {
       nightThemeId: next.isDark ? id : themeForBrightness(Brightness.dark).id,
       customThemeId: ReaderTheme.customById(id)?.id ?? customThemeId,
       backgroundId: backgroundId,
+      backgroundImageOpacity: backgroundImageOpacity,
       inkMode: inkMode,
       cornerInfo: cornerInfo,
       margins: margins,
@@ -464,6 +474,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: id,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -475,6 +486,33 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     tts: tts,
   );
+
+  /// 修改图片淡化程度，保留全部阅读设置。
+  ReaderSettings copyWithBackgroundImageOpacity(double opacity) =>
+      ReaderSettings(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        overrideEmbeddedFonts: overrideEmbeddedFonts,
+        lineHeight: lineHeight,
+        paragraphSpacing: paragraphSpacing,
+        horizontalPadding: horizontalPadding,
+        themeId: themeId,
+        dayThemeId: dayThemeId,
+        nightThemeId: nightThemeId,
+        customThemeId: customThemeId,
+        backgroundId: backgroundId,
+        backgroundImageOpacity: opacity,
+        inkMode: inkMode,
+        cornerInfo: cornerInfo,
+        margins: margins,
+        tapZones: tapZones,
+        pageTurnMode: pageTurnMode,
+        keepScreenOn: keepScreenOn,
+        volumeKeyPaging: volumeKeyPaging,
+        markSettings: markSettings,
+        bookmarkStyle: bookmarkStyle,
+        tts: tts,
+      );
 
   /// 复制并替换墨水屏开关。
   ReaderSettings copyWithInkMode(bool enabled) => ReaderSettings(
@@ -489,6 +527,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: enabled,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -514,6 +553,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: value,
@@ -539,6 +579,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     margins: margins,
     cornerInfo: value,
@@ -564,6 +605,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -589,6 +631,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -614,6 +657,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -639,6 +683,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -665,6 +710,7 @@ class ReaderSettings {
         nightThemeId: nightThemeId,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
+        backgroundImageOpacity: backgroundImageOpacity,
         inkMode: inkMode,
         cornerInfo: cornerInfo,
         margins: margins,
@@ -691,6 +737,7 @@ class ReaderSettings {
         nightThemeId: nightThemeId,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
+        backgroundImageOpacity: backgroundImageOpacity,
         inkMode: inkMode,
         cornerInfo: cornerInfo,
         margins: margins,
@@ -716,6 +763,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -742,6 +790,7 @@ class ReaderSettings {
       other.nightThemeId == nightThemeId &&
       other.customThemeId == customThemeId &&
       other.backgroundId == backgroundId &&
+      other.backgroundImageOpacity == backgroundImageOpacity &&
       other.inkMode == inkMode &&
       other.margins == margins &&
       other.cornerInfo == cornerInfo &&
@@ -765,7 +814,7 @@ class ReaderSettings {
     dayThemeId,
     nightThemeId,
     customThemeId,
-    backgroundId,
+    Object.hash(backgroundId, backgroundImageOpacity),
     inkMode,
     margins,
     cornerInfo,
@@ -801,6 +850,8 @@ class ReaderSettingsStore {
   static const String keyNightThemeId = 'reader.nightThemeId';
   static const String keyCustomThemeId = 'reader.customThemeId';
   static const String keyBackgroundId = 'reader.backgroundId';
+  static const String keyBackgroundImageOpacity =
+      'reader.backgroundImageOpacity';
   static const String keyInkMode = 'reader.inkMode';
   static const String keyPageTurnMode = 'reader.pageTurnMode';
   static const String keyKeepScreenOn = 'reader.keepScreenOn';
@@ -848,6 +899,10 @@ class ReaderSettingsStore {
         await _library.getSetting(keyCustomThemeId),
       )?.id,
       backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
+      backgroundImageOpacity:
+          (_readDouble(await _library.getSetting(keyBackgroundImageOpacity)) ??
+                  ReaderSettingsDefaults.backgroundImageOpacity)
+              .clamp(0, 1),
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
       margins: _readMargins(await _library.getSetting(keyMargins)),
       cornerInfo: _readCornerInfo(await _library.getSetting(keyCornerInfo)),
@@ -999,6 +1054,10 @@ class ReaderSettingsStore {
     await _library.setSetting(keyNightThemeId, settings.nightThemeId);
     await _library.setSetting(keyCustomThemeId, settings.customThemeId ?? '');
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
+    await _library.setSetting(
+      keyBackgroundImageOpacity,
+      settings.backgroundImageOpacity.toString(),
+    );
     await _library.setSetting(keyInkMode, settings.inkMode.toString());
     await _library.setSetting(keyPageTurnMode, settings.pageTurnMode.id);
     await _library.setSetting(

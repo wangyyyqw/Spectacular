@@ -57,7 +57,10 @@ void main() {
     expect(legacy.themeForBrightness(Brightness.dark), ReaderTheme.black);
 
     const tts = ReaderTtsSettings(rate: 0.7, autoTurnPage: false);
-    final settings = legacy.copyWithTheme('moss').copyWithTts(tts);
+    final settings = legacy
+        .copyWithTheme('moss')
+        .copyWithTts(tts)
+        .copyWithBackgroundImageOpacity(0.65);
     for (final changed in [
       settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 22)),
       settings.copyWithFont(ReaderSettingsDefaults.fontSong),
@@ -71,11 +74,13 @@ void main() {
       settings.copyWithVolumeKeyPaging(true),
       settings.copyWithMarkSettings(settings.markSettings),
       settings.copyWithBookmarkStyle(settings.bookmarkStyle),
+      settings.copyWithTts(tts),
     ]) {
       await store.save(changed);
       final reloaded = await store.load();
       expect(reloaded, changed);
       expect(reloaded.tts, tts);
+      expect(reloaded.backgroundImageOpacity, 0.65);
       expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.sepia);
       expect(reloaded.themeForBrightness(Brightness.dark), ReaderTheme.moss);
     }
@@ -84,6 +89,15 @@ void main() {
     final reloaded = await store.load();
     expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.paper);
     expect(reloaded.themeForBrightness(Brightness.dark), ReaderTheme.moss);
+    expect(reloaded.backgroundImageOpacity, 0.65);
+    expect(
+      ReaderSettings.fromOverrides(
+        settings.overrides,
+        themeId: settings.themeId,
+        backgroundImageOpacity: settings.backgroundImageOpacity,
+      ).backgroundImageOpacity,
+      0.65,
+    );
   });
 
   testWidgets('菜单进设置改字号：即时重排并持久化（P4-21）', (tester) async {
@@ -503,6 +517,7 @@ void main() {
     final pageTurnValues = <PageTurnMode>[];
     final keepScreenOnValues = <bool>[];
     final volumeKeyPagingValues = <bool>[];
+    final backgroundImageOpacityValues = <double>[];
     late ReaderSession session;
     final customMargins = ReaderMargins.defaults(
       safeTop: 20,
@@ -527,6 +542,7 @@ void main() {
                 store: MemoryReaderProgressStore(),
                 bookId: 'reset-all-settings',
                 inkMode: true,
+                backgroundImageOpacity: 0.35,
                 margins: customMargins,
                 tapZones: customZones,
                 pageTurnMode: PageTurnMode.scroll,
@@ -539,6 +555,8 @@ void main() {
                 onPageTurnModeChanged: pageTurnValues.add,
                 onKeepScreenOnChanged: keepScreenOnValues.add,
                 onVolumeKeyPagingChanged: volumeKeyPagingValues.add,
+                onBackgroundImageOpacityChanged:
+                    backgroundImageOpacityValues.add,
               ),
             ),
           ),
@@ -586,5 +604,6 @@ void main() {
     expect(pageTurnValues.single, PageTurnMode.cover);
     expect(keepScreenOnValues, <bool>[false]);
     expect(volumeKeyPagingValues, <bool>[false]);
+    expect(backgroundImageOpacityValues, <double>[1]);
   });
 }
