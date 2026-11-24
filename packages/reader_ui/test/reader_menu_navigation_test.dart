@@ -8,6 +8,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/tap_zones.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:reader_ui/decorations/decoration_rule_page.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration.dart';
@@ -101,15 +102,11 @@ void main() {
       scheme,
     );
     expect(
-      tester
-          .widget<Scaffold>(
-            find.descendant(
-              of: find.byType(ReaderDecorationRulePage),
-              matching: find.byType(Scaffold),
-            ),
-          )
-          .backgroundColor,
-      isNull,
+      find.descendant(
+        of: find.byType(ReaderDecorationRulePage),
+        matching: find.byType(ReaderSheetForm),
+      ),
+      findsOneWidget,
     );
     await tester.pumpWidget(const SizedBox());
   });

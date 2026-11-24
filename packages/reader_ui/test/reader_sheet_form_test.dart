@@ -208,7 +208,7 @@ void main() {
     });
   }
 
-  testWidgets('表单内容受横向约束，长内容滚动而保存和关闭保持可用', (tester) async {
+  testWidgets('表单内容受横向约束，长内容滚动且保存保持可用', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 640));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     String? result;
@@ -252,7 +252,7 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
     expect(tester.getSize(find.byKey(const ValueKey('表单内容'))).width, 288);
     expect(find.text('保存').hitTestable(), findsOneWidget);
-    expect(find.byTooltip('关闭').hitTestable(), findsOneWidget);
+    expect(find.byTooltip('关闭'), findsNothing);
     await tester.drag(
       find.byType(SingleChildScrollView),
       const Offset(0, -400),

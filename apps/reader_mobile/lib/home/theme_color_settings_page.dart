@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../theme/theme_color_settings.dart';
 
@@ -35,55 +36,52 @@ class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
     listenable: widget.settings,
     builder: (context, _) {
       final settings = widget.settings;
-      return Scaffold(
-        appBar: AppBar(title: const Text('主题取色')),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Column(
-                    children: [
-                      ReaderSwitchListTile(
-                        key: const ValueKey('wallpaper-color-switch'),
-                        title: const Text('全局壁纸取色'),
-                        subtitle: Text(
-                          !settings.initialized
-                              ? '正在读取系统颜色'
-                              : settings.wallpaperSupported
-                              ? '跟随系统壁纸颜色，应用于全局界面'
-                              : '需要 Android 12 或更高版本的系统动态颜色',
-                        ),
-                        value: settings.wallpaperEnabled,
-                        onChanged:
-                            _saving ||
-                                !settings.initialized ||
-                                !settings.wallpaperSupported
-                            ? null
-                            : (value) => _save(
-                                () => settings.setWallpaperEnabled(value),
-                              ),
+      return ReaderSheetForm(
+        title: const Text('主题取色'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Card(
+                child: Column(
+                  children: [
+                    ReaderSwitchListTile(
+                      key: const ValueKey('wallpaper-color-switch'),
+                      title: const Text('全局壁纸取色'),
+                      subtitle: Text(
+                        !settings.initialized
+                            ? '正在读取系统颜色'
+                            : settings.wallpaperSupported
+                            ? '跟随系统壁纸颜色，应用于全局界面'
+                            : '需要 Android 12 或更高版本的系统动态颜色',
                       ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      ReaderSwitchListTile(
-                        key: const ValueKey('reader-background-color-switch'),
-                        title: const Text('阅读背景取色'),
-                        subtitle: const Text('根据阅读背景颜色或图片调整菜单与弹层配色，保留正文配色'),
-                        value: settings.readerBackgroundEnabled,
-                        onChanged: _saving || !settings.initialized
-                            ? null
-                            : (value) => _save(
-                                () =>
-                                    settings.setReaderBackgroundEnabled(value),
-                              ),
-                      ),
-                    ],
-                  ),
+                      value: settings.wallpaperEnabled,
+                      onChanged:
+                          _saving ||
+                              !settings.initialized ||
+                              !settings.wallpaperSupported
+                          ? null
+                          : (value) => _save(
+                              () => settings.setWallpaperEnabled(value),
+                            ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    ReaderSwitchListTile(
+                      key: const ValueKey('reader-background-color-switch'),
+                      title: const Text('阅读背景取色'),
+                      subtitle: const Text('根据阅读背景颜色或图片调整菜单与弹层配色，保留正文配色'),
+                      value: settings.readerBackgroundEnabled,
+                      onChanged: _saving || !settings.initialized
+                          ? null
+                          : (value) => _save(
+                              () => settings.setReaderBackgroundEnabled(value),
+                            ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       );

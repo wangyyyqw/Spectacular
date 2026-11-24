@@ -93,11 +93,16 @@ void main() {
     expect(find.text('外观'), findsOneWidget);
     expect(find.text('阅读'), findsOneWidget);
     expect(find.text('词典设置'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('帮助与诊断'),
+      160,
+      scrollable: find.byType(ListView).last,
+    );
     expect(find.text('帮助与诊断'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('关于'),
       200,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byType(ListView).last,
     );
     expect(find.text('关于'), findsOneWidget);
     await tester.pageBack();
@@ -149,7 +154,7 @@ void main() {
     expect(find.byType(SelectableText), findsOneWidget);
     expect(find.byType(Dialog), findsNothing);
     expect(find.byType(SnackBar), findsNothing);
-    await tester.tap(find.byTooltip('关闭'));
+    await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.text('诊断日志'), findsNothing);
     expect(find.text('查看诊断日志'), findsOneWidget);
@@ -179,7 +184,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);
       expect(find.byType(RadioListTile<ThemeMode>), findsNWidgets(3));
-      await tester.tap(find.byTooltip('关闭'));
+      await tester.pageBack();
       await tester.pumpAndSettle();
       expect(saved, isEmpty);
 
@@ -203,7 +208,7 @@ void main() {
         find.byType(RadioGroup<ThemeMode>),
       );
       expect(group.groupValue, ThemeMode.dark);
-      await tester.tap(find.byTooltip('关闭'));
+      await tester.pageBack();
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
@@ -237,7 +242,7 @@ void main() {
             .selected,
         isTrue,
       );
-      await tester.tap(find.byTooltip('关闭'));
+      await tester.pageBack();
       await tester.pumpAndSettle();
       expect(await library.getSetting(bookshelfSortKey), 'recent');
       await tester.tap(entry);

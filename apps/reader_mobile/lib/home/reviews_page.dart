@@ -654,7 +654,7 @@ class _ReviewsPageState extends State<ReviewsPage>
               ],
             ),
           ),
-          if (desktop && !_bookListsTab)
+          if (desktop)
             Flexible(
               flex: 2,
               child: ConstrainedBox(
@@ -689,7 +689,11 @@ class _ReviewsPageState extends State<ReviewsPage>
         textInputAction: TextInputAction.search,
         cursorColor: ReaderDrawerStyle.textOf(theme),
         decoration: InputDecoration(
-          hintText: _notes ? '搜索书名、作者或笔记' : '搜索书名、作者或书评',
+          hintText: _bookListsTab
+              ? '搜索书单名称、简介或书名'
+              : _notes
+              ? '搜索书名、作者或笔记'
+              : '搜索书名、作者或书评',
           hintStyle: TextStyle(color: muted),
           filled: true,
           isDense: true,
@@ -721,7 +725,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   List<Widget> _actions() {
-    if (_bookListsTab) return const <Widget>[];
+    final bookLists = _bookListsTab;
     final books = _books;
     return _searching
         ? [
@@ -732,16 +736,20 @@ class _ReviewsPageState extends State<ReviewsPage>
             ),
           ]
         : [
-            if (!_notes && books != null && books.isNotEmpty)
+            if (!bookLists && !_notes && books != null && books.isNotEmpty)
               IconButton(
                 key: const ValueKey<String>('reviews-sort'),
                 tooltip: '书评排序',
                 onPressed: _chooseSort,
                 icon: const AppIcon(AppGlyph.sort),
               ),
-            if (books != null)
+            if (bookLists || books != null)
               IconButton(
-                tooltip: _notes ? '搜索笔记' : '搜索书评',
+                tooltip: bookLists
+                    ? '搜索书单'
+                    : _notes
+                    ? '搜索笔记'
+                    : '搜索书评',
                 onPressed: _toggleSearch,
                 icon: const AppIcon(AppGlyph.search),
               ),
@@ -783,7 +791,11 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Widget _sectionBody() {
     if (_bookListsTab) {
-      return BookListsView(library: widget.library, active: widget.active);
+      return BookListsView(
+        library: widget.library,
+        active: widget.active,
+        query: _query,
+      );
     }
     final books = _books;
     if (books == null) {

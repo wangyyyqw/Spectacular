@@ -15,6 +15,7 @@ import 'decoration_highlight.dart';
 import 'decoration_rule_defaults.dart';
 import '../panels/settings_panel.dart' show ReaderFontOption;
 import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_sheet_form.dart';
 
 /// 本书与全局作用域的自动装饰规则管理页。
 class ReaderDecorationRulePage extends StatefulWidget {
@@ -272,119 +273,123 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
   @override
   Widget build(BuildContext context) {
     final groups = _scopeGroups;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('自动装饰规则'),
-        actions: [
-          if (widget.store is ReaderDecorationRulePreferences)
-            IconButton(
-              tooltip: '管理装饰样式',
-              onPressed: _busy ? null : _manageStyles,
-              icon: const AppIcon(AppGlyph.edit),
-            ),
+    return ReaderSheetForm(
+      title: const Text('自动装饰规则'),
+      contentPadding: EdgeInsets.zero,
+      scrollContent: false,
+      headerActions: [
+        if (widget.store is ReaderDecorationRulePreferences)
           IconButton(
-            key: const ValueKey<String>('rule-add-group'),
-            tooltip: '新建分组',
-            onPressed: _busy || _loading ? null : _addGroup,
-            icon: const AppIcon(AppGlyph.folderAdd),
+            tooltip: '管理装饰样式',
+            onPressed: _busy ? null : _manageStyles,
+            icon: const AppIcon(AppGlyph.edit),
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: SegmentedButton<bool>(
-              selectedIcon: const AppIcon(AppGlyph.check),
-              segments: const [
-                ButtonSegment(value: false, label: Text('本书')),
-                ButtonSegment(value: true, label: Text('全局')),
-              ],
-              selected: {_global},
-              onSelectionChanged: _busy
-                  ? null
-                  : (value) => setState(() => _global = value.first),
+        IconButton(
+          key: const ValueKey<String>('rule-add-group'),
+          tooltip: '新建分组',
+          onPressed: _busy || _loading ? null : _addGroup,
+          icon: const AppIcon(AppGlyph.folderAdd),
+        ),
+      ],
+      content: SizedBox(
+        height: MediaQuery.sizeOf(context).height * .82,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: SegmentedButton<bool>(
+                selectedIcon: const AppIcon(AppGlyph.check),
+                segments: const [
+                  ButtonSegment(value: false, label: Text('本书')),
+                  ButtonSegment(value: true, label: Text('全局')),
+                ],
+                selected: {_global},
+                onSelectionChanged: _busy
+                    ? null
+                    : (value) => setState(() => _global = value.first),
+              ),
             ),
-          ),
-          if (_busy) const LinearProgressIndicator(minHeight: 2),
-          if (!_global && widget.store is ReaderDecorationRulePreferences)
-            ReaderSwitchListTile(
-              title: const Text('跟随全局规则'),
-              subtitle: const Text('关闭后可单独选择本书启用的全局规则'),
-              value: _globalSelection == null,
-              onChanged: _busy
-                  ? null
-                  : (value) => _operate(
-                      () => (widget.store as ReaderDecorationRulePreferences)
-                          .saveGlobalRuleSelection(
-                            value
-                                ? null
-                                : _rules
-                                      .where(
-                                        (r) =>
-                                            r.enabled &&
-                                            _groups.any(
-                                              (g) =>
-                                                  g.id == r.groupId &&
-                                                  g.bookId == null,
-                                            ),
-                                      )
-                                      .map((r) => r.id)
-                                      .toSet(),
-                          ),
+            if (_busy) const LinearProgressIndicator(minHeight: 2),
+            if (!_global && widget.store is ReaderDecorationRulePreferences)
+              ReaderSwitchListTile(
+                title: const Text('跟随全局规则'),
+                subtitle: const Text('关闭后可单独选择本书启用的全局规则'),
+                value: _globalSelection == null,
+                onChanged: _busy
+                    ? null
+                    : (value) => _operate(
+                        () => (widget.store as ReaderDecorationRulePreferences)
+                            .saveGlobalRuleSelection(
+                              value
+                                  ? null
+                                  : _rules
+                                        .where(
+                                          (r) =>
+                                              r.enabled &&
+                                              _groups.any(
+                                                (g) =>
+                                                    g.id == r.groupId &&
+                                                    g.bookId == null,
+                                              ),
+                                        )
+                                        .map((r) => r.id)
+                                        .toSet(),
+                            ),
+                      ),
+              ),
+            if (!_global && _globalSelection != null)
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final rule in _rules.where(
+                    (r) => _groups.any(
+                      (g) => g.id == r.groupId && g.bookId == null,
                     ),
-            ),
-          if (!_global && _globalSelection != null)
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final rule in _rules.where(
-                  (r) =>
-                      _groups.any((g) => g.id == r.groupId && g.bookId == null),
-                ))
-                  FilterChip(
-                    label: Text(rule.name ?? rule.pattern),
-                    selected: _globalSelection!.contains(rule.id),
-                    onSelected: _busy
-                        ? null
-                        : (selected) => _operate(() {
-                            final ids = {..._globalSelection!};
-                            if (selected) {
-                              ids.add(rule.id);
-                            } else {
-                              ids.remove(rule.id);
-                            }
-                            return (widget.store
-                                    as ReaderDecorationRulePreferences)
-                                .saveGlobalRuleSelection(ids);
-                          }),
-                  ),
-              ],
-            ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                  ))
+                    FilterChip(
+                      label: Text(rule.name ?? rule.pattern),
+                      selected: _globalSelection!.contains(rule.id),
+                      onSelected: _busy
+                          ? null
+                          : (selected) => _operate(() {
+                              final ids = {..._globalSelection!};
+                              if (selected) {
+                                ids.add(rule.id);
+                              } else {
+                                ids.remove(rule.id);
+                              }
+                              return (widget.store
+                                      as ReaderDecorationRulePreferences)
+                                  .saveGlobalRuleSelection(ids);
+                            }),
+                    ),
+                ],
+              ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_error!),
+                          TextButton(onPressed: _load, child: const Text('重试')),
+                        ],
+                      ),
+                    )
+                  : ReorderableListView(
+                      buildDefaultDragHandles: false,
+                      padding: const EdgeInsets.all(12),
+                      onReorderItem: _reorderGroups,
                       children: [
-                        Text(_error!),
-                        TextButton(onPressed: _load, child: const Text('重试')),
+                        for (var index = 0; index < groups.length; index++)
+                          _groupCard(groups[index], index),
                       ],
                     ),
-                  )
-                : ReorderableListView(
-                    buildDefaultDragHandles: false,
-                    padding: const EdgeInsets.all(12),
-                    onReorderItem: _reorderGroups,
-                    children: [
-                      for (var index = 0; index < groups.length; index++)
-                        _groupCard(groups[index], index),
-                    ],
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -527,64 +532,58 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
   );
 
   Future<void> _manageStyles() async {
-    await showReaderBottomSheet<void>(
+    await showReaderDrawer<void>(
       context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('装饰样式', style: Theme.of(context).textTheme.titleLarge),
-                for (final style in _styles)
-                  ListTile(
-                    title: Text(style.name),
-                    subtitle: Text(style.builtIn ? '内置样式' : '自定义样式'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _editStyle(style);
-                    },
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (!style.builtIn)
-                          IconButton(
-                            tooltip: '删除样式',
-                            icon: const AppIcon(AppGlyph.delete),
-                            onPressed: () {
-                              Navigator.pop(context);
-                              _operate(
-                                () =>
-                                    (widget.store
-                                            as ReaderDecorationRulePreferences)
-                                        .removeStyle(style.id),
-                              );
-                            },
-                          ),
-                        IconButton(
-                          tooltip: '复制样式',
-                          icon: const AppIcon(AppGlyph.copy),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _editStyle(style, copy: true);
-                          },
-                        ),
-                      ],
+      builder: (context) => ReaderSheetForm(
+        title: const Text('装饰样式'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('装饰样式', style: Theme.of(context).textTheme.titleLarge),
+            for (final style in _styles)
+              ListTile(
+                title: Text(style.name),
+                subtitle: Text(style.builtIn ? '内置样式' : '自定义样式'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _editStyle(style);
+                },
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!style.builtIn)
+                      IconButton(
+                        tooltip: '删除样式',
+                        icon: const AppIcon(AppGlyph.delete),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _operate(
+                            () =>
+                                (widget.store
+                                        as ReaderDecorationRulePreferences)
+                                    .removeStyle(style.id),
+                          );
+                        },
+                      ),
+                    IconButton(
+                      tooltip: '复制样式',
+                      icon: const AppIcon(AppGlyph.copy),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _editStyle(style, copy: true);
+                      },
                     ),
-                  ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _editStyle(null);
-                  },
-                  child: const Text('新建样式'),
+                  ],
                 ),
-              ],
+              ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _editStyle(null);
+              },
+              child: const Text('新建样式'),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -607,7 +606,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
     final id = copy || style == null
         ? 'style-${DateTime.now().microsecondsSinceEpoch}'
         : style.id;
-    final draft = await showReaderBottomSheet<ReaderDecorationRule>(
+    final draft = await showReaderDrawer<ReaderDecorationRule>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,

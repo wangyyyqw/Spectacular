@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../book_source/online_book_controller.dart';
 import '../book_source/online_book_detail_page.dart';
@@ -130,19 +131,18 @@ class ProfilePage extends StatelessWidget {
                     leading: const AppIcon(AppGlyph.settings),
                     title: const Text('设置'),
                     trailing: const AppIcon(AppGlyph.chevronRight),
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(
-                        builder: (_) => AppSettingsPage(
-                          library: library,
-                          onlineBooks: onlineBooks,
-                          onReadOnline: onReadOnline,
-                          themeMode: themeMode,
-                          onThemeModeChanged: onThemeModeChanged,
-                          appFontFamily: appFontFamily,
-                          appFontStore: appFontStore,
-                          onAppFontFamilyChanged: onAppFontFamilyChanged,
-                          navigationSettings: navigationSettings,
-                        ),
+                    onTap: () => showReaderDrawer<void>(
+                      context: context,
+                      builder: (_) => AppSettingsPage(
+                        library: library,
+                        onlineBooks: onlineBooks,
+                        onReadOnline: onReadOnline,
+                        themeMode: themeMode,
+                        onThemeModeChanged: onThemeModeChanged,
+                        appFontFamily: appFontFamily,
+                        appFontStore: appFontStore,
+                        onAppFontFamilyChanged: onAppFontFamilyChanged,
+                        navigationSettings: navigationSettings,
                       ),
                     ),
                   ),

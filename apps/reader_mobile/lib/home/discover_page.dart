@@ -394,12 +394,11 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Future<void> _manageSources() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => OnlineSourcePage(
-          controller: widget.controller,
-          onRead: widget.onRead,
-        ),
+    await showReaderDrawer<void>(
+      context: context,
+      builder: (_) => OnlineSourcePage(
+        controller: widget.controller,
+        onRead: widget.onRead,
       ),
     );
     if (mounted) _sourcesChanged();

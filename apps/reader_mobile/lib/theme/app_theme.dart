@@ -288,11 +288,6 @@ ThemeData _withControls(ThemeData base, ColorScheme colors) => base.copyWith(
     minVerticalPadding: 8,
     shape: const RoundedRectangleBorder(borderRadius: _radius),
   ),
-  dividerTheme: DividerThemeData(
-    color: colors.outlineVariant,
-    thickness: 1,
-    space: 1,
-  ),
   filledButtonTheme: FilledButtonThemeData(style: _filledStyle(colors)),
   elevatedButtonTheme: ElevatedButtonThemeData(style: _filledStyle(colors)),
   outlinedButtonTheme: OutlinedButtonThemeData(

@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
 import 'package:reader_mobile/home/home_shell.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/test_epub.dart';
 
@@ -27,7 +29,7 @@ List<String> _listTitles(WidgetTester tester) => <String>[
 ];
 
 void main() {
-  testWidgets('在“我的”设置书架排序，返回书架后按书名排序', (tester) async {
+  testWidgets('书架管理保存宫格书名、分割线和新书置顶设置', (tester) async {
     final library = LibraryStore.memory();
     await tester.runAsync(() async {
       for (final title in <String>['B书', 'A书', 'C书']) {
@@ -49,29 +51,31 @@ void main() {
     await _settle(tester);
     await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await _settle(tester);
-    expect(find.text('书架排序'), findsOneWidget);
-    ListTile sortTile() => tester.widget<ListTile>(
-      find.byKey(const ValueKey<String>('bookshelf-sort-setting')),
-    );
-    expect((sortTile().subtitle! as Text).data, '最近阅读');
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-sort-setting')),
-    );
+    await tester.tap(find.byKey(const ValueKey('bookshelf-management-entry')));
     await _settle(tester, frames: 4);
+    final gridTitles = find.byKey(
+      const ValueKey('bookshelf-grid-title-setting'),
+    );
+    expect(tester.widget<ReaderSwitchListTile>(gridTitles).value, isTrue);
+    await tester.tap(gridTitles);
+    await _settle(tester);
+    expect(await library.getSetting(bookshelfGridShowTitlesKey), 'false');
     await tester.tap(
-      find.byKey(const ValueKey<String>('bookshelf-sort-title')),
+      find.byKey(const ValueKey('bookshelf-list-divider-setting')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('bookshelf-newest-first-setting')),
     );
     await _settle(tester);
-    expect(await library.getSetting(bookshelfSortKey), 'title');
-    expect((sortTile().subtitle! as Text).data, '书名');
+    expect(await library.getSetting(bookshelfListDividersKey), 'false');
+    expect(await library.getSetting(bookshelfNewestFirstKey), 'true');
 
-    await tester.pageBack();
+    await tester.drag(find.byType(ReaderSheetForm), const Offset(0, 700));
     await _settle(tester);
     await tester.tap(find.text('书架'));
     await _settle(tester);
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    expect(_listTitles(tester), <String>['A书', 'B书', 'C书']);
+    expect(_listTitles(tester), <String>['C书', 'B书', 'A书']);
   });
 }

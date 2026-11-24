@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
@@ -17,7 +18,7 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
-  testWidgets('我的页关闭“显示书名”后书架隐藏书名，重启保持', (tester) async {
+  testWidgets('书架管理关闭宫格书名后仅宫格隐藏书名，列表书名保留', (tester) async {
     final library = LibraryStore.memory();
     final ids = <String>[];
     await tester.runAsync(() async {
@@ -38,8 +39,6 @@ void main() {
 
     Finder cardTitle(String id) =>
         find.byKey(ValueKey<String>('book-card-title-$id'));
-    Finder rowTitle(String id) =>
-        find.byKey(ValueKey<String>('book-row-title-$id'));
     for (final id in ids) {
       expect(cardTitle(id), findsOneWidget);
     }
@@ -48,16 +47,18 @@ void main() {
     await _settle(tester);
     await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('bookshelf-management-entry')));
+    await _settle(tester);
     final switchTile = find.byKey(
-      const ValueKey<String>('bookshelf-title-setting'),
+      const ValueKey<String>('bookshelf-grid-title-setting'),
     );
     expect(tester.widget<ReaderSwitchListTile>(switchTile).value, isTrue);
     await tester.tap(switchTile);
     await _settle(tester);
     expect(tester.widget<ReaderSwitchListTile>(switchTile).value, isFalse);
-    expect(await library.getSetting(bookshelfShowTitlesKey), 'false');
+    expect(await library.getSetting(bookshelfGridShowTitlesKey), 'false');
 
-    await tester.pageBack();
+    await tester.drag(find.byType(ReaderSheetForm), const Offset(0, 700));
     await _settle(tester);
     await tester.tap(find.text('书架'));
     await _settle(tester);
@@ -68,7 +69,10 @@ void main() {
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
     for (final id in ids) {
-      expect(rowTitle(id), findsNothing);
+      expect(
+        find.byKey(ValueKey<String>('book-row-title-$id')),
+        findsOneWidget,
+      );
     }
 
     // 重新构建页面（≈ 重启）仍保持隐藏。
@@ -82,7 +86,10 @@ void main() {
     );
     await _settle(tester);
     for (final id in ids) {
-      expect(rowTitle(id), findsNothing);
+      expect(
+        find.byKey(ValueKey<String>('book-row-title-$id')),
+        findsOneWidget,
+      );
     }
   });
 }

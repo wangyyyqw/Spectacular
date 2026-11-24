@@ -166,7 +166,11 @@ class EpubChapterSource
       while (index < titles.length &&
           index < volumes.length &&
           volumes[index].trim() == volume) {
-        children.add(TocEntry(title: titles[index], spineIndex: index));
+        // 一些在线书源把卷名同时作为该卷第一章标题，目录中只保留卷头，
+        // 避免出现“卷一”后紧跟一个重复“卷一”的条目。
+        if (children.isNotEmpty || titles[index].trim() != volume) {
+          children.add(TocEntry(title: titles[index], spineIndex: index));
+        }
         index++;
       }
       result.add(

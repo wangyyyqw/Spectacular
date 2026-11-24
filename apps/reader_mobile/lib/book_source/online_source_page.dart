@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import 'book_source_models.dart';
 import 'book_source_login_dialog.dart';
@@ -283,31 +284,34 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
       builder: (context, child) {
         final controller = widget.controller;
         final sources = controller.sources;
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('在线书源'),
-            actions: <Widget>[
-              IconButton(
-                key: const ValueKey<String>('online-source-search'),
-                tooltip: '搜索在线书籍',
-                onPressed: controller.searchableCount == 0 ? null : _openSearch,
-                icon: const AppIcon(AppGlyph.search),
-              ),
-              IconButton(
-                key: const ValueKey<String>('online-source-add'),
-                tooltip: '添加书源',
-                onPressed: _importing ? null : _showAddMenu,
-                icon: _importing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const AppIcon(AppGlyph.add),
-              ),
-            ],
+        return ReaderSheetForm(
+          title: const Text('在线书源'),
+          contentPadding: EdgeInsets.zero,
+          scrollContent: false,
+          headerActions: <Widget>[
+            IconButton(
+              key: const ValueKey<String>('online-source-search'),
+              tooltip: '搜索在线书籍',
+              onPressed: controller.searchableCount == 0 ? null : _openSearch,
+              icon: const AppIcon(AppGlyph.search),
+            ),
+            IconButton(
+              key: const ValueKey<String>('online-source-add'),
+              tooltip: '添加书源',
+              onPressed: _importing ? null : _showAddMenu,
+              icon: _importing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const AppIcon(AppGlyph.add),
+            ),
+          ],
+          content: SizedBox(
+            height: MediaQuery.sizeOf(context).height * .82,
+            child: _buildBody(sources, controller),
           ),
-          body: _buildBody(sources, controller),
         );
       },
     );

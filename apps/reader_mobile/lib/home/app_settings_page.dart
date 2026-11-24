@@ -14,7 +14,6 @@ import '../book_source/online_source_page.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../reader/reader_font_store.dart';
-import '../reader/reader_settings.dart';
 import 'about_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_color_settings.dart';
@@ -72,9 +71,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   bool _savingTheme = false;
   late ThemeMode _themeMode;
   late String _appFontFamily;
-  BookSortOrder _shelfSort = BookSortOrder.recent;
-  bool _showShelfTitles = true;
-  bool _inkMode = false;
+  bool _gridShowTitles = true;
+  bool _listDividers = true;
+  bool _newestFirst = false;
+  bool _autoUpdateFirst = false;
+  bool _autoCheckUpdates = false;
+  bool _skipFinishedUpdates = true;
+  bool _allAsGroup = false;
   List<ReaderFontEntry> _appFonts = const [];
 
   @override
@@ -115,56 +118,124 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   }
 
   Future<void> _loadShelfPreferences() async {
-    final value = await widget.library.getSetting(bookshelfSortKey);
-    final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
-    final inkMode = await widget.library.getSetting(
-      ReaderSettingsStore.keyInkMode,
+    final oldShowTitles = await widget.library.getSetting(
+      bookshelfShowTitlesKey,
     );
+    final gridShowTitles = await widget.library.getSetting(
+      bookshelfGridShowTitlesKey,
+    );
+    final listDividers = await widget.library.getSetting(
+      bookshelfListDividersKey,
+    );
+    final newestFirst = await widget.library.getSetting(
+      bookshelfNewestFirstKey,
+    );
+    final autoUpdateFirst = await widget.library.getSetting(
+      bookshelfAutoUpdateFirstKey,
+    );
+    final autoCheckUpdates = await widget.library.getSetting(
+      bookshelfAutoCheckUpdatesKey,
+    );
+    final skipFinishedUpdates = await widget.library.getSetting(
+      bookshelfSkipFinishedUpdatesKey,
+    );
+    final allAsGroup = await widget.library.getSetting(bookshelfAllAsGroupKey);
     if (mounted) {
       setState(() {
-        _shelfSort = BookSortOrder.fromValue(value);
-        _showShelfTitles = showTitles != 'false';
-        _inkMode = inkMode == 'true';
+        _gridShowTitles = gridShowTitles == null
+            ? oldShowTitles != 'false'
+            : gridShowTitles != 'false';
+        _listDividers = listDividers != 'false';
+        _newestFirst = newestFirst == 'true';
+        _autoUpdateFirst = autoUpdateFirst == 'true';
+        _autoCheckUpdates = autoCheckUpdates == 'true';
+        _skipFinishedUpdates = skipFinishedUpdates != 'false';
+        _allAsGroup = allAsGroup == 'true';
       });
     }
   }
 
-  Future<void> _toggleShelfTitles(bool value) async {
-    setState(() => _showShelfTitles = value);
-    await widget.library.setSetting(bookshelfShowTitlesKey, value.toString());
+  Future<void> _toggleShelfSetting(String key, bool value) async {
+    await widget.library.setSetting(key, value.toString());
+    if (!mounted) return;
+    setState(() {
+      if (key == bookshelfGridShowTitlesKey) _gridShowTitles = value;
+      if (key == bookshelfListDividersKey) _listDividers = value;
+      if (key == bookshelfNewestFirstKey) _newestFirst = value;
+      if (key == bookshelfAutoUpdateFirstKey) _autoUpdateFirst = value;
+      if (key == bookshelfAutoCheckUpdatesKey) _autoCheckUpdates = value;
+      if (key == bookshelfSkipFinishedUpdatesKey) _skipFinishedUpdates = value;
+      if (key == bookshelfAllAsGroupKey) _allAsGroup = value;
+    });
   }
 
-  Future<void> _chooseShelfSort() async {
-    final selected = await showReaderDrawer<BookSortOrder>(
-      context: context,
-      builder: (context) => ReaderSheetForm(
-        title: const Text('书架排序'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            for (final order in BookSortOrder.values)
-              ListTile(
-                key: ValueKey<String>('bookshelf-sort-${order.value}'),
-                contentPadding: EdgeInsets.zero,
-                leading: AppIcon(
-                  order == _shelfSort
-                      ? AppGlyph.radioChecked
-                      : AppGlyph.radioUnchecked,
-                ),
-                title: Text(order.label),
-                selected: order == _shelfSort,
-                selectedColor: Theme.of(context).colorScheme.onSurface,
-                onTap: () => Navigator.of(context).pop(order),
-              ),
-          ],
-        ),
+  Future<void> _openShelfManagement() => showReaderDrawer<void>(
+    context: context,
+    builder: (_) => ReaderSheetForm(
+      title: const Text('书架管理'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ReaderSwitchListTile(
+            key: const ValueKey('bookshelf-grid-title-setting'),
+            title: const Text('宫格书架显示书名'),
+            value: _gridShowTitles,
+            onChanged: (value) =>
+                _toggleShelfSetting(bookshelfGridShowTitlesKey, value),
+          ),
+          ReaderSwitchListTile(
+            key: const ValueKey('bookshelf-list-divider-setting'),
+            title: const Text('列表书架显示分割线'),
+            value: _listDividers,
+            onChanged: (value) =>
+                _toggleShelfSetting(bookshelfListDividersKey, value),
+          ),
+          ReaderSwitchListTile(
+            key: const ValueKey('bookshelf-newest-first-setting'),
+            title: const Text('新导入图书放到最上面'),
+            value: _newestFirst,
+            onChanged: (value) =>
+                _toggleShelfSetting(bookshelfNewestFirstKey, value),
+          ),
+          ReaderSwitchListTile(
+            key: const ValueKey('bookshelf-auto-update-first-setting'),
+            title: const Text('在线图书更新后自动上浮'),
+            value: _autoUpdateFirst,
+            onChanged: (value) =>
+                _toggleShelfSetting(bookshelfAutoUpdateFirstKey, value),
+          ),
+          ReaderSwitchListTile(
+            key: const ValueKey('bookshelf-auto-check-updates-setting'),
+            title: const Text('在线图书自动检查更新'),
+            value: _autoCheckUpdates,
+            onChanged: (value) =>
+                _toggleShelfSetting(bookshelfAutoCheckUpdatesKey, value),
+          ),
+          ReaderSwitchListTile(
+            key: const ValueKey('bookshelf-skip-finished-updates-setting'),
+            title: const Text('完结或读完图书跳过检查更新'),
+            value: _skipFinishedUpdates,
+            onChanged: (value) =>
+                _toggleShelfSetting(bookshelfSkipFinishedUpdatesKey, value),
+          ),
+          ReaderSwitchListTile(
+            key: const ValueKey('bookshelf-all-as-group-setting'),
+            title: const Text('全部书架视为分组'),
+            value: _allAsGroup,
+            onChanged: _setAllAsGroup,
+          ),
+        ],
       ),
-    );
-    if (selected == null || !mounted) {
-      return;
+    ),
+  );
+
+  Future<void> _setAllAsGroup(bool value) async {
+    if (value) {
+      final assignments = await widget.library.groupAssignments();
+      await widget.library.setBooksGroup(assignments.keys);
+      await widget.library.setSetting(bookshelfDefaultGroupNameKey, '默认');
     }
-    setState(() => _shelfSort = selected);
-    await widget.library.setSetting(bookshelfSortKey, selected.value);
+    await _toggleShelfSetting(bookshelfAllAsGroupKey, value);
   }
 
   Future<void> _chooseTheme(ThemeMode current) async {
@@ -312,93 +383,81 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 680),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            children: [
-              _appearance(context),
-              const SizedBox(height: 24),
-              _section(context, '阅读', [
-                ListTile(
-                  key: const ValueKey('dictionary-settings-entry'),
-                  leading: const AppIcon(AppGlyph.bookshelf),
-                  title: const Text('词典设置'),
-                  subtitle: const Text('释义服务、模型与查询预设'),
-                  trailing: const AppIcon(AppGlyph.chevronRight),
-                  onTap: () => Navigator.of(context).push<void>(
-                    MaterialPageRoute(
+    return ReaderSheetForm(
+      title: const Text('设置'),
+      contentPadding: EdgeInsets.zero,
+      scrollContent: false,
+      content: SizedBox(
+        height: MediaQuery.sizeOf(context).height * .82,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
+                _appearance(context),
+                const SizedBox(height: 24),
+                _section(context, '阅读', [
+                  ListTile(
+                    key: const ValueKey('dictionary-settings-entry'),
+                    leading: const AppIcon(AppGlyph.bookshelf),
+                    title: const Text('词典设置'),
+                    subtitle: const Text('释义服务、模型与查询预设'),
+                    trailing: const AppIcon(AppGlyph.chevronRight),
+                    onTap: () => showReaderDrawer<void>(
+                      context: context,
                       builder: (_) => DictionarySettingsPage(
                         store: DictionaryStore(widget.library),
                       ),
                     ),
                   ),
-                ),
-                ListTile(
-                  key: const ValueKey<String>('bookshelf-sort-setting'),
-                  leading: const AppIcon(AppGlyph.sort),
-                  title: const Text('书架排序'),
-                  subtitle: Text(_shelfSort.label),
-                  trailing: const AppIcon(AppGlyph.chevronRight),
-                  onTap: _chooseShelfSort,
-                ),
-                ReaderSwitchListTile(
-                  key: const ValueKey<String>('bookshelf-title-setting'),
-                  secondary: const AppIcon(AppGlyph.textFields),
-                  title: const Text('显示书名'),
-                  subtitle: const Text('关闭后书架只显示封面'),
-                  value: _showShelfTitles,
-                  onChanged: _toggleShelfTitles,
-                ),
-                if (widget.onlineBooks != null)
-                  _OnlineSourceEntry(
-                    controller: widget.onlineBooks!,
-                    onRead: widget.onReadOnline,
+                  if (widget.onlineBooks != null)
+                    _OnlineSourceEntry(
+                      controller: widget.onlineBooks!,
+                      onRead: widget.onReadOnline,
+                    ),
+                ]),
+                const SizedBox(height: 24),
+                _section(context, '帮助与诊断', [
+                  ListTile(
+                    leading: const AppIcon(AppGlyph.listBulleted),
+                    title: const Text('查看诊断日志'),
+                    subtitle: const Text('查看应用错误和运行记录'),
+                    onTap: _viewLogs,
                   ),
-              ]),
-              const SizedBox(height: 24),
-              _section(context, '帮助与诊断', [
-                ListTile(
-                  leading: const AppIcon(AppGlyph.listBulleted),
-                  title: const Text('查看诊断日志'),
-                  subtitle: const Text('查看应用错误和运行记录'),
-                  onTap: _viewLogs,
-                ),
-                ListTile(
-                  leading: _exporting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const AppIcon(AppGlyph.share),
-                  title: const Text('导出诊断日志'),
-                  subtitle: const Text('遇到阅读问题时，可随反馈附上'),
-                  onTap: _exporting ? null : _exportLogs,
-                ),
-                ListTile(
-                  key: const ValueKey<String>('logs-clear'),
-                  leading: const AppIcon(AppGlyph.deleteSweep),
-                  title: const Text('清理日志'),
-                  subtitle: const Text('删除本机保存的全部诊断日志'),
-                  onTap: _exporting ? null : _clearLogs,
-                ),
-              ]),
-              const SizedBox(height: 24),
-              _section(context, '应用信息', [
-                ListTile(
-                  key: const ValueKey('about-entry'),
-                  title: const Text('关于'),
-                  trailing: const AppIcon(AppGlyph.chevronRight),
-                  onTap: () => Navigator.of(context).push<void>(
-                    MaterialPageRoute(builder: (_) => const AboutPage()),
+                  ListTile(
+                    leading: _exporting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const AppIcon(AppGlyph.share),
+                    title: const Text('导出诊断日志'),
+                    subtitle: const Text('遇到阅读问题时，可随反馈附上'),
+                    onTap: _exporting ? null : _exportLogs,
                   ),
-                ),
-              ]),
-            ],
+                  ListTile(
+                    key: const ValueKey<String>('logs-clear'),
+                    leading: const AppIcon(AppGlyph.deleteSweep),
+                    title: const Text('清理日志'),
+                    subtitle: const Text('删除本机保存的全部诊断日志'),
+                    onTap: _exporting ? null : _clearLogs,
+                  ),
+                ]),
+                const SizedBox(height: 24),
+                _section(context, '应用信息', [
+                  ListTile(
+                    key: const ValueKey('about-entry'),
+                    title: const Text('关于'),
+                    trailing: const AppIcon(AppGlyph.chevronRight),
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(builder: (_) => const AboutPage()),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
           ),
         ),
       ),
@@ -408,18 +467,13 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Widget _appearance(BuildContext context) {
     final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
     return _section(context, '外观', [
-      ReaderSwitchListTile(
-        key: const ValueKey('appearance-ink-mode'),
-        secondary: const AppIcon(AppGlyph.lightMode),
-        title: const Text('墨水屏模式'),
-        value: _inkMode,
-        onChanged: (value) async {
-          await widget.library.setSetting(
-            ReaderSettingsStore.keyInkMode,
-            '$value',
-          );
-          if (mounted) setState(() => _inkMode = value);
-        },
+      ListTile(
+        key: const ValueKey('bookshelf-management-entry'),
+        leading: const AppIcon(AppGlyph.bookshelf),
+        title: const Text('书架管理'),
+        subtitle: const Text('书架显示、排序、更新和分组'),
+        trailing: const AppIcon(AppGlyph.chevronRight),
+        onTap: _openShelfManagement,
       ),
       ListTile(
         key: const ValueKey('theme-color-settings-entry'),
@@ -435,10 +489,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             return;
           }
           try {
-            await Navigator.of(context).push<void>(
-              MaterialPageRoute(
-                builder: (_) => ThemeColorSettingsPage(settings: settings),
-              ),
+            await showReaderDrawer<void>(
+              context: context,
+              builder: (_) => ThemeColorSettingsPage(settings: settings),
             );
           } finally {
             if (shared == null) settings.dispose();
@@ -472,11 +525,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           leading: const AppIcon(AppGlyph.menuBook),
           title: const Text('底栏设置'),
           trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute(
-              builder: (_) =>
-                  NavigationSettingsPage(settings: widget.navigationSettings!),
-            ),
+          onTap: () => showReaderDrawer<void>(
+            context: context,
+            builder: (_) =>
+                NavigationSettingsPage(settings: widget.navigationSettings!),
           ),
         ),
     ]);
@@ -539,11 +591,10 @@ class _OnlineSourceEntry extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute<void>(
-              builder: (context) =>
-                  OnlineSourcePage(controller: controller, onRead: onRead),
-            ),
+          onTap: () => showReaderDrawer<void>(
+            context: context,
+            builder: (context) =>
+                OnlineSourcePage(controller: controller, onRead: onRead),
           ),
         );
       },

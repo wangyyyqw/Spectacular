@@ -706,24 +706,9 @@ class ReaMicroApiClient
     List<ReaMicroReadSessionLog> sessionLogs = const <ReaMicroReadSessionLog>[],
     bool sessionAccounting = false,
   }) async {
-    if (sessionAccounting) {
-      if (sessionLogs.isEmpty) return;
-      // 阅微原生会话记账使用独立入口，稳定会话标识允许安全重试。
-      final data = await _post(
-        'rest/reader/update-time-sessions',
-        <String, Object?>{
-          'sessionLogs': <Object?>[for (final log in sessionLogs) log.toJson()],
-          'sessionAccounting': true,
-        },
-        token: token,
-      );
-      if (data is! Map<String, Object?> ||
-          data['sessionAccountingSupported'] != true) {
-        throw const ReaMicroException('阅微服务器未确认会话记账，请稍后重试');
-      }
-      return;
-    }
-    if (entries.isEmpty) return;
+    if (entries.isEmpty && sessionLogs.isEmpty) return;
+    // 正式版将按日列表、会话日志和开关放在同一个请求中；这样未关联书籍
+    // 也能沿用用户书内部 bookId 完成首次登记后的时长上报。
     await _post('rest/reader/update-read-time-by-date', <String, Object?>{
       'list': <Object?>[for (final entry in entries) entry.toJson()],
       if (sessionLogs.isNotEmpty)

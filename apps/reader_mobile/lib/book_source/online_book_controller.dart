@@ -1,14 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:path/path.dart' as p;
 import 'package:reader_ui/reader_session.dart';
-import 'package:reader_core/epub/epub_chapter_source.dart';
-import 'package:reader_core/position/location_anchor.dart';
-import 'package:reader_core/position/revision_relocator.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
@@ -24,6 +19,8 @@ import 'online_epub_builder.dart';
 import 'online_download_notification.dart';
 import 'online_reading_book.dart';
 import 'online_reading_catalog_store.dart';
+import '../home/bookshelf_sort.dart';
+import 'book_source_compat.dart';
 
 const _cancelledDownload = BookSourceException(
   '已取消下载',
@@ -189,12 +186,106 @@ class OnlineBookController extends ChangeNotifier {
       selectedDiscoverSourceId = await library.getSetting('discover.sourceId');
       _initialized = true;
       await registerImportedBooks();
+      unawaited(checkShelfOnlineUpdates());
     } on Object catch (error) {
       _error = '$error';
     } finally {
       _loading = false;
       if (!_disposed) notifyListeners();
     }
+  }
+
+  Future<void> checkShelfOnlineUpdates() async {
+    if (await library.getSetting(bookshelfAutoCheckUpdatesKey) != 'true') {
+      return;
+    }
+    final baselineRaw = await library.getSetting(bookshelfOnlineUpdatesKey);
+    final Map<String, dynamic> records;
+    try {
+      records = baselineRaw == null || baselineRaw.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(baselineRaw) as Map<String, dynamic>;
+    } on Object {
+      return;
+    }
+    final finished = await library.finishedBookIds();
+    final skipFinished =
+        await library.getSetting(bookshelfSkipFinishedUpdatesKey) != 'false';
+    final entries = await library.list();
+    final originalIds = <String>{};
+    for (final entry in entries) {
+      if (skipFinished && finished.contains(entry.id)) continue;
+      final link = _links[entry.id];
+      if (link == null) continue;
+      final metadata = await _metadataFor(entry).catchError((Object _) => null);
+      final source =
+          metadata?.sourceIn(_sources) ??
+          OnlineEpubMetadata.findSource(link.sourceId, _sources);
+      if (source == null) continue;
+      originalIds.add(entry.id);
+      final book = link.bookFor(source);
+      try {
+        final info = await service.loadBookInfo(source, book);
+        final chapters = await service.fetchToc(source, info);
+        if (chapters.isEmpty) continue;
+        if (skipFinished &&
+            normalizeOnlineStatus(info.status, lastChapter: info.lastChapter) ==
+                '完结') {
+          continue;
+        }
+        final old = records[entry.id] is Map
+            ? (records[entry.id] as Map).cast<String, Object?>()
+            : null;
+        final oldCount =
+            old?['chapterCount'] as int? ??
+            (metadata?.chapters.isNotEmpty == true
+                ? metadata!.chapters.length
+                : null);
+        final count = chapters.length;
+        final changed = oldCount != null && count > oldCount;
+        final rawTime = chapters.last.updateTime.trim().isNotEmpty
+            ? chapters.last.updateTime
+            : info.updateTime;
+        final sourceTime = _parseSourceUpdateTime(rawTime);
+        final observedAt = DateTime.now().millisecondsSinceEpoch;
+        records[entry.id] = <String, Object?>{
+          'chapterCount': count,
+          'latestChapter': chapters.last.title,
+          'updatedAt':
+              sourceTime ??
+              (changed ? observedAt : old?['updatedAt'] as int? ?? observedAt),
+          'updated': changed || old?['updated'] == true,
+          'checkedAt': observedAt,
+        };
+      } on Object catch (error, stack) {
+        recordAppError(
+          'shelf_online_update_check_failed',
+          error,
+          stackTrace: stack,
+        );
+      }
+    }
+    records.removeWhere((id, _) => !originalIds.contains(id));
+    await library.setSetting(bookshelfOnlineUpdatesKey, jsonEncode(records));
+  }
+
+  int? _parseSourceUpdateTime(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return null;
+    final numeric = int.tryParse(value);
+    if (numeric != null && numeric > 0) {
+      return (numeric < 10000000000 ? numeric * 1000 : numeric);
+    }
+    final parsed = DateTime.tryParse(value.replaceFirst(' ', 'T'));
+    if (parsed != null) return parsed.millisecondsSinceEpoch;
+    final match = RegExp(r'^(\d{4})[-/.年 ](\d{1,2})[-/.月 ](\d{1,2})')
+        .firstMatch(value);
+    if (match == null) return null;
+    return DateTime(
+      int.parse(match.group(1)!),
+      int.parse(match.group(2)!),
+      int.parse(match.group(3)!),
+    ).millisecondsSinceEpoch;
   }
 
   /// 从剪贴板导入 JSON 书源。
@@ -849,129 +940,13 @@ class OnlineBookController extends ChangeNotifier {
     }
     final book = link.bookFor(source);
     onProgress?.call(0, 0, '正在获取最新目录');
-    if (metadata?.requiresOnlineReading == true) {
-      final catalog = await refreshCatalog(source, book);
-      if (isCancelled?.call() ?? false) {
-        throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
-      }
-      final result = await service.download(
-        source,
-        catalog.book,
-        preparedBook: catalog.book,
-        selectedChapters: catalog.chapters,
-        chapterDirectory: catalog.chapters,
-        onProgress: onProgress,
-        isCancelled: isCancelled,
-      );
-      if (result.skippedChapters > 0) {
-        throw const BookSourceException('章节未全部获取成功，原书保持不变');
-      }
-      final reading = OnlineReadingBook(
-        source: source,
-        book: catalog.book,
-        chapters: catalog.chapters,
-        service: service,
-        bookshelfId: entry.id,
-      );
-      final prior = await OnlineReadingProgress(
-        library,
-        reading,
-      ).load(entry.id);
-      AnchorBook? oldAnchors;
-      LocationAnchor? oldLocation;
-      if (prior?.cfi != null && progressStore != null) {
-        final online = reading.open();
-        try {
-          oldAnchors = AnchorBook(
-            revision: reading.revision,
-            chapters: [await online.loadAnchorChapter(prior!.spineIndex)],
-          );
-          oldLocation = oldAnchors.capture(prior.cfi!);
-        } finally {
-          online.close();
-          await online.preparationsStopped;
-        }
-      }
-      final updated = await library.updateBytes(
-        entry.id,
-        await OnlineEpubUpdate.preserveBookIdentity(
-          entry.filePath,
-          result.bytes,
-        ),
-        isCancelled: isCancelled,
-      );
-      if (prior != null && progressStore != null) {
-        final offline = await EpubChapterSource.openFile(
-          File(updated.filePath),
-        );
-        try {
-          final nextMetadata = await OnlineEpubMetadata.read(library, updated);
-          final identity = onlineChapterIdentity(
-            reading.chapters[prior.spineIndex],
-          );
-          var spine = -1;
-          for (var index = 0; index < offline.chapterCount; index++) {
-            final href = offline.document.resources.resolve(
-              offline.document.spine[index].href,
-              baseDir: p.posix.dirname(offline.document.opfPath),
-            );
-            final indexed = nextMetadata?.chapters
-                .where((chapter) => chapter.href == href)
-                .firstOrNull;
-            if (indexed != null &&
-                onlineChapterIdentity(
-                      indexed.toChapter(index, nextMetadata!.detailUrl),
-                    ) ==
-                    identity) {
-              spine = index;
-              break;
-            }
-          }
-          if (spine >= 0) {
-            final chapter = await offline.loadAnchorChapter(spine);
-            final nextAnchors = AnchorBook(
-              revision: updated.contentRevision!,
-              chapters: [chapter],
-            );
-            final relocated = oldLocation == null || oldAnchors == null
-                ? null
-                : RevisionRelocator.relocate(
-                    oldBook: oldAnchors,
-                    newBook: nextAnchors,
-                    record: AnchorRecord(original: oldLocation),
-                    progress: true,
-                  );
-            await progressStore.save(
-              updated.id,
-              ReaderProgress(
-                spineIndex: spine,
-                pageIndex: 0,
-                cfi: relocated?.effective.revision == updated.contentRevision
-                    ? relocated!.effective.start.cfi
-                    : chapter.cfiAt(0),
-                approximate: relocated == null || !relocated.isResolved,
-                finished: prior.finished,
-                chapterTitle: chapter.title,
-                contentRevision: updated.contentRevision,
-              ),
-            );
-          }
-        } finally {
-          offline.close();
-          await offline.preparationsStopped;
-        }
-      }
-      _lastAddedChapters = catalog.chapters.length;
-      _shelfEntries[entry.id] = updated;
-      notifyListeners();
-      return updated;
-    }
     final original = await OnlineEpubUpdate.open(
       entry.filePath,
       sourceMetadata: metadata,
     );
-    final info = await service.loadBookInfo(source, book);
-    final toc = await service.fetchToc(source, info);
+    final catalog = await refreshCatalog(source, book);
+    final info = catalog.book;
+    final toc = catalog.chapters;
     if (isCancelled?.call() ?? false) {
       throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
     }

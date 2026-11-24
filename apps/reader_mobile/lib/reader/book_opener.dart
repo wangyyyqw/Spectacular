@@ -64,11 +64,16 @@ class BookOpener {
     _opening = true;
     try {
       if (!context.mounted) return;
+      final entry = book.bookshelfId == null
+          ? null
+          : await library.bookById(book.bookshelfId!);
+      if (!context.mounted) return;
       await _openOnlineReader(
         Navigator.of(context),
         Future.value(book),
-        bookId: book.id,
+        bookId: entry?.id ?? book.id,
         title: book.book.name,
+        entry: entry,
         startChapter: startChapter,
       );
     } finally {
@@ -156,39 +161,67 @@ class BookOpener {
     progressReady.ignore();
     final store = _DeferredOnlineProgress(progressReady);
     final fontStore = ReaderFontStore(library);
+    final bookmarks = entry == null ? null : library.bookmarkStore(entry.id);
+    final annotations = entry == null
+        ? null
+        : library.annotationStore(entry.id);
+    final decorationImages = ReaderDecorationImages();
+    final decorations = entry == null
+        ? null
+        : library.decorationStore(entry.id, images: decorationImages);
+    final decorationRules = entry == null
+        ? null
+        : library.decorationRuleStore(entry.id);
     final settings = _loadSettings()..ignore();
     final revision = prepared.then((book) => book.revision)..ignore();
     Future<EpubChapterSource>? source;
     final route = _OnlineReaderRoute(
       builder: (_) {
         created = true;
-        return EpubReaderPage(
-          dictionaryStore: DictionaryStore(library),
-          onlineReading: prepared,
-          sourceFuture: source ??= prepared.then((book) {
-            if (cancelled) throw const ChapterLoadCancelled();
-            final openedSource = book.open();
-            sourceCreated = true;
-            return openedSource;
-          })..ignore(),
-          bookId: bookId,
-          bookTitle: title,
-          book: entry,
-          contentRevisionFuture: revision,
-          store: store,
-          readingSessions: entry == null ? null : library.readingSessionStore(),
-          reviewStore: entry == null ? null : library.reviewStore(),
-          settingsFuture: settings,
-          fontStore: fontStore,
-          onSettingsChanged: _saveSettings,
-          loadTtsVoices: loadTtsVoices,
-          enableFullTextSearch: false,
-          persistInitialPosition: startChapter != null,
-          onReady: () => ready = !cancelled && sourceCreated,
-          onClosed: () {
-            if (!closed.isCompleted) closed.complete();
-          },
-        );
+        Widget buildReader(VoidCallback reveal, bool readingActive) =>
+            EpubReaderPage(
+              dictionaryStore: DictionaryStore(library),
+              onlineReading: prepared,
+              sourceFuture: source ??= prepared.then((book) {
+                if (cancelled) throw const ChapterLoadCancelled();
+                final openedSource = book.open();
+                sourceCreated = true;
+                return openedSource;
+              })..ignore(),
+              bookId: bookId,
+              bookTitle: title,
+              book: entry,
+              contentRevisionFuture: revision,
+              store: store,
+              readingSessions: entry == null
+                  ? null
+                  : library.readingSessionStore(),
+              reviewStore: entry == null ? null : library.reviewStore(),
+              bookmarks: bookmarks,
+              annotations: annotations,
+              decorations: decorations,
+              decorationRules: decorationRules,
+              decorationImages: decorationImages,
+              settingsFuture: settings,
+              fontStore: fontStore,
+              onSettingsChanged: _saveSettings,
+              loadTtsVoices: loadTtsVoices,
+              enableFullTextSearch: true,
+              persistInitialPosition: startChapter != null,
+              readingActive: readingActive,
+              onReady: () {
+                reveal();
+                ready = !cancelled && sourceCreated;
+              },
+              onClosed: () {
+                if (!closed.isCompleted) closed.complete();
+              },
+            );
+        final localEntry = entry;
+        if (localEntry == null) {
+          return buildReader(() {}, true);
+        }
+        return BookOpeningReader(book: localEntry, readerBuilder: buildReader);
       },
     );
     try {

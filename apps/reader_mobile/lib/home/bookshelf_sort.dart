@@ -33,3 +33,12 @@ const bookshelfSortKey = 'bookshelf.sort';
 
 /// 书架是否显示书名设置键；缺省为显示。
 const bookshelfShowTitlesKey = 'bookshelf.showTitles';
+const bookshelfGridShowTitlesKey = 'bookshelf.gridShowTitles';
+const bookshelfListDividersKey = 'bookshelf.listDividers';
+const bookshelfNewestFirstKey = 'bookshelf.newestFirst';
+const bookshelfAutoUpdateFirstKey = 'bookshelf.autoUpdateFirst';
+const bookshelfAutoCheckUpdatesKey = 'bookshelf.autoCheckUpdates';
+const bookshelfSkipFinishedUpdatesKey = 'bookshelf.skipFinishedUpdates';
+const bookshelfAllAsGroupKey = 'bookshelf.allAsGroup';
+const bookshelfDefaultGroupNameKey = 'bookshelf.defaultGroupName';
+const bookshelfOnlineUpdatesKey = 'bookshelf.onlineUpdates.v1';

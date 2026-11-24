@@ -1181,6 +1181,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
         onChanged: widget.onVolumeKeyPagingChanged,
       ),
       _compactSwitchRow(
+        key: const ValueKey<String>('settings-ink-mode'),
+        label: '墨水屏模式',
+        value: widget.inkMode,
+        onChanged: widget.onInkModeChanged,
+      ),
+      _compactSwitchRow(
         key: const ValueKey<String>('settings-show-system-bars'),
         label: '状态栏和导航栏',
         value: widget.showSystemBars,

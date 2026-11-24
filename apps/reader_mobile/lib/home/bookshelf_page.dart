@@ -15,6 +15,7 @@ import 'package:reader_core/epub/importer.dart';
 
 import '../book_source/book_source_models.dart';
 import '../book_source/online_book_controller.dart';
+import '../book_source/online_book_detail_page.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_models.dart';
@@ -139,7 +140,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Map<String, String> _bookGroups = const <String, String>{};
   String? _activeGroupId;
   bool _grid = true;
-  bool _showTitles = true;
+  bool _gridShowTitles = true;
+  bool _listDividers = true;
+  bool _newestFirst = false;
+  bool _autoUpdateFirst = false;
+  bool _allAsGroup = false;
+  String _defaultGroupName = '全部';
+  Map<String, Map<String, Object?>> _onlineUpdates = const {};
+  Set<String> _finishedBooks = const {};
   bool _searching = false;
   bool _selectionMode = false;
   bool _removing = false;
@@ -256,13 +264,36 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final grid = await widget.library.getSetting(_viewKey);
     final pinned = await widget.library.getSetting(_pinnedKey);
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
+    final gridShowTitles = await widget.library.getSetting(
+      bookshelfGridShowTitlesKey,
+    );
+    final listDividers = await widget.library.getSetting(
+      bookshelfListDividersKey,
+    );
+    final newestFirst = await widget.library.getSetting(
+      bookshelfNewestFirstKey,
+    );
+    final autoUpdateFirst = await widget.library.getSetting(
+      bookshelfAutoUpdateFirstKey,
+    );
+    final allAsGroup = await widget.library.getSetting(bookshelfAllAsGroupKey);
+    final defaultGroupName = await widget.library.getSetting(
+      bookshelfDefaultGroupNameKey,
+    );
     if (!mounted) {
       return;
     }
     setState(() {
       _sort = BookSortOrder.fromValue(sort);
       _grid = grid != 'false';
-      _showTitles = showTitles != 'false';
+      _gridShowTitles = gridShowTitles == null
+          ? showTitles != 'false'
+          : gridShowTitles != 'false';
+      _listDividers = listDividers != 'false';
+      _newestFirst = newestFirst == 'true';
+      _autoUpdateFirst = autoUpdateFirst == 'true';
+      _allAsGroup = allAsGroup == 'true';
+      _defaultGroupName = defaultGroupName ?? '全部';
       _pinnedIds = pinned == null
           ? const <String>[]
           : (jsonDecode(pinned) as List).cast<String>();
@@ -435,6 +466,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
+  Future<void> _renameDefaultGroup() async {
+    final name = await _promptGroupName(
+      title: '编辑默认分组',
+      initial: _defaultGroupName == '全部' ? '默认' : _defaultGroupName,
+    );
+    if (name == null) return;
+    await widget.library.setSetting(bookshelfDefaultGroupNameKey, name);
+    if (mounted) setState(() => _defaultGroupName = name);
+  }
+
   void _toggleSearch() {
     setState(() {
       _searching = !_searching;
@@ -521,6 +562,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
         sorted.sort((a, b) => b.entry.addedAt.compareTo(a.entry.addedAt));
       case BookSortOrder.title:
         sorted.sort((a, b) => a.entry.title.compareTo(b.entry.title));
+    }
+    if (_newestFirst) {
+      sorted.sort((a, b) => b.entry.addedAt.compareTo(a.entry.addedAt));
+    }
+    if (_autoUpdateFirst && _onlineUpdates.isNotEmpty) {
+      sorted.sort((a, b) {
+        final leftRecord = _onlineUpdates[a.entry.id];
+        final rightRecord = _onlineUpdates[b.entry.id];
+        final left = leftRecord?['updatedAt'] as int? ?? 0;
+        final right = rightRecord?['updatedAt'] as int? ?? 0;
+        return right.compareTo(left);
+      });
     }
     final byId = {for (final item in sorted) item.entry.id: item};
     return [
@@ -664,13 +717,36 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
     }
     // 并发读取后一次更新书架快照。
-    final (books, groups, bookGroups, progress, durations) = await (
+    final (
+      books,
+      groups,
+      bookGroups,
+      progress,
+      durations,
+      finished,
+      updates,
+    ) = await (
       widget.library.list(),
       widget.library.listGroups(),
       widget.library.groupAssignments(),
       widget.progressStore.snapshot(),
       widget.library.bookReadingDurations(),
+      widget.library.finishedBookIds(),
+      widget.library.getSetting(bookshelfOnlineUpdatesKey),
     ).wait;
+    Map<String, Map<String, Object?>> onlineUpdates = const {};
+    if (updates != null && updates.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(updates) as Map<String, dynamic>;
+        onlineUpdates = {
+          for (final entry in decoded.entries)
+            if (entry.value is Map)
+              entry.key: (entry.value as Map).cast<String, Object?>(),
+        };
+      } on Object {
+        onlineUpdates = const {};
+      }
+    }
     final items = <_ShelfItem>[
       for (final book in books)
         (
@@ -691,6 +767,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _items = items;
         _groups = groups;
         _bookGroups = bookGroups;
+        _finishedBooks = finished;
+        _onlineUpdates = onlineUpdates;
         if (_activeGroupId != null &&
             !groups.any((group) => group.id == _activeGroupId)) {
           _activeGroupId = null;
@@ -804,6 +882,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final publisherNameFuture = publicLink?.publisherName.trim().isEmpty == true
         ? widget.reaMicro!.resolveLinkedPublisherName(entry.id)
         : null;
+    final onlineSource = widget.onlineBooks?.sourceForBook(entry.id);
+    final onlineLink = widget.onlineBooks?.links[entry.id];
     final action = await showReaderBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -811,7 +891,25 @@ class _BookshelfPageState extends State<BookshelfPage> {
       builder: (_) => BookDetailSheet(
         entry: entry,
         library: widget.library,
-        onlineSourceName: widget.onlineBooks?.sourceForBook(entry.id)?.name,
+        onlineSourceName: onlineSource?.name,
+        onOpenOnlineSource: onlineSource == null || onlineLink == null
+            ? null
+            : () {
+                final book = onlineLink.bookFor(onlineSource);
+                Navigator.of(context).pop();
+                unawaited(
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => OnlineBookDetailPage(
+                        controller: widget.onlineBooks!,
+                        source: onlineSource,
+                        book: book,
+                        onRead: _bookOpener.openOnline,
+                      ),
+                    ),
+                  ),
+                );
+              },
         linkedPublisherName: publicLink?.publisherName,
         linkedPublisherNameFuture: publisherNameFuture,
         progress: progress,
@@ -852,6 +950,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
             child: const Text('编辑 EPUB'),
           ),
         const PopupMenuItem(value: 'detail', child: Text('书籍详情')),
+        if (widget.onlineBooks?.sourceForBook(entry.id) != null &&
+            widget.onlineBooks?.links[entry.id] != null)
+          PopupMenuItem(
+            value: 'online-source',
+            child: Text(
+              '在线来源：${widget.onlineBooks!.sourceForBook(entry.id)!.name}',
+            ),
+          ),
         PopupMenuItem(
           value: 'pin',
           child: Text(_pinnedIds.contains(entry.id) ? '取消置顶' : '置顶'),
@@ -884,6 +990,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _applyBookAction(BookEntry entry, String? action) async {
+    if (action == 'online-source') {
+      final controller = widget.onlineBooks;
+      final source = controller?.sourceForBook(entry.id);
+      final link = controller?.links[entry.id];
+      if (controller == null || source == null || link == null) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => OnlineBookDetailPage(
+            controller: controller,
+            source: source,
+            book: link.bookFor(source),
+            onRead: _bookOpener.openOnline,
+          ),
+        ),
+      );
+      return;
+    }
     if (action == 'chapters') {
       await Navigator.of(context).push<bool>(
         MaterialPageRoute(
@@ -1364,6 +1487,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onToggle: _toggleGroup,
           onShowAll: () => setState(() => _activeGroupId = null),
           onManage: _manageGroup,
+          allAsGroup: _allAsGroup,
+          defaultGroupName: _defaultGroupName,
+          onManageDefault: _renameDefaultGroup,
         ),
       ),
       if (_selectionMode)
@@ -1423,7 +1549,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         if (_error == null && items != null) _buildShelfControls(items),
         Expanded(
           child: _ShelfGroupPages(
-            groupIds: [null, for (final group in _groups) group.id],
+            groupIds: [
+              null,
+              if (!_allAsGroup)
+                for (final group in _groups) group.id,
+            ],
             groupId: _activeGroupId,
             enabled: canSwipe,
             onChanged: (id) => setState(() => _activeGroupId = id),
@@ -1508,7 +1638,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             return _BookCard(
               entry: item.entry,
               pinned: pinned,
-              showTitle: _showTitles,
+              showTitle: _gridShowTitles,
               selectionMode: _selectionMode,
               selected: _selectedIds.contains(item.entry.id),
               onSelect: () => _toggleSelected(item.entry.id),
@@ -1536,7 +1666,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         crossAxisCount: columns,
         mainAxisExtent:
             cardWidth / _shelfCoverAspectRatio +
-            (_showTitles
+            (_gridShowTitles
                 ? _shelfTitleGap + textScaler.scale(_shelfTitleHeight)
                 : 0),
         mainAxisSpacing: 20,
@@ -1551,18 +1681,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
       key: const ValueKey<String>('bookshelf-list'),
       padding: EdgeInsets.fromLTRB(16, 8, 16, _selectionMode ? 160 : 96),
       itemCount: books.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
+      separatorBuilder: (_, _) =>
+          _listDividers ? const Divider(height: 1) : const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final item = books[index];
         return _BookRow(
           item: item,
           pinned: _pinnedIds.contains(item.entry.id),
-          showTitle: _showTitles,
+          showTitle: true,
           selectionMode: _selectionMode,
           selected: _selectedIds.contains(item.entry.id),
           onSelect: () => _toggleSelected(item.entry.id),
           onOpen: _open,
           onLongPress: _openBookDetail,
+          onlineUpdate: _onlineUpdates[item.entry.id],
+          isOnline: widget.onlineBooks?.sourceForBook(item.entry.id) != null,
+          finished: _finishedBooks.contains(item.entry.id),
           onSecondaryTap: (position) => _openBookMenu(item.entry, position),
         );
       },
@@ -2145,6 +2279,9 @@ class _ShelfGroupBar extends StatelessWidget {
     required this.onToggle,
     required this.onShowAll,
     required this.onManage,
+    required this.allAsGroup,
+    required this.defaultGroupName,
+    required this.onManageDefault,
   });
 
   final List<_ShelfItem> items;
@@ -2154,6 +2291,9 @@ class _ShelfGroupBar extends StatelessWidget {
   final ValueChanged<String> onToggle;
   final VoidCallback onShowAll;
   final ValueChanged<ShelfGroup> onManage;
+  final bool allAsGroup;
+  final String defaultGroupName;
+  final VoidCallback onManageDefault;
 
   @override
   Widget build(BuildContext context) {
@@ -2173,18 +2313,20 @@ class _ShelfGroupBar extends StatelessWidget {
           children: <Widget>[
             _ShelfGroupTab(
               key: const ValueKey<String>('bookshelf-group-all'),
-              label: '全部 ${items.length}',
+              label: '${allAsGroup ? defaultGroupName : '全部'} ${items.length}',
               selected: activeGroupId == null,
               onTap: onShowAll,
+              onLongPress: allAsGroup ? onManageDefault : null,
             ),
-            for (final group in groups)
-              _ShelfGroupTab(
-                key: ValueKey<String>('bookshelf-group-${group.id}'),
-                label: '${group.name} ${counts[group.id] ?? 0}',
-                selected: group.id == activeGroupId,
-                onTap: () => onToggle(group.id),
-                onLongPress: () => onManage(group),
-              ),
+            if (!allAsGroup)
+              for (final group in groups)
+                _ShelfGroupTab(
+                  key: ValueKey<String>('bookshelf-group-${group.id}'),
+                  label: '${group.name} ${counts[group.id] ?? 0}',
+                  selected: group.id == activeGroupId,
+                  onTap: () => onToggle(group.id),
+                  onLongPress: () => onManage(group),
+                ),
           ],
         ),
       ),
@@ -2312,6 +2454,9 @@ class _BookRow extends StatelessWidget {
     required this.onOpen,
     required this.onLongPress,
     required this.onSecondaryTap,
+    this.onlineUpdate,
+    this.isOnline = false,
+    this.finished = false,
   });
 
   final _ShelfItem item;
@@ -2323,6 +2468,9 @@ class _BookRow extends StatelessWidget {
   final Future<void> Function(BookEntry) onOpen;
   final Future<void> Function(BookEntry) onLongPress;
   final ValueChanged<Offset> onSecondaryTap;
+  final Map<String, Object?>? onlineUpdate;
+  final bool isOnline;
+  final bool finished;
 
   @override
   Widget build(BuildContext context) {
@@ -2402,17 +2550,48 @@ class _BookRow extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                     ],
-                    for (final label in [
+                    Text(
                       author.isEmpty ? '未知作者' : author,
-                      '已读 ${formatReadingDuration(item.duration)}',
-                      formatReadingChapters(item.spineIndex, entry.spineCount),
-                    ])
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: metadataStyle,
+                    ),
+                    if (isOnline && !finished) ...[
                       Text(
-                        label,
+                        '已读 ${formatReadingDuration(item.duration)} · ${_readingChapterCount(item.spineIndex, entry.spineCount)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: metadataStyle,
                       ),
+                      Text(
+                        _onlineUpdateLabel(onlineUpdate),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: metadataStyle,
+                      ),
+                    ] else if (isOnline && finished) ...[
+                      Text(
+                        '已读 ${formatReadingDuration(item.duration)}',
+                        style: metadataStyle,
+                      ),
+                      Text(
+                        formatReadingChapters(
+                          item.spineIndex,
+                          entry.spineCount,
+                        ),
+                        style: metadataStyle,
+                      ),
+                    ] else ...[
+                      Text(
+                        '已读 ${formatReadingDuration(item.duration)} · ${_readingChapterCount(item.spineIndex, entry.spineCount)}',
+                        style: metadataStyle,
+                      ),
+                      if (isOnline)
+                        Text(
+                          _onlineUpdateLabel(onlineUpdate),
+                          style: metadataStyle,
+                        ),
+                    ],
                   ],
                 ),
               ),
@@ -2426,6 +2605,29 @@ class _BookRow extends StatelessWidget {
       ),
     );
   }
+
+  String _onlineUpdateLabel(Map<String, Object?>? update) {
+    if (update == null) return '尚未检查更新 · 最新章节未知';
+    final millis = update['updatedAt'] as int?;
+    final title = (update['latestChapter'] as String? ?? '').trim();
+    final elapsed = millis == null
+        ? '更新时间未知'
+        : _relativeShelfTime(DateTime.fromMillisecondsSinceEpoch(millis));
+    return '$elapsed · ${title.isEmpty ? '最新章节未知' : '最新：$title'}';
+  }
+}
+
+String _relativeShelfTime(DateTime date) {
+  final elapsed = DateTime.now().difference(date);
+  if (elapsed.inDays >= 1) return '${elapsed.inDays} 天前';
+  if (elapsed.inHours >= 1) return '${elapsed.inHours} 小时前';
+  return '${math.max(1, elapsed.inMinutes)} 分钟前';
+}
+
+String _readingChapterCount(int? spineIndex, int? spineCount) {
+  final total = spineCount ?? 0;
+  final current = ((spineIndex ?? -1) + 1).clamp(0, total);
+  return '$current/$total 章';
 }
 
 class _EmptyPane extends StatelessWidget {

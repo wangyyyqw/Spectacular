@@ -165,7 +165,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       }
       await waitOnlineOperation(
         widget.controller.downloadAndImport(
-          _currentSource ?? widget.source,
+          source,
           info,
           isCancelled: cancelled,
         ),
@@ -391,12 +391,17 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
         if (_collapsedVolumes.contains(volume.id)) continue;
       }
       for (var position = 0; position < volume.end - volume.start; position++) {
-        rows.add((
-          chapter: _catalogReversed
-              ? volume.end - position - 1
-              : volume.start + position,
-          volume: null,
-        ));
+        final chapterIndex = _catalogReversed
+            ? volume.end - position - 1
+            : volume.start + position;
+        final firstChapterIndex = _catalogReversed
+            ? volume.end - 1
+            : volume.start;
+        if (chapterIndex == firstChapterIndex &&
+            chapters[chapterIndex].title.trim() == volume.title.trim()) {
+          continue;
+        }
+        rows.add((chapter: chapterIndex, volume: null));
       }
     }
     return Column(

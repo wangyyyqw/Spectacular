@@ -28,6 +28,7 @@ class BookDetailSheet extends StatelessWidget {
     this.readingDuration = Duration.zero,
     this.readingSessions = const <ReadingSession>[],
     this.pinned = false,
+    this.onOpenOnlineSource,
   });
 
   /// 书籍条目。
@@ -56,6 +57,7 @@ class BookDetailSheet extends StatelessWidget {
 
   /// 本书是否已置顶。
   final bool pinned;
+  final VoidCallback? onOpenOnlineSource;
 
   @override
   Widget build(BuildContext context) {
@@ -149,11 +151,22 @@ class BookDetailSheet extends StatelessWidget {
                         ),
                         if (hasOnlineSource) ...[
                           const SizedBox(height: 4),
-                          Text(
-                            '在线来源：$onlineSourceName',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: metadataStyle,
+                          Material(
+                            type: MaterialType.transparency,
+                            child: InkWell(
+                              key: const ValueKey('book-detail-online-source'),
+                              onTap: onOpenOnlineSource,
+                              child: Text(
+                                '在线来源：$onlineSourceName',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: metadataStyle?.copyWith(
+                                  color: onOpenOnlineSource == null
+                                      ? null
+                                      : theme.colorScheme.primary,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                         const SizedBox(height: 4),
@@ -286,7 +299,7 @@ class _DetailMenuState extends State<_DetailMenu> {
             left: _DetailAction(
               key: const ValueKey<String>('book-detail-booklists'),
               icon: AppGlyph.bookmarkAdd,
-              label: '收藏',
+              label: '书单',
               onTap: () => Navigator.of(context).pop('booklists'),
             ),
             right: _DetailAction(

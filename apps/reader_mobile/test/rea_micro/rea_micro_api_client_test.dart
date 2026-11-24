@@ -129,16 +129,13 @@ void main() {
     expect(pages, 20);
   });
 
-  test('会话记账必须由服务端确认，不回退到累加接口', () async {
+  test('会话记账与按日时长使用同一正式接口', () async {
     final paths = <String>[];
     final api = ReaMicroApiClient(
       baseUrl: 'https://example.test/',
       client: MockClient((request) async {
         paths.add(request.url.path);
-        return _json({
-          'code': 0,
-          'data': {'sessionAccountingSupported': false},
-        });
+        return _json({'code': 0, 'data': true});
       }),
     );
     addTearDown(api.close);
@@ -158,9 +155,9 @@ void main() {
         ],
         sessionAccounting: true,
       ),
-      throwsA(isA<ReaMicroException>()),
+      completes,
     );
-    expect(paths, ['/rest/reader/update-time-sessions']);
+    expect(paths, ['/rest/reader/update-read-time-by-date']);
   });
   test('标注分页达到上限仍未读完时拒绝返回不完整清单', () async {
     var pages = 0;
@@ -1035,12 +1032,6 @@ void main() {
             },
           });
         }
-        if (path.endsWith('/update-time-sessions')) {
-          return _json({
-            'code': 0,
-            'data': {'sessionAccountingSupported': true},
-          });
-        }
         return _json(<String, Object?>{'code': 0, 'data': true});
       }),
     );
@@ -1124,8 +1115,14 @@ void main() {
       'actionType': 0,
     });
     expect(bodies['hide-read-record'], <String, Object?>{'bookId': 8});
-    final update = bodies['update-time-sessions']! as Map<String, Object?>;
+    final update = bodies['update-read-time-by-date']! as Map<String, Object?>;
     expect(update['sessionAccounting'], isTrue);
+    expect((update['list']! as List<Object?>).single, <String, Object?>{
+      'bookId': 21,
+      'date': '2026-11-18',
+      'duration': 60,
+      'verify': '',
+    });
     expect((update['sessionLogs']! as List<Object?>).single, <String, Object?>{
       'id': 'session-1',
       'bookId': 21,
