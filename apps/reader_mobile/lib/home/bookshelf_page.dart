@@ -48,6 +48,14 @@ final _bookPressOverlay = WidgetStateProperty.resolveWith<Color?>(
   (states) => states.contains(WidgetState.pressed) ? Colors.transparent : null,
 );
 
+ThemeData _noFeedback(BuildContext context) => Theme.of(context).copyWith(
+  splashFactory: NoSplash.splashFactory,
+  splashColor: Colors.transparent,
+  highlightColor: Colors.transparent,
+  hoverColor: Colors.transparent,
+  focusColor: Colors.transparent,
+);
+
 /// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
   /// 创建页面。
@@ -1137,18 +1145,27 @@ class _BookshelfPageState extends State<BookshelfPage> {
       borderRadius: BorderRadius.circular(20),
       elevation: 2,
       shadowColor: colors.shadow.withValues(alpha: .12),
-      child: IconButton(
-        key: const ValueKey<String>('bookshelf-import'),
-        tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-        onPressed: busy || !widget.allowImport ? null : _import,
-        icon: busy
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const AppIcon(AppGlyph.add),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          splashFactory: NoSplash.splashFactory,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          hoverColor: Colors.transparent,
+          focusColor: Colors.transparent,
+        ),
+        child: IconButton(
+          key: const ValueKey<String>('bookshelf-import'),
+          tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
+          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          onPressed: busy || !widget.allowImport ? null : _import,
+          icon: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const AppIcon(AppGlyph.add),
+        ),
       ),
     );
   }
@@ -1221,22 +1238,32 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onManage: _manageGroup,
         ),
       ),
-      IconButton(
-        tooltip: _grid ? '列表视图' : '网格视图',
-        onPressed: _toggleView,
-        icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
+      Theme(
+        data: _noFeedback(context),
+        child: IconButton(
+          tooltip: _grid ? '列表视图' : '网格视图',
+          constraints: const BoxConstraints.tightFor(width: 36, height: 40),
+          padding: EdgeInsets.zero,
+          onPressed: _toggleView,
+          icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
+        ),
       ),
-      IconButton(
-        key: const ValueKey('bookshelf-multi-select'),
-        tooltip: _selectionMode ? '退出多选' : '多选',
-        onPressed: _removing
-            ? null
-            : _selectionMode
-            ? _exitSelectionMode
-            : items.isEmpty
-            ? null
-            : _startSelection,
-        icon: AppIcon(_selectionMode ? AppGlyph.close : AppGlyph.multiSelect),
+      Theme(
+        data: _noFeedback(context),
+        child: IconButton(
+          key: const ValueKey('bookshelf-multi-select'),
+          tooltip: _selectionMode ? '退出多选' : '多选',
+          constraints: const BoxConstraints.tightFor(width: 36, height: 40),
+          padding: EdgeInsets.zero,
+          onPressed: _removing
+              ? null
+              : _selectionMode
+              ? _exitSelectionMode
+              : items.isEmpty
+              ? null
+              : _startSelection,
+          icon: AppIcon(_selectionMode ? AppGlyph.close : AppGlyph.multiSelect),
+        ),
       ),
       const SizedBox(width: 8),
     ],
@@ -2204,6 +2231,10 @@ class _BookRow extends StatelessWidget {
       child: InkWell(
         key: ValueKey<String>('book-row-${entry.id}'),
         overlayColor: _bookPressOverlay,
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.transparent,
+        hoverColor: Colors.transparent,
+        focusColor: Colors.transparent,
         onTap: () {
           if (selectionMode) {
             onSelect();
@@ -2465,6 +2496,10 @@ class _BookCard extends StatelessWidget {
       key: ValueKey<String>('book-card-${entry.id}'),
       borderRadius: BorderRadius.circular(4),
       overlayColor: _bookPressOverlay,
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      focusColor: Colors.transparent,
       onTap: () {
         if (selectionMode) {
           onSelect();
