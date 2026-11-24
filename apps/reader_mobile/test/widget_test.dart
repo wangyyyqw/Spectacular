@@ -25,6 +25,7 @@ Future<void> _settle(WidgetTester tester, {int frames = 4}) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
+  await pumpStartupFinished(tester);
 }
 
 Finder _key(String value) => find.byKey(ValueKey<String>(value));

@@ -1,6 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/home/startup_splash.dart';
+
+/// 等开屏动画结束；开屏期间会拦截点击。
+Future<void> pumpStartupFinished(WidgetTester tester) async {
+  for (var frame = 0; frame < 40; frame++) {
+    if (find.byType(StartupSplash).evaluate().isEmpty) return;
+    await tester.pump(const Duration(milliseconds: 40));
+  }
+}
 
 /// 同时交付假时钟回调与真实 IO，再返回原任务结果或原错误。
 Future<T> pumpReaderTask<T>(WidgetTester tester, Future<T> task) async {
@@ -31,12 +40,15 @@ Future<void> pumpReaderUntil(
   WidgetTester tester,
   Finder ready, {
   int maxFrames = 80,
-}) => pumpReaderUntilComplete(
-  tester,
-  () => ready.evaluate().isNotEmpty,
-  description: '$ready',
-  maxFrames: maxFrames,
-);
+}) async {
+  await pumpReaderUntilComplete(
+    tester,
+    () => ready.evaluate().isNotEmpty,
+    description: '$ready',
+    maxFrames: maxFrames,
+  );
+  await pumpStartupFinished(tester);
+}
 
 /// 落盘队列同时包含测试区与真实 IO 区的 Future，两侧都需交付事件。
 Future<void> pumpReaderUntilComplete(

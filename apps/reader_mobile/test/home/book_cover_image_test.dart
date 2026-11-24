@@ -139,6 +139,39 @@ void main() {
     );
   });
 
+  testWidgets('封面解码宽度与预解码共用同一图像源', (tester) async {
+    final book = BookEntry(
+      id: 'preload',
+      title: '预解码封面',
+      author: '',
+      filePath: '',
+      addedAt: DateTime(2026),
+      coverPath: '/封面/预解码.png',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: BookCoverImage(book: book, width: 100, height: 160),
+          ),
+        ),
+      ),
+    );
+    final expectedWidth = coverDecodeWidth(100, tester.view.devicePixelRatio);
+    expect(expectedWidth, (100 * tester.view.devicePixelRatio).ceil());
+    expect(
+      tester.widget<Image>(find.byType(Image)).image,
+      coverImageProvider(book.coverPath!, expectedWidth),
+      reason: '首屏预解码与显示必须命中同一份缓存，否则仍会重新解码',
+    );
+  });
+
+  test('封面解码宽度限制在 96～1200', () {
+    expect(coverDecodeWidth(20, 2), 96);
+    expect(coverDecodeWidth(100, 3), 300);
+    expect(coverDecodeWidth(1000, 4), 1200);
+  });
+
   testWidgets('封面文件缺失时显示书名占位和结构异常提示', (tester) async {
     final book = BookEntry(
       id: 'missing',

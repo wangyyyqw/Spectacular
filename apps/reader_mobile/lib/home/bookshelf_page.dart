@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -129,6 +130,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
   final FocusNode _keyboardFocus = FocusNode(debugLabel: 'bookshelf-keyboard');
   Future<void>? _reloadTask;
   bool _reloadRequested = false;
+  Future<void>? _preferences;
+  int _coverPreloadGeneration = 0;
 
   @override
   void initState() {
@@ -147,8 +150,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
     _queue = ImportQueue(widget.library, readFile: widget.readFile)
       ..addListener(_onQueueChanged);
+    // 首次加载先等偏好读完，避免书架的排序、置顶和视图在显示后再变一次。
+    _preferences = _loadPreferences();
     _reload();
-    _loadPreferences();
   }
 
   @override
@@ -602,6 +606,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _reloadOnce() async {
+    final firstLoad = _items == null;
+    if (firstLoad) {
+      // 视图模式决定封面解码宽度，首屏预解码前先拿到已保存的偏好。
+      try {
+        await (_preferences ?? Future<void>.value());
+      } catch (error, stackTrace) {
+        // 偏好读取失败时按默认设置显示书架，不阻塞书籍列表。
+        recordAppError(
+          'bookshelf_preferences_failed',
+          error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
     // 并发读取后一次更新书架快照。
     final (books, groups, bookGroups, progress, durations) = await (
       widget.library.list(),
@@ -618,6 +636,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
           duration: durations[book.id] ?? Duration.zero,
         ),
     ];
+    if (firstLoad) {
+      // 书架先按最终顺序显示；封面在开屏期间从首屏开始预解码。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_preloadCovers());
+      });
+    }
     if (mounted) {
       final validIds = <String>{for (final item in items) item.entry.id};
       setState(() {
@@ -633,6 +657,32 @@ class _BookshelfPageState extends State<BookshelfPage> {
           _selectionMode = false;
         }
       });
+    }
+  }
+
+  /// 封面预解码：先首屏可见的书，再按书架顺序把其余封面解码完。
+  Future<void> _preloadCovers() async {
+    final items = _items;
+    if (items == null || !mounted) return;
+    final ordered = [
+      for (final item in _visible(items))
+        if (item.entry.coverPath case final path?) (path: path),
+    ];
+    if (ordered.isEmpty) return;
+    final generation = ++_coverPreloadGeneration;
+    final media = MediaQuery.of(context);
+    final width = context.size?.width ?? media.size.width;
+    final cardWidth = _grid
+        ? _shelfGridMetrics(width, media.textScaler).cardWidth
+        : 66.0;
+    final decodeWidth = coverDecodeWidth(cardWidth, media.devicePixelRatio);
+    // 从上到下分批解码，首屏完成后继续解码其余封面直到全部完成。
+    for (var offset = 0; offset < ordered.length; offset += 4) {
+      if (!mounted || generation != _coverPreloadGeneration) return;
+      await Future.wait([
+        for (final cover in ordered.skip(offset).take(4))
+          precacheImage(coverImageProvider(cover.path, decodeWidth), context),
+      ]);
     }
   }
 
@@ -1291,10 +1341,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
             _shelfGridPadding,
             _selectionMode ? 160 : 96,
           ),
-          gridDelegate: _shelfGridLayout(
+          gridDelegate: _shelfGridMetrics(
             constraints.maxWidth,
             MediaQuery.textScalerOf(context),
-          ),
+          ).delegate,
           itemCount: books.length,
           itemBuilder: (context, index) {
             final item = books[index];
@@ -1316,10 +1366,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  SliverGridDelegateWithFixedCrossAxisCount _shelfGridLayout(
-    double width,
-    TextScaler textScaler,
-  ) {
+  ({SliverGridDelegateWithFixedCrossAxisCount delegate, double cardWidth})
+  _shelfGridMetrics(double width, TextScaler textScaler) {
     final available = width - _shelfGridPadding * 2;
     final columns = math.max(
       _shelfMinColumns,
@@ -1327,15 +1375,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
           (_shelfTargetCardWidth + _shelfGridSpacing),
     );
     final cardWidth = (available - _shelfGridSpacing * (columns - 1)) / columns;
-    return SliverGridDelegateWithFixedCrossAxisCount(
-      crossAxisCount: columns,
-      mainAxisExtent:
-          cardWidth / _shelfCoverAspectRatio +
-          (_showTitles
-              ? _shelfTitleGap + textScaler.scale(_shelfTitleHeight)
-              : 0),
-      mainAxisSpacing: 20,
-      crossAxisSpacing: _shelfGridSpacing,
+    return (
+      delegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        mainAxisExtent:
+            cardWidth / _shelfCoverAspectRatio +
+            (_showTitles
+                ? _shelfTitleGap + textScaler.scale(_shelfTitleHeight)
+                : 0),
+        mainAxisSpacing: 20,
+        crossAxisSpacing: _shelfGridSpacing,
+      ),
+      cardWidth: cardWidth,
     );
   }
 
