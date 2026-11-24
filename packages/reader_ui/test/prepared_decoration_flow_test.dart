@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -311,7 +313,68 @@ void _expectIdlePreparations(_PreparedSource source) {
   }, reason: '前后两页预热后，前向四页内容预算允许下一轮补一章；不读取远章');
 }
 
+Future<bool> _hasColor(WidgetTester tester, GlobalKey key, int color) async {
+  final boundary =
+      key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  final image = boundary.toImageSync();
+  final pixels = (await tester.runAsync(
+    () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
+  ))!;
+  image.dispose();
+  for (var offset = 0; offset < pixels.lengthInBytes; offset += 4) {
+    if (pixels.getUint8(offset) == ((color >> 16) & 255) &&
+        pixels.getUint8(offset + 1) == ((color >> 8) & 255) &&
+        pixels.getUint8(offset + 2) == (color & 255) &&
+        pixels.getUint8(offset + 3) == 255) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void main() {
+  testWidgets('同页装饰几何复用后，改色与移除立即更新像素且保留原文位置', (tester) async {
+    final source = _PreparedSource();
+    final progress = await _saved();
+    final key = GlobalKey();
+    late ReaderSession session;
+    Widget reader(int? color) => RepaintBoundary(
+      key: key,
+      child: _reader(
+        source,
+        progress,
+        _Store([
+          if (color != null)
+            _copy(
+              _decoration('cached', 740, typography: false),
+              style: ReaderDecorationStyle(
+                backgroundColor: color,
+                paddingTop: 6,
+              ),
+            ),
+        ]),
+        ready: (value) => session = value,
+      ),
+    );
+    await tester.pumpWidget(reader(0xFFFF0000));
+    await _expectFirstPaint(tester, source);
+    await tester.pumpAndSettle();
+    final page = session.page;
+    final cfi = session.currentCfi;
+    expect(await _hasColor(tester, key, 0xFFFF0000), isTrue);
+    await tester.pumpWidget(reader(0xFF0000FF));
+    await tester.pumpAndSettle();
+    expect(await _hasColor(tester, key, 0xFF0000FF), isTrue);
+    expect(await _hasColor(tester, key, 0xFFFF0000), isFalse);
+    await tester.pumpWidget(reader(null));
+    await tester.pumpAndSettle();
+    expect(await _hasColor(tester, key, 0xFF0000FF), isFalse);
+    expect(session.page, same(page));
+    expect(session.currentCfi, cfi);
+    expect(session.pageTurns, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('默认图片高亮的绘制留白不传入排版行盒', (tester) async {
     final source = _PreparedSource();
     await tester.pumpWidget(

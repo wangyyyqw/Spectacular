@@ -42,31 +42,31 @@ abstract final class ReaderTextRangeGeometry {
     if (start == null || end == null || start.compareTo(end) >= 0) {
       return const [];
     }
+    final from = start.serialize();
+    final until = end.serialize();
+    final blocks = <PageBlock, (int, int)?>{};
     final result = <ReaderRangeLine>[];
     for (final box in TextHitTester.lineBoxes(page)) {
       if (slice != null && !identical(slice, box.slice)) continue;
-      final range = _inLine(box, start, end);
-      if (range != null) result.add(range);
-    }
-    return result;
-  }
-
-  static ReaderRangeLine? _inLine(PageLineBox box, EpubCfi start, EpubCfi end) {
-    final range = box.slice.block.rangeForCfis(
-      start.serialize(),
-      end.serialize(),
-    );
-    if (range == null) return null;
-    final lineStart = box.blockTextOffset;
-    final overlapStart = math.max(range.$1, lineStart);
-    final overlapEnd = math.min(range.$2, lineStart + box.text.length);
-    return overlapStart >= overlapEnd
-        ? null
-        : ReaderRangeLine(
+      final range = blocks.putIfAbsent(
+        box.slice.block,
+        () => box.slice.block.rangeForCfis(from, until),
+      );
+      if (range == null) continue;
+      final lineStart = box.blockTextOffset;
+      final overlapStart = math.max(range.$1, lineStart);
+      final overlapEnd = math.min(range.$2, lineStart + box.text.length);
+      if (overlapStart < overlapEnd) {
+        result.add(
+          ReaderRangeLine(
             line: box,
             start: overlapStart - lineStart,
             end: overlapEnd - lineStart,
-          );
+          ),
+        );
+      }
+    }
+    return result;
   }
 
   /// 分页切片采用半开区间，只允许原段真实末尾作为可定位终点。

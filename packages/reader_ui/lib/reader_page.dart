@@ -1052,6 +1052,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Set<String>? _globalDecorationRuleIds;
   final _ruleEngine = ReaderDecorationRuleEngine();
   final Map<int, List<ReaderDecorationRuleMatch>> _chapterRuleMatches = {};
+  final _decorationBoxes = Expando<_DecorationPageGeometry>();
   final Map<String, ui.Image> _decorationImages = {};
   final Map<(int, String), Future<void>> _decorationImageLoads = {};
   final Map<String, ReaderDecorationNineSlice> _decorationNineSlices = {};
