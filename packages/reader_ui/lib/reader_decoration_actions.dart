@@ -180,7 +180,6 @@ extension _ReaderDecorationActions on _ReaderPageState {
       ),
     );
     if (!mounted) return;
-    _ruleEngine.clearCache();
     await _reloadDecorations();
   }
 

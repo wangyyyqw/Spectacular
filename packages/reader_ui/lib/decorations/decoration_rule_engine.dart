@@ -38,9 +38,12 @@ class ReaderDecorationRuleMatch {
 
 /// 章节级规则缓存与会话错误隔离。
 class ReaderDecorationRuleEngine extends ChangeNotifier {
-  final DecorationRuleMatcher _matcher = DecorationRuleMatcher();
-  final LinkedHashMap<String, Future<List<ReaderDecorationRuleMatch>>> _cache =
-      LinkedHashMap();
+  /// 匹配器由引擎持有，关闭引擎时一并停止未完成的规则。
+  ReaderDecorationRuleEngine({DecorationRuleMatcher? matcher})
+    : _matcher = matcher ?? DecorationRuleMatcher();
+
+  final DecorationRuleMatcher _matcher;
+  final LinkedHashMap<String, _ChapterRuleCache> _cache = LinkedHashMap();
   final Map<String, (String, String)> _failed = {};
   final Map<String, String> _errorMessages = {};
   late final Map<String, String> _errorView = UnmodifiableMapView(
@@ -104,7 +107,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     ];
   }
 
-  /// 同章节原文与规则版本只计算一次，字体重排复用相同 CFI 命中。
+  /// 按原文和匹配条件缓存 CFI；样式、顺序变化只重新组合命中。
   Future<List<ReaderDecorationRuleMatch>> matchChapter({
     required List<PageContent> pages,
     required List<ReaderDecorationRuleGroup> groups,
@@ -122,6 +125,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     if (ordered.isEmpty) return Future.value(const []);
     final blocks = sourceBlocks ?? textBlocks(pages);
     final key = jsonEncode([
+      bookId,
       for (final block in blocks)
         [
           block.cfi,
@@ -144,22 +148,47 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
           ],
           block.boundary,
         ],
-      for (final rule in ordered)
-        [rule.id, _fingerprint(rule), rule.style.toJson()],
     ]);
-    final existing = _cache[key];
-    if (existing != null) return existing;
-    final future = _matchOrdered(blocks, ordered);
-    _cache[key] = future;
+    final cached = _cache.remove(key) ?? _ChapterRuleCache();
+    _cache[key] = cached;
     while (_cache.length > 8) {
       _cache.remove(_cache.keys.first);
     }
-    return future;
+    return _matchCached(blocks, ordered, cached);
+  }
+
+  Future<List<ReaderDecorationRuleMatch>> _matchCached(
+    List<DecorationRuleTextBlock> blocks,
+    List<ReaderDecorationRule> rules,
+    _ChapterRuleCache cached,
+  ) {
+    final key = jsonEncode([
+      for (final rule in rules)
+        [rule.id, _fingerprint(rule), rule.style.toJson()],
+    ]);
+    if (cached.resultKey == key) return cached.result!;
+    final excludeSingleQuotes = rules.any(
+      (rule) =>
+          rule.effectiveType == ReaderDecorationRuleType.singleQuotePhrase,
+    );
+    final active = {
+      for (final rule in rules) _matchKey(rule, excludeSingleQuotes),
+    };
+    cached.ranges.removeWhere((key, _) => !active.contains(key));
+    cached.resultKey = key;
+    return cached.result = _matchOrdered(
+      blocks,
+      rules,
+      cached.ranges,
+      excludeSingleQuotes,
+    );
   }
 
   Future<List<ReaderDecorationRuleMatch>> _matchOrdered(
     List<DecorationRuleTextBlock> blocks,
     List<ReaderDecorationRule> rules,
+    Map<String, Future<List<_RuleRange>>> cache,
+    bool excludeSingleQuotes,
   ) async {
     final matches = <ReaderDecorationRuleMatch>[];
     for (final rule in rules) {
@@ -167,19 +196,27 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
       final fingerprint = _fingerprint(rule);
       if (_failed[rule.id]?.$1 == fingerprint) continue;
       _clearFailure(rule.id);
+      final key = _matchKey(rule, excludeSingleQuotes);
+      final task = cache.putIfAbsent(
+        key,
+        () => _run(rule, blocks, excludeSingleQuotes: excludeSingleQuotes),
+      );
       try {
-        matches.addAll(
-          await _run(
-            rule,
-            blocks,
-            excludeSingleQuotes: rules.any(
-              (item) =>
-                  item.effectiveType ==
-                  ReaderDecorationRuleType.singleQuotePhrase,
+        for (final range in await task) {
+          matches.add(
+            ReaderDecorationRuleMatch(
+              ruleId: rule.id,
+              startCfi: range.startCfi,
+              endCfi: range.endCfi,
+              text: range.text,
+              style: rule.style,
             ),
-          ),
-        );
+          );
+        }
       } on FormatException catch (error) {
+        cache.removeWhere(
+          (entryKey, value) => entryKey == key && identical(value, task),
+        );
         _recordFailure(rule, error.message);
       }
     }
@@ -205,7 +242,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
             startCfi: match.startCfi,
             endCfi: match.endCfi,
             text: match.text,
-            style: match.style,
+            style: rule.style,
           ),
       ];
     } on FormatException catch (error) {
@@ -214,7 +251,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     }
   }
 
-  Future<List<ReaderDecorationRuleMatch>> _run(
+  Future<List<_RuleRange>> _run(
     ReaderDecorationRule rule,
     List<DecorationRuleTextBlock> blocks, {
     int? limit,
@@ -241,7 +278,7 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
       allowCrossParagraph: rule.allowCrossParagraph,
       excludeSingleQuotes: excludeSingleQuotes,
     );
-    final matches = <ReaderDecorationRuleMatch>[];
+    final matches = <_RuleRange>[];
     for (final hit in hits) {
       final block = blocks[hit.block];
       final start = block.cfiAt(hit.start);
@@ -251,15 +288,11 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
           EpubCfi.parse(start)!.compareTo(EpubCfi.parse(end)!) >= 0) {
         continue;
       }
-      matches.add(
-        ReaderDecorationRuleMatch(
-          ruleId: rule.id,
-          startCfi: start,
-          endCfi: end,
-          text: block.text.substring(hit.start, hit.end),
-          style: rule.style,
-        ),
-      );
+      matches.add((
+        startCfi: start,
+        endCfi: end,
+        text: block.text.substring(hit.start, hit.end),
+      ));
     }
     return matches;
   }
@@ -269,6 +302,16 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
     rule.effectiveType.name,
     rule.caseSensitive,
     rule.allowCrossParagraph,
+  ]);
+
+  static String _matchKey(
+    ReaderDecorationRule rule,
+    bool excludeSingleQuotes,
+  ) => jsonEncode([
+    rule.id,
+    _fingerprint(rule),
+    if (rule.effectiveType == ReaderDecorationRuleType.doubleQuoteDialogue)
+      excludeSingleQuotes,
   ]);
 
   void _recordFailure(ReaderDecorationRule rule, String message) {
@@ -421,4 +464,12 @@ class ReaderDecorationRuleEngine extends ChangeNotifier {
       originStart: previous.originStart,
     );
   }
+}
+
+typedef _RuleRange = ({String startCfi, String endCfi, String text});
+
+class _ChapterRuleCache {
+  final ranges = <String, Future<List<_RuleRange>>>{};
+  String? resultKey;
+  Future<List<ReaderDecorationRuleMatch>>? result;
 }
