@@ -25,6 +25,7 @@ Future<void> _pump(
   Map<String, String> titles = const {},
   Map<String, Color> bookColors = const {},
   bool applyThreshold = false,
+  bool initialTimeOfDay = false,
 }) async {
   tester.view.physicalSize = Size(width, 1100);
   tester.view.devicePixelRatio = 1;
@@ -51,6 +52,7 @@ Future<void> _pump(
             now: _now,
             bookTitles: titles,
             bookColors: bookColors,
+            startWithTimeOfDay: initialTimeOfDay,
           ),
         ),
       ),
@@ -361,6 +363,27 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  testWidgets('柱图默认显示时段分布，点击切换为按书统计', (tester) async {
+    await _pump(
+      tester,
+      [
+        _session('a', DateTime(2026, 11, 15, 1), 90),
+        _session('b', DateTime(2026, 11, 15, 3, 30), 40),
+      ],
+      initialTimeOfDay: true,
+    );
+
+    expect(_key('time-bar-0-2'), findsOneWidget);
+    expect(_key('bar-a'), findsNothing);
+    expect(find.text('一天时段'), findsOneWidget);
+
+    await _tap(tester, 'chart-mode');
+    expect(_key('bar-a'), findsOneWidget);
+    expect(_key('time-bar-0-2'), findsNothing);
+    expect(find.text('总阅读时长'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('周视图的时段按周一到周日分段，不复用一天的小时', (tester) async {

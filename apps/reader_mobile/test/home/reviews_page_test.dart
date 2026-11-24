@@ -246,7 +246,7 @@ void main() {
     }),
   );
 
-  testWidgets('未读完的书不进入待写列表或汇总', (tester) async {
+  testWidgets('未读完的书不进入待写列表', (tester) async {
     final unfinished = _book('unfinished', '尚未读完', '作者');
     final finished = _book('finished', '已经读完', '作者');
     final store = _MemoryReviewStore();
@@ -257,7 +257,6 @@ void main() {
       finishedIds: {finished.id},
     );
 
-    expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
     expect(
       find.byKey(ValueKey('review-pending-${unfinished.id}')),
       findsNothing,
@@ -276,7 +275,7 @@ void main() {
     final store = _MemoryReviewStore()..items[book.id] = review;
     await _pumpReviews(tester, books: [book], store: store, finishedIds: {});
 
-    expect(find.text('已写 1 篇 · 待写 0 本 · 平均 5.0 星'), findsOneWidget);
+    expect(find.byKey(ValueKey('review-card-${book.id}')), findsOneWidget);
     await tester.tap(find.byKey(ValueKey('review-card-${book.id}')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('review-detail')), findsOneWidget);
@@ -316,7 +315,6 @@ void main() {
       finishedIds: const <String>{},
     );
 
-    expect(find.text('已写 1 篇 · 待写 0 本 · 平均 4.0 星'), findsOneWidget);
     expect(find.byKey(ValueKey('review-card-${removed.id}')), findsOneWidget);
 
     await tester.tap(find.byKey(ValueKey('review-card-${removed.id}')));
@@ -608,7 +606,10 @@ void main() {
     await tester.pumpAndSettle();
     await _openReviewsTab(tester);
 
-    expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('review-pending-review-book')),
+      findsOneWidget,
+    );
     await tester.tap(find.text('写书评'));
     await tester.pumpAndSettle();
 
@@ -622,7 +623,10 @@ void main() {
     await tester.tap(save);
     await tester.pumpAndSettle();
 
-    expect(find.text('已写 1 篇 · 待写 0 本 · 平均 4.0 星'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('review-card-review-book')),
+      findsOneWidget,
+    );
     expect(store.items[book.id]?.rating, 4);
 
     await tester.tap(
@@ -792,7 +796,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('书评搜索支持书名、作者和正文且不改变顶部汇总', (tester) async {
+  testWidgets('书评搜索支持书名、作者和正文', (tester) async {
     final books = <BookEntry>[
       _book('star', '星河', '刘慈欣'),
       _book('alive', '活着', '余华'),
@@ -805,8 +809,6 @@ void main() {
       });
     await _pumpReviews(tester, books: books, store: store);
 
-    const summary = '已写 2 篇 · 待写 1 本 · 平均 4.0 星';
-    expect(find.text(summary), findsOneWidget);
     await tester.tap(find.byTooltip('搜索书评'));
     await tester.pumpAndSettle();
 
@@ -823,8 +825,6 @@ void main() {
       find.byKey(const ValueKey<String>('review-card-alive')),
       findsNothing,
     );
-    expect(find.text(summary), findsOneWidget);
-
     await tester.enterText(
       find.byKey(const ValueKey<String>('reviews-search-field')),
       '宇宙',
@@ -854,7 +854,6 @@ void main() {
       find.byKey(const ValueKey<String>('review-card-star')),
       findsOneWidget,
     );
-    expect(find.text(summary), findsOneWidget);
   });
 
   testWidgets('书评页直接展示已写和待写书评，不再分组筛选', (tester) async {
@@ -871,7 +870,7 @@ void main() {
       });
     await _pumpReviews(tester, books: books, store: store);
 
-    expect(find.byKey(const ValueKey('reviews-summary')), findsOneWidget);
+    expect(find.byKey(const ValueKey('reviews-section-body')), findsOneWidget);
     for (final filter in ['all', 'reviewed', 'pending']) {
       expect(
         find.byKey(ValueKey<String>('reviews-filter-$filter')),
@@ -896,7 +895,7 @@ void main() {
     );
   });
 
-  testWidgets('书评页支持最近更新、评分和书名排序', (tester) async {
+  testWidgets('书评按最近更新排序且不提供排序按钮', (tester) async {
     final books = <BookEntry>[
       _book('alpha', 'Alpha', '作者甲'),
       _book('beta', 'Beta', '作者乙'),
@@ -928,36 +927,10 @@ void main() {
     double top(String id) =>
         tester.getTopLeft(find.byKey(ValueKey<String>('review-card-$id'))).dy;
 
+    expect(find.byKey(const ValueKey<String>('reviews-sort')), findsNothing);
     expect(top('beta'), lessThan(top('gamma')));
     expect(top('gamma'), lessThan(top('alpha')));
-
-    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort')));
-    await tester.pumpAndSettle();
-    for (final sort in ['updated', 'rating', 'title']) {
-      expect(find.byKey(ValueKey('reviews-sort-$sort')), findsOneWidget);
-    }
-    expect(
-      tester
-          .widget<ListTile>(find.byKey(const ValueKey('reviews-sort-updated')))
-          .selected,
-      isTrue,
-    );
-    await tester.tap(find.byTooltip('关闭'));
-    await tester.pumpAndSettle();
-    expect(top('beta'), lessThan(top('gamma')));
-    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort-rating')));
-    await tester.pumpAndSettle();
-    expect(top('alpha'), lessThan(top('gamma')));
-    expect(top('gamma'), lessThan(top('beta')));
-
-    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('reviews-sort-title')));
-    await tester.pumpAndSettle();
-    expect(top('alpha'), lessThan(top('beta')));
-    expect(top('beta'), lessThan(top('gamma')));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('书评无匹配时可清除搜索', (tester) async {

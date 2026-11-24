@@ -404,7 +404,13 @@ class PageTurnController extends ChangeNotifier {
     _lifting = true;
     _startPoint = grab;
     _endPoint = _curlPointer();
-    _settling.duration = _curlDuration(_startPoint!, _endPoint!, lifting: true);
+    _settlingCurve = Curves.easeOutCubic;
+    // 拖动只短暂接上纸面；点击仍保留起卷与自动释放的衔接。
+    _settling.duration = Duration(
+      milliseconds: (160 * (_endPoint! - _startPoint!).distance / size.width)
+          .round()
+          .clamp(16, _dragging ? 60 : 100),
+    );
     unawaited(_runLifting(token));
   }
 
@@ -480,12 +486,10 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void _updateDragFrame({ui.Offset inputDelta = ui.Offset.zero}) {
-    if (mode == PageTurnMode.simulation3d && (_lifting || _released)) return;
-    if (_positionCatchUp.isActive) {
-      if (mode == PageTurnMode.simulation3d || inputDelta == ui.Offset.zero) {
-        return;
-      }
-      // 补偿只由 ticker 推进，新手势位移仍立即叠加到当前显示位置。
+    if (mode == PageTurnMode.simulation3d && _released) return;
+    if (_lifting || _positionCatchUp.isActive) {
+      if (inputDelta == ui.Offset.zero) return;
+      // 起卷和补偿由 ticker 推进，新手势位移立即叠加到显示位置。
       _followCatchUpInput(inputDelta);
     } else {
       _resolveDragFrame();
@@ -502,7 +506,19 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void _followCatchUpInput(ui.Offset delta) {
-    if (mode == PageTurnMode.simulationBessel) {
+    if (mode == PageTurnMode.simulation3d) {
+      final movement = ui.Offset(
+        fromRight ? delta.dx : -delta.dx,
+        horizontal ? 0 : delta.dy,
+      );
+      if (_lifting) {
+        // 平移整段起卷轨迹，保持当前帧连续，不重启动画或积累跟手延迟。
+        _startPoint = _startPoint! + movement;
+        _endPoint = _curlPointer();
+      }
+      point = point! + movement;
+      progress = _curlProgress();
+    } else if (mode == PageTurnMode.simulationBessel) {
       final moved =
           point! + ui.Offset(fromRight ? delta.dx : -delta.dx, delta.dy);
       point = ui.Offset(
@@ -675,18 +691,18 @@ class PageTurnController extends ChangeNotifier {
         mode == PageTurnMode.simulationBessel ||
         mode == PageTurnMode.simulation3d;
     if (pointBased) _preparePointEnd();
-    _settling.duration = mode == PageTurnMode.simulation3d
-        ? _curlDuration(_startPoint!, _endPoint!, lifting: false)
-        : _dragSettlingDuration();
+    _settling.duration = _dragSettlingDuration();
     unawaited(_runSettling(++_token));
   }
 
   Duration _dragSettlingDuration() {
-    final bessel = mode == PageTurnMode.simulationBessel;
-    final pixels = bessel
+    final pointBased =
+        mode == PageTurnMode.simulationBessel ||
+        mode == PageTurnMode.simulation3d;
+    final pixels = pointBased
         ? (_endPoint!.dx - _startPoint!.dx).abs()
         : ((_complete ? 1 : 0) - _startProgress).abs() * size.width;
-    final remaining = (pixels / (size.width * (bessel ? 2 : 1))).clamp(
+    final remaining = (pixels / (size.width * (pointBased ? 2 : 1))).clamp(
       0.0,
       1.0,
     );
@@ -738,21 +754,6 @@ class PageTurnController extends ChangeNotifier {
     _endPoint = ui.Offset(x, y);
   }
 
-  Duration _curlDuration(
-    ui.Offset from,
-    ui.Offset to, {
-    required bool lifting,
-  }) {
-    final milliseconds = (300 * (from.dx - to.dx).abs() / size.height).round();
-    return Duration(
-      milliseconds: lifting
-          ? milliseconds.clamp(0, 100)
-          : milliseconds < 150
-          ? 150
-          : milliseconds,
-    );
-  }
-
   Future<void> _runSettling(int token) async {
     try {
       final animation = mode == PageTurnMode.simulation3d
@@ -798,7 +799,7 @@ class PageTurnController extends ChangeNotifier {
 
   void _animateCurlFrame() {
     final value = _settling.value;
-    final t = value * value * (3 - 2 * value);
+    final t = _settlingCurve.transform(value);
     point = ui.Offset.lerp(_startPoint, _endPoint, t);
     if (value == 1) {
       _settling.stop(canceled: false);

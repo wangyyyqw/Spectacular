@@ -130,8 +130,12 @@ void main() {
       'text-decoration-style': 'dashed',
       'text-decoration-color': '#ff0000',
     },
-    '背景': {'background-color': '#ff0000'},
-    '渐变背景': {'background-image': 'linear-gradient(red, red)'},
+    // 上下内边距让背景在 Ahem 实心字形之外可见；本组只验证位置跟随。
+    '背景': {'background-color': '#ff0000', 'padding': '2px 0'},
+    '渐变背景': {
+      'background-image': 'linear-gradient(red, red)',
+      'padding': '2px 0',
+    },
     '边框': {'border': '2px solid #ff0000'},
   };
   for (final table in [false, true]) {

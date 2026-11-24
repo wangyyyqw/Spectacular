@@ -32,6 +32,7 @@ class BookDurationChart extends StatefulWidget {
     this.bookTitles = const {},
     this.bookColors = const {},
     this.now,
+    this.startWithTimeOfDay = true,
   });
 
   final ReadingInsights insights;
@@ -40,6 +41,9 @@ class BookDurationChart extends StatefulWidget {
 
   /// 测试可固定当前日期；正常使用时取设备本地时间。
   final DateTime? now;
+
+  /// 默认展示时段柱状图，点击后切换为按书统计。
+  final bool startWithTimeOfDay;
 
   @override
   State<BookDurationChart> createState() => _BookDurationChartState();
@@ -442,6 +446,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       controls: navigation,
       footer: legend,
       weekMode: _period == BookDurationPeriod.week,
+      startWithTimeOfDay: widget.startWithTimeOfDay,
     );
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 4),

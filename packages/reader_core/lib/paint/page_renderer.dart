@@ -841,6 +841,7 @@ class PagePainter {
               line: line,
               textAlign: geometry.style.textAlign,
               isRtl: layout.isRtl,
+              metricsCache: fontMetricsCache,
             );
             if (line.inlineBoxes.isNotEmpty) {
               _paintInlineBoxPlacements(
@@ -2450,6 +2451,7 @@ class PagePainter {
     // 表格原点与正文左缘对齐（P9-16）：列坐标是表格内的相对坐标，
     // 左内缩（容器内边距）与 margin 必须叠加，否则表格压到页边距外。
     final left = geometry.leftInset;
+    final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
     // 行背景在单元格背景下方；按起始格裁剪，保留合并格的行背景归属。
     for (final cell in spec.cells) {
       _paintTableRowBackground(canvas, cell, Offset(left, top));
@@ -2560,6 +2562,7 @@ class PagePainter {
             line: line,
             textAlign: style.textAlign,
             isRtl: cell.layout.isRtl,
+            metricsCache: fontMetricsCache,
           );
           if (line.inlineBoxes.isNotEmpty) {
             _paintInlineBoxPlacements(
@@ -3088,6 +3091,7 @@ class PagePainter {
     required LineBox line,
     required CssTextAlign textAlign,
     required bool isRtl,
+    required Map<TextStyle, ({double ascent, double descent})> metricsCache,
   }) {
     final marginPlan = _InlineMarginPlan(
       runs: runs,
@@ -3118,6 +3122,17 @@ class PagePainter {
             : ui.BoxHeightStyle.includeLineSpacingMiddle,
       ).toList();
       final marginShift = marginPlan.shiftAtOffset(run.start);
+      // 行内背景/边框按 CSS 内容盒定位：字体自身 ascent/descent（不含
+      // line-height 的半行距）加上下 padding。此时 span 继承的 line-height
+      // 只作用于行盒，不放大背景；竖排仍沿用行盒切片。
+      final font = line.vertical ? null : _fontMetricsOf(style, metricsCache);
+      final baseline = font == null
+          ? 0.0
+          : y +
+                painter.computeDistanceToActualBaseline(
+                  TextBaseline.alphabetic,
+                ) +
+                run.baselineShift;
       final leadingEdge =
           isRtl ||
           line.vertical ||
@@ -3139,9 +3154,13 @@ class PagePainter {
         final trailing = trailingEdge && index == boxes.length - 1;
         final paddingBox = Rect.fromLTRB(
           x + box.left + marginShift - (leading ? style.padding.left : 0),
-          y + box.top - style.padding.top,
+          font == null
+              ? y + box.top - style.padding.top
+              : baseline - font.ascent - style.padding.top,
           x + box.right + marginShift + (trailing ? style.padding.right : 0),
-          y + box.bottom + style.padding.bottom,
+          font == null
+              ? y + box.bottom + style.padding.bottom
+              : baseline + font.descent + style.padding.bottom,
         );
         final borders = style.borders;
         final rect = Rect.fromLTRB(
