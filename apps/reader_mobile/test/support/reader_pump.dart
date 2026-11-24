@@ -1,13 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reader_mobile/home/startup_splash.dart';
+import 'package:flutter/material.dart';
 
-/// 等开屏动画结束；开屏期间会拦截点击。
+/// 等应用偏好恢复；启动图标由系统窗口显示，应用没有额外开屏动画。
 Future<void> pumpStartupFinished(WidgetTester tester) async {
   for (var frame = 0; frame < 40; frame++) {
-    if (find.byType(StartupSplash).evaluate().isEmpty) return;
+    if (find.byType(MaterialApp).evaluate().isNotEmpty) return;
     await tester.pump(const Duration(milliseconds: 40));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
   }
 }
 

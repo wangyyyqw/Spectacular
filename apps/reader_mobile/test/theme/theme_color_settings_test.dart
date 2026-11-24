@@ -7,7 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/theme_color_settings_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
-import 'package:reader_mobile/home/startup_splash.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_mobile/theme/theme_color_settings.dart';
 import 'package:reader_mobile/theme/startup_theme_cache.dart';
@@ -172,7 +171,7 @@ void main() {
     );
   });
 
-  testWidgets('原生缓存让宿主首帧按保存的深色显示，系统取色挂起仍可进入书架', (tester) async {
+  testWidgets('系统取色挂起时缓存恢复深色首屏，仍可进入书架', (tester) async {
     final library = LibraryStore.memory();
     await library.setSetting(ThemeColorSettings.wallpaperKey, 'true');
     await library.setSetting('app.themeMode', ThemeMode.dark.name);
@@ -197,15 +196,14 @@ void main() {
         ),
       ),
     );
-    final theme = Theme.of(tester.element(find.byType(StartupSplash)));
+    await pumpReaderUntil(tester, find.text('书架还是空的'));
+    final theme = Theme.of(tester.element(find.text('书架还是空的')));
     final expected = ColorScheme.fromSeed(
       seedColor: seed!,
       brightness: Brightness.dark,
     );
     expect(theme.colorScheme, expected);
     expect(theme.scaffoldBackgroundColor, expected.surfaceContainerLow);
-    await pumpReaderUntil(tester, find.text('书架还是空的'));
-    expect(find.byType(StartupSplash), findsNothing);
     expect(nativeCache!['mode'], 'dark');
     final settings = ThemeColorScope.maybeOf(
       tester.element(find.text('书架还是空的')),
@@ -281,7 +279,7 @@ void main() {
   });
 
   for (final mode in [ThemeMode.light, ThemeMode.dark]) {
-    testWidgets('开屏与应用共用壁纸背景和已保存的${mode.name}主题', (tester) async {
+    testWidgets('首屏使用壁纸背景和已保存的${mode.name}主题', (tester) async {
       final library = LibraryStore.memory();
       await library.setSetting(ThemeColorSettings.wallpaperKey, 'true');
       await library.setSetting('app.themeMode', mode.name);
@@ -292,10 +290,7 @@ void main() {
         tester,
         () => find.byType(MaterialApp).evaluate().isNotEmpty,
       );
-      final splash = find.byType(StartupSplash);
-      expect(splash, findsOneWidget);
-      expect(tester.widget<StartupSplash>(splash).ready, isTrue);
-      final theme = Theme.of(tester.element(splash));
+      final theme = Theme.of(tester.element(find.text('书架还是空的')));
       final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
       final expected = mode == ThemeMode.dark ? app.darkTheme! : app.theme!;
       expect(theme.brightness, expected.brightness);

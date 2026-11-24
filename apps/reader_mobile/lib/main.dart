@@ -11,7 +11,6 @@ import 'package:reader_ui/system_ui.dart';
 
 import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
-import 'home/startup_splash.dart';
 import 'library/library_store.dart';
 import 'reader/reader_font_store.dart';
 import 'reader/reader_text_warmup.dart';
@@ -22,6 +21,9 @@ import 'theme/theme_color_settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 保留系统启动窗口，直到偏好恢复后的应用首屏完成绘制。
+  WidgetsBinding.instance.deferFirstFrame();
+  var firstFrameAllowed = false;
   final startupTheme = StartupThemeCache.read();
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await setReaderSystemBars(statusBar: true, navigationBar: true);
@@ -74,6 +76,11 @@ Future<void> main() async {
       child: ReaderApp.withStorage(
         storage: storage,
         startupTheme: await startupTheme,
+        onStartupReady: () {
+          if (firstFrameAllowed) return;
+          firstFrameAllowed = true;
+          WidgetsBinding.instance.allowFirstFrame();
+        },
       ),
     ),
   );
@@ -88,6 +95,7 @@ class ReaderApp extends StatelessWidget {
     required this.progressStore,
     this.showWelcomeAnnouncement = false,
     this.startupTheme,
+    this.onStartupReady,
   }) : _startupStorage = null;
 
   /// 正式启动入口，监听数据库失败与恢复后的存储替换。
@@ -95,6 +103,7 @@ class ReaderApp extends StatelessWidget {
     super.key,
     required StartupStorage storage,
     this.startupTheme,
+    this.onStartupReady,
   }) : library = storage.library,
        progressStore = storage.progressStore,
        showWelcomeAnnouncement = true,
@@ -109,6 +118,7 @@ class ReaderApp extends StatelessWidget {
   final StartupStorage? _startupStorage;
   final bool showWelcomeAnnouncement;
   final StartupThemeCache? startupTheme;
+  final VoidCallback? onStartupReady;
 
   @override
   Widget build(BuildContext context) {
@@ -135,6 +145,7 @@ class ReaderApp extends StatelessWidget {
     recovery: recovery,
     showWelcomeAnnouncement: showWelcomeAnnouncement,
     startupTheme: startupTheme,
+    onStartupReady: onStartupReady,
   );
 }
 
@@ -146,6 +157,7 @@ class _ThemedReaderApp extends StatefulWidget {
     this.recovery,
     required this.showWelcomeAnnouncement,
     this.startupTheme,
+    this.onStartupReady,
   });
 
   final LibraryStore library;
@@ -153,6 +165,7 @@ class _ThemedReaderApp extends StatefulWidget {
   final StartupStorage? recovery;
   final bool showWelcomeAnnouncement;
   final StartupThemeCache? startupTheme;
+  final VoidCallback? onStartupReady;
 
   @override
   State<_ThemedReaderApp> createState() => _ThemedReaderAppState();
@@ -174,8 +187,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
   String? _selectedFontFamily;
-  bool _splashFinished = false;
-  bool _preferencesReady = false;
+  bool _startupReadyReported = false;
 
   @override
   void initState() {
@@ -221,7 +233,6 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
       fontFamily: await fontFamily,
     );
     unawaited(_cacheStartupTheme());
-    if (mounted) setState(() => _preferencesReady = true);
     return preferences;
   }
 
@@ -333,61 +344,19 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   }
 
   @override
-  Widget build(BuildContext context) => Stack(
-    fit: StackFit.expand,
-    alignment: Alignment.topLeft,
-    children: [
-      FutureBuilder<_AppPreferences>(
-        future: _savedPreferences,
-        builder: (context, snapshot) => snapshot.hasData
-            ? _buildApp(snapshot.data!)
-            : const SizedBox.shrink(),
-      ),
-      // 开屏盖住偏好读取与首屏封面解码，结束后再露出书架。
-      if (!_splashFinished) _buildStartupSplash(context),
-    ],
+  Widget build(BuildContext context) => FutureBuilder<_AppPreferences>(
+    future: _savedPreferences,
+    builder: (context, snapshot) {
+      if (!snapshot.hasData) return const SizedBox.shrink();
+      if (!_startupReadyReported) {
+        _startupReadyReported = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onStartupReady?.call();
+        });
+      }
+      return _buildApp(snapshot.data!);
+    },
   );
-
-  Widget _buildStartupSplash(BuildContext context) {
-    final mode =
-        _selectedMode ??
-        _loadedMode ??
-        widget.startupTheme?.mode ??
-        ThemeMode.system;
-    final brightness = switch (mode) {
-      ThemeMode.light => Brightness.light,
-      ThemeMode.dark => Brightness.dark,
-      ThemeMode.system =>
-        WidgetsBinding.instance.platformDispatcher.platformBrightness,
-    };
-    final theme = buildAppTheme(
-      brightness: brightness,
-      colorScheme: _themeColors.wallpaperScheme(brightness),
-    );
-    return Theme(
-      data: theme,
-      child: Builder(
-        builder: (context) => Directionality(
-          textDirection: TextDirection.ltr,
-          child: MediaQuery.fromView(
-            view: View.of(context),
-            child: AnnotatedRegion<SystemUiOverlayStyle>(
-              value: readerSystemBarStyle(theme.scaffoldBackgroundColor),
-              child: StartupSplash(
-                ready:
-                    _themeColors.initialized &&
-                    _loadedMode != null &&
-                    _preferencesReady,
-                onFinished: () {
-                  if (mounted) setState(() => _splashFinished = true);
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildApp(_AppPreferences preferences) {
     final mode = _selectedMode ?? preferences.mode;
