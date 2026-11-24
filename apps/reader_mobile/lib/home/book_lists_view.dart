@@ -27,6 +27,7 @@ class BookListsView extends StatefulWidget {
     super.key,
     required this.library,
     this.active = true,
+    this.query = '',
   });
 
   /// 书架存储。
@@ -34,6 +35,9 @@ class BookListsView extends StatefulWidget {
 
   /// 当前标签是否可见；重新显示时读取最新书单。
   final bool active;
+
+  /// 名称、简介与书名的搜索词。
+  final String query;
 
   @override
   State<BookListsView> createState() => _BookListsViewState();
@@ -120,6 +124,21 @@ class _BookListsViewState extends State<BookListsView> {
           : _LoadError(message: _error!, onRetry: _reload);
     }
     if (bookLists.isEmpty) return _EmptyBookLists(onCreate: _create);
+    final needle = widget.query.trim().toLowerCase();
+    final visible = needle.isEmpty
+        ? bookLists
+        : [
+            for (final bookList in bookLists)
+              if (bookList.name.toLowerCase().contains(needle) ||
+                  bookList.description.toLowerCase().contains(needle) ||
+                  _resolve(
+                    bookList,
+                  ).any((book) => book.title.toLowerCase().contains(needle)))
+                bookList,
+          ];
+    if (visible.isEmpty) {
+      return _NoBookListMatches(query: widget.query.trim());
+    }
     return Stack(
       children: [
         RefreshIndicator(
@@ -128,9 +147,9 @@ class _BookListsViewState extends State<BookListsView> {
             key: const ValueKey<String>('booklists-list'),
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 76),
-            itemCount: bookLists.length,
+            itemCount: visible.length,
             itemBuilder: (context, index) {
-              final bookList = bookLists[index];
+              final bookList = visible[index];
               return Padding(
                 padding: const EdgeInsets.only(bottom: 14),
                 child: _BookListCard(
@@ -298,6 +317,38 @@ class _CoverStack extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _NoBookListMatches extends StatelessWidget {
+  const _NoBookListMatches({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+      children: [
+        AppIcon(AppGlyph.searchOff, size: 48, color: theme.colorScheme.outline),
+        const SizedBox(height: 12),
+        Text(
+          '没有找到相关书单',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '没有名称、简介或书名包含“$query”',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }

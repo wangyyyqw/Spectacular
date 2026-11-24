@@ -15,16 +15,6 @@ import 'desktop_layout.dart';
 import 'review_ticket.dart';
 import '../diagnostics/reader_log.dart';
 
-enum _ReviewSort {
-  updated('最近更新'),
-  rating('评分优先'),
-  title('书名');
-
-  const _ReviewSort(this.label);
-
-  final String label;
-}
-
 /// 书评页：按书架展示已写书评与待写书目，支持评分、正文编辑和删除。
 class ReviewsPage extends StatefulWidget {
   /// 创建页面。
@@ -48,9 +38,7 @@ class ReviewsPage extends StatefulWidget {
   State<ReviewsPage> createState() => _ReviewsPageState();
 }
 
-class _ReviewsPageState extends State<ReviewsPage>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs;
+class _ReviewsPageState extends State<ReviewsPage> {
   int _section = 0;
   List<BookEntry>? _books;
   Map<String, BookNoteCounts> _counts = const {};
@@ -60,16 +48,14 @@ class _ReviewsPageState extends State<ReviewsPage>
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   final FocusNode _keyboardFocus = FocusNode();
-  _ReviewSort _sort = _ReviewSort.updated;
   bool _searching = false;
   String _query = '';
   int _reloadToken = 0;
   int _editToken = 0;
+  double _dragDx = 0;
   String? _error;
 
   bool get _notes => _section == 0;
-
-  bool get _reviewTab => _section == 1;
 
   bool get _bookListsTab => _section == 2;
 
@@ -79,7 +65,6 @@ class _ReviewsPageState extends State<ReviewsPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this)..addListener(_changeSection);
     widget.library.addListener(_onLibraryChanged);
     if (widget.active) _reload();
   }
@@ -87,7 +72,6 @@ class _ReviewsPageState extends State<ReviewsPage>
   @override
   void dispose() {
     widget.library.removeListener(_onLibraryChanged);
-    _tabs.dispose();
     _searchController.dispose();
     _searchFocus.dispose();
     _keyboardFocus.dispose();
@@ -116,11 +100,11 @@ class _ReviewsPageState extends State<ReviewsPage>
     }
   }
 
-  void _changeSection() {
-    if (_section == _tabs.index) return;
+  void _changeSection(int index) {
+    if (_section == index) return;
     FocusScope.of(context).unfocus();
     setState(() {
-      _section = _tabs.index;
+      _section = index;
       _editToken++;
       _books = null;
       _error = null;
@@ -132,15 +116,25 @@ class _ReviewsPageState extends State<ReviewsPage>
     if (widget.active && !_bookListsTab) _reload();
   }
 
+  void _endSwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final distance = _dragDx;
+    _dragDx = 0;
+    final next = velocity < -150 || (velocity.abs() <= 150 && distance <= -60);
+    final previous =
+        velocity > 150 || (velocity.abs() <= 150 && distance >= 60);
+    if (next && _section < 2) {
+      _changeSection(_section + 1);
+    } else if (previous && _section > 0) {
+      _changeSection(_section - 1);
+    }
+  }
+
   void _onLibraryChanged() {
     if (widget.active) _reload();
   }
 
   void _toggleSearch() {
-    if (usesDesktopLayout(context)) {
-      _searchFocus.requestFocus();
-      return;
-    }
     setState(() {
       _searching = !_searching;
       if (!_searching) {
@@ -148,9 +142,24 @@ class _ReviewsPageState extends State<ReviewsPage>
         _searchController.clear();
       }
     });
-    if (!_searching) {
+    if (_searching) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchFocus.requestFocus();
+      });
+    } else {
       FocusScope.of(context).unfocus();
     }
+  }
+
+  void _openSearch() {
+    if (_searching) {
+      _searchFocus.requestFocus();
+      return;
+    }
+    setState(() => _searching = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
   }
 
   void _clearSearch() {
@@ -283,46 +292,17 @@ class _ReviewsPageState extends State<ReviewsPage>
         builder: builder,
       );
 
-  Future<void> _chooseSort() async {
-    final selected = await _showPanel<_ReviewSort>(
-      (context) => ReaderSheetForm(
-        title: const Text('书评排序'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final sort in _ReviewSort.values)
-              ListTile(
-                key: ValueKey<String>('reviews-sort-${sort.name}'),
-                contentPadding: EdgeInsets.zero,
-                leading: AppIcon(
-                  sort == _sort
-                      ? AppGlyph.radioChecked
-                      : AppGlyph.radioUnchecked,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-                title: Text(sort.label),
-                selected: sort == _sort,
-                selectedColor: Theme.of(context).colorScheme.onSurface,
-                onTap: () => Navigator.of(context).pop(sort),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (selected != null && mounted) setState(() => _sort = selected);
-  }
-
   @override
   Widget build(BuildContext context) {
     final desktop = usesDesktopLayout(context);
     return CallbackShortcuts(
       bindings: {
-        if (desktop && widget.active && _reviewTab)
+        if (desktop && widget.active)
           SingleActivator(
             LogicalKeyboardKey.keyF,
             meta: Theme.of(context).platform == TargetPlatform.macOS,
             control: Theme.of(context).platform != TargetPlatform.macOS,
-          ): _toggleSearch,
+          ): _openSearch,
       },
       child: ExcludeFocus(
         excluding: !widget.active,
@@ -343,7 +323,23 @@ class _ReviewsPageState extends State<ReviewsPage>
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _header(desktop),
-                    Expanded(child: _sectionBody()),
+                    Expanded(
+                      child: GestureDetector(
+                        key: const ValueKey('reviews-section-body'),
+                        behavior: HitTestBehavior.opaque,
+                        onHorizontalDragStart: (_) => _dragDx = 0,
+                        onHorizontalDragUpdate: (details) =>
+                            _dragDx += details.delta.dx,
+                        onHorizontalDragEnd: _endSwipe,
+                        child: _SectionTransition(
+                          index: _section,
+                          child: KeyedSubtree(
+                            key: ValueKey(_section),
+                            child: _sectionBody(),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -355,67 +351,119 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   Widget _header(bool desktop) {
-    if (_searching) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-        child: Row(
-          children: [
-            Expanded(child: _searchField()),
-            IconButton(
-              tooltip: '关闭搜索',
-              onPressed: _toggleSearch,
-              icon: const AppIcon(AppGlyph.close),
-            ),
-          ],
-        ),
-      );
-    }
-    final books = _books;
-    final hasBooks = books != null && books.isNotEmpty;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: TabBar(
-              controller: _tabs,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              labelPadding: const EdgeInsets.only(right: 20),
-              indicator: const BoxDecoration(),
-              dividerColor: Colors.transparent,
-              labelColor: Theme.of(context).colorScheme.onSurface,
-              unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
-              labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-              unselectedLabelStyle: Theme.of(context).textTheme.bodyMedium,
-              tabs: const [
-                Tab(key: ValueKey('notes-tab'), text: '笔记'),
-                Tab(key: ValueKey('reviews-tab'), text: '书评'),
-                Tab(key: ValueKey('booklists-tab'), text: '书单'),
+      child: SizedBox(
+        height: 48,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final fullWidth = constraints.maxWidth;
+            return Stack(
+              alignment: Alignment.centerRight,
+              children: [
+                Positioned.fill(
+                  child: ExcludeFocus(
+                    excluding: _searching,
+                    child: ExcludeSemantics(
+                      excluding: _searching,
+                      child: AnimatedOpacity(
+                        opacity: _searching ? 0 : 1,
+                        duration: const Duration(milliseconds: 140),
+                        child: IgnorePointer(
+                          ignoring: _searching,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxWidth: desktop ? 320 : 252,
+                                    ),
+                                    child: _SectionSlider(
+                                      index: _section,
+                                      onSelected: _changeSection,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (desktop &&
+                                  !_searching &&
+                                  MediaQuery.sizeOf(context).width >= 900)
+                                SizedBox(width: 300, child: _searchField()),
+                              const SizedBox(width: 48),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  width: _searching ? fullWidth : 44,
+                  height: 44,
+                  alignment: Alignment.centerRight,
+                  child: ClipRect(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 160),
+                      layoutBuilder: (current, previous) => Stack(
+                        alignment: Alignment.centerRight,
+                        children: [...previous, ?current],
+                      ),
+                      child: _searching
+                          ? OverflowBox(
+                              key: const ValueKey('reviews-search-expanded'),
+                              alignment: Alignment.centerRight,
+                              minWidth: fullWidth,
+                              maxWidth: fullWidth,
+                              minHeight: 48,
+                              maxHeight: 48,
+                              child: Row(
+                                children: [
+                                  Expanded(child: _searchField()),
+                                  Theme(
+                                    data: _noFeedback(context),
+                                    child: IconButton(
+                                      tooltip: '关闭搜索',
+                                      highlightColor: Colors.transparent,
+                                      hoverColor: Colors.transparent,
+                                      focusColor: Colors.transparent,
+                                      onPressed: _toggleSearch,
+                                      icon: const AppIcon(AppGlyph.close),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _SearchButton(
+                              key: const ValueKey('reviews-search-button'),
+                              tooltip: _searchTooltip,
+                              onPressed: _toggleSearch,
+                            ),
+                    ),
+                  ),
+                ),
               ],
-            ),
-          ),
-          if (desktop && _reviewTab)
-            SizedBox(width: 300, child: _searchField()),
-          if (_reviewTab && hasBooks) ...[
-            IconButton(
-              key: const ValueKey<String>('reviews-sort'),
-              tooltip: '书评排序',
-              onPressed: _chooseSort,
-              icon: const AppIcon(AppGlyph.sort),
-            ),
-            IconButton(
-              tooltip: '搜索书评',
-              onPressed: _toggleSearch,
-              icon: const AppIcon(AppGlyph.search),
-            ),
-          ],
-        ],
+            );
+          },
+        ),
       ),
     );
   }
+
+  String get _searchTooltip => switch (_section) {
+    0 => '搜索笔记',
+    1 => '搜索书评',
+    _ => '搜索书单',
+  };
+
+  String get _searchHint => switch (_section) {
+    0 => '搜索书名或作者',
+    1 => '搜索书名、作者或书评',
+    _ => '搜索书单或书名',
+  };
 
   Widget _searchField() {
     final theme = Theme.of(context);
@@ -438,7 +486,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         textInputAction: TextInputAction.search,
         cursorColor: ReaderDrawerStyle.textOf(theme),
         decoration: InputDecoration(
-          hintText: '搜索书名、作者或书评',
+          hintText: _searchHint,
           hintStyle: TextStyle(color: muted),
           filled: true,
           isDense: true,
@@ -458,10 +506,16 @@ class _ReviewsPageState extends State<ReviewsPage>
           prefixIcon: AppIcon(AppGlyph.search, size: 20, color: muted),
           suffixIcon: _query.isEmpty
               ? null
-              : IconButton(
-                  tooltip: '清除搜索',
-                  onPressed: _clearSearch,
-                  icon: AppIcon(AppGlyph.close, color: muted),
+              : Theme(
+                  data: _noFeedback(context),
+                  child: IconButton(
+                    tooltip: '清除搜索',
+                    highlightColor: Colors.transparent,
+                    hoverColor: Colors.transparent,
+                    focusColor: Colors.transparent,
+                    onPressed: _clearSearch,
+                    icon: AppIcon(AppGlyph.close, color: muted),
+                  ),
                 ),
         ),
         onChanged: (value) => setState(() => _query = value),
@@ -474,6 +528,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       return BookListsView(
         library: widget.library,
         active: widget.active,
+        query: _query,
       );
     }
     final books = _books;
@@ -486,6 +541,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       return BookNotesList(
         books: books,
         counts: _counts,
+        query: _query,
         loadNotes: (id) async =>
             await widget.library.annotationStore(id)?.list() ??
             const <ReaderAnnotation>[],
@@ -501,13 +557,212 @@ class _ReviewsPageState extends State<ReviewsPage>
         reviews: _reviews,
         durations: _durations,
         query: _query,
-        sort: _sort,
         onResetSearch: _resetSearch,
         onOpen: _openReview,
         onEdit: _edit,
       ),
     );
   }
+}
+
+ThemeData _noFeedback(BuildContext context) => Theme.of(context).copyWith(
+  splashFactory: NoSplash.splashFactory,
+  splashColor: Colors.transparent,
+  highlightColor: Colors.transparent,
+  hoverColor: Colors.transparent,
+  focusColor: Colors.transparent,
+);
+
+class _SearchButton extends StatelessWidget {
+  const _SearchButton({
+    super.key,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 2,
+      shadowColor: scheme.shadow.withValues(alpha: .12),
+      child: Theme(
+        data: _noFeedback(context),
+        child: IconButton(
+          tooltip: tooltip,
+          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          padding: EdgeInsets.zero,
+          highlightColor: Colors.transparent,
+          hoverColor: Colors.transparent,
+          focusColor: Colors.transparent,
+          onPressed: onPressed,
+          icon: const AppIcon(AppGlyph.search),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionSlider extends StatelessWidget {
+  const _SectionSlider({required this.index, required this.onSelected});
+
+  static const _sections = <({String key, String label})>[
+    (key: 'notes', label: '笔记'),
+    (key: 'reviews', label: '书评'),
+    (key: 'booklists', label: '书单'),
+  ];
+
+  final int index;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final segment = constraints.maxWidth / _sections.length;
+          return Stack(
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                left: index * segment,
+                top: 0,
+                width: segment,
+                height: constraints.maxHeight,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.shadow.withValues(alpha: .08),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  for (var i = 0; i < _sections.length; i++)
+                    Expanded(
+                      child: Semantics(
+                        key: ValueKey('${_sections[i].key}-tab'),
+                        label: _sections[i].label,
+                        button: true,
+                        selected: index == i,
+                        onTap: () => onSelected(i),
+                        excludeSemantics: true,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: () => onSelected(i),
+                          child: Center(
+                            child: Text(
+                              _sections[i].label,
+                              style: TextStyle(
+                                fontSize: 14,
+                                height: 1.2,
+                                fontWeight: index == i
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: index == i
+                                    ? scheme.onSurface
+                                    : scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 切换笔记、书评、书单时沿用书架的轻微横向滑入淡入。
+class _SectionTransition extends StatefulWidget {
+  const _SectionTransition({required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  State<_SectionTransition> createState() => _SectionTransitionState();
+}
+
+class _SectionTransitionState extends State<_SectionTransition> {
+  double _direction = 0;
+
+  @override
+  void didUpdateWidget(_SectionTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index != widget.index) {
+      _direction = (widget.index - oldWidget.index).sign.toDouble();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
+    final key = ValueKey(widget.index);
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        reverseDuration: const Duration(milliseconds: 150),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeOutCubic,
+        layoutBuilder: _layoutLayers,
+        transitionBuilder: (child, animation) {
+          final direction = child.key == key ? _direction : -_direction;
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween(
+                begin: Offset(direction * .1, 0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        child: KeyedSubtree(key: key, child: widget.child),
+      ),
+    );
+  }
+
+  Widget _layoutLayers(Widget? current, List<Widget> previous) => Stack(
+    fit: StackFit.expand,
+    children: [
+      for (final child in previous)
+        ExcludeFocus(
+          child: ExcludeSemantics(
+            child: IgnorePointer(child: HeroMode(enabled: false, child: child)),
+          ),
+        ),
+      ?current,
+    ],
+  );
 }
 
 class _ReviewList extends StatelessWidget {
@@ -517,7 +772,6 @@ class _ReviewList extends StatelessWidget {
     required this.reviews,
     required this.durations,
     required this.query,
-    required this.sort,
     required this.onResetSearch,
     required this.onOpen,
     required this.onEdit,
@@ -528,7 +782,6 @@ class _ReviewList extends StatelessWidget {
   final Map<String, BookReview> reviews;
   final Map<String, Duration> durations;
   final String query;
-  final _ReviewSort sort;
   final VoidCallback onResetSearch;
   final Future<void> Function(BookEntry, BookReview) onOpen;
   final Future<void> Function(BookEntry) onEdit;
@@ -547,36 +800,14 @@ class _ReviewList extends StatelessWidget {
               review.content.toLowerCase().contains(normalizedQuery));
     }
 
-    final allReviewed = <BookEntry>[
-      for (final book in books)
-        if (reviews[book.id] != null) book,
-    ];
     final reviewed = <BookEntry>[
-      for (final book in allReviewed)
-        if (matches(book)) book,
+      for (final book in books)
+        if (reviews[book.id] != null && matches(book)) book,
     ];
-    int compareBooks(BookEntry left, BookEntry right) {
-      switch (sort) {
-        case _ReviewSort.updated:
-          return reviews[right.id]!.updatedAt.compareTo(
-            reviews[left.id]!.updatedAt,
-          );
-        case _ReviewSort.rating:
-          final byRating = (reviews[right.id]!.rating ?? 0).compareTo(
-            reviews[left.id]!.rating ?? 0,
-          );
-          if (byRating != 0) {
-            return byRating;
-          }
-          return reviews[right.id]!.updatedAt.compareTo(
-            reviews[left.id]!.updatedAt,
-          );
-        case _ReviewSort.title:
-          return left.title.toLowerCase().compareTo(right.title.toLowerCase());
-      }
-    }
-
-    reviewed.sort(compareBooks);
+    reviewed.sort(
+      (left, right) =>
+          reviews[right.id]!.updatedAt.compareTo(reviews[left.id]!.updatedAt),
+    );
     final pending = <BookEntry>[
       for (final book in books)
         if (finishedBooks.contains(book.id) &&
@@ -584,27 +815,10 @@ class _ReviewList extends StatelessWidget {
             matches(book))
           book,
     ];
-    final pendingCount = books
-        .where(
-          (book) => finishedBooks.contains(book.id) && reviews[book.id] == null,
-        )
-        .length;
-    if (sort == _ReviewSort.title) {
-      pending.sort(
-        (left, right) =>
-            left.title.toLowerCase().compareTo(right.title.toLowerCase()),
-      );
-    }
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
       children: [
-        _ReviewSummary(
-          reviewed: allReviewed.length,
-          total: allReviewed.length + pendingCount,
-          reviews: reviews,
-        ),
-        const SizedBox(height: 10),
         if (reviewed.isEmpty && pending.isEmpty)
           _NoReviewMatches(query: query.trim(), onReset: onResetSearch)
         else if (usesDesktopLayout(context))
@@ -698,39 +912,6 @@ class _NoReviewMatches extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ReviewSummary extends StatelessWidget {
-  const _ReviewSummary({
-    required this.reviewed,
-    required this.total,
-    required this.reviews,
-  });
-
-  final int reviewed;
-  final int total;
-  final Map<String, BookReview> reviews;
-
-  @override
-  Widget build(BuildContext context) {
-    final ratings = reviews.values
-        .map((review) => review.rating)
-        .whereType<int>()
-        .toList();
-    final average = ratings.isEmpty
-        ? null
-        : ratings.reduce((left, right) => left + right) / ratings.length;
-    final scheme = Theme.of(context).colorScheme;
-    return Text(
-      '已写 $reviewed 篇 · 待写 ${total - reviewed} 本${average == null ? '' : ' · 平均 ${average.toStringAsFixed(1)} 星'}',
-      key: const ValueKey('reviews-summary'),
-      style: TextStyle(
-        fontSize: 12,
-        color: scheme.onSurfaceVariant,
-        height: 1.5,
       ),
     );
   }

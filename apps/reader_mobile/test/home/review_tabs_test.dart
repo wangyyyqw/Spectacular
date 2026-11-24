@@ -58,32 +58,73 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final tabs = tester.widget<TabBar>(find.byType(TabBar));
-    expect(tabs.controller!.index, 0);
-    expect(tabs.controller!.length, 3);
+    bool selected(String section) =>
+        tester
+            .widget<Semantics>(find.byKey(ValueKey('$section-tab')))
+            .properties
+            .selected ??
+        false;
+    expect(selected('notes'), isTrue);
+    expect(selected('reviews'), isFalse);
+    expect(selected('booklists'), isFalse);
     expect(find.text('还没有笔记'), findsOneWidget);
     expect(find.byTooltip('刷新笔记'), findsNothing);
     expect(find.byTooltip('刷新书评'), findsNothing);
+    expect(find.byTooltip('搜索笔记'), findsOneWidget);
     expect(find.byTooltip('搜索书评'), findsNothing);
     expect(store.snapshots, 0);
 
     await tester.tap(find.byKey(const ValueKey('booklists-tab')));
     await tester.pumpAndSettle();
-    expect(tabs.controller!.index, 2);
+    expect(selected('booklists'), isTrue);
     expect(find.text('还没有书单'), findsOneWidget);
+    expect(find.byTooltip('搜索书单'), findsOneWidget);
     expect(store.snapshots, 0);
 
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await tester.pumpAndSettle();
-    expect(tabs.controller!.index, 1);
-    expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
+    expect(selected('reviews'), isTrue);
+    expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
     expect(find.byTooltip('刷新书评'), findsNothing);
     expect(find.byTooltip('搜索书评'), findsOneWidget);
     expect(store.snapshots, 1);
 
     await tester.tap(find.byKey(const ValueKey('notes-tab')));
     await tester.pumpAndSettle();
-    expect(tabs.controller!.index, 0);
+    expect(selected('notes'), isTrue);
+    expect(find.text('还没有笔记'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('左右滑动切换笔记、书评和书单', (tester) async {
+    final store = _Reviews();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ReviewsPage(library: _Library([_book()]), reviewStore: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final body = find.byKey(const ValueKey('reviews-section-body'));
+
+    await tester.drag(body, const Offset(-220, 0));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
+
+    await tester.drag(body, const Offset(-220, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有书单'), findsOneWidget);
+
+    await tester.drag(body, const Offset(220, 0));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
+
+    await tester.drag(body, const Offset(220, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有笔记'), findsOneWidget);
+
+    await tester.drag(body, const Offset(220, 0));
+    await tester.pumpAndSettle();
     expect(find.text('还没有笔记'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

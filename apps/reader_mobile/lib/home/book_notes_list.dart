@@ -19,25 +19,30 @@ class BookNotesList extends StatelessWidget {
     required this.counts,
     required this.loadNotes,
     required this.onRefresh,
+    this.query = '',
   });
 
   final List<BookEntry> books;
   final Map<String, BookNoteCounts> counts;
   final Future<List<ReaderAnnotation>> Function(String bookId) loadNotes;
   final Future<void> Function() onRefresh;
+  final String query;
 
-  List<({BookEntry book, BookNoteCounts counts})> get _notedBooks =>
-      [
-        for (final book in books)
-          if (counts[book.id] case final count?
-              when count.thoughts > 0 || count.marks > 0)
-            (book: book, counts: count),
-      ]..sort((left, right) {
-        final byTime = right.counts.updatedAt.compareTo(left.counts.updatedAt);
-        return byTime != 0
-            ? byTime
-            : left.book.title.compareTo(right.book.title);
-      });
+  List<({BookEntry book, BookNoteCounts counts})> get _notedBooks {
+    final needle = query.trim().toLowerCase();
+    return [
+      for (final book in books)
+        if (counts[book.id] case final count?
+            when (count.thoughts > 0 || count.marks > 0) &&
+                (needle.isEmpty ||
+                    book.title.toLowerCase().contains(needle) ||
+                    book.author.toLowerCase().contains(needle)))
+          (book: book, counts: count),
+    ]..sort((left, right) {
+      final byTime = right.counts.updatedAt.compareTo(left.counts.updatedAt);
+      return byTime != 0 ? byTime : left.book.title.compareTo(right.book.title);
+    });
+  }
 
   Future<void> _openBook(BuildContext context, BookEntry book) =>
       showReaderDrawer<void>(
@@ -56,10 +61,19 @@ class BookNotesList extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           if (noted.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: _NotesMessage('还没有笔记', hint: '阅读时划线或写下想法，就会在这里按书归集。'),
-            )
+            if (query.trim().isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: _NotesMessage('还没有笔记', hint: '阅读时划线或写下想法，就会在这里按书归集。'),
+              )
+            else
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _NotesMessage(
+                  '没有找到相关笔记',
+                  hint: '没有书名或作者包含“${query.trim()}”',
+                ),
+              )
           else
             SliverPadding(padding: _listInsets, sliver: _bookRows(noted)),
         ],

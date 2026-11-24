@@ -41,6 +41,7 @@ Widget _app({
   Future<List<ReaderAnnotation>> Function(String)? loadNotes,
   Future<void> Function()? onRefresh,
   double scale = 1,
+  String query = '',
 }) => MaterialApp(
   theme: buildAppTheme(),
   builder: (context, child) => MediaQuery(
@@ -51,6 +52,7 @@ Widget _app({
     body: BookNotesList(
       books: books,
       counts: counts,
+      query: query,
       loadNotes: loadNotes ?? (_) async => const <ReaderAnnotation>[],
       onRefresh: onRefresh ?? () async {},
     ),
@@ -275,6 +277,25 @@ void main() {
     await tester.tap(find.text(title));
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.text(quote)).maxLines, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('搜索按书名和作者过滤笔记并提示无结果', (tester) async {
+    final books = [
+      _book('one', '冬日', author: '作者甲'),
+      _book('two', '盛夏', author: '作者乙'),
+    ];
+    final counts = {'one': _counts(1, 2), 'two': _counts(1, 2)};
+    await tester.pumpWidget(_app(books: books, counts: counts, query: '冬日'));
+    expect(find.text('冬日'), findsOneWidget);
+    expect(find.text('盛夏'), findsNothing);
+
+    await tester.pumpWidget(_app(books: books, counts: counts, query: '作者乙'));
+    expect(find.text('盛夏'), findsOneWidget);
+    expect(find.text('冬日'), findsNothing);
+
+    await tester.pumpWidget(_app(books: books, counts: counts, query: '不存在'));
+    expect(find.text('没有找到相关笔记'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

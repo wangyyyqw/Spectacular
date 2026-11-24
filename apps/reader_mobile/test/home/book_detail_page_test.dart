@@ -599,7 +599,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await tester.pumpAndSettle();
-    expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
+    expect(find.byKey(ValueKey('review-pending-${entry.id}')), findsOneWidget);
     await tester.tap(find.byKey(ValueKey('review-pending-${entry.id}')));
     await tester.pumpAndSettle();
     expect(
@@ -712,7 +712,6 @@ void main() {
 
     await tester.pumpWidget(tabs(true));
     await tester.pumpAndSettle();
-    expect(find.text('已写 1'), findsOneWidget);
     expect(find.text('写书评'), findsNothing);
     await tester.tap(find.byKey(ValueKey('review-card-${entry.id}')));
     await tester.pumpAndSettle();

@@ -310,4 +310,52 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('书单页可按名称简介和书名搜索', (tester) async {
+    final library = LibraryStore.memory();
+    late BookEntry entry;
+    late BookList second;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(buildTestEpub(title: '山海之间'));
+      final store = library.bookListStore();
+      await store.create(name: '长期主义', description: '慢读清单');
+      second = await store.create(name: '周末消遣', description: '轻松阅读');
+      await store.addBooks(second.id, <String>[entry.id]);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ReviewsPage(library: library),
+      ),
+    );
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('booklists-tab')));
+    await _settle(tester);
+    expect(find.text('长期主义'), findsOneWidget);
+    expect(find.text('周末消遣'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('搜索书单'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('reviews-search-field'));
+    await tester.enterText(field, '慢读');
+    await tester.pumpAndSettle();
+    expect(find.text('长期主义'), findsOneWidget);
+    expect(find.text('周末消遣'), findsNothing);
+
+    await tester.enterText(field, '山海');
+    await tester.pumpAndSettle();
+    expect(find.text('周末消遣'), findsOneWidget);
+    expect(find.text('长期主义'), findsNothing);
+
+    await tester.enterText(field, '不存在');
+    await tester.pumpAndSettle();
+    expect(find.text('没有找到相关书单'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('关闭搜索'));
+    await tester.pumpAndSettle();
+    expect(find.text('长期主义'), findsOneWidget);
+    expect(find.text('周末消遣'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
