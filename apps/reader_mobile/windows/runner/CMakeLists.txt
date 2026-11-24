@@ -31,6 +31,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # 添加依赖库和头文件目录；应用专用依赖也应加入此处。
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # 执行 Flutter 工具负责的构建步骤，不可移除。

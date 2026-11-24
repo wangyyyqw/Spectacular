@@ -1056,65 +1056,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
     if (confirmed != true || !mounted) return;
 
-    var cancelled = false;
-    final progress =
-        ValueNotifier<({int completed, int total, String message})>((
-          completed: 0,
-          total: 0,
-          message: '正在准备',
-        ));
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => PopScope<Object?>(
-        canPop: false,
-        child: AlertDialog(
-          title: Text('更新《${entry.title}》'),
-          content:
-              ValueListenableBuilder<
-                ({int completed, int total, String message})
-              >(
-                valueListenable: progress,
-                builder: (context, value, child) => Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    LinearProgressIndicator(
-                      value: value.total > 0
-                          ? value.completed / value.total
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(value.message),
-                  ],
-                ),
-              ),
-          actions: <Widget>[
-            TextButton(
-              key: const ValueKey<String>('online-update-cancel'),
-              onPressed: () => cancelled = true,
-              child: const Text('取消'),
-            ),
-          ],
-        ),
-      ),
-    ).ignore();
-
     try {
       final updated = await controller.updateBook(
         entry,
         progressStore: widget.progressStore,
-        onProgress: (completed, total, message) {
-          progress.value = (
-            completed: completed,
-            total: total,
-            message: message,
-          );
-        },
-        isCancelled: () => cancelled,
       );
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
       final skipped = controller.lastSkippedChapters;
       final added = controller.lastAddedChapters;
       final message = added == 0
@@ -1129,7 +1076,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
       await _reload();
     } on BookSourceException catch (error) {
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
       final message = error.code == 'ONLINE_CANCELLED'
           ? '已取消更新'
           : '更新失败：${error.message}';
@@ -1137,11 +1083,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
           .showSnackBar(SnackBar(content: Text(message)));
     } on Object catch (error) {
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('更新失败：$error')));
-    } finally {
-      progress.dispose();
     }
   }
 

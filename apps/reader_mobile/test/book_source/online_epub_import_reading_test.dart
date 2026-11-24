@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -117,11 +117,37 @@ void main() {
     online.close();
     await online.preparationsStopped;
     final progress = DriftProgressStore(f.db);
+    const notifications = MethodChannel(
+      'com.spectacular.reader_mobile/online_download',
+    );
+    final calls = <Map<Object?, Object?>>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(notifications, (call) async {
+      final args = call.arguments as Map;
+      if (args['done'] == true) {
+        // 完成通知必须在正式书架入口成功保存完整正文后出现。
+        final saved = await f.library.bookById(entry.id);
+        expect(
+          (await OnlineEpubMetadata.read(
+            f.library,
+            saved!,
+          ))!.requiresOnlineReading,
+          isFalse,
+        );
+      }
+      calls.add(args);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(notifications, null));
     final updated = await f.controller.updateBook(
       entry,
       progressStore: progress,
     );
     expect(updated.id, entry.id);
+    expect(calls.first['message'], '正在准备下载');
+    expect(calls.last['message'], '已保存到书架');
+    expect(calls.last['done'], isTrue);
     expect(
       (await OnlineEpubMetadata.read(
         f.library,

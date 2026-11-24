@@ -54,9 +54,6 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   List<_CatalogVolume> _volumes = [];
   int _downloadSequence = 0;
   String? _error;
-  int _completed = 0;
-  int _total = 0;
-  String _progressMessage = '';
 
   @override
   void initState() {
@@ -145,9 +142,6 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
     setState(() {
       _downloading = true;
       _cancelRequested = false;
-      _completed = 0;
-      _total = _chapters?.length ?? 0;
-      _progressMessage = '准备下载';
     });
     try {
       final source = _currentSource ?? widget.source;
@@ -172,14 +166,6 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
         widget.controller.downloadAndImport(
           _currentSource ?? widget.source,
           info,
-          onProgress: (completed, total, message) {
-            if (!mounted || cancelled()) return;
-            setState(() {
-              _completed = completed;
-              _total = total;
-              _progressMessage = message;
-            });
-          },
           isCancelled: cancelled,
         ),
         cancelled,
@@ -725,29 +711,10 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
   }
 
   Widget _buildProgress() {
-    final value = _total > 0 ? (_completed / _total).clamp(0.0, 1.0) : null;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        LinearProgressIndicator(value: value),
-        const SizedBox(height: 8),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                _progressMessage,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            TextButton(
-              key: const ValueKey<String>('online-book-cancel-download'),
-              onPressed: () => setState(() => _cancelRequested = true),
-              child: const Text('取消'),
-            ),
-          ],
-        ),
-      ],
+    return TextButton(
+      key: const ValueKey<String>('online-book-cancel-download'),
+      onPressed: () => setState(() => _cancelRequested = true),
+      child: const Text('取消下载'),
     );
   }
 

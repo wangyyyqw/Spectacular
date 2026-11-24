@@ -96,6 +96,7 @@ class OnlineBookController extends ChangeNotifier {
   int _lastAddedChapters = 0;
   bool _lastUpdateWasCatalogOnly = false;
   List<String> _lastSkippedReasons = const <String>[];
+  final _updatingBookIds = <String>{};
   final Map<String, Future<OnlineReadingCatalog>> _catalogRefreshes = {};
   final Map<String, Completer<OnlineBook>> _catalogDetails = {};
   final Map<
@@ -596,6 +597,33 @@ class OnlineBookController extends ChangeNotifier {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
   }) async {
+    if (source.loadMode != BookSourceLoadMode.chapter) {
+      return _withDownloadNotification(
+        book.name,
+        (progress, cancelled) => _downloadAndImport(
+          source,
+          book,
+          onProgress: progress,
+          isCancelled: cancelled,
+        ),
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    }
+    return _downloadAndImport(
+      source,
+      book,
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+    );
+  }
+
+  Future<BookEntry> _downloadAndImport(
+    BookSource source,
+    OnlineBook book, {
+    OnlineDownloadProgress? onProgress,
+    bool Function()? isCancelled,
+  }) async {
     if (source.loadMode == BookSourceLoadMode.chapter) {
       final catalog = await waitOnlineOperation(
         loadCatalog(source, book).forReading(),
@@ -611,7 +639,7 @@ class OnlineBookController extends ChangeNotifier {
     }
     _lastSkippedChapters = 0;
     _lastSkippedReasons = const <String>[];
-    final result = await _downloadWithNotification(
+    final result = await service.download(
       source,
       book,
       onProgress: onProgress,
@@ -775,6 +803,32 @@ class OnlineBookController extends ChangeNotifier {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
   }) async {
+    if (!_updatingBookIds.add(entry.id)) {
+      throw const BookSourceException('这本书正在下载，请查看通知中的进度');
+    }
+    try {
+      return await _withDownloadNotification(
+        entry.title,
+        (progress, cancelled) => _updateBook(
+          entry,
+          progressStore: progressStore,
+          onProgress: progress,
+          isCancelled: cancelled,
+        ),
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    } finally {
+      _updatingBookIds.remove(entry.id);
+    }
+  }
+
+  Future<BookEntry> _updateBook(
+    BookEntry entry, {
+    ReaderProgressStore? progressStore,
+    OnlineDownloadProgress? onProgress,
+    bool Function()? isCancelled,
+  }) async {
     _lastSkippedChapters = 0;
     _lastAddedChapters = 0;
     _lastUpdateWasCatalogOnly = false;
@@ -800,7 +854,7 @@ class OnlineBookController extends ChangeNotifier {
       if (isCancelled?.call() ?? false) {
         throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
       }
-      final result = await _downloadWithNotification(
+      final result = await service.download(
         source,
         catalog.book,
         preparedBook: catalog.book,
@@ -923,7 +977,7 @@ class OnlineBookController extends ChangeNotifier {
     }
     final added = original.newChapters(toc);
     if (added.isEmpty) return entry;
-    final result = await _downloadWithNotification(
+    final result = await service.download(
       source,
       book,
       onProgress: onProgress,
@@ -971,36 +1025,27 @@ class OnlineBookController extends ChangeNotifier {
     return updated;
   }
 
-  Future<OnlineBookDownloadResult> _downloadWithNotification(
-    BookSource source,
-    OnlineBook book, {
+  Future<T> _withDownloadNotification<T>(
+    String title,
+    Future<T> Function(OnlineDownloadProgress, bool Function()) operation, {
     OnlineDownloadProgress? onProgress,
     bool Function()? isCancelled,
-    OnlineBook? preparedBook,
-    List<OnlineChapter>? selectedChapters,
-    List<OnlineChapter>? chapterDirectory,
   }) async {
-    final notification = OnlineDownloadNotification(book.name);
+    final notification = OnlineDownloadNotification(title);
+    bool cancelled() =>
+        notification.cancelled || (isCancelled?.call() ?? false);
     await notification.update(0, 0, '正在准备下载');
     try {
-      final result = await service.download(
-        source,
-        book,
-        preparedBook: preparedBook,
-        selectedChapters: selectedChapters,
-        chapterDirectory: chapterDirectory,
-        isCancelled: isCancelled,
-        onProgress: (completed, total, message) {
-          onProgress?.call(completed, total, message);
-          unawaited(notification.update(completed, total, message));
-        },
-      );
+      final result = await operation((completed, total, message) {
+        onProgress?.call(completed, total, message);
+        unawaited(notification.update(completed, total, message));
+      }, cancelled);
       await notification.update(
         0,
         0,
-        result.skippedChapters > 0
-            ? '下载完成，${result.skippedChapters} 章未能获取'
-            : '下载完成',
+        _lastSkippedChapters > 0
+            ? '已保存到书架，$_lastSkippedChapters 章未能获取'
+            : '已保存到书架',
         done: true,
       );
       return result;
@@ -1008,10 +1053,12 @@ class OnlineBookController extends ChangeNotifier {
       await notification.update(
         0,
         0,
-        isCancelled?.call() == true ? '已取消下载' : '下载失败',
+        cancelled() ? '已取消下载' : '下载失败',
         done: true,
       );
       rethrow;
+    } finally {
+      notification.dispose();
     }
   }
 

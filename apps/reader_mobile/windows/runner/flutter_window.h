@@ -5,6 +5,8 @@
 #include <flutter/flutter_view_controller.h>
 
 #include <memory>
+#include <map>
+#include <flutter/method_channel.h>
 
 #include "win32_window.h"
 
@@ -24,6 +26,9 @@ class FlutterWindow : public Win32Window {
 
  private:
   void RegisterAppearanceChannel();
+  void RegisterDownloadChannel();
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> download_channel_;
+  std::map<UINT, bool> download_notifications_;
 
   // 要运行的项目。
   flutter::DartProject project_;
