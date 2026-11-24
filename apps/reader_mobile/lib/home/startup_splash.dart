@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_brand_icon.dart';
+
 /// 冷启动开屏：盖住书架与封面预解码，约 0.8 秒后淡出。
 class StartupSplash extends StatefulWidget {
   const StartupSplash({super.key, required this.onFinished});
@@ -65,22 +67,12 @@ class _StartupSplashState extends State<StartupSplash>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Image.asset(
-                          'assets/branding/app_icon.png',
-                          width: 88,
-                          height: 88,
-                          cacheWidth: 264,
-                          excludeFromSemantics: true,
-                        ),
-                      ),
+                      const AppBrandIcon(),
                       const SizedBox(height: 18),
                       Text(
-                        '墨屿',
+                        '阅微 Extend',
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w600,
-                          letterSpacing: 4,
                         ),
                       ),
                     ],

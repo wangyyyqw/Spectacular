@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/startup_splash.dart';
+import 'package:reader_mobile/home/app_brand_icon.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
 import 'package:reader_ui/reader_session.dart';
+
 import '../support/reader_pump.dart';
 
 void main() {
@@ -19,6 +21,15 @@ void main() {
       () => find.byType(BottomNavigationBar).evaluate().isNotEmpty,
     );
     expect(find.byType(StartupSplash), findsOneWidget);
+    expect(find.text('阅微 Extend'), findsOneWidget);
+    expect(find.byType(AppBrandIcon), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(StartupSplash),
+        matching: find.byType(Image),
+      ),
+      findsNothing,
+    );
 
     // 开屏期间拦截点击，避免误触书架。
     await tester.tap(find.text('统计'), warnIfMissed: false);
