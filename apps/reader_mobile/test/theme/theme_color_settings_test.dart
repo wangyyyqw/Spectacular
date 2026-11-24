@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +10,7 @@ import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/home/startup_splash.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_mobile/theme/theme_color_settings.dart';
+import 'package:reader_mobile/theme/startup_theme_cache.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/reader_pump.dart';
@@ -16,12 +19,23 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('com.spectacular.reader_mobile/theme_color');
   Color? seed;
+  Map<String, Object?>? nativeCache;
   setUp(() {
     seed = const Color(0xFF26796B);
+    nativeCache = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-          expect(call.method, 'getWallpaperSeed');
-          return seed?.toARGB32();
+          switch (call.method) {
+            case 'getWallpaperSeed':
+              return seed?.toARGB32();
+            case 'getStartupTheme':
+              return nativeCache;
+            case 'cacheStartupTheme':
+              nativeCache = Map<String, Object?>.from(call.arguments as Map);
+              return null;
+            default:
+              fail('未预期的取色调用：${call.method}');
+          }
         });
   });
   tearDown(() {
@@ -58,6 +72,7 @@ void main() {
     final restored = ThemeColorSettings(library);
     addTearDown(restored.dispose);
     await restored.initialize();
+    await restored.refreshWallpaper();
     expect(restored.wallpaperEnabled, isFalse);
     expect(restored.readerBackgroundEnabled, isTrue);
     await restored.setWallpaperEnabled(true);
@@ -67,6 +82,140 @@ void main() {
       restored.wallpaperScheme(Brightness.light)!.primary,
       isNot(light.primary),
     );
+  });
+
+  test('原生缓存保存日夜背景，关闭取色后保留种子但使用默认背景', () async {
+    final cached = StartupThemeCache(
+      wallpaperEnabled: true,
+      mode: ThemeMode.dark,
+      seed: seed,
+    );
+    await cached.save();
+    final restored = (await StartupThemeCache.read())!;
+    expect(restored.mode, ThemeMode.dark);
+    expect(restored.seed, seed);
+    expect(restored.wallpaperEnabled, isTrue);
+    expect(
+      nativeCache!['darkBackground'],
+      buildAppTheme(
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: seed!,
+          brightness: Brightness.dark,
+        ),
+      ).scaffoldBackgroundColor.toARGB32(),
+    );
+    await StartupThemeCache(
+      wallpaperEnabled: false,
+      mode: ThemeMode.system,
+      seed: seed,
+    ).save();
+    expect((await StartupThemeCache.read())!.wallpaperEnabled, isFalse);
+    expect(
+      nativeCache!['lightBackground'],
+      buildAppTheme().scaffoldBackgroundColor.toARGB32(),
+    );
+  });
+
+  test('缓存先恢复，系统取色延迟时不阻塞，刷新后更新缓存', () async {
+    final library = LibraryStore.memory();
+    await library.setSetting(ThemeColorSettings.wallpaperKey, 'true');
+    await library.setSetting(
+      ThemeColorSettings.wallpaperSeedKey,
+      '${seed!.toARGB32()}',
+    );
+    final response = Completer<int?>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) => response.future);
+    final settings = ThemeColorSettings(library);
+    addTearDown(settings.dispose);
+    await settings.initialize();
+    expect(settings.initialized, isTrue);
+    expect(settings.wallpaperSeed, seed);
+    expect(settings.wallpaperScheme(Brightness.light), isNotNull);
+    final changed = const Color(0xFFAB5036);
+    response.complete(changed.toARGB32());
+    await settings.refreshWallpaper();
+    expect(settings.wallpaperSeed, changed);
+    expect(
+      await library.getSetting(ThemeColorSettings.wallpaperSeedKey),
+      '${changed.toARGB32()}',
+    );
+    await settings.setWallpaperEnabled(false);
+    expect(settings.wallpaperScheme(Brightness.light), isNull);
+  });
+
+  test('取色临时失败保留缓存，系统明确不支持时清除过期缓存', () async {
+    final library = LibraryStore.memory();
+    await library.setSetting(ThemeColorSettings.wallpaperKey, 'true');
+    await library.setSetting(
+      ThemeColorSettings.wallpaperSeedKey,
+      '${seed!.toARGB32()}',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async {
+          throw PlatformException(code: 'temporary_failure');
+        });
+    final settings = ThemeColorSettings(library);
+    addTearDown(settings.dispose);
+    await settings.initialize();
+    await settings.refreshWallpaper();
+    expect(settings.wallpaperSeed, seed);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async => null);
+    await settings.refreshWallpaper();
+    expect(settings.wallpaperSupported, isFalse);
+    expect(settings.wallpaperScheme(Brightness.dark), isNull);
+    expect(
+      await library.getSetting(ThemeColorSettings.wallpaperSeedKey),
+      isEmpty,
+    );
+  });
+
+  testWidgets('原生缓存让宿主首帧按保存的深色显示，系统取色挂起仍可进入书架', (tester) async {
+    final library = LibraryStore.memory();
+    await library.setSetting(ThemeColorSettings.wallpaperKey, 'true');
+    await library.setSetting('app.themeMode', ThemeMode.dark.name);
+    final response = Completer<int?>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getWallpaperSeed') return response.future;
+          if (call.method == 'cacheStartupTheme') {
+            nativeCache = Map<String, Object?>.from(call.arguments as Map);
+            return null;
+          }
+          return null;
+        });
+    await tester.pumpWidget(
+      ReaderApp(
+        library: library,
+        progressStore: MemoryReaderProgressStore(),
+        startupTheme: StartupThemeCache(
+          wallpaperEnabled: true,
+          mode: ThemeMode.dark,
+          seed: seed,
+        ),
+      ),
+    );
+    final theme = Theme.of(tester.element(find.byType(StartupSplash)));
+    final expected = ColorScheme.fromSeed(
+      seedColor: seed!,
+      brightness: Brightness.dark,
+    );
+    expect(theme.colorScheme, expected);
+    expect(theme.scaffoldBackgroundColor, expected.surfaceContainerLow);
+    await pumpReaderUntil(tester, find.text('书架还是空的'));
+    expect(find.byType(StartupSplash), findsNothing);
+    expect(nativeCache!['mode'], 'dark');
+    final settings = ThemeColorScope.maybeOf(
+      tester.element(find.text('书架还是空的')),
+    )!;
+    await settings.setWallpaperEnabled(false);
+    await tester.pumpAndSettle();
+    expect(nativeCache!['wallpaperEnabled'], isFalse);
+    response.complete(seed!.toARGB32());
+    await settings.refreshWallpaper();
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('不支持系统取色的设备置灰壁纸选项，阅读取色仍可启用', (tester) async {

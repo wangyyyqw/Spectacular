@@ -9,6 +9,36 @@ import 'package:reader_ui/reader_session.dart';
 import '../support/reader_pump.dart';
 
 void main() {
+  testWidgets('主题尚未恢复时首帧已绘制图标，等待期间不隐藏或结束开屏', (tester) async {
+    var finished = 0;
+    Widget splash(bool ready) => Directionality(
+      textDirection: TextDirection.ltr,
+      child: Theme(
+        data: ThemeData(),
+        child: StartupSplash(ready: ready, onFinished: () => finished++),
+      ),
+    );
+    await tester.pumpWidget(splash(false));
+    final icon = find.byType(AppBrandIcon);
+    expect(icon, findsOneWidget);
+    void expectVisible() {
+      final opacity = find.ancestor(of: icon, matching: find.byType(Opacity));
+      for (final element in opacity.evaluate()) {
+        expect((element.widget as Opacity).opacity, 1);
+      }
+      expect(find.text('阅微 Extend'), findsOneWidget);
+    }
+
+    expectVisible();
+    await tester.pump(const Duration(seconds: 3));
+    expectVisible();
+    expect(finished, 0);
+    await tester.pumpWidget(splash(true));
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(finished, 1);
+  });
+
   testWidgets('冷启动先显示开屏，约 0.8 秒后露出可操作的书架', (tester) async {
     await tester.pumpWidget(
       ReaderApp(

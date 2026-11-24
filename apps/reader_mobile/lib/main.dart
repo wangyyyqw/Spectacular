@@ -17,10 +17,12 @@ import 'reader/reader_font_store.dart';
 import 'reader/reader_text_warmup.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
+import 'theme/startup_theme_cache.dart';
 import 'theme/theme_color_settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final startupTheme = StartupThemeCache.read();
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await setReaderSystemBars(statusBar: true, navigationBar: true);
   final log = ReaderLog.instance;
@@ -69,7 +71,10 @@ Future<void> main() async {
   runApp(
     LiquidGlassWidgets.wrap(
       brightnessResolver: Theme.maybeBrightnessOf,
-      child: ReaderApp.withStorage(storage: storage),
+      child: ReaderApp.withStorage(
+        storage: storage,
+        startupTheme: await startupTheme,
+      ),
     ),
   );
 }
@@ -82,14 +87,18 @@ class ReaderApp extends StatelessWidget {
     required this.library,
     required this.progressStore,
     this.showWelcomeAnnouncement = false,
+    this.startupTheme,
   }) : _startupStorage = null;
 
   /// 正式启动入口，监听数据库失败与恢复后的存储替换。
-  ReaderApp.withStorage({super.key, required StartupStorage storage})
-    : library = storage.library,
-      progressStore = storage.progressStore,
-      showWelcomeAnnouncement = true,
-      _startupStorage = storage;
+  ReaderApp.withStorage({
+    super.key,
+    required StartupStorage storage,
+    this.startupTheme,
+  }) : library = storage.library,
+       progressStore = storage.progressStore,
+       showWelcomeAnnouncement = true,
+       _startupStorage = storage;
 
   /// 构造时传入的书架存储；正式恢复入口在监听中使用最新启动存储。
   final LibraryStore library;
@@ -99,6 +108,7 @@ class ReaderApp extends StatelessWidget {
 
   final StartupStorage? _startupStorage;
   final bool showWelcomeAnnouncement;
+  final StartupThemeCache? startupTheme;
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +134,7 @@ class ReaderApp extends StatelessWidget {
     progressStore: progressStore,
     recovery: recovery,
     showWelcomeAnnouncement: showWelcomeAnnouncement,
+    startupTheme: startupTheme,
   );
 }
 
@@ -134,12 +145,14 @@ class _ThemedReaderApp extends StatefulWidget {
     required this.progressStore,
     this.recovery,
     required this.showWelcomeAnnouncement,
+    this.startupTheme,
   });
 
   final LibraryStore library;
   final ReaderProgressStore progressStore;
   final StartupStorage? recovery;
   final bool showWelcomeAnnouncement;
+  final StartupThemeCache? startupTheme;
 
   @override
   State<_ThemedReaderApp> createState() => _ThemedReaderAppState();
@@ -155,12 +168,14 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   late final ReaderFontStore _fontStore = ReaderFontStore(widget.library);
   late final ThemeColorSettings _themeColors = ThemeColorSettings(
     widget.library,
+    startupTheme: widget.startupTheme,
   );
   late final Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
   String? _selectedFontFamily;
   bool _splashFinished = false;
+  bool _preferencesReady = false;
 
   @override
   void initState() {
@@ -178,7 +193,10 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   }
 
   void _colorsChanged() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {});
+      unawaited(_cacheStartupTheme());
+    }
   }
 
   @override
@@ -198,7 +216,13 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     final mode = _loadMode();
     final fontFamily = _loadFontFamily();
     await _themeColors.initialize();
-    return _AppPreferences(mode: await mode, fontFamily: await fontFamily);
+    final preferences = _AppPreferences(
+      mode: await mode,
+      fontFamily: await fontFamily,
+    );
+    unawaited(_cacheStartupTheme());
+    if (mounted) setState(() => _preferencesReady = true);
+    return preferences;
   }
 
   Future<ThemeMode> _loadMode() async {
@@ -265,7 +289,18 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     await widget.library.setSetting(_themeModeKey, mode.name);
     if (!mounted) return;
     setState(() => _selectedMode = mode);
+    await _cacheStartupTheme();
     await _syncWindow(mode);
+  }
+
+  Future<void> _cacheStartupTheme() async {
+    final mode = _selectedMode ?? _loadedMode;
+    if (!_themeColors.initialized || mode == null) return;
+    await StartupThemeCache(
+      wallpaperEnabled: _themeColors.wallpaperEnabled,
+      mode: mode,
+      seed: _themeColors.wallpaperSeed,
+    ).save();
   }
 
   Future<void> _setFontFamily(String family) async {
@@ -314,7 +349,11 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   );
 
   Widget _buildStartupSplash(BuildContext context) {
-    final mode = _selectedMode ?? _loadedMode ?? ThemeMode.system;
+    final mode =
+        _selectedMode ??
+        _loadedMode ??
+        widget.startupTheme?.mode ??
+        ThemeMode.system;
     final brightness = switch (mode) {
       ThemeMode.light => Brightness.light,
       ThemeMode.dark => Brightness.dark,
@@ -335,7 +374,10 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
             child: AnnotatedRegion<SystemUiOverlayStyle>(
               value: readerSystemBarStyle(theme.scaffoldBackgroundColor),
               child: StartupSplash(
-                ready: _themeColors.initialized && _loadedMode != null,
+                ready:
+                    _themeColors.initialized &&
+                    _loadedMode != null &&
+                    _preferencesReady,
                 onFinished: () {
                   if (mounted) setState(() => _splashFinished = true);
                 },

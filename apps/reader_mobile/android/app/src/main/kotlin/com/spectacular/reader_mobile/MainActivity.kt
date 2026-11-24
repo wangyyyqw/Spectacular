@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Bundle
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
@@ -15,6 +16,7 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val startupTheme by lazy { StartupThemeHandler(this) }
     private var readerChannel: MethodChannel? = null
     private var volumeKeyPaging = false
     private var epubExport: EpubExportHandler? = null
@@ -28,6 +30,11 @@ class MainActivity : FlutterActivity() {
     private var showStatusBar = true
     private var showNavigationBar = true
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        startupTheme.applyWindowBackground()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
@@ -35,6 +42,16 @@ class MainActivity : FlutterActivity() {
             "com.spectacular.reader_mobile/theme_color",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                "getStartupTheme" -> result.success(startupTheme.snapshot())
+                "cacheStartupTheme" -> {
+                    val values = call.arguments as? Map<*, *>
+                    if (values == null) {
+                        result.error("invalid_startup_theme", "启动配色参数无效", null)
+                    } else {
+                        startupTheme.save(values)
+                        result.success(null)
+                    }
+                }
                 "getWallpaperSeed" -> result.success(
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         getColor(android.R.color.system_accent1_500).toLong() and 0xFFFFFFFFL

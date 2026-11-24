@@ -6,7 +6,7 @@ import 'app_brand_icon.dart';
 class StartupSplash extends StatefulWidget {
   const StartupSplash({super.key, required this.onFinished, this.ready = true});
 
-  /// 等待主题恢复后再显示图标，避免先显示默认配色再切换。
+  /// 图标始终可见，主题与首屏恢复后才开始淡出。
   final bool ready;
 
   /// 动画结束（完全淡出）后回调一次。
@@ -22,7 +22,6 @@ class StartupSplash extends StatefulWidget {
 class _StartupSplashState extends State<StartupSplash>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-  late final Animation<double> _entrance;
   late final Animation<double> _veil;
 
   @override
@@ -34,10 +33,6 @@ class _StartupSplashState extends State<StartupSplash>
             if (status == AnimationStatus.completed) widget.onFinished();
           });
     if (widget.ready) _controller.forward();
-    _entrance = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0, .45, curve: Curves.easeOutCubic),
-    );
     _veil = Tween<double>(begin: 1, end: 0).animate(
       CurvedAnimation(
         parent: _controller,
@@ -69,24 +64,18 @@ class _StartupSplashState extends State<StartupSplash>
           child: Material(
             color: theme.scaffoldBackgroundColor,
             child: Center(
-              child: Opacity(
-                opacity: _entrance.value,
-                child: Transform.translate(
-                  offset: Offset(0, 12 * (1 - _entrance.value)),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const AppBrandIcon(),
-                      const SizedBox(height: 18),
-                      Text(
-                        '阅微 Extend',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const AppBrandIcon(),
+                  const SizedBox(height: 18),
+                  Text(
+                    '阅微 Extend',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
