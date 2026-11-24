@@ -4,7 +4,10 @@ import 'app_brand_icon.dart';
 
 /// 冷启动开屏：盖住书架与封面预解码，约 0.8 秒后淡出。
 class StartupSplash extends StatefulWidget {
-  const StartupSplash({super.key, required this.onFinished});
+  const StartupSplash({super.key, required this.onFinished, this.ready = true});
+
+  /// 等待主题恢复后再显示图标，避免先显示默认配色再切换。
+  final bool ready;
 
   /// 动画结束（完全淡出）后回调一次。
   final VoidCallback onFinished;
@@ -29,8 +32,8 @@ class _StartupSplashState extends State<StartupSplash>
         AnimationController(vsync: this, duration: StartupSplash.duration)
           ..addStatusListener((status) {
             if (status == AnimationStatus.completed) widget.onFinished();
-          })
-          ..forward();
+          });
+    if (widget.ready) _controller.forward();
     _entrance = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0, .45, curve: Curves.easeOutCubic),
@@ -41,6 +44,12 @@ class _StartupSplashState extends State<StartupSplash>
         curve: const Interval(.72, 1, curve: Curves.easeInCubic),
       ),
     );
+  }
+
+  @override
+  void didUpdateWidget(StartupSplash oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.ready && !oldWidget.ready) _controller.forward();
   }
 
   @override

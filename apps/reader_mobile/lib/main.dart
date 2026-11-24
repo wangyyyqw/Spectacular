@@ -313,24 +313,39 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     ],
   );
 
-  Widget _buildStartupSplash(BuildContext context) => Theme(
-    data: buildAppTheme(
-      brightness: WidgetsBinding.instance.platformDispatcher.platformBrightness,
-    ),
-    child: Builder(
-      builder: (context) => Directionality(
-        textDirection: TextDirection.ltr,
-        child: MediaQuery.fromView(
-          view: View.of(context),
-          child: StartupSplash(
-            onFinished: () {
-              if (mounted) setState(() => _splashFinished = true);
-            },
+  Widget _buildStartupSplash(BuildContext context) {
+    final mode = _selectedMode ?? _loadedMode ?? ThemeMode.system;
+    final brightness = switch (mode) {
+      ThemeMode.light => Brightness.light,
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.system =>
+        WidgetsBinding.instance.platformDispatcher.platformBrightness,
+    };
+    final theme = buildAppTheme(
+      brightness: brightness,
+      colorScheme: _themeColors.wallpaperScheme(brightness),
+    );
+    return Theme(
+      data: theme,
+      child: Builder(
+        builder: (context) => Directionality(
+          textDirection: TextDirection.ltr,
+          child: MediaQuery.fromView(
+            view: View.of(context),
+            child: AnnotatedRegion<SystemUiOverlayStyle>(
+              value: readerSystemBarStyle(theme.scaffoldBackgroundColor),
+              child: StartupSplash(
+                ready: _themeColors.initialized && _loadedMode != null,
+                onFinished: () {
+                  if (mounted) setState(() => _splashFinished = true);
+                },
+              ),
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _buildApp(_AppPreferences preferences) {
     final mode = _selectedMode ?? preferences.mode;

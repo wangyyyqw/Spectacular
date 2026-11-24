@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/theme_color_settings_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
+import 'package:reader_mobile/home/startup_splash.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_mobile/theme/theme_color_settings.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -129,4 +130,29 @@ void main() {
     expect(primary(), ColorScheme.fromSeed(seedColor: seed!).primary);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+    testWidgets('开屏与应用共用壁纸背景和已保存的${mode.name}主题', (tester) async {
+      final library = LibraryStore.memory();
+      await library.setSetting(ThemeColorSettings.wallpaperKey, 'true');
+      await library.setSetting('app.themeMode', mode.name);
+      await tester.pumpWidget(
+        ReaderApp(library: library, progressStore: MemoryReaderProgressStore()),
+      );
+      await pumpReaderUntilComplete(
+        tester,
+        () => find.byType(MaterialApp).evaluate().isNotEmpty,
+      );
+      final splash = find.byType(StartupSplash);
+      expect(splash, findsOneWidget);
+      expect(tester.widget<StartupSplash>(splash).ready, isTrue);
+      final theme = Theme.of(tester.element(splash));
+      final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+      final expected = mode == ThemeMode.dark ? app.darkTheme! : app.theme!;
+      expect(theme.brightness, expected.brightness);
+      expect(theme.colorScheme, expected.colorScheme);
+      expect(theme.scaffoldBackgroundColor, expected.scaffoldBackgroundColor);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 }
