@@ -1,277 +1,541 @@
 import 'dart:async';
 
-import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter/foundation.dart';
+import 'package:reader_ui/reading_highlight.dart';
 
 import 'reader_offline_tts.dart';
 import 'reader_settings.dart';
+import 'reader_system_tts.dart';
+import 'reader_tts_text.dart';
 
-/// 系统语音引擎提供的一种朗读音色。
-class ReaderTtsVoice {
-  /// 创建音色项。
-  const ReaderTtsVoice({
-    required this.name,
-    required this.locale,
-    this.quality = '',
+export 'reader_system_tts.dart' show ReaderTtsVoice;
+
+/// 播放阶段与按钮状态使用同一个状态来源。
+enum ReaderTtsPhase { idle, loading, playing, paused, completed, failed }
+
+/// 面板状态；原文位置由独立高亮通知器提供，正文不用随状态重建。
+class ReaderTtsSnapshot {
+  const ReaderTtsSnapshot({
+    required this.phase,
+    this.mode = ReaderTtsMode.system,
+    this.chunk,
+    this.segment,
+    this.error,
   });
 
-  /// 语音引擎中的音色名称。
-  final String name;
+  final ReaderTtsPhase phase;
+  final ReaderTtsMode mode;
+  final ReaderTtsTextChunk? chunk;
+  final ReaderTtsSegment? segment;
+  final Object? error;
 
-  /// 语言区域，例如 `zh-CN`。
-  final String locale;
-
-  /// 音质描述；部分引擎为空。
-  final String quality;
-
-  /// 设置中保存用的稳定标识。
-  String get key => '$name|$locale';
-
-  /// 界面显示文字。
-  String get label {
-    final suffix = quality.trim();
-    return suffix.isEmpty ? '$name · $locale' : '$name · $locale · $suffix';
-  }
+  String get chapterTitle => chunk?.title ?? '';
+  String get text => segment?.text ?? '';
 }
 
-/// 读取系统可用的朗读音色；存在中文音色时只返回中文音色。
-Future<List<ReaderTtsVoice>> loadReaderTtsVoices() async {
-  try {
-    final raw = await FlutterTts().getVoices;
-    if (raw is! List<Object?>) return const <ReaderTtsVoice>[];
-    final voices = <ReaderTtsVoice>[];
-    final seen = <String>{};
-    for (final item in raw) {
-      if (item is! Map<Object?, Object?>) continue;
-      final name = item['name']?.toString().trim() ?? '';
-      final locale = item['locale']?.toString().trim() ?? '';
-      if (name.isEmpty || locale.isEmpty) continue;
-      if (!seen.add('$name|$locale')) continue;
-      voices.add(
-        ReaderTtsVoice(
-          name: name,
-          locale: locale,
-          quality: item['quality']?.toString() ?? '',
-        ),
-      );
-    }
-    if (voices.isEmpty) return const <ReaderTtsVoice>[];
-    final chinese = voices
-        .where((voice) => voice.locale.toLowerCase().startsWith('zh'))
-        .toList(growable: false);
-    final result = chinese.isEmpty ? voices : chinese;
-    result.sort((left, right) => left.label.compareTo(right.label));
-    return result;
-  } catch (_) {
-    return const <ReaderTtsVoice>[];
-  }
-}
+typedef _PreparedClip = ({
+  ReaderTtsClip? clip,
+  Object? error,
+  StackTrace? stack,
+});
+typedef _OfflineVoices = ({
+  ReaderOfflineVoiceInstance narrator,
+  ReaderOfflineVoiceInstance? dialogue,
+});
 
-/// 分页听书控制：逐段朗读当前页，读完后按需自动翻页。
+/// 在本次阅读会话中保留听书游标，逐段播放与屏幕导航彼此独立。
 class ReaderTtsController {
-  /// 创建控制器。
   ReaderTtsController({
-    required this.textProvider,
-    required this.nextPage,
+    required this.textSource,
     this.offlineSynthesizer,
     this.player,
     this.resolveOfflineVoice,
   });
 
-  final Future<String> Function() textProvider;
-  final Future<bool> Function() nextPage;
-
-  /// 离线合成器；为空时离线模式会回退到系统语音。
+  final ReaderTtsTextSource textSource;
   final ReaderOfflineTtsSynthesizer? offlineSynthesizer;
-
-  /// 离线音频播放器。
   final ReaderTtsPlayer? player;
-
-  /// 按音色标识读取本地模型。
   final Future<ReaderOfflineVoiceInstance?> Function(String id)?
   resolveOfflineVoice;
+  final state = ValueNotifier(
+    const ReaderTtsSnapshot(phase: ReaderTtsPhase.idle),
+  );
+  final highlight = ValueNotifier<ReaderReadingHighlight?>(null);
+  final _system = ReaderSystemTts();
 
-  FlutterTts? _tts;
-  bool _speaking = false;
-  int _generation = 0;
-
-  /// 是否正在朗读。
-  bool get speaking => _speaking;
-
-  /// 状态变化回调。
-  void Function(bool speaking)? onStateChanged;
-
-  /// 错误回调。
   void Function(Object error)? onError;
-
-  /// 离线语音不可用并回退到系统语音时的提示。
   void Function(String message)? onFallback;
+  Future<void> Function(ReaderReadingHighlight range)? onPositionChanged;
 
-  /// 开始朗读；已在朗读时会先停止再重新开始。
-  Future<void> start(ReaderTtsSettings settings) async {
+  ReaderTtsSettings _settings = ReaderTtsSettings.defaults;
+  ReaderTtsSettings _pieceSettings = ReaderTtsSettings.defaults;
+  ReaderTtsMode _activeMode = ReaderTtsMode.system;
+  ReaderTtsTextChunk? _chunk;
+  int _segmentIndex = 0;
+  int _generation = 0;
+  int _settingsRevision = 0;
+  int _pieceRevision = 0;
+  int _systemSettingsRevision = -1;
+  bool _fallback = false;
+  Completer<void>? _cancel;
+  Completer<void>? _resume;
+  Future<void> _transition = Future.value();
+  String? _voiceKey;
+  Future<_OfflineVoices>? _voices;
+  ({ReaderTtsSegment segment, int revision, Future<_PreparedClip> result})?
+  _prefetch;
+
+  ReaderTtsSnapshot get snapshot => state.value;
+  ReaderTtsSettings get settings => _settings;
+  bool get speaking =>
+      snapshot.phase == ReaderTtsPhase.playing ||
+      snapshot.phase == ReaderTtsPhase.loading;
+  bool get paused => snapshot.phase == ReaderTtsPhase.paused;
+  bool get hasSession => speaking || paused;
+  ReaderReadingHighlight? get position =>
+      highlight.value ??
+      (_segment == null ? null : _chunk!.highlightFor(_segment!));
+  ReaderTtsMode get _mode => _activeMode;
+  ReaderTtsSegment? get _segment =>
+      _chunk != null && _segmentIndex < _chunk!.segments.length
+      ? _chunk!.segments[_segmentIndex]
+      : null;
+
+  List<ReaderTtsSegment> _playbackSegments(int index) {
+    final segments = _chunk!.segments;
+    var end = index + 1;
+    while (end < segments.length && segments[end - 1].continuesOnNextPage) {
+      end++;
+    }
+    return segments.sublist(index, end);
+  }
+
+  Future<List<ReaderTtsVoice>> loadVoices() => _system.voices();
+
+  void _publish(ReaderTtsPhase phase, {Object? error}) {
+    state.value = ReaderTtsSnapshot(
+      phase: phase,
+      mode: _mode,
+      chunk: _chunk,
+      segment: _segment,
+      error: error,
+    );
+  }
+
+  bool _valid(int generation) => generation == _generation;
+
+  /// 开始一个新会话；暂停后的继续应调用 resume，不能重新开始。
+  Future<void> start(ReaderTtsSettings settings) => _start(settings);
+
+  /// 保留失败片段，已完成的正文不因重试而再次朗读。
+  Future<void> retry(ReaderTtsSettings settings) => _start(
+    settings,
+    chunk: snapshot.phase == ReaderTtsPhase.failed ? _chunk : null,
+    segmentIndex: snapshot.phase == ReaderTtsPhase.failed ? _segmentIndex : 0,
+  );
+
+  Future<void> _start(
+    ReaderTtsSettings settings, {
+    ReaderTtsTextChunk? chunk,
+    int segmentIndex = 0,
+  }) async {
     final stopping = stop();
     final generation = _generation;
     await stopping;
-    if (generation != _generation) return;
-    _speaking = true;
-    onStateChanged?.call(true);
+    if (!_valid(generation)) return;
+    _cancel = Completer<void>();
+    _settings = settings;
+    _activeMode = settings.mode;
+    _settingsRevision++;
+    _systemSettingsRevision = -1;
+    _fallback = false;
+    _publish(ReaderTtsPhase.loading);
     try {
-      if (settings.mode == ReaderTtsMode.offline) {
-        try {
-          await _startOffline(settings, generation);
-          return;
-        } catch (error) {
-          if (!_speaking || generation != _generation) return;
-          onFallback?.call('离线伴听不可用，已切换系统语音：$error');
-        }
-      }
-      await _startSystem(settings, generation);
+      _chunk =
+          chunk ??
+          await _wait<ReaderTtsTextChunk?>(
+            textSource.first(autoTurnPage: settings.autoTurnPage),
+            generation,
+          );
+      _segmentIndex = segmentIndex;
+      if (_valid(generation)) await _run(generation);
     } catch (error) {
-      if (generation == _generation) onError?.call(error);
-    } finally {
-      if (generation == _generation) {
-        _speaking = false;
-        onStateChanged?.call(false);
-      }
+      await _fail(generation, error);
     }
   }
 
-  Future<void> _startSystem(ReaderTtsSettings settings, int generation) async {
-    // 查询音色也会创建插件实例；每次开始时重新绑定本次播放的回调。
-    final tts = _tts = FlutterTts();
-    await tts.awaitSpeakCompletion(true);
-    await tts.setLanguage('zh-CN');
-    if (settings.hasVoice) {
-      try {
-        await tts.setVoice(<String, String>{
-          'name': settings.voiceName,
-          'locale': settings.voiceLocale,
-        });
-      } catch (_) {
-        // 系统移除了已选音色时退回默认中文音色。
-      }
-    }
-    await tts.setSpeechRate(settings.rate.clamp(0.1, 1));
-    await tts.setPitch(settings.pitch.clamp(0.5, 2));
-    await tts.setVolume(settings.volume.clamp(0, 1));
-    while (_speaking && generation == _generation) {
-      final text = (await textProvider()).trim();
-      final segments = ReaderTtsSegmentation.split(text);
-      if (segments.isEmpty) break;
-      for (final segment in segments) {
-        if (!_speaking || generation != _generation) return;
-        final result = await _speakSystem(
-          tts,
-          segment.text,
-          settings.rate,
+  Future<void> _fail(int generation, Object error) async {
+    if (!_valid(generation)) return;
+    await _stopBackends();
+    if (!_valid(generation)) return;
+    highlight.value = null;
+    _publish(ReaderTtsPhase.failed, error: error);
+    onError?.call(error);
+  }
+
+  Future<void> _run(int generation) async {
+    while (_valid(generation) && _chunk != null) {
+      if (!await _waitResumed(generation)) return;
+      if (_segmentIndex >= _chunk!.segments.length) {
+        if (!_settings.autoTurnPage) break;
+        _chunk = await _wait<ReaderTtsTextChunk?>(
+          textSource.next(_chunk!.spineIndex),
           generation,
         );
-        if (!_speaking || generation != _generation) return;
-        if (result == 0 || result == -1) {
-          throw StateError('系统语音未能朗读，请检查系统语音引擎或选择离线音色');
-        }
+        _segmentIndex = 0;
+        continue;
       }
-      if (!settings.autoTurnPage || !_speaking || generation != _generation) {
-        break;
-      }
-      final advanced = await nextPage();
-      if (!advanced) break;
-      await Future<void>.delayed(const Duration(milliseconds: 180));
+      _pieceSettings = _settings;
+      _pieceRevision = _settingsRevision;
+      _activeMode = _fallback ? ReaderTtsMode.system : _pieceSettings.mode;
+      _publish(ReaderTtsPhase.loading);
+      final range = _chunk!.highlightFor(_segment!);
+      if (range != null) await onPositionChanged?.call(range);
+      if (!await _waitResumed(generation)) return;
+      final completed = _mode == ReaderTtsMode.offline
+          ? await _playOfflineOrFallback(generation)
+          : await _playSystem(generation);
+      if (!completed || !await _waitResumed(generation)) return;
+      _segmentIndex++;
+    }
+    if (_valid(generation)) {
+      highlight.value = null;
+      _publish(ReaderTtsPhase.completed);
+      await offlineSynthesizer?.stop();
     }
   }
 
-  Future<Object?> _speakSystem(
-    FlutterTts tts,
-    String text,
-    double rate,
+  Future<T?> _wait<T>(Future<T> operation, int generation) async {
+    final result = await Future.any<T?>([
+      operation,
+      _cancel!.future.then<T?>((_) => null),
+    ]);
+    return _valid(generation) ? result : null;
+  }
+
+  Future<bool> _waitResumed(int generation) async {
+    while (_valid(generation) && paused) {
+      final resumed = _resume ??= Completer<void>();
+      await Future.any([resumed.future, _cancel!.future]);
+    }
+    return _valid(generation);
+  }
+
+  void _started(int generation) {
+    if (!_valid(generation) || paused) return;
+    final range = _chunk?.highlightFor(_segment!);
+    if (range != null) highlight.value = range;
+    _publish(ReaderTtsPhase.playing);
+  }
+
+  void _progress(
+    int generation,
+    int start,
+    int end, {
+    ReaderTtsSegment? segment,
+  }) {
+    if (!_valid(generation) || paused || _segment == null) return;
+    final range = _chunk!.highlightFor(
+      segment ?? _segment!,
+      wordStart: start,
+      wordEnd: end,
+    );
+    if (range == null) return;
+    highlight.value = range;
+    _publish(ReaderTtsPhase.playing);
+    _followProgress(range, generation);
+  }
+
+  void _followProgress(ReaderReadingHighlight range, int generation) {
+    final follow = onPositionChanged?.call(range);
+    if (follow != null) {
+      unawaited(
+        follow.then<void>(
+          (_) {},
+          onError: (Object error) {
+            if (_valid(generation)) onError?.call(error);
+          },
+        ),
+      );
+    }
+  }
+
+  void _offlineProgress(
+    int generation,
+    int first,
+    ReaderTtsClip clip,
+    Duration position,
+  ) {
+    if (!_valid(generation) || paused) return;
+    final sample = position.inMicroseconds * clip.sampleRate ~/ 1000000;
+    var index = _segmentIndex - first;
+    while (index + 1 < clip.segmentStarts.length &&
+        clip.segmentStarts[index + 1] <= sample) {
+      index++;
+    }
+    if (first + index <= _segmentIndex) return;
+    _segmentIndex = first + index;
+    final range = _chunk!.highlightFor(_segment!);
+    if (range == null) return;
+    highlight.value = range;
+    _publish(ReaderTtsPhase.playing);
+    _followProgress(range, generation);
+  }
+
+  Future<bool> _playSystem(int generation) async {
+    final segments = _playbackSegments(_segmentIndex);
+    final spoken = segments.length == 1
+        ? segments.single
+        : ReaderTtsSegment(
+            text: segments.map((segment) => segment.text).join(),
+            kind: segments.first.kind,
+            sourceOffsets: [
+              for (final segment in segments) ...segment.sourceOffsets,
+            ],
+          );
+    while (_valid(generation)) {
+      if (!await _waitResumed(generation)) return false;
+      final revision = _pieceRevision;
+      if (_systemSettingsRevision != revision) {
+        await _wait(_system.configure(_pieceSettings), generation);
+        if (!_valid(generation)) return false;
+        _systemSettingsRevision = revision;
+      }
+      if (!await _waitResumed(generation)) return false;
+      final completed = await _wait(
+        _system.speak(
+          spoken.text,
+          onStarted: () => _started(generation),
+          onProgress: (start, end) =>
+              _progress(generation, start, end, segment: spoken),
+        ),
+        generation,
+      );
+      if (!_valid(generation)) return false;
+      if (completed == true) {
+        _segmentIndex += segments.length - 1;
+        return true;
+      }
+      if (!paused) throw StateError('系统朗读已中断');
+    }
+    return false;
+  }
+
+  Future<bool> _playOfflineOrFallback(int generation) async {
+    try {
+      return await _playOffline(generation);
+    } catch (error) {
+      if (!_valid(generation)) return false;
+      await player?.stop();
+      await offlineSynthesizer?.stop();
+      if (!_valid(generation)) return false;
+      _prefetch = null;
+      _fallback = true;
+      _activeMode = ReaderTtsMode.system;
+      _systemSettingsRevision = -1;
+      onFallback?.call('离线伴听不可用，已从当前片段切换系统语音：$error');
+      if (!paused) _publish(ReaderTtsPhase.loading);
+      return _playSystem(generation);
+    }
+  }
+
+  Future<bool> _playOffline(int generation) async {
+    final audioPlayer = player;
+    if (audioPlayer == null) throw StateError('离线播放器未配置');
+    if (!_valid(generation)) return false;
+    final first = _segmentIndex;
+    final segments = _playbackSegments(first);
+    final clip = await _clipFor(segments, generation);
+    if (clip == null || !await _waitResumed(generation)) return false;
+    _prefetchNext(generation, first + segments.length);
+    await _wait(
+      audioPlayer.play(
+        clip,
+        volume: _pieceSettings.volume,
+        onStarted: () => _started(generation),
+        onPosition: segments.length == 1
+            ? null
+            : (position) => _offlineProgress(generation, first, clip, position),
+      ),
+      generation,
+    );
+    if (_valid(generation)) {
+      _offlineProgress(generation, first, clip, clip.duration);
+      _segmentIndex = first + segments.length - 1;
+    }
+    return _valid(generation);
+  }
+
+  Future<ReaderTtsClip?> _clipFor(
+    List<ReaderTtsSegment> segments,
     int generation,
   ) async {
-    final started = Completer<void>();
-    tts.setStartHandler(() {
-      if (!started.isCompleted) started.complete();
-    });
-    final completion = tts.speak(text);
-    try {
-      await Future.any<void>([started.future, completion.then<void>((_) {})])
-          .timeout(const Duration(seconds: 8));
-      return await completion.timeout(
-        Duration(seconds: 15 + (text.length / rate.clamp(0.1, 1)).ceil()),
-      );
-    } on TimeoutException {
-      if (generation != _generation) return null;
-      await tts.stop();
-      throw StateError('系统语音引擎无响应，请检查系统语音设置或使用离线伴听');
+    final cached = _prefetch;
+    final pending =
+        cached?.segment == segments.first && cached?.revision == _pieceRevision
+        ? cached!.result
+        : _prepareClip(segments, _pieceSettings, generation);
+    _prefetch = null;
+    final prepared = await _wait(pending, generation);
+    if (!_valid(generation) || prepared == null) return null;
+    if (prepared.error != null) {
+      Error.throwWithStackTrace(prepared.error!, prepared.stack!);
     }
+    return prepared.clip;
   }
 
-  Future<void> _startOffline(ReaderTtsSettings settings, int generation) async {
+  void _prefetchNext(int generation, int nextIndex) {
+    if (_settings.mode != ReaderTtsMode.offline) return;
+    final segments = _chunk!.segments;
+    if (nextIndex >= segments.length) return;
+    final next = _playbackSegments(nextIndex);
+    _prefetch = (
+      segment: next.first,
+      revision: _settingsRevision,
+      result: _prepareClip(next, _settings, generation),
+    );
+  }
+
+  Future<_PreparedClip> _prepareClip(
+    List<ReaderTtsSegment> segments,
+    ReaderTtsSettings settings,
+    int generation,
+  ) {
+    // 立即接住预合成错误，播放当前段期间不会产生未处理的异步异常。
+    return _generateClip(segments, settings, generation).then<_PreparedClip>(
+      (clip) => (clip: clip, error: null, stack: null),
+      onError: (Object error, StackTrace stack) =>
+          (clip: null, error: error, stack: stack),
+    );
+  }
+
+  Future<ReaderTtsClip> _generateClip(
+    List<ReaderTtsSegment> segments,
+    ReaderTtsSettings settings,
+    int generation,
+  ) async {
     final synthesizer = offlineSynthesizer;
-    final audioPlayer = player;
-    final resolver = resolveOfflineVoice;
-    if (synthesizer == null || audioPlayer == null || resolver == null) {
-      throw StateError('离线伴听未配置');
+    if (synthesizer == null) throw StateError('离线合成器未配置');
+    final key = '${settings.narratorVoiceId}|${settings.dialogueVoiceId}';
+    if (_voiceKey != key) {
+      _voiceKey = key;
+      _voices = _resolveVoices(settings);
     }
-    if (!settings.hasOfflineVoice) throw StateError('尚未选择离线旁白音色');
+    final voices = await _voices!;
+    if (!_valid(generation)) throw StateError('听书已结束');
+    final clips = await synthesizer
+        .synthesize(
+          segments: segments,
+          narrator: voices.narrator,
+          dialogue: voices.dialogue,
+          settings: settings,
+        )
+        .toList();
+    if (!_valid(generation)) throw StateError('听书已结束');
+    return ReaderTtsClip.join(clips);
+  }
+
+  Future<_OfflineVoices> _resolveVoices(ReaderTtsSettings settings) async {
+    final resolver = resolveOfflineVoice;
+    if (resolver == null || !settings.hasOfflineVoice) {
+      throw StateError('尚未选择离线旁白音色');
+    }
     final narrator = await resolver(settings.narratorVoiceId);
     if (narrator == null) throw StateError('所选旁白音色尚未下载');
-    ReaderOfflineVoiceInstance? dialogue;
-    if (settings.dialogueVoiceId.trim().isNotEmpty &&
-        settings.dialogueVoiceId != settings.narratorVoiceId) {
-      dialogue = await resolver(settings.dialogueVoiceId);
+    final dialogue =
+        settings.dialogueVoiceId.isNotEmpty &&
+            settings.dialogueVoiceId != settings.narratorVoiceId
+        ? await resolver(settings.dialogueVoiceId)
+        : null;
+    if (settings.dialogueVoiceId.isNotEmpty &&
+        settings.dialogueVoiceId != settings.narratorVoiceId &&
+        dialogue == null) {
+      throw StateError('所选对白音色尚未下载');
     }
-    if (!_speaking || generation != _generation) return;
-    await audioPlayer.stop();
-    while (_speaking && generation == _generation) {
-      final text = (await textProvider()).trim();
-      if (!_speaking || generation != _generation) return;
-      final segments = ReaderTtsSegmentation.split(text);
-      if (segments.isEmpty) break;
-      final clips = await synthesizer.synthesize(
-        segments: segments,
-        narrator: narrator,
-        dialogue: dialogue,
-        settings: settings,
-      );
-      if (!_speaking || generation != _generation) return;
-      if (clips.isEmpty) throw StateError('所选音色未能合成当前页');
-      for (final clip in clips) {
-        if (!_speaking || generation != _generation) return;
-        await audioPlayer.play(clip);
-      }
-      if (!settings.autoTurnPage || !_speaking || generation != _generation) {
-        break;
-      }
-      final advanced = await nextPage();
-      if (!advanced) break;
-      await Future<void>.delayed(const Duration(milliseconds: 180));
+    return (narrator: narrator, dialogue: dialogue);
+  }
+
+  /// 设置在下一片段生效；已暂停或播放中的音频不重新合成。
+  void updateSettings(ReaderTtsSettings settings) {
+    if (_settings == settings) return;
+    _settings = settings;
+    _settingsRevision++;
+    _fallback = false;
+    _prefetch = null;
+    if (!hasSession) {
+      _activeMode = settings.mode;
+      _publish(snapshot.phase, error: snapshot.error);
     }
   }
 
-  /// 停止朗读。
+  Future<void> _serialize(Future<void> Function() action) {
+    final operation = _transition.then((_) => action());
+    _transition = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
+  }
+
+  Future<void> pause() {
+    final generation = _generation;
+    if (!speaking) return Future.value();
+    _publish(ReaderTtsPhase.paused);
+    return _serialize(() async {
+      if (!_valid(generation) || !paused) return;
+      if (_mode == ReaderTtsMode.offline) {
+        await player?.pause();
+      } else {
+        await _system.pause();
+      }
+    });
+  }
+
+  Future<void> resume() {
+    final generation = _generation;
+    return _serialize(() async {
+      if (!_valid(generation) || !paused) return;
+      _publish(ReaderTtsPhase.loading);
+      final resumed = _resume;
+      _resume = null;
+      if (resumed != null && !resumed.isCompleted) resumed.complete();
+      if (_mode == ReaderTtsMode.offline) await player?.resume();
+    });
+  }
+
+  Future<void> _stopBackends() async {
+    await Future.wait([
+      _system.stop(),
+      if (player != null) player!.stop(),
+      if (offlineSynthesizer != null) offlineSynthesizer!.stop(),
+    ]);
+  }
+
   Future<void> stop() async {
-    final generation = ++_generation;
-    if (!_speaking) return;
-    _speaking = false;
-    onStateChanged?.call(false);
-    try {
-      await _tts?.stop();
-    } catch (_) {
-      // 平台语音引擎已释放时忽略停止错误。
+    _generation++;
+    final cancellation = _cancel;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
     }
-    if (generation != _generation) return;
-    try {
-      await player?.stop();
-    } catch (_) {
-      // 播放器已释放时忽略停止错误。
-    }
+    final resumed = _resume;
+    _resume = null;
+    if (resumed != null && !resumed.isCompleted) resumed.complete();
+    _prefetch = null;
+    _voices = null;
+    _voiceKey = null;
+    _chunk = null;
+    _segmentIndex = 0;
+    highlight.value = null;
+    _publish(ReaderTtsPhase.idle);
+    await _transition;
+    await _stopBackends();
   }
 
-  /// 释放语音引擎。
   Future<void> dispose() async {
     await stop();
-    _tts = null;
     await player?.dispose();
-    onStateChanged = null;
+    await offlineSynthesizer?.dispose();
     onError = null;
     onFallback = null;
+    onPositionChanged = null;
+    highlight.dispose();
+    state.dispose();
   }
 }

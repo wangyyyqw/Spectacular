@@ -71,6 +71,7 @@ import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
 import 'selection/selection_support.dart';
 import 'selection/text_range_geometry.dart';
+import 'reading_highlight.dart';
 import 'selection/selection_layer.dart';
 import 'panels/toc_panel.dart';
 import 'reader_session.dart';
@@ -148,6 +149,7 @@ class ReaderPage extends StatefulWidget {
     this.onSearch,
     this.onSessionReady,
     this.onTts,
+    this.readingHighlight,
     this.onBookEnd,
     this.editMode = false,
     this.onEditTarget,
@@ -328,8 +330,11 @@ class ReaderPage extends StatefulWidget {
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
 
-  /// 打开或停止听书，由宿主管理平台语音。
+  /// 打开听书控制面板，由宿主管理平台语音。
   final VoidCallback? onTts;
+
+  /// 正在朗读的临时区间；高频更新只重绘高亮层。
+  final ValueListenable<ReaderReadingHighlight?>? readingHighlight;
 
   final void Function(ReaderSession session, bool rtl)? onBookEnd;
 
@@ -2995,7 +3000,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             // 沉浸式菜单（设计稿 .menu-top / .menu-bottom / .drawer）。
             ReaderMenuOverlay(
-              onTts: widget.onTts,
+              onTts: widget.onTts == null
+                  ? null
+                  : () {
+                      _dismissReaderMenu();
+                      widget.onTts!.call();
+                    },
               open: _menuOpen,
               theme: _effectiveTheme,
               bookTitle: widget.bookTitle,
@@ -3314,6 +3324,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _bookmarks,
       _bookmarkStyle,
       widget.bookmarkImageLoader,
+      widget.readingHighlight,
     );
     if (_effectiveTurnMode == PageTurnMode.scroll) {
       final padding = _bodyPadding();
@@ -3456,6 +3467,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
           ),
+        if (widget.readingHighlight != null)
+          Positioned.fill(
+            child: Padding(
+              padding: _bodyPadding(),
+              child: ReaderReadingHighlightLayer(
+                page: page,
+                highlight: widget.readingHighlight!,
+                color: (_effectiveTheme ?? ReaderTheme.white).accent,
+                inkMode: _inkMode,
+              ),
+            ),
+          ),
         if (furniture) ..._paperFurniture(page),
         ..._galleryLayers(page, padding: _bodyPadding()),
         if (!widget.editMode && !_pullingBookmark && _hasBookmarkOn(page))
@@ -3507,6 +3530,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               inkMode: _inkMode,
               settings: _markSettings,
               backgroundsBehindText: true,
+            ),
+          ),
+        if (widget.readingHighlight != null)
+          Positioned.fill(
+            child: ReaderReadingHighlightLayer(
+              page: page,
+              highlight: widget.readingHighlight!,
+              color: (_effectiveTheme ?? ReaderTheme.white).accent,
+              inkMode: _inkMode,
             ),
           ),
         ..._galleryLayers(page),

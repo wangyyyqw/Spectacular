@@ -721,6 +721,23 @@ class ReaderSession extends ChangeNotifier {
     }
   }
 
+  /// 连续滚动视口按真实字形位置显示原文区间，不触发重排或手动导航。
+  void registerViewportRangeRevealer(
+    Future<bool> Function(String startCfi, String endCfi) revealer,
+  ) => _viewportRangeRevealer = revealer;
+
+  void unregisterViewportRangeRevealer(
+    Future<bool> Function(String startCfi, String endCfi) revealer,
+  ) {
+    if (identical(_viewportRangeRevealer, revealer)) {
+      _viewportRangeRevealer = null;
+    }
+  }
+
+  /// 没有连续视口时返回 null，调用方继续使用正式分页导航。
+  Future<bool>? revealViewportRange(String startCfi, String endCfi) =>
+      _viewportRangeRevealer?.call(startCfi, endCfi);
+
   /// 同步连续滚动的页号与页内偏移；页面内容本身不重新分页。
   Future<bool> commitScrollPosition(
     int spineIndex,
@@ -846,6 +863,7 @@ class ReaderSession extends ChangeNotifier {
   ReaderAnchor _readingAnchor = const ReaderAnchor();
   ReaderViewportSnapshot? _stagedViewport;
   ReaderViewportSnapshot? Function()? _viewportSnapshotProvider;
+  Future<bool> Function(String startCfi, String endCfi)? _viewportRangeRevealer;
   String? _readingPercentCfi;
   double? _readingPercentValue;
   final _pageReadingPercents = Expando<double>();

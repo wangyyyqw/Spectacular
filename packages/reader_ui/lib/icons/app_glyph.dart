@@ -20,6 +20,8 @@ enum AppGlyph {
   skipPrevious(_skipPrevious),
   skipNext(_skipNext),
   play(_play),
+  pause(_pause),
+  stop(_stop),
   close(_close),
   add(_add),
   addCircle(_addCircle),
@@ -332,6 +334,15 @@ void _skipNext(AppIconCanvas canvas) {
 
 void _play(AppIconCanvas canvas) => canvas.line(
   _polygon(const [Offset(8, 5.5), Offset(18.5, 12), Offset(8, 18.5)]),
+);
+
+void _pause(AppIconCanvas canvas) => canvas.outline(
+  _roundRect(7, 5.5, 10, 18.5, 0.5)
+    ..addPath(_roundRect(14, 5.5, 17, 18.5, 0.5), Offset.zero),
+);
+
+void _stop(AppIconCanvas canvas) => canvas.outline(
+  _roundRect(6, 6, 18, 18, 1.5),
 );
 
 void _close(AppIconCanvas canvas) => canvas.line(

@@ -51,6 +51,8 @@ import 'reader_tts_controller.dart';
 import 'reader_offline_tts.dart';
 import 'reader_tts_voice_store.dart';
 import 'reader_tts_voice_page.dart';
+import 'reader_tts_text.dart';
+import 'reader_tts_playback_sheet.dart';
 
 import 'package:reader_ui/theme/reader_dropdown.dart';
 
@@ -275,15 +277,6 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   Future<void> _toggleTts() async {
-    final controller = _ttsController;
-    if (controller?.speaking == true) {
-      await controller?.stop();
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('已暂停听书')));
-      }
-      return;
-    }
     final session = _readerSession;
     if (session == null || !session.hasContent) {
       if (mounted) {
@@ -292,27 +285,79 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       }
       return;
     }
+    final controller = _ensureTtsController();
+    setState(() {});
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => ReaderTtsPlaybackSheet(
+        controller: controller,
+        onStart: () async {
+          final started = await _startTts(controller);
+          if (sheetContext.mounted && started) Navigator.of(sheetContext).pop();
+        },
+        onSettings: () => _editTtsSettings(controller),
+        onReturn: () async {
+          final range = controller.position;
+          if (range == null) return;
+          await _ttsReaderLink?.returnTo(range);
+          if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+        },
+      ),
+    );
+  }
+
+  Future<bool> _startTts(ReaderTtsController controller) async {
+    var settings = _settings.tts;
+    if (settings.mode == ReaderTtsMode.system && settings.hasVoice) {
+      final voices = await controller.loadVoices();
+      if (!voices.any(
+        (voice) =>
+            voice.name == settings.voiceName &&
+            voice.locale == settings.voiceLocale,
+      )) {
+        settings = settings.copyWith(voiceName: '', voiceLocale: '');
+      }
+    }
+    if (settings.mode == ReaderTtsMode.offline && !settings.hasOfflineVoice) {
+      final selected = await _showTtsSettings();
+      if (selected == null) return false;
+      settings = selected;
+    }
+    if (!mounted) return false;
+    _changeSettings(_settings.copyWithTts(settings));
+    unawaited(
+      controller.snapshot.phase == ReaderTtsPhase.failed
+          ? controller.retry(settings)
+          : controller.start(settings),
+    );
+    return true;
+  }
+
+  Future<void> _editTtsSettings(ReaderTtsController controller) async {
     final settings = await _showTtsSettings();
     if (settings == null || !mounted) return;
     _changeSettings(_settings.copyWithTts(settings));
-    if (_readerSession?.currentText.trim().isEmpty != false) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('当前页没有可朗读的文字')));
-      return;
-    }
-    unawaited(_ensureTtsController().start(settings));
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('开始听书，再点一次暂停')));
+    controller.updateSettings(settings);
   }
 
   Future<ReaderTtsSettings?> _showTtsSettings() async {
-    final systemVoices = await loadReaderTtsVoices();
+    var systemVoices = <ReaderTtsVoice>[];
+    var systemVoicesUnavailable = false;
+    try {
+      systemVoices = await _ensureTtsController().loadVoices();
+    } catch (_) {
+      // 系统服务不可用时，仍允许选择已下载的离线音色。
+      systemVoicesUnavailable = true;
+    }
     final store = _ensureTtsVoiceStore();
     var installedVoices = await store.listInstalled();
     var availableVoices = await store.availableVoices();
     if (!mounted) return null;
     var draft = _settings.tts;
-    if (draft.hasVoice &&
+    if (!systemVoicesUnavailable &&
+        draft.hasVoice &&
         !systemVoices.any(
           (voice) =>
               voice.name == draft.voiceName &&
@@ -356,6 +401,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Text('听书设置', style: Theme.of(context).textTheme.titleLarge),
+                if (systemVoicesUnavailable) ...[
+                  const SizedBox(height: 8),
+                  const Text('无法读取系统音色，仍可选择离线伴听。'),
+                ],
                 const SizedBox(height: 12),
                 SegmentedButton<ReaderTtsMode>(
                   segments: const <ButtonSegment<ReaderTtsMode>>[
@@ -633,7 +682,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                 ],
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('读完后自动翻页'),
+                  title: const Text('连续朗读后续页'),
                   value: draft.autoTurnPage,
                   onChanged: (value) => setSheetState(
                     () => draft = draft.copyWith(autoTurnPage: value),
@@ -641,7 +690,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                 ),
                 const SizedBox(height: 8),
                 FilledButton.icon(
-                  key: const ValueKey<String>('tts-start'),
+                  key: const ValueKey<String>('tts-apply-settings'),
                   onPressed: () {
                     if (draft.mode == ReaderTtsMode.offline &&
                         !draft.hasOfflineVoice) {
@@ -653,7 +702,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     Navigator.of(context).pop(draft);
                   },
                   icon: const Icon(Icons.headphones),
-                  label: const Text('开始朗读'),
+                  label: const Text('应用设置'),
                 ),
               ],
             ),
@@ -667,10 +716,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final existing = _ttsController;
     if (existing != null) return existing;
     final voiceStore = _ensureTtsVoiceStore();
+    final link = ReaderTtsReaderLink(_readerSession!);
+    _ttsReaderLink = link;
     final controller = ReaderTtsController(
-      textProvider: () async => _readerSession?.currentText ?? '',
-      nextPage: () async => await _readerSession?.next() ?? false,
-      offlineSynthesizer: const SherpaReaderOfflineTtsSynthesizer(),
+      textSource: link,
+      offlineSynthesizer: SherpaReaderOfflineTtsSynthesizer(),
       player: AudioplayersReaderTtsPlayer(),
       resolveOfflineVoice: (id) async {
         final model = await voiceStore.modelFor(id);
@@ -692,6 +742,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
     };
+    controller.onPositionChanged = link.follow;
+    controller.updateSettings(_settings.tts);
     _ttsController = controller;
     return controller;
   }
@@ -757,6 +809,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   ReaderSession? _readerSession;
   ReaderTtsController? _ttsController;
+  ReaderTtsReaderLink? _ttsReaderLink;
   ReaderTtsVoiceStore? _ttsVoiceStore;
   bool _ownsTtsVoiceStore = false;
   late final Future<EpubChapterSource> _sourceTask;
@@ -935,7 +988,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
         unawaited(tracker?.pause() ?? Future<void>.value());
-        unawaited(_ttsController?.stop() ?? Future<void>.value());
+        unawaited(_ttsController?.pause() ?? Future<void>.value());
         _flushProgressInBackground();
       case AppLifecycleState.detached:
         unawaited(tracker?.finish() ?? Future<void>.value());
@@ -984,6 +1037,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final onClosed = widget.onClosed;
     session?.removeListener(_syncReadingStats);
     _readerSession = null;
+    _ttsReaderLink?.dispose();
+    _ttsReaderLink = null;
     unawaited(_ttsController?.dispose() ?? Future<void>.value());
     _ttsController = null;
     if (_ownsTtsVoiceStore) _ttsVoiceStore?.close();
@@ -1139,6 +1194,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
       onTts: _toggleTts,
+      readingHighlight: _ttsController?.highlight,
       onBookEnd: _openFinishPage,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
       onChapterRules: _canRechapter ? _openChapterRules : null,
@@ -1421,7 +1477,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       _readingTracker?.start();
     } else {
       unawaited(_readingTracker?.pause() ?? Future<void>.value());
-      unawaited(_ttsController?.stop() ?? Future<void>.value());
+      unawaited(_ttsController?.pause() ?? Future<void>.value());
     }
   }
 
