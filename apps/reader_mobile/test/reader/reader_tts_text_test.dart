@@ -262,6 +262,34 @@ void main() {
     await playback.controller.stop();
     await task;
   });
+
+  test('进入后台解除未完成的滚动等待，后续音频继续且返回跟随最新 CFI', () async {
+    final playback = await _openBoundaryPlayback();
+    final viewport = Completer<bool>();
+    final revealed = <String>[];
+    playback.link.session.registerViewportRangeRevealer((start, end) {
+      revealed.add(start);
+      return viewport.future;
+    });
+    final task = playback.controller.start(_boundarySettings);
+    await _until(() => revealed.isNotEmpty);
+    expect(playback.player.clips, isEmpty);
+    await playback.link.setScreenActive(false);
+    await _until(() => playback.player.clips.length == 1);
+    playback.player.complete();
+    await _until(() => playback.player.clips.length == 2);
+    expect(viewport.isCompleted, isFalse);
+    expect(revealed, hasLength(1));
+    final latest = playback.controller.position!;
+    final resumed = playback.link.setScreenActive(true);
+    viewport.complete(true);
+    await resumed;
+    expect(revealed.last, latest.wordStartCfi ?? latest.startCfi);
+    expect(playback.link.following, isTrue);
+    expect(playback.player.clips, hasLength(2));
+    await playback.controller.stop();
+    await task;
+  });
 }
 
 const _boundarySettings = ReaderTtsSettings(

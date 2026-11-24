@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/reader_offline_tts.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_mobile/reader/reader_tts_controller.dart';
+import 'package:reader_mobile/reader/reader_tts_background.dart';
 import 'package:reader_mobile/reader/reader_tts_voice_store.dart';
 
 import '../support/reader_tts_fakes.dart';
@@ -108,6 +109,35 @@ void main() {
     await task;
   });
 
+  test('离线伴听的通知栏暂停继续复用音频，完成后结束后台会话', () async {
+    final background = FakeTtsBackground()..install();
+    addTearDown(background.close);
+    final finished = Completer<void>();
+    final synthesizer = _FakeSynthesizer()
+      ..beforeSynthesis = (_) async => expect(background.active, isTrue);
+    final player = _FakePlayer()..waitForClip = (_) => finished.future;
+    final controller = _controller(
+      '当前句。',
+      synthesizer,
+      player,
+      backgroundPlayback: ReaderTtsBackgroundPlayback(bookTitle: '离线后台听书'),
+    );
+    addTearDown(controller.dispose);
+    final task = controller.start(_settings);
+    await _until(() => player.clips.isNotEmpty);
+    await background.emit('pause');
+    expect(player.pauses, 1);
+    expect(controller.snapshot.phase, ReaderTtsPhase.paused);
+    await background.emit('play');
+    expect(player.resumes, 1);
+    expect(player.clips, hasLength(1));
+    expect(synthesizer.segments, hasLength(1));
+    finished.complete();
+    await task;
+    expect(controller.snapshot.phase, ReaderTtsPhase.completed);
+    expect(background.active, isFalse);
+  });
+
   test('改变语速在下一句生效，并丢弃旧参数预合成片段', () async {
     final first = Completer<void>();
     final synthesizer = _FakeSynthesizer();
@@ -150,12 +180,14 @@ void main() {
 ReaderTtsController _controller(
   String text,
   _FakeSynthesizer synthesizer,
-  _FakePlayer player,
-) => ReaderTtsController(
+  _FakePlayer player, {
+  ReaderTtsBackgroundPlayback? backgroundPlayback,
+}) => ReaderTtsController(
   textSource: MemoryTtsTextSource([text]),
   offlineSynthesizer: synthesizer,
   player: player,
   resolveOfflineVoice: _resolveVoice,
+  backgroundPlayback: backgroundPlayback,
 );
 
 Future<ReaderOfflineVoiceInstance?> _resolveVoice(String id) async =>

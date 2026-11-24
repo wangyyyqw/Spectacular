@@ -63,6 +63,13 @@ class _ReaderTtsPlaybackSheetState extends State<ReaderTtsPlaybackSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text('听书', style: Theme.of(context).textTheme.titleLarge),
+        if (widget.controller.supportsBackgroundPlayback) ...[
+          const SizedBox(height: 8),
+          Text(
+            '锁屏或切换应用后继续播放，可在通知栏控制；退出阅读页结束。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
         const SizedBox(height: 12),
         _status(snapshot),
         _excerpt(snapshot),

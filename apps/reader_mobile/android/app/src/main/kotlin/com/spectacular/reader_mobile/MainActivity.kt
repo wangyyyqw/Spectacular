@@ -17,11 +17,13 @@ class MainActivity : FlutterActivity() {
     private var epubExport: EpubExportHandler? = null
     private var battery: ReaderBatteryHandler? = null
     private var batteryChannel: EventChannel? = null
+    private var ttsPlayback: ReaderTtsPlaybackHandler? = null
     private var showStatusBar = true
     private var showNavigationBar = true
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        ttsPlayback = ReaderTtsPlaybackHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         epubExport = EpubExportHandler(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/epub_export").setMethodCallHandler(epubExport)
@@ -68,6 +70,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        ttsPlayback?.dispose()
         epubExport?.dispose()
         batteryChannel?.setStreamHandler(null)
         battery?.dispose()

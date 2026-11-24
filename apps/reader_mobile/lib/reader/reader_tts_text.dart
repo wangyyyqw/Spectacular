@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/paint/hit_test.dart';
@@ -63,6 +65,8 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
   late int _navigationRevision;
   bool _following = true;
   bool _closed = false;
+  bool _screenActive = true;
+  Completer<void> _screenSuspended = Completer<void>();
   ReaderReadingHighlight? _target;
   Future<void>? _followingTask;
 
@@ -191,13 +195,28 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
   /// 只跟随仍属于听书导航的画面；重排后按 CFI 重新计算可见范围。
   Future<void> follow(ReaderReadingHighlight range) {
     _target = range;
-    return _followingTask ??= _advanceScreen().whenComplete(() {
+    if (_closed || !_screenActive) return Future.value();
+    final task = _followingTask ??= _advanceScreen().whenComplete(() {
       _followingTask = null;
     });
+    return Future.any([task, _screenSuspended.future]);
+  }
+
+  /// 后台只推进原文游标，不等待被系统停止调度的滚动动画。
+  Future<void> setScreenActive(bool active) {
+    if (_closed || active == _screenActive) return Future.value();
+    _screenActive = active;
+    if (!active) {
+      _screenSuspended.complete();
+      return Future.value();
+    }
+    _screenSuspended = Completer<void>();
+    final target = _target;
+    return target == null ? Future.value() : follow(target);
   }
 
   Future<void> _advanceScreen() async {
-    while (!_closed && following) {
+    while (!_closed && _screenActive && following) {
       final range = _target;
       final page = session.page;
       if (range == null || page == null || session.loading) return;
@@ -220,7 +239,10 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
       final revision = session.navigationRevision;
       final turn = await session.preparePageTurn(true, prefetch: true);
       if (turn == null) return;
-      if (_closed || !following || revision != session.navigationRevision) {
+      if (_closed ||
+          !_screenActive ||
+          !following ||
+          revision != session.navigationRevision) {
         session.releasePageTurn(turn);
         return;
       }
@@ -247,6 +269,7 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
 
   void dispose() {
     _closed = true;
+    if (!_screenSuspended.isCompleted) _screenSuspended.complete();
     _following = false;
     session.removeListener(_checkNavigation);
   }
