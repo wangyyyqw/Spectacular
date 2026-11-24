@@ -44,6 +44,7 @@ class VoxelDurationChart extends StatefulWidget {
     this.footer,
     this.top,
     this.weekMode = false,
+    this.startWithTimeOfDay = false,
   });
 
   final List<DurationBarData> bars;
@@ -68,6 +69,9 @@ class VoxelDurationChart extends StatefulWidget {
   /// 周视图的“时段”按周一至周日分段，而不是一天内的小时。
   final bool weekMode;
 
+  /// 首次显示时段分布，点击后切换到按书统计。
+  final bool startWithTimeOfDay;
+
   @override
   State<VoxelDurationChart> createState() => _VoxelDurationChartState();
 }
@@ -85,9 +89,8 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
   late final AnimationController _morphController;
   late final AnimationController _lightController;
   late final Animation<double> _morphLights;
-  _VoxelChartMode _mode = _VoxelChartMode.books;
-  _VoxelChartMode? _fromMode;
-  bool _morphing = false;
+  late _VoxelChartMode _mode;
+  _VoxelChartMode? _fromMode;  bool _morphing = false;
   bool _started = false;
   bool _reduceMotion = false;
   bool _morphLightsActive = false;
@@ -95,6 +98,9 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
   @override
   void initState() {
     super.initState();
+    _mode = widget.startWithTimeOfDay
+        ? _VoxelChartMode.timeOfDay
+        : _VoxelChartMode.books;
     _revealController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 680),
