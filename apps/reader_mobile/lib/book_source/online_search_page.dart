@@ -116,6 +116,9 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
           book: current.book,
           chapters: current.chapters,
           service: widget.controller.service,
+          bookshelfId: widget.controller
+              .shelfEntryFor(activeSource, current.book)
+              ?.id,
         ),
       );
     } on Object catch (error) {
