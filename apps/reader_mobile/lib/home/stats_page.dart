@@ -1,4 +1,6 @@
-import 'package:flutter/foundation.dart' show listEquals;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -26,6 +28,7 @@ class StatsPage extends StatefulWidget {
     required this.library,
     required this.progressStore,
     this.sessionStore,
+    this.bookColorCache,
     this.refreshToken = 0,
     this.active = true,
     this.now,
@@ -39,6 +42,9 @@ class StatsPage extends StatefulWidget {
 
   /// 可注入的阅读会话存储；为空时使用书架数据库实现。
   final ReadingSessionStore? sessionStore;
+
+  /// 可注入的封面取色缓存；为空时按封面文件解码并复用结果。
+  final ReadingBookColorCache? bookColorCache;
 
   /// 外部切换页面时递增，用于重新读取阅读进度和会话数据。
   final int refreshToken;
@@ -55,7 +61,9 @@ class StatsPage extends StatefulWidget {
 
 class _StatsPageState extends State<StatsPage> {
   late final BookOpener _bookOpener;
-  final _bookColors = ReadingBookColorCache();
+  late final ReadingBookColorCache _bookColors =
+      widget.bookColorCache ??
+      ReadingBookColorCache(store: SettingsBookColorStore(widget.library));
   _StatsContent? _content;
   List<Record> _snapshot = const [];
   int _reloadToken = 0;
@@ -257,19 +265,23 @@ class _StatsPageState extends State<StatsPage> {
         hasReadingSessions: storedSessions.isNotEmpty,
       );
       final snapshot = _statsSnapshot(now, stats, storedSessions);
-      if (listEquals(_snapshot, snapshot)) return;
-      final bookColors = await _bookColors.load(books, insights.byBook.keys);
-      if (!_acceptsReload(token)) return;
+      if (listEquals(_snapshot, snapshot)) {
+        unawaited(_applyBookColors(token, books, insights.byBook.keys));
+        return;
+      }
+      final bookIds = insights.byBook.keys.toList(growable: false);
       setState(() {
         _snapshot = snapshot;
+        // 先提交统计内容，封面取色稍后补入；避免封面解码拖住首屏和刷新。
         _content = _StatsContent(
           stats: stats,
-          bookColors: bookColors,
+          bookColors: _bookColors.readyColors(bookIds),
           onOpenBook: _openBook,
           now: widget.now,
         );
         _error = null;
       });
+      unawaited(_applyBookColors(token, books, bookIds));
     } catch (_) {
       if (!_acceptsReload(token)) return;
       if (_content == null) {
@@ -282,6 +294,29 @@ class _StatsPageState extends State<StatsPage> {
 
   bool _acceptsReload(int token) =>
       mounted && widget.active && token == _reloadToken;
+
+  /// 封面配色在统计内容之后到达，只更新颜色，不重复聚合或打断滚动。
+  Future<void> _applyBookColors(
+    int token,
+    List<BookEntry> books,
+    Iterable<String> bookIds,
+  ) async {
+    final colors = await _bookColors.load(books, bookIds);
+    final content = _content;
+    if (!_acceptsReload(token) ||
+        content == null ||
+        mapEquals(content.bookColors, colors)) {
+      return;
+    }
+    setState(() {
+      _content = _StatsContent(
+        stats: content.stats,
+        bookColors: colors,
+        onOpenBook: content.onOpenBook,
+        now: content.now,
+      );
+    });
+  }
 
   Future<void> _openBook(BookEntry entry) async {
     await _bookOpener.open(context, entry);

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_mobile/home/book_duration_chart.dart';
+import 'package:reader_mobile/home/reading_book_color.dart';
 import 'package:reader_mobile/home/reading_calendar.dart';
 import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -237,6 +238,15 @@ void main() {
       ),
     );
     await pumpReaderUntil(tester, find.byType(BookDurationChart));
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          tester
+              .widget<BookDurationChart>(find.byType(BookDurationChart))
+              .bookColors
+              .length ==
+          2,
+    );
     final chart = tester.widget<BookDurationChart>(
       find.byType(BookDurationChart),
     );
@@ -269,6 +279,57 @@ void main() {
       updated,
     );
     expect(HSLColor.fromColor(updated['a']!).hue, inInclusiveRange(130, 175));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('首次进入先显示统计内容，封面配色解码完成后补入', (tester) async {
+    tester.view
+      ..physicalSize = const Size(800, 1600)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final pendingColor = Completer<Color?>();
+    final cache = ReadingBookColorCache(
+      loadCoverColor: (path) => pendingColor.future,
+    );
+    final now = DateTime(2026, 11, 24, 20);
+    final start = DateTime(now.year, now.month, now.day, 8);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: _FakeLibrary([
+            _book('a', '慢取色书籍', coverPath: '/tmp/slow-cover.png'),
+          ], const {}),
+          progressStore: _FakeProgressStore(const {}),
+          sessionStore: _FakeSessionStore([
+            ReadingSession(
+              bookId: 'a',
+              startedAt: start,
+              endedAt: start.add(const Duration(minutes: 10)),
+              duration: const Duration(minutes: 10),
+            ),
+          ]),
+          bookColorCache: cache,
+          now: now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('慢取色书籍'), findsWidgets);
+    expect(
+      tester
+          .widget<BookDurationChart>(find.byType(BookDurationChart))
+          .bookColors,
+      isEmpty,
+    );
+
+    pendingColor.complete(const Color(0xFFB83235));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<BookDurationChart>(find.byType(BookDurationChart))
+          .bookColors['a'],
+      isNotNull,
+    );
     expect(tester.takeException(), isNull);
   });
 
