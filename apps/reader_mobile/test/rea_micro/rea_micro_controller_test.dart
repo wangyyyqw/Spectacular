@@ -1048,6 +1048,48 @@ void main() {
     expect(controller.links[book.id]?.cloudBookId, 42);
   });
 
+  test('未关联会话服务器拒绝后保留水位并以同一身份重试', () async {
+    final library = await _openDbLibrary();
+    final book = await library.importBytes(buildTestEpub(title: '未关联重试'));
+    final api = _FakeApi();
+    final controller = await _createController(library, api);
+    addTearDown(controller.dispose);
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessionStore.items.add(
+      ReadingSession(
+        bookId: book.id,
+        startedAt: start,
+        endedAt: start.add(const Duration(minutes: 3)),
+        duration: const Duration(minutes: 3),
+      ),
+    );
+    api.onSessionUpload = () async => throw const ReaMicroException(
+      '会话记账暂不可用',
+      code: 409,
+    );
+
+    final rejected = await controller.syncReadingSessions();
+    expect(rejected.success, isFalse);
+    expect(api.uploads.single.single.cloudBookId, 7001);
+    expect(api.sessionLogUploads.single.single.cloudBookId, 7001);
+    expect(await ReaMicroStore(library).loadSessionWatermarks(), isEmpty);
+    final pending = await ReaMicroStore(library).loadPendingSessionUpload();
+    expect(pending, isNotNull);
+
+    api.onSessionUpload = null;
+    final retried = await controller.syncReadingSessions();
+    expect(retried.success, isTrue);
+    expect(retried.durationSeconds, 180);
+    expect(api.sessionLogUploads.last.single.id,
+        api.sessionLogUploads.first.single.id);
+    expect(api.sessionLogUploads.last.single.cloudBookId, 7001);
+    expect(await ReaMicroStore(library).loadSessionWatermarks(), {
+      book.id: start.add(const Duration(minutes: 3)).millisecondsSinceEpoch,
+    });
+    expect(await ReaMicroStore(library).loadPendingSessionUpload(), isNull);
+    expect((await controller.syncReadingSessions()).requests, 0);
+  });
+
   test('登记失败保留未关联时段，恢复后使用会话而不累计降级', () async {
     final library = await _openDbLibrary();
     final book = await library.importBytes(buildTestEpub(title: '登记失败'));

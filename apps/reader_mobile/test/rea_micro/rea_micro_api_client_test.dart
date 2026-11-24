@@ -135,7 +135,12 @@ void main() {
       baseUrl: 'https://example.test/',
       client: MockClient((request) async {
         paths.add(request.url.path);
-        return _json({'code': 0, 'data': true});
+        final body = jsonDecode(request.body) as Map<String, Object?>;
+        expect(body['sessionAccounting'], isTrue);
+        return _json({
+          'code': 0,
+          'data': {'sessionAccountingSupported': true},
+        });
       }),
     );
     addTearDown(api.close);
@@ -159,6 +164,74 @@ void main() {
     );
     expect(paths, ['/rest/reader/update-read-time-by-date']);
   });
+
+  test('会话记账未获服务器确认时失败并保留待重试语义', () async {
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        expect(request.url.path, '/rest/reader/update-read-time-by-date');
+        return _json({
+          'code': 0,
+          'data': {'sessionAccountingSupported': false},
+        });
+      }),
+    );
+    addTearDown(api.close);
+
+    await expectLater(
+      api.updateReadTimeByDate(
+        'token',
+        const <ReaMicroReadTimeEntry>[
+          ReaMicroReadTimeEntry(
+            cloudBookId: 7001,
+            date: '2026-11-20',
+            durationSeconds: 60,
+          ),
+        ],
+        sessionLogs: const <ReaMicroReadSessionLog>[
+          ReaMicroReadSessionLog(
+            id: 'stable-session',
+            cloudBookId: 7001,
+            startedAt: 1763596800000,
+            endedAt: 1763596860000,
+            durationSeconds: 60,
+            recordDay: '2026-11-20',
+          ),
+        ],
+        sessionAccounting: true,
+      ),
+      throwsA(isA<ReaMicroException>()),
+    );
+  });
+
+  test('不启用会话记账的按日时长兼容阅微原有布尔响应', () async {
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, Object?>;
+        expect(body.containsKey('sessionAccounting'), isFalse);
+        expect(body.containsKey('sessionLogs'), isFalse);
+        expect(body['list'], hasLength(1));
+        return _json({'code': 0, 'data': true});
+      }),
+    );
+    addTearDown(api.close);
+
+    await expectLater(
+      api.updateReadTimeByDate(
+        'token',
+        const <ReaMicroReadTimeEntry>[
+          ReaMicroReadTimeEntry(
+            cloudBookId: 0,
+            date: '2026-11-20',
+            durationSeconds: 60,
+          ),
+        ],
+      ),
+      completes,
+    );
+  });
+
   test('标注分页达到上限仍未读完时拒绝返回不完整清单', () async {
     var pages = 0;
     final api = ReaMicroApiClient(
@@ -1030,6 +1103,12 @@ void main() {
                 },
               ],
             },
+          });
+        }
+        if (path.endsWith('update-read-time-by-date')) {
+          return _json(<String, Object?>{
+            'code': 0,
+            'data': <String, Object?>{'sessionAccountingSupported': true},
           });
         }
         return _json(<String, Object?>{'code': 0, 'data': true});
