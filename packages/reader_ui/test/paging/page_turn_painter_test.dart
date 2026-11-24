@@ -5,6 +5,8 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/paging/bessel_geometry.dart';
+import 'package:reader_ui/paging/curl3d_geometry.dart';
+import 'package:reader_ui/paging/curl3d_painter.dart';
 import 'package:reader_ui/paging/curl3d_shader.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
@@ -31,6 +33,13 @@ class _Controller extends PageTurnController {
 
   bool invalidGeometry = false;
   double opacity = 1;
+  int geometryReads = 0;
+
+  @override
+  Curl3dGeometry? get curl3dGeometry {
+    geometryReads++;
+    return super.curl3dGeometry;
+  }
 
   @override
   double get targetOpacity => opacity;
@@ -140,6 +149,66 @@ void _expectMirrored(ByteData forward, ByteData backward) {
 }
 
 void main() {
+  testWidgets('3D 冷页渐入只绘制一次卷纸，保持原合成效果', (tester) async {
+    final controller = _controller(tester)
+      ..mode = PageTurnMode.simulation3d
+      ..grab = const Offset(200, 300)
+      ..point = const Offset(80, 220);
+    await tester.runAsync(() async {
+      await Curl3dShader.load();
+      final geometry = controller.curl3dGeometry!;
+      for (final opacity in [0.0, 0.25, 0.5, 0.75, 1.0]) {
+        controller.opacity = opacity;
+        controller.geometryReads = 0;
+        final actual = await _render(controller);
+        expect(controller.geometryReads, 1, reason: '渐入期间不重复解析和绘制卷纸');
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder);
+        final painter = Curl3dPainter(paperColor: const Color(0xFFFFFFFF));
+        painter.paint(
+          canvas,
+          controller.originImage!,
+          controller.originImage!,
+          geometry: geometry,
+          mirror: !controller.fromRight,
+        );
+        if (opacity > 0) {
+          canvas.saveLayer(
+            Offset.zero & _size,
+            Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
+          );
+          painter.paint(
+            canvas,
+            controller.originImage!,
+            controller.targetImage!,
+            geometry: geometry,
+            mirror: !controller.fromRight,
+          );
+          canvas.restore();
+        }
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(200, 300);
+        final expected = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        image.dispose();
+        picture.dispose();
+        final a = actual.buffer.asUint8List();
+        final b = expected.buffer.asUint8List();
+        var maximumDifference = 0;
+        for (var index = 0; index < a.length; index++) {
+          final difference = (a[index] - b[index]).abs();
+          if (difference > maximumDifference) maximumDifference = difference;
+        }
+        expect(
+          maximumDifference,
+          lessThanOrEqualTo(2),
+          reason: '底页先混合仅允许像素取整误差，opacity=$opacity',
+        );
+      }
+    });
+  });
+
   for (final rtl in [false, true]) {
     for (final next in [false, true]) {
       testWidgets('3D ${rtl ? 'RTL' : 'LTR'} ${next ? '前进' : '后退'}卷走当前页且纹理正向', (

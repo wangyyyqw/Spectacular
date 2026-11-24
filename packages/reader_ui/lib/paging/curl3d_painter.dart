@@ -63,13 +63,20 @@ class Curl3dPainter {
     ui.Image bottom, {
     required Curl3dGeometry geometry,
     required bool mirror,
+    double bottomOpacity = 1,
   }) {
     final size = geometry.size;
     final resources = this.resources ?? Curl3dPaintResources();
     canvas.save();
     try {
       canvas.clipRect(Offset.zero & size);
-      _drawBottom(canvas, bottom, size, resources);
+      // 冷目标只混合底页，卷纸和阴影保持单次绘制，避免全屏离屏合成。
+      if (bottomOpacity < 1) {
+        _drawBottom(canvas, paper, size, resources);
+      }
+      if (bottomOpacity > 0) {
+        _drawBottom(canvas, bottom, size, resources, opacity: bottomOpacity);
+      }
       if (mirror) {
         canvas.translate(size.width, 0);
         canvas.scale(-1, 1);
@@ -273,16 +280,19 @@ class Curl3dPainter {
     Size size,
     Curl3dPaintResources resources, {
     bool mirror = false,
+    double opacity = 1,
   }) {
     final shader = _shader(size, image, mirror, resources);
     // 静态底页也来自 RGB565 快照，与卷纸共用相同的编码和采样。
     shader.setFloat(16, 1);
     shader.setFloat(Curl3dShader.profileOffset + 3, 1);
     _sheetPaint.shader = shader;
+    _sheetPaint.color = Color.fromRGBO(255, 255, 255, opacity);
     try {
       canvas.drawRect(Offset.zero & size, _sheetPaint);
     } finally {
       _sheetPaint.shader = null;
+      _sheetPaint.color = const Color(0xFFFFFFFF);
     }
   }
 }

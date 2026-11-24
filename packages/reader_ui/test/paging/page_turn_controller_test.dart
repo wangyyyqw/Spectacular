@@ -7,6 +7,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_ui_diagnostics.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
 import '../support/progressive_source.dart';
@@ -1004,7 +1005,7 @@ void main() {
     }
   }
 
-  testWidgets('3D 活动时拒绝点击与新拖动，冷准备和收尾均不排队', (tester) async {
+  testWidgets('3D 尚未松手时不覆盖触点，冷准备松手后接住后续点击', (tester) async {
     final gate = Completer<void>();
     final controller = await _curlController(
       tester,
@@ -1018,15 +1019,87 @@ void main() {
     _swipeDuringTurn(controller, next: false);
     await tester.pump(const Duration(milliseconds: 50));
     final displayed = controller.point;
+    controller.request(true);
     gate.complete();
     await tester.pump();
     expect(controller.phase, PageTurnPhase.settling);
-    controller.request(true);
-    _swipeDuringTurn(controller);
     expect(controller.point, displayed);
     await tester.pumpAndSettle();
-    expect(controller.session.page!.pageIndex, 2);
+    expect(controller.session.page!.pageIndex, 3);
+    expect(controller.session.pageTurns, 2);
+    await controller.session.flushProgress();
+  });
+
+  for (final releaseBeforeFinish in [false, true]) {
+    testWidgets(
+      '3D 收尾期间开始的滑动在${releaseBeforeFinish ? '上一页结束前' : '上一页结束后'}松手均保留',
+      (tester) async {
+        final controller = await _curlController(tester, pageCount: 5);
+        controller.request(true);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 75));
+        expect(controller.phase, PageTurnPhase.settling);
+        _swipeDuringTurn(controller, release: releaseBeforeFinish);
+        await tester.pumpAndSettle();
+        if (!releaseBeforeFinish) {
+          expect(controller.phase, PageTurnPhase.dragging);
+          _releaseCurl(controller, 0);
+          await tester.pumpAndSettle();
+        }
+        expect(controller.phase, PageTurnPhase.idle);
+        expect(controller.session.page!.pageIndex, 3);
+        expect(controller.session.pageTurns, 2);
+        await controller.session.flushProgress();
+      },
+    );
+  }
+
+  testWidgets('慢准备只记录一次耗时阶段，取消后可重新翻页', (tester) async {
+    final events = <String>[];
+    ReaderUiDiagnostics.onEvent = (event, _) => events.add(event);
+    addTearDown(() => ReaderUiDiagnostics.onEvent = null);
+    final gate = Completer<void>();
+    final controller = await _curlController(
+      tester,
+      targetImageGate: gate.future,
+    );
+    controller.request(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(events.where((event) => event == 'turn_prepare_slow').length, 1);
+    controller.cancel();
+    gate.complete();
+    await tester.pumpAndSettle();
+    controller.request(true);
+    await tester.pumpAndSettle();
+    expect(controller.phase, PageTurnPhase.idle);
+    expect(events, containsAll(['turn_cancel', 'turn_ready', 'turn_finish']));
     expect(controller.session.pageTurns, 1);
+    await controller.session.flushProgress();
+  });
+
+  testWidgets('翻页日志记录动画长帧间隔，下一次翻页重新统计', (tester) async {
+    final completed = <Map<String, Object?>>[];
+    final previous = ReaderUiDiagnostics.onEvent;
+    ReaderUiDiagnostics.onEvent = (event, fields) {
+      if (event == 'turn_finish') completed.add(fields);
+    };
+    addTearDown(() => ReaderUiDiagnostics.onEvent = previous);
+    final controller = await _curlController(tester, pageCount: 5);
+    controller.request(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 75));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 64));
+    await tester.pumpAndSettle(const Duration(milliseconds: 16));
+    expect(completed.single['max_frame_gap_us'], greaterThanOrEqualTo(64000));
+    expect(completed.single['committed'], isTrue);
+    expect(completed.single, containsPair('origin_us', isNonNegative));
+    expect(completed.single, containsPair('target_us', isNonNegative));
+    controller.request(true);
+    await tester.pumpAndSettle(const Duration(milliseconds: 16));
+    expect(completed, hasLength(2));
+    expect(completed.last['max_frame_gap_us'], lessThanOrEqualTo(16000));
     await controller.session.flushProgress();
   });
 

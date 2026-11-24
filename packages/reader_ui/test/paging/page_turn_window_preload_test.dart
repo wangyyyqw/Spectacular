@@ -83,6 +83,53 @@ Future<List<int>> _firstPixel(ui.Image image) async {
 }
 
 void main() {
+  testWidgets('3D 纯动画帧不重复维护窗口，收尾仍更新缓存', (tester) async {
+    final session = await _open();
+    addTearDown(session.dispose);
+    final key = GlobalKey<PageTurnViewState>();
+    var maintenance = 0;
+    final previous = ReaderUiDiagnostics.onEvent;
+    ReaderUiDiagnostics.onEvent = (event, _) {
+      if (event == 'turn.maintenance') maintenance++;
+    };
+    addTearDown(() => ReaderUiDiagnostics.onEvent = previous);
+    await tester.pumpWidget(
+      _view(session, key, (_) async {}, PageTurnMode.simulation3d),
+    );
+    await tester.pumpAndSettle();
+    final controller = key.currentState!.controller;
+    controller.pointerDown(const Offset(790, 300));
+    controller.beginDrag(
+      DragStartDetails(localPosition: const Offset(790, 300)),
+    );
+    controller.updateDrag(
+      DragUpdateDetails(
+        globalPosition: const Offset(500, 300),
+        localPosition: const Offset(500, 300),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.targetImage, isNotNull);
+    final readyCount = maintenance;
+    for (final x in [480.0, 460.0, 440.0]) {
+      controller.updateDrag(
+        DragUpdateDetails(
+          globalPosition: Offset(x, 300),
+          localPosition: Offset(x, 300),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(maintenance, readyCount, reason: '位图和目标未变化时只更新 painter');
+    controller.endDrag(DragEndDetails());
+    await tester.pumpAndSettle();
+    expect(controller.active, isFalse);
+    expect(session.page!.pageIndex, 4);
+    expect(maintenance, greaterThan(readyCount), reason: '落页仍维护新窗口');
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final mode in [PageTurnMode.simulation3d]) {
     testWidgets('${mode.label} 视口复用资源，缓存失效和退出释放对应着色器', (tester) async {
       final session = await _open();

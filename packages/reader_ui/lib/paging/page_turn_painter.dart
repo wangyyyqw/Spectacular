@@ -53,19 +53,6 @@ class PageTurnPainter extends CustomPainter {
       _continuation(canvas, size, origin, target);
       return;
     }
-    final opacity = controller.targetOpacity;
-    if (opacity < 1 && controller.mode == PageTurnMode.simulation3d) {
-      _paintTurn(canvas, size, origin, origin);
-      if (opacity > 0) {
-        canvas.saveLayer(
-          Offset.zero & size,
-          Paint()..color = Color.fromRGBO(255, 255, 255, opacity),
-        );
-        _paintTurn(canvas, size, origin, target);
-        canvas.restore();
-      }
-      return;
-    }
     _paintTurn(canvas, size, origin, target);
   }
 
@@ -194,6 +181,7 @@ class PageTurnPainter extends CustomPainter {
       target,
       geometry: geometry,
       mirror: !controller.fromRight,
+      bottomOpacity: controller.targetOpacity,
     );
   }
 

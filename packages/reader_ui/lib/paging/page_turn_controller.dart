@@ -10,6 +10,7 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
 import '../reader_session.dart';
+import '../reader_ui_diagnostics.dart';
 import 'bessel_geometry.dart';
 import 'curl3d_geometry.dart';
 import 'page_turn_mode.dart';
@@ -21,33 +22,34 @@ enum PageTurnPhase { idle, preparing, dragging, settling }
 class PageTurnController extends ChangeNotifier {
   PageTurnController({
     required this.session,
-    required TickerProvider vsync,
+    required this.vsync,
     required this.acquireImage,
     this.onBookEnd,
     this.onError,
-  }) : _vsync = vsync {
+  }) {
     session.addListener(_sessionChanged);
   }
 
   final ReaderSession session;
   final Future<ui.Image?> Function(PageContent page) acquireImage;
   final VoidCallback? onBookEnd;
+
   /// 当前翻页准备失败时通知宿主；取消和过期任务不触发。
   final void Function(Object error)? onError;
-  final TickerProvider _vsync;
+  final TickerProvider vsync;
   AnimationController? _settlingClock, _targetFadeClock;
   Ticker? _catchUpTicker;
 
   AnimationController get _settling =>
-      _settlingClock ??= AnimationController(vsync: _vsync)
+      _settlingClock ??= AnimationController(vsync: vsync)
         ..addListener(_animateFrame);
   AnimationController get _targetFade =>
       _targetFadeClock ??= AnimationController(
-        vsync: _vsync,
+        vsync: vsync,
         duration: const Duration(milliseconds: 100),
       )..addListener(_targetFadeFrame);
   Ticker get _positionCatchUp =>
-      _catchUpTicker ??= _vsync.createTicker(_catchUpPositionFrame);
+      _catchUpTicker ??= vsync.createTicker(_catchUpPositionFrame);
   Duration _catchUpElapsed = Duration.zero;
   bool _preparationVisible = false;
   bool _lifting = false, _rejected3dDrag = false;
@@ -95,6 +97,12 @@ class PageTurnController extends ChangeNotifier {
   Curve _settlingCurve = Curves.easeOutCubic;
   int? _generation;
   PageContent? _origin;
+  Stopwatch? _turnTimer;
+  Timer? _slowPreparation;
+  int _lastAnimationMicros = 0;
+  int _lastFadeMicros = 0;
+  int _maxFrameGapMicros = 0;
+  int _originMicros = 0, _targetMicros = 0;
 
   bool get active => phase != PageTurnPhase.idle;
 
@@ -132,10 +140,13 @@ class PageTurnController extends ChangeNotifier {
     _pointerDown = position;
   }
 
-  /// 3D 活动期间拒绝新输入；其余模式的离散输入依次排队。
+  /// 已松手的活动翻页接住后续输入，仍按住纸面时避免新输入覆盖触点。
   void request(bool next) {
     if (active) {
-      if (!mode.is3d) _queued.add(next);
+      if (!mode.is3d || _released) {
+        _queued.add(next);
+        _report('turn_queued');
+      }
       return;
     }
     if (mode == PageTurnMode.simulation3d) {
@@ -157,7 +168,7 @@ class PageTurnController extends ChangeNotifier {
         : _pointerDown ?? details.localPosition;
     _pointerDown = null;
     if (active) {
-      if (mode.is3d) {
+      if (mode.is3d && !_released) {
         _rejected3dDrag = true;
         return;
       }
@@ -318,6 +329,14 @@ class PageTurnController extends ChangeNotifier {
     _generation = session.generation;
     _origin = session.page;
     phase = PageTurnPhase.preparing;
+    _turnTimer = Stopwatch()..start();
+    _report('turn_prepare');
+    _slowPreparation?.cancel();
+    _slowPreparation = Timer(const Duration(milliseconds: 500), () {
+      if (_valid(token) && phase == PageTurnPhase.preparing) {
+        _report('turn_prepare_slow');
+      }
+    });
     _released = !dragging && mode != PageTurnMode.simulation3d;
     progress = 0;
     _preparationVisible = false;
@@ -337,6 +356,7 @@ class PageTurnController extends ChangeNotifier {
     if (mode == PageTurnMode.none) return true;
     final target = await acquireImage(prepared.target.content);
     if (!_valid(token)) return false;
+    _targetMicros = _turnTimer?.elapsedMicroseconds ?? 0;
     if (target == null) {
       cancel();
       return false;
@@ -346,6 +366,8 @@ class PageTurnController extends ChangeNotifier {
   }
 
   void _activatePreparedTurn(bool dragging) {
+    _slowPreparation?.cancel();
+    _report('turn_ready');
     phase = PageTurnPhase.dragging;
     // 已松手时从等待期间实际显示的位置接续；3D 只渐入底页，不插值折角。
     if (_preparationVisible && mode != PageTurnMode.none) {
@@ -368,6 +390,7 @@ class PageTurnController extends ChangeNotifier {
       return false;
     }
     originImage = origin;
+    _originMicros = _turnTimer?.elapsedMicroseconds ?? 0;
     if (mode == PageTurnMode.simulation3d) {
       if (!_released) _startLifting(token);
       if (!dragging) _scheduleTapRelease(token);
@@ -522,11 +545,17 @@ class PageTurnController extends ChangeNotifier {
       _startPositionCatchUp();
     }
     // 接续的正文保持原始不透明度，冷页就绪后只追赶同一个逐行时钟。
-    if (mode != PageTurnMode.continuation) _targetFade.forward(from: 0);
+    if (mode != PageTurnMode.continuation) {
+      _lastFadeMicros = 0;
+      _targetFade.forward(from: 0);
+    }
     if (mode == PageTurnMode.simulation3d && !_released) _updateDragFrame();
   }
 
   void _targetFadeFrame() {
+    final elapsed = _targetFade.lastElapsedDuration?.inMicroseconds ?? 0;
+    _recordFrameGap(elapsed - _lastFadeMicros);
+    _lastFadeMicros = elapsed;
     if (!_disposed) notifyListeners();
   }
 
@@ -547,6 +576,7 @@ class PageTurnController extends ChangeNotifier {
       _positionCatchUp.stop();
       return;
     }
+    _recordFrameGap(delta.inMicroseconds);
     final micros = math.min(
       delta.inMicroseconds,
       _catchUpFrameLimit.inMicroseconds,
@@ -631,6 +661,7 @@ class PageTurnController extends ChangeNotifier {
   static const double _distanceGuard = 0.08;
 
   void _settle(bool complete) {
+    _slowPreparation?.cancel();
     _positionCatchUp.stop();
     _stopLifting();
     _complete = complete;
@@ -737,6 +768,7 @@ class PageTurnController extends ChangeNotifier {
   TickerFuture _startCurlAnimation() {
     // forward 的归零通知会先于 ticker 启动，延后通知才能同步取消。
     _starting3dAnimation = true;
+    _lastAnimationMicros = 0;
     final animation = _settling.forward(from: 0);
     _starting3dAnimation = false;
     _animateCurlFrame();
@@ -745,6 +777,9 @@ class PageTurnController extends ChangeNotifier {
 
   void _animateFrame() {
     if (_starting3dAnimation) return;
+    final elapsed = _settling.lastElapsedDuration?.inMicroseconds ?? 0;
+    _recordFrameGap(elapsed - _lastAnimationMicros);
+    _lastAnimationMicros = elapsed;
     if (mode == PageTurnMode.simulation3d) {
       _animateCurlFrame();
       return;
@@ -754,6 +789,11 @@ class PageTurnController extends ChangeNotifier {
     progress = _startProgress + ((_complete ? 1 : 0) - _startProgress) * t;
     if (bessel) point = ui.Offset.lerp(_startPoint, _endPoint, t);
     notifyListeners();
+  }
+
+  // 分别使用各段动画的时钟，不把用户按住纸面的停留时间计为掉帧。
+  void _recordFrameGap(int micros) {
+    _maxFrameGapMicros = math.max(_maxFrameGapMicros, micros);
   }
 
   void _animateCurlFrame() {
@@ -791,7 +831,9 @@ class PageTurnController extends ChangeNotifier {
     final queued = List<bool>.of(_queued);
     _queued.clear();
     _committing = true;
-    if (_complete && prepared != null) session.commitPageTurn(prepared);
+    final committed =
+        _complete && prepared != null && session.commitPageTurn(prepared);
+    _report('turn_finish', committed: committed);
     _committing = false;
     // 正常收尾只释放当前翻页，保留已开始但尚未松手的下一次滑动。
     _resetTurn();
@@ -834,6 +876,7 @@ class PageTurnController extends ChangeNotifier {
 
   /// 指针取消、版面失效和外部跳转均保留已提交位置。
   void cancel() {
+    if (active) _report('turn_cancel');
     _queued.clear();
     _pendingDrag = null;
     _pointerDown = null;
@@ -845,6 +888,11 @@ class PageTurnController extends ChangeNotifier {
     _dragAtBookEnd = false;
     _tapRelease?.cancel();
     _tapRelease = null;
+    _slowPreparation?.cancel();
+    _slowPreparation = null;
+    _turnTimer = null;
+    _lastAnimationMicros = _lastFadeMicros = _maxFrameGapMicros = 0;
+    _originMicros = _targetMicros = 0;
     _lifting = false;
     _lastCurlGeometry = null;
     _settlingClock?.stop(canceled: true);
@@ -861,6 +909,22 @@ class PageTurnController extends ChangeNotifier {
     progress = 0;
     _resetPointer();
     if (!_disposed) notifyListeners();
+  }
+
+  void _report(String event, {bool? committed}) {
+    ReaderUiDiagnostics.onEvent?.call(event, {
+      'mode': mode,
+      'phase': phase,
+      'next': next,
+      'duration_us': _turnTimer?.elapsedMicroseconds ?? 0,
+      'origin_ready': originImage != null,
+      'target_ready': targetImage != null,
+      'origin_us': _originMicros,
+      'target_us': _targetMicros,
+      'max_frame_gap_us': _maxFrameGapMicros,
+      'queued': _queued.length,
+      'committed': ?committed,
+    });
   }
 
   void _resetPointer() {

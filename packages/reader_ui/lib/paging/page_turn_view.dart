@@ -249,8 +249,7 @@ class PageTurnViewState extends State<PageTurnView>
     if (!mounted) return;
     final show = controller.active && controller.originImage != null;
     final target = controller.turn?.target.content;
-    if (!controller.mode.is3d &&
-        _turnActive &&
+    if (_turnActive &&
         show &&
         _showAnimation &&
         (controller.targetImage == null || identical(target, _staticPage))) {
