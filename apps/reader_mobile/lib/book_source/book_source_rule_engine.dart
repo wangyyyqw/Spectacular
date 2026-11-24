@@ -390,7 +390,10 @@ class BookSourceRuleEngine {
     return script.evaluate(
       code,
       result: '',
-      variables: context.variables,
+      variables: {
+        ...context.variables,
+        'baseUrl': context.pageUrl.isEmpty ? context.baseUrl : context.pageUrl,
+      },
       resolveString: (path) => _evaluatePlainString(root, path, context),
       resolveList: (path) => _evaluatePlainList(root, path, context),
     );

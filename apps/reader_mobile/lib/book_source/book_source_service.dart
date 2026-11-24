@@ -723,11 +723,10 @@ class BookSourceService {
               node.querySelector('a')?.attributes['href'] ??
               '';
         }
-        bookUrl = _commonJsonField(node, const <String>[
-          'bookUrl',
-          'url',
-          'detailUrl',
-        ]).ifBlank(bookUrl);
+        // 代理书源的规则地址对应其详情协议，响应中的原站链接仅用于补全。
+        bookUrl = bookUrl.ifBlank(
+          _commonJsonField(node, const <String>['bookUrl', 'url', 'detailUrl']),
+        );
         final bookRequest = splitBookSourceUrlOptions(bookUrl);
         final absoluteBookUrl = rules.resolveUrl(
           context.pageUrl,
@@ -1032,12 +1031,17 @@ class BookSourceService {
             'tocUrl': current.url,
           },
         );
-        final nodes = rules.evaluateList(
+        final selected = rules.evaluateList(
           root,
           source.toc.chapterList,
           context,
           script: script,
         );
+        // JSONPath 指向数组时按条目解析，不能将整份目录拼成一个章节。
+        final nodes = <Object>[
+          for (final node in selected)
+            if (node is List) ...node.whereType<Object>() else node,
+        ];
         final batchWatch = Stopwatch()..start();
         for (final node in nodes) {
           // 按实际解析耗时让出线程，避免快速字段也每 16 章等待一次计时器。

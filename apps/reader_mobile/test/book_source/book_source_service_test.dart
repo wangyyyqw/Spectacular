@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_mobile/book_source/book_source_http_client.dart';
 import 'package:reader_mobile/book_source/book_source_cookie_store.dart';
+import 'package:reader_mobile/book_source/book_source_discovery.dart';
 import 'package:reader_mobile/book_source/book_source_models.dart';
 import 'package:reader_mobile/book_source/book_source_script.dart';
 import 'package:reader_mobile/book_source/book_source_service.dart';
@@ -63,6 +64,138 @@ class _DelayedChapterCache extends OnlineChapterContentStore {
 }
 
 void main() {
+  test('搜索和发现保留规则代理地址，详情目录不被原站链接覆盖', () async {
+    final requested = <String>[];
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient((request) async {
+          requested.add(request.url.path);
+          final Object body;
+          switch (request.url.path) {
+            case '/search':
+              body = {
+                'rows': [
+                  {
+                    'title': '代理书',
+                    'book_id': 'proxy-1',
+                    'bookUrl': 'https://original.example.com/book/1',
+                    'url': 'https://original.example.com/book/1',
+                    'detailUrl': 'https://original.example.com/book/1',
+                  },
+                ],
+              };
+            case '/reader-api/books/proxy-1':
+              body = {
+                'book': {'title': '详情书名', 'author': '作者'},
+              };
+            case '/reader-api/books/proxy-1/chapters':
+              body = {
+                'rows': [
+                  {
+                    'title': '第一章',
+                    'book_id': 'proxy-1',
+                    'chapter_id': 'chapter-1',
+                  },
+                  {
+                    'title': '第二章',
+                    'book_id': 'proxy-1',
+                    'chapter_id': 'chapter-2',
+                  },
+                ],
+              };
+            default:
+              fail('请求偏离书源协议：${request.url}');
+          }
+          return http.Response(
+            jsonEncode(body),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      ),
+    );
+    addTearDown(service.dispose);
+    const listRule = BookListRule(
+      bookList: r'$.rows',
+      name: 'title',
+      bookUrl: r'/reader-api/books/{{$.book_id}}',
+    );
+    final source = _source.copyWith(
+      searchUrl: '/search?keyword={{key}}',
+      search: listRule,
+      raw: {
+        'ruleExplore': {
+          'bookList': r'$.rows',
+          'name': 'title',
+          'bookUrl': r'/reader-api/books/{{$.book_id}}',
+        },
+      },
+      bookInfo: const BookInfoRule(
+        name: r'$.book.title',
+        author: r'$.book.author',
+        tocUrl: "{{baseUrl + '/chapters'}}",
+      ),
+      toc: const TocRule(
+        chapterList: r'$.rows',
+        chapterName: 'title',
+        chapterUrl:
+            r'/reader-api/books/{{$.book_id}}/chapters/{{$.chapter_id}}',
+      ),
+    );
+    final lists = [
+      await service.search(source, '代理书'),
+      await service.discover(
+        source,
+        const BookDiscoverCategory('最近更新', '/search'),
+      ),
+    ];
+    for (final books in lists) {
+      final book = books.single;
+      expect(book.bookUrl, 'https://example.com/reader-api/books/proxy-1');
+      final info = await service.loadBookInfo(source, book);
+      expect(info.name, '详情书名');
+      expect(info.author, '作者');
+      expect(
+        info.tocUrl,
+        'https://example.com/reader-api/books/proxy-1/chapters',
+      );
+      final chapters = await service.fetchToc(source, info);
+      expect(chapters.map((chapter) => chapter.title), ['第一章', '第二章']);
+      expect(chapters.map((chapter) => chapter.url), [
+        'https://example.com/reader-api/books/proxy-1/chapters/chapter-1',
+        'https://example.com/reader-api/books/proxy-1/chapters/chapter-2',
+      ]);
+    }
+    expect(requested, [
+      '/search',
+      '/search',
+      for (var i = 0; i < 2; i++) ...[
+        '/reader-api/books/proxy-1',
+        '/reader-api/books/proxy-1/chapters',
+      ],
+    ]);
+  });
+
+  test('书源链接规则为空时仍补全JSON详情地址', () async {
+    final service = BookSourceService(
+      httpClient: BookSourceHttpClient(
+        client: MockClient(
+          (_) async => http.Response(
+            '{"rows":[{"title":"补全书","detailUrl":"/detail/1"}]}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          ),
+        ),
+      ),
+    );
+    addTearDown(service.dispose);
+    final source = _source.copyWith(
+      search: const BookListRule(bookList: r'$.rows', name: 'title'),
+    );
+    final books = await service.search(source, '补全书');
+    expect(books.single.bookUrl, 'https://example.com/detail/1');
+  });
+
   test('逐章JSON卷名形成连续分卷，不丢章节或混用缺失卷名', () async {
     final service = BookSourceService(
       httpClient: BookSourceHttpClient(
