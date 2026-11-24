@@ -236,7 +236,8 @@ class DriftAnnotationStore
 
   @override
   Future<void> remove(String id) => _db.transaction(() async {
-    final book = await _binding.writable();
+    // 已移除书籍仍展示保留的笔记，允许清理但不解除内容版本保护。
+    final book = await _binding.writable(allowDeleted: true);
     if (book == null) return;
     await (_db.delete(_db.annotations)..where(
           (table) =>

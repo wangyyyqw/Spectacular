@@ -214,6 +214,44 @@ void main() {
     );
   });
 
+  test('书架移除后的旧局域网想法可删除，其他记录和写入保护保留', () async {
+    const id = 'mark-lan-1-epubcfi(/6/24/4/6/1/1:0)-epubcfi(/6/24/4/6/1/1:16)';
+    final now = DateTime(2026);
+    await library.importBookAnnotation(
+      book.id,
+      ReaderAnnotation(
+        id: id,
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:1)',
+        quote: '文',
+        note: '测试',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await library
+        .bookmarkStore(book.id)!
+        .add(cfi: 'epubcfi(/6/2!/4/2/1:2)', spineIndex: 0, label: '保留书签');
+    await library.remove(book.id);
+    final store = library.annotationStore(book.id)!;
+    expect((await store.list()).single.id, id);
+    expect(
+      await store.add(
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/2/1:1)',
+        quote: '文',
+        note: '禁止新增',
+      ),
+      isNull,
+    );
+    await library.removeBookAnnotation(book.id, id);
+    expect(await store.list(), isEmpty);
+    expect((await db.select(db.annotations).get()).single.type, 2);
+    expect((await db.select(db.books).get()).single.deletedAt, isNotNull);
+  });
+
   test('重启后标注仍在（落库验证）', () async {
     final file = File('${dir.path}/restart.sqlite');
     final first = AppDatabase(NativeDatabase(file));

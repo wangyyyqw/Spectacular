@@ -258,8 +258,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       !(_noteCloudIds[bookId]?.containsKey(note.id) ?? false) &&
       !(widget.reaMicro?.annotationCloudIds(bookId).containsKey(note.id) ??
           false) &&
-      !note.id.startsWith('mark-cloud-') &&
-      !note.id.startsWith('mark-lan-');
+      !RegExp(r'^mark-(?:cloud|lan)-[1-9]\d*$').hasMatch(note.id);
 
   Future<void> _deleteNote(String bookId, ReaderAnnotation annotation) async {
     final controller = widget.reaMicro;

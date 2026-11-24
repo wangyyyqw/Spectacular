@@ -611,8 +611,13 @@ class ReaMicroController extends ChangeNotifier {
         }
         await _store.saveMarkIds(_markIds);
       }
+      recordAppEvent(
+        'reamicro_note_delete',
+        fields: {'remote': remoteId != null && remoteId > 0, 'status': 'saved'},
+      );
       return const ReaMicroActionResult(success: true, message: '笔记已删除');
     } catch (error) {
+      recordAppError('reamicro_note_delete_failed', error);
       return ReaMicroActionResult(success: false, message: _messageOf(error));
     }
   }

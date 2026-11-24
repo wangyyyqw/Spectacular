@@ -221,6 +221,38 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('没有云端映射的旧局域网想法显示本地并可删除', (tester) async {
+    final now = DateTime(2026);
+    final library = _CloudNotesLibrary(
+      book: BookEntry(
+        id: 'retained',
+        title: '本地旧书',
+        author: '',
+        filePath: '',
+        addedAt: now,
+      ),
+      annotation: ReaderAnnotation(
+        id: 'mark-lan-1-epubcfi(/6/24/4/6/1/1:0)-epubcfi(/6/24/4/6/1/1:16)',
+        type: ReaderAnnotationType.thought,
+        startCfi: 'epubcfi(/6/24/4/6/1/1:0)',
+        endCfi: 'epubcfi(/6/24/4/6/1/1:16)',
+        quote: '原文',
+        note: '测试旧想法',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await tester.pumpWidget(MaterialApp(home: ReviewsPage(library: library)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本地旧书'));
+    await tester.pumpAndSettle();
+    expect(find.text('本地'), findsOneWidget);
+    await tester.tap(find.byTooltip('删除'));
+    await tester.pumpAndSettle();
+    expect(find.text('测试旧想法'), findsNothing);
+    expect(library.annotation, isNull);
+  });
+
   for (final imported in [false, true]) {
     testWidgets(imported ? '已导入且 CFI 转换的云端想法在笔记页只显示一次' : '云端笔记书打开后显示正文而不是空状态', (
       tester,

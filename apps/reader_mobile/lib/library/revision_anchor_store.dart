@@ -360,10 +360,10 @@ class RevisionBookBinding {
     return row;
   }
 
-  Future<BookRow?> writable() async {
+  Future<BookRow?> writable({bool allowDeleted = false}) async {
     await _bindInitial();
     final row = await resolveBookRow(db, id, allowAliases: false);
-    if (row == null || row.deletedAt != null) return null;
+    if (row == null || (!allowDeleted && row.deletedAt != null)) return null;
     _signature ??= _key(row);
     return _signature == _key(row) ? row : null;
   }
