@@ -112,6 +112,7 @@ test_corpus/
 
 # 本地产物（APK 不提交）
 apps/reader_mobile/dist/
+apps/reader_mobile/.release-version.lock
 
 # 本地助手记忆与文档生成临时产物
 /.workbuddy/
