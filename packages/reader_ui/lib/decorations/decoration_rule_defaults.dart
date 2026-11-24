@@ -50,6 +50,7 @@ List<ReaderDecorationRule> readerDecorationDefaultRules(String groupId) => [
       name: name,
       pattern: '',
       type: type,
+      enabled: false,
       styleId: 'builtin_rainbow_glass',
       darkStyleId: 'default',
       style: readerDecorationBuiltInStyles.first.style.withValues({

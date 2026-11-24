@@ -233,12 +233,46 @@ void main() {
     expect(fixture.session.pageTurns, 0);
     await tester.pumpWidget(const SizedBox());
   });
-  testWidgets('默认对话规则在正式排版前应用，留白字号与原文位置保留', (tester) async {
+  testWidgets('首次开书内置规则关闭，保留原字号且不加载高亮图片', (tester) async {
     final fixture = await _fixture(
       tester,
       body: '<p>“前段</p><p>后段”旁白<span>「作者行内」</span></p>',
     );
     addTearDown(() => tester.runAsync(fixture.close));
+    final images = _CountingImages(fixture.images);
+    await _show(tester, fixture, images: images);
+    await pumpReaderTask(tester, fixture.source.loadChapter(0));
+    final lines = TextHitTester.lineBoxes(fixture.session.page!);
+    expect(lines, isNotEmpty);
+    expect(
+      lines.every(
+        (line) => line.slice.block.layout.runs.every(
+          (run) => (run.style.fontSize - 16).abs() < .01,
+        ),
+      ),
+      isTrue,
+    );
+    expect(images.loaded, isEmpty);
+    expect(fixture.source.chapterLayoutCount, 1);
+    expect(fixture.session.pageTurns, 0);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('主动开启内置对话规则在正式排版前应用，留白字号与原文位置保留', (tester) async {
+    final fixture = await _fixture(
+      tester,
+      body: '<p>“前段</p><p>后段”旁白<span>「作者行内」</span></p>',
+    );
+    addTearDown(() => tester.runAsync(fixture.close));
+    await tester.runAsync(() async {
+      final store = fixture.library.decorationRuleStore(
+        fixture.book.id,
+        images: fixture.images,
+      )!;
+      for (final rule in await store.listRules()) {
+        await store.saveRule(rule.copyWith(enabled: true));
+      }
+    });
     await _show(tester, fixture);
     await pumpReaderUntilComplete(tester, () {
       final page = fixture.session.page;

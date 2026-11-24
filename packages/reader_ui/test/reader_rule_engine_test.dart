@@ -7,6 +7,7 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_ui/decorations/decoration_rule_defaults.dart';
 import 'package:reader_ui/decorations/decoration_rule_engine.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_style.dart';
@@ -154,6 +155,45 @@ List<PageBlock> _filteredBlocks() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('内置引号规则默认关闭，不启动匹配工作线程，自定义规则默认不变', () async {
+    final rules = readerDecorationDefaultRules('group');
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    expect(rules, hasLength(2));
+    expect(rules.every((rule) => !rule.enabled), isTrue);
+    expect(_rule('custom', '甲').enabled, isTrue);
+    expect(
+      await _match(engine, [
+        _page([_block('“甲‘乙’丙”', _baseCfi)]),
+      ], rules),
+      isEmpty,
+    );
+    expect(matcher.calls, isEmpty);
+  });
+
+  test('主动开启内置规则保留引号匹配和原样式，再次关闭不复用旧命中', () async {
+    final rules = [
+      for (final rule in readerDecorationDefaultRules('group'))
+        rule.copyWith(enabled: true),
+    ];
+    final engine = ReaderDecorationRuleEngine();
+    addTearDown(engine.dispose);
+    final pages = [
+      _page([_block('“甲‘乙’丙”', _baseCfi)]),
+    ];
+    final hits = await _match(engine, pages, rules);
+    expect(hits.map((hit) => hit.text), ['“甲', '丙”', '‘乙’']);
+    expect(hits.first.style, same(rules.first.style));
+    expect(hits.first.style.typography.fontSizeScale, 0.9);
+    expect(
+      await _match(engine, pages, [
+        for (final rule in rules) rule.copyWith(enabled: false),
+      ]),
+      isEmpty,
+    );
+  });
 
   test('样式和顺序变化复用真实匹配，只重算条件变化的规则', () async {
     final matcher = _CountingMatcher();
