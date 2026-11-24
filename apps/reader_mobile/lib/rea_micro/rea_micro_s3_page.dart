@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'rea_micro_controller.dart';
 import 'rea_micro_models.dart';
@@ -189,12 +190,12 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
       return;
     }
     final units = credit ~/ 60;
-    final selected = await showDialog<int>(
+    final selected = await showReaderDialog<int>(
       context: context,
       builder: (context) {
         var value = 60;
         return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
+          builder: (context, setDialogState) => ReaderFrostedAlertDialog(
             title: const Text('扩容对象存储'),
             content: Column(
               mainAxisSize: MainAxisSize.min,

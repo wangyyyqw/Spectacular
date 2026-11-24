@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'rea_micro_controller.dart';
 import 'rea_micro_book_record_tile.dart';
@@ -128,9 +129,9 @@ class _ReaMicroRecordsPageState extends State<ReaMicroRecordsPage>
   }
 
   Future<void> _hideRecord(ReaMicroBookRecord record) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('隐藏阅读记录？'),
         content: Text('将从阅微阅读记录中隐藏《${record.name}》，不会删除本地书籍。'),
         actions: <Widget>[

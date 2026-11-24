@@ -4,6 +4,7 @@ import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'ye_she_assets.dart';
 import 'ye_she_controller.dart';
@@ -2325,9 +2326,9 @@ class _YeShePageState extends State<YeShePage>
     required String title,
     required String message,
   }) async {
-    final result = await showDialog<bool>(
+    final result = await showReaderDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text(title),
         content: Text(message),
         actions: <Widget>[
@@ -2352,9 +2353,9 @@ class _YeShePageState extends State<YeShePage>
     bool allowEmpty = false,
   }) async {
     final controller = TextEditingController(text: initialValue);
-    final result = await showDialog<String>(
+    final result = await showReaderDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text(title),
         content: TextField(
           controller: controller,
@@ -2424,13 +2425,13 @@ class _YeShePageState extends State<YeShePage>
   }
 
   Future<void> _createSociety() async {
-    final result = await showDialog<({String name, bool isPublic})>(
+    final result = await showReaderDialog<({String name, bool isPublic})>(
       context: context,
       builder: (context) {
         var isPublic = true;
         final nameController = TextEditingController();
         return StatefulBuilder(
-          builder: (context, setState) => AlertDialog(
+          builder: (context, setState) => ReaderFrostedAlertDialog(
             title: const Text('创建文会'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -2490,7 +2491,7 @@ class _YeShePageState extends State<YeShePage>
           .showSnackBar(const SnackBar(content: Text('未找到可加入的公开文会')));
       return;
     }
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => ListView(
@@ -2523,7 +2524,7 @@ class _YeShePageState extends State<YeShePage>
   Future<void> _showSocietyMembers() async {
     final members =
         _controller.mySociety?.members ?? const <YeSheSocietyMember>[];
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => ListView(
@@ -2586,7 +2587,7 @@ class _YeShePageState extends State<YeShePage>
           .showSnackBar(const SnackBar(content: Text('文会成员列表为空')));
       return;
     }
-    final selected = await showModalBottomSheet<YeSheSocietyMember>(
+    final selected = await showReaderBottomSheet<YeSheSocietyMember>(
       context: context,
       showDragHandle: true,
       builder: (context) => ListView(
@@ -2617,7 +2618,7 @@ class _YeShePageState extends State<YeShePage>
   Future<void> _showGuildMembers() async {
     await _controller.loadGuildMembers();
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => ListenableBuilder(
@@ -2652,7 +2653,7 @@ class _YeShePageState extends State<YeShePage>
   Future<void> _showGuildHistory() async {
     await _controller.loadGuildHistory();
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => ListenableBuilder(
@@ -2739,14 +2740,16 @@ class _YeShePageState extends State<YeShePage>
       return;
     }
     final result =
-        await showDialog<({String cityCode, int transportId, int principal})>(
+        await showReaderDialog<
+          ({String cityCode, int transportId, int principal})
+        >(
           context: context,
           builder: (context) {
             var cityCode = data.cities.first.code;
             var transportId = transports.first.id;
             final principalController = TextEditingController(text: '100');
             return StatefulBuilder(
-              builder: (context, setState) => AlertDialog(
+              builder: (context, setState) => ReaderFrostedAlertDialog(
                 title: const Text('开始行商'),
                 content: SingleChildScrollView(
                   child: Column(
@@ -2844,7 +2847,7 @@ class _YeShePageState extends State<YeShePage>
   }
 
   Future<void> _showTravelHistory() async {
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => ListView(
@@ -2976,7 +2979,7 @@ class _YeShePageState extends State<YeShePage>
     String? actionLabel,
     Future<void> Function(YeSheNamedItem item)? onAction,
   }) async {
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => ListView(

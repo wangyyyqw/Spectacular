@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 
 import 'rea_micro_controller.dart';
@@ -31,9 +32,9 @@ class _ReaMicroRatingPageState extends State<ReaMicroRatingPage> {
   }
 
   Future<void> _deleteMilestone(ReaMicroMilestone milestone) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('删除读完里程碑？'),
         content: Text('将删除《${milestone.name}》的阅微评分、书评与里程碑记录。'),
         actions: <Widget>[
@@ -56,7 +57,7 @@ class _ReaMicroRatingPageState extends State<ReaMicroRatingPage> {
   }
 
   Future<void> _editReview(ReaMicroBookLink link) async {
-    final message = await showDialog<String>(
+    final message = await showReaderDialog<String>(
       context: context,
       builder: (context) =>
           _ReviewEditorDialog(controller: widget.controller, link: link),
@@ -302,7 +303,7 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: Text('评价《${widget.link.name}》'),
       content: SizedBox(
         width: 420,

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_source_models.dart';
 import 'book_source_discovery.dart';
@@ -250,9 +251,9 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
       if (mounted &&
           widget.controller.shelfEntryFor(currentSource, catalog.book) ==
               null) {
-        final add = await showDialog<bool>(
+        final add = await showReaderDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
+          builder: (context) => ReaderFrostedAlertDialog(
             title: const Text('加入书架'),
             content: Text('是否将《${catalog.book.name}》加入书架，保留阅读位置？'),
             actions: [

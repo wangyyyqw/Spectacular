@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../book_source/book_source_discovery.dart';
 import '../book_source/book_source_models.dart';
@@ -77,7 +78,7 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
         );
 
   Future<void> _pick(BookDiscoverFilterGroup group) async {
-    final selected = await showDialog<String>(
+    final selected = await showReaderDialog<String>(
       context: context,
       builder: (context) => DiscoverChoiceDialog<String>(
         title: group.name,
@@ -92,7 +93,7 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
   }
 
   Future<void> _pickSource() async {
-    final source = await showDialog<BookSource>(
+    final source = await showReaderDialog<BookSource>(
       context: context,
       builder: (_) => DiscoverChoiceDialog<BookSource>(
         title: '切换书源',
@@ -109,7 +110,7 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
   Widget build(BuildContext context) {
     final filter = _filter;
     final theme = Theme.of(context);
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       key: const ValueKey('discover-filter-dialog'),
       titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
       contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 12),

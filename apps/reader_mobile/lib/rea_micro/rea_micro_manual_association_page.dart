@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../home/discover_choice_dialog.dart';
 import '../library/library_store.dart';
@@ -42,7 +43,7 @@ class _ReaMicroManualAssociationPageState
   }
 
   Future<void> _choose({required bool platform}) async {
-    final value = await showDialog<String>(
+    final value = await showReaderDialog<String>(
       context: context,
       builder: (_) => DiscoverChoiceDialog<String>(
         title: platform ? '来源平台' : '连载状态',

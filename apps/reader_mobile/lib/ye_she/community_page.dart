@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'ye_she_controller.dart';
@@ -331,7 +332,7 @@ class _CommunityPageState extends State<CommunityPage> {
   Future<void> _showCollectors(YeSheThought thought) async {
     final collectors = await _controller.loadMarkCollectors(thought.id);
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => ListView(

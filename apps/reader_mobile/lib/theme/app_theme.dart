@@ -46,6 +46,10 @@ const _fill = Color(0xFFF0F1EE);
 const _line = Color(0xFFE4E5E2);
 const _radius = BorderRadius.all(Radius.circular(4));
 const _shape = RoundedRectangleBorder(borderRadius: _radius);
+// 弹层使用同一套圆角和间距，避免设置页在居中弹窗与底部抽屉之间跳变。
+const _modalRadius = BorderRadius.all(Radius.circular(24));
+const _sheetRadius = BorderRadius.vertical(top: Radius.circular(24));
+const _popupRadius = BorderRadius.all(Radius.circular(16));
 const _dayScheme = ColorScheme.light(
   primary: _ink,
   onPrimary: Colors.white,
@@ -213,25 +217,34 @@ ThemeData _withSurfaces(ThemeData base, ColorScheme colors) => base.copyWith(
     backgroundColor: colors.surface,
     surfaceTintColor: Colors.transparent,
     elevation: 0,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
-    ),
+    modalBarrierColor: Colors.black54,
+    shape: const RoundedRectangleBorder(borderRadius: _sheetRadius),
+    constraints: const BoxConstraints(maxWidth: 680),
   ),
   dialogTheme: DialogThemeData(
     backgroundColor: colors.surface,
     surfaceTintColor: Colors.transparent,
     elevation: 0,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(24)),
+    clipBehavior: Clip.antiAlias,
+    shape: const RoundedRectangleBorder(borderRadius: _modalRadius),
+    insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+    titleTextStyle: TextStyle(
+      color: colors.onSurface,
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
     ),
+    contentTextStyle: TextStyle(
+      color: colors.onSurfaceVariant,
+      fontSize: 14,
+      height: 1.5,
+    ),
+    actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
   ),
   popupMenuTheme: PopupMenuThemeData(
     color: colors.surface,
     surfaceTintColor: Colors.transparent,
     elevation: 2,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(16)),
-    ),
+    shape: const RoundedRectangleBorder(borderRadius: _popupRadius),
   ),
   floatingActionButtonTheme: FloatingActionButtonThemeData(
     backgroundColor: colors.primary,
@@ -271,6 +284,14 @@ ThemeData _withControls(ThemeData base, ColorScheme colors) => base.copyWith(
   listTileTheme: ListTileThemeData(
     titleTextStyle: base.textTheme.bodyMedium,
     subtitleTextStyle: base.textTheme.bodySmall,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    minVerticalPadding: 8,
+    shape: const RoundedRectangleBorder(borderRadius: _radius),
+  ),
+  dividerTheme: DividerThemeData(
+    color: colors.outlineVariant,
+    thickness: 1,
+    space: 1,
   ),
   filledButtonTheme: FilledButtonThemeData(style: _filledStyle(colors)),
   elevatedButtonTheme: ElevatedButtonThemeData(style: _filledStyle(colors)),

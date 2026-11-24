@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_source_models.dart';
 import 'book_source_login_dialog.dart';
@@ -32,7 +33,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
 
   Future<void> _showAddMenu() async {
     if (_importing) return;
-    final action = await showModalBottomSheet<String>(
+    final action = await showReaderBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -102,9 +103,9 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
 
   Future<void> _importUrl() async {
     final controller = TextEditingController();
-    final url = await showDialog<String>(
+    final url = await showReaderDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: const Text('从链接导入'),
         content: TextField(
           controller: controller,
@@ -163,9 +164,9 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
   }
 
   Future<void> _confirmRemove(BookSource source) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除 ${source.name}'),
         content: const Text('只删除本机保存的书源，不会删除已经导入书架的书籍。'),
         actions: <Widget>[
@@ -191,7 +192,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
   Future<void> _handleLogin(BookSource source) async {
     if (!source.hasLoginConfig || _loggingInSourceId != null) return;
     if (widget.controller.isLoggedIn(source)) {
-      final action = await showModalBottomSheet<String>(
+      final action = await showReaderBottomSheet<String>(
         context: context,
         showDragHandle: true,
         builder: (context) => SafeArea(
@@ -240,7 +241,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
       Map<String, String>? credentials;
       if (rows.isNotEmpty) {
         setState(() => _loggingInSourceId = null);
-        credentials = await showDialog<Map<String, String>>(
+        credentials = await showReaderDialog<Map<String, String>>(
           context: context,
           barrierDismissible: false,
           builder: (context) => BookSourceLoginDialog(

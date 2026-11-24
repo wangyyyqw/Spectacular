@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_ink.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../book_source/online_book_controller.dart';
 import '../editing/epub_file_editor_page.dart';
@@ -177,9 +178,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _promptingDiscovery = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final enable = await showDialog<bool>(
+      final enable = await showReaderDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => ReaderFrostedAlertDialog(
           title: const Text('启用发现'),
           content: const Text('检测到已添加支持发现页面的源，是否启用发现页面。'),
           actions: [

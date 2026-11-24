@@ -1034,9 +1034,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     BookSource source,
   ) async {
     if (!widget.allowImport) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showReaderDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => ReaderFrostedAlertDialog(
         title: Text('从 ${source.name} 获取最新章节'),
         content: Text(
           '将检查《${entry.title}》的最新目录；逐章书会下载全本正文，已下载的书只获取新增章节。已有阅读进度、书签与笔记会保留。',

@@ -6,6 +6,7 @@ import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 
 import 'package:crypto/crypto.dart';
@@ -307,7 +308,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     }
     final controller = _ensureTtsController();
     setState(() {});
-    await showModalBottomSheet<void>(
+    await showReaderBottomSheet<void>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
@@ -403,7 +404,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (draft.dialogueVoiceId == draft.narratorVoiceId) {
       draft = draft.copyWith(dialogueVoiceId: '');
     }
-    return showModalBottomSheet<ReaderTtsSettings>(
+    return showReaderBottomSheet<ReaderTtsSettings>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,

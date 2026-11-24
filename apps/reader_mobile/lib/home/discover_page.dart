@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../book_source/book_source_discovery.dart';
 import '../book_source/book_source_compat.dart';
@@ -419,7 +420,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Future<void> _openFilter() async {
-    final result = await showDialog<DiscoverFilterResult>(
+    final result = await showReaderDialog<DiscoverFilterResult>(
       context: context,
       builder: (_) => DiscoverFilterDialog(
         sources: _sources,
@@ -446,7 +447,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Future<void> _pickCategory() async {
-    final category = await showDialog<BookDiscoverCategory>(
+    final category = await showReaderDialog<BookDiscoverCategory>(
       context: context,
       builder: (context) => DiscoverChoiceDialog<BookDiscoverCategory>(
         title: '分类分组',

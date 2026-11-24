@@ -1,5 +1,6 @@
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'book_source_login_config.dart';
 import 'book_source_models.dart';
@@ -147,7 +148,7 @@ class _BookSourceLoginDialogState extends State<BookSourceLoginDialog> {
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
-    child: AlertDialog(
+    child: ReaderFrostedAlertDialog(
       title: Text('登录 ${widget.source.name}'),
       content: SizedBox(
         width: 560,

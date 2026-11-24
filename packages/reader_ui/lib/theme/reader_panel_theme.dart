@@ -164,9 +164,11 @@ ThemeData _panelSurfaces(
   bottomSheetTheme: base.bottomSheetTheme.copyWith(
     backgroundColor: theme.background,
     surfaceTintColor: Colors.transparent,
+    modalBarrierColor: Colors.black54,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
+    constraints: const BoxConstraints(maxWidth: 680),
   ),
   popupMenuTheme: base.popupMenuTheme.copyWith(
     color: theme.background,

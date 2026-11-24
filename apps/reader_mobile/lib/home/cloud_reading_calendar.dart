@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../rea_micro/rea_micro_models.dart';
 import 'reading_calendar_month_picker.dart';
@@ -77,7 +78,7 @@ class _CloudReadingCalendarState extends State<CloudReadingCalendar>
   }
 
   Future<void> _pickMonth() async {
-    final month = await showModalBottomSheet<DateTime>(
+    final month = await showReaderBottomSheet<DateTime>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
@@ -88,7 +89,7 @@ class _CloudReadingCalendarState extends State<CloudReadingCalendar>
   }
 
   void _openDay(DateTime date, ReaMicroDayDuration day) {
-    showModalBottomSheet<void>(
+    showReaderBottomSheet<void>(
       context: context,
       showDragHandle: true,
       useSafeArea: true,

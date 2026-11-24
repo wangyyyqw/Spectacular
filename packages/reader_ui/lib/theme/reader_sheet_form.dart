@@ -79,13 +79,16 @@ class _ReaderSheetFormState extends State<ReaderSheetForm> {
 
   Widget _header(BuildContext context) => Padding(
     key: _headerKey,
-    padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+    padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
     child: Row(
       children: [
         Expanded(
           child: DefaultTextStyle(
-            style: Theme.of(context).textTheme.titleMedium!
-                .copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.titleMedium!.copyWith(
+              fontSize: 18,
+              height: 1.25,
+              fontWeight: FontWeight.w600,
+            ),
             child: widget.title,
           ),
         ),
@@ -102,7 +105,7 @@ class _ReaderSheetFormState extends State<ReaderSheetForm> {
 
   Widget _actions() => Padding(
     key: _actionsKey,
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
     child: OverflowBar(
       alignment: MainAxisAlignment.end,
       overflowAlignment: OverflowBarAlignment.end,

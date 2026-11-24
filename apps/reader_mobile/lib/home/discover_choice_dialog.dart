@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 /// 分类和筛选选项按可用宽度分列，长名称自然换行。
 class DiscoverChoiceDialog<T> extends StatelessWidget {
@@ -19,7 +20,7 @@ class DiscoverChoiceDialog<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return AlertDialog(
+    return ReaderFrostedAlertDialog(
       title: Text(title),
       content: SizedBox(
         width: 520,
