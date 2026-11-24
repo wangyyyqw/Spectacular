@@ -726,6 +726,28 @@ var source = {
 };
 var Packages = {
   java: {
+    util: {
+      HashMap: function() {
+        // 方法不参与 JSON 序列化，java.post 收到的仍是纯请求头键值。
+        var values = Object.create(null);
+        Object.defineProperties(values, {
+          put: {value: function(key, value) {
+            var previous = this.get(key);
+            this[String(key)] = value;
+            return previous;
+          }},
+          get: {value: function(key) {
+            return Object.prototype.hasOwnProperty.call(this, key) ? this[key] : null;
+          }},
+          remove: {value: function(key) {
+            var previous = this.get(key);
+            delete this[String(key)];
+            return previous;
+          }}
+        });
+        return values;
+      }
+    },
     lang: {
       String: {
         join: function(separator, values) {

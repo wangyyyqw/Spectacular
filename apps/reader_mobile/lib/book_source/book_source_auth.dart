@@ -7,6 +7,7 @@ import 'book_source_models.dart';
 import 'book_source_login_config.dart';
 import 'book_source_http_client.dart';
 import 'book_source_script.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 网页登录页返回的 Cookie。
 class BookSourceLoginPageResult {
@@ -141,7 +142,8 @@ class BookSourceAuthService {
         message: script.messages.join('\n').trim(),
         rebuildView: script.rebuildLoginView,
       );
-    } on Object {
+    } on Object catch (error) {
+      recordAppError('book_source_login_action_failed', error);
       return const BookSourceLoginResult(
         success: false,
         message: '书源操作失败，请检查网络和书源配置',
@@ -272,7 +274,8 @@ class BookSourceAuthService {
       final endpoint = bookSourceAccountEndpoint(source);
       final raw = source.loginUrl.trim();
       // 部分 key 源只声明 loginUi，脚本请求头直接读取输入值。
-      if ((raw.isEmpty || raw.startsWith('http')) &&
+      if (endpoint.isEmpty &&
+          (raw.isEmpty || raw.startsWith('http')) &&
           source.loginCheckJs.trim().isEmpty) {
         await store.saveSourceLogin(
           source,
@@ -321,8 +324,8 @@ class BookSourceAuthService {
       }
 
       // 旧源只暴露晚风账号接口时，沿用参考项目的 JSON 请求协议。
-      final usesLoginInfo = code.contains('getLoginInfo');
-      if (endpoint.isNotEmpty && !usesLoginInfo) {
+      final hasLoginFunction = RegExp(r'function\s+login\s*\(').hasMatch(code);
+      if (endpoint.isNotEmpty && !hasLoginFunction) {
         final user = fields.firstWhere(
           (field) => !field.secret,
           orElse: () => fields.first,
@@ -388,7 +391,17 @@ class BookSourceAuthService {
         success: true,
         message: '登录成功，信息已保存在本机',
       );
-    } on Object {
+    } on Object catch (error) {
+      recordAppEvent(
+        'book_source_login_failed',
+        fields: {
+          'error': error,
+          'http_status': error is BookSourceException
+              ? error.statusCode ?? 0
+              : 0,
+          'code_enum': error is BookSourceException ? error.code ?? '' : '',
+        },
+      );
       if (!committed) {
         final afterCookies = store.cookieHeader(source.baseUrl);
         if (afterCookies != previousCookies) {

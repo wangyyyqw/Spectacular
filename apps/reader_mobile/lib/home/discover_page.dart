@@ -14,6 +14,7 @@ import '../book_source/online_book_detail_page.dart';
 import '../book_source/online_source_page.dart';
 import 'discover_choice_dialog.dart';
 import 'discover_filter_dialog.dart';
+import '../diagnostics/reader_log.dart';
 
 /// 发现页沿用书架的搜索、按钮栏和图书列表布局。
 class DiscoverPage extends StatefulWidget {
@@ -51,6 +52,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   int _page = 0;
   int _version = 0;
   String? _error;
+  int? _sourceSettingsRevision;
   final Map<String, Map<String, String>> _filterSelections = {};
   BookDiscoverCategory? _filteredCategory;
 
@@ -104,7 +106,12 @@ class _DiscoverPageState extends State<DiscoverPage> {
               (previous?.id ?? widget.controller.selectedDiscoverSourceId),
         )
         .firstOrNull;
-    if (current != null && identical(current, previous)) {
+    final settingsRevision = current == null
+        ? null
+        : widget.controller.cookieStore.settingsRevision(current);
+    if (current != null &&
+        identical(current, previous) &&
+        settingsRevision == _sourceSettingsRevision) {
       setState(() {});
       return;
     }
@@ -113,6 +120,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
       ++_version;
       setState(() {
         _source = null;
+        _sourceSettingsRevision = null;
         _category = null;
         _categories = const [];
         _books = const [];
@@ -131,6 +139,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
     final version = ++_version;
     setState(() {
       _source = source;
+      _sourceSettingsRevision = widget.controller.cookieStore.settingsRevision(
+        source,
+      );
       _categories = const [];
       _category = null;
       _books = const [];
@@ -154,6 +165,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
       });
       await _load(reset: true);
     } on Object catch (error) {
+      recordAppError('book_source_discover_categories_failed', error);
       if (!mounted || version != _version) return;
       setState(() {
         _loading = false;
@@ -275,6 +287,17 @@ class _DiscoverPageState extends State<DiscoverPage> {
         _storePage(cacheKey, _books, nextPage, hasMore);
       }
     } on Object catch (error) {
+      recordAppEvent(
+        'book_source_discover_failed',
+        fields: {
+          'error': error,
+          'page': nextPage,
+          'http_status': error is BookSourceException
+              ? error.statusCode ?? 0
+              : 0,
+          'code_enum': error is BookSourceException ? error.code ?? '' : '',
+        },
+      );
       if (mounted && version == _version) {
         setState(() {
           _books = List<({BookSource source, OnlineBook book})>.unmodifiable(

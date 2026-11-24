@@ -107,6 +107,69 @@ void main() {
     expect(restored.loginInfo(source), isEmpty);
   });
 
+  test('原生HashMap登录按脚本发送一次JSON，Cookie可用于发现，错误不泄露凭据', () async {
+    final directory = await Directory.systemTemp.createTemp('auth-map-');
+    addTearDown(() => directory.delete(recursive: true));
+    final store = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    final source = _source.copyWith(
+      loginUi: '[{"name":"用户名","type":"text"},{"name":"密码","type":"password"}]',
+      loginUrl: r"""var BASE=String(baseUrl).replace(/\/+$/,'');
+function hdr(){var h=new Packages.java.util.HashMap();h.put('Content-Type','application/json');h.put('Accept','application/json');return h;}
+function body(r){return r&&typeof r.body==='function'?r.body():r;}
+function login(){var m=source.getLoginInfoMap();var d=JSON.parse(body(java.post(BASE+'/reader-auth/login',JSON.stringify({username:m.get('用户名'),password:m.get('密码')}),hdr()))||'{}');if(d.error)throw d.error;}
+""",
+      loginCheckJs: '',
+    );
+    var posts = 0;
+    var fail = false;
+    final client = BookSourceHttpClient(
+      cookieStore: store,
+      client: MockClient((request) async {
+        if (request.method == 'POST') {
+          posts++;
+          expect(request.headers['Content-Type'], contains('application/json'));
+          expect(request.headers['Accept'], 'application/json');
+          expect(jsonDecode(request.body), {
+            'username': '用户',
+            'password': ' 密码 ',
+          });
+          return http.Response(
+            fail ? '{"error":"凭据错误"}' : '{"user":{"username":"用户"}}',
+            fail ? 401 : 200,
+            headers: {
+              'content-type': 'application/json; charset=utf-8',
+              if (!fail) 'set-cookie': 'session=valid; Path=/',
+            },
+          );
+        }
+        expect(request.headers['Cookie'], contains('session=valid'));
+        return http.Response('{"rows":[]}', 200);
+      }),
+    );
+    addTearDown(client.close);
+    final auth = BookSourceAuthService();
+    expect(
+      (await auth.loginWithCredentials(source, store, {
+        '用户名': '用户',
+        '密码': ' 密码 ',
+      }, httpClient: client)).success,
+      isTrue,
+    );
+    expect(posts, 1);
+    expect(store.loginInfo(source)['密码'], ' 密码 ');
+    await client.fetchText(source, '${source.baseUrl}/reader-api/search');
+    fail = true;
+    final failed = await auth.loginWithCredentials(source, store, {
+      '用户名': '用户',
+      '密码': ' 密码 ',
+    }, httpClient: client);
+    expect(failed.success, isFalse);
+    expect(failed.message, isNot(contains(' 密码 ')));
+    expect(store.cookieHeader(source.baseUrl), contains('session=valid'));
+  });
+
   test('脚本账号密码登录按声明执行POST，Cookie用于后续请求，失败不保存凭据', () async {
     final directory = await Directory.systemTemp.createTemp('auth-account-');
     addTearDown(() => directory.delete(recursive: true));

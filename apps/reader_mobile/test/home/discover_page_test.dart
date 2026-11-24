@@ -23,6 +23,85 @@ import 'package:reader_mobile/theme/app_theme.dart';
 import '../support/reader_pump.dart';
 
 void main() {
+  testWidgets('同一书源登录状态更新后重载失败的发现列表', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('discover-auth-refresh');
+    final sourceStore = BookSourceStore(directoryProvider: () async => dir);
+    final cookies = BookSourceCookieStore(directoryProvider: () async => dir);
+    var allowed = false;
+    var requests = 0;
+    final service = BookSourceService(
+      cookieStore: cookies,
+      httpClient: BookSourceHttpClient(
+        cookieStore: cookies,
+        client: MockClient((request) async {
+          requests++;
+          return http.Response(
+            allowed
+                ? '{"rows":[{"title":"恢复后的书","book_id":123}]}'
+                : '{"error":"需要登录"}',
+            allowed ? 200 : 401,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      ),
+    );
+    final controller = OnlineBookController(
+      library: LibraryStore.memory(),
+      store: sourceStore,
+      cookieStore: cookies,
+      service: service,
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await tester.runAsync(() => dir.delete(recursive: true));
+    });
+    await tester.runAsync(
+      () => sourceStore.importText(
+        jsonEncode({
+          'bookSourceName': '账号书源',
+          'enabledExplore': true,
+          'bookSourceUrl': 'https://account.example.com',
+          'searchUrl': '/search?key={{key}}',
+          'ruleSearch': {
+            'bookList': r'$.rows',
+            'name': 'title',
+            'bookUrl': 'url',
+          },
+          'ruleToc': {
+            'chapterList': r'$.chapters',
+            'chapterName': 'name',
+            'chapterUrl': 'url',
+          },
+          'ruleContent': {'content': 'content'},
+          'exploreUrl': '最近更新::/reader-api/search?sort=updated_desc&page={{page}}&limit=20',
+          'loginUi': '[{"name":"key","type":"password"}]',
+          'ruleExplore': {
+            'bookList': r'$.rows',
+            'name': 'title',
+            'bookUrl': r'/reader-api/books/{{$.book_id}}',
+          },
+        }),
+      ),
+    );
+    await pumpReaderTask(tester, controller.initialize());
+    final source = controller.sources.single;
+    await tester.pumpWidget(
+      MaterialApp(home: DiscoverPage(controller: controller)),
+    );
+    await pumpReaderUntil(tester, find.textContaining('HTTP 401'));
+    expect(requests, 1);
+    allowed = true;
+    await pumpReaderTask(
+      tester,
+      controller.login(source, credentials: {'key': 'test'}),
+    );
+    await pumpReaderUntil(tester, find.text('恢复后的书'));
+    expect(identical(controller.sources.single, source), isTrue);
+    expect(requests, 2);
+    expect(find.textContaining('加载失败'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('发现页加载分类、切换分类、去重分页并搜索，搜索栏位于按钮栏上方', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
