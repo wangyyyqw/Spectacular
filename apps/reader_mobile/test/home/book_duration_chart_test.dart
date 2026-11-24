@@ -62,6 +62,12 @@ Future<void> _tap(WidgetTester tester, String suffix) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _selectPeriod(WidgetTester tester, String period) async {
+  await _tap(tester, 'pick-period');
+  await tester.tap(_key('period-$period'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('滚动离开图表再返回时保留周期和下方图书列表', (tester) async {
     final controller = ScrollController();
@@ -86,7 +92,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _tap(tester, 'period-quarter');
+    await _selectPeriod(tester, 'quarter');
     controller.jumpTo(controller.position.maxScrollExtent);
     await tester.pumpAndSettle();
     controller.jumpTo(0);
@@ -111,16 +117,16 @@ void main() {
       ('quarter', '1 小时 40 分', 4),
       ('year', '2 小时 30 分', 5),
     ]) {
-      await _tap(tester, 'period-$period');
+      await _selectPeriod(tester, period);
       expect(_text(tester, 'total'), total);
       expect(find.text('$count 本书'), findsOneWidget);
       expect(tester.widget<IconButton>(_key('next')).onPressed, isNull);
       expect(tester.takeException(), isNull);
     }
-    await _tap(tester, 'period-quarter');
+    await _selectPeriod(tester, 'quarter');
     expect(_text(tester, 'value-quarter'), '40 分钟');
     expect(_key('tag-year'), findsNothing);
-    await _tap(tester, 'period-day');
+    await _selectPeriod(tester, 'day');
     expect(_text(tester, 'value-today'), '10 分钟');
   });
 
@@ -144,7 +150,7 @@ void main() {
     await _tap(tester, 'current');
     expect(_text(tester, 'range'), '今天 · 2026年11月15日');
     await _tap(tester, 'previous');
-    await _tap(tester, 'period-quarter');
+    await _selectPeriod(tester, 'quarter');
     expect(_text(tester, 'range'), '本季度 · 2026年 第4季度');
     expect(_text(tester, 'total'), '35 分钟');
   });
@@ -395,7 +401,7 @@ void main() {
     expect(_text(tester, 'range'), '2025年2月18日');
     expect(_text(tester, 'total'), '25 分钟');
     for (final period in ['week', 'month', 'quarter', 'year', 'day']) {
-      await _tap(tester, 'period-$period');
+      await _selectPeriod(tester, period);
       expect(_text(tester, 'total'), '25 分钟');
     }
     expect(_text(tester, 'range'), '2025年2月18日');
@@ -492,8 +498,7 @@ void main() {
         );
         expect(_text(tester, 'chart-value'), '本书占比 100.0%');
         expect(_text(tester, 'total'), '10 小时 1 分');
-        await tester.ensureVisible(_key('period-day'));
-        await tester.pumpAndSettle();
+        await _tap(tester, 'pick-period');
         expect(
           tester.getSemantics(find.bySemanticsLabel('日')),
           matchesSemantics(
@@ -504,7 +509,10 @@ void main() {
             hasTapAction: true,
           ),
         );
-        await _tap(tester, 'period-quarter');
+        await tester.tap(_key('period-quarter'));
+        await tester.pumpAndSettle();
+        expect(_text(tester, 'range'), contains('季度'));
+        await _tap(tester, 'pick-period');
         expect(
           tester.getSemantics(find.bySemanticsLabel('季度')),
           matchesSemantics(
@@ -515,6 +523,8 @@ void main() {
             hasTapAction: true,
           ),
         );
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
       } finally {
         semantics.dispose();

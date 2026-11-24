@@ -180,6 +180,15 @@ Future<void> _scrollTo(
 String _valueOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(ValueKey(key))).data!;
 
+Future<void> _selectPeriod(WidgetTester tester, String period) async {
+  await _tapControl(tester, 'stats-book-duration-pick-period');
+  final type = find.byKey(ValueKey('stats-book-duration-period-$period'));
+  await tester.ensureVisible(type);
+  await tester.pumpAndSettle();
+  await tester.tap(type);
+  await tester.pumpAndSettle();
+}
+
 Future<void> _tapControl(WidgetTester tester, String key) async {
   final target = find.byKey(ValueKey(key));
   await _scrollTo(tester, target, 180);
@@ -210,7 +219,7 @@ void main() {
     );
     await tester.pumpWidget(page(true, 0));
     await tester.pumpAndSettle();
-    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    await _selectPeriod(tester, 'quarter');
     await _tapControl(tester, 'stats-calendar-previous');
     final range = _valueOf(tester, 'stats-book-duration-range');
     final month = _valueOf(tester, 'stats-calendar-month');
@@ -445,7 +454,7 @@ void main() {
         .copyWith(platform: TargetPlatform.windows);
     await tester.pumpWidget(page(day, 1));
     await tester.pumpAndSettle();
-    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    await _selectPeriod(tester, 'quarter');
     await _tapControl(tester, 'stats-calendar-previous');
     final range = _valueOf(tester, 'stats-book-duration-range');
     final month = _valueOf(tester, 'stats-calendar-month');
@@ -513,24 +522,16 @@ void main() {
         tester.getTopLeft(calendar).dx,
         greaterThan(tester.getTopLeft(duration).dx),
       );
-      await _tapControl(tester, 'stats-book-duration-period-quarter');
+      await _selectPeriod(tester, 'quarter');
+      final quarterRange = _valueOf(tester, 'stats-book-duration-range');
+      expect(quarterRange, contains('季度'));
       tester.view.physicalSize = const Size(600, 900);
       await tester.pumpAndSettle();
       expect(
         tester.getTopLeft(calendar).dy,
         greaterThan(tester.getTopLeft(duration).dy),
       );
-      final period = tester.widget<Semantics>(
-        find
-            .ancestor(
-              of: find.byKey(
-                const ValueKey('stats-book-duration-period-quarter'),
-              ),
-              matching: find.byType(Semantics),
-            )
-            .first,
-      );
-      expect(period.properties.selected, isTrue);
+      expect(_valueOf(tester, 'stats-book-duration-range'), quarterRange);
       expect(tester.takeException(), isNull);
     },
     variant: const TargetPlatformVariant({
@@ -569,7 +570,7 @@ void main() {
     final appBarBottom = tester.getBottomLeft(find.byType(AppBar));
     final durationTop = tester.getTopLeft(find.text('图书时长'));
     expect(durationTop.dy - appBarBottom.dy, inInclusiveRange(16, 32));
-    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    await _selectPeriod(tester, 'quarter');
     expect(find.text('图书时长'), findsOneWidget);
     expect(_valueOf(tester, 'stats-book-duration-total'), '25 分钟');
     expect(_valueOf(tester, 'stats-book-duration-value-a'), '25 分钟');
@@ -1003,7 +1004,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _tapControl(tester, 'stats-book-duration-period-quarter');
+    await _selectPeriod(tester, 'quarter');
     expect(_valueOf(tester, 'stats-book-duration-total'), '10 分钟');
     expect(_valueOf(tester, 'stats-book-duration-value-kept'), '6 分钟');
     expect(

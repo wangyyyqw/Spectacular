@@ -39,6 +39,8 @@ class VoxelDurationChart extends StatefulWidget {
     required this.bookCount,
     required this.selectedBookId,
     required this.onSelected,
+    this.showRooftops = true,
+    this.controls,
   });
 
   final List<DurationBarData> bars;
@@ -48,6 +50,12 @@ class VoxelDurationChart extends StatefulWidget {
   final String? selectedBookId;
   final ValueChanged<DurationBarData> onSelected;
 
+  /// 柱顶是否绘制阁楼装饰；时段图柱体过窄，始终不绘制。
+  final bool showRooftops;
+
+  /// 放在卡片顶部边框内的切换控件（周期、日期、今天）。
+  final Widget? controls;
+
   @override
   State<VoxelDurationChart> createState() => _VoxelDurationChartState();
 }
@@ -56,7 +64,7 @@ enum _VoxelChartMode { books, timeOfDay }
 
 class _VoxelDurationChartState extends State<VoxelDurationChart>
     with TickerProviderStateMixin {
-  static const _plotHeight = 176.0;
+  static const _plotHeight = 200.0;
 
   late final AnimationController _revealController;
   late final AnimationController _morphController;
@@ -104,13 +112,11 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
       _morphing = false;
       _fromMode = null;
     }
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _revealController
-        ..stop()
-        ..value = 1;
-    } else {
-      _revealController.forward(from: 0);
-    }
+    // 周期或数据切换时直接显示完整柱体：重播长成动画会让月/季度/年等
+    // 数据量不同的图表先变成空白再长出，看起来像图表没有显示。
+    _revealController
+      ..stop()
+      ..value = 1;
   }
 
   void _handleMorphStatus(AnimationStatus status) {
@@ -158,7 +164,6 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textScale = MediaQuery.textScalerOf(context).scale(10) / 10;
-    final showValue = textScale <= 1.4;
     final showBookLabel = textScale <= 1.6;
     final labelHeight = (34 * textScale).clamp(34.0, 76.0).toDouble();
     final selected = widget.bars
@@ -178,6 +183,10 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (widget.controls != null) ...[
+            widget.controls!,
+            const SizedBox(height: 6),
+          ],
           _header(context, selected: selected, activeBuckets: activeBuckets),
           const SizedBox(height: 12),
           LayoutBuilder(
@@ -185,8 +194,8 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
               context,
               width: constraints.maxWidth,
               labelHeight: labelHeight,
-              showValue: showValue,
               showBookLabel: showBookLabel,
+              showRooftops: widget.showRooftops,
             ),
           ),
         ],
@@ -287,19 +296,20 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     BuildContext context, {
     required double width,
     required double labelHeight,
-    required bool showValue,
     required bool showBookLabel,
+    required bool showRooftops,
   }) {
     final scheme = Theme.of(context).colorScheme;
     final targetScene = _sceneFor(_mode, width);
+    final rooftops = showRooftops;
     final staticChart = _StaticVoxelChart(
       scene: targetScene,
       width: width,
       plotHeight: _plotHeight,
       labelHeight: labelHeight,
       selectedBookId: widget.selectedBookId,
-      showValue: showValue,
       showBookLabel: showBookLabel,
+      rooftops: rooftops,
       revealController: _revealController,
       shadowColor: scheme.shadow,
       baseColor: scheme.surfaceContainerHighest,
@@ -313,7 +323,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     final particles = _buildMorphParticles(fromScene, targetScene);
     return AnimatedBuilder(
       animation: _morphController,
-      child: staticChart,
+      child: RepaintBoundary(child: staticChart),
       builder: (context, child) {
         final progress = _morphController.value;
         final targetOpacity = _smooth01((progress - .58) / .38);
@@ -332,8 +342,8 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
                     key: const ValueKey('stats-book-duration-morph'),
                     painter: _MorphPainter(
                       fromScene: fromScene,
-                      toScene: targetScene,
                       particles: particles,
+                      rooftops: rooftops,
                       plotHeight: _plotHeight,
                       progress: progress,
                       selectedBookId: widget.selectedBookId,
@@ -372,8 +382,8 @@ class _StaticVoxelChart extends StatelessWidget {
     required this.plotHeight,
     required this.labelHeight,
     required this.selectedBookId,
-    required this.showValue,
     required this.showBookLabel,
+    required this.rooftops,
     required this.revealController,
     required this.shadowColor,
     required this.baseColor,
@@ -386,8 +396,8 @@ class _StaticVoxelChart extends StatelessWidget {
   final double plotHeight;
   final double labelHeight;
   final String? selectedBookId;
-  final bool showValue;
   final bool showBookLabel;
+  final bool rooftops;
   final AnimationController revealController;
   final Color shadowColor;
   final Color baseColor;
@@ -421,6 +431,7 @@ class _StaticVoxelChart extends StatelessWidget {
                     painter: _ScenePainter(
                       scene: scene,
                       reveals: reveals,
+                      rooftops: rooftops,
                       selectedBookId: selectedBookId,
                       shadowColor: shadowColor,
                       baseColor: baseColor,
@@ -435,14 +446,6 @@ class _StaticVoxelChart extends StatelessWidget {
                     height: plotHeight,
                     child: _barInteraction(scene.bars[index]),
                   ),
-                if (!scene.isTime && showValue)
-                  for (var index = 0; index < scene.bars.length; index++)
-                    _valuePill(
-                      scene.bars[index],
-                      reveals[index],
-                      slotWidth,
-                      index,
-                    ),
               ],
             ),
           ),
@@ -476,40 +479,6 @@ class _StaticVoxelChart extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: () => onBookSelected(book),
         child: const SizedBox.expand(),
-      ),
-    );
-  }
-
-  Widget _valuePill(
-    _VoxelSceneBar bar,
-    double reveal,
-    double slotWidth,
-    int index,
-  ) {
-    final visibleHeight = _revealedHeight(bar, reveal);
-    final share = bar.share;
-    if (visibleHeight <= 0 || share == null) return const SizedBox.shrink();
-    final opacity = ((reveal - .15) / .85).clamp(0.0, 1.0).toDouble();
-    final top = (bar.baseY - visibleHeight - bar.depth - 25)
-        .clamp(0.0, math.max(0.0, plotHeight - 22))
-        .toDouble();
-    final selected = bar.bookId != null && bar.bookId == selectedBookId;
-    return Positioned(
-      left: slotWidth * index + 2,
-      width: math.max(0, slotWidth - 4),
-      top: top,
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: opacity,
-          child: Center(
-            child: _ValuePill(
-              share: share,
-              color: bar.segments.first.color,
-              selected: selected,
-              dimmed: selectedBookId != null && !selected,
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -568,64 +537,6 @@ class _StaticVoxelChart extends StatelessWidget {
   }
 }
 
-class _ValuePill extends StatelessWidget {
-  const _ValuePill({
-    required this.share,
-    required this.color,
-    required this.selected,
-    required this.dimmed,
-  });
-
-  final String share;
-  final Color color;
-  final bool selected;
-  final bool dimmed;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final foreground = selected
-        ? (ThemeData.estimateBrightnessForColor(color) == Brightness.dark
-              ? Colors.white
-              : scheme.onSurface)
-        : scheme.onSurfaceVariant;
-    return Container(
-      height: 20,
-      constraints: const BoxConstraints(minWidth: 40),
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(
-        color: selected ? color : scheme.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: selected ? color : scheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: scheme.shadow.withValues(alpha: selected ? .12 : .05),
-            blurRadius: selected ? 8 : 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            share,
-            style: TextStyle(
-              fontSize: 10,
-              height: 1.2,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              color: dimmed && !selected
-                  ? foreground.withValues(alpha: .72)
-                  : foreground,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _VoxelScene {
   const _VoxelScene({required this.bars, required this.isTime});
 
@@ -645,6 +556,7 @@ class _VoxelSceneBar {
     required this.height,
     required this.blockHeight,
     required this.segments,
+    required this.cells,
     required this.centerX,
     required this.halfWidth,
     required this.depth,
@@ -661,6 +573,7 @@ class _VoxelSceneBar {
   final double height;
   final double blockHeight;
   final List<_VoxelSceneSegment> segments;
+  final List<_VoxelCell> cells;
   final double centerX;
   final double halfWidth;
   final double depth;
@@ -681,6 +594,34 @@ class _VoxelSceneSegment {
   final Color color;
   final Duration duration;
   final double height;
+}
+
+class _VoxelCell {
+  const _VoxelCell({
+    required this.barIndex,
+    required this.key,
+    required this.color,
+    required this.centerX,
+    required this.yTop,
+    required this.yBottom,
+    required this.halfWidth,
+    required this.depth,
+    required this.floor,
+    required this.segmentIndex,
+  });
+
+  final int barIndex;
+  final String key;
+  final Color color;
+  final double centerX;
+  final double yTop;
+  final double yBottom;
+  final double halfWidth;
+  final double depth;
+  final int floor;
+  final int segmentIndex;
+
+  double get height => yBottom - yTop;
 }
 
 _VoxelScene _bookScene({
@@ -723,6 +664,17 @@ _VoxelSceneBar _bookSceneBar(
   final level = _levelsFor(bar.duration, maximum, maximumLevels: 10);
   final height = level * blockHeight;
   final selected = bar.id != null && bar.id == selectedBookId;
+  final segments = [
+    _VoxelSceneSegment(
+      key: bar.key,
+      title: bar.title,
+      color: bar.color,
+      duration: bar.duration,
+      height: height,
+    ),
+  ];
+  final centerX = slotWidth * (index + .5);
+  final baseY = plotHeight - depth - 6 - (selected ? 4 : 0);
   return _VoxelSceneBar(
     index: index,
     key: bar.key,
@@ -735,19 +687,20 @@ _VoxelSceneBar _bookSceneBar(
     duration: bar.duration,
     height: height,
     blockHeight: blockHeight,
-    segments: [
-      _VoxelSceneSegment(
-        key: bar.key,
-        title: bar.title,
-        color: bar.color,
-        duration: bar.duration,
-        height: height,
-      ),
-    ],
-    centerX: slotWidth * (index + .5),
+    segments: segments,
+    cells: _buildVoxelCells(
+      barIndex: index,
+      centerX: centerX,
+      halfWidth: halfWidth,
+      depth: depth,
+      baseY: baseY,
+      blockHeight: blockHeight,
+      segments: segments,
+    ),
+    centerX: centerX,
     halfWidth: halfWidth,
     depth: depth,
-    baseY: plotHeight - depth - 6 - (selected ? 4 : 0),
+    baseY: baseY,
   );
 }
 
@@ -787,6 +740,9 @@ _VoxelSceneBar _timeSceneBar(
   final depth = halfWidth * .5;
   final level = _levelsFor(bar.duration, maximum, maximumLevels: 18);
   final height = level * blockHeight;
+  final segments = _timeSegments(bar, height);
+  final centerX = slotWidth * (index + .5);
+  final baseY = plotHeight - depth - 6;
   return _VoxelSceneBar(
     index: index,
     key: bar.key,
@@ -797,12 +753,68 @@ _VoxelSceneBar _timeSceneBar(
     duration: bar.duration,
     height: height,
     blockHeight: blockHeight,
-    segments: _timeSegments(bar, height),
-    centerX: slotWidth * (index + .5),
+    segments: segments,
+    cells: _buildVoxelCells(
+      barIndex: index,
+      centerX: centerX,
+      halfWidth: halfWidth,
+      depth: depth,
+      baseY: baseY,
+      blockHeight: blockHeight,
+      segments: segments,
+    ),
+    centerX: centerX,
     halfWidth: halfWidth,
     depth: depth,
-    baseY: plotHeight - depth - 6,
+    baseY: baseY,
   );
+}
+
+List<_VoxelCell> _buildVoxelCells({
+  required int barIndex,
+  required double centerX,
+  required double halfWidth,
+  required double depth,
+  required double baseY,
+  required double blockHeight,
+  required List<_VoxelSceneSegment> segments,
+}) {
+  if (halfWidth <= 0 || segments.isEmpty) return const [];
+  final cells = <_VoxelCell>[];
+  var segmentBottom = baseY;
+  for (var segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+    final segment = segments[segmentIndex];
+    final segmentTop = segmentBottom - segment.height;
+    var cursor = segmentBottom;
+    var guard = 0;
+    while (cursor > segmentTop + .1 && guard++ < 80) {
+      final floor = ((baseY - cursor) / blockHeight).floor();
+      final bandBottom = baseY - floor * blockHeight;
+      final bandTop = bandBottom - blockHeight;
+      final cellBottom = math.min(cursor, bandBottom);
+      final cellTop = math.max(segmentTop, bandTop);
+      if (cellBottom - cellTop > .3) {
+        cells.add(
+          _VoxelCell(
+            barIndex: barIndex,
+            key: segment.key,
+            color: segment.color,
+            centerX: centerX,
+            yTop: cellTop,
+            yBottom: cellBottom,
+            halfWidth: halfWidth,
+            depth: depth,
+            floor: floor,
+            segmentIndex: segmentIndex,
+          ),
+        );
+      }
+      if (cellTop >= cursor - .01) break;
+      cursor = cellTop;
+    }
+    segmentBottom = segmentTop;
+  }
+  return cells;
 }
 
 List<_VoxelSceneSegment> _timeSegments(TimeOfDayBarData bar, double height) {
@@ -845,6 +857,7 @@ class _ScenePainter extends CustomPainter {
   const _ScenePainter({
     required this.scene,
     required this.reveals,
+    required this.rooftops,
     required this.selectedBookId,
     required this.shadowColor,
     required this.baseColor,
@@ -852,6 +865,7 @@ class _ScenePainter extends CustomPainter {
 
   final _VoxelScene scene;
   final List<double> reveals;
+  final bool rooftops;
   final String? selectedBookId;
   final Color shadowColor;
   final Color baseColor;
@@ -864,6 +878,7 @@ class _ScenePainter extends CustomPainter {
       size,
       scene,
       reveals: reveals,
+      rooftops: rooftops,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
@@ -877,8 +892,8 @@ class _ScenePainter extends CustomPainter {
 class _MorphPainter extends CustomPainter {
   const _MorphPainter({
     required this.fromScene,
-    required this.toScene,
     required this.particles,
+    required this.rooftops,
     required this.plotHeight,
     required this.progress,
     required this.selectedBookId,
@@ -887,8 +902,8 @@ class _MorphPainter extends CustomPainter {
   });
 
   final _VoxelScene fromScene;
-  final _VoxelScene toScene;
   final List<_MorphParticle> particles;
+  final bool rooftops;
   final double plotHeight;
   final double progress;
   final String? selectedBookId;
@@ -899,27 +914,17 @@ class _MorphPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.save();
     canvas.clipRect(Rect.fromLTWH(0, 0, size.width, plotHeight));
-    final sourceOpacity = 1 - _smooth01(progress / .22);
-    final targetOpacity = _smooth01((progress - .58) / .38);
+    final sourceOpacity = 1 - _smooth01(progress / .26);
     _paintScene(
       canvas,
       size,
       fromScene,
       reveals: List.filled(fromScene.bars.length, 1.0),
+      rooftops: rooftops,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
       opacity: sourceOpacity,
-    );
-    _paintScene(
-      canvas,
-      size,
-      toScene,
-      reveals: List.filled(toScene.bars.length, 1.0),
-      selectedBookId: selectedBookId,
-      shadowColor: shadowColor,
-      baseColor: baseColor,
-      opacity: targetOpacity,
     );
     _paintParticles(canvas);
     canvas.restore();
@@ -930,8 +935,8 @@ class _MorphPainter extends CustomPainter {
         _smooth01(progress / .08) * (1 - _smooth01((progress - .9) / .08));
     if (fade <= 0) return;
     for (final particle in particles) {
-      final start = .06 + particle.delay * .16;
-      final local = ((progress - start) / .62).clamp(0.0, 1.0).toDouble();
+      final start = .04 + particle.delay * .18;
+      final local = ((progress - start) / .6).clamp(0.0, 1.0).toDouble();
       final eased = Curves.easeInOutCubic.transform(local);
       final burst = math.sin(math.pi * local);
       var center = Offset.lerp(particle.start, particle.end, eased)!;
@@ -939,7 +944,7 @@ class _MorphPainter extends CustomPainter {
           Offset(math.cos(particle.angle), math.sin(particle.angle)) *
           particle.spread *
           burst;
-      center += Offset(0, -burst * particle.size * 2.4);
+      center += Offset(0, -burst * particle.size * 3);
       final dimmed = selectedBookId != null && particle.key != selectedBookId;
       final opacity =
           fade *
@@ -953,7 +958,6 @@ class _MorphPainter extends CustomPainter {
   bool shouldRepaint(_MorphPainter oldDelegate) =>
       oldDelegate.progress != progress ||
       oldDelegate.fromScene != fromScene ||
-      oldDelegate.toScene != toScene ||
       oldDelegate.particles != particles ||
       oldDelegate.selectedBookId != selectedBookId;
 }
@@ -1010,7 +1014,10 @@ List<_MorphParticle> _buildMorphParticles(
         ? 0.0
         : (durations[entry.key] ?? Duration.zero).inMicroseconds /
               total.inMicroseconds;
-    final count = (8 + 30 * math.sqrt(share)).round().clamp(8, 38);
+    final areaCount = math.max(entry.value.length, targets.length);
+    final count = (10 + 36 * math.sqrt(share) + math.min(16, areaCount / 2))
+        .round()
+        .clamp(12, 56);
     for (var index = 0; index < count; index++) {
       final seed = category * 1000 + index * 11;
       final startRect = _pickArea(entry.value, _random(seed + 1));
@@ -1022,9 +1029,9 @@ List<_MorphParticle> _buildMorphParticles(
           start: _pointIn(startRect, seed + 3),
           end: _pointIn(endRect, seed + 4),
           delay: _random(seed + 5),
-          spread: 5 + _random(seed + 6) * 20,
+          spread: 7 + _random(seed + 6) * 24,
           angle: _random(seed + 7) * math.pi * 2,
-          size: 2.8 + _random(seed + 8) * 2.4,
+          size: 2.2 + _random(seed + 8) * 2.2,
         ),
       );
     }
@@ -1036,22 +1043,15 @@ List<_MorphParticle> _buildMorphParticles(
 Map<String, List<Rect>> _areasByKey(_VoxelScene scene) {
   final result = <String, List<Rect>>{};
   for (final bar in scene.bars) {
-    var consumed = 0.0;
-    for (final segment in bar.segments) {
-      final height = segment.height;
-      if (height <= 0) {
-        consumed += height;
-        continue;
-      }
-      final bottom = bar.baseY - consumed;
+    for (final cell in bar.cells) {
+      if (cell.height <= 0) continue;
       final rect = Rect.fromLTRB(
-        bar.centerX - bar.halfWidth * .9,
-        bottom - height,
-        bar.centerX + bar.halfWidth * .9,
-        bottom,
+        cell.centerX - cell.halfWidth * .9,
+        cell.yTop,
+        cell.centerX + cell.halfWidth * .9,
+        cell.yBottom,
       );
-      result.putIfAbsent(segment.key, () => []).add(rect);
-      consumed += height;
+      result.putIfAbsent(cell.key, () => []).add(rect);
     }
   }
   return result;
@@ -1077,6 +1077,7 @@ void _paintScene(
   Size size,
   _VoxelScene scene, {
   required List<double> reveals,
+  required bool rooftops,
   required String? selectedBookId,
   required Color shadowColor,
   required Color baseColor,
@@ -1099,6 +1100,7 @@ void _paintScene(
       canvas,
       bar,
       visibleHeight,
+      rooftops: rooftops && !scene.isTime,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
@@ -1111,72 +1113,501 @@ void _paintBar(
   Canvas canvas,
   _VoxelSceneBar bar,
   double visibleHeight, {
+  required bool rooftops,
   required String? selectedBookId,
   required Color shadowColor,
   required Color baseColor,
 }) {
-  _paintBarBase(canvas, bar, shadowColor, baseColor);
-  var consumed = 0.0;
-  for (final segment in bar.segments) {
-    if (consumed >= visibleHeight) break;
-    final height = math.min(segment.height, visibleHeight - consumed);
-    if (height > .1) {
-      final dimmed = selectedBookId != null && segment.key != selectedBookId;
-      _paintSegment(
+  _paintBarBase(canvas, bar, baseColor);
+  if (visibleHeight <= 0) return;
+  final clipTop = bar.baseY - visibleHeight;
+  _VoxelCell? capCell;
+  canvas.save();
+  canvas.clipRect(Rect.fromLTRB(-1000, clipTop, 10000, 10000));
+  for (final cell in bar.cells) {
+    if (cell.yBottom < clipTop) continue;
+    capCell ??= cell;
+    if (cell.yTop <= clipTop + .05 && cell.yBottom > clipTop) {
+      capCell = cell;
+    }
+    final dimmed = selectedBookId != null && cell.key != selectedBookId;
+    _paintFacadeCell(canvas, cell, dimmed: dimmed, shadowColor: shadowColor);
+  }
+  _paintFloorSeams(canvas, bar, clipTop: clipTop, shadowColor: shadowColor);
+  canvas.restore();
+  // 顶面菱形在柱体显示高度之外，必须画在裁剪区外，否则只剩半个顶面。
+  if (capCell != null) {
+    _paintBarTop(
+      canvas,
+      bar,
+      yTop: clipTop,
+      color: capCell.color,
+      dimmed: selectedBookId != null && capCell.key != selectedBookId,
+    );
+    if (rooftops && visibleHeight >= bar.height - .01) {
+      _paintRooftop(
         canvas,
         bar,
-        segment: segment,
-        yBottom: bar.baseY - consumed,
-        yTop: bar.baseY - consumed - height,
-        dimmed: dimmed,
+        roofY: clipTop,
+        color: capCell.color,
+        dimmed: selectedBookId != null && capCell.key != selectedBookId,
       );
     }
-    consumed += segment.height;
   }
-  _paintSeams(canvas, bar, visibleHeight, shadowColor);
 }
 
-void _paintBarBase(
-  Canvas canvas,
-  _VoxelSceneBar bar,
-  Color shadowColor,
-  Color baseColor,
-) {
-  canvas.drawOval(
-    Rect.fromCenter(
-      center: Offset(bar.centerX, bar.baseY + bar.depth * .84),
-      width: bar.halfWidth * 2.8,
-      height: bar.depth * 1.35,
-    ),
-    Paint()..color = shadowColor.withValues(alpha: .07),
-  );
+void _paintBarBase(Canvas canvas, _VoxelSceneBar bar, Color baseColor) {
   canvas.drawPath(
     _diamond(bar.centerX, bar.baseY, bar.halfWidth + 2.4, bar.depth + 1.6),
     Paint()..color = baseColor.withValues(alpha: .7),
   );
 }
 
-void _paintSegment(
+const _rooftopStyleCount = 5;
+
+/// 按柱子顺序轮换阁楼样式，相邻柱体不会重复。
+void _paintRooftop(
   Canvas canvas,
   _VoxelSceneBar bar, {
-  required _VoxelSceneSegment segment,
-  required double yBottom,
-  required double yTop,
+  required double roofY,
+  required Color color,
   required bool dimmed,
 }) {
-  final tint = dimmed
-      ? segment.color.withValues(alpha: segment.color.a * .32)
-      : segment.color;
+  final tint = dimmed ? color.withValues(alpha: color.a * .3) : color;
+  final halfWidth = bar.halfWidth * .66;
+  final depth = bar.depth * .66;
   final centerX = bar.centerX;
-  final halfWidth = bar.halfWidth;
-  final depth = bar.depth;
-  final north = Offset(centerX, yTop - depth);
-  final east = Offset(centerX + halfWidth, yTop);
-  final south = Offset(centerX, yTop + depth);
-  final west = Offset(centerX - halfWidth, yTop);
-  final baseSouth = Offset(centerX, yBottom + depth);
-  final baseWest = Offset(centerX - halfWidth, yBottom);
-  final baseEast = Offset(centerX + halfWidth, yBottom);
+  switch (bar.index % _rooftopStyleCount) {
+    case 0:
+      _paintRoofTerrace(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
+    case 1:
+      _paintRoofSpire(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
+    case 2:
+      _paintRoofStepped(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
+    case 3:
+      _paintRoofTank(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
+    default:
+      _paintRoofCabin(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
+  }
+}
+
+/// 平顶露台：矮墙、出挑顶板与前侧栏杆。
+void _paintRoofTerrace(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  bool dimmed,
+) {
+  const wall = 10.5;
+  _paintIsoBlock(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    shade: .26,
+    lit: .07,
+    top: .3,
+  );
+  final topY = baseY - wall;
+  _paintIsoBlock(
+    canvas,
+    centerX,
+    topY,
+    halfWidth * 1.12,
+    depth * 1.12,
+    1.6,
+    tint,
+    shade: .22,
+    lit: .1,
+    top: .36,
+  );
+  final roofY = topY - 1.6;
+  final rail = Paint()
+    ..color = Color.lerp(tint, Colors.white, .68)!
+    ..strokeWidth = 1;
+  final rails = <Offset>[
+    for (var step = 0; step <= 2; step++)
+      Offset(
+        centerX - halfWidth * 1.12 * (1 - step / 2),
+        roofY + depth * 1.12 * step / 2,
+      ),
+    for (var step = 1; step <= 2; step++)
+      Offset(
+        centerX + halfWidth * 1.12 * step / 2,
+        roofY + depth * 1.12 * (1 - step / 2),
+      ),
+  ];
+  for (final post in rails) {
+    canvas.drawLine(post, post.translate(0, -4), rail);
+  }
+  for (var index = 0; index < rails.length - 1; index++) {
+    canvas.drawLine(
+      rails[index].translate(0, -4),
+      rails[index + 1].translate(0, -4),
+      rail,
+    );
+  }
+  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+}
+
+/// 尖顶塔楼：方屋、四坡尖顶、天线与顶灯。
+void _paintRoofSpire(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  bool dimmed,
+) {
+  const wall = 9.5;
+  _paintIsoBlock(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    shade: .22,
+    lit: .08,
+    top: .3,
+  );
+  final topY = baseY - wall;
+  final apex = Offset(centerX, topY - 8.5);
+  final west = Offset(centerX - halfWidth, topY);
+  final south = Offset(centerX, topY + depth);
+  final east = Offset(centerX + halfWidth, topY);
+  canvas.drawPath(
+    _triPath(west, south, apex),
+    Paint()..color = Color.lerp(tint, Colors.black, .08)!,
+  );
+  canvas.drawPath(
+    _triPath(south, east, apex),
+    Paint()..color = Color.lerp(tint, Colors.white, .2)!,
+  );
+  final mastTop = Offset(centerX, apex.dy - 5.5);
+  canvas.drawLine(
+    apex,
+    mastTop,
+    Paint()
+      ..color = Color.lerp(tint, Colors.white, .5)!
+      ..strokeWidth = .8,
+  );
+  canvas.drawCircle(mastTop, 1.2, Paint()..color = const Color(0xFFFFC46E));
+  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+}
+
+/// 退台阁楼：两层收分，顶上放一盆绿植。
+void _paintRoofStepped(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  bool dimmed,
+) {
+  const lower = 8.5;
+  const upper = 6.5;
+  _paintIsoBlock(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    lower,
+    tint,
+    shade: .24,
+    lit: .07,
+    top: .28,
+  );
+  final midY = baseY - lower;
+  _paintIsoBlock(
+    canvas,
+    centerX,
+    midY,
+    halfWidth * .66,
+    depth * .66,
+    upper,
+    tint,
+    shade: .26,
+    lit: .08,
+    top: .32,
+  );
+  final topY = midY - upper;
+  final green = Color.lerp(const Color(0xFF6F8F5E), tint, .15)!;
+  _paintIsoBlock(
+    canvas,
+    centerX + halfWidth * .14,
+    topY,
+    halfWidth * .2,
+    depth * .2,
+    2.6,
+    green,
+    shade: .1,
+    lit: .06,
+    top: .1,
+  );
+  canvas.drawCircle(
+    Offset(centerX + halfWidth * .14, topY - 4.2),
+    2.1,
+    Paint()..color = Color.lerp(green, Colors.white, .18)!,
+  );
+  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, lower, dimmed);
+}
+
+/// 水塔阁楼：设备间与顶部水箱、透气管。
+void _paintRoofTank(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  bool dimmed,
+) {
+  const wall = 8.5;
+  _paintIsoBlock(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    shade: .24,
+    lit: .08,
+    top: .28,
+  );
+  final topY = baseY - wall;
+  final tank = Rect.fromCenter(
+    center: Offset(centerX, topY - 8.5),
+    width: halfWidth * 1.2,
+    height: 10,
+  );
+  final leg = Paint()
+    ..color = Color.lerp(tint, Colors.black, .32)!
+    ..strokeWidth = 1;
+  canvas.drawLine(
+    Offset(centerX - halfWidth * .32, topY),
+    Offset(centerX - halfWidth * .32, tank.bottom),
+    leg,
+  );
+  canvas.drawLine(
+    Offset(centerX + halfWidth * .32, topY),
+    Offset(centerX + halfWidth * .32, tank.bottom),
+    leg,
+  );
+  // 侧面检修梯
+  final ladder = Paint()
+    ..color = Color.lerp(tint, Colors.white, .35)!
+    ..strokeWidth = .7;
+  final ladderX = centerX + halfWidth * .92;
+  canvas.drawLine(Offset(ladderX, topY - 1), Offset(ladderX, topY + 6), ladder);
+  for (var rung = 0; rung < 3; rung++) {
+    final y = topY + 1 + rung * 2.4;
+    canvas.drawLine(Offset(ladderX - 1.2, y), Offset(ladderX + 1.2, y), ladder);
+  }
+  canvas.drawRRect(
+    RRect.fromRectAndCorners(
+      tank,
+      topLeft: Radius.circular(tank.width * .45),
+      topRight: Radius.circular(tank.width * .45),
+      bottomLeft: const Radius.circular(1.5),
+      bottomRight: const Radius.circular(1.5),
+    ),
+    Paint()..color = Color.lerp(tint, Colors.black, .25)!,
+  );
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: tank.center.translate(0, tank.height * .3),
+      width: tank.width * .92,
+      height: 2.2,
+    ),
+    Paint()..color = Colors.white.withValues(alpha: .1),
+  );
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: tank.center.translate(0, -3.6),
+      width: tank.width,
+      height: 2.6,
+    ),
+    Paint()..color = Color.lerp(tint, Colors.white, .26)!,
+  );
+  canvas.drawLine(
+    Offset(tank.left + 2, tank.center.dy),
+    Offset(tank.right - 2, tank.center.dy),
+    Paint()
+      ..color = Colors.white.withValues(alpha: .12)
+      ..strokeWidth = .6,
+  );
+  canvas.drawLine(
+    Offset(tank.right - 1.6, tank.top),
+    Offset(tank.right - 1.6, tank.top - 3),
+    Paint()
+      ..color = Color.lerp(tint, Colors.white, .4)!
+      ..strokeWidth = .8,
+  );
+  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+}
+
+/// 坡顶小屋：矮四坡顶与右侧烟囱。
+void _paintRoofCabin(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  bool dimmed,
+) {
+  const wall = 9.5;
+  _paintIsoBlock(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    shade: .23,
+    lit: .08,
+    top: .3,
+  );
+  final topY = baseY - wall;
+  final apex = Offset(centerX, topY - 8);
+  final west = Offset(centerX - halfWidth, topY);
+  final south = Offset(centerX, topY + depth);
+  final east = Offset(centerX + halfWidth, topY);
+  canvas.drawPath(
+    _triPath(west, south, apex),
+    Paint()..color = Color.lerp(tint, Colors.black, .1)!,
+  );
+  canvas.drawPath(
+    _triPath(south, east, apex),
+    Paint()..color = Color.lerp(tint, Colors.white, .18)!,
+  );
+  _paintIsoBlock(
+    canvas,
+    centerX + halfWidth * .5,
+    topY - 2.6,
+    halfWidth * .18,
+    depth * .18,
+    6,
+    tint,
+    shade: .3,
+    lit: .1,
+    top: .3,
+  );
+  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+}
+
+void _paintIsoBlock(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  double height,
+  Color tint, {
+  double shade = .2,
+  double lit = .08,
+  double top = .28,
+}) {
+  final topY = baseY - height;
+  final westBase = Offset(centerX - halfWidth, baseY);
+  final southBase = Offset(centerX, baseY + depth);
+  final eastBase = Offset(centerX + halfWidth, baseY);
+  final westTop = Offset(centerX - halfWidth, topY);
+  final southTop = Offset(centerX, topY + depth);
+  final eastTop = Offset(centerX + halfWidth, topY);
+  final northTop = Offset(centerX, topY - depth);
+  canvas.drawPath(
+    _quadPath(westTop, southTop, southBase, westBase),
+    Paint()..color = Color.lerp(tint, Colors.black, shade)!,
+  );
+  canvas.drawPath(
+    _quadPath(eastTop, southTop, southBase, eastBase),
+    Paint()..color = Color.lerp(tint, Colors.white, lit)!,
+  );
+  canvas.drawPath(
+    _quadPath(northTop, eastTop, southTop, westTop),
+    Paint()..color = Color.lerp(tint, Colors.white, top)!,
+  );
+}
+
+void _paintRooftopWindow(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  double height,
+  bool dimmed,
+) {
+  final top = baseY - height * .72;
+  final bottom = baseY - height * .36;
+  Offset point(double ratio, double y) =>
+      Offset(centerX + halfWidth * ratio, y + depth * (1 - ratio));
+  final window = _quadPath(
+    point(.36, top),
+    point(.64, top),
+    point(.64, bottom),
+    point(.36, bottom),
+  );
+  final bounds = window.getBounds();
+  const warm = Color(0xFFFFC46E);
+  canvas.save();
+  canvas.translate(bounds.center.dx, bounds.center.dy);
+  canvas.scale(2);
+  canvas.translate(-bounds.center.dx, -bounds.center.dy);
+  canvas.drawPath(
+    window,
+    Paint()..color = warm.withValues(alpha: dimmed ? .1 : .16),
+  );
+  canvas.restore();
+  canvas.drawPath(
+    window,
+    Paint()..color = warm.withValues(alpha: dimmed ? .28 : .85),
+  );
+}
+
+Path _quadPath(Offset a, Offset b, Offset c, Offset d) => Path()
+  ..moveTo(a.dx, a.dy)
+  ..lineTo(b.dx, b.dy)
+  ..lineTo(c.dx, c.dy)
+  ..lineTo(d.dx, d.dy)
+  ..close();
+
+Path _triPath(Offset a, Offset b, Offset c) => Path()
+  ..moveTo(a.dx, a.dy)
+  ..lineTo(b.dx, b.dy)
+  ..lineTo(c.dx, c.dy)
+  ..close();
+
+void _paintFacadeCell(
+  Canvas canvas,
+  _VoxelCell cell, {
+  required bool dimmed,
+  required Color shadowColor,
+}) {
+  final tint = dimmed
+      ? cell.color.withValues(alpha: cell.color.a * .3)
+      : cell.color;
+  final seed = cell.barIndex * 10000 + cell.floor * 97 + cell.segmentIndex * 13;
+  final west = _cellFacePoint(cell, 0, 0, cell.yTop);
+  final south = _cellFacePoint(cell, 0, 1, cell.yTop);
+  final east = _cellFacePoint(cell, 1, 1, cell.yTop);
+  final baseSouth = _cellFacePoint(cell, 0, 1, cell.yBottom);
+  final baseWest = _cellFacePoint(cell, 0, 0, cell.yBottom);
+  final baseEast = _cellFacePoint(cell, 1, 1, cell.yBottom);
   final leftFace = Path()
     ..moveTo(west.dx, west.dy)
     ..lineTo(south.dx, south.dy)
@@ -1189,24 +1620,46 @@ void _paintSegment(
     ..lineTo(baseSouth.dx, baseSouth.dy)
     ..lineTo(baseEast.dx, baseEast.dy)
     ..close();
-  final topFace = Path()
-    ..moveTo(north.dx, north.dy)
-    ..lineTo(east.dx, east.dy)
-    ..lineTo(south.dx, south.dy)
-    ..lineTo(west.dx, west.dy)
-    ..close();
   canvas.drawPath(
     leftFace,
-    Paint()..color = Color.lerp(tint, Colors.black, .18)!,
+    Paint()..color = Color.lerp(tint, Colors.black, .2)!,
   );
   canvas.drawPath(
     rightFace,
-    Paint()..color = Color.lerp(tint, Colors.white, .08)!,
+    Paint()..color = Color.lerp(tint, Colors.white, .06)!,
   );
-  canvas.drawPath(
-    topFace,
-    Paint()..color = Color.lerp(tint, Colors.white, .24)!,
-  );
+  final columns = _facadeColumns(cell.halfWidth);
+  for (var side = 0; side < 2; side++) {
+    for (var column = 0; column < columns; column++) {
+      final start = column / columns;
+      final end = (column + 1) / columns;
+      final panel = _cellPanelPath(cell, side: side, start: start, end: end);
+      final panelSeed = seed + side * 211 + column * 47;
+      final panelTint = side == 0
+          ? Color.lerp(tint, Colors.black, .17 + _random(panelSeed) * .07)!
+          : Color.lerp(tint, Colors.white, .05 + _random(panelSeed) * .07)!;
+      canvas.drawPath(panel, Paint()..color = panelTint);
+      if (column > 0) {
+        canvas.drawLine(
+          _cellFacePoint(cell, side, start, cell.yTop),
+          _cellFacePoint(cell, side, start, cell.yBottom),
+          Paint()
+            ..color = shadowColor.withValues(alpha: .09)
+            ..strokeWidth = .6,
+        );
+      }
+      _paintFacadeWindow(
+        canvas,
+        cell,
+        side: side,
+        start: start,
+        end: end,
+        seed: panelSeed,
+        tint: tint,
+        dimmed: dimmed,
+      );
+    }
+  }
   canvas.drawLine(
     west,
     baseWest,
@@ -1214,94 +1667,44 @@ void _paintSegment(
       ..color = Colors.white.withValues(alpha: .08)
       ..strokeWidth = 1,
   );
-  _paintFloorLights(canvas, bar, yTop: yTop, yBottom: yBottom, dimmed: dimmed);
-  canvas.drawPath(
-    topFace,
+  canvas.drawLine(
+    south,
+    baseSouth,
     Paint()
-      ..color = Colors.white.withValues(alpha: .2)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1,
+      ..color = shadowColor.withValues(alpha: .13)
+      ..strokeWidth = .8,
   );
 }
 
-void _paintFloorLights(
-  Canvas canvas,
-  _VoxelSceneBar bar, {
-  required double yTop,
-  required double yBottom,
-  required bool dimmed,
-}) {
-  final blockHeight = bar.blockHeight;
-  final firstFloor = ((bar.baseY - yBottom) / blockHeight).floor();
-  final lastFloor = ((bar.baseY - yTop) / blockHeight).ceil();
-  final windowWidth = (bar.halfWidth * .16).clamp(2.2, 3.6).toDouble();
-  final windowHeight = (blockHeight * .26).clamp(1.7, 2.6).toDouble();
-  final widthRatio = windowWidth / bar.halfWidth;
-  for (var floor = firstFloor; floor < lastFloor; floor++) {
-    final centerY = bar.baseY - (floor + .5) * blockHeight;
-    if (centerY < yTop + windowHeight || centerY > yBottom - windowHeight) {
-      continue;
-    }
-    for (var side = 0; side < 2; side++) {
-      final seed = bar.index * 997 + floor * 31 + side * 127;
-      if (_random(seed) > (dimmed ? .12 : .34)) continue;
-      final centerRatio = .26 + _random(seed + 1) * .48;
-      final start = (centerRatio - widthRatio / 2).clamp(.04, .7).toDouble();
-      final end = (centerRatio + widthRatio / 2).clamp(.3, .96).toDouble();
-      final path = _windowPath(
-        bar,
-        side: side,
-        start: start,
-        end: end,
-        centerY: centerY,
-        height: windowHeight,
-      );
-      final color = _random(seed + 2) > .42
-          ? const Color(0xFFFFB65E)
-          : const Color(0xFFFFD28C);
-      final opacity = dimmed ? .18 : .72 + _random(seed + 3) * .28;
-      final bounds = path.getBounds();
-      canvas.save();
-      canvas.translate(bounds.center.dx, bounds.center.dy);
-      canvas.scale(1.75);
-      canvas.translate(-bounds.center.dx, -bounds.center.dy);
-      canvas.drawPath(
-        path,
-        Paint()..color = color.withValues(alpha: opacity * .16),
-      );
-      canvas.restore();
-      canvas.drawPath(path, Paint()..color = color.withValues(alpha: opacity));
-    }
-  }
+int _facadeColumns(double halfWidth) {
+  if (halfWidth >= 16) return 3;
+  if (halfWidth >= 7.5) return 2;
+  return 1;
 }
 
-Path _windowPath(
-  _VoxelSceneBar bar, {
+Offset _cellFacePoint(_VoxelCell cell, int side, double ratio, double y) {
+  if (side == 0) {
+    return Offset(
+      cell.centerX - cell.halfWidth + cell.halfWidth * ratio,
+      y + cell.depth * ratio,
+    );
+  }
+  return Offset(
+    cell.centerX + cell.halfWidth * ratio,
+    y + cell.depth * (1 - ratio),
+  );
+}
+
+Path _cellPanelPath(
+  _VoxelCell cell, {
   required int side,
   required double start,
   required double end,
-  required double centerY,
-  required double height,
 }) {
-  Offset point(double ratio, double y) {
-    if (side == 0) {
-      return Offset(
-        bar.centerX - bar.halfWidth + bar.halfWidth * ratio,
-        y + bar.depth * ratio,
-      );
-    }
-    return Offset(
-      bar.centerX + bar.halfWidth * ratio,
-      y + bar.depth * (1 - ratio),
-    );
-  }
-
-  final top = centerY - height / 2;
-  final bottom = centerY + height / 2;
-  final topLeft = point(start, top);
-  final topRight = point(end, top);
-  final bottomRight = point(end, bottom);
-  final bottomLeft = point(start, bottom);
+  final topLeft = _cellFacePoint(cell, side, start, cell.yTop);
+  final topRight = _cellFacePoint(cell, side, end, cell.yTop);
+  final bottomRight = _cellFacePoint(cell, side, end, cell.yBottom);
+  final bottomLeft = _cellFacePoint(cell, side, start, cell.yBottom);
   return Path()
     ..moveTo(topLeft.dx, topLeft.dy)
     ..lineTo(topRight.dx, topRight.dy)
@@ -1310,39 +1713,147 @@ Path _windowPath(
     ..close();
 }
 
-void _paintSeams(
+void _paintFacadeWindow(
   Canvas canvas,
-  _VoxelSceneBar bar,
-  double visibleHeight,
-  Color shadowColor,
-) {
-  final topY = bar.baseY - visibleHeight;
-  final paint = Paint()
-    ..color = shadowColor.withValues(alpha: .22)
-    ..strokeWidth = .8;
-  for (
-    var y = bar.baseY - bar.blockHeight;
-    y > topY + .1;
-    y -= bar.blockHeight
-  ) {
-    canvas.drawLine(
-      Offset(bar.centerX - bar.halfWidth, y),
-      Offset(bar.centerX, y + bar.depth),
-      paint,
+  _VoxelCell cell, {
+  required int side,
+  required double start,
+  required double end,
+  required int seed,
+  required Color tint,
+  required bool dimmed,
+}) {
+  if (cell.height < 2.4 || cell.halfWidth < 1.8) return;
+  final panelWidth = (end - start) * cell.halfWidth;
+  final windowWidth = (panelWidth * .42).clamp(.9, 2.4).toDouble();
+  final windowHeight = (cell.height * .36).clamp(1.4, 3.2).toDouble();
+  final widthRatio = windowWidth / cell.halfWidth;
+  final dark = Color.lerp(tint, Colors.black, .5)!;
+  if (_random(seed) < .08) return;
+  final center =
+      (start + end) / 2 + (_random(seed + 1) - .5) * (end - start) * .1;
+  final centerY =
+      (cell.yTop + cell.yBottom) / 2 +
+      (_random(seed + 2) - .5) * cell.height * .16;
+  final path = _cellWindowPath(
+    cell,
+    side: side,
+    start: (center - widthRatio / 2).clamp(start + .03, end - .03).toDouble(),
+    end: (center + widthRatio / 2).clamp(start + .03, end - .03).toDouble(),
+    centerY: centerY,
+    height: windowHeight,
+  );
+  if (_random(seed + 3) > .78) {
+    final color = _random(seed + 4) > .45
+        ? const Color(0xFFFFB65E)
+        : const Color(0xFFFFD28C);
+    final opacity = dimmed ? .14 : .8 + _random(seed + 5) * .2;
+    final bounds = path.getBounds();
+    canvas.save();
+    canvas.translate(bounds.center.dx, bounds.center.dy);
+    canvas.scale(1.8);
+    canvas.translate(-bounds.center.dx, -bounds.center.dy);
+    canvas.drawPath(
+      path,
+      Paint()..color = color.withValues(alpha: opacity * .14),
     );
-    canvas.drawLine(
-      Offset(bar.centerX, y + bar.depth),
-      Offset(bar.centerX + bar.halfWidth, y),
-      paint,
+    canvas.restore();
+    canvas.drawPath(path, Paint()..color = color.withValues(alpha: opacity));
+  } else {
+    canvas.drawPath(
+      path,
+      Paint()..color = dark.withValues(alpha: dimmed ? .08 : .4),
     );
   }
-  canvas.drawLine(
-    Offset(bar.centerX, topY + bar.depth),
-    Offset(bar.centerX, bar.baseY + bar.depth),
+}
+
+void _paintFloorSeams(
+  Canvas canvas,
+  _VoxelSceneBar bar, {
+  required double clipTop,
+  required Color shadowColor,
+}) {
+  for (final cell in bar.cells) {
+    if (cell.yBottom < clipTop) continue;
+    if (cell.yTop < clipTop + .2) continue;
+    final line = Path()
+      ..moveTo(
+        _cellFacePoint(cell, 0, 0, cell.yTop).dx,
+        _cellFacePoint(cell, 0, 0, cell.yTop).dy,
+      )
+      ..lineTo(
+        _cellFacePoint(cell, 0, 1, cell.yTop).dx,
+        _cellFacePoint(cell, 0, 1, cell.yTop).dy,
+      )
+      ..lineTo(
+        _cellFacePoint(cell, 1, 1, cell.yTop).dx,
+        _cellFacePoint(cell, 1, 1, cell.yTop).dy,
+      );
+    canvas.drawPath(
+      line.shift(const Offset(0, -.6)),
+      Paint()
+        ..color = Colors.white.withValues(alpha: .09)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = .6,
+    );
+    canvas.drawPath(
+      line.shift(const Offset(0, .5)),
+      Paint()
+        ..color = shadowColor.withValues(alpha: .16)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = .7,
+    );
+  }
+}
+
+void _paintBarTop(
+  Canvas canvas,
+  _VoxelSceneBar bar, {
+  required double yTop,
+  required Color color,
+  required bool dimmed,
+}) {
+  final tint = dimmed ? color.withValues(alpha: color.a * .3) : color;
+  final north = Offset(bar.centerX, yTop - bar.depth);
+  final east = Offset(bar.centerX + bar.halfWidth, yTop);
+  final south = Offset(bar.centerX, yTop + bar.depth);
+  final west = Offset(bar.centerX - bar.halfWidth, yTop);
+  final path = Path()
+    ..moveTo(north.dx, north.dy)
+    ..lineTo(east.dx, east.dy)
+    ..lineTo(south.dx, south.dy)
+    ..lineTo(west.dx, west.dy)
+    ..close();
+  canvas.drawPath(path, Paint()..color = Color.lerp(tint, Colors.white, .24)!);
+  canvas.drawPath(
+    path,
     Paint()
-      ..color = shadowColor.withValues(alpha: .12)
-      ..strokeWidth = .8,
+      ..color = Colors.white.withValues(alpha: .2)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1,
   );
+}
+
+Path _cellWindowPath(
+  _VoxelCell cell, {
+  required int side,
+  required double start,
+  required double end,
+  required double centerY,
+  required double height,
+}) {
+  final top = math.max(cell.yTop + .8, centerY - height / 2);
+  final bottom = math.min(cell.yBottom - .8, centerY + height / 2);
+  final topLeft = _cellFacePoint(cell, side, start, top);
+  final topRight = _cellFacePoint(cell, side, end, top);
+  final bottomRight = _cellFacePoint(cell, side, end, bottom);
+  final bottomLeft = _cellFacePoint(cell, side, start, bottom);
+  return Path()
+    ..moveTo(topLeft.dx, topLeft.dy)
+    ..lineTo(topRight.dx, topRight.dy)
+    ..lineTo(bottomRight.dx, bottomRight.dy)
+    ..lineTo(bottomLeft.dx, bottomLeft.dy)
+    ..close();
 }
 
 void _drawParticle(

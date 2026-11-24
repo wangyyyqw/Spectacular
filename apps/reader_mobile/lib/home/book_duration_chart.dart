@@ -74,7 +74,8 @@ class _BookDurationChartState extends State<BookDurationChart>
     _selectedBookId = null;
   });
 
-  Future<void> _pickPeriod(DateTime start) async {
+  Future<void> _pickPeriod() async {
+    final anchor = _date ?? _now;
     final current = _period.startOf(_now);
     final dates = {
       current,
@@ -82,7 +83,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         if (portion.duration > Duration.zero && !portion.date.isAfter(_now))
           _period.startOf(portion.date),
     }.toList()..sort((left, right) => right.compareTo(left));
-    final selected = await showReaderBottomSheet<DateTime>(
+    final picked = await showReaderBottomSheet<(BookDurationPeriod, DateTime)>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
@@ -90,12 +91,18 @@ class _BookDurationChartState extends State<BookDurationChart>
       builder: (context) => _PeriodPicker(
         period: _period,
         dates: dates,
-        selected: start,
+        selected: _period.startOf(anchor),
         current: current,
+        anchor: anchor,
       ),
     );
-    if (mounted && selected != null) {
-      _changeDate(selected == current ? null : selected);
+    if (mounted && picked != null) {
+      final (period, date) = picked;
+      setState(() {
+        _period = period;
+        _date = date == _now || date == period.startOf(_now) ? null : date;
+        _selectedBookId = null;
+      });
     }
   }
 
@@ -143,16 +150,16 @@ class _BookDurationChartState extends State<BookDurationChart>
       date: _date ?? _now,
       bookTitles: widget.bookTitles,
     );
+    final navigation = _navigation(summary);
     return Column(
       key: const ValueKey('stats-book-duration'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _periodSelector(),
-        _navigation(summary),
-        if (summary.entries.isEmpty)
-          _emptyState(context, summary)
-        else ...[
-          _breakdown(context, summary),
+        if (summary.entries.isEmpty) ...[
+          navigation,
+          _emptyState(context, summary),
+        ] else ...[
+          _breakdown(context, summary, navigation: navigation),
           _selectionDetail(summary),
           _summaryActions(summary),
         ],
@@ -160,51 +167,17 @@ class _BookDurationChartState extends State<BookDurationChart>
     );
   }
 
-  Widget _periodSelector() => Material(
-    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-    borderRadius: BorderRadius.circular(6),
-    child: Padding(
-      padding: const EdgeInsets.all(2),
-      child: Row(
-        children: [
-          for (final period in BookDurationPeriod.values)
-            Expanded(
-              child: _PeriodButton(
-                period: period,
-                selected: _period == period,
-                onTap: () => setState(() {
-                  _period = period;
-                  _selectedBookId = null;
-                }),
-              ),
-            ),
-        ],
-      ),
-    ),
-  );
-
   Widget _navigation(BookDurationSummary summary) {
     final current = _period.startOf(_now);
-    return Column(
-      children: [
-        _navigationArrows(summary.start, current),
-        if (summary.start.isBefore(current))
-          TextButton(
-            key: const ValueKey('stats-book-duration-current'),
-            onPressed: () => _changeDate(null),
-            child: Text('回到${_period.currentLabel}'),
-          ),
-      ],
-    );
-  }
-
-  Widget _navigationArrows(DateTime start, DateTime current) {
+    final start = summary.start;
     final hasEarlier = widget.insights.portions.any(
       (portion) =>
           portion.duration > Duration.zero && portion.date.isBefore(start),
     );
+    final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
+        Expanded(child: _rangeButton(start, current)),
         IconButton(
           key: const ValueKey('stats-book-duration-previous'),
           tooltip: '上一${_period.label}',
@@ -213,7 +186,6 @@ class _BookDurationChartState extends State<BookDurationChart>
               : null,
           icon: const AppIcon(AppGlyph.chevronLeft),
         ),
-        Expanded(child: _rangeButton(start, current)),
         IconButton(
           key: const ValueKey('stats-book-duration-next'),
           tooltip: '下一${_period.label}',
@@ -222,13 +194,26 @@ class _BookDurationChartState extends State<BookDurationChart>
               : null,
           icon: const AppIcon(AppGlyph.chevronRight),
         ),
+        const SizedBox(width: 4),
+        TextButton(
+          key: const ValueKey('stats-book-duration-current'),
+          onPressed: () => _changeDate(null),
+          style: TextButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            padding: EdgeInsets.zero,
+            backgroundColor: scheme.surfaceContainerHighest,
+            foregroundColor: scheme.onSurface,
+            shape: const CircleBorder(),
+          ),
+          child: const Text('今天', style: TextStyle(fontSize: 13)),
+        ),
       ],
     );
   }
 
   Widget _rangeButton(DateTime start, DateTime current) => TextButton(
     key: const ValueKey('stats-book-duration-pick-period'),
-    onPressed: () => _pickPeriod(start),
+    onPressed: _pickPeriod,
     style: TextButton.styleFrom(
       minimumSize: const Size(48, 48),
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -247,7 +232,9 @@ class _BookDurationChartState extends State<BookDurationChart>
     '${start == current ? '${_period.currentLabel} · ' : ''}'
     '${_period.rangeLabel(start)}',
     key: const ValueKey('stats-book-duration-range'),
-    textAlign: TextAlign.center,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    textAlign: TextAlign.left,
     style: const TextStyle(fontSize: 13, height: 1.5),
   );
 
@@ -400,7 +387,11 @@ class _BookDurationChartState extends State<BookDurationChart>
         ),
       );
 
-  Widget _breakdown(BuildContext context, BookDurationSummary summary) {
+  Widget _breakdown(
+    BuildContext context,
+    BookDurationSummary summary, {
+    required Widget navigation,
+  }) {
     final scheme = Theme.of(context).colorScheme;
     final slices = _slices(summary, scheme);
     final timeBars = _timeBars(summary, slices);
@@ -411,6 +402,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       bookCount: summary.entries.length,
       selectedBookId: _selectedBookId,
       onSelected: (slice) => _selectSlice(slice, summary),
+      controls: navigation,
     );
     final legend = Column(
       key: const ValueKey('stats-book-duration-legend'),
@@ -626,12 +618,14 @@ class _PeriodPicker extends StatelessWidget {
     required this.dates,
     required this.selected,
     required this.current,
+    required this.anchor,
   });
 
   final BookDurationPeriod period;
   final List<DateTime> dates;
   final DateTime selected;
   final DateTime current;
+  final DateTime anchor;
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -644,15 +638,38 @@ class _PeriodPicker extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Text(
-              '选择阅读时段',
+              '选择阅读周期',
               style: Theme.of(context).textTheme.titleSmall,
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
             child: Text(
-              '列出${period.currentLabel}及有阅读记录的时段',
+              '切换周期，或选择有阅读记录的日期',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Material(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Row(
+                  children: [
+                    for (final type in BookDurationPeriod.values)
+                      Expanded(
+                        child: _PeriodButton(
+                          period: type,
+                          selected: type == period,
+                          onTap: () =>
+                              Navigator.of(context).pop((type, anchor)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
           Expanded(
@@ -676,7 +693,7 @@ class _PeriodPicker extends StatelessWidget {
       '${date == current ? '${period.currentLabel} · ' : ''}${period.rangeLabel(date)}',
     ),
     trailing: date == selected ? const AppIcon(AppGlyph.check) : null,
-    onTap: () => Navigator.of(context).pop(date),
+    onTap: () => Navigator.of(context).pop((period, date)),
   );
 }
 
