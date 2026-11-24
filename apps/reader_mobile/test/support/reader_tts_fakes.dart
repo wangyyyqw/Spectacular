@@ -7,6 +7,7 @@ import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/reader/reader_offline_tts.dart'
     show ReaderTtsClip;
 import 'package:reader_mobile/reader/reader_tts_segment.dart';
+import 'package:reader_mobile/reader/reader_tts_background.dart';
 import 'package:reader_mobile/reader/reader_tts_text.dart';
 
 ReaderTtsClip pcmTtsClip(
@@ -157,4 +158,49 @@ class FakeSystemTts {
       null,
     );
   }
+}
+
+/// 通过正式平台通道模拟前台服务的启动、状态发布和系统媒体命令。
+class FakeTtsBackground {
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final methods = <MethodCall>[];
+  bool active = false;
+  Object? startError;
+  Object? activationError;
+  Future<void>? starting;
+  Map<String, String>? state;
+
+  void install() => messenger.setMockMethodCallHandler(
+    ReaderTtsBackgroundPlayback.channel,
+    _method,
+  );
+
+  void close() => messenger.setMockMethodCallHandler(
+    ReaderTtsBackgroundPlayback.channel,
+    null,
+  );
+
+  Future<void> _method(MethodCall call) async {
+    methods.add(call);
+    switch (call.method) {
+      case 'start':
+        await starting;
+        if (startError != null) throw startError!;
+        active = true;
+      case 'activate':
+        if (activationError != null) throw activationError!;
+      case 'update':
+        state = Map<String, String>.from(call.arguments as Map);
+      case 'stop':
+        active = false;
+        state = null;
+    }
+  }
+
+  Future<void> emit(String method) => messenger.handlePlatformMessage(
+    ReaderTtsBackgroundPlayback.channel.name,
+    const StandardMethodCodec().encodeMethodCall(MethodCall(method)),
+    null,
+  );
 }

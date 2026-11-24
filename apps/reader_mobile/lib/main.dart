@@ -11,6 +11,7 @@ import 'package:reader_ui/system_ui.dart';
 
 import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
+import 'home/startup_splash.dart';
 import 'library/library_store.dart';
 import 'reader/reader_font_store.dart';
 import 'reader/reader_text_warmup.dart';
@@ -159,6 +160,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
   String? _selectedFontFamily;
+  bool _splashFinished = false;
 
   @override
   void initState() {
@@ -296,10 +298,38 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<_AppPreferences>(
-    future: _savedPreferences,
-    builder: (context, snapshot) =>
-        snapshot.hasData ? _buildApp(snapshot.data!) : const SizedBox.shrink(),
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    alignment: Alignment.topLeft,
+    children: [
+      FutureBuilder<_AppPreferences>(
+        future: _savedPreferences,
+        builder: (context, snapshot) => snapshot.hasData
+            ? _buildApp(snapshot.data!)
+            : const SizedBox.shrink(),
+      ),
+      // 开屏盖住偏好读取与首屏封面解码，结束后再露出书架。
+      if (!_splashFinished) _buildStartupSplash(context),
+    ],
+  );
+
+  Widget _buildStartupSplash(BuildContext context) => Theme(
+    data: buildAppTheme(
+      brightness: WidgetsBinding.instance.platformDispatcher.platformBrightness,
+    ),
+    child: Builder(
+      builder: (context) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: MediaQuery.fromView(
+          view: View.of(context),
+          child: StartupSplash(
+            onFinished: () {
+              if (mounted) setState(() => _splashFinished = true);
+            },
+          ),
+        ),
+      ),
+    ),
   );
 
   Widget _buildApp(_AppPreferences preferences) {

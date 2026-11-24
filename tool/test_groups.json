@@ -132,6 +132,7 @@
         "apps/reader_mobile/test/m2_integration_test.dart",
         "apps/reader_mobile/test/reader/epub_chain_regression_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_controller_test.dart",
+        "apps/reader_mobile/test/reader/reader_tts_background_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_offline_controller_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_segmentation_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_settings_test.dart",

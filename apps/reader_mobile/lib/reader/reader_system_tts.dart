@@ -139,6 +139,7 @@ class ReaderSystemTts {
 
   Future<bool> speak(
     String text, {
+    bool focus = true,
     required void Function() onStarted,
     required void Function(int start, int end) onProgress,
   }) async {
@@ -159,7 +160,7 @@ class ReaderSystemTts {
       }
     });
     final utterance = _nativePaused ? text : text.substring(_offset);
-    _submitUtterance(utterance, wait);
+    _submitUtterance(utterance, wait, focus: focus);
     try {
       return await wait.future;
     } finally {
@@ -168,10 +169,14 @@ class ReaderSystemTts {
     }
   }
 
-  void _submitUtterance(String utterance, Completer<bool> wait) {
+  void _submitUtterance(
+    String utterance,
+    Completer<bool> wait, {
+    required bool focus,
+  }) {
     unawaited(
       _tts!
-          .speak(utterance, focus: true)
+          .speak(utterance, focus: focus)
           .then<void>(
             (result) {
               if (!identical(_completion, wait) || wait.isCompleted) return;

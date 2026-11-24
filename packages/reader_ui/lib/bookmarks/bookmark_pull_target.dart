@@ -239,7 +239,7 @@ class _BookmarkPullTargetState extends State<BookmarkPullTarget> {
   );
 }
 
-/// 初次按累计主方向锁定；锁定前的采样只用于识别，不推动纸面。
+/// 仅向下的纵向主方向锁定书签；上滑不抢占翻页。
 class _BookmarkVerticalDragRecognizer extends VerticalDragGestureRecognizer {
   _BookmarkVerticalDragRecognizer({super.debugOwner});
 
@@ -271,7 +271,7 @@ class _BookmarkVerticalDragRecognizer extends VerticalDragGestureRecognizer {
     PointerDeviceKind pointerDeviceKind,
     double? deviceTouchSlop,
   ) =>
-      _offset.dy.abs() > _offset.dx.abs() &&
+      _offset.dy > _offset.dx.abs() &&
       super.hasSufficientGlobalDistanceToAccept(
         pointerDeviceKind,
         deviceTouchSlop,

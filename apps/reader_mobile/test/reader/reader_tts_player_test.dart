@@ -51,6 +51,28 @@ void main() {
     await player.dispose();
   });
 
+  test('后台服务管理焦点时，离线播放器使用语音媒体且不再抢占焦点', () async {
+    final native = _AudioPlayer();
+    final player = AudioplayersReaderTtsPlayer(
+      audioPlayer: native,
+      externalAudioFocus: true,
+    );
+    for (var i = 0; i < 2; i++) {
+      final task = player.play(_clip());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      native.complete.add(null);
+      await task;
+    }
+    expect(native.contexts, hasLength(1));
+    expect(
+      native.contexts.single.android.contentType,
+      AndroidContentType.speech,
+    );
+    expect(native.contexts.single.android.usageType, AndroidUsageType.media);
+    expect(native.contexts.single.android.audioFocus, AndroidAudioFocus.none);
+    await player.dispose();
+  });
+
   test('跨页音频拼接仅裁剪接缝静音，实际采样点与 WAV 长度一致', () {
     final first = pcmTtsClip([
       ...List.filled(20, 0),
@@ -118,6 +140,7 @@ class _AudioPlayer extends Fake implements AudioPlayer {
   final positions = StreamController<Duration>.broadcast();
   final sources = <Source>[];
   final volumes = <double>[];
+  final contexts = <AudioContext>[];
   int resumes = 0;
 
   @override
@@ -132,6 +155,11 @@ class _AudioPlayer extends Fake implements AudioPlayer {
   @override
   Future<void> setVolume(double volume) async {
     volumes.add(volume);
+  }
+
+  @override
+  Future<void> setAudioContext(AudioContext context) async {
+    contexts.add(context);
   }
 
   @override

@@ -97,6 +97,68 @@ void main() {
     expect(fallback.values.toSet(), hasLength(12));
   });
 
+  test('取色结果写入本地，重新启动或删书后仍沿用', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'reading-cover-persist-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final cover = await createColorCover(
+      directory,
+      'persisted',
+      const Color(0xFFB83235),
+    );
+    final library = LibraryStore.memory();
+    final colors = await ReadingBookColorCache(
+      store: SettingsBookColorStore(library),
+    ).load([_book('a', cover: cover.path)], ['a']);
+
+    var decodes = 0;
+    final restarted = ReadingBookColorCache(
+      loadCoverColor: (path) async {
+        decodes++;
+        return const Color(0xFF000000);
+      },
+      store: SettingsBookColorStore(library),
+    );
+    // 书籍已移出书架，仍沿用本地取色且不重新解码封面。
+    expect(await restarted.load(const [], ['a']), colors);
+    expect(decodes, 0);
+    expect(restarted.readyColors(['a'])['a'], colors['a']);
+  });
+
+  test('换封面后重新取色并覆盖本地记录', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'reading-cover-replace-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final first = await createColorCover(
+      directory,
+      'first',
+      const Color(0xFFB83235),
+    );
+    final next = await createColorCover(
+      directory,
+      'next',
+      const Color(0xFF28795B),
+    );
+    final library = LibraryStore.memory();
+    final cache = ReadingBookColorCache(store: SettingsBookColorStore(library));
+    final before = await cache.load([_book('a', cover: first.path)], ['a']);
+    final after = await cache.load([_book('a', cover: next.path)], ['a']);
+    expect(_hueDistance(after['a']!, before['a']!), greaterThan(60));
+
+    var decodes = 0;
+    final restarted = ReadingBookColorCache(
+      loadCoverColor: (path) async {
+        decodes++;
+        return null;
+      },
+      store: SettingsBookColorStore(library),
+    );
+    expect(await restarted.load([_book('a', cover: next.path)], ['a']), after);
+    expect(decodes, 0);
+  });
+
   test('更换封面路径后重新取色，旧封面结果只用于原路径', () async {
     final directory = await Directory.systemTemp.createTemp(
       'reading-cover-change-',

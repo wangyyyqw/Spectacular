@@ -24,6 +24,7 @@ class MainActivity : FlutterActivity() {
     private var onlineReview: OnlineReviewHandler? = null
     private var onlineDownload: OnlineDownloadHandler? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var ttsPlayback: ReaderTtsPlaybackHandler? = null
     private var showStatusBar = true
     private var showNavigationBar = true
 
@@ -44,6 +45,7 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        ttsPlayback = ReaderTtsPlaybackHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         epubExport = EpubExportHandler(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
             "com.spectacular.reader_mobile/epub_export").setMethodCallHandler(epubExport)
@@ -109,6 +111,7 @@ class MainActivity : FlutterActivity() {
         onlineSourceLogin?.dispose()
         onlineReview?.dispose()
         onlineDownload?.dispose()
+        ttsPlayback?.dispose()
         epubExport?.dispose()
         batteryChannel?.setStreamHandler(null)
         battery?.dispose()

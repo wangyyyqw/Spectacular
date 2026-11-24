@@ -254,7 +254,7 @@ class ReaderView extends StatefulWidget {
   State<ReaderView> createState() => _ReaderViewState();
 }
 
-/// 普通分页先锁定累计位移的主方向，避免斜拉被子层横向手势抢走。
+/// 向上斜滑按有效横移翻页，向下的纵向主方向留给下拉书签。
 class _ReaderDominantHorizontalDragRecognizer
     extends HorizontalDragGestureRecognizer {
   _ReaderDominantHorizontalDragRecognizer({super.debugOwner});
@@ -271,13 +271,13 @@ class _ReaderDominantHorizontalDragRecognizer
         _ => Offset.zero,
       };
       final slop = computeHitSlop(event.kind, gestureSettings);
-      if (_distance.dy.abs() > slop &&
-          _distance.dy.abs() > _distance.dx.abs()) {
+      if (_distance.dy > slop && _distance.dy > _distance.dx.abs()) {
         rejectGesture(event.pointer);
         return;
       }
       _horizontal =
-          _distance.dx.abs() > slop && _distance.dx.abs() > _distance.dy.abs();
+          _distance.dx.abs() > slop &&
+          (_distance.dy <= 0 || _distance.dx.abs() > _distance.dy);
     }
     super.handleEvent(event);
   }
@@ -296,7 +296,7 @@ class _ReaderDominantHorizontalDragRecognizer
   }
 }
 
-/// 配置路径沿用既有起拖采样，快扫距离与设备规则沿用 Flutter。
+/// 水平路径沿用既有起拖采样，向上斜滑越过横向容差即可起拖。
 class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   _ReaderHorizontalDragRecognizer({super.debugOwner});
 
@@ -306,6 +306,7 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   int _moveCount = -1;
   int? _acceptedPointer;
   bool _panZoom = false;
+  bool _upwardDiagonal = false;
 
   /// 仅在起拖前停止多指检测，由 SDK 拒绝竞争并发出取消回调。
   bool cancelPending() {
@@ -353,9 +354,15 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
     if (delta.distanceSquared < slop * slop) return;
     final localDelta = event.localPosition - sample.localPosition;
     final angle = math.atan2(localDelta.dy.abs(), localDelta.dx.abs());
-    if (angle <= 50 * math.pi / 180) {
+    final horizontal = angle <= 50 * math.pi / 180;
+    final upwardDiagonal = !horizontal && localDelta.dy < 0;
+    // 向上斜滑继续累计到横移越过设备容差，纯竖滑和小幅抖动不会起拖。
+    if (upwardDiagonal && delta.dx.abs() <= slop) return;
+    if (horizontal || upwardDiagonal) {
       _moveCount = 0;
-      _anchor = event;
+      // 交付容差前的锚点和本次移动，短促斜滑不必等待额外采样。
+      _anchor = upwardDiagonal ? sample : event;
+      _upwardDiagonal = upwardDiagonal;
     }
     _sample = event;
   }
@@ -369,7 +376,7 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
           pointerDeviceKind,
           deviceTouchSlop,
         )
-      : _moveCount > 2;
+      : _upwardDiagonal || _moveCount > 2;
 
   void start(
     DragStartDetails details,
@@ -413,6 +420,7 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
     _moveCount = -1;
     _acceptedPointer = null;
     _panZoom = false;
+    _upwardDiagonal = false;
   }
 
   @override
@@ -460,13 +468,13 @@ class _ReaderViewState extends State<ReaderView> {
   ReaderGestureInterpreter get _interpreter =>
       ReaderGestureInterpreter(widget.config);
   double _dragDx = 0;
-  double _dragDy = 0;
   Offset? _lastTapPosition;
   DateTime? _doubleTapTime;
   int? _rawPointer;
   final _rawPointers = <int>{};
   // 直到下一轮按下才清除，防止多指尾部 UP 补发页面点击。
   bool _rawMultiplePointers = false;
+  bool _rawHorizontalDrag = false;
   _ReaderHorizontalDragRecognizer? _horizontalRecognizer;
   Offset? _rawDown;
   double _rawDistance = 0;
@@ -557,19 +565,18 @@ class _ReaderViewState extends State<ReaderView> {
   }
 
   void _horizontalDragStart(DragStartDetails details) {
+    _rawHorizontalDrag = true;
     _dragDx = 0;
-    _dragDy = 0;
     widget.onDragStart?.call(details);
   }
 
   void _horizontalDragUpdate(DragUpdateDetails details) {
     _dragDx += details.delta.dx;
-    _dragDy += details.delta.dy;
     widget.onDragUpdate?.call(details);
   }
 
   void _horizontalDragEnd(DragEndDetails details, double width) {
-    final gesture = _interpreter.swipeDirection(_dragDx, _dragDy);
+    final gesture = _interpreter.swipeDirection(_dragDx, 0);
     _notify(gesture);
     if (widget.onDragEnd != null) {
       widget.onDragEnd!(details);
@@ -577,7 +584,7 @@ class _ReaderViewState extends State<ReaderView> {
     }
     if (_interpreter.shouldTurnPage(
       dx: _dragDx,
-      dy: _dragDy,
+      dy: 0,
       width: width,
       velocityX: details.primaryVelocity ?? 0,
     )) {
@@ -670,7 +677,10 @@ class _ReaderViewState extends State<ReaderView> {
 
   void _pointerDown(PointerDownEvent event) {
     if (event.buttons != kPrimaryButton) return;
-    if (_rawPointers.isEmpty) _rawMultiplePointers = false;
+    if (_rawPointers.isEmpty) {
+      _rawMultiplePointers = false;
+      _rawHorizontalDrag = false;
+    }
     _rawPointers.add(event.pointer);
     if (widget.config.minimumFlingVelocity != null && _rawPointers.length > 1) {
       _rawMultiplePointers = true;
@@ -729,9 +739,18 @@ class _ReaderViewState extends State<ReaderView> {
             _rawDistance = 0;
             _longPressTap = false;
             if (down == null ||
-                moved ||
                 longPressed ||
                 (customHorizontal && _rawMultiplePointers)) {
+              return;
+            }
+            if (moved) {
+              // 纵向观察不参与竞争，避免提前吞掉后续向上斜滑翻页。
+              if (!widget.continuousScroll && !_rawHorizontalDrag) {
+                final delta = event.localPosition - down;
+                if (delta.dy.abs() > delta.dx.abs()) {
+                  _notify(_interpreter.swipeDirection(0, delta.dy));
+                }
+              }
               return;
             }
             scheduleMicrotask(() {
@@ -819,18 +838,6 @@ class _ReaderViewState extends State<ReaderView> {
                 _longPressTap = true;
                 widget.onLongPressAt?.call(details.localPosition);
               },
-              // 阅读页不消费纵向滑动。无观察回调时不注册纵向识别器，
-              // 避免起手略偏纵向时抢走后续水平翻页手势。
-              onVerticalDragEnd:
-                  widget.continuousScroll || widget.onGesture == null
-                  ? null
-                  : (details) {
-                      final gesture = _interpreter.swipeDirection(
-                        0,
-                        details.primaryVelocity ?? 0,
-                      );
-                      _notify(gesture);
-                    },
               child: widget.child ?? const SizedBox.expand(),
             ),
           ),

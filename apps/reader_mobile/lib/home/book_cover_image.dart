@@ -8,6 +8,14 @@ import '../book_source/book_cover_url.dart';
 import '../diagnostics/reader_log.dart';
 export '../book_source/book_cover_url.dart';
 
+/// 封面解码宽度；预解码与显示必须用同一个宽度才会命中同一份缓存。
+int coverDecodeWidth(double logicalWidth, double devicePixelRatio) =>
+    (logicalWidth * devicePixelRatio).ceil().clamp(96, 1200);
+
+/// 封面图像源；首屏预解码与书架显示共用，键一致才能避免再次解码。
+ImageProvider coverImageProvider(String path, int decodeWidth) =>
+    ResizeImage.resizeIfNeeded(decodeWidth, null, FileImage(File(path)));
+
 /// 书架、详情、统计与书评共用封面；等比缩放并居中裁切铺满容器。
 class BookCoverImage extends StatelessWidget {
   const BookCoverImage({
@@ -83,17 +91,17 @@ class BookCoverImage extends StatelessWidget {
     final logicalWidth = constraints.maxWidth.isFinite
         ? constraints.maxWidth
         : 160.0;
-    final decodeWidth = (logicalWidth * MediaQuery.devicePixelRatioOf(context))
-        .ceil()
-        .clamp(96, 1200);
+    final decodeWidth = coverDecodeWidth(
+      logicalWidth,
+      MediaQuery.devicePixelRatioOf(context),
+    );
     if (book.coverPath != null) {
-      return Image.file(
-        File(book.coverPath!),
+      return Image(
+        image: coverImageProvider(book.coverPath!, decodeWidth),
         key: ValueKey('cover-${book.coverPath}'),
         width: double.infinity,
         height: double.infinity,
         fit: BoxFit.cover,
-        cacheWidth: decodeWidth,
         gaplessPlayback: true,
         excludeFromSemantics: true,
         frameBuilder: (_, child, frame, loaded) =>

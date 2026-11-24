@@ -22,16 +22,6 @@ import 'review_ticket.dart';
 import 'reviews_cloud.dart';
 import '../diagnostics/reader_log.dart';
 
-enum _ReviewFilter {
-  all('全部'),
-  reviewed('已写'),
-  pending('待写');
-
-  const _ReviewFilter(this.label);
-
-  final String label;
-}
-
 enum _ReviewSort {
   updated('最近更新'),
   rating('评分优先'),
@@ -88,7 +78,6 @@ class _ReviewsPageState extends State<ReviewsPage>
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   final FocusNode _keyboardFocus = FocusNode();
-  _ReviewFilter _filter = _ReviewFilter.all;
   _ReviewSort _sort = _ReviewSort.updated;
   bool _searching = false;
   String _query = '';
@@ -276,13 +265,12 @@ class _ReviewsPageState extends State<ReviewsPage>
     await _reload();
   }
 
-  void _resetSearchAndFilter() {
+  void _resetSearch() {
     _searchController.clear();
     FocusScope.of(context).unfocus();
     setState(() {
       _searching = false;
       _query = '';
-      _filter = _ReviewFilter.all;
     });
   }
 
@@ -827,10 +815,8 @@ class _ReviewsPageState extends State<ReviewsPage>
           durations: _durations,
           readDays: _readDays,
           query: _query,
-          filter: _filter,
           sort: _sort,
-          onFilterChanged: (filter) => setState(() => _filter = filter),
-          onResetSearchAndFilter: _resetSearchAndFilter,
+          onResetSearch: _resetSearch,
           onOpen: _openReview,
           onEdit: _edit,
         ),
@@ -855,10 +841,8 @@ class _ReviewList extends StatelessWidget {
     required this.durations,
     required this.readDays,
     required this.query,
-    required this.filter,
     required this.sort,
-    required this.onFilterChanged,
-    required this.onResetSearchAndFilter,
+    required this.onResetSearch,
     required this.onOpen,
     required this.onEdit,
   });
@@ -869,10 +853,8 @@ class _ReviewList extends StatelessWidget {
   final Map<String, Duration> durations;
   final Map<String, int> readDays;
   final String query;
-  final _ReviewFilter filter;
   final _ReviewSort sort;
-  final ValueChanged<_ReviewFilter> onFilterChanged;
-  final VoidCallback onResetSearchAndFilter;
+  final VoidCallback onResetSearch;
   final Future<void> Function(BookEntry, BookReview) onOpen;
   final Future<void> Function(BookEntry) onEdit;
 
@@ -940,10 +922,6 @@ class _ReviewList extends StatelessWidget {
             left.title.toLowerCase().compareTo(right.title.toLowerCase()),
       );
     }
-    final showReviewed = filter != _ReviewFilter.pending;
-    final showPending = filter != _ReviewFilter.reviewed;
-    final visibleReviewed = showReviewed ? reviewed : const <BookEntry>[];
-    final visiblePending = showPending ? pending : const <BookEntry>[];
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
@@ -953,19 +931,9 @@ class _ReviewList extends StatelessWidget {
           total: allReviewed.length + pendingCount,
           reviews: reviews,
         ),
-        _ReviewFilterBar(
-          reviewed: reviewed.length,
-          pending: pending.length,
-          selected: filter,
-          onSelected: onFilterChanged,
-        ),
         const SizedBox(height: 10),
-        if (visibleReviewed.isEmpty && visiblePending.isEmpty)
-          _NoReviewMatches(
-            query: query.trim(),
-            filter: filter,
-            onReset: onResetSearchAndFilter,
-          )
+        if (reviewed.isEmpty && pending.isEmpty)
+          _NoReviewMatches(query: query.trim(), onReset: onResetSearch)
         else if (usesDesktopLayout(context))
           LayoutBuilder(
             builder: (context, bounds) {
@@ -975,7 +943,7 @@ class _ReviewList extends StatelessWidget {
                 key: const ValueKey('reviews-desktop-grid'),
                 spacing: 20,
                 children: [
-                  for (final book in [...visibleReviewed, ...visiblePending])
+                  for (final book in [...reviewed, ...pending])
                     SizedBox(
                       key: ValueKey(book.id),
                       width: width,
@@ -986,8 +954,7 @@ class _ReviewList extends StatelessWidget {
             },
           )
         else
-          for (final book in [...visibleReviewed, ...visiblePending])
-            _ticket(book),
+          for (final book in [...reviewed, ...pending]) _ticket(book),
       ],
     );
   }
@@ -1015,92 +982,16 @@ class _ReviewList extends StatelessWidget {
   }
 }
 
-class _ReviewFilterBar extends StatelessWidget {
-  const _ReviewFilterBar({
-    required this.reviewed,
-    required this.pending,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final int reviewed;
-  final int pending;
-  final _ReviewFilter selected;
-  final ValueChanged<_ReviewFilter> onSelected;
-
-  int _count(_ReviewFilter filter) => switch (filter) {
-    _ReviewFilter.all => reviewed + pending,
-    _ReviewFilter.reviewed => reviewed,
-    _ReviewFilter.pending => pending,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        for (final filter in _ReviewFilter.values)
-          Expanded(
-            child: Semantics(
-              key: ValueKey<String>('reviews-filter-selected-${filter.name}'),
-              selected: filter == selected,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: filter == selected
-                          ? theme.colorScheme.onSurface
-                          : theme.colorScheme.outlineVariant,
-                      width: filter == selected ? 2 : 1,
-                    ),
-                  ),
-                ),
-                child: TextButton(
-                  key: ValueKey<String>('reviews-filter-${filter.name}'),
-                  onPressed: () => onSelected(filter),
-                  style: TextButton.styleFrom(
-                    foregroundColor: filter == selected
-                        ? theme.colorScheme.onSurface
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                  child: Text(
-                    '${filter.label} ${_count(filter)}',
-                    style: TextStyle(
-                      fontWeight: filter == selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 class _NoReviewMatches extends StatelessWidget {
-  const _NoReviewMatches({
-    required this.query,
-    required this.filter,
-    required this.onReset,
-  });
+  const _NoReviewMatches({required this.query, required this.onReset});
 
   final String query;
-  final _ReviewFilter filter;
   final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final title = query.isNotEmpty
-        ? '没有找到相关书评'
-        : switch (filter) {
-            _ReviewFilter.all => '没有可显示的书评',
-            _ReviewFilter.reviewed => '还没有写过书评',
-            _ReviewFilter.pending => '没有待写书评',
-          };
+    final title = query.isNotEmpty ? '没有找到相关书评' : '没有可显示的书评';
     return Card(
       elevation: 0,
       shape: const RoundedRectangleBorder(
@@ -1128,13 +1019,13 @@ class _NoReviewMatches extends StatelessWidget {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                onPressed: onReset,
+                icon: const AppIcon(AppGlyph.filterOff),
+                label: const Text('清除搜索'),
+              ),
             ],
-            const SizedBox(height: 10),
-            TextButton.icon(
-              onPressed: onReset,
-              icon: const AppIcon(AppGlyph.filterOff),
-              label: Text(query.isEmpty ? '查看全部书评' : '清除搜索与筛选'),
-            ),
           ],
         ),
       ),

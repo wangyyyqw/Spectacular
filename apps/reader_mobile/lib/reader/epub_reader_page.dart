@@ -52,6 +52,7 @@ import 'reader_settings.dart';
 import 'reader_background_store.dart';
 import 'reader_background_color_theme.dart';
 import 'reader_font_store.dart';
+import 'reader_tts_background.dart';
 import 'reader_offline_tts.dart';
 import 'reader_tts_controller.dart';
 import 'reader_tts_voice_page.dart';
@@ -747,11 +748,22 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (existing != null) return existing;
     final voiceStore = _ensureTtsVoiceStore();
     final link = ReaderTtsReaderLink(_readerSession!);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    unawaited(
+      link.setScreenActive(
+        lifecycle == null || lifecycle == AppLifecycleState.resumed,
+      ),
+    );
     _ttsReaderLink = link;
     final controller = ReaderTtsController(
       textSource: link,
       offlineSynthesizer: SherpaReaderOfflineTtsSynthesizer(),
-      player: AudioplayersReaderTtsPlayer(),
+      player: AudioplayersReaderTtsPlayer(
+        externalAudioFocus: defaultTargetPlatform == TargetPlatform.android,
+      ),
+      backgroundPlayback: ReaderTtsBackgroundPlayback(
+        bookTitle: widget.bookTitle,
+      ),
       resolveOfflineVoice: (id) async {
         final model = await voiceStore.modelFor(id);
         if (model == null) return null;
@@ -1013,6 +1025,19 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final tracker = _readingTracker;
+    final follow = _ttsReaderLink?.setScreenActive(
+      state == AppLifecycleState.resumed,
+    );
+    if (follow != null) {
+      unawaited(
+        follow.then<void>(
+          (_) {},
+          onError: (Object error) {
+            recordAppError('tts_screen_follow_failed', error);
+          },
+        ),
+      );
+    }
     switch (state) {
       case AppLifecycleState.resumed:
         _syncReadingActivity();
@@ -1020,7 +1045,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
         unawaited(tracker?.pause() ?? Future<void>.value());
-        unawaited(_ttsController?.pause() ?? Future<void>.value());
+        if (!(_ttsController?.supportsBackgroundPlayback ?? false)) {
+          unawaited(_ttsController?.pause() ?? Future<void>.value());
+        }
         _flushProgressInBackground();
       case AppLifecycleState.detached:
         unawaited(tracker?.finish() ?? Future<void>.value());

@@ -6,6 +6,7 @@ import 'package:reader_ui/reading_highlight.dart';
 import 'reader_offline_tts.dart';
 import 'reader_settings.dart';
 import 'reader_system_tts.dart';
+import 'reader_tts_background.dart';
 import 'reader_tts_text.dart';
 
 export 'reader_system_tts.dart' show ReaderTtsVoice;
@@ -50,11 +51,19 @@ class ReaderTtsController {
     this.offlineSynthesizer,
     this.player,
     this.resolveOfflineVoice,
-  });
+    this.backgroundPlayback,
+  }) {
+    backgroundPlayback?.onCommand = (command) => switch (command) {
+      ReaderTtsMediaCommand.play => resume(),
+      ReaderTtsMediaCommand.pause => pause(),
+      ReaderTtsMediaCommand.stop => stop(),
+    };
+  }
 
   final ReaderTtsTextSource textSource;
   final ReaderOfflineTtsSynthesizer? offlineSynthesizer;
   final ReaderTtsPlayer? player;
+  final ReaderTtsBackgroundPlayback? backgroundPlayback;
   final Future<ReaderOfflineVoiceInstance?> Function(String id)?
   resolveOfflineVoice;
   final state = ValueNotifier(
@@ -92,6 +101,7 @@ class ReaderTtsController {
       snapshot.phase == ReaderTtsPhase.loading;
   bool get paused => snapshot.phase == ReaderTtsPhase.paused;
   bool get hasSession => speaking || paused;
+  bool get supportsBackgroundPlayback => backgroundPlayback?.supported ?? false;
   ReaderReadingHighlight? get position =>
       highlight.value ??
       (_segment == null ? null : _chunk!.highlightFor(_segment!));
@@ -120,6 +130,18 @@ class ReaderTtsController {
       segment: _segment,
       error: error,
     );
+    final update = backgroundPlayback?.update(
+      phase: phase.name,
+      chapterTitle: snapshot.chapterTitle,
+    );
+    if (update != null) {
+      unawaited(
+        update.then<void>(
+          (_) {},
+          onError: (Object error) => onError?.call(error),
+        ),
+      );
+    }
   }
 
   bool _valid(int generation) => generation == _generation;
@@ -151,6 +173,11 @@ class ReaderTtsController {
     _fallback = false;
     _publish(ReaderTtsPhase.loading);
     try {
+      await _wait(
+        backgroundPlayback?.start() ?? Future<void>.value(),
+        generation,
+      );
+      if (!_valid(generation)) return;
       _chunk =
           chunk ??
           await _wait<ReaderTtsTextChunk?>(
@@ -202,6 +229,7 @@ class ReaderTtsController {
       highlight.value = null;
       _publish(ReaderTtsPhase.completed);
       await offlineSynthesizer?.stop();
+      await backgroundPlayback?.stop();
     }
   }
 
@@ -305,6 +333,7 @@ class ReaderTtsController {
       final completed = await _wait(
         _system.speak(
           spoken.text,
+          focus: !supportsBackgroundPlayback,
           onStarted: () => _started(generation),
           onProgress: (start, end) =>
               _progress(generation, start, end, segment: spoken),
@@ -492,6 +521,8 @@ class ReaderTtsController {
     final generation = _generation;
     return _serialize(() async {
       if (!_valid(generation) || !paused) return;
+      await backgroundPlayback?.activate();
+      if (!_valid(generation) || !paused) return;
       _publish(ReaderTtsPhase.loading);
       final resumed = _resume;
       _resume = null;
@@ -505,6 +536,7 @@ class ReaderTtsController {
       _system.stop(),
       if (player != null) player!.stop(),
       if (offlineSynthesizer != null) offlineSynthesizer!.stop(),
+      if (backgroundPlayback != null) backgroundPlayback!.stop(),
     ]);
   }
 
@@ -532,6 +564,7 @@ class ReaderTtsController {
     await stop();
     await player?.dispose();
     await offlineSynthesizer?.dispose();
+    await backgroundPlayback?.dispose();
     onError = null;
     onFallback = null;
     onPositionChanged = null;

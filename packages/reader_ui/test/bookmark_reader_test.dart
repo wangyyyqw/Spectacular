@@ -104,6 +104,7 @@ Future<ReaderSession> _open(
   double topInset = 0,
   double devicePixelRatio = 1,
   double? touchSlop,
+  Size viewport = const Size(360, 520),
   Future<Uint8List> Function(String)? imageLoader,
 }) async {
   late ReaderSession session;
@@ -123,8 +124,8 @@ Future<ReaderSession> _open(
       home: Scaffold(
         body: Center(
           child: SizedBox(
-            width: 360,
-            height: 520,
+            width: viewport.width,
+            height: viewport.height,
             child: ReaderPage(
               source: _Book(),
               store: MemoryReaderProgressStore(),
@@ -590,9 +591,85 @@ void main() {
     store.dispose();
   });
 
+  testWidgets('3D 短促红线斜滑只收到两次 MOVE 仍可前后翻页', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final bookmarks = _Bookmarks();
+    final session = await _open(
+      tester,
+      bookmarks,
+      mode: PageTurnMode.simulation3d,
+      viewport: const Size(360, 800),
+      devicePixelRatio: 2,
+      touchSlop: 36,
+    );
+    for (final direction in [-1.0, 1.0]) {
+      final down =
+          tester.getTopLeft(find.byType(ReaderView)) +
+          Offset(direction < 0 ? 286 : 74, 625);
+      final drag = await tester.startGesture(down);
+      await drag.moveTo(
+        down + Offset(direction, -176 / 104),
+        timeStamp: const Duration(milliseconds: 20),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      await drag.moveTo(
+        down + Offset(direction * 104, -176),
+        timeStamp: const Duration(milliseconds: 180),
+      );
+      await tester.pump(const Duration(milliseconds: 160));
+      await drag.up(timeStamp: const Duration(milliseconds: 180));
+      await tester.pumpAndSettle();
+      expect(session.page!.pageIndex, direction < 0 ? 1 : 0);
+      expect(bookmarks.items, isEmpty);
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final mode in PageTurnMode.values.where(
     (value) => value != PageTurnMode.scroll,
   )) {
+    testWidgets('${mode.label}红线向上斜滑前后翻页，不触发下拉书签', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final bookmarks = _Bookmarks();
+      final session = await _open(
+        tester,
+        bookmarks,
+        mode: mode,
+        viewport: const Size(360, 800),
+        devicePixelRatio: 2,
+        touchSlop: 36,
+      );
+      expect(tester.getSize(find.byType(ReaderView)), const Size(360, 800));
+      final initial = session.currentCfi;
+      // 普通模式保留 35% 页宽的松手门槛，只沿同一红线方向延长轨迹。
+      final distance = mode.is3d || mode == PageTurnMode.simulationBessel
+          ? 104.0
+          : 144.0;
+      for (final direction in [-1.0, 1.0]) {
+        final down =
+            tester.getTopLeft(find.byType(ReaderView)) +
+            Offset(direction < 0 ? 286 : 74, 625);
+        final delta = Offset(direction * distance, -distance * 176 / 104);
+        final drag = await tester.startGesture(down);
+        for (var step = 1; step <= 20; step++) {
+          await drag.moveTo(
+            down + delta * (step / 20),
+            timeStamp: Duration(milliseconds: step * 17),
+          );
+          await tester.pump(const Duration(milliseconds: 17));
+        }
+        await drag.up(timeStamp: const Duration(milliseconds: 340));
+        await tester.pumpAndSettle();
+        expect(session.page!.pageIndex, direction < 0 ? 1 : 0);
+        expect(bookmarks.items, isEmpty);
+        expect(find.textContaining('松手确认'), findsNothing);
+      }
+      expect(session.currentCfi, initial);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('${mode.label}纵向主方向斜拉可切换书签，锁定后横移不取消', (tester) async {
       final bookmarks = _Bookmarks();
       final session = await _open(tester, bookmarks, mode: mode);

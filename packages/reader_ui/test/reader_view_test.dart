@@ -709,6 +709,77 @@ void main() {
       expect(started, isTrue);
     });
 
+    for (final minimum in <double?>[null, 20]) {
+      for (final slop in [18.0, 36.0]) {
+        testWidgets('红线向上斜滑保留左右拖动，不被纵向观察抢走：$minimum / $slop', (tester) async {
+          for (final direction in [-1.0, 1.0]) {
+            var started = 0;
+            var menus = 0;
+            final ends = <DragEndDetails>[];
+            final gestures = <ReaderGesture>[];
+            await _pumpGestureView(
+              tester,
+              ReaderView(
+                config: ReaderGestureConfig(minimumFlingVelocity: minimum),
+                onDragStart: (_) => started++,
+                onDragEnd: ends.add,
+                onGesture: gestures.add,
+                onToggleToolbar: () => menus++,
+              ),
+              touchSlop: slop,
+            );
+            final down =
+                tester.getTopLeft(find.byType(ReaderView)) +
+                Offset(direction < 0 ? 270 : 30, 180);
+            final drag = await tester.startGesture(down);
+            await _moveSamples(tester, drag, [
+              for (var step = 1; step <= 20; step++)
+                down + Offset(direction * 100, -170) * (step / 20),
+            ]);
+            await drag.up(timeStamp: const Duration(milliseconds: 400));
+            await tester.pump();
+            expect(started, 1);
+            expect(ends, hasLength(1));
+            expect(gestures, [
+              direction < 0
+                  ? ReaderGesture.swipeLeft
+                  : ReaderGesture.swipeRight,
+            ]);
+            expect(menus, 0);
+          }
+        });
+      }
+
+      testWidgets('向上竖滑的横向抖动未过设备容差时不进入翻页：$minimum', (tester) async {
+        var started = 0;
+        var turns = 0;
+        final gestures = <ReaderGesture>[];
+        await _pumpGestureView(
+          tester,
+          ReaderView(
+            config: ReaderGestureConfig(minimumFlingVelocity: minimum),
+            onDragStart: (_) => started++,
+            onNext: () => turns++,
+            onPrevious: () => turns++,
+            onGesture: gestures.add,
+          ),
+          touchSlop: 18,
+        );
+        final down =
+            tester.getTopLeft(find.byType(ReaderView)) + const Offset(150, 180);
+        final drag = await tester.startGesture(down);
+        await _moveSamples(tester, drag, [
+          for (var step = 1; step <= 20; step++)
+            down + const Offset(8, -140) * (step / 20),
+        ]);
+        await drag.up(timeStamp: const Duration(milliseconds: 400));
+        await tester.pump();
+        expect(started, 0);
+        expect(turns, 0);
+        expect(gestures, [ReaderGesture.swipeUp]);
+      });
+    }
+
     for (final slop in [18.0, 40.0]) {
       testWidgets('普通分页斜拉交给纵向主方向，锁定后横移不翻页：$slop', (tester) async {
         final events = <String>[];

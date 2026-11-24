@@ -213,10 +213,14 @@ abstract interface class ReaderTtsPlayer {
 
 /// 暂停保留播放器与音频位置，超时预算只在实际播放期间消耗。
 class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
-  AudioplayersReaderTtsPlayer({AudioPlayer? audioPlayer})
-    : _player = audioPlayer;
+  AudioplayersReaderTtsPlayer({
+    AudioPlayer? audioPlayer,
+    this.externalAudioFocus = false,
+  }) : _player = audioPlayer;
 
+  final bool externalAudioFocus;
   AudioPlayer? _player;
+  Future<void>? _configuration;
   Completer<void>? _completion;
   Timer? _timeout;
   final _playingTime = Stopwatch();
@@ -244,6 +248,16 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
     });
     final positions = _observePositions(player, completion, onPosition);
     try {
+      if (externalAudioFocus) {
+        await (_configuration ??= player.setAudioContext(
+          AudioContext(
+            android: const AudioContextAndroid(
+              contentType: AndroidContentType.speech,
+              audioFocus: AndroidAudioFocus.none,
+            ),
+          ),
+        ));
+      }
       await player.setVolume(volume.clamp(0, 1));
       await player.setSource(BytesSource(clip.wav, mimeType: 'audio/wav'));
       if (identical(_completion, completion) &&
@@ -325,6 +339,7 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
     await stop();
     final player = _player;
     _player = null;
+    _configuration = null;
     await player?.dispose();
   }
 }
