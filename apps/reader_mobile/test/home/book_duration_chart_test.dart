@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_duration_chart.dart';
 import 'package:reader_mobile/home/reading_insights.dart';
+import 'package:reader_mobile/home/voxel_duration_chart.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 
@@ -22,6 +23,8 @@ Future<void> _pump(
   double width = 360,
   double scale = 1,
   Map<String, String> titles = const {},
+  Map<String, Color> bookColors = const {},
+  bool applyThreshold = false,
 }) async {
   tester.view.physicalSize = Size(width, 1100);
   tester.view.devicePixelRatio = 1;
@@ -38,9 +41,16 @@ Future<void> _pump(
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: BookDurationChart(
-            insights: ReadingInsights(sessions, now: _now),
+            insights: ReadingInsights(
+              sessions,
+              now: _now,
+              minimumBookDayDuration: applyThreshold
+                  ? minimumDisplayedBookDayDuration
+                  : Duration.zero,
+            ),
             now: _now,
             bookTitles: titles,
+            bookColors: bookColors,
           ),
         ),
       ),
@@ -62,13 +72,60 @@ Future<void> _tap(WidgetTester tester, String suffix) async {
   await tester.pumpAndSettle();
 }
 
+Finder _legendRows() => find.byWidgetPredicate((widget) {
+  final key = widget.key;
+  return widget is InkWell &&
+      key is ValueKey<String> &&
+      key.value.startsWith('stats-book-duration-tag-');
+});
+
+Color _dotColor(WidgetTester tester, Finder root) {
+  final dot = find.descendant(
+    of: root,
+    matching: find.byWidgetPredicate(
+      (widget) =>
+          widget is Container &&
+          widget.decoration is BoxDecoration &&
+          (widget.decoration! as BoxDecoration).shape == BoxShape.circle,
+    ),
+  );
+  return (tester.widget<Container>(dot).decoration! as BoxDecoration).color!;
+}
+
 Future<void> _selectPeriod(WidgetTester tester, String period) async {
-  await _tap(tester, 'pick-period');
-  await tester.tap(_key('period-$period'));
-  await tester.pumpAndSettle();
+  await _tap(tester, 'period-$period');
 }
 
 void main() {
+  testWidgets('封面配色贯穿书柱、时段色段、书目色点与完整列表', (tester) async {
+    const colors = {'a': Color(0xFF28795B), 'b': Color(0xFF285BAA)};
+    await _pump(tester, [
+      _session('a', DateTime(2026, 11, 15, 8), 30),
+      _session('b', DateTime(2026, 11, 15, 9), 10),
+    ], bookColors: colors);
+    final chart = tester.widget<VoxelDurationChart>(
+      find.byType(VoxelDurationChart),
+    );
+    expect(chart.bars.first.color, colors['a']);
+    expect(chart.bars.last.color, colors['b']);
+    expect(_dotColor(tester, _key('tag-a')), colors['a']);
+    for (final segment in chart.timeBars.expand((bar) => bar.segments)) {
+      expect(segment.color, colors[segment.key]);
+    }
+    await _tap(tester, 'chart-mode');
+    await _tap(tester, 'tag-a');
+    expect(_dotColor(tester, _key('selection')), colors['a']);
+    await _tap(tester, 'all');
+    expect(
+      tester
+          .widget<BookDurationListPage>(find.byType(BookDurationListPage))
+          .bookColors,
+      colors,
+    );
+    expect(_dotColor(tester, _key('list-row-1')), colors['a']);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('滚动离开图表再返回时保留周期和下方图书列表', (tester) async {
     final controller = ScrollController();
     addTearDown(controller.dispose);
@@ -81,7 +138,7 @@ void main() {
               BookDurationChart(
                 insights: ReadingInsights([
                   for (var i = 1; i <= 7; i++)
-                    _session('$i', DateTime(2026, 10, 1, i), i * 10),
+                    _session('$i', DateTime(2026, 11, 9, i), i * 10),
                 ], now: _now),
                 now: _now,
               ),
@@ -92,17 +149,25 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _selectPeriod(tester, 'quarter');
+    await _selectPeriod(tester, 'week');
     controller.jumpTo(controller.position.maxScrollExtent);
     await tester.pumpAndSettle();
     controller.jumpTo(0);
     await tester.pumpAndSettle();
-    expect(_text(tester, 'range'), '本季度 · 2026年 第4季度');
+    expect(_text(tester, 'range'), '本周 · 2026/11/9 – 2026/11/15');
     expect(_key('bars'), findsOneWidget);
-    expect(_key('tag-other'), findsOneWidget);
+    expect(_legendRows(), findsNWidgets(3));
+    expect(_key('tag-other'), findsNothing);
+    expect(
+      tester
+          .widget<VoxelDurationChart>(find.byType(VoxelDurationChart))
+          .bars
+          .map((bar) => bar.id),
+      ['7', '6', '5', '4', '3'],
+    );
   });
 
-  testWidgets('五种周期展示对应图书、合计和占比，并阻止浏览未来', (tester) async {
+  testWidgets('日和周展示对应图书、合计和占比，并阻止浏览未来', (tester) async {
     await _pump(tester, [
       _session('today', DateTime(2026, 11, 15, 8), 10),
       _session('week', DateTime(2026, 11, 9, 8), 20),
@@ -113,9 +178,6 @@ void main() {
     for (final (period, total, count) in [
       ('day', '10 分钟', 1),
       ('week', '30 分钟', 2),
-      ('month', '1 小时', 3),
-      ('quarter', '1 小时 40 分', 4),
-      ('year', '2 小时 30 分', 5),
     ]) {
       await _selectPeriod(tester, period);
       expect(_text(tester, 'total'), total);
@@ -123,8 +185,8 @@ void main() {
       expect(tester.widget<IconButton>(_key('next')).onPressed, isNull);
       expect(tester.takeException(), isNull);
     }
-    await _selectPeriod(tester, 'quarter');
-    expect(_text(tester, 'value-quarter'), '40 分钟');
+    await _selectPeriod(tester, 'week');
+    expect(_text(tester, 'value-week'), '20 分钟');
     expect(_key('tag-year'), findsNothing);
     await _selectPeriod(tester, 'day');
     expect(_text(tester, 'value-today'), '10 分钟');
@@ -147,11 +209,11 @@ void main() {
     await _tap(tester, 'next');
     expect(_text(tester, 'total'), '10 分钟');
     await _tap(tester, 'previous');
-    await _tap(tester, 'current');
+    await _tap(tester, 'next');
     expect(_text(tester, 'range'), '今天 · 2026年11月15日');
     await _tap(tester, 'previous');
-    await _selectPeriod(tester, 'quarter');
-    expect(_text(tester, 'range'), '本季度 · 2026年 第4季度');
+    await _selectPeriod(tester, 'week');
+    expect(_text(tester, 'range'), '本周 · 2026/11/9 – 2026/11/15');
     expect(_text(tester, 'total'), '35 分钟');
   });
 
@@ -169,7 +231,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('多书合并其他，点击后进入当前周期完整时长列表', (tester) async {
+  testWidgets('柱图前五本、列表前三本，其余不分组且更多展示同期全量书籍', (tester) async {
     await _pump(
       tester,
       [
@@ -180,10 +242,23 @@ void main() {
     );
     expect(_legendText('书架中的新书名'), findsOneWidget);
     expect(_text(tester, 'total'), '4 小时 40 分');
-    expect(_legendText('其他3本'), findsOneWidget);
-    expect(_text(tester, 'value-other'), '1 小时');
+    expect(_legendRows(), findsNWidgets(3));
+    expect(_key('tag-other'), findsNothing);
+    expect(_key('bar-other'), findsNothing);
+    expect(_key('bar-short-reading'), findsNothing);
+    expect(
+      tester
+          .widget<VoxelDurationChart>(find.byType(VoxelDurationChart))
+          .bars
+          .map((bar) => bar.id),
+      ['7', '6', '5', '4', '3'],
+    );
+    expect(_key('bar-3'), findsOneWidget);
+    expect(_key('tag-3'), findsNothing);
+    expect(_key('tag-4'), findsNothing);
     expect(_key('tag-1'), findsNothing);
-    await _tap(tester, 'tag-other');
+    expect(find.text('更多 · 7 本'), findsOneWidget);
+    await _tap(tester, 'all');
     expect(_key('list-page'), findsOneWidget);
     expect(find.byType(BottomSheet), findsOneWidget);
     expect(_text(tester, 'list-range'), '2026年11月15日');
@@ -202,7 +277,7 @@ void main() {
     expect(_text(tester, 'range'), '今天 · 2026年11月15日');
   });
 
-  testWidgets('柱状图下方的书目与其他共用同一刻度，条长对应当前周期时长占比', (tester) async {
+  testWidgets('书目列表按周期时长排列并显示占比', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2026, 11, 15, 8), 100),
       _session('b', DateTime(2026, 11, 15, 9), 80),
@@ -214,42 +289,42 @@ void main() {
     final chart = tester.getRect(_key('bars'));
     final list = tester.getRect(_key('legend'));
     expect(list.top, greaterThanOrEqualTo(chart.bottom));
-    final rows = find.descendant(
-      of: _key('legend'),
-      matching: find.byType(InkWell),
-    );
-    expect(rows, findsNWidgets(5));
+    final rows = find.descendant(of: _key('legend'), matching: _legendRows());
+    expect(rows, findsNWidgets(3));
     var previousBottom = chart.bottom;
-    Rect? firstTrack;
-    for (final (id, minutes, share) in [
-      ('a', 100, '29.4%'),
-      ('b', 80, '23.5%'),
-      ('c', 60, '17.6%'),
-      ('d', 40, '11.8%'),
-      ('other', 60, '17.6%'),
+    Rect? firstTag;
+    for (final (id, share) in [
+      ('a', '29.4%'),
+      ('b', '23.5%'),
+      ('c', '17.6%'),
     ]) {
       final tag = tester.getRect(_key('tag-$id'));
-      final bar = find.descendant(
-        of: _key('tag-$id'),
-        matching: find.byType(LinearProgressIndicator),
-      );
-      final track = tester.getRect(bar);
-      firstTrack ??= track;
-      expect(track.left, firstTrack.left);
-      expect(track.width, firstTrack.width);
-      expect(tester.widget<LinearProgressIndicator>(bar).value, minutes / 340);
+      firstTag ??= tag;
       expect(tag.height, greaterThanOrEqualTo(kMinInteractiveDimension));
       expect(tag.top, greaterThanOrEqualTo(previousBottom));
-      expect(tag.left, list.left);
-      expect(tag.right, list.right);
+      expect(tag.left, firstTag.left);
+      expect(tag.right, firstTag.right);
       expect(_text(tester, 'share-$id'), share);
       previousBottom = tag.bottom;
     }
-    expect(_text(tester, 'value-other'), '1 小时');
-    final other = _key('tag-other');
-    await tester.ensureVisible(other);
-    await tester.tap(other);
-    await tester.pumpAndSettle();
+    expect(_key('tag-d'), findsNothing);
+    expect(_key('tag-other'), findsNothing);
+    final voxel = tester.widget<VoxelDurationChart>(
+      find.byType(VoxelDurationChart),
+    );
+    expect(voxel.bars.map((bar) => bar.id), ['a', 'b', 'c', 'd', 'small1']);
+    expect(
+      voxel.timeBars
+          .expand((bar) => bar.segments)
+          .map((segment) => segment.key)
+          .toSet(),
+      {'a', 'b', 'c', 'd', 'small1'},
+    );
+    expect(
+      voxel.timeBars.fold(Duration.zero, (sum, bar) => sum + bar.duration),
+      const Duration(minutes: 290),
+    );
+    await _tap(tester, 'all');
     expect(_key('list-page'), findsOneWidget);
     expect(_text(tester, 'list-summary'), '10 本书 · 合计 5 小时 40 分');
   });
@@ -288,6 +363,29 @@ void main() {
     }
   });
 
+  testWidgets('周视图的时段按周一到周日分段，不复用一天的小时', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await _pump(tester, [
+        _session('a', DateTime(2026, 11, 9, 1), 60),
+        _session('b', DateTime(2026, 11, 10, 3), 40),
+      ]);
+      await _selectPeriod(tester, 'week');
+      await _tap(tester, 'chart-mode');
+      expect(find.text('一周分布'), findsOneWidget);
+      for (final day in ['周一', '周二', '周三', '周四', '周五', '周六', '周日']) {
+        expect(_key('time-bar-$day'), findsOneWidget);
+      }
+      expect(_key('time-bar-0-2'), findsNothing);
+      expect(find.bySemanticsLabel('周一，共 1 小时，书籍 a 1 小时'), findsOneWidget);
+      expect(find.bySemanticsLabel('周二，共 40 分钟，书籍 b 40 分钟'), findsOneWidget);
+      expect(find.bySemanticsLabel('周三，没有阅读记录'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('320 宽、2 倍字号下一天时段柱图不溢出', (tester) async {
     await _pump(
       tester,
@@ -304,28 +402,35 @@ void main() {
   });
 
   for (final count in [4, 5, 6]) {
-    testWidgets('$count 本书最多展示四本书名，第五本起合并为其他', (tester) async {
+    testWidgets('$count 本书只展示前三条，柱图最多五本，更多不丢书籍', (tester) async {
       await _pump(tester, [
         for (var i = 1; i <= count; i++)
           _session('$i', DateTime(2026, 11, 15, 8), (count + 1 - i) * 10),
       ]);
-      final rows = find.descendant(
-        of: _key('legend'),
-        matching: find.byType(InkWell),
-      );
-      expect(rows, findsNWidgets(count == 4 ? 4 : 5));
-      for (var i = 1; i <= 4; i++) {
+      final rows = find.descendant(of: _key('legend'), matching: _legendRows());
+      expect(rows, findsNWidgets(3));
+      for (var i = 1; i <= 3; i++) {
         expect(_key('tag-$i'), findsOneWidget);
       }
       expect(_key('tag-5'), findsNothing);
-      if (count == 4) {
-        expect(_key('tag-other'), findsNothing);
-      } else {
-        expect(_legendText('其他${count - 4}本'), findsOneWidget);
-        expect(_text(tester, 'value-other'), count == 5 ? '10 分钟' : '30 分钟');
-        await _tap(tester, 'tag-other');
-        expect(find.text('书籍 5'), findsOneWidget);
-      }
+      expect(_key('tag-4'), findsNothing);
+      expect(_key('tag-other'), findsNothing);
+      expect(
+        tester
+            .widget<VoxelDurationChart>(find.byType(VoxelDurationChart))
+            .bars
+            .length,
+        count < 5 ? count : 5,
+      );
+      await _tap(tester, 'all');
+      expect(
+        tester
+            .widget<BookDurationListPage>(find.byType(BookDurationListPage))
+            .summary
+            .entries
+            .length,
+        count,
+      );
       expect(tester.takeException(), isNull);
     });
   }
@@ -350,6 +455,123 @@ void main() {
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
     expect(_text(tester, 'total'), '40 分钟');
+  });
+
+  testWidgets('前五和前三保留门槛，更多包含同期未达门槛书籍且无合并分组', (tester) async {
+    await _pump(tester, [
+      for (var index = 1; index <= 6; index++)
+        _session('$index', DateTime(2026, 11, 15, 8), index * 10),
+      _session('brief', DateTime(2026, 11, 15, 9), 4),
+    ], applyThreshold: true);
+    final voxel = tester.widget<VoxelDurationChart>(
+      find.byType(VoxelDurationChart),
+    );
+    expect(voxel.bars.map((bar) => bar.id), ['6', '5', '4', '3', '2']);
+    expect(_legendRows(), findsNWidgets(3));
+    expect(_key('tag-3'), findsNothing);
+    expect(_key('bar-brief'), findsNothing);
+    expect(_key('bar-other'), findsNothing);
+    expect(_key('bar-short-reading'), findsNothing);
+    expect(find.text('短时阅读'), findsNothing);
+    expect(_text(tester, 'total'), '3 小时 34 分');
+    expect(find.text('更多 · 7 本'), findsOneWidget);
+    await _tap(tester, 'all');
+    final complete = tester.widget<BookDurationListPage>(
+      find.byType(BookDurationListPage),
+    );
+    expect(complete.summary.entries.map((entry) => entry.bookId), [
+      '6',
+      '5',
+      '4',
+      '3',
+      '2',
+      '1',
+      'brief',
+    ]);
+    expect(complete.summary.total, const Duration(minutes: 214));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('只有未达门槛的阅读也能从更多查看完整汇总', (tester) async {
+    await _pump(tester, [
+      _session('a', DateTime(2026, 11, 15, 8), 2),
+      _session('b', DateTime(2026, 11, 15, 9), 3),
+    ], applyThreshold: true);
+    expect(_key('empty'), findsOneWidget);
+    expect(_key('bars'), findsNothing);
+    expect(find.text('更多 · 2 本'), findsOneWidget);
+    await _tap(tester, 'all');
+    final complete = tester.widget<BookDurationListPage>(
+      find.byType(BookDurationListPage),
+    );
+    expect(complete.summary.entries.map((entry) => entry.bookId), ['b', 'a']);
+    expect(complete.summary.total, const Duration(minutes: 5));
+  });
+
+  testWidgets('切换日周重新按该周期排名，更多只包含该周期的书籍', (tester) async {
+    await _pump(tester, [
+      for (var index = 0; index < 7; index++)
+        _session('$index', DateTime(2026, 11, 15, 8), 70 - index * 10),
+      _session('6', DateTime(2026, 11, 9, 8), 200),
+      _session('7', DateTime(2026, 11, 9, 12), 150),
+    ]);
+    expect(
+      tester
+          .widget<VoxelDurationChart>(find.byType(VoxelDurationChart))
+          .bars
+          .map((bar) => bar.id),
+      ['0', '1', '2', '3', '4'],
+    );
+    expect(_key('tag-0'), findsOneWidget);
+    expect(_key('tag-6'), findsNothing);
+    await _tap(tester, 'all');
+    expect(
+      tester
+          .widget<BookDurationListPage>(find.byType(BookDurationListPage))
+          .summary
+          .entries
+          .length,
+      7,
+    );
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    await _selectPeriod(tester, 'week');
+    expect(
+      tester
+          .widget<VoxelDurationChart>(find.byType(VoxelDurationChart))
+          .bars
+          .map((bar) => bar.id),
+      ['6', '7', '0', '1', '2'],
+    );
+    expect(_key('tag-6'), findsOneWidget);
+    expect(_key('tag-7'), findsOneWidget);
+    expect(_key('tag-1'), findsNothing);
+    await _tap(tester, 'all');
+    expect(
+      tester
+          .widget<BookDurationListPage>(find.byType(BookDurationListPage))
+          .summary
+          .entries
+          .length,
+      8,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('第五根柱可选中，刷新仍在前五时保留，跌出前五后清除', (tester) async {
+    final sessions = [
+      for (var index = 1; index <= 6; index++)
+        _session('$index', DateTime(2026, 11, 15, 8), 70 - index * 10),
+    ];
+    await _pump(tester, sessions);
+    await _tap(tester, 'bar-5');
+    expect(_key('selection'), findsOneWidget);
+    await _pump(tester, sessions);
+    expect(_key('selection'), findsOneWidget);
+    sessions.add(_session('6', DateTime(2026, 11, 15, 12), 20));
+    await _pump(tester, sessions);
+    expect(_key('selection'), findsNothing);
+    expect(_key('bar-5'), findsNothing);
   });
 
   testWidgets('点选书名或柱体显示相同详情，重复点选和切换日期清除选中', (tester) async {
@@ -388,28 +610,6 @@ void main() {
     }
   });
 
-  testWidgets('历史选择器跨空档跳转、按周期去重，并保留历史日期', (tester) async {
-    await _pump(tester, [
-      _session('a', DateTime(2026, 11, 15, 8), 30),
-      _session('b', DateTime(2025, 2, 18, 8), 10),
-      _session('b', DateTime(2025, 2, 18, 10), 15),
-      _session('future', DateTime(2027, 1, 1, 8), 5),
-    ]);
-    await _tap(tester, 'pick-period');
-    expect(find.byType(ListTile), findsNWidgets(2));
-    await _tap(tester, 'history-${DateTime(2025, 2, 18).toIso8601String()}');
-    expect(_text(tester, 'range'), '2025年2月18日');
-    expect(_text(tester, 'total'), '25 分钟');
-    for (final period in ['week', 'month', 'quarter', 'year', 'day']) {
-      await _selectPeriod(tester, period);
-      expect(_text(tester, 'total'), '25 分钟');
-    }
-    expect(_text(tester, 'range'), '2025年2月18日');
-    await _tap(tester, 'current');
-    expect(_text(tester, 'range'), '今天 · 2026年11月15日');
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets('刷新后选中书籍消失时清除详情，重新出现不恢复旧选择', (tester) async {
     final sessions = [_session('a', DateTime(2026, 11, 15, 8), 30)];
     await _pump(tester, sessions);
@@ -436,18 +636,7 @@ void main() {
     await _pump(tester, sessions);
     expect(_key('tag-f'), findsNothing);
     expect(_key('selection'), findsNothing);
-    expect(_text(tester, 'chart-value'), '6 本书');
-  });
-
-  testWidgets('历史选择器取消不改变日期，空记录也能返回当前周期', (tester) async {
-    await _pump(tester, []);
-    await _tap(tester, 'pick-period');
-    expect(find.byType(ListTile), findsOneWidget);
-    await tester.tapAt(const Offset(10, 10));
-    await tester.pumpAndSettle();
-    expect(_key('period-picker'), findsNothing);
-    expect(_text(tester, 'range'), '今天 · 2026年11月15日');
-    expect(_key('empty'), findsOneWidget);
+    expect(_text(tester, 'chart-value'), '前 5 本 · 共 6 本');
   });
 
   for (final (width, scale) in [
@@ -498,7 +687,8 @@ void main() {
         );
         expect(_text(tester, 'chart-value'), '本书占比 100.0%');
         expect(_text(tester, 'total'), '10 小时 1 分');
-        await _tap(tester, 'pick-period');
+        await tester.ensureVisible(_key('period-day'));
+        await tester.pumpAndSettle();
         expect(
           tester.getSemantics(find.bySemanticsLabel('日')),
           matchesSemantics(
@@ -509,22 +699,18 @@ void main() {
             hasTapAction: true,
           ),
         );
-        await tester.tap(_key('period-quarter'));
-        await tester.pumpAndSettle();
-        expect(_text(tester, 'range'), contains('季度'));
-        await _tap(tester, 'pick-period');
+        await _tap(tester, 'period-week');
+        expect(_text(tester, 'range'), contains('周'));
         expect(
-          tester.getSemantics(find.bySemanticsLabel('季度')),
+          tester.getSemantics(find.bySemanticsLabel('周')),
           matchesSemantics(
-            label: '季度',
+            label: '周',
             isButton: true,
             isSelected: true,
             hasSelectedState: true,
             hasTapAction: true,
           ),
         );
-        await tester.tapAt(const Offset(10, 10));
-        await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
       } finally {
         semantics.dispose();

@@ -11,28 +11,32 @@ import 'voxel_duration_chart.dart';
 
 const _tagTitleStyle = TextStyle(
   fontSize: 14,
-  height: 1.35,
+  height: 1.4,
   fontWeight: FontWeight.w600,
 );
 const _tagDurationStyle = TextStyle(
-  fontSize: 13,
+  fontSize: 14,
   height: 1.4,
   fontFeatures: [FontFeature.tabularFigures()],
 );
 final _countingHint =
-    '单书单日超过 ${minimumDisplayedBookDayDuration.inMinutes} 分钟后展示，累计时长包含短时阅读';
+    '单书单日超过 ${minimumDisplayedBookDayDuration.inMinutes} 分钟进入榜单，更多可查看同期全部书籍。';
 
 /// 图书时长：按自然周期查看各书投入和占比，保留已移出书架的记录。
+const _selectablePeriods = [BookDurationPeriod.day, BookDurationPeriod.week];
+
 class BookDurationChart extends StatefulWidget {
   const BookDurationChart({
     super.key,
     required this.insights,
     this.bookTitles = const {},
+    this.bookColors = const {},
     this.now,
   });
 
   final ReadingInsights insights;
   final Map<String, String> bookTitles;
+  final Map<String, Color> bookColors;
 
   /// 测试可固定当前日期；正常使用时取设备本地时间。
   final DateTime? now;
@@ -63,7 +67,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       date: _date ?? _now,
       bookTitles: widget.bookTitles,
     ).entries;
-    final visible = entries.take(4);
+    final visible = entries.take(5);
     if (!visible.any((entry) => entry.bookId == _selectedBookId)) {
       _selectedBookId = null;
     }
@@ -74,43 +78,95 @@ class _BookDurationChartState extends State<BookDurationChart>
     _selectedBookId = null;
   });
 
-  Future<void> _pickPeriod() async {
-    final anchor = _date ?? _now;
-    final current = _period.startOf(_now);
-    final dates = {
-      current,
-      for (final portion in widget.insights.portions)
-        if (portion.duration > Duration.zero && !portion.date.isAfter(_now))
-          _period.startOf(portion.date),
-    }.toList()..sort((left, right) => right.compareTo(left));
-    final picked = await showReaderBottomSheet<(BookDurationPeriod, DateTime)>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => _PeriodPicker(
-        period: _period,
-        dates: dates,
-        selected: _period.startOf(anchor),
-        current: current,
-        anchor: anchor,
-      ),
-    );
-    if (mounted && picked != null) {
-      final (period, date) = picked;
-      setState(() {
-        _period = period;
-        _date = date == _now || date == period.startOf(_now) ? null : date;
-        _selectedBookId = null;
-      });
-    }
+  void _changePeriod(BookDurationPeriod period) {
+    if (_period == period) return;
+    setState(() {
+      _period = period;
+      _selectedBookId = null;
+    });
   }
 
-  void _selectSlice(DurationBarData slice, BookDurationSummary summary) {
-    if (slice.id == null) {
-      _openAll(context, _period, summary.start);
-      return;
-    }
+  Widget _periodSlider(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final selectedIndex = _selectablePeriods.indexOf(_period);
+    final index = selectedIndex < 0 ? 0 : selectedIndex;
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final segment = constraints.maxWidth / _selectablePeriods.length;
+          return Stack(
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                left: index * segment,
+                top: 0,
+                width: segment,
+                height: constraints.maxHeight,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.shadow.withValues(alpha: .08),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  for (final period in _selectablePeriods)
+                    Expanded(
+                      child: Semantics(
+                        label: period.label,
+                        button: true,
+                        selected: _period == period,
+                        onTap: () => _changePeriod(period),
+                        excludeSemantics: true,
+                        child: InkWell(
+                          key: ValueKey(
+                            'stats-book-duration-period-${period.name}',
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: () => _changePeriod(period),
+                          child: Center(
+                            child: Text(
+                              period.label,
+                              style: TextStyle(
+                                fontSize: 14,
+                                height: 1.2,
+                                fontWeight: _period == period
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: _period == period
+                                    ? scheme.onSurface
+                                    : scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _selectSlice(DurationBarData slice) {
     setState(() {
       _selectedBookId = _selectedBookId == slice.id ? null : slice.id;
     });
@@ -126,6 +182,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       period: period,
       date: start,
       bookTitles: widget.bookTitles,
+      applyBookThreshold: false,
     );
     showReaderDrawer<void>(
       context: context,
@@ -135,6 +192,7 @@ class _BookDurationChartState extends State<BookDurationChart>
           period: period,
           start: start,
           summary: summary,
+          bookColors: widget.bookColors,
           inDrawer: true,
         ),
       ),
@@ -156,12 +214,14 @@ class _BookDurationChartState extends State<BookDurationChart>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (summary.entries.isEmpty) ...[
+          _periodSlider(context),
+          const SizedBox(height: 8),
           navigation,
           _emptyState(context, summary),
         ] else ...[
           _breakdown(context, summary, navigation: navigation),
           _selectionDetail(summary),
-          _summaryActions(summary),
+          _summaryActions(),
         ],
       ],
     );
@@ -174,10 +234,17 @@ class _BookDurationChartState extends State<BookDurationChart>
       (portion) =>
           portion.duration > Duration.zero && portion.date.isBefore(start),
     );
-    final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Expanded(child: _rangeButton(start, current)),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _rangeLabel(start, current),
+            ),
+          ),
+        ),
         IconButton(
           key: const ValueKey('stats-book-duration-previous'),
           tooltip: '上一${_period.label}',
@@ -194,39 +261,9 @@ class _BookDurationChartState extends State<BookDurationChart>
               : null,
           icon: const AppIcon(AppGlyph.chevronRight),
         ),
-        const SizedBox(width: 4),
-        TextButton(
-          key: const ValueKey('stats-book-duration-current'),
-          onPressed: () => _changeDate(null),
-          style: TextButton.styleFrom(
-            minimumSize: const Size(48, 48),
-            padding: EdgeInsets.zero,
-            backgroundColor: scheme.surfaceContainerHighest,
-            foregroundColor: scheme.onSurface,
-            shape: const CircleBorder(),
-          ),
-          child: const Text('今天', style: TextStyle(fontSize: 13)),
-        ),
       ],
     );
   }
-
-  Widget _rangeButton(DateTime start, DateTime current) => TextButton(
-    key: const ValueKey('stats-book-duration-pick-period'),
-    onPressed: _pickPeriod,
-    style: TextButton.styleFrom(
-      minimumSize: const Size(48, 48),
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-    ),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Flexible(child: _rangeLabel(start, current)),
-        const SizedBox(width: 4),
-        const AppIcon(AppGlyph.chevronDown, size: 18),
-      ],
-    ),
-  );
 
   Widget _rangeLabel(DateTime start, DateTime current) => Text(
     '${start == current ? '${_period.currentLabel} · ' : ''}'
@@ -238,7 +275,7 @@ class _BookDurationChartState extends State<BookDurationChart>
     style: const TextStyle(fontSize: 13, height: 1.5),
   );
 
-  Widget _summaryActions(BookDurationSummary summary) {
+  Widget _summaryActions() {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(top: 12),
@@ -272,27 +309,6 @@ class _BookDurationChartState extends State<BookDurationChart>
                 ),
               ),
             ],
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              key: const ValueKey('stats-book-duration-all'),
-              onPressed: () => _openAll(context, _period, summary.start),
-              style: TextButton.styleFrom(
-                minimumSize: const Size(48, 44),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                textStyle: TextStyle(
-                  fontSize: 12,
-                  fontFamily: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.fontFamily,
-                ),
-              ),
-              iconAlignment: IconAlignment.end,
-              icon: const AppIcon(AppGlyph.chevronRight, size: 16),
-              label: Text('查看全部 ${summary.entries.length} 本'),
-            ),
           ),
         ],
       ),
@@ -328,7 +344,11 @@ class _BookDurationChartState extends State<BookDurationChart>
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: _colorDot(
-                readingBookColor(entry.bookId, brightness: scheme.brightness),
+                readingBookColor(
+                  entry.bookId,
+                  brightness: scheme.brightness,
+                  bookColors: widget.bookColors,
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -383,6 +403,13 @@ class _BookDurationChartState extends State<BookDurationChart>
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
+            if (summary.totalBookCount > 0) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: _moreButton(context, summary),
+              ),
+            ],
           ],
         ),
       );
@@ -393,44 +420,48 @@ class _BookDurationChartState extends State<BookDurationChart>
     required Widget navigation,
   }) {
     final scheme = Theme.of(context).colorScheme;
-    final slices = _slices(summary, scheme);
+    final slices = _slices(summary, scheme, widget.bookColors);
     final timeBars = _timeBars(summary, slices);
+    final legend = Column(
+      key: const ValueKey('stats-book-duration-legend'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final slice in slices.take(3)) _legendRow(summary, slice),
+        const SizedBox(height: 6),
+        _moreButton(context, summary),
+      ],
+    );
     final chart = VoxelDurationChart(
       bars: slices,
       timeBars: timeBars,
       total: summary.total,
       bookCount: summary.entries.length,
       selectedBookId: _selectedBookId,
-      onSelected: (slice) => _selectSlice(slice, summary),
+      onSelected: _selectSlice,
+      top: _periodSlider(context),
       controls: navigation,
-    );
-    final legend = Column(
-      key: const ValueKey('stats-book-duration-legend'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [for (final slice in slices) _legendRow(summary, slice)],
+      footer: legend,
+      weekMode: _period == BookDurationPeriod.week,
     );
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 4),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
-          final wide = constraints.maxWidth >= 600 && textScale <= 1.35;
-          if (wide) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 6, child: chart),
-                const SizedBox(width: 24),
-                Expanded(flex: 4, child: legend),
-              ],
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [chart, const SizedBox(height: 18), legend],
-          );
-        },
+      child: chart,
+    );
+  }
+
+  Widget _moreButton(BuildContext context, BookDurationSummary summary) {
+    final scheme = Theme.of(context).colorScheme;
+    return TextButton(
+      key: const ValueKey('stats-book-duration-all'),
+      onPressed: () => _openAll(context, _period, summary.start),
+      style: TextButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
+        backgroundColor: scheme.surfaceContainerHighest,
+        foregroundColor: scheme.onSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
+      child: Text('更多 · ${summary.totalBookCount} 本'),
     );
   }
 
@@ -438,44 +469,64 @@ class _BookDurationChartState extends State<BookDurationChart>
     BookDurationSummary summary,
     List<DurationBarData> slices,
   ) {
+    if (_period == BookDurationPeriod.week) {
+      return _weekTimeBars(summary, slices);
+    }
     final buckets = List.generate(12, (_) => <String, Duration>{});
-    final entryIndex = {
-      for (var index = 0; index < summary.entries.length; index++)
-        summary.entries[index].bookId: index,
-    };
+    final bookIds = slices.map((slice) => slice.key).toSet();
     final end = _period.shift(summary.start, 1);
     for (final portion in widget.insights.portions) {
-      if (portion.date.isBefore(summary.start) || !portion.date.isBefore(end)) {
+      if (portion.date.isBefore(summary.start) ||
+          !portion.date.isBefore(end) ||
+          !bookIds.contains(portion.bookId)) {
         continue;
       }
       final span = portion.endedAt.difference(portion.startedAt).inMicroseconds;
       if (span <= 0 || portion.duration <= Duration.zero) continue;
-      final position = entryIndex[portion.bookId];
-      final sliceKey = position == null
-          ? 'short-reading'
-          : position < 4
-          ? portion.bookId
-          : 'other';
-      _addPortionToBuckets(buckets, portion, span, sliceKey);
+      _addPortionToBuckets(buckets, portion, span, portion.bookId);
     }
     return [
       for (var index = 0; index < buckets.length; index++)
-        _timeBarData(index, buckets[index], slices),
+        _timeBarData(buckets[index], slices, '${index * 2}-${index * 2 + 2}'),
+    ];
+  }
+
+  List<TimeOfDayBarData> _weekTimeBars(
+    BookDurationSummary summary,
+    List<DurationBarData> slices,
+  ) {
+    const labels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    final buckets = List.generate(7, (_) => <String, Duration>{});
+    final bookIds = slices.map((slice) => slice.key).toSet();
+    final end = _period.shift(summary.start, 1);
+    for (final portion in widget.insights.portions) {
+      if (portion.date.isBefore(summary.start) ||
+          !portion.date.isBefore(end) ||
+          !bookIds.contains(portion.bookId) ||
+          portion.duration <= Duration.zero) {
+        continue;
+      }
+      final weekday = portion.date.weekday - 1;
+      if (weekday < 0 || weekday >= buckets.length) continue;
+      buckets[weekday][portion.bookId] =
+          (buckets[weekday][portion.bookId] ?? Duration.zero) +
+          portion.duration;
+    }
+    return [
+      for (var index = 0; index < buckets.length; index++)
+        _timeBarData(buckets[index], slices, labels[index]),
     ];
   }
 
   Widget _legendRow(BookDurationSummary summary, DurationBarData slice) {
-    final opensList = slice.id == null;
     final selected = slice.id != null && _selectedBookId == slice.id;
     final duration = formatReadingDuration(slice.duration);
     final scheme = Theme.of(context).colorScheme;
     return Semantics(
       button: true,
       selected: selected,
-      label:
-          '${slice.title}，$duration，占比 ${slice.share}'
-          '${opensList ? '，打开图书时长列表' : ''}',
-      onTap: () => _selectSlice(slice, summary),
+      label: '${slice.title}，$duration，占比 ${slice.share}',
+      onTap: () => _selectSlice(slice),
       excludeSemantics: true,
       child: Material(
         color: selected ? scheme.surfaceContainerHighest : Colors.transparent,
@@ -488,7 +539,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         ),
         child: InkWell(
           key: ValueKey('stats-book-duration-tag-${slice.key}'),
-          onTap: () => _selectSlice(slice, summary),
+          onTap: () => _selectSlice(slice),
           borderRadius: BorderRadius.circular(10),
           child: _legendContent(slice, summary.total),
         ),
@@ -497,23 +548,11 @@ class _BookDurationChartState extends State<BookDurationChart>
   }
 
   Widget _legendContent(DurationBarData slice, Duration total) => Container(
-    constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
-    padding: const EdgeInsets.fromLTRB(6, 10, 6, 10),
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _legendText(slice, total),
-        const SizedBox(height: 9),
-        LinearProgressIndicator(
-          value: slice.duration.inMicroseconds / total.inMicroseconds,
-          color: slice.color,
-          backgroundColor: Theme.of(context).colorScheme.outlineVariant
-              .withValues(alpha: .6),
-          minHeight: 4,
-          borderRadius: BorderRadius.circular(99),
-        ),
-      ],
+    constraints: const BoxConstraints(minHeight: 44),
+    padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: _legendText(slice, total),
     ),
   );
 
@@ -526,12 +565,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(child: _legendTitle(slice)),
-                if (slice.id == null) _legendChevron(),
-              ],
-            ),
+            Row(children: [Expanded(child: _legendTitle(slice))]),
             const SizedBox(height: 4),
             _legendValues(slice, total, stacked: true),
           ],
@@ -543,7 +577,6 @@ class _BookDurationChartState extends State<BookDurationChart>
           Expanded(child: _legendTitle(slice)),
           const SizedBox(width: 12),
           _legendValues(slice, total, stacked: false),
-          if (slice.id == null) _legendChevron(),
         ],
       );
     },
@@ -563,7 +596,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       slice.share,
       key: ValueKey('stats-book-duration-share-${slice.key}'),
       style: _tagDurationStyle.copyWith(
-        fontSize: 11,
+        fontSize: 12,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     );
@@ -588,7 +621,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         padding: const EdgeInsets.only(top: 4),
         child: _colorDot(slice.color),
       ),
-      const SizedBox(width: 8),
+      const SizedBox(width: 10),
       Expanded(
         child: Text(
           slice.title,
@@ -600,142 +633,10 @@ class _BookDurationChartState extends State<BookDurationChart>
     ],
   );
 
-  Widget _legendChevron() => const Padding(
-    padding: EdgeInsets.only(left: 4, top: 2),
-    child: AppIcon(AppGlyph.chevronRight, size: 16),
-  );
-
   static Widget _colorDot(Color color) => Container(
-    width: 8,
-    height: 8,
+    width: 10,
+    height: 10,
     decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-  );
-}
-
-class _PeriodPicker extends StatelessWidget {
-  const _PeriodPicker({
-    required this.period,
-    required this.dates,
-    required this.selected,
-    required this.current,
-    required this.anchor,
-  });
-
-  final BookDurationPeriod period;
-  final List<DateTime> dates;
-  final DateTime selected;
-  final DateTime current;
-  final DateTime anchor;
-
-  @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    child: SizedBox(
-      height: MediaQuery.sizeOf(context).height * .65,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-            child: Text(
-              '选择阅读周期',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-            child: Text(
-              '切换周期，或选择有阅读记录的日期',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Material(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(6),
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Row(
-                  children: [
-                    for (final type in BookDurationPeriod.values)
-                      Expanded(
-                        child: _PeriodButton(
-                          period: type,
-                          selected: type == period,
-                          onTap: () =>
-                              Navigator.of(context).pop((type, anchor)),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              key: const ValueKey('stats-book-duration-period-picker'),
-              itemCount: dates.length,
-              itemBuilder: (context, index) =>
-                  _periodTile(context, dates[index]),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-
-  Widget _periodTile(BuildContext context, DateTime date) => ListTile(
-    key: ValueKey('stats-book-duration-history-${date.toIso8601String()}'),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-    selected: date == selected,
-    title: Text(
-      '${date == current ? '${period.currentLabel} · ' : ''}${period.rangeLabel(date)}',
-    ),
-    trailing: date == selected ? const AppIcon(AppGlyph.check) : null,
-    onTap: () => Navigator.of(context).pop((period, date)),
-  );
-}
-
-class _PeriodButton extends StatelessWidget {
-  const _PeriodButton({
-    required this.period,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final BookDurationPeriod period;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: period.label,
-    button: true,
-    selected: selected,
-    onTap: onTap,
-    excludeSemantics: true,
-    child: TextButton(
-      key: ValueKey('stats-book-duration-period-${period.name}'),
-      onPressed: onTap,
-      style: _style(Theme.of(context)),
-      child: Text(period.label),
-    ),
-  );
-
-  ButtonStyle _style(ThemeData theme) => TextButton.styleFrom(
-    minimumSize: const Size(0, kMinInteractiveDimension),
-    padding: const EdgeInsets.symmetric(horizontal: 2),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-    backgroundColor: selected ? theme.colorScheme.primary : null,
-    foregroundColor: selected
-        ? theme.colorScheme.onPrimary
-        : theme.colorScheme.onSurfaceVariant,
-    textStyle: TextStyle(
-      fontSize: 13,
-      fontFamily: theme.textTheme.bodyMedium?.fontFamily,
-      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-    ),
   );
 }
 
@@ -746,12 +647,14 @@ class BookDurationListPage extends StatelessWidget {
     required this.period,
     required this.start,
     required this.summary,
+    this.bookColors = const {},
     this.inDrawer = false,
   });
 
   final BookDurationPeriod period;
   final DateTime start;
   final BookDurationSummary summary;
+  final Map<String, Color> bookColors;
 
   /// 从图表进入内容抽屉时使用关闭入口。
   final bool inDrawer;
@@ -799,6 +702,7 @@ class BookDurationListPage extends StatelessWidget {
                   rank: index,
                   entry: entry,
                   total: summary.total,
+                  bookColors: bookColors,
                 );
               },
             ),
@@ -836,17 +740,23 @@ class _DurationListRow extends StatelessWidget {
     required this.rank,
     required this.entry,
     required this.total,
+    required this.bookColors,
   });
 
   final int rank;
   final BookDurationEntry entry;
   final Duration total;
+  final Map<String, Color> bookColors;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final share = _share(entry.duration, total);
-    final color = readingBookColor(entry.bookId, brightness: theme.brightness);
+    final color = readingBookColor(
+      entry.bookId,
+      brightness: theme.brightness,
+      bookColors: bookColors,
+    );
     return Semantics(
       label:
           '第 $rank 名，${entry.title}，${formatReadingDuration(entry.duration)}，占比 $share',
@@ -937,19 +847,12 @@ String _share(Duration duration, Duration total) {
   return percentage < .1 ? '<0.1%' : '${percentage.toStringAsFixed(1)}%';
 }
 
-List<DurationBarData> _slices(BookDurationSummary summary, ColorScheme scheme) {
-  final count = math.min(4, summary.entries.length);
-  final displayed = summary.entries.fold(
-    Duration.zero,
-    (sum, entry) => sum + entry.duration,
-  );
-  final otherCount = summary.entries.length - count;
-  final otherDuration = summary.entries
-      .skip(count)
-      .fold(Duration.zero, (sum, entry) => sum + entry.duration);
-  final shortDuration = summary.total - displayed;
-  final otherColor = scheme.onSurfaceVariant;
-  final shortColor = Color.lerp(otherColor, scheme.surface, .45)!;
+List<DurationBarData> _slices(
+  BookDurationSummary summary,
+  ColorScheme scheme,
+  Map<String, Color> bookColors,
+) {
+  final count = math.min(5, summary.entries.length);
   return [
     for (var index = 0; index < count; index++)
       (
@@ -962,27 +865,8 @@ List<DurationBarData> _slices(BookDurationSummary summary, ColorScheme scheme) {
         color: readingBookColor(
           summary.entries[index].bookId,
           brightness: scheme.brightness,
+          bookColors: bookColors,
         ),
-      ),
-    if (otherCount > 0)
-      (
-        key: 'other',
-        id: null,
-        title: '其他$otherCount本',
-        shortTitle: '其他$otherCount本',
-        share: _share(otherDuration, summary.total),
-        duration: otherDuration,
-        color: otherColor,
-      ),
-    if (shortDuration > Duration.zero)
-      (
-        key: 'short-reading',
-        id: null,
-        title: '短时阅读',
-        shortTitle: '短时阅读',
-        share: _share(shortDuration, summary.total),
-        duration: shortDuration,
-        color: shortColor,
       ),
   ];
 }
@@ -1030,9 +914,9 @@ void _addPortionToBuckets(
 }
 
 TimeOfDayBarData _timeBarData(
-  int index,
   Map<String, Duration> bucket,
   List<DurationBarData> slices,
+  String label,
 ) {
   final segments = [
     for (final slice in slices)
@@ -1048,6 +932,5 @@ TimeOfDayBarData _timeBarData(
     Duration.zero,
     (sum, segment) => sum + segment.duration,
   );
-  final label = '${index * 2}-${index * 2 + 2}';
   return (key: label, label: label, duration: total, segments: segments);
 }

@@ -66,6 +66,8 @@ class BookDurationSummary {
     required BookDurationPeriod period,
     required DateTime date,
     Map<String, String> bookTitles = const {},
+    // 完整列表不筛门槛；总时长在两种口径下都保留全部有效阅读。
+    bool applyBookThreshold = true,
   }) : start = period.startOf(date) {
     final end = period.shift(start, 1);
     final durations = <String, Duration>{};
@@ -81,7 +83,8 @@ class BookDurationSummary {
     entries = List.unmodifiable(
       <BookDurationEntry>[
         for (final entry in durations.entries)
-          if (insights.visibleBookIds.contains(entry.key))
+          if (!applyBookThreshold ||
+              insights.visibleBookIds.contains(entry.key))
             BookDurationEntry(
               bookId: entry.key,
               title:
@@ -93,11 +96,15 @@ class BookDurationSummary {
       ]..sort(_compareEntries),
     );
     total = durations.values.fold(Duration.zero, (sum, value) => sum + value);
+    totalBookCount = durations.length;
   }
 
   final DateTime start;
   late final List<BookDurationEntry> entries;
   late final Duration total;
+
+  /// 不受展示门槛影响的同期书籍数量。
+  late final int totalBookCount;
 }
 
 int _compareEntries(BookDurationEntry left, BookDurationEntry right) {

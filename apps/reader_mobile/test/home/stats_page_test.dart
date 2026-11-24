@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +15,7 @@ import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
 import '../support/reader_pump.dart';
+import '../support/color_cover.dart';
 
 class _FakeLibrary extends LibraryStore {
   _FakeLibrary(this.books, this.weights) : super.memory();
@@ -146,6 +148,7 @@ BookEntry _book(
   String title, {
   DateTime? lastReadAt,
   int? spineCount,
+  String? coverPath,
 }) {
   return BookEntry(
     id: id,
@@ -155,6 +158,7 @@ BookEntry _book(
     addedAt: DateTime(2026, 1, 1),
     lastReadAt: lastReadAt,
     spineCount: spineCount,
+    coverPath: coverPath,
   );
 }
 
@@ -181,12 +185,7 @@ String _valueOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(ValueKey(key))).data!;
 
 Future<void> _selectPeriod(WidgetTester tester, String period) async {
-  await _tapControl(tester, 'stats-book-duration-pick-period');
-  final type = find.byKey(ValueKey('stats-book-duration-period-$period'));
-  await tester.ensureVisible(type);
-  await tester.pumpAndSettle();
-  await tester.tap(type);
-  await tester.pumpAndSettle();
+  await _tapControl(tester, 'stats-book-duration-period-$period');
 }
 
 Future<void> _tapControl(WidgetTester tester, String key) async {
@@ -199,6 +198,80 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
 }
 
 void main() {
+  testWidgets('统计页从真实封面取色并统一传给图表和日历，更换封面后更新', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final directory = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('stats-cover-color-'),
+    ))!;
+    addTearDown(() => directory.delete(recursive: true));
+    final first = (await tester.runAsync(
+      () => createColorCover(directory, 'first', const Color(0xFFB83235)),
+    ))!;
+    final next = (await tester.runAsync(
+      () => createColorCover(directory, 'next', const Color(0xFF28795B)),
+    ))!;
+    final now = DateTime(2026, 11, 24, 20);
+    final library = _FakeLibrary([
+      _book('a', '封面取色书籍', coverPath: first.path),
+      _book('b', '相近封面书籍', coverPath: first.path),
+    ], const {});
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: StatsPage(
+          library: library,
+          progressStore: _FakeProgressStore({}),
+          sessionStore: _FakeSessionStore([
+            for (final id in ['a', 'b'])
+              ReadingSession(
+                bookId: id,
+                startedAt: DateTime(2026, 11, 24, 8),
+                endedAt: DateTime(2026, 11, 24, 8, 30),
+                duration: const Duration(minutes: 30),
+              ),
+          ]),
+          now: now,
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.byType(BookDurationChart));
+    final chart = tester.widget<BookDurationChart>(
+      find.byType(BookDurationChart),
+    );
+    final before = chart.bookColors['a']!;
+    final hue = HSLColor.fromColor(before).hue;
+    expect(hue, anyOf(lessThan(20), greaterThan(340)));
+    expect(chart.bookColors.values.toSet(), hasLength(2));
+    expect(
+      tester.widget<ReadingCalendar>(find.byType(ReadingCalendar)).bookColors,
+      chart.bookColors,
+    );
+    library.books = [
+      _book('a', '封面取色书籍', coverPath: next.path),
+      library.books.last,
+    ];
+    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          tester
+              .widget<BookDurationChart>(find.byType(BookDurationChart))
+              .bookColors['a'] !=
+          before,
+    );
+    final updated = tester
+        .widget<BookDurationChart>(find.byType(BookDurationChart))
+        .bookColors;
+    expect(
+      tester.widget<ReadingCalendar>(find.byType(ReadingCalendar)).bookColors,
+      updated,
+    );
+    expect(HSLColor.fromColor(updated['a']!).hue, inInclusiveRange(130, 175));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('切入等待和切出复用统计图表，刷新成功更新且失败保留旧内容', (tester) async {
     tester.view
       ..physicalSize = const Size(1280, 900)
@@ -219,7 +292,7 @@ void main() {
     );
     await tester.pumpWidget(page(true, 0));
     await tester.pumpAndSettle();
-    await _selectPeriod(tester, 'quarter');
+    await _selectPeriod(tester, 'week');
     await _tapControl(tester, 'stats-calendar-previous');
     final range = _valueOf(tester, 'stats-book-duration-range');
     final month = _valueOf(tester, 'stats-calendar-month');
@@ -454,7 +527,7 @@ void main() {
         .copyWith(platform: TargetPlatform.windows);
     await tester.pumpWidget(page(day, 1));
     await tester.pumpAndSettle();
-    await _selectPeriod(tester, 'quarter');
+    await _selectPeriod(tester, 'week');
     await _tapControl(tester, 'stats-calendar-previous');
     final range = _valueOf(tester, 'stats-book-duration-range');
     final month = _valueOf(tester, 'stats-calendar-month');
@@ -522,16 +595,16 @@ void main() {
         tester.getTopLeft(calendar).dx,
         greaterThan(tester.getTopLeft(duration).dx),
       );
-      await _selectPeriod(tester, 'quarter');
-      final quarterRange = _valueOf(tester, 'stats-book-duration-range');
-      expect(quarterRange, contains('季度'));
+      await _selectPeriod(tester, 'week');
+      final weekRange = _valueOf(tester, 'stats-book-duration-range');
+      expect(weekRange, contains('周'));
       tester.view.physicalSize = const Size(600, 900);
       await tester.pumpAndSettle();
       expect(
         tester.getTopLeft(calendar).dy,
         greaterThan(tester.getTopLeft(duration).dy),
       );
-      expect(_valueOf(tester, 'stats-book-duration-range'), quarterRange);
+      expect(_valueOf(tester, 'stats-book-duration-range'), weekRange);
       expect(tester.takeException(), isNull);
     },
     variant: const TargetPlatformVariant({
@@ -540,7 +613,7 @@ void main() {
     }),
   );
 
-  testWidgets('首屏直接展示图书时长，移除摘要与概览且季度切换使用真实会话', (tester) async {
+  testWidgets('首屏直接展示图书时长，移除摘要与概览且周切换使用真实会话', (tester) async {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day, 8);
     await tester.pumpWidget(
@@ -570,7 +643,7 @@ void main() {
     final appBarBottom = tester.getBottomLeft(find.byType(AppBar));
     final durationTop = tester.getTopLeft(find.text('图书时长'));
     expect(durationTop.dy - appBarBottom.dy, inInclusiveRange(16, 32));
-    await _selectPeriod(tester, 'quarter');
+    await _selectPeriod(tester, 'week');
     expect(find.text('图书时长'), findsOneWidget);
     expect(_valueOf(tester, 'stats-book-duration-total'), '25 分钟');
     expect(_valueOf(tester, 'stats-book-duration-value-a'), '25 分钟');
@@ -914,7 +987,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('该时段暂无符合展示条件的书目'), findsOneWidget);
-    expect(find.text('单书单日超过 5 分钟后展示，累计时长包含短时阅读'), findsOneWidget);
+    expect(find.textContaining('单书单日超过 5 分钟进入榜单'), findsOneWidget);
     expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
     sessions.add(
       ReadingSession(
@@ -954,8 +1027,16 @@ void main() {
         of: find.byKey(const ValueKey('stats-book-duration-legend')),
         matching: find.text('短时阅读'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
+    await _tapControl(tester, 'stats-book-duration-all');
+    final complete = tester.widget<BookDurationListPage>(
+      find.byType(BookDurationListPage),
+    );
+    expect(complete.summary.entries.map((entry) => entry.bookId), ['a', 'b']);
+    expect(complete.summary.total, const Duration(minutes: 8));
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
     await _tapControl(
       tester,
       'stats-calendar-day-${now.year}-${now.month}-${now.day}',
@@ -1004,7 +1085,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _selectPeriod(tester, 'quarter');
+    await _selectPeriod(tester, 'week');
     expect(_valueOf(tester, 'stats-book-duration-total'), '10 分钟');
     expect(_valueOf(tester, 'stats-book-duration-value-kept'), '6 分钟');
     expect(

@@ -29,7 +29,7 @@ typedef TimeOfDayBarData = ({
   List<DurationBarSegment> segments,
 });
 
-/// 图书时长的 2.5D 像素柱；可切换为一天内每两小时的阅读分布。
+/// 图书时长的 2.5D 像素柱；可切换为小时或星期分布。
 class VoxelDurationChart extends StatefulWidget {
   const VoxelDurationChart({
     super.key,
@@ -41,6 +41,9 @@ class VoxelDurationChart extends StatefulWidget {
     required this.onSelected,
     this.showRooftops = true,
     this.controls,
+    this.footer,
+    this.top,
+    this.weekMode = false,
   });
 
   final List<DurationBarData> bars;
@@ -50,11 +53,20 @@ class VoxelDurationChart extends StatefulWidget {
   final String? selectedBookId;
   final ValueChanged<DurationBarData> onSelected;
 
-  /// 柱顶是否绘制阁楼装饰；时段图柱体过窄，始终不绘制。
+  /// 柱顶是否绘制装饰；时段图使用更紧凑的比例。
   final bool showRooftops;
 
-  /// 放在卡片顶部边框内的切换控件（周期、日期、今天）。
+  /// 放在卡片顶部边框内的日期与前后周期控件。
   final Widget? controls;
+
+  /// 图表下方的书目列表，与图表共用同一张卡片。
+  final Widget? footer;
+
+  /// 卡片最顶部的日/周滑块。
+  final Widget? top;
+
+  /// 周视图的“时段”按周一至周日分段，而不是一天内的小时。
+  final bool weekMode;
 
   @override
   State<VoxelDurationChart> createState() => _VoxelDurationChartState();
@@ -62,36 +74,59 @@ class VoxelDurationChart extends StatefulWidget {
 
 enum _VoxelChartMode { books, timeOfDay }
 
+const _morphAssemblyStart = .42;
+const _morphAssemblyEnd = .9;
+
 class _VoxelDurationChartState extends State<VoxelDurationChart>
     with TickerProviderStateMixin {
   static const _plotHeight = 200.0;
 
   late final AnimationController _revealController;
   late final AnimationController _morphController;
+  late final AnimationController _lightController;
+  late final Animation<double> _morphLights;
   _VoxelChartMode _mode = _VoxelChartMode.books;
   _VoxelChartMode? _fromMode;
   bool _morphing = false;
   bool _started = false;
+  bool _reduceMotion = false;
+  bool _morphLightsActive = false;
 
   @override
   void initState() {
     super.initState();
     _revealController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
+      duration: const Duration(milliseconds: 680),
+    )..addStatusListener(_handleRevealStatus);
     _morphController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..addStatusListener(_handleMorphStatus);
+    _lightController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 780),
+    );
+    // 点灯波比真实格块重组晚 0.2 秒，重组结束后继续补亮顶层。
+    _morphLights = _lightController.drive(
+      CurveTween(curve: const Interval((_morphAssemblyStart + .2) / 1.2, 1)),
+    );
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (reduceMotion) {
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_reduceMotion) {
+      _morphing = false;
+      _fromMode = null;
+      _morphController
+        ..stop()
+        ..value = 1;
       _revealController
+        ..stop()
+        ..value = 1;
+      _lightController
         ..stop()
         ..value = 1;
     } else if (!_started) {
@@ -112,15 +147,33 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
       _morphing = false;
       _fromMode = null;
     }
-    // 周期或数据切换时直接显示完整柱体：重播长成动画会让月/季度/年等
-    // 数据量不同的图表先变成空白再长出，看起来像图表没有显示。
+    // 日期或数据切换不清空柱体，只重播点灯；打断重组时显示最新数据。
+    final wasRevealed = _revealController.isCompleted;
     _revealController
       ..stop()
       ..value = 1;
+    if (wasRevealed) _startLights();
+  }
+
+  void _handleRevealStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && !_morphing) _startLights();
+  }
+
+  void _startLights() {
+    _morphLightsActive = false;
+    if (_reduceMotion) {
+      _lightController
+        ..stop()
+        ..value = 1;
+    } else {
+      _lightController
+        ..duration = const Duration(milliseconds: 780)
+        ..forward(from: 0);
+    }
   }
 
   void _handleMorphStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed || !mounted) return;
+    if (status != AnimationStatus.completed || !_morphing || !mounted) return;
     setState(() {
       _morphing = false;
       _fromMode = null;
@@ -132,22 +185,26 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     final next = _mode == _VoxelChartMode.books
         ? _VoxelChartMode.timeOfDay
         : _VoxelChartMode.books;
-    if (MediaQuery.disableAnimationsOf(context)) {
+    if (_reduceMotion) {
       setState(() {
         _mode = next;
         _fromMode = null;
       });
       return;
     }
-    _revealController
-      ..stop()
-      ..value = 1;
     setState(() {
       _fromMode = _mode;
       _mode = next;
       _morphing = true;
+      _morphLightsActive = true;
     });
-    _morphController.duration = const Duration(milliseconds: 1000);
+    _revealController
+      ..stop()
+      ..value = 1;
+    _lightController
+      ..stop()
+      ..duration = const Duration(milliseconds: 1200)
+      ..forward(from: 0);
     _morphController.forward(from: 0);
   }
 
@@ -156,7 +213,10 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     _morphController
       ..removeStatusListener(_handleMorphStatus)
       ..dispose();
-    _revealController.dispose();
+    _revealController
+      ..removeStatusListener(_handleRevealStatus)
+      ..dispose();
+    _lightController.dispose();
     super.dispose();
   }
 
@@ -172,8 +232,8 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     final activeBuckets = widget.timeBars
         .where((bar) => bar.duration > Duration.zero)
         .length;
+    final switchingToTime = _mode == _VoxelChartMode.books;
     return Container(
-      key: const ValueKey('stats-book-duration-bars'),
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
       decoration: BoxDecoration(
         color: scheme.surface,
@@ -183,21 +243,52 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (widget.controls != null) ...[
-            widget.controls!,
-            const SizedBox(height: 6),
-          ],
-          _header(context, selected: selected, activeBuckets: activeBuckets),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) => _chartBody(
-              context,
-              width: constraints.maxWidth,
-              labelHeight: labelHeight,
-              showBookLabel: showBookLabel,
-              showRooftops: widget.showRooftops,
-            ),
+          Column(
+            key: const ValueKey('stats-book-duration-bars'),
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.top != null) ...[
+                widget.top!,
+                const SizedBox(height: 6),
+              ],
+              if (widget.controls != null) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(child: widget.controls!),
+                    const SizedBox(width: 4),
+                    _modeButton(context, switchingToTime: switchingToTime),
+                  ],
+                ),
+                const SizedBox(height: 6),
+              ] else
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _modeButton(context, switchingToTime: switchingToTime),
+                ),
+              _header(
+                context,
+                selected: selected,
+                activeBuckets: activeBuckets,
+              ),
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) => _chartBody(
+                  context,
+                  width: constraints.maxWidth,
+                  labelHeight: labelHeight,
+                  showBookLabel: showBookLabel,
+                  showRooftops: widget.showRooftops,
+                ),
+              ),
+            ],
           ),
+          if (widget.footer != null) ...[
+            const SizedBox(height: 8),
+            Divider(height: 1, color: scheme.outlineVariant),
+            const SizedBox(height: 6),
+            widget.footer!,
+          ],
         ],
       ),
     );
@@ -212,9 +303,11 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     final chartValue = selected != null
         ? '本书占比 ${selected.share}'
         : _mode == _VoxelChartMode.books
-        ? '${widget.bookCount} 本书'
-        : '$activeBuckets 个时段';
-    final switchingToTime = _mode == _VoxelChartMode.books;
+        ? widget.bookCount > widget.bars.length
+              ? '前 ${widget.bars.length} 本 · 共 ${widget.bookCount} 本'
+              : '${widget.bookCount} 本书'
+        : '$activeBuckets ${widget.weekMode ? '天' : '个时段'}'
+              '${widget.bookCount > widget.bars.length ? ' · 前 ${widget.bars.length} 本' : ''}';
     return Wrap(
       alignment: WrapAlignment.spaceBetween,
       crossAxisAlignment: WrapCrossAlignment.end,
@@ -225,7 +318,11 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _mode == _VoxelChartMode.books ? '总阅读时长' : '一天时段',
+              _mode == _VoxelChartMode.books
+                  ? '总阅读时长'
+                  : widget.weekMode
+                  ? '一周分布'
+                  : '一天时段',
               style: TextStyle(
                 fontSize: 11,
                 height: 1.2,
@@ -246,49 +343,40 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
             ),
           ],
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Tooltip(
-              message: switchingToTime ? '切换为一天时段分布' : '切换为按书统计',
-              child: TextButton.icon(
-                key: const ValueKey('stats-book-duration-chart-mode'),
-                onPressed: _morphing ? null : _toggleMode,
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(48, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  foregroundColor: scheme.onSurface,
-                  backgroundColor: scheme.surfaceContainerHighest,
-                  shape: StadiumBorder(
-                    side: BorderSide(color: scheme.outlineVariant),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 12,
-                    height: 1.2,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                icon: AppIcon(
-                  switchingToTime ? AppGlyph.stats : AppGlyph.menuBook,
-                  size: 16,
-                ),
-                label: Text(switchingToTime ? '时段' : '书目'),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              chartValue,
-              key: const ValueKey('stats-book-duration-chart-value'),
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.3,
-                color: scheme.onSurfaceVariant,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
+        Text(
+          chartValue,
+          key: const ValueKey('stats-book-duration-chart-value'),
+          style: TextStyle(
+            fontSize: 12,
+            height: 1.3,
+            color: scheme.onSurfaceVariant,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _modeButton(BuildContext context, {required bool switchingToTime}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: switchingToTime
+          ? (widget.weekMode ? '切换为按星期分布' : '切换为一天时段分布')
+          : '切换为按书统计',
+      child: IconButton(
+        key: const ValueKey('stats-book-duration-chart-mode'),
+        onPressed: _morphing ? null : _toggleMode,
+        style: IconButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          backgroundColor: scheme.surfaceContainerHighest,
+          foregroundColor: scheme.onSurface,
+          shape: const CircleBorder(),
+        ),
+        icon: AppIcon(
+          switchingToTime ? AppGlyph.stats : AppGlyph.menuBook,
+          size: 20,
+        ),
+      ),
     );
   }
 
@@ -301,62 +389,49 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
   }) {
     final scheme = Theme.of(context).colorScheme;
     final targetScene = _sceneFor(_mode, width);
-    final rooftops = showRooftops;
-    final staticChart = _StaticVoxelChart(
+    final lights = _morphLightsActive ? _morphLights : _lightController;
+    final fromScene = _morphing
+        ? _sceneFor(_fromMode ?? _VoxelChartMode.books, width)
+        : null;
+    final painter = fromScene == null
+        ? _ScenePainter(
+            scene: targetScene,
+            reveal: _revealController,
+            lights: lights,
+            rooftops: showRooftops,
+            selectedBookId: widget.selectedBookId,
+            shadowColor: scheme.shadow,
+            baseColor: scheme.surfaceContainerHighest,
+          )
+        : _MorphPainter(
+            fromScene: fromScene,
+            targetScene: targetScene,
+            particles: _buildMorphParticles(fromScene, targetScene),
+            animation: _morphController,
+            lights: lights,
+            rooftops: showRooftops,
+            selectedBookId: widget.selectedBookId,
+            shadowColor: scheme.shadow,
+            baseColor: scheme.surfaceContainerHighest,
+          );
+    return _StaticVoxelChart(
       scene: targetScene,
       width: width,
       plotHeight: _plotHeight,
       labelHeight: labelHeight,
       selectedBookId: widget.selectedBookId,
       showBookLabel: showBookLabel,
-      rooftops: rooftops,
-      revealController: _revealController,
-      shadowColor: scheme.shadow,
-      baseColor: scheme.surfaceContainerHighest,
+      painter: painter,
+      morphing: _morphing,
+      labelOpacity: _morphing
+          ? _morphController.drive(
+              CurveTween(
+                curve: const Interval(.48, .94, curve: Curves.easeOut),
+              ),
+            )
+          : null,
       onBookSelected: widget.onSelected,
       books: widget.bars,
-    );
-    if (!_morphing) return staticChart;
-
-    final fromMode = _fromMode ?? _VoxelChartMode.books;
-    final fromScene = _sceneFor(fromMode, width);
-    final particles = _buildMorphParticles(fromScene, targetScene);
-    return AnimatedBuilder(
-      animation: _morphController,
-      child: RepaintBoundary(child: staticChart),
-      builder: (context, child) {
-        final progress = _morphController.value;
-        final targetOpacity = _smooth01((progress - .58) / .38);
-        return SizedBox(
-          height: _plotHeight + labelHeight,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: Opacity(opacity: targetOpacity, child: child),
-                ),
-              ),
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    key: const ValueKey('stats-book-duration-morph'),
-                    painter: _MorphPainter(
-                      fromScene: fromScene,
-                      particles: particles,
-                      rooftops: rooftops,
-                      plotHeight: _plotHeight,
-                      progress: progress,
-                      selectedBookId: widget.selectedBookId,
-                      shadowColor: scheme.shadow,
-                      baseColor: scheme.surfaceContainerHighest,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
@@ -372,6 +447,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
           width: width,
           plotHeight: _plotHeight,
           bars: widget.timeBars,
+          labelSuffix: widget.weekMode ? '' : ' 时',
         );
 }
 
@@ -383,10 +459,9 @@ class _StaticVoxelChart extends StatelessWidget {
     required this.labelHeight,
     required this.selectedBookId,
     required this.showBookLabel,
-    required this.rooftops,
-    required this.revealController,
-    required this.shadowColor,
-    required this.baseColor,
+    required this.painter,
+    required this.morphing,
+    required this.labelOpacity,
     required this.onBookSelected,
     required this.books,
   });
@@ -397,63 +472,62 @@ class _StaticVoxelChart extends StatelessWidget {
   final double labelHeight;
   final String? selectedBookId;
   final bool showBookLabel;
-  final bool rooftops;
-  final AnimationController revealController;
-  final Color shadowColor;
-  final Color baseColor;
+  final CustomPainter painter;
+  final bool morphing;
+  final Animation<double>? labelOpacity;
   final ValueChanged<DurationBarData> onBookSelected;
   final List<DurationBarData> books;
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: revealController,
-    builder: (context, _) {
-      final reveals = [
-        for (var index = 0; index < scene.bars.length; index++)
-          _revealValue(
-            index,
-            scene.bars.length,
-            revealController.value,
-            context,
-          ),
-      ];
-      final slotWidth = scene.bars.isEmpty ? width : width / scene.bars.length;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            height: plotHeight,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(
+  Widget build(BuildContext context) {
+    final slotWidth = scene.bars.isEmpty ? width : width / scene.bars.length;
+    final labels = _labels(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: plotHeight,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: RepaintBoundary(
                   child: CustomPaint(
-                    painter: _ScenePainter(
-                      scene: scene,
-                      reveals: reveals,
-                      rooftops: rooftops,
-                      selectedBookId: selectedBookId,
-                      shadowColor: shadowColor,
-                      baseColor: baseColor,
+                    key: ValueKey(
+                      morphing
+                          ? 'stats-book-duration-morph'
+                          : 'stats-book-duration-plot',
+                    ),
+                    painter: painter,
+                  ),
+                ),
+              ),
+              for (var index = 0; index < scene.bars.length; index++)
+                Positioned(
+                  left: slotWidth * index,
+                  width: slotWidth,
+                  top: 0,
+                  height: plotHeight,
+                  child: IgnorePointer(
+                    ignoring: morphing,
+                    child: ExcludeSemantics(
+                      excluding: morphing,
+                      child: _barInteraction(scene.bars[index]),
                     ),
                   ),
                 ),
-                for (var index = 0; index < scene.bars.length; index++)
-                  Positioned(
-                    left: slotWidth * index,
-                    width: slotWidth,
-                    top: 0,
-                    height: plotHeight,
-                    child: _barInteraction(scene.bars[index]),
-                  ),
-              ],
-            ),
+            ],
           ),
-          SizedBox(height: labelHeight, child: _labels(context)),
-        ],
-      );
-    },
-  );
+        ),
+        SizedBox(
+          height: labelHeight,
+          child: labelOpacity == null
+              ? labels
+              : FadeTransition(opacity: labelOpacity!, child: labels),
+        ),
+      ],
+    );
+  }
 
   Widget _barInteraction(_VoxelSceneBar bar) {
     if (scene.isTime) {
@@ -502,7 +576,7 @@ class _StaticVoxelChart extends StatelessWidget {
                           bar.label,
                           maxLines: 1,
                           style: TextStyle(
-                            fontSize: 8.5,
+                            fontSize: scene.bars.length <= 7 ? 10 : 8.5,
                             height: 1.2,
                             color: scheme.onSurfaceVariant,
                             fontFeatures: const [FontFeature.tabularFigures()],
@@ -542,6 +616,9 @@ class _VoxelScene {
 
   final List<_VoxelSceneBar> bars;
   final bool isTime;
+
+  double get maximumHeight =>
+      bars.fold(0.0, (height, bar) => math.max(height, bar.height));
 }
 
 class _VoxelSceneBar {
@@ -598,7 +675,6 @@ class _VoxelSceneSegment {
 
 class _VoxelCell {
   const _VoxelCell({
-    required this.barIndex,
     required this.key,
     required this.color,
     required this.centerX,
@@ -607,10 +683,9 @@ class _VoxelCell {
     required this.halfWidth,
     required this.depth,
     required this.floor,
-    required this.segmentIndex,
+    required this.seed,
   });
 
-  final int barIndex;
   final String key;
   final Color color;
   final double centerX;
@@ -619,7 +694,7 @@ class _VoxelCell {
   final double halfWidth;
   final double depth;
   final int floor;
-  final int segmentIndex;
+  final int seed;
 
   double get height => yBottom - yTop;
 }
@@ -689,7 +764,7 @@ _VoxelSceneBar _bookSceneBar(
     blockHeight: blockHeight,
     segments: segments,
     cells: _buildVoxelCells(
-      barIndex: index,
+      barKey: bar.key,
       centerX: centerX,
       halfWidth: halfWidth,
       depth: depth,
@@ -708,6 +783,7 @@ _VoxelScene _timeScene({
   required double width,
   required double plotHeight,
   required List<TimeOfDayBarData> bars,
+  required String labelSuffix,
 }) {
   const blockHeight = 8.0;
   final maximum = _maximumDuration(bars.map((bar) => bar.duration));
@@ -723,6 +799,7 @@ _VoxelScene _timeScene({
           plotHeight,
           maximum,
           blockHeight,
+          labelSuffix,
         ),
     ],
   );
@@ -735,6 +812,7 @@ _VoxelSceneBar _timeSceneBar(
   double plotHeight,
   Duration maximum,
   double blockHeight,
+  String labelSuffix,
 ) {
   final halfWidth = math.min(slotWidth * .38, 13.0);
   final depth = halfWidth * .5;
@@ -748,14 +826,14 @@ _VoxelSceneBar _timeSceneBar(
     key: bar.key,
     bookId: null,
     label: bar.label,
-    semanticsLabel: _timeBarSemantics(bar),
+    semanticsLabel: _timeBarSemantics(bar, labelSuffix: labelSuffix),
     share: null,
     duration: bar.duration,
     height: height,
     blockHeight: blockHeight,
     segments: segments,
     cells: _buildVoxelCells(
-      barIndex: index,
+      barKey: bar.key,
       centerX: centerX,
       halfWidth: halfWidth,
       depth: depth,
@@ -771,7 +849,7 @@ _VoxelSceneBar _timeSceneBar(
 }
 
 List<_VoxelCell> _buildVoxelCells({
-  required int barIndex,
+  required String barKey,
   required double centerX,
   required double halfWidth,
   required double depth,
@@ -784,6 +862,7 @@ List<_VoxelCell> _buildVoxelCells({
   var segmentBottom = baseY;
   for (var segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
     final segment = segments[segmentIndex];
+    final seed = _seedForKey('$barKey:${segment.key}');
     final segmentTop = segmentBottom - segment.height;
     var cursor = segmentBottom;
     var guard = 0;
@@ -796,7 +875,6 @@ List<_VoxelCell> _buildVoxelCells({
       if (cellBottom - cellTop > .3) {
         cells.add(
           _VoxelCell(
-            barIndex: barIndex,
             key: segment.key,
             color: segment.color,
             centerX: centerX,
@@ -805,7 +883,7 @@ List<_VoxelCell> _buildVoxelCells({
             halfWidth: halfWidth,
             depth: depth,
             floor: floor,
-            segmentIndex: segmentIndex,
+            seed: seed + floor * 97,
           ),
         );
       }
@@ -841,30 +919,34 @@ List<_VoxelSceneSegment> _timeSegments(TimeOfDayBarData bar, double height) {
   ];
 }
 
-String _timeBarSemantics(TimeOfDayBarData bar) {
-  if (bar.duration <= Duration.zero) return '${bar.label} 时，没有阅读记录';
+String _timeBarSemantics(TimeOfDayBarData bar, {required String labelSuffix}) {
+  if (bar.duration <= Duration.zero) {
+    return '${bar.label}$labelSuffix，没有阅读记录';
+  }
   final contributions = bar.segments
       .map(
         (segment) =>
             '${segment.title} ${formatReadingDuration(segment.duration)}',
       )
       .join('，');
-  return '${bar.label} 时，共 ${formatReadingDuration(bar.duration)}，'
+  return '${bar.label}$labelSuffix，共 ${formatReadingDuration(bar.duration)}，'
       '$contributions';
 }
 
 class _ScenePainter extends CustomPainter {
-  const _ScenePainter({
+  _ScenePainter({
     required this.scene,
-    required this.reveals,
+    required this.reveal,
+    required this.lights,
     required this.rooftops,
     required this.selectedBookId,
     required this.shadowColor,
     required this.baseColor,
-  });
+  }) : super(repaint: Listenable.merge([reveal, lights]));
 
   final _VoxelScene scene;
-  final List<double> reveals;
+  final Animation<double> reveal;
+  final Animation<double> lights;
   final bool rooftops;
   final String? selectedBookId;
   final Color shadowColor;
@@ -875,9 +957,12 @@ class _ScenePainter extends CustomPainter {
     if (scene.bars.isEmpty) return;
     _paintScene(
       canvas,
-      size,
       scene,
-      reveals: reveals,
+      reveals: [
+        for (var index = 0; index < scene.bars.length; index++)
+          _revealValue(index, scene.bars.length, reveal.value),
+      ],
+      lights: lights.value,
       rooftops: rooftops,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
@@ -886,80 +971,119 @@ class _ScenePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ScenePainter oldDelegate) => true;
+  bool shouldRepaint(_ScenePainter oldDelegate) =>
+      oldDelegate.scene != scene ||
+      oldDelegate.reveal != reveal ||
+      oldDelegate.lights != lights ||
+      oldDelegate.rooftops != rooftops ||
+      oldDelegate.selectedBookId != selectedBookId ||
+      oldDelegate.shadowColor != shadowColor ||
+      oldDelegate.baseColor != baseColor;
 }
 
 class _MorphPainter extends CustomPainter {
-  const _MorphPainter({
+  _MorphPainter({
     required this.fromScene,
+    required this.targetScene,
     required this.particles,
     required this.rooftops,
-    required this.plotHeight,
-    required this.progress,
+    required this.animation,
+    required this.lights,
     required this.selectedBookId,
     required this.shadowColor,
     required this.baseColor,
-  });
+  }) : super(repaint: Listenable.merge([animation, lights]));
 
   final _VoxelScene fromScene;
+  final _VoxelScene targetScene;
   final List<_MorphParticle> particles;
   final bool rooftops;
-  final double plotHeight;
-  final double progress;
+  final Animation<double> animation;
+  final Animation<double> lights;
   final String? selectedBookId;
   final Color shadowColor;
   final Color baseColor;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final progress = animation.value;
     canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, size.width, plotHeight));
-    final sourceOpacity = 1 - _smooth01(progress / .26);
+    canvas.clipRect(Offset.zero & size);
     _paintScene(
       canvas,
-      size,
       fromScene,
-      reveals: List.filled(fromScene.bars.length, 1.0),
+      reveals: List.filled(
+        fromScene.bars.length,
+        1 - _smooth01((progress - .08) / .2),
+      ),
+      lights: 0,
       rooftops: rooftops,
+      roofReveal: 1 - _smooth01(progress / .1),
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
-      opacity: sourceOpacity,
     );
-    _paintParticles(canvas);
+    // 目标柱体从底部逐层重组，不与一张已点灯的完整图叠加淡入。
+    final assembledHeight =
+        targetScene.maximumHeight *
+        ((progress - _morphAssemblyStart) /
+                (_morphAssemblyEnd - _morphAssemblyStart))
+            .clamp(0.0, 1.0);
+    _paintScene(
+      canvas,
+      targetScene,
+      reveals: [
+        for (final bar in targetScene.bars)
+          bar.height <= 0 ? 0 : (assembledHeight / bar.height).clamp(0.0, 1.0),
+      ],
+      lights: lights.value,
+      rooftops: rooftops,
+      roofReveal: _smooth01(
+        (progress - _morphAssemblyEnd) / (1 - _morphAssemblyEnd),
+      ),
+      selectedBookId: selectedBookId,
+      shadowColor: shadowColor,
+      baseColor: baseColor,
+    );
+    _paintParticles(canvas, progress);
     canvas.restore();
   }
 
-  void _paintParticles(Canvas canvas) {
-    final fade =
-        _smooth01(progress / .08) * (1 - _smooth01((progress - .9) / .08));
-    if (fade <= 0) return;
+  void _paintParticles(Canvas canvas, double progress) {
     for (final particle in particles) {
-      final start = .04 + particle.delay * .18;
-      final local = ((progress - start) / .6).clamp(0.0, 1.0).toDouble();
+      final start = .03 + particle.delay * .18;
+      final local = ((progress - start) / (particle.arrival - start))
+          .clamp(0.0, 1.0)
+          .toDouble();
+      if (local <= 0 || local >= 1) continue;
       final eased = Curves.easeInOutCubic.transform(local);
-      final burst = math.sin(math.pi * local);
+      final arc = math.sin(math.pi * local);
       var center = Offset.lerp(particle.start, particle.end, eased)!;
-      center +=
-          Offset(math.cos(particle.angle), math.sin(particle.angle)) *
-          particle.spread *
-          burst;
-      center += Offset(0, -burst * particle.size * 3);
+      center += Offset(particle.sway * arc, -particle.spread * arc);
       final dimmed = selectedBookId != null && particle.key != selectedBookId;
       final opacity =
-          fade *
-          (0.55 + 0.45 * math.sin(math.pi * local)) *
+          _smooth01(local / .12) *
+          (1 - _smooth01((local - .92) / .08)) *
           (dimmed ? .3 : 1.0);
-      _drawParticle(canvas, center, particle.color, particle.size, opacity);
+      final size =
+          (particle.startSize +
+              (particle.endSize - particle.startSize) * eased) *
+          (1 - .3 * arc);
+      _drawParticle(canvas, center, particle.color, size, opacity);
     }
   }
 
   @override
   bool shouldRepaint(_MorphPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
+      oldDelegate.animation != animation ||
+      oldDelegate.lights != lights ||
       oldDelegate.fromScene != fromScene ||
+      oldDelegate.targetScene != targetScene ||
       oldDelegate.particles != particles ||
-      oldDelegate.selectedBookId != selectedBookId;
+      oldDelegate.rooftops != rooftops ||
+      oldDelegate.selectedBookId != selectedBookId ||
+      oldDelegate.shadowColor != shadowColor ||
+      oldDelegate.baseColor != baseColor;
 }
 
 class _MorphParticle {
@@ -969,9 +1093,11 @@ class _MorphParticle {
     required this.start,
     required this.end,
     required this.delay,
+    required this.arrival,
     required this.spread,
-    required this.angle,
-    required this.size,
+    required this.sway,
+    required this.startSize,
+    required this.endSize,
   });
 
   final String key;
@@ -979,118 +1105,119 @@ class _MorphParticle {
   final Offset start;
   final Offset end;
   final double delay;
+  final double arrival;
   final double spread;
-  final double angle;
-  final double size;
+  final double sway;
+  final double startSize;
+  final double endSize;
 }
+
+typedef _MorphTile = ({Offset center, Color color, double size, double level});
 
 List<_MorphParticle> _buildMorphParticles(
   _VoxelScene fromScene,
   _VoxelScene toScene,
 ) {
-  final fromAreas = _areasByKey(fromScene);
-  final toAreas = _areasByKey(toScene);
-  final colors = <String, Color>{};
-  final durations = <String, Duration>{};
-  for (final bar in fromScene.bars) {
-    for (final segment in bar.segments) {
-      colors[segment.key] = segment.color;
-      durations[segment.key] =
-          (durations[segment.key] ?? Duration.zero) + segment.duration;
-    }
-  }
-  final total = durations.values.fold(
-    Duration.zero,
-    (sum, duration) => sum + duration,
-  );
+  final fromTiles = _tilesByKey(fromScene);
+  final toTiles = _tilesByKey(toScene);
   final particles = <_MorphParticle>[];
-  var category = 0;
-  for (final entry in fromAreas.entries) {
-    final targets = toAreas[entry.key];
-    if (entry.value.isEmpty || targets == null || targets.isEmpty) continue;
-    final color = colors[entry.key];
-    if (color == null) continue;
-    final share = total <= Duration.zero
-        ? 0.0
-        : (durations[entry.key] ?? Duration.zero).inMicroseconds /
-              total.inMicroseconds;
-    final areaCount = math.max(entry.value.length, targets.length);
-    final count = (10 + 36 * math.sqrt(share) + math.min(16, areaCount / 2))
-        .round()
-        .clamp(12, 56);
+  for (final entry in fromTiles.entries) {
+    final targets = toTiles[entry.key];
+    if (targets == null) continue;
+    // 每个真实立面格子参与拆解；格子较少的一侧细分，重组时合回原格子。
+    final count = math.max(entry.value.length, targets.length);
+    final keySeed = _seedForKey(entry.key);
     for (var index = 0; index < count; index++) {
-      final seed = category * 1000 + index * 11;
-      final startRect = _pickArea(entry.value, _random(seed + 1));
-      final endRect = _pickArea(targets, _random(seed + 2));
+      final seed = keySeed + index * 11;
+      final from = _splitMorphTile(entry.value, index, count);
+      final to = _splitMorphTile(targets, index, count);
       particles.add(
         _MorphParticle(
           key: entry.key,
-          color: color,
-          start: _pointIn(startRect, seed + 3),
-          end: _pointIn(endRect, seed + 4),
-          delay: _random(seed + 5),
-          spread: 7 + _random(seed + 6) * 24,
-          angle: _random(seed + 7) * math.pi * 2,
-          size: 2.2 + _random(seed + 8) * 2.2,
+          color: from.color,
+          start: from.center,
+          end: to.center,
+          delay: 1 - from.level,
+          arrival:
+              _morphAssemblyStart +
+              .04 +
+              to.level * (_morphAssemblyEnd - _morphAssemblyStart - .04),
+          spread: 8 + _random(seed + 6) * 12,
+          sway: (_random(seed + 7) - .5) * 8,
+          startSize: from.size,
+          endSize: to.size,
         ),
       );
     }
-    category++;
   }
   return particles;
 }
 
-Map<String, List<Rect>> _areasByKey(_VoxelScene scene) {
-  final result = <String, List<Rect>>{};
+Map<String, List<_MorphTile>> _tilesByKey(_VoxelScene scene) {
+  final result = <String, List<_MorphTile>>{};
+  final maximum = scene.maximumHeight;
   for (final bar in scene.bars) {
     for (final cell in bar.cells) {
-      if (cell.height <= 0) continue;
-      final rect = Rect.fromLTRB(
-        cell.centerX - cell.halfWidth * .9,
-        cell.yTop,
-        cell.centerX + cell.halfWidth * .9,
-        cell.yBottom,
-      );
-      result.putIfAbsent(cell.key, () => []).add(rect);
+      final columns = _facadeColumns(cell.halfWidth);
+      final centerY = (cell.yTop + cell.yBottom) / 2;
+      final size = math.min(cell.halfWidth / columns * .8, cell.height * .7);
+      for (var side = 0; side < 2; side++) {
+        for (var column = 0; column < columns; column++) {
+          result.putIfAbsent(cell.key, () => []).add((
+            center: _cellFacePoint(
+              cell,
+              side,
+              (column + .5) / columns,
+              centerY,
+            ),
+            color: cell.color,
+            size: size,
+            level: (bar.baseY - centerY) / maximum,
+          ));
+        }
+      }
     }
   }
   return result;
 }
 
-Rect _pickArea(List<Rect> areas, double value) {
-  final total = areas.fold(0.0, (sum, rect) => sum + math.max(.1, rect.height));
-  var cursor = value * total;
-  for (final rect in areas) {
-    cursor -= math.max(.1, rect.height);
-    if (cursor <= 0) return rect;
-  }
-  return areas.last;
+_MorphTile _splitMorphTile(List<_MorphTile> tiles, int index, int count) {
+  final tileIndex = index * tiles.length ~/ count;
+  final tile = tiles[tileIndex];
+  final first = (tileIndex * count / tiles.length).ceil();
+  final last = ((tileIndex + 1) * count / tiles.length).ceil();
+  final parts = last - first;
+  if (parts == 1) return tile;
+  final columns = math.sqrt(parts).ceil();
+  final rows = (parts / columns).ceil();
+  final local = index - first;
+  final offset = Offset(
+    (local % columns - (columns - 1) / 2) * tile.size / columns,
+    (local ~/ columns - (rows - 1) / 2) * tile.size / rows,
+  );
+  return (
+    center: tile.center + offset,
+    color: tile.color,
+    size: tile.size / math.sqrt(parts),
+    level: tile.level,
+  );
 }
-
-Offset _pointIn(Rect rect, int seed) => Offset(
-  rect.left + _random(seed) * rect.width,
-  rect.top + _random(seed + 100) * rect.height,
-);
 
 void _paintScene(
   Canvas canvas,
-  Size size,
   _VoxelScene scene, {
   required List<double> reveals,
+  required double lights,
   required bool rooftops,
   required String? selectedBookId,
   required Color shadowColor,
   required Color baseColor,
-  double opacity = 1,
+  double roofReveal = 1,
 }) {
-  if (opacity <= 0) return;
-  final layered = opacity < 1;
-  if (layered) {
-    canvas.saveLayer(
-      Offset.zero & size,
-      Paint()..color = Colors.white.withValues(alpha: opacity),
-    );
-  }
+  final lightLevels = scene.bars.fold(
+    0.0,
+    (levels, bar) => math.max(levels, bar.height / bar.blockHeight),
+  );
   for (var index = 0; index < scene.bars.length; index++) {
     final bar = scene.bars[index];
     final reveal = index < reveals.length ? reveals[index] : 1.0;
@@ -1100,20 +1227,27 @@ void _paintScene(
       canvas,
       bar,
       visibleHeight,
-      rooftops: rooftops && !scene.isTime,
+      lights: lights,
+      lightLevels: lightLevels,
+      rooftops: rooftops,
+      roofScale: scene.isTime ? (bar.height / 32).clamp(.45, .78) : 1,
+      roofReveal: roofReveal,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
     );
   }
-  if (layered) canvas.restore();
 }
 
 void _paintBar(
   Canvas canvas,
   _VoxelSceneBar bar,
   double visibleHeight, {
+  required double lights,
+  required double lightLevels,
   required bool rooftops,
+  required double roofScale,
+  required double roofReveal,
   required String? selectedBookId,
   required Color shadowColor,
   required Color baseColor,
@@ -1131,7 +1265,13 @@ void _paintBar(
       capCell = cell;
     }
     final dimmed = selectedBookId != null && cell.key != selectedBookId;
-    _paintFacadeCell(canvas, cell, dimmed: dimmed, shadowColor: shadowColor);
+    _paintFacadeCell(
+      canvas,
+      cell,
+      dimmed: dimmed,
+      shadowColor: shadowColor,
+      light: _floorLightValue(cell.floor.toDouble(), lightLevels, lights),
+    );
   }
   _paintFloorSeams(canvas, bar, clipTop: clipTop, shadowColor: shadowColor);
   canvas.restore();
@@ -1144,14 +1284,24 @@ void _paintBar(
       color: capCell.color,
       dimmed: selectedBookId != null && capCell.key != selectedBookId,
     );
-    if (rooftops && visibleHeight >= bar.height - .01) {
+    if (rooftops && visibleHeight >= bar.height - .01 && roofReveal > 0) {
+      canvas.save();
+      canvas.translate(bar.centerX, clipTop);
+      canvas.scale(roofReveal * roofScale);
+      canvas.translate(-bar.centerX, -clipTop);
       _paintRooftop(
         canvas,
         bar,
         roofY: clipTop,
         color: capCell.color,
         dimmed: selectedBookId != null && capCell.key != selectedBookId,
+        light: _floorLightValue(
+          bar.height / bar.blockHeight + .5,
+          lightLevels,
+          lights,
+        ),
       );
+      canvas.restore();
     }
   }
 }
@@ -1163,7 +1313,7 @@ void _paintBarBase(Canvas canvas, _VoxelSceneBar bar, Color baseColor) {
   );
 }
 
-const _rooftopStyleCount = 5;
+const _rooftopStyleCount = 8;
 
 /// 按柱子顺序轮换阁楼样式，相邻柱体不会重复。
 void _paintRooftop(
@@ -1172,23 +1322,24 @@ void _paintRooftop(
   required double roofY,
   required Color color,
   required bool dimmed,
+  required double light,
 }) {
   final tint = dimmed ? color.withValues(alpha: color.a * .3) : color;
   final halfWidth = bar.halfWidth * .66;
   final depth = bar.depth * .66;
   final centerX = bar.centerX;
-  switch (bar.index % _rooftopStyleCount) {
-    case 0:
-      _paintRoofTerrace(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
-    case 1:
-      _paintRoofSpire(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
-    case 2:
-      _paintRoofStepped(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
-    case 3:
-      _paintRoofTank(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
-    default:
-      _paintRoofCabin(canvas, centerX, roofY, halfWidth, depth, tint, dimmed);
-  }
+  final windowLight = _random(_seedForKey(bar.key) + 19) >= .5 ? light : 0.0;
+  final painter = switch (bar.index % _rooftopStyleCount) {
+    0 => _paintRoofTerrace,
+    1 => _paintRoofGreenhouse,
+    2 => _paintRoofSpire,
+    3 => _paintRoofTwinTowers,
+    4 => _paintRoofStepped,
+    5 => _paintRoofLeanTo,
+    6 => _paintRoofTank,
+    _ => _paintRoofCabin,
+  };
+  painter(canvas, centerX, roofY, halfWidth, depth, tint, windowLight);
 }
 
 /// 平顶露台：矮墙、出挑顶板与前侧栏杆。
@@ -1199,7 +1350,7 @@ void _paintRoofTerrace(
   double halfWidth,
   double depth,
   Color tint,
-  bool dimmed,
+  double light,
 ) {
   const wall = 10.5;
   _paintIsoBlock(
@@ -1253,7 +1404,16 @@ void _paintRoofTerrace(
       rail,
     );
   }
-  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+  _paintRooftopWindow(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    light,
+  );
 }
 
 /// 尖顶塔楼：方屋、四坡尖顶、天线与顶灯。
@@ -1264,7 +1424,7 @@ void _paintRoofSpire(
   double halfWidth,
   double depth,
   Color tint,
-  bool dimmed,
+  double light,
 ) {
   const wall = 9.5;
   _paintIsoBlock(
@@ -1300,8 +1460,34 @@ void _paintRoofSpire(
       ..color = Color.lerp(tint, Colors.white, .5)!
       ..strokeWidth = .8,
   );
-  canvas.drawCircle(mastTop, 1.2, Paint()..color = const Color(0xFFFFC46E));
-  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+  const warm = Color(0xFFFFC46E);
+  if (light > 0) {
+    canvas.drawCircle(
+      mastTop,
+      2.8,
+      Paint()..color = warm.withValues(alpha: tint.a * light * .14),
+    );
+  }
+  canvas.drawCircle(
+    mastTop,
+    1.2,
+    Paint()
+      ..color = Color.lerp(
+        Color.lerp(tint, Colors.black, .5)!.withValues(alpha: tint.a),
+        warm.withValues(alpha: tint.a),
+        light,
+      )!,
+  );
+  _paintRooftopWindow(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    light,
+  );
 }
 
 /// 退台阁楼：两层收分，顶上放一盆绿植。
@@ -1312,7 +1498,7 @@ void _paintRoofStepped(
   double halfWidth,
   double depth,
   Color tint,
-  bool dimmed,
+  double light,
 ) {
   const lower = 8.5;
   const upper = 6.5;
@@ -1360,7 +1546,16 @@ void _paintRoofStepped(
     2.1,
     Paint()..color = Color.lerp(green, Colors.white, .18)!,
   );
-  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, lower, dimmed);
+  _paintRooftopWindow(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    lower,
+    tint,
+    light,
+  );
 }
 
 /// 水塔阁楼：设备间与顶部水箱、透气管。
@@ -1371,7 +1566,7 @@ void _paintRoofTank(
   double halfWidth,
   double depth,
   Color tint,
-  bool dimmed,
+  double light,
 ) {
   const wall = 8.5;
   _paintIsoBlock(
@@ -1455,7 +1650,16 @@ void _paintRoofTank(
       ..color = Color.lerp(tint, Colors.white, .4)!
       ..strokeWidth = .8,
   );
-  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+  _paintRooftopWindow(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    light,
+  );
 }
 
 /// 坡顶小屋：矮四坡顶与右侧烟囱。
@@ -1466,7 +1670,7 @@ void _paintRoofCabin(
   double halfWidth,
   double depth,
   Color tint,
-  bool dimmed,
+  double light,
 ) {
   const wall = 9.5;
   _paintIsoBlock(
@@ -1506,7 +1710,195 @@ void _paintRoofCabin(
     lit: .1,
     top: .3,
   );
-  _paintRooftopWindow(canvas, centerX, baseY, halfWidth, depth, wall, dimmed);
+  _paintRooftopWindow(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    light,
+  );
+}
+
+/// 玻璃温室：矮墙、玻璃坡顶与白色支撑框。
+void _paintRoofGreenhouse(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  double light,
+) {
+  const wall = 7.5;
+  _paintIsoBlock(canvas, centerX, baseY, halfWidth, depth, wall, tint);
+  _paintGreenhouseGlazing(
+    canvas,
+    centerX,
+    baseY - wall,
+    halfWidth,
+    depth,
+    tint,
+  );
+  _paintRooftopWindow(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    light,
+  );
+}
+
+void _paintGreenhouseGlazing(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+) {
+  final west = Offset(centerX - halfWidth, baseY);
+  final south = Offset(centerX, baseY + depth);
+  final east = Offset(centerX + halfWidth, baseY);
+  final apex = Offset(centerX, baseY - 9);
+  final glass = Color.lerp(tint, const Color(0xFFB8D9D2), .48)!;
+  canvas.drawPath(
+    _triPath(west, south, apex),
+    Paint()..color = glass.withValues(alpha: tint.a * .85),
+  );
+  canvas.drawPath(
+    _triPath(south, east, apex),
+    Paint()
+      ..color = Color.lerp(glass, Colors.white, .2)!.withValues(alpha: tint.a),
+  );
+  final frame = Paint()
+    ..color = Colors.white.withValues(alpha: tint.a * .55)
+    ..strokeWidth = .8;
+  for (final base in [west, south, east]) {
+    canvas.drawLine(base, apex, frame);
+  }
+  canvas.drawLine(
+    Offset.lerp(west, apex, .5)!,
+    Offset.lerp(east, apex, .5)!,
+    frame,
+  );
+}
+
+/// 双塔机房：共用基座，两座高低不同的设备间。
+void _paintRoofTwinTowers(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  double light,
+) {
+  _paintIsoBlock(canvas, centerX, baseY, halfWidth, depth, 3.5, tint);
+  // 塔身与窗灯共用各自基线，窄时段柱缩放时不会错位。
+  for (final tower in [
+    (x: centerX - halfWidth * .38, y: baseY - 3.5 - depth * .12, height: 11.0),
+    (x: centerX + halfWidth * .34, y: baseY - 3.5 + depth * .08, height: 17.0),
+  ]) {
+    _paintIsoBlock(
+      canvas,
+      tower.x,
+      tower.y,
+      halfWidth * .37,
+      depth * .37,
+      tower.height,
+      tint,
+    );
+    _paintRooftopWindow(
+      canvas,
+      tower.x,
+      tower.y,
+      halfWidth * .37,
+      depth * .37,
+      tower.height,
+      tint,
+      light,
+    );
+  }
+}
+
+/// 单坡机房：斜屋顶与两块太阳能板。
+void _paintRoofLeanTo(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+  double light,
+) {
+  const wall = 8.5;
+  _paintIsoBlock(canvas, centerX, baseY, halfWidth, depth, wall, tint);
+  _paintSlopedRoof(canvas, centerX, baseY - wall, halfWidth, depth, tint);
+  _paintRooftopWindow(
+    canvas,
+    centerX,
+    baseY,
+    halfWidth,
+    depth,
+    wall,
+    tint,
+    light,
+  );
+}
+
+void _paintSlopedRoof(
+  Canvas canvas,
+  double centerX,
+  double baseY,
+  double halfWidth,
+  double depth,
+  Color tint,
+) {
+  // 屋面、侧面和面板共用四个顶点，保持在一起避免窄柱缩放时出现接缝。
+  final west = Offset(centerX - halfWidth, baseY - 6);
+  final north = Offset(centerX, baseY - depth - 6);
+  final east = Offset(centerX + halfWidth, baseY - 1.5);
+  final south = Offset(centerX, baseY + depth - 1.5);
+  canvas.drawPath(
+    _quadPath(west, south, south.translate(0, 1.5), west.translate(0, 6)),
+    Paint()
+      ..color = Color.lerp(tint, Colors.black, .2)!.withValues(alpha: tint.a),
+  );
+  canvas.drawPath(
+    _quadPath(east, south, south.translate(0, 1.5), east.translate(0, 1.5)),
+    Paint()
+      ..color = Color.lerp(tint, Colors.white, .08)!.withValues(alpha: tint.a),
+  );
+  canvas.drawPath(
+    _quadPath(north, east, south, west),
+    Paint()
+      ..color = Color.lerp(tint, Colors.white, .3)!.withValues(alpha: tint.a),
+  );
+  final panel = Paint()
+    ..color = Color.lerp(
+      tint,
+      const Color(0xFF2B4156),
+      .6,
+    )!.withValues(alpha: tint.a);
+  for (var index = 0; index < 2; index++) {
+    final start = .18 + index * .32;
+    final end = start + .24;
+    canvas.drawPath(
+      _quadPath(
+        Offset.lerp(north, east, start)!,
+        Offset.lerp(north, east, end)!,
+        Offset.lerp(west, south, end)!,
+        Offset.lerp(west, south, start)!,
+      ),
+      panel,
+    );
+  }
 }
 
 void _paintIsoBlock(
@@ -1531,15 +1923,22 @@ void _paintIsoBlock(
   final northTop = Offset(centerX, topY - depth);
   canvas.drawPath(
     _quadPath(westTop, southTop, southBase, westBase),
-    Paint()..color = Color.lerp(tint, Colors.black, shade)!,
+    Paint()
+      ..color = Color.lerp(
+        tint,
+        Colors.black,
+        shade,
+      )!.withValues(alpha: tint.a),
   );
   canvas.drawPath(
     _quadPath(eastTop, southTop, southBase, eastBase),
-    Paint()..color = Color.lerp(tint, Colors.white, lit)!,
+    Paint()
+      ..color = Color.lerp(tint, Colors.white, lit)!.withValues(alpha: tint.a),
   );
   canvas.drawPath(
     _quadPath(northTop, eastTop, southTop, westTop),
-    Paint()..color = Color.lerp(tint, Colors.white, top)!,
+    Paint()
+      ..color = Color.lerp(tint, Colors.white, top)!.withValues(alpha: tint.a),
   );
 }
 
@@ -1550,7 +1949,8 @@ void _paintRooftopWindow(
   double halfWidth,
   double depth,
   double height,
-  bool dimmed,
+  Color tint,
+  double light,
 ) {
   final top = baseY - height * .72;
   final bottom = baseY - height * .36;
@@ -1562,20 +1962,12 @@ void _paintRooftopWindow(
     point(.64, bottom),
     point(.36, bottom),
   );
-  final bounds = window.getBounds();
-  const warm = Color(0xFFFFC46E);
-  canvas.save();
-  canvas.translate(bounds.center.dx, bounds.center.dy);
-  canvas.scale(2);
-  canvas.translate(-bounds.center.dx, -bounds.center.dy);
-  canvas.drawPath(
+  _paintWindowLight(
+    canvas,
     window,
-    Paint()..color = warm.withValues(alpha: dimmed ? .1 : .16),
-  );
-  canvas.restore();
-  canvas.drawPath(
-    window,
-    Paint()..color = warm.withValues(alpha: dimmed ? .28 : .85),
+    dark: Color.lerp(tint, Colors.black, .55)!.withValues(alpha: tint.a * .6),
+    color: const Color(0xFFFFC46E).withValues(alpha: tint.a * .9),
+    light: light,
   );
 }
 
@@ -1597,48 +1989,59 @@ void _paintFacadeCell(
   _VoxelCell cell, {
   required bool dimmed,
   required Color shadowColor,
+  required double light,
 }) {
+  _paintFacadePanels(
+    canvas,
+    cell,
+    dimmed: dimmed,
+    shadowColor: shadowColor,
+    light: light,
+  );
+  canvas.drawLine(
+    _cellFacePoint(cell, 0, 0, cell.yTop),
+    _cellFacePoint(cell, 0, 0, cell.yBottom),
+    Paint()
+      ..color = Colors.white.withValues(alpha: dimmed ? .03 : .1)
+      ..strokeWidth = .8,
+  );
+  canvas.drawLine(
+    _cellFacePoint(cell, 0, 1, cell.yTop),
+    _cellFacePoint(cell, 0, 1, cell.yBottom),
+    Paint()
+      ..color = shadowColor.withValues(alpha: dimmed ? .05 : .16)
+      ..strokeWidth = .7,
+  );
+}
+
+void _paintFacadePanels(
+  Canvas canvas,
+  _VoxelCell cell, {
+  required bool dimmed,
+  required Color shadowColor,
+  required double light,
+}) {
+  // 裁剪、窗格和接缝共用一组立面坐标，避免拆开绘制后出现漏光接缝。
   final tint = dimmed
       ? cell.color.withValues(alpha: cell.color.a * .3)
       : cell.color;
-  final seed = cell.barIndex * 10000 + cell.floor * 97 + cell.segmentIndex * 13;
-  final west = _cellFacePoint(cell, 0, 0, cell.yTop);
-  final south = _cellFacePoint(cell, 0, 1, cell.yTop);
-  final east = _cellFacePoint(cell, 1, 1, cell.yTop);
-  final baseSouth = _cellFacePoint(cell, 0, 1, cell.yBottom);
-  final baseWest = _cellFacePoint(cell, 0, 0, cell.yBottom);
-  final baseEast = _cellFacePoint(cell, 1, 1, cell.yBottom);
-  final leftFace = Path()
-    ..moveTo(west.dx, west.dy)
-    ..lineTo(south.dx, south.dy)
-    ..lineTo(baseSouth.dx, baseSouth.dy)
-    ..lineTo(baseWest.dx, baseWest.dy)
-    ..close();
-  final rightFace = Path()
-    ..moveTo(east.dx, east.dy)
-    ..lineTo(south.dx, south.dy)
-    ..lineTo(baseSouth.dx, baseSouth.dy)
-    ..lineTo(baseEast.dx, baseEast.dy)
-    ..close();
-  canvas.drawPath(
-    leftFace,
-    Paint()..color = Color.lerp(tint, Colors.black, .2)!,
-  );
-  canvas.drawPath(
-    rightFace,
-    Paint()..color = Color.lerp(tint, Colors.white, .06)!,
-  );
   final columns = _facadeColumns(cell.halfWidth);
   for (var side = 0; side < 2; side++) {
+    canvas.save();
+    // 光晕只落在当前立面内，不越过轮廓或楼层接缝。
+    canvas.clipPath(_cellPanelPath(cell, side: side, start: 0, end: 1));
     for (var column = 0; column < columns; column++) {
       final start = column / columns;
       final end = (column + 1) / columns;
       final panel = _cellPanelPath(cell, side: side, start: start, end: end);
-      final panelSeed = seed + side * 211 + column * 47;
+      final panelSeed = cell.seed + side * 211 + column * 47;
       final panelTint = side == 0
-          ? Color.lerp(tint, Colors.black, .17 + _random(panelSeed) * .07)!
-          : Color.lerp(tint, Colors.white, .05 + _random(panelSeed) * .07)!;
-      canvas.drawPath(panel, Paint()..color = panelTint);
+          ? Color.lerp(tint, Colors.black, .24 + _random(panelSeed) * .025)!
+          : Color.lerp(tint, Colors.white, .07 + _random(panelSeed) * .025)!;
+      canvas.drawPath(
+        panel,
+        Paint()..color = panelTint.withValues(alpha: tint.a),
+      );
       if (column > 0) {
         canvas.drawLine(
           _cellFacePoint(cell, side, start, cell.yTop),
@@ -1657,23 +2060,11 @@ void _paintFacadeCell(
         seed: panelSeed,
         tint: tint,
         dimmed: dimmed,
+        light: light,
       );
     }
+    canvas.restore();
   }
-  canvas.drawLine(
-    west,
-    baseWest,
-    Paint()
-      ..color = Colors.white.withValues(alpha: .08)
-      ..strokeWidth = 1,
-  );
-  canvas.drawLine(
-    south,
-    baseSouth,
-    Paint()
-      ..color = shadowColor.withValues(alpha: .13)
-      ..strokeWidth = .8,
-  );
 }
 
 int _facadeColumns(double halfWidth) {
@@ -1722,49 +2113,59 @@ void _paintFacadeWindow(
   required int seed,
   required Color tint,
   required bool dimmed,
+  required double light,
 }) {
-  if (cell.height < 2.4 || cell.halfWidth < 1.8) return;
+  if (cell.height < 2.8 || cell.halfWidth < 1.8) return;
   final panelWidth = (end - start) * cell.halfWidth;
-  final windowWidth = (panelWidth * .42).clamp(.9, 2.4).toDouble();
-  final windowHeight = (cell.height * .36).clamp(1.4, 3.2).toDouble();
+  final windowWidth = (panelWidth * .52).clamp(1.1, 3.4).toDouble();
+  final windowHeight = (cell.height * .4).clamp(1.2, 4.2).toDouble();
   final widthRatio = windowWidth / cell.halfWidth;
   final dark = Color.lerp(tint, Colors.black, .5)!;
-  if (_random(seed) < .08) return;
-  final center =
-      (start + end) / 2 + (_random(seed + 1) - .5) * (end - start) * .1;
-  final centerY =
-      (cell.yTop + cell.yBottom) / 2 +
-      (_random(seed + 2) - .5) * cell.height * .16;
+  final center = (start + end) / 2;
   final path = _cellWindowPath(
     cell,
     side: side,
     start: (center - widthRatio / 2).clamp(start + .03, end - .03).toDouble(),
     end: (center + widthRatio / 2).clamp(start + .03, end - .03).toDouble(),
-    centerY: centerY,
+    centerY: (cell.yTop + cell.yBottom) / 2,
     height: windowHeight,
   );
-  if (_random(seed + 3) > .78) {
-    final color = _random(seed + 4) > .45
-        ? const Color(0xFFFFB65E)
-        : const Color(0xFFFFD28C);
-    final opacity = dimmed ? .14 : .8 + _random(seed + 5) * .2;
+  // 约一半窗格随机亮灯；种子绑定柱子与书籍身份，刷新或重排不闪变。
+  final lit = _random(seed + 3) >= .5;
+  final color = _random(seed + 4) > .45
+      ? const Color(0xFFFFBF70)
+      : const Color(0xFFFFD797);
+  _paintWindowLight(
+    canvas,
+    path,
+    dark: dark.withValues(alpha: dimmed ? .15 : .7),
+    color: color.withValues(
+      alpha: dimmed ? .18 : .86 + _random(seed + 5) * .08,
+    ),
+    light: lit ? light : 0,
+  );
+}
+
+void _paintWindowLight(
+  Canvas canvas,
+  Path path, {
+  required Color dark,
+  required Color color,
+  required double light,
+}) {
+  if (light > 0) {
     final bounds = path.getBounds();
     canvas.save();
     canvas.translate(bounds.center.dx, bounds.center.dy);
-    canvas.scale(1.8);
+    canvas.scale(1.6);
     canvas.translate(-bounds.center.dx, -bounds.center.dy);
     canvas.drawPath(
       path,
-      Paint()..color = color.withValues(alpha: opacity * .14),
+      Paint()..color = color.withValues(alpha: color.a * light * .16),
     );
     canvas.restore();
-    canvas.drawPath(path, Paint()..color = color.withValues(alpha: opacity));
-  } else {
-    canvas.drawPath(
-      path,
-      Paint()..color = dark.withValues(alpha: dimmed ? .08 : .4),
-    );
   }
+  canvas.drawPath(path, Paint()..color = Color.lerp(dark, color, light)!);
 }
 
 void _paintFloorSeams(
@@ -1865,31 +2266,20 @@ void _drawParticle(
 ) {
   if (opacity <= 0) return;
   final alpha = (color.a * opacity).clamp(0.0, 1.0).toDouble();
-  final front = Rect.fromCenter(center: center, width: size, height: size);
-  final topCenter = Offset(center.dx, front.top - size * .18);
-  final topFace = Path()
-    ..moveTo(topCenter.dx, topCenter.dy - size * .34)
-    ..lineTo(topCenter.dx + size * .5, topCenter.dy)
-    ..lineTo(topCenter.dx, topCenter.dy + size * .34)
-    ..lineTo(topCenter.dx - size * .5, topCenter.dy)
-    ..close();
-  canvas.drawPath(
-    topFace,
-    Paint()
-      ..color = Color.lerp(color, Colors.white, .3)!.withValues(alpha: alpha),
+  _paintIsoBlock(
+    canvas,
+    center.dx,
+    center.dy + size * .5,
+    size * .65,
+    size * .32,
+    size,
+    color.withValues(alpha: alpha),
   );
-  canvas.drawRect(front, Paint()..color = color.withValues(alpha: alpha));
 }
 
-double _revealValue(
-  int index,
-  int count,
-  double controllerValue,
-  BuildContext context,
-) {
-  if (MediaQuery.disableAnimationsOf(context)) return 1;
-  final start = count <= 1 ? 0.0 : index / count * .42;
-  final end = math.min(1.0, start + .58);
+double _revealValue(int index, int count, double controllerValue) {
+  final start = count <= 1 ? 0.0 : index / count * .18;
+  final end = math.min(1.0, start + .82);
   final local = ((controllerValue - start) / (end - start))
       .clamp(0.0, 1.0)
       .toDouble();
@@ -1899,9 +2289,12 @@ double _revealValue(
 double _revealedHeight(_VoxelSceneBar bar, double reveal) {
   if (bar.height <= 0 || reveal <= 0) return 0;
   if (reveal >= 1) return bar.height;
-  final raw = bar.height * reveal;
-  return math.min(bar.height, (raw / bar.blockHeight).ceil() * bar.blockHeight);
+  return bar.height * reveal;
 }
+
+/// 楼层共享同一条向上的点灯波，跨书籍色段也不从底部重新开始。
+double _floorLightValue(double floor, double levels, double progress) =>
+    _smooth01((progress * (levels + 2) - floor) / 1.5);
 
 Path _diamond(double x, double y, double halfWidth, double depth) => Path()
   ..moveTo(x, y - depth)
@@ -1936,6 +2329,14 @@ double _smooth01(double value) {
 double _random(int seed) {
   final value = math.sin(seed * 12.9898 + 78.233) * 43758.5453;
   return value - value.floorToDouble();
+}
+
+int _seedForKey(String key) {
+  var hash = 0;
+  for (final unit in key.codeUnits) {
+    hash = (hash * 31 + unit) & 0x3fffffff;
+  }
+  return hash;
 }
 
 bool _sameBars(List<DurationBarData> left, List<DurationBarData> right) {

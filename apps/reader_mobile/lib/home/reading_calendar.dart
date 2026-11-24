@@ -16,12 +16,14 @@ class ReadingCalendar extends StatefulWidget {
     super.key,
     required this.insights,
     this.bookTitles = const {},
+    this.bookColors = const {},
     this.finishedBookIds = const {},
     this.now,
   });
 
   final ReadingInsights insights;
   final Map<String, String> bookTitles;
+  final Map<String, Color> bookColors;
   final Set<String> finishedBookIds;
   final DateTime? now;
 
@@ -86,6 +88,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
         date: date,
         portions: portions,
         bookTitles: {...widget.insights.bookTitles, ...widget.bookTitles},
+        bookColors: widget.bookColors,
         finishedBookIds: {
           for (final entry in month.finishDays.entries)
             if (entry.value.year == date.year &&
@@ -238,6 +241,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
           month: month,
           week: week,
           today: _today,
+          bookColors: widget.bookColors,
           onOpen: _openDay,
         ),
     ],
@@ -273,12 +277,14 @@ class _CalendarWeek extends StatelessWidget {
     required this.month,
     required this.week,
     required this.today,
+    required this.bookColors,
     required this.onOpen,
   });
 
   final ReadingCalendarMonth month;
   final int week;
   final DateTime today;
+  final Map<String, Color> bookColors;
   final void Function(ReadingCalendarMonth month, DateTime date) onOpen;
 
   @override
@@ -370,6 +376,7 @@ class _CalendarWeek extends StatelessWidget {
     final color = readingBookColor(
       span.bookId,
       brightness: Theme.of(context).brightness,
+      bookColors: bookColors,
     );
     final done =
         month.finishDays[span.bookId] == month.dateAt(week, span.lastColumn);
@@ -455,12 +462,14 @@ class _CalendarDaySheet extends StatelessWidget {
     required this.date,
     required this.portions,
     required this.bookTitles,
+    required this.bookColors,
     required this.finishedBookIds,
   });
 
   final DateTime date;
   final List<ReadingDayPortion> portions;
   final Map<String, String> bookTitles;
+  final Map<String, Color> bookColors;
   final Set<String> finishedBookIds;
 
   @override
@@ -618,6 +627,7 @@ class _CalendarDaySheet extends StatelessWidget {
                       color: readingBookColor(
                         bookId,
                         brightness: scheme.brightness,
+                        bookColors: bookColors,
                       ),
                       shape: BoxShape.circle,
                     ),

@@ -8,6 +8,7 @@ import 'book_cover_image.dart';
 import 'book_duration_chart.dart';
 import 'desktop_layout.dart';
 import 'reading_calendar.dart';
+import 'reading_book_color.dart';
 import 'reading_insights.dart';
 import 'book_reading_ranking.dart';
 import 'weekday_average_chart.dart';
@@ -54,6 +55,7 @@ class StatsPage extends StatefulWidget {
 
 class _StatsPageState extends State<StatsPage> {
   late final BookOpener _bookOpener;
+  final _bookColors = ReadingBookColorCache();
   _StatsContent? _content;
   List<Record> _snapshot = const [];
   int _reloadToken = 0;
@@ -256,10 +258,13 @@ class _StatsPageState extends State<StatsPage> {
       );
       final snapshot = _statsSnapshot(now, stats, storedSessions);
       if (listEquals(_snapshot, snapshot)) return;
+      final bookColors = await _bookColors.load(books, insights.byBook.keys);
+      if (!_acceptsReload(token)) return;
       setState(() {
         _snapshot = snapshot;
         _content = _StatsContent(
           stats: stats,
+          bookColors: bookColors,
           onOpenBook: _openBook,
           now: widget.now,
         );
@@ -316,11 +321,13 @@ class _StatsPageState extends State<StatsPage> {
 class _StatsContent extends StatelessWidget {
   const _StatsContent({
     required this.stats,
+    required this.bookColors,
     required this.onOpenBook,
     this.now,
   });
 
   final _LibraryStats stats;
+  final Map<String, Color> bookColors;
   final Future<void> Function(BookEntry) onOpenBook;
   final DateTime? now;
 
@@ -375,6 +382,7 @@ class _StatsContent extends StatelessWidget {
         child: BookDurationChart(
           insights: stats.insights,
           bookTitles: titles,
+          bookColors: bookColors,
           now: now,
         ),
       ),
@@ -384,6 +392,7 @@ class _StatsContent extends StatelessWidget {
         child: ReadingCalendar(
           insights: stats.insights,
           bookTitles: titles,
+          bookColors: bookColors,
           now: now,
           finishedBookIds: {
             for (final row in stats.rows)

@@ -151,16 +151,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('30 分钟'), findsWidgets);
-    for (final period in ['day', 'week', 'month', 'quarter', 'year']) {
-      final pick = find.byKey(
-        const ValueKey('stats-book-duration-pick-period'),
+    for (final period in ['day', 'week']) {
+      final control = find.byKey(
+        ValueKey<String>('stats-book-duration-period-$period'),
       );
-      await _scrollTo(tester, pick);
-      await tester.tap(pick);
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(ValueKey<String>('stats-book-duration-period-$period')),
-      );
+      await _scrollTo(tester, control);
+      await tester.tap(control);
       await tester.pumpAndSettle();
       expect(
         tester

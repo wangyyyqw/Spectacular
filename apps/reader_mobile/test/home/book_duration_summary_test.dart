@@ -13,6 +13,34 @@ ReadingSession _session(String id, DateTime start, int minutes) =>
     );
 
 void main() {
+  test('榜单保留门槛，全量汇总可查看未达门槛书籍且总时长一致', () {
+    final now = DateTime(2026, 11, 15, 20);
+    final insights = ReadingInsights(
+      [
+        _session('shown', DateTime(2026, 11, 15, 8), 10),
+        _session('brief', DateTime(2026, 11, 15, 9), 4),
+        _session('old', DateTime(2026, 11, 8, 9), 30),
+      ],
+      now: now,
+      minimumBookDayDuration: minimumDisplayedBookDayDuration,
+    );
+    for (final period in [BookDurationPeriod.day, BookDurationPeriod.week]) {
+      final ranked = BookDurationSummary(insights, period: period, date: now);
+      final complete = BookDurationSummary(
+        insights,
+        period: period,
+        date: now,
+        applyBookThreshold: false,
+      );
+      expect(ranked.entries.map((entry) => entry.bookId), ['shown']);
+      expect(complete.entries.map((entry) => entry.bookId), ['shown', 'brief']);
+      expect(ranked.totalBookCount, 2);
+      expect(complete.totalBookCount, 2);
+      expect(ranked.total, const Duration(minutes: 14));
+      expect(complete.total, ranked.total);
+    }
+  });
+
   test('书目按任一单日超过五分钟展示，历史秒级阅读和隐藏书目时长均不丢失', () {
     final now = DateTime(2026, 11, 21, 12);
     final shortStart = DateTime(2026, 11, 20, 8);
