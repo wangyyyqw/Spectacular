@@ -159,6 +159,30 @@ p { margin: 0; }
       ]);
     });
 
+    test('重复解析和缓存淘汰后保留空白、未知族及内置规范名语义', () {
+      const samples = {
+        ' \tNoto\nSerif CJK SC\u00a0': FontFamilyAliases.song,
+        'Microsoft\tYaHei': FontFamilyAliases.hei,
+        '宋体黑': null,
+        ' User_MyFont ': null,
+        'builtin_song': null,
+        '': null,
+      };
+      for (var round = 0; round < 3; round++) {
+        for (final entry in samples.entries) {
+          expect(FontFamilyAliases.resolve(entry.key), entry.value);
+          expect(FontFamilyAliases.resolve(entry.key), entry.value);
+        }
+        for (var index = 0; index < 300; index++) {
+          expect(FontFamilyAliases.resolve('未登记字体-$round-$index'), isNull);
+        }
+      }
+      expect(
+        FontFamilyAliases.mapFamilies(samples.keys.toList()),
+        [for (final entry in samples.entries) entry.value ?? entry.key],
+      );
+    });
+
     test('textStyleFor 集成：主族与 fallback 都映射', () {
       final style = ComputedStyle(const <String, String>{
         'font-size': '16px',

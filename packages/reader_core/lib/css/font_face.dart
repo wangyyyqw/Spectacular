@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../util/bounded_cache.dart';
 import 'font_face_selection.dart';
 import 'parser.dart';
 import 'value_tokens.dart';
@@ -190,6 +191,10 @@ abstract final class FontFamilyAliases {
   static const kai = 'builtin_kai';
   static const hei = 'builtin_hei';
 
+  // 别名表固定；连未命中结果也缓存，避免自定义字体逐段重复规范化。
+  static final _resolved = BoundedCache<String, ({String? family})>(256);
+  static final _whitespace = RegExp(r'\s+');
+
   static const Map<String, String> _table = <String, String>{
     // 宋体系（含 CSS 泛型 serif）
     '宋体': song, 'simsun': song, 'songti': song, 'st': song,
@@ -217,7 +222,10 @@ abstract final class FontFamilyAliases {
   ///
   /// 匹配规则：先全等、再小写全等、最后去空格小写比较；**不做包含
   /// 匹配**——「宋体黑」这类名字不会被错误命中（技术方案 §68.3）。
-  static String? resolve(String family) {
+  static String? resolve(String family) =>
+      _resolved.putIfAbsent(family, () => (family: _resolve(family))).family;
+
+  static String? _resolve(String family) {
     final raw = family.trim();
     if (_table.containsKey(raw)) {
       return _table[raw];
@@ -226,7 +234,7 @@ abstract final class FontFamilyAliases {
     if (_table.containsKey(lower)) {
       return _table[lower];
     }
-    final squeezed = lower.replaceAll(RegExp(r'\s+'), '');
+    final squeezed = lower.replaceAll(_whitespace, '');
     return _table[squeezed];
   }
 

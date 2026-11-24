@@ -853,6 +853,9 @@ class ChapterStyleResolver {
     ComputedStyle? firstLineStyle,
   }) {
     if (ancestors.isEmpty || text.isEmpty) return null;
+    final initialLines = baseStyle.initialLetterLines;
+    final hasInitial = initialLines != null && initialLines > 0;
+    if (rules.isEmpty && !hasInitial) return null;
     final parent =
         firstLineStyle ?? firstLineStyleFor(ancestors, baseStyle) ?? baseStyle;
     final letterStyle = _auxiliaryStyleFor(
@@ -861,8 +864,6 @@ class ChapterStyleResolver {
       '::first-letter',
       rules,
     );
-    final initialLines = baseStyle.initialLetterLines;
-    final hasInitial = initialLines != null && initialLines > 0;
     if (letterStyle.explicitProperties.isEmpty && !hasInitial) return null;
     var start = 0;
     while (start < text.length && isWhitespace(text.codeUnitAt(start))) {
