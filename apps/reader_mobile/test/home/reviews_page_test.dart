@@ -221,20 +221,13 @@ void main() {
     );
 
     expect(find.text('已写 0 篇 · 待写 1 本'), findsOneWidget);
-    expect(find.text('全部 1'), findsOneWidget);
     expect(
       find.byKey(ValueKey('review-pending-${unfinished.id}')),
       findsNothing,
     );
-    await tester.tap(find.byKey(const ValueKey('reviews-filter-pending')));
-    await tester.pumpAndSettle();
     expect(
       find.byKey(ValueKey('review-pending-${finished.id}')),
       findsOneWidget,
-    );
-    expect(
-      find.byKey(ValueKey('review-pending-${unfinished.id}')),
-      findsNothing,
     );
     expect(store.saveCalls, 0);
     expect(tester.takeException(), isNull);
@@ -827,7 +820,7 @@ void main() {
     expect(find.text(summary), findsOneWidget);
   });
 
-  testWidgets('书评页可按已写和待写状态筛选', (tester) async {
+  testWidgets('书评页直接展示已写和待写书评，不再分组筛选', (tester) async {
     final books = <BookEntry>[
       _book('reviewed-a', '已写甲', '作者甲'),
       _book('reviewed-b', '已写乙', '作者乙'),
@@ -841,14 +834,13 @@ void main() {
       });
     await _pumpReviews(tester, books: books, store: store);
 
-    expect(find.text('全部 4'), findsOneWidget);
-    expect(find.text('已写 2'), findsOneWidget);
-    expect(find.text('待写 2'), findsOneWidget);
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('reviews-filter-reviewed')),
-    );
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('reviews-summary')), findsOneWidget);
+    for (final filter in ['all', 'reviewed', 'pending']) {
+      expect(
+        find.byKey(ValueKey<String>('reviews-filter-$filter')),
+        findsNothing,
+      );
+    }
     expect(
       find.byKey(const ValueKey<String>('review-card-reviewed-a')),
       findsOneWidget,
@@ -859,43 +851,10 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey<String>('review-pending-pending-a')),
-      findsNothing,
-    );
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('reviews-filter-pending')),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey<String>('review-card-reviewed-a')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('review-pending-pending-a')),
       findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey<String>('review-pending-pending-b')),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.byKey(const ValueKey<String>('reviews-filter-all')));
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<Semantics>(
-            find.byKey(const ValueKey<String>('reviews-filter-selected-all')),
-          )
-          .properties
-          .selected,
-      isTrue,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('review-card-reviewed-a')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('review-pending-pending-a')),
       findsOneWidget,
     );
   });
@@ -964,7 +923,7 @@ void main() {
     expect(top('beta'), lessThan(top('gamma')));
   });
 
-  testWidgets('书评无匹配时可清除搜索与筛选', (tester) async {
+  testWidgets('书评无匹配时可清除搜索', (tester) async {
     final books = <BookEntry>[
       _book('reviewed', '已写书', '作者甲'),
       _book('pending', '待写书', '作者乙'),
@@ -973,9 +932,6 @@ void main() {
       ..items['reviewed'] = _review('reviewed', '一段书评');
     await _pumpReviews(tester, books: books, store: store);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('reviews-filter-reviewed')),
-    );
     await tester.tap(find.byTooltip('搜索书评'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -991,7 +947,7 @@ void main() {
     expect(find.text('没有找到相关书评'), findsOneWidget);
     expect(find.text('没有书名、作者或书评正文包含“不存在”'), findsOneWidget);
 
-    await tester.tap(find.text('清除搜索与筛选'));
+    await tester.tap(find.text('清除搜索'));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('reviews-no-results')),
@@ -1000,15 +956,6 @@ void main() {
     expect(
       find.byKey(const ValueKey<String>('reviews-search-field')),
       findsNothing,
-    );
-    expect(
-      tester
-          .widget<Semantics>(
-            find.byKey(const ValueKey<String>('reviews-filter-selected-all')),
-          )
-          .properties
-          .selected,
-      isTrue,
     );
     expect(
       find.byKey(const ValueKey<String>('review-card-reviewed')),

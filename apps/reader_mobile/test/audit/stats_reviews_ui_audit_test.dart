@@ -196,18 +196,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('reviews-filter-pending')),
-    );
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey<String>('review-pending-${book.id}')));
     await tester.pumpAndSettle();
     await _saveReview(tester, '最初的读后感', 4);
     expect(store.reviews[book.id]?.rating, 4);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('reviews-filter-reviewed')),
-    );
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('搜索书评'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -236,8 +228,6 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '删除'));
     await tester.pumpAndSettle();
     expect(store.reviews, isEmpty);
-    await tester.tap(find.byKey(const ValueKey<String>('reviews-filter-all')));
-    await tester.pumpAndSettle();
     expect(
       find.byKey(ValueKey<String>('review-pending-${book.id}')),
       findsOneWidget,
