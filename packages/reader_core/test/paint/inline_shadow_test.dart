@@ -17,6 +17,8 @@ Future<ByteData> _render({required bool positioned, bool inset = false}) async {
   final badge = ComputedStyle({
     'box-shadow': inset ? 'inset 0 0 0 4px #ff0000' : '6px 0 0 2px #ff0000',
     if (inset) 'background-color': '#ffffff',
+    // Ahem 字形铺满字体内容盒；留出内边距才能看见背景上的内阴影。
+    if (inset) 'padding': '6px',
   }, parent: base);
   final placement = InlineBoxPlacement(
     offset: 0,
