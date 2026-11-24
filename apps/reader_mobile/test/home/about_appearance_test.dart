@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reader_mobile/home/about_page.dart';
+import 'package:reader_mobile/home/app_brand_icon.dart';
 import 'package:reader_mobile/home/app_settings_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
@@ -36,6 +37,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('about-entry')));
     await tester.pumpAndSettle();
     expect(find.byType(AboutPage), findsOneWidget);
+    expect(tester.widget<AppBrandIcon>(find.byType(AppBrandIcon)).size, 104);
+    expect(
+      find.descendant(of: find.byType(AboutPage), matching: find.byType(Image)),
+      findsNothing,
+    );
     expect(find.text('Ver 1.0.0 (1)'), findsOneWidget);
     expect(find.textContaining('构建时间：'), findsOneWidget);
     expect(find.text('联系阅微'), findsNothing);

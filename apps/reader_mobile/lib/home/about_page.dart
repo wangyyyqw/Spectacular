@@ -5,6 +5,7 @@ import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'welcome_announcement.dart';
+import 'app_brand_icon.dart';
 
 /// 链接沿用阅微原版关于页；构建时间由 Release 脚本注入。
 class AboutPage extends StatefulWidget {
@@ -70,16 +71,7 @@ class _AboutPageState extends State<AboutPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 36, 16, 24),
           children: [
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Image.asset(
-                  'assets/branding/app_icon.png',
-                  width: 72,
-                  height: 72,
-                ),
-              ),
-            ),
+            const Center(child: AppBrandIcon(size: 104)),
             const SizedBox(height: 18),
             Text(
               '阅微 Extend',
