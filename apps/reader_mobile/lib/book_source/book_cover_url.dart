@@ -16,7 +16,8 @@ String? normalizeBookCoverUrl(String? value, {DateTime? now}) {
   }
   final host = uri.host.toLowerCase();
   if (RegExp(r'^img\d+\.doubanio\.com$').hasMatch(host)) {
-    return uri.replace(scheme: 'https', host: 'img3.doubanio.com').toString();
+    // 阅微优先请求接口给出的节点；节点替换仅用于失败后的备用请求。
+    return uri.replace(scheme: 'https').toString();
   }
   final fanqie = [
     'byteimg.com',
@@ -46,7 +47,12 @@ List<String> bookCoverCandidates(String url) {
   return [
     url,
     if (RegExp(r'^img\d+\.doubanio\.com$').hasMatch(uri.host)) ...[
-      for (final host in ['img1.doubanio.com', 'img2.doubanio.com'])
+      for (final host in [
+        'img3.doubanio.com',
+        'img1.doubanio.com',
+        'img2.doubanio.com',
+        'img9.doubanio.com',
+      ])
         if (uri.host != host) uri.replace(host: host).toString(),
     ],
   ];
@@ -57,7 +63,7 @@ Map<String, String> bookCoverHeaders(String url) =>
     ? const {
         'Referer': 'https://book.douban.com/',
         'User-Agent':
-            'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
       }
     : const {};

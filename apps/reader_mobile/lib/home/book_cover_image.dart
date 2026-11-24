@@ -5,6 +5,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import '../book_source/book_cover_url.dart';
+import '../diagnostics/reader_log.dart';
 export '../book_source/book_cover_url.dart';
 
 /// 书架、详情、统计与书评共用封面；等比缩放并居中裁切铺满容器。
@@ -226,6 +227,8 @@ class _RemoteCoverState extends State<_RemoteCover> {
         _retryQueued = false;
       });
     });
+    // 异步图片错误不一定发生在帧内，单独注册回调不会启动下一帧。
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   @override
@@ -243,7 +246,18 @@ class _RemoteCoverState extends State<_RemoteCover> {
       excludeFromSemantics: true,
       frameBuilder: (_, child, frame, loaded) =>
           loaded || frame != null ? child : widget.placeholder,
-      errorBuilder: (_, _, _) {
+      errorBuilder: (_, error, _) {
+        recordAppEvent(
+          'book_cover_failed',
+          fields: {
+            'douban': Uri.parse(url).host.endsWith('.doubanio.com'),
+            'attempt': _attempt + 1,
+            'status_code': error is NetworkImageLoadException
+                ? error.statusCode
+                : 0,
+            'error': error,
+          },
+        );
         _retry();
         return widget.placeholder;
       },

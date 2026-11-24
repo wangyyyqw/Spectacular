@@ -14,12 +14,12 @@ void main() {
       'https://p6-novel.byteimg.com/origin/novel-pic/abcdef',
     );
   });
-  test('豆瓣统一可访问图片节点，兼容省略协议并拒绝无效地址', () {
+  test('豆瓣保留接口节点，兼容省略协议并拒绝无效地址', () {
     expect(
       normalizeBookCoverUrl(
         '//img9.doubanio.com/view/subject/l/public/s35665964.jpg',
       ),
-      'https://img3.doubanio.com/view/subject/l/public/s35665964.jpg',
+      'https://img9.doubanio.com/view/subject/l/public/s35665964.jpg',
     );
     expect(normalizeBookCoverUrl('file:///private/cover.png'), isNull);
     expect(normalizeBookCoverUrl(''), isNull);
@@ -33,6 +33,7 @@ void main() {
         'https://img3.doubanio.com/view/subject/l/public/a.jpg',
         'https://img1.doubanio.com/view/subject/l/public/a.jpg',
         'https://img2.doubanio.com/view/subject/l/public/a.jpg',
+        'https://img9.doubanio.com/view/subject/l/public/a.jpg',
       ],
     );
     expect(

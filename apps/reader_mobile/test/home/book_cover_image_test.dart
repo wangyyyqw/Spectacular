@@ -1,4 +1,9 @@
 import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
+
+import '../support/reader_pump.dart';
+
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -31,6 +36,79 @@ Future<void> _writeWideCover(File file) async {
 }
 
 void main() {
+  testWidgets('豆瓣原节点异步失败后自动重试备用节点并解码封面', (tester) async {
+    final overrides = HttpOverrides.current;
+    HttpOverrides.global = null;
+    final client = HttpClient();
+    HttpOverrides.global = overrides;
+    final server = (await tester.runAsync(
+      () => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+    ))!;
+    final hosts = <String>[];
+    final referers = <String?>[];
+    await tester.runAsync(() async {
+      server.listen((request) {
+        hosts.add(request.uri.path.substring(1));
+        referers.add(request.headers.value('referer'));
+        if (hosts.last == 'img9.doubanio.com') {
+          request.response.statusCode = 403;
+        } else {
+          request.response.add(
+            base64Decode(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg6GD4DwACnAGIgL4sqAAAAABJRU5ErkJggg==',
+            ),
+          );
+        }
+        unawaited(request.response.close());
+      });
+    });
+    debugNetworkImageHttpClientProvider = () =>
+        _CoverClient(client, server.port);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      debugNetworkImageHttpClientProvider = null;
+      client.close(force: true);
+      await tester.runAsync(() => server.close(force: true));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: BookCoverImage(
+            book: BookEntry(
+              id: 'douban-retry',
+              title: '豆瓣封面',
+              author: '',
+              filePath: '',
+              addedAt: DateTime(2026),
+              remoteCoverUrl: 'https://img9.doubanio.com/view/subject/m/public/test-retry.jpg',
+            ),
+            width: 100,
+            height: 140,
+          ),
+        ),
+      ),
+    );
+    await pumpReaderUntilComplete(
+      tester,
+      () => hosts.length == 2,
+      description: '豆瓣备用请求',
+    );
+    await pumpReaderUntilComplete(
+      tester,
+      () => find
+          .byType(RawImage)
+          .evaluate()
+          .any((e) => (e.widget as RawImage).image != null),
+      description: '封面解码',
+    );
+    expect(hosts, ['img9.doubanio.com', 'img3.doubanio.com']);
+    expect(referers, everyElement('https://book.douban.com/'));
+    expect(tester.takeException(), isNull);
+    debugNetworkImageHttpClientProvider = null;
+    client.close(force: true);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('封面居中等比裁切并铺满三比四边框', (tester) async {
     final directory = Directory.systemTemp.createTempSync('cover-visible');
     addTearDown(() => directory.deleteSync(recursive: true));
@@ -253,4 +331,16 @@ void main() {
       isA<FileImage>().having((value) => value.file.path, 'path', file.path),
     );
   });
+}
+
+class _CoverClient implements HttpClient {
+  _CoverClient(this.client, this.port);
+  final HttpClient client;
+  final int port;
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) => client.getUrl(
+    Uri(scheme: 'http', host: '127.0.0.1', port: port, path: '/${url.host}'),
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
