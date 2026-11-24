@@ -151,4 +151,51 @@ void main() {
     expect(scheme!.brightness, Brightness.dark);
     expect(store.loads, 2);
   });
+
+  testWidgets('只启用壁纸取色时阅读控件继承壁纸，阅读取色优先且墨水屏不取色', (tester) async {
+    const seed = Color(0xFF26796B);
+    ColorScheme? scheme;
+    Future<void> show(ReaderTheme theme, bool enabled) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReaderBackgroundColorTheme(
+            enabled: enabled,
+            fallbackSeed: seed,
+            theme: theme,
+            backgroundId: 'none',
+            store: ReaderBackgroundStore(),
+            child: Builder(
+              builder: (context) {
+                scheme = ReaderPanelColorScope.maybeOf(context);
+                return const SizedBox();
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
+    await show(ReaderTheme.sepia, false);
+    expect(scheme, ColorScheme.fromSeed(seedColor: seed));
+    await show(ReaderTheme.sepia, true);
+    expect(
+      scheme,
+      ColorScheme.fromSeed(seedColor: ReaderTheme.sepia.background),
+    );
+    await show(ReaderTheme.black, false);
+    expect(
+      scheme,
+      ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
+    );
+    await show(
+      const ReaderTheme(
+        id: 'ink',
+        name: '墨水屏',
+        background: Colors.white,
+        text: Colors.black,
+      ),
+      false,
+    );
+    expect(scheme, isNull);
+  });
 }

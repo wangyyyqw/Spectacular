@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_switch.dart';
+
 import '../reader_ui_diagnostics.dart';
 
 import '../icons/app_icon.dart';
@@ -148,7 +150,7 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
               ),
           ],
         ),
-        SwitchListTile(
+        ReaderSwitchListTile(
           key: const ValueKey<String>('annotation-join-lines'),
           contentPadding: EdgeInsets.zero,
           title: const Text('连续填充行距'),

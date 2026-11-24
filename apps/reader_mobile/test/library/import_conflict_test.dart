@@ -95,6 +95,25 @@ void main() {
     expect(await library.list(), hasLength(1));
   });
 
+  test('直接导入UUID相同但书名不同仍提示覆盖，取消保留原书', () async {
+    final library = await open();
+    const uuid = 'urn:uuid:4f9c9e21-4ab3-4f8b-8b93-536c689824a1';
+    final original = buildTestEpub(title: '旧书名', identifier: uuid);
+    final book = await library.importBytes(original);
+    await expectLater(
+      library.importBytes(
+        buildTestEpub(title: '新书名', identifier: uuid),
+        onConflict: (conflict) async {
+          expect(conflict.books.single.id, book.id);
+          return BookImportChoice.cancel;
+        },
+      ),
+      throwsA(isA<LibraryImportException>()),
+    );
+    expect(await library.readBytes(book), original);
+    expect(await library.list(), hasLength(1));
+  });
+
   test('同版本文件补回原记录，不改已保存的文字位置和读完标记', () async {
     final library = await open();
     final bytes = buildTestEpub(title: '文件恢复书', paragraphs: ['已有阅读位置的正文']);

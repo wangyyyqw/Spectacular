@@ -6,6 +6,7 @@ import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
@@ -652,7 +653,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     ),
                   ),
                 ],
-                SwitchListTile(
+                ReaderSwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('读完后自动翻页'),
                   value: draft.autoTurnPage,
@@ -1064,6 +1065,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         enabled:
             ThemeColorScope.maybeOf(context)?.readerBackgroundEnabled == true &&
             !_settings.inkMode,
+        fallbackSeed: ThemeColorScope.maybeOf(context)?.wallpaperEnabled == true
+            ? ThemeColorScope.maybeOf(context)?.wallpaperSeed
+            : null,
         theme: _pageTheme,
         backgroundId: _settings.backgroundId,
         store: _backgroundStore,

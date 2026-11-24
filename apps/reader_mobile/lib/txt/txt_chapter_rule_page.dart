@@ -1,5 +1,6 @@
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/txt.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -686,7 +687,7 @@ class _RuleManagerState extends State<_RuleManager> {
                   contentPadding: EdgeInsets.zero,
                   title: Text(rule.name),
                   subtitle: const Text('参与自动识别'),
-                  leading: Switch(
+                  leading: ReaderSwitch(
                     value: rule.autoEnabled,
                     onChanged: (value) => _update(rule, enabled: value),
                   ),

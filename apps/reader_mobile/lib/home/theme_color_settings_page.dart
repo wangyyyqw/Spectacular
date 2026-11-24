@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 
 import '../theme/theme_color_settings.dart';
 
@@ -45,7 +46,7 @@ class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
                 Card(
                   child: Column(
                     children: [
-                      SwitchListTile(
+                      ReaderSwitchListTile(
                         key: const ValueKey('wallpaper-color-switch'),
                         title: const Text('全局壁纸取色'),
                         subtitle: Text(
@@ -66,9 +67,9 @@ class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
                               ),
                       ),
                       const Divider(height: 1, indent: 16, endIndent: 16),
-                      SwitchListTile(
+                      ReaderSwitchListTile(
                         key: const ValueKey('reader-background-color-switch'),
-                        title: const Text('阅读页面背景取色'),
+                        title: const Text('阅读背景取色'),
                         subtitle: const Text('根据阅读背景颜色或图片调整菜单与弹层配色，保留正文配色'),
                         value: settings.readerBackgroundEnabled,
                         onChanged: _saving || !settings.initialized

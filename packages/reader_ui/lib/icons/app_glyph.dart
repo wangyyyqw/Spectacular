@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+part 'rea_micro_glyph.dart';
+
 const double _strokeWidth = 1.7;
 
 /// 界面图标字形。底栏四图标与其余图标共用 24 格坐标、1.7 线宽与圆角拐角，
@@ -21,6 +23,8 @@ enum AppGlyph {
   skipPrevious(_skipPrevious),
   skipNext(_skipNext),
   play(_play),
+  pause(_pause),
+  stop(_stop),
   close(_close),
   add(_add),
   addCircle(_addCircle),
@@ -95,10 +99,14 @@ enum AppGlyph {
   menuBook(_menuBook),
   autoStories(_autoStories);
 
-  const AppGlyph(this.draw);
+  const AppGlyph(this._draw);
 
   /// 在 24 格坐标系中绘制字形。
-  final void Function(AppIconCanvas canvas) draw;
+  final void Function(AppIconCanvas canvas) _draw;
+
+  void draw(AppIconCanvas canvas) {
+    if (!_drawReaMicroGlyph(this, canvas)) _draw(canvas);
+  }
 }
 
 /// 图标画布：统一笔触与填充规则，字形只描述 24 格坐标下的几何。
@@ -334,6 +342,14 @@ void _skipNext(AppIconCanvas canvas) {
 void _play(AppIconCanvas canvas) => canvas.line(
   _polygon(const [Offset(8, 5.5), Offset(18.5, 12), Offset(8, 18.5)]),
 );
+
+void _pause(AppIconCanvas canvas) => canvas.outline(
+  _roundRect(7, 5.5, 10, 18.5, 0.5)
+    ..addPath(_roundRect(14, 5.5, 17, 18.5, 0.5), Offset.zero),
+);
+
+void _stop(AppIconCanvas canvas) =>
+    canvas.outline(_roundRect(6, 6, 18, 18, 1.5));
 
 void _close(AppIconCanvas canvas) => canvas.line(
   _polylines(const [

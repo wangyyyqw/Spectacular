@@ -136,15 +136,26 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
     final color = widget.inkMode
         ? widget.theme?.text ?? const Color(0xFF757575)
         : widget.theme?.sub ?? const Color(0xFF9E9E9E);
+    bool isTitle(ReaderCornerContent content) =>
+        content == ReaderCornerContent.bookTitle ||
+        content == ReaderCornerContent.chapterTitle;
+    final left = _label(widget.left, color, TextAlign.left);
+    final right = _label(widget.right, color, TextAlign.right);
     return Row(
       children: [
         if (widget.left != ReaderCornerContent.none)
-          Expanded(child: _label(widget.left, color, TextAlign.left)),
+          if (isTitle(widget.right) && !isTitle(widget.left))
+            left
+          else
+            Expanded(child: left),
         if (widget.left != ReaderCornerContent.none &&
             widget.right != ReaderCornerContent.none)
           const SizedBox(width: 12),
         if (widget.right != ReaderCornerContent.none)
-          Expanded(child: _label(widget.right, color, TextAlign.right)),
+          if (isTitle(widget.right) || widget.left == ReaderCornerContent.none)
+            Expanded(child: right)
+          else
+            right,
       ],
     );
   }
@@ -152,6 +163,7 @@ class _ReaderCornerRowState extends State<ReaderCornerRow> {
   Widget _label(ReaderCornerContent content, Color color, TextAlign align) {
     if (!content.needsBattery) return _textLabel(_text(content), color, align);
     return Row(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: align == TextAlign.left
           ? MainAxisAlignment.start
           : MainAxisAlignment.end,

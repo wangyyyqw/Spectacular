@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:html/dom.dart';
 
 import 'book_source_compat.dart';
+import 'book_cover_url.dart';
 import 'book_source_cookie_store.dart';
 import 'book_source_http_client.dart';
 import 'book_source_models.dart';
@@ -755,7 +756,7 @@ class BookSourceService {
             'thumb_url',
             'thumbUrl',
           ]);
-          if (_isHttpUrl(thumbnail)) cover = thumbnail;
+          if (thumbnail.isNotEmpty) cover = thumbnail;
         }
         final lastChapter = _field(node, fields.lastChapter, context, script)
             .ifBlank(
@@ -815,7 +816,10 @@ class BookSourceService {
           tocUrl: absoluteBookUrl,
           bookOptions: bookRequest.options,
           tocOptions: bookRequest.options,
-          coverUrl: rules.resolveUrl(context.pageUrl, cover),
+          coverUrl:
+              normalizeBookCoverUrl(cover) ??
+              normalizeBookCoverUrl(rules.resolveUrl(context.pageUrl, cover)) ??
+              rules.resolveUrl(context.pageUrl, cover),
           intro: normalizeOnlineIntro(
             _field(node, fields.intro, context, script, true).ifBlank(
               _commonJsonField(node, const <String>[
@@ -1849,7 +1853,7 @@ class BookSourceService {
     String url, {
     String referer = '',
   }) {
-    final raw = url.trim();
+    final raw = normalizeBookCoverUrl(url) ?? url.trim();
     if (raw.isEmpty) return Future<Uint8List?>.value();
     final data = decodeDataUrlImage(raw);
     if (data != null) return Future<Uint8List?>.value(data);

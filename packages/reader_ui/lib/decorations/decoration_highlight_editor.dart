@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_switch.dart';
+
 import '../annotations/annotation.dart';
 import '../annotations/annotation_appearance_editor.dart';
 import '../icons/app_icon.dart';
@@ -85,7 +87,7 @@ class ReaderDecorationHighlightEditor extends StatelessWidget {
                 onChanged(highlight.withValues({'strokeWidth': width})),
           ),
         if (!inkMode && highlight.style == ReaderAnnotationStyle.background)
-          SwitchListTile(
+          ReaderSwitchListTile(
             key: const ValueKey('decoration-highlight-join-lines'),
             contentPadding: EdgeInsets.zero,
             title: const Text('跨行背景连块'),

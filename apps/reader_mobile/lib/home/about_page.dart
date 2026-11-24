@@ -100,7 +100,7 @@ class _AboutPageState extends State<AboutPage> {
             ),
             const SizedBox(height: 6),
             Text(
-              '构建时间：${AboutPage.buildTime}',
+              '构建时间：${formatAppBuildTime(AboutPage.buildTime)}',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -127,25 +127,13 @@ class _AboutPageState extends State<AboutPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            Card(
-              child: _row(
-                '联系阅微',
-                value: 'dev@zhendong.ltd',
-                onTap: () => _open('mailto:dev@zhendong.ltd'),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: _row(
-                'ICP备案',
-                value: '苏ICP备2023040810号-2A',
-                onTap: () => _open('https://beian.miit.gov.cn/'),
-              ),
-            ),
           ],
         ),
       ),
     ),
   );
 }
+
+/// 构建时间保留可读日期，兼容旧脚本附加的时区偏移。
+String formatAppBuildTime(String value) =>
+    value.replaceFirst(RegExp(r'\s*[+-]\d{2}:?\d{2}$'), '');

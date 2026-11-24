@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
@@ -45,15 +46,19 @@ void main() {
 
     await tester.tap(find.text('我的'));
     await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
+    await _settle(tester);
     final switchTile = find.byKey(
       const ValueKey<String>('bookshelf-title-setting'),
     );
-    expect(tester.widget<SwitchListTile>(switchTile).value, isTrue);
+    expect(tester.widget<ReaderSwitchListTile>(switchTile).value, isTrue);
     await tester.tap(switchTile);
     await _settle(tester);
-    expect(tester.widget<SwitchListTile>(switchTile).value, isFalse);
+    expect(tester.widget<ReaderSwitchListTile>(switchTile).value, isFalse);
     expect(await library.getSetting(bookshelfShowTitlesKey), 'false');
 
+    await tester.pageBack();
+    await _settle(tester);
     await tester.tap(find.text('书架'));
     await _settle(tester);
     for (final id in ids) {

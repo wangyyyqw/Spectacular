@@ -332,7 +332,7 @@ void main() {
     expect(titleStyles[1], titleStyles[0]);
     expect(titleStyles[2], titleStyles[0]);
     const choices = {
-      '3D（旧版）': PageTurnMode.simulation3d,
+      '3D': PageTurnMode.simulation3d,
       '接续': PageTurnMode.continuation,
       '滚动': PageTurnMode.scroll,
     };

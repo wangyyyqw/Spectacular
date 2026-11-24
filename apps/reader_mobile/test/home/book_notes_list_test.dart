@@ -96,6 +96,7 @@ void main() {
     expect(find.text('其他书'), findsNothing);
     await tester.tap(find.text('匹配书'));
     await tester.pumpAndSettle();
+    expect(find.text('本地'), findsOneWidget);
     await tester.tap(find.byTooltip('复制'));
     await tester.pump();
     expect(copied.single, '自己的想法\n\n选中的原文');

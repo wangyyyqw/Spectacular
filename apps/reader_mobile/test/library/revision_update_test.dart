@@ -267,7 +267,16 @@ void main() {
     final oldSessions = _jsonRows(await db.select(db.readingSessions).get());
     final oldReviews = _jsonRows(await db.select(db.bookReviews).get());
 
-    final result = await library.importBytes(updated);
+    var prompted = false;
+    final result = await library.importBytes(
+      updated,
+      onConflict: (conflict) async {
+        prompted = true;
+        expect(conflict.books.single.id, entry.id);
+        return BookImportChoice.overwrite;
+      },
+    );
+    expect(prompted, isTrue);
     expect(result.importOutcome, BookImportOutcome.updated);
     expect(result.id, entry.id);
     expect(await library.list(), hasLength(1));

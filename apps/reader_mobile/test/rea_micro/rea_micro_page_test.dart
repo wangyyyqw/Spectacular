@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
@@ -42,7 +43,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('账号'), findsOneWidget);
-    expect(find.byType(SwitchListTile), findsNothing);
+    expect(find.byType(ReaderSwitchListTile), findsNothing);
     for (final key in [
       'reamicro-lan-sync',
       'reamicro-s3-sync',

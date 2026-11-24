@@ -5,6 +5,8 @@ import '../theme/reader_dropdown.dart';
 
 import 'package:flutter/material.dart';
 
+import '../theme/reader_switch.dart';
+
 import '../reader_ui_diagnostics.dart';
 
 import '../icons/app_icon.dart';
@@ -404,7 +406,7 @@ class _ReaderDecorationRuleEditorState
             ),
           ),
         if (_type.supportsCrossParagraph)
-          SwitchListTile(
+          ReaderSwitchListTile(
             key: const ValueKey('rule-cross-paragraph'),
             contentPadding: EdgeInsets.zero,
             title: const Text('允许跨段'),
@@ -439,7 +441,7 @@ class _ReaderDecorationRuleEditorState
               ),
             ),
           ),
-        SwitchListTile(
+        ReaderSwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('区分大小写'),
           value: _caseSensitive,

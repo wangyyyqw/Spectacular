@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'ye_she_assets.dart';
@@ -2440,7 +2441,7 @@ class _YeShePageState extends State<YeShePage>
                   decoration: const InputDecoration(labelText: '文会名称'),
                 ),
                 const SizedBox(height: 8),
-                SwitchListTile(
+                ReaderSwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('公开文会'),
                   value: isPublic,

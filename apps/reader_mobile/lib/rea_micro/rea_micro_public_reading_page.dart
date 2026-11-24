@@ -213,13 +213,25 @@ class _ReaMicroPublicReadingPageState extends State<ReaMicroPublicReadingPage> {
                     ],
                     if (groups != null && groups.isNotEmpty) ...<Widget>[
                       const SizedBox(height: 18),
-                      Text('搜索结果', style: theme.textTheme.titleMedium),
-                      const SizedBox(height: 4),
-                      Text(
-                        '共 ${groups.fold<int>(0, (count, group) => count + group.candidates.length)} 个版本',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              '搜索结果',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            '共 ${groups.fold<int>(0, (count, group) => count + group.candidates.length)} 个版本',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 10),
                       for (final group in groups) ...<Widget>[
@@ -500,16 +512,6 @@ class _CandidateTile extends StatelessWidget {
       if (thirdParty?.price.isNotEmpty == true) thirdParty!.price,
       if (linked) '当前关联',
     }.join(' · ');
-    final cover = candidate.cover.startsWith('//')
-        ? 'https:${candidate.cover}'
-        : candidate.cover;
-    final coverHost = Uri.tryParse(cover)?.host ?? '';
-    final headers = coverHost.endsWith('.doubanio.com')
-        ? const {
-            'Referer': 'https://book.douban.com/',
-            'User-Agent': 'Mozilla/5.0',
-          }
-        : const <String, String>{};
     return Material(
       color: selected
           ? theme.colorScheme.primaryContainer.withValues(alpha: 0.45)
@@ -540,11 +542,10 @@ class _CandidateTile extends StatelessWidget {
                   author: book.author,
                   filePath: '',
                   addedAt: DateTime(2026),
-                  remoteCoverUrl: cover,
+                  remoteCoverUrl: candidate.cover,
                 ),
                 width: contentHeight * .75,
                 height: contentHeight,
-                httpHeaders: headers,
               ),
               const SizedBox(width: 10),
               Expanded(

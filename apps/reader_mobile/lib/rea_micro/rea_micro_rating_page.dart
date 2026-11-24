@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 
 import 'rea_micro_controller.dart';
 import 'rea_micro_models.dart';
@@ -353,7 +354,7 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
                         border: OutlineInputBorder(),
                       ),
                     ),
-                    SwitchListTile(
+                    ReaderSwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('公开发布'),
                       subtitle: const Text('关闭后仅保存到阅微，不进入公开书评流'),

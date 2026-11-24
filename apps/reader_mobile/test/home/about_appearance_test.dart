@@ -31,11 +31,27 @@ void main() {
       find.byKey(const ValueKey('about-entry')),
       250,
     );
+    await tester.ensureVisible(find.byKey(const ValueKey('about-entry')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('about-entry')));
     await tester.pumpAndSettle();
     expect(find.byType(AboutPage), findsOneWidget);
     expect(find.text('Ver 1.0.0 (1)'), findsOneWidget);
     expect(find.textContaining('构建时间：'), findsOneWidget);
+    expect(find.text('联系阅微'), findsNothing);
+    expect(find.text('ICP备案'), findsNothing);
+  });
+
+  test('构建时间兼容带时区偏移和已规整的格式', () {
+    expect(
+      formatAppBuildTime('2026-11-24 16:00:00 +0800'),
+      '2026-11-24 16:00:00',
+    );
+    expect(
+      formatAppBuildTime('2026-11-24 16:00:00 +08:00'),
+      '2026-11-24 16:00:00',
+    );
+    expect(formatAppBuildTime('2026-11-24 16:00:00'), '2026-11-24 16:00:00');
   });
 
   testWidgets('关于链接沿用阅微，公告只显示内容可返回，窄屏大字号不溢出', (tester) async {

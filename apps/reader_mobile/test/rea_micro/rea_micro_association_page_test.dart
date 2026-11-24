@@ -134,7 +134,11 @@ void main() {
     );
     final cover = tester.widget<BookCoverImage>(coverFinder);
     expect(cover.book.remoteCoverUrl, publisher.cover);
-    expect(cover.httpHeaders['Referer'], 'https://book.douban.com/');
+    final image = tester.widget<Image>(
+      find.descendant(of: coverFinder, matching: find.byType(Image)),
+    );
+    final network = (image.image as ResizeImage).imageProvider as NetworkImage;
+    expect(network.headers?['Referer'], 'https://book.douban.com/');
     expect(
       tester.getSize(coverFinder).height,
       tester.getSize(textFinder).height,
@@ -149,6 +153,15 @@ void main() {
     expect(find.text('第一行简介'), findsOneWidget);
     expect(find.text('第二行简介'), findsNothing);
     expect(find.text('示例作者 · 示例平台 · 完结 · 32.1万'), findsOneWidget);
+    final resultsTitle = find.text('搜索结果');
+    final resultsCount = find.text('共 1 个版本');
+    expect(resultsTitle, findsOneWidget);
+    expect(resultsCount, findsOneWidget);
+    expect(
+      tester.getCenter(resultsTitle).dy,
+      closeTo(tester.getCenter(resultsCount).dy, 1),
+    );
+    expect(tester.getBottomRight(resultsCount).dx, 304);
     expect(find.byType(ReaMicroSourceIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

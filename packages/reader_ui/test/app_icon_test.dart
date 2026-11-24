@@ -6,8 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 void main() {
-  testWidgets('发现选中态填实外轮廓并用底栏背景镂空指南针', (tester) async {
+  testWidgets('发现图标保持参考项目彩色矢量，选中前后保持同一图案', (tester) async {
     final boundaryKey = GlobalKey();
+    List<int>? original;
     for (final filled in [false, true]) {
       await tester.pumpWidget(
         MaterialApp(
@@ -35,10 +36,17 @@ void main() {
         final bytes = (await image.toByteData(
           format: ui.ImageByteFormat.rawRgba,
         ))!;
-        final field = (24 * image.width + 48) * 4;
-        final center = (48 * image.width + 48) * 4;
-        expect(bytes.getUint8(field), filled ? 0 : 255);
-        expect(bytes.getUint8(center), 255);
+        final pixels = bytes.buffer.asUint8List();
+        var colored = 0;
+        for (var i = 0; i < pixels.length; i += 4) {
+          if (pixels[i] != pixels[i + 1] || pixels[i + 1] != pixels[i + 2]) colored++;
+        }
+        expect(colored, greaterThan(100));
+        if (original == null) {
+          original = pixels.toList();
+        } else {
+          expect(pixels, orderedEquals(original!));
+        }
         image.dispose();
       });
     }

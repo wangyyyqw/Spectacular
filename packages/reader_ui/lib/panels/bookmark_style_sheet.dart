@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 
 import '../bookmarks/bookmark_ribbon.dart';
 import '../bookmarks/bookmark_style.dart';
@@ -76,7 +77,7 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
                     ],
                   ),
                   const Text('应用于所有书籍，显示在有书签的阅读页右上角。'),
-                  SwitchListTile.adaptive(
+                  ReaderSwitchListTile(
                     key: const ValueKey('bookmark-pull-enabled'),
                     contentPadding: EdgeInsets.zero,
                     title: const Text('下拉书签'),

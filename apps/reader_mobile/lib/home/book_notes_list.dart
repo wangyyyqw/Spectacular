@@ -23,6 +23,7 @@ class BookNotesList extends StatelessWidget {
     this.query = '',
     this.searchMatches = const {},
     this.onDelete,
+    this.isLocal,
   });
 
   final List<BookEntry> books;
@@ -32,6 +33,7 @@ class BookNotesList extends StatelessWidget {
   final String query;
   final Set<String> searchMatches;
   final Future<void> Function(String, ReaderAnnotation)? onDelete;
+  final bool Function(String, ReaderAnnotation)? isLocal;
 
   List<({BookEntry book, BookNoteCounts counts})> get _notedBooks =>
       [
@@ -47,18 +49,20 @@ class BookNotesList extends StatelessWidget {
             : left.book.title.compareTo(right.book.title);
       });
 
-  Future<void> _openBook(BuildContext context, BookEntry book) =>
-      showReaderDrawer<void>(
-        context: context,
-        builder: (_) => _BookNotesPage(
-          title: book.title,
-          load: () => loadNotes(book.id),
-          query: query,
-          onDelete: onDelete == null
-              ? null
-              : (note) => onDelete!(book.id, note),
-        ),
-      );
+  Future<void> _openBook(
+    BuildContext context,
+    BookEntry book,
+  ) => showReaderDrawer<void>(
+    context: context,
+    builder: (_) => _BookNotesPage(
+      title: book.title,
+      load: () => loadNotes(book.id),
+      query: query,
+      isLocal: (note) =>
+          isLocal?.call(book.id, note) ?? !note.id.startsWith('mark-cloud-'),
+      onDelete: onDelete == null ? null : (note) => onDelete!(book.id, note),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -223,12 +227,14 @@ class _BookNotesPage extends StatefulWidget {
     required this.load,
     this.query = '',
     this.onDelete,
+    this.isLocal,
   });
 
   final String title;
   final Future<List<ReaderAnnotation>> Function() load;
   final String query;
   final Future<void> Function(ReaderAnnotation)? onDelete;
+  final bool Function(ReaderAnnotation)? isLocal;
 
   @override
   State<_BookNotesPage> createState() => _BookNotesPageState();
@@ -306,6 +312,7 @@ class _BookNotesPageState extends State<_BookNotesPage> {
         itemCount: notes.length,
         itemBuilder: (_, index) => _NoteCard(
           notes[index],
+          isLocal: widget.isLocal?.call(notes[index]) ?? true,
           onDelete:
               widget.onDelete == null || _deleting.contains(notes[index].id)
               ? null
@@ -318,7 +325,8 @@ class _BookNotesPageState extends State<_BookNotesPage> {
 }
 
 class _NoteCard extends StatelessWidget {
-  const _NoteCard(this.annotation, {this.onDelete});
+  const _NoteCard(this.annotation, {this.onDelete, required this.isLocal});
+  final bool isLocal;
 
   final ReaderAnnotation annotation;
   final VoidCallback? onDelete;
@@ -343,7 +351,7 @@ class _NoteCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 1),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -387,7 +395,7 @@ class _NoteCard extends StatelessWidget {
                   key: ValueKey('note-copy-${annotation.id}'),
                   tooltip: '复制',
                   onPressed: () => _copy(context),
-                  icon: const Icon(Icons.copy_outlined, size: 18),
+                  icon: const AppIcon(AppGlyph.copy, size: 18),
                 ),
                 IconButton(
                   key: ValueKey('note-delete-${annotation.id}'),
@@ -424,6 +432,23 @@ class _NoteCard extends StatelessWidget {
                 color: muted,
               ),
               Text(thought ? '想法' : '划线'),
+              if (isLocal)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(
+                    '本地',
+                    style: TextStyle(fontSize: 11, color: muted),
+                  ),
+                ),
             ],
           ),
           Text('${date.year}年${date.month}月${date.day}日'),

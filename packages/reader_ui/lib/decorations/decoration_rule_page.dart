@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_switch.dart';
+
 import '../reader_ui_diagnostics.dart';
 
 import '../annotations/text_value_dialog.dart';
@@ -306,7 +308,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
           ),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (!_global && widget.store is ReaderDecorationRulePreferences)
-            SwitchListTile(
+            ReaderSwitchListTile(
               title: const Text('跟随全局规则'),
               subtitle: const Text('关闭后可单独选择本书启用的全局规则'),
               value: _globalSelection == null,
@@ -418,7 +420,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
                     message: '默认组固定在最后，不能删除',
                     child: AppIcon(AppGlyph.lock, size: 16),
                   ),
-                Switch(
+                ReaderSwitch(
                   value: group.enabled,
                   onChanged: _busy
                       ? null
@@ -507,7 +509,7 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Switch(
+        ReaderSwitch(
           value: rule.enabled,
           onChanged: _busy
               ? null

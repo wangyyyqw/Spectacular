@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -694,7 +695,7 @@ void main() {
       await _openMenu(tester);
       await _openBookmarkStyle(tester);
       final toggle = find.byKey(const ValueKey('bookmark-pull-enabled'));
-      expect(tester.widget<SwitchListTile>(toggle).value, !enabled);
+      expect(tester.widget<ReaderSwitchListTile>(toggle).value, !enabled);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('bookmark-style-save')));

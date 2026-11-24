@@ -1520,10 +1520,34 @@ class LibraryStore {
     }
     if (onConflict != null) {
       final titleKey = meta.title.trim().toLowerCase();
+      final uuidMatches = <String>{};
+      if (uuidIdentifier != null) {
+        if (_isMemory) {
+          uuidMatches.addAll(
+            _memoryIdentifiers.entries
+                .where((entry) => _epubUuid(entry.value) == uuidIdentifier)
+                .map((entry) => entry.key),
+          );
+        } else {
+          final rows = await (_db!.select(
+            _db.books,
+          )..where((table) => table.deletedAt.isNull())).get();
+          uuidMatches.addAll(
+            rows
+                .where(
+                  (row) =>
+                      _epubUuid(row.epubIdentifier ?? '') == uuidIdentifier,
+                )
+                .map((row) => row.uuid),
+          );
+        }
+      }
       final conflicts = (await list())
           .where(
             (book) =>
-                book.id == id || book.title.trim().toLowerCase() == titleKey,
+                book.id == id ||
+                uuidMatches.contains(book.id) ||
+                book.title.trim().toLowerCase() == titleKey,
           )
           .toList();
       if (conflicts.isNotEmpty) {
@@ -1547,7 +1571,10 @@ class LibraryStore {
         } else {
           final target =
               conflicts.where((book) => book.id == id).firstOrNull ??
-              conflicts.first;
+              (conflicts.toList()..sort(
+                    (left, right) => left.addedAt.compareTo(right.addedAt),
+                  ))
+                  .first;
           id = target.id;
           existing = _isMemory ? null : await _bookRowOfUuid(id);
           preserveIdentity = true;

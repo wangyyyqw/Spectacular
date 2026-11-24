@@ -1,5 +1,6 @@
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -152,7 +153,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Switch(
+                          ReaderSwitch(
                             value: api.enabled,
                             onChanged: _busy
                                 ? null
@@ -212,7 +213,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
                           ),
                         ),
                 ),
-                SwitchListTile(
+                ReaderSwitchListTile(
                   key: const ValueKey('dictionary-disable-thinking'),
                   contentPadding: EdgeInsets.zero,
                   title: const Text('关闭思考'),
@@ -226,7 +227,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
                           ),
                         ),
                 ),
-                SwitchListTile(
+                ReaderSwitchListTile(
                   key: const ValueKey('dictionary-single-use'),
                   contentPadding: EdgeInsets.zero,
                   title: const Text('切换预设仅用于本次查询'),

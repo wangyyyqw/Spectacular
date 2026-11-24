@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/navigation_settings.dart';
 import 'package:reader_mobile/home/navigation_settings_page.dart';
@@ -72,7 +73,7 @@ void main() {
     );
     final finder = find.byKey(const ValueKey('navigation-setting-stats'));
     expect(settings.visible(HomeDestination.stats), isFalse);
-    expect(tester.widget<SwitchListTile>(finder).onChanged, isNull);
+    expect(tester.widget<ReaderSwitchListTile>(finder).onChanged, isNull);
     await settings.setVisible(HomeDestination.stats, true);
     expect(settings.visible(HomeDestination.stats), isFalse);
     api.current = const ReaMicroUser(
@@ -84,7 +85,7 @@ void main() {
     await account.refresh();
     await tester.pumpAndSettle();
     expect(settings.visible(HomeDestination.stats), isTrue);
-    expect(tester.widget<SwitchListTile>(finder).onChanged, isNotNull);
+    expect(tester.widget<ReaderSwitchListTile>(finder).onChanged, isNotNull);
     await account.logout();
     expect(settings.visible(HomeDestination.stats), isTrue);
   });

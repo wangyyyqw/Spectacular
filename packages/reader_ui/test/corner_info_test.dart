@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/page_furniture/battery_icon.dart';
@@ -7,6 +8,45 @@ import 'package:reader_ui/page_furniture/corner_row.dart';
 import 'package:reader_ui/panels/corner_info_editor.dart';
 
 void main() {
+  testWidgets('页眉标题使用页码之外的剩余宽度，过长时才省略且不挤压页码', (tester) async {
+    Future<void> show(String title) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 360,
+              child: ReaderCornerRow(
+                left: ReaderCornerContent.chapterTitle,
+                right: ReaderCornerContent.chapterPage,
+                data: ReaderCornerData(chapterTitle: title, pageLabel: '2/19'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    const title = 'Chapter3.233 · 『我想』';
+    await show(title);
+    RenderParagraph paragraph() => tester.renderObject<RenderParagraph>(
+      find.descendant(of: find.text(title), matching: find.byType(RichText)),
+    );
+    expect(paragraph().size.width, greaterThan(280));
+    expect(paragraph().didExceedMaxLines, isFalse);
+    final pageRect = tester.getRect(find.text('2/19'));
+    expect(pageRect.right, 360);
+    await show(List.filled(6, title).join());
+    final longParagraph = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.text(List.filled(6, title).join()),
+        matching: find.byType(RichText),
+      ),
+    );
+    expect(longParagraph.didExceedMaxLines, isTrue);
+    expect(tester.getRect(find.text('2/19')), pageRect);
+    expect(tester.takeException(), isNull);
+  });
+
   test('四角偏好按项读取，未知类型回到对应默认值', () {
     final info = ReaderCornerInfo.fromJson({
       'topLeft': 'bookTitle',

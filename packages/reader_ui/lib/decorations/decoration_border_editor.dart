@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_switch.dart';
+
 import 'decoration_style.dart';
 import 'style_controls.dart';
 
@@ -73,7 +75,7 @@ class _ReaderDecorationBorderEditorState
         value: widget.style.borderStyle,
         onChanged: (value) => _set('borderStyle', value.name),
       ),
-      SwitchListTile(
+      ReaderSwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('统一四边边框'),
         value: _unified,

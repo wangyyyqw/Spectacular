@@ -15,8 +15,10 @@ class ReaderBackgroundColorTheme extends StatefulWidget {
     required this.backgroundId,
     required this.store,
     required this.child,
+    this.fallbackSeed,
   });
 
+  final Color? fallbackSeed;
   final bool enabled;
   final ReaderTheme theme;
   final String backgroundId;
@@ -97,6 +99,11 @@ class _ReaderBackgroundColorThemeState
                 seedColor: widget.theme.background,
                 brightness: _brightness,
               )
+        : widget.theme.id != 'ink' && widget.fallbackSeed != null
+        ? ColorScheme.fromSeed(
+            seedColor: widget.fallbackSeed!,
+            brightness: _brightness,
+          )
         : null,
     child: widget.child,
   );

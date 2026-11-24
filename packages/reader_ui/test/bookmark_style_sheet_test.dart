@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/bookmarks/bookmark_ribbon.dart';
 import 'package:reader_ui/bookmarks/bookmark_style.dart';
@@ -35,10 +36,10 @@ void main() {
       await tester.tap(find.text('打开书签设置'));
       await tester.pumpAndSettle();
       final toggle = find.byKey(const ValueKey('bookmark-pull-enabled'));
-      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      expect(tester.widget<ReaderSwitchListTile>(toggle).value, isTrue);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
-      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      expect(tester.widget<ReaderSwitchListTile>(toggle).value, isFalse);
       await tester.tap(
         save
             ? find.byKey(const ValueKey('bookmark-style-save'))

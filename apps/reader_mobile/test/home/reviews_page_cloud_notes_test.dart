@@ -13,7 +13,12 @@ class _CloudNotesLibrary extends LibraryStore {
   _CloudNotesLibrary({this.book, this.annotation}) : super.memory();
 
   final BookEntry? book;
-  final ReaderAnnotation? annotation;
+  ReaderAnnotation? annotation;
+
+  @override
+  Future<void> removeBookAnnotation(String bookId, String annotationId) async {
+    if (annotation?.id == annotationId) annotation = null;
+  }
 
   @override
   Future<List<BookEntry>> list() async => [?book];
@@ -38,6 +43,12 @@ class _CloudNotesApi implements ReaMicroApiClient {
 
   final ReaMicroMarkBook markBook;
   final ReaMicroMark mark;
+  final deleted = <int>[];
+
+  @override
+  Future<void> deleteMark(String token, {required int id}) async {
+    deleted.add(id);
+  }
 
   @override
   Future<ReaMicroUser> fetchUser(String token) async =>
@@ -59,7 +70,8 @@ class _CloudNotesApi implements ReaMicroApiClient {
     String? bookId,
     int pageSize = 200,
   }) async {
-    if (bookId == mark.bookId) return <ReaMicroMark>[mark];
+    if (bookId == mark.bookId && !deleted.contains(mark.id))
+      return <ReaMicroMark>[mark];
     return const <ReaMicroMark>[];
   }
 
@@ -304,6 +316,11 @@ void main() {
       expect(find.text('云端笔记正文'), findsOneWidget);
       expect(find.text('被划线的原文'), findsOneWidget);
       expect(find.text('这本书还没有笔记'), findsNothing);
+      expect(find.text('本地'), findsNothing);
+      await tester.tap(find.byTooltip('删除'));
+      await tester.pumpAndSettle();
+      expect(api.deleted, [31]);
+      expect(find.text('云端笔记正文'), findsNothing);
       disposeController();
     });
   }

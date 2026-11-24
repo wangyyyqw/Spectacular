@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -251,11 +252,24 @@ class _ReviewsPageState extends State<ReviewsPage>
     }
   }
 
+  final _noteCloudIds = <String, Map<String, int>>{};
+
+  bool _noteIsLocal(String bookId, ReaderAnnotation note) =>
+      !(_noteCloudIds[bookId]?.containsKey(note.id) ?? false) &&
+      !(widget.reaMicro?.annotationCloudIds(bookId).containsKey(note.id) ??
+          false) &&
+      !note.id.startsWith('mark-cloud-') &&
+      !note.id.startsWith('mark-lan-');
+
   Future<void> _deleteNote(String bookId, ReaderAnnotation annotation) async {
     final controller = widget.reaMicro;
     final remote = _cloudMarkBooks[bookId];
     if (controller != null && controller.signedIn && remote != null) {
-      final result = await controller.deleteNote(bookId, annotation);
+      final result = await controller.deleteNote(
+        bookId,
+        annotation,
+        cloudId: _noteCloudIds[bookId]?[annotation.id],
+      );
       if (!result.success) throw FormatException(result.message);
     } else {
       await widget.library.removeBookAnnotation(bookId, annotation.id);
@@ -749,6 +763,7 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Future<List<ReaderAnnotation>> _loadNotes(String bookId) async {
     final local = await widget.library.listBookAnnotations(bookId);
+    _noteCloudIds[bookId] = {};
     final remote = _cloudMarkBooks[bookId];
     final controller = widget.reaMicro;
     if (remote == null || controller == null || !controller.signedIn) {
@@ -771,6 +786,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         local,
         cloud,
         cloudIds: controller.annotationCloudIds(bookId),
+        resolvedCloudIds: _noteCloudIds[bookId],
         cfis: cfis,
       );
     } catch (_) {
@@ -798,6 +814,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         query: _query,
         searchMatches: _noteSearchMatches ?? const {},
         onDelete: _deleteNote,
+        isLocal: _noteIsLocal,
       );
     } else if (books.isEmpty) {
       body = const _EmptyReviews();
@@ -1682,7 +1699,7 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
         const SizedBox(height: 16),
         _contentInput(theme),
         if (widget.cloud)
-          SwitchListTile(
+          ReaderSwitchListTile(
             key: const ValueKey('review-publish'),
             contentPadding: EdgeInsets.zero,
             title: const Text('发布到阅微'),

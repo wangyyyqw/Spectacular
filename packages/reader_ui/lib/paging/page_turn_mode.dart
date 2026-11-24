@@ -16,7 +16,7 @@ enum PageTurnMode {
   simulationBessel('simulationBessel', '贝塞尔仿真'),
 
   /// 固定 UV 的圆柱卷曲，带纸背与明暗。
-  simulation3d('simulation3d', '3D（旧版）'),
+  simulation3d('simulation3d', '3D'),
 
   /// 按文本行或竖排列的空间位置错峰横移，旧内容先退出、新内容随后进入。
   continuation('continuation', '接续'),

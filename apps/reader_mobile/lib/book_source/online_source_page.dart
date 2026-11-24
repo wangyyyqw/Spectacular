@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'book_source_models.dart';
@@ -376,7 +377,7 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
                                   : AppGlyph.profile,
                             ),
                     ),
-                  Switch(
+                  ReaderSwitch(
                     key: ValueKey<String>('online-source-enabled-${source.id}'),
                     value: source.enabled,
                     onChanged: (value) async {

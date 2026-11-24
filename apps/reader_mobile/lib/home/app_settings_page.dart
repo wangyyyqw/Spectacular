@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -344,7 +345,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   trailing: const AppIcon(AppGlyph.chevronRight),
                   onTap: _chooseShelfSort,
                 ),
-                SwitchListTile(
+                ReaderSwitchListTile(
                   key: const ValueKey<String>('bookshelf-title-setting'),
                   secondary: const AppIcon(AppGlyph.textFields),
                   title: const Text('显示书名'),
@@ -387,14 +388,16 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                 ),
               ]),
               const SizedBox(height: 24),
-              ListTile(
-                key: const ValueKey('about-entry'),
-                title: const Text('关于'),
-                trailing: const AppIcon(AppGlyph.chevronRight),
-                onTap: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(builder: (_) => const AboutPage()),
+              _section(context, '应用信息', [
+                ListTile(
+                  key: const ValueKey('about-entry'),
+                  title: const Text('关于'),
+                  trailing: const AppIcon(AppGlyph.chevronRight),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(builder: (_) => const AboutPage()),
+                  ),
                 ),
-              ),
+              ]),
             ],
           ),
         ),
@@ -405,8 +408,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Widget _appearance(BuildContext context) {
     final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
     return _section(context, '外观', [
-      SwitchListTile(
+      ReaderSwitchListTile(
         key: const ValueKey('appearance-ink-mode'),
+        secondary: const AppIcon(AppGlyph.lightMode),
         title: const Text('墨水屏模式'),
         value: _inkMode,
         onChanged: (value) async {
@@ -482,11 +486,17 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: Theme.of(context).textTheme.labelMedium),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
         const SizedBox(height: 10),
-        Material(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(4),
+        Card(
           clipBehavior: Clip.antiAlias,
           child: Column(
             children: [

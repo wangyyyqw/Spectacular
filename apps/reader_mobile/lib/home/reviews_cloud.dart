@@ -282,6 +282,7 @@ List<ReaderAnnotation> mergeCloudMarks(
   List<ReaderAnnotation> local,
   List<ReaMicroMark> remote, {
   Map<String, int> cloudIds = const {},
+  Map<String, int>? resolvedCloudIds,
   ReaMicroAnnotationCfis? cfis,
 }) {
   final merged = List<ReaderAnnotation>.of(local);
@@ -290,23 +291,25 @@ List<ReaderAnnotation> mergeCloudMarks(
     if (mark.startCfi.trim().isEmpty) continue;
     if (mark.id > 0 && !seenCloudIds.add(mark.id)) continue;
     final end = mark.endCfi.trim().isEmpty ? mark.startCfi : mark.endCfi;
-    if (merged.any((annotation) {
-      if (mark.id > 0 &&
-          (cloudIds[annotation.id] == mark.id ||
-              annotation.id == 'mark-cloud-${mark.id}' ||
-              annotation.id == 'mark-lan-${mark.id}')) {
-        return true;
-      }
+    ReaderAnnotation? existing;
+    for (final annotation in merged) {
       bool matches(String localCfi, String remoteCfi) =>
           localCfi == remoteCfi ||
           (cfis?.matches(localCfi, remoteCfi) ?? false);
-      return annotation.type.storageValue == mark.kind &&
-          matches(annotation.startCfi, mark.startCfi) &&
-          matches(annotation.endCfi, end);
-    })) {
-      continue;
+      if ((mark.id > 0 &&
+              (cloudIds[annotation.id] == mark.id ||
+                  annotation.id == 'mark-cloud-${mark.id}' ||
+                  annotation.id == 'mark-lan-${mark.id}')) ||
+          (annotation.type.storageValue == mark.kind &&
+              matches(annotation.startCfi, mark.startCfi) &&
+              matches(annotation.endCfi, end))) {
+        existing = annotation;
+        break;
+      }
     }
-    merged.add(annotationFromCloudMark(mark));
+    final annotation = existing ?? annotationFromCloudMark(mark);
+    if (mark.id > 0) resolvedCloudIds?[annotation.id] = mark.id;
+    if (existing == null) merged.add(annotation);
   }
   merged.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
   return merged;

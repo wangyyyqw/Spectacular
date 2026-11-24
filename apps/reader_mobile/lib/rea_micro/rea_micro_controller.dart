@@ -577,12 +577,16 @@ class ReaMicroController extends ChangeNotifier {
   /// 云端删除成功后才移除本地副本，失败时保留笔记供重试。
   Future<ReaMicroActionResult> deleteNote(
     String bookId,
-    ReaderAnnotation annotation,
-  ) async {
+    ReaderAnnotation annotation, {
+    int? cloudId,
+  }) async {
     final remoteId =
+        cloudId ??
         _markIds['$bookId|${annotation.id}'] ??
         (annotation.id.startsWith('mark-cloud-')
             ? int.tryParse(annotation.id.substring('mark-cloud-'.length))
+            : annotation.id.startsWith('mark-lan-')
+            ? int.tryParse(annotation.id.substring('mark-lan-'.length))
             : null);
     try {
       if (remoteId != null && remoteId > 0) {

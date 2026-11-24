@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
+import '../book_source/book_cover_url.dart';
+export '../book_source/book_cover_url.dart';
 
 /// 书架、详情、统计与书评共用封面；等比缩放并居中裁切铺满容器。
 class BookCoverImage extends StatelessWidget {
@@ -100,55 +102,14 @@ class BookCoverImage extends StatelessWidget {
     }
     final remote = normalizeBookCoverUrl(book.remoteCoverUrl);
     if (remote == null) return placeholder;
-    final sourceHeaders = {
-      if (Uri.parse(remote).host.endsWith('.doubanio.com')) ...const {
-        'Referer': 'https://book.douban.com/',
-        'User-Agent': 'Mozilla/5.0',
-      },
-      ...httpHeaders,
-    };
-    return Image.network(
-      remote,
-      headers: sourceHeaders,
-      key: ValueKey('cover-$remote'),
-      width: double.infinity,
-      height: double.infinity,
-      fit: BoxFit.cover,
-      cacheWidth: decodeWidth,
-      gaplessPlayback: true,
-      excludeFromSemantics: true,
-      frameBuilder: (_, child, frame, loaded) =>
-          loaded || frame != null ? child : placeholder,
-      errorBuilder: (_, _, _) => placeholder,
+    return _RemoteCover(
+      key: ValueKey(remote),
+      url: remote,
+      headers: httpHeaders,
+      decodeWidth: decodeWidth,
+      placeholder: placeholder,
     );
   }
-}
-
-/// 兼容协议省略、豆瓣图片节点及过期的番茄签名封面。
-String? normalizeBookCoverUrl(String? value, {DateTime? now}) {
-  var url = value?.trim() ?? '';
-  if (url.startsWith('//')) url = 'https:$url';
-  final uri = Uri.tryParse(url);
-  if (uri == null ||
-      !['https', 'http'].contains(uri.scheme) ||
-      uri.host.isEmpty) {
-    return null;
-  }
-  if (RegExp(r'^img\d+\.doubanio\.com$').hasMatch(uri.host)) {
-    return uri.replace(scheme: 'https', host: 'img1.doubanio.com').toString();
-  }
-  if (uri.host.endsWith('.fqnovelpic.com') &&
-      uri.path.startsWith('/novel-pic/')) {
-    final expires = int.tryParse(uri.queryParameters['x-expires'] ?? '');
-    if (expires != null &&
-        expires <= (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000) {
-      final image = uri.path.substring('/novel-pic/'.length).split('~').first;
-      if (image.isNotEmpty && !image.contains('/')) {
-        return 'https://p3-novel.byteimg.com/origin/novel-pic/$image';
-      }
-    }
-  }
-  return url;
 }
 
 /// 把阅微封面地址附加到本地书目；本地已有封面时不替换。
@@ -230,6 +191,62 @@ class _ReadabilityBadge extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 网络或解码失败后换豆瓣节点；保留图片身份、比例和书名占位。
+class _RemoteCover extends StatefulWidget {
+  const _RemoteCover({
+    super.key,
+    required this.url,
+    required this.headers,
+    required this.decodeWidth,
+    required this.placeholder,
+  });
+  final String url;
+  final Map<String, String> headers;
+  final int decodeWidth;
+  final Widget placeholder;
+  @override
+  State<_RemoteCover> createState() => _RemoteCoverState();
+}
+
+class _RemoteCoverState extends State<_RemoteCover> {
+  late final _urls = bookCoverCandidates(widget.url);
+  int _attempt = 0;
+  bool _retryQueued = false;
+  void _retry() {
+    if (_retryQueued || _attempt + 1 >= _urls.length) return;
+    _retryQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _attempt++;
+        _retryQueued = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final url = _urls[_attempt];
+    return Image.network(
+      url,
+      headers: {...bookCoverHeaders(url), ...widget.headers},
+      key: ValueKey('cover-$url'),
+      width: double.infinity,
+      height: double.infinity,
+      fit: BoxFit.cover,
+      cacheWidth: widget.decodeWidth,
+      gaplessPlayback: true,
+      excludeFromSemantics: true,
+      frameBuilder: (_, child, frame, loaded) =>
+          loaded || frame != null ? child : widget.placeholder,
+      errorBuilder: (_, _, _) {
+        _retry();
+        return widget.placeholder;
+      },
     );
   }
 }

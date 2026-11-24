@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/txt.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -220,7 +221,7 @@ void main() {
           .glyph,
       AppGlyph.delete,
     );
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byType(ReaderSwitch));
     await _finishWork(tester);
     expect((await store.load()).single.autoEnabled, isTrue);
     await tester.tap(find.byTooltip('关闭'));

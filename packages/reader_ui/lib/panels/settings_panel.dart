@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../theme/reader_switch.dart';
+
 import '../reader_ui_diagnostics.dart';
 
 import 'package:reader_core/css/computed_style.dart';
@@ -1179,7 +1181,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
           Expanded(
             child: Text(label, style: TextStyle(fontSize: 14, color: text)),
           ),
-          _CompactSwitch(key: key, value: value, onChanged: onChanged),
+          ReaderSwitch(key: key, value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -1504,64 +1506,6 @@ class _OutlinedThumbShape extends SliderComponentShape {
       ..strokeWidth = 2;
     canvas.drawCircle(center, 8, fill);
     canvas.drawCircle(center, 7, outline);
-  }
-}
-
-class _CompactSwitch extends StatelessWidget {
-  const _CompactSwitch({
-    super.key,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onChanged != null;
-    return Semantics(
-      button: true,
-      toggled: value,
-      enabled: enabled,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.42,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: enabled ? () => onChanged!(!value) : null,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 42,
-            height: 22,
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: value ? const Color(0xFF5EC27D) : const Color(0xFFE5E5E5),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: AnimatedAlign(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 18,
-                height: 18,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      blurRadius: 3,
-                      offset: Offset(0, 1),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 
