@@ -38,6 +38,7 @@ Future<ReaderSession> _open(
   bool inkMode = false,
   List<TocEntry> toc = const <TocEntry>[],
   bool searchEnabled = false,
+  VoidCallback? onTts,
 }) async {
   late ReaderSession session;
   await tester.pumpWidget(
@@ -50,6 +51,7 @@ Future<ReaderSession> _open(
         inkMode: inkMode,
         onSearch: searchEnabled ? (_) async => [] : null,
         onSessionReady: (value) => session = value,
+        onTts: onTts,
       ),
     ),
   );
@@ -105,6 +107,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.getRect(surface), before);
+  });
+
+  testWidgets('听书入口调用宿主回调且保留阅读位置', (tester) async {
+    var calls = 0;
+    final session = await _open(tester, 3, onTts: () => calls++);
+    final before = session.progress;
+    await tester.tap(find.byKey(const ValueKey<String>('menu-tts')));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(session.progress, before);
   });
 
   testWidgets('目录面板左右滑动切换可用标签并支持点击返回', (tester) async {

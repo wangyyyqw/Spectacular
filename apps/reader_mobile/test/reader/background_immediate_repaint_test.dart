@@ -119,6 +119,7 @@ Future<(ReaderSession, Future<void> Function())> _openReader(
           pageTurnMode: mode,
           onSessionReady: (value) => session = value,
           onBackgroundChanged: changes.add,
+          onBackgroundImageOpacityChanged: (_) {},
           onPickBackgroundImage: () async =>
               imageIds.moveNext() ? imageIds.current : null,
           backgroundImageLoader: (id) async => id == 'image:red' ? red : blue,
@@ -140,6 +141,35 @@ Future<(ReaderSession, Future<void> Function())> _openReader(
   );
 }
 
+Future<void> _verifyImageFade(
+  WidgetTester tester,
+  String paperKey,
+  Uint8List original,
+) async {
+  final fade = find.byKey(const ValueKey('settings-background-image-fade'));
+  await tester.ensureVisible(fade);
+  await _pumpFrames(tester);
+  for (final amount in [50.0, 100.0, 0.0]) {
+    final slider = tester.widget<Slider>(fade);
+    slider.onChanged!(amount);
+    slider.onChangeEnd!(amount);
+    await _pumpFrames(tester);
+    final current = await _pixels(tester, paperKey);
+    for (var channel = 0; channel < 3; channel++) {
+      final expected =
+          original[channel] * (1 - amount / 100) + 255 * amount / 100;
+      expect(
+        current[channel],
+        closeTo(expected, 1),
+        reason: '淡化 $amount% 即时更新纸面',
+      );
+    }
+    if (amount == 0) {
+      expect(current, orderedEquals(original), reason: '取消淡化恢复完整原图');
+    }
+  }
+}
+
 Future<void> _verifyBackgrounds(
   WidgetTester tester,
   String paperKey,
@@ -159,8 +189,18 @@ Future<void> _verifyBackgrounds(
     expect(changes.last, id);
     final current = await _pixels(tester, paperKey);
     expect(current, isNot(orderedEquals(previous)), reason: '$id 即时绘制');
+    if (id.startsWith('image:')) {
+      final color = id == 'image:red' ? Colors.red : Colors.blue;
+      expect(current.take(4), [
+        (color.r * 255).round(),
+        (color.g * 255).round(),
+        (color.b * 255).round(),
+        255,
+      ], reason: '导入图片默认保留原色，不叠加白色蒙层');
+    }
     previous = current;
   }
+  await _verifyImageFade(tester, paperKey, previous);
   await _select(
     tester,
     'settings-bg-none',
@@ -181,6 +221,9 @@ void main() {
     PageTurnMode.scroll,
   ]) {
     testWidgets('${mode.label}中背景连续选择后立即重绘当前纸面', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
       final changes = <String>[];
       final (session, closeSource) = await _openReader(tester, mode, changes);
       final page = session.page;

@@ -120,11 +120,15 @@ class ReaderBackgroundStore {
     final directory = await _directory();
     if (!await directory.exists()) return;
     final cutoff = DateTime.now().subtract(const Duration(days: 1));
+    bool retained(String? candidate, String path) =>
+        candidate != null &&
+        candidate.startsWith('image:') &&
+        p.equals(p.normalize(candidate.substring(6)), p.normalize(path));
     await for (final file in directory.list()) {
       if (file is! File ||
           !p.basename(file.path).startsWith('$filePrefix-') ||
-          ReaderBackground.image(file.path).id == id ||
-          ReaderBackground.image(file.path).id == pendingId) {
+          retained(id, file.path) ||
+          retained(pendingId, file.path)) {
         continue;
       }
       if ((await file.stat()).modified.isBefore(cutoff)) await file.delete();

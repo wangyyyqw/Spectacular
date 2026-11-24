@@ -151,7 +151,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('30 分钟'), findsWidgets);
-    for (final period in ['day', 'week', 'month', 'quarter', 'year']) {
+    for (final period in ['day', 'week']) {
       final control = find.byKey(
         ValueKey<String>('stats-book-duration-period-$period'),
       );

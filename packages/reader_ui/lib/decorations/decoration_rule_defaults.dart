@@ -1,7 +1,7 @@
 import 'decoration_rules.dart';
 import 'decoration_style.dart';
 
-/// 从阅微默认样式迁移，位图由应用宿主提供。
+/// 默认高亮样式，位图由应用宿主提供。
 const readerDecorationBuiltInStyles = [
   ReaderDecorationNamedStyle(
     id: 'builtin_rainbow_glass',
@@ -50,6 +50,7 @@ List<ReaderDecorationRule> readerDecorationDefaultRules(String groupId) => [
       name: name,
       pattern: '',
       type: type,
+      enabled: false,
       styleId: 'builtin_rainbow_glass',
       darkStyleId: 'default',
       style: readerDecorationBuiltInStyles.first.style.withValues({

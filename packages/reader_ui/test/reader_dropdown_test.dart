@@ -59,8 +59,8 @@ void main() {
             )
             .firstWhere((m) => m.shape is RoundedRectangleBorder);
         expect(
-          (surface.shape! as RoundedRectangleBorder).borderRadius,
-          BorderRadius.circular(16),
+          surface.shape,
+          Theme.of(tester.element(field)).popupMenuTheme.shape,
         );
         expect(
           surface.color,

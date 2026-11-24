@@ -7,6 +7,7 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/paint/page_renderer.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
 import 'package:reader_ui/decorations/decoration.dart';
 import 'package:reader_ui/decorations/decoration_geometry.dart';
@@ -14,6 +15,7 @@ import 'package:reader_ui/decorations/decoration_painter.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_image_codec.dart';
+import 'package:reader_ui/selection/text_range_geometry.dart';
 
 import 'support/decoration_test_images.dart';
 
@@ -86,8 +88,73 @@ ReaderDecoration _decoration(String id, DateTime createdAt) => ReaderDecoration(
   updatedAt: createdAt,
 );
 
+class _CountingBlock extends PageBlock {
+  _CountingBlock(PageBlock source)
+    : super(
+        layout: source.layout,
+        style: source.style,
+        startCfi: source.startCfi,
+        textCfis: source.textCfis,
+      );
+
+  int conversions = 0;
+
+  @override
+  (int, int)? rangeForCfis(String start, String end) {
+    conversions++;
+    return super.rangeForCfis(start, end);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('正式分页后的多行只转换一次段落区间，未命中也不逐行重算', () {
+    final style = ComputedStyle({
+      'font-family': 'Ahem',
+      'font-size': '21px',
+      'line-height': '1.6',
+    });
+    final text = 'abcdefghijklmnopqrst' * 15;
+    final block = _CountingBlock(
+      PageBlock(
+        layout: TextLayoutEngine.layout(
+          text: text,
+          style: style,
+          maxWidth: 366,
+        ),
+        style: style,
+        startCfi: _start,
+      ),
+    );
+    final page = Paginator(pageHeight: 767)
+        .measureChapter(blocks: [block])
+        .pages
+        .first;
+    final lines = ReaderTextRangeGeometry.linesFor(
+      page,
+      startCfi: _start,
+      endCfi: cfiWithCharOffset(_start, 50),
+    );
+    expect(lines.length, greaterThan(1));
+    expect(
+      lines
+          .map((line) => line.line.text.substring(line.start, line.end))
+          .join(),
+      text.substring(0, 50),
+    );
+    expect(block.conversions, 1);
+    block.conversions = 0;
+    expect(
+      ReaderTextRangeGeometry.linesFor(
+        page,
+        startCfi: 'epubcfi(/6/2!/4/4/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/4/1:2)',
+      ),
+      isEmpty,
+    );
+    expect(block.conversions, 1);
+  });
 
   test('新增高亮兼容旧样式并完整保存，后应用样式按属性覆盖', () {
     final legacy = ReaderDecorationStyle.fromJson({'v': 1, 'color': _red});

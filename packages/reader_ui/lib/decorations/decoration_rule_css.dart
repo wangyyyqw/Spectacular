@@ -3,7 +3,7 @@ import 'package:reader_core/css/parser.dart';
 
 import 'decoration_rules.dart';
 
-/// 将阅微高亮 CSS 声明转换为本项目可编辑的原生装饰属性。
+/// 将高亮 CSS 声明转换为可编辑的装饰属性。
 ReaderDecorationRuleStyle importDecorationRuleCss(
   ReaderDecorationRuleStyle current,
   String source,
@@ -54,7 +54,7 @@ ReaderDecorationRuleStyle importDecorationRuleCss(
     if (has('font-style')) 'italic': computed.italic,
     if (has('letter-spacing'))
       'letterSpacingEm': computed.letterSpacing / computed.fontSize,
-    // 外留白迁为行内占位，与原项目盒边距保留相同的文字间隔。
+    // 内外留白统一转换为装饰绘制范围，不改变正文行盒。
     if (has('padding') || has('margin')) ...{
       'paddingTop': computed.padding.top + computed.margin.top,
       'paddingRight': computed.padding.right + computed.margin.right,

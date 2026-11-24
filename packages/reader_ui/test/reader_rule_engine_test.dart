@@ -7,6 +7,7 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/table_layout.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_ui/decorations/decoration_rule_defaults.dart';
 import 'package:reader_ui/decorations/decoration_rule_engine.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_style.dart';
@@ -14,6 +15,36 @@ import 'package:reader_ui/decorations/rule_match_worker.dart';
 
 const _baseCfi = 'epubcfi(/6/2!/4/2/1:7)';
 const _groups = [ReaderDecorationRuleGroup(id: 'group', name: '默认规则')];
+
+class _CountingMatcher extends DecorationRuleMatcher {
+  final calls = <String>[];
+
+  @override
+  Future<List<DecorationRuleHit>> match({
+    required String pattern,
+    required bool isRegex,
+    required bool caseSensitive,
+    required List<DecorationRuleTextBlock> blocks,
+    int? limit,
+    Duration timeout = const Duration(seconds: 1),
+    ReaderDecorationRuleType? type,
+    bool allowCrossParagraph = false,
+    bool excludeSingleQuotes = false,
+  }) {
+    calls.add(pattern);
+    return super.match(
+      pattern: pattern,
+      isRegex: isRegex,
+      caseSensitive: caseSensitive,
+      blocks: blocks,
+      limit: limit,
+      timeout: timeout,
+      type: type,
+      allowCrossParagraph: allowCrossParagraph,
+      excludeSingleQuotes: excludeSingleQuotes,
+    );
+  }
+}
 
 ComputedStyle _style([String size = '16px']) => ComputedStyle({
   'font-family': 'Ahem',
@@ -124,6 +155,231 @@ List<PageBlock> _filteredBlocks() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('内置引号规则默认关闭，不启动匹配工作线程，自定义规则默认不变', () async {
+    final rules = readerDecorationDefaultRules('group');
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    expect(rules, hasLength(2));
+    expect(rules.every((rule) => !rule.enabled), isTrue);
+    expect(_rule('custom', '甲').enabled, isTrue);
+    expect(
+      await _match(engine, [
+        _page([_block('“甲‘乙’丙”', _baseCfi)]),
+      ], rules),
+      isEmpty,
+    );
+    expect(matcher.calls, isEmpty);
+  });
+
+  test('主动开启内置规则保留引号匹配和原样式，再次关闭不复用旧命中', () async {
+    final rules = [
+      for (final rule in readerDecorationDefaultRules('group'))
+        rule.copyWith(enabled: true),
+    ];
+    final engine = ReaderDecorationRuleEngine();
+    addTearDown(engine.dispose);
+    final pages = [
+      _page([_block('“甲‘乙’丙”', _baseCfi)]),
+    ];
+    final hits = await _match(engine, pages, rules);
+    expect(hits.map((hit) => hit.text), ['“甲', '丙”', '‘乙’']);
+    expect(hits.first.style, same(rules.first.style));
+    expect(hits.first.style.typography.fontSizeScale, 0.9);
+    expect(
+      await _match(engine, pages, [
+        for (final rule in rules) rule.copyWith(enabled: false),
+      ]),
+      isEmpty,
+    );
+  });
+
+  test('样式和顺序变化复用真实匹配，只重算条件变化的规则', () async {
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    final pages = [
+      _page([_block('甲乙甲', _baseCfi)]),
+    ];
+    final firstRule = _rule('first', '甲');
+    final secondRule = _rule('second', '乙').copyWith(sortOrder: 1);
+    final first = await _match(engine, pages, [firstRule, secondRule]);
+    expect(matcher.calls, ['甲', '乙']);
+    final styled = firstRule.copyWith(
+      sortOrder: 2,
+      style: const ReaderDecorationRuleStyle(
+        color: 0xff0000ff,
+        typography: ReaderDecorationStyle(fontSizeScale: 1.5),
+        darkStyle: ReaderDecorationRuleStyle(color: 0xff00ff00),
+      ),
+    );
+    final restyled = await _match(engine, pages, [styled, secondRule]);
+    expect(matcher.calls, ['甲', '乙']);
+    expect(restyled.map((hit) => hit.ruleId), ['second', 'first', 'first']);
+    expect(restyled.last.startCfi, first[1].startCfi);
+    expect(restyled.last.endCfi, first[1].endCfi);
+    expect(restyled.last.style, same(styled.style));
+    expect(restyled.last.style.forTheme(true).color, 0xff00ff00);
+    expect(first.last.style, same(secondRule.style));
+    final changed = await _match(engine, pages, [
+      styled.copyWith(pattern: '甲乙'),
+      secondRule,
+    ]);
+    expect(matcher.calls, ['甲', '乙', '甲乙']);
+    expect(changed.map((hit) => hit.text), ['乙', '甲乙']);
+  });
+
+  test('进行中的规则被样式修改复用，两个请求分别保留各自样式', () async {
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    final pages = [
+      _page([_block('正文', _baseCfi)]),
+    ];
+    final rule = _rule('text', '正文');
+    final updated = rule.copyWith(
+      style: const ReaderDecorationRuleStyle(color: 0xff00ff00),
+    );
+    final original = _match(engine, pages, [rule]);
+    final restyled = _match(engine, pages, [updated]);
+    expect((await original).single.style, same(rule.style));
+    expect((await restyled).single.style, same(updated.style));
+    expect(matcher.calls, ['正文']);
+  });
+
+  test('切换单引号规则只让对话重新扣除词组，其他规则继续复用', () async {
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    final pages = [
+      _page([_block('“甲‘乙’丙”', _baseCfi)]),
+    ];
+    final dialogue = _rule(
+      'dialogue',
+      '',
+    ).copyWith(type: ReaderDecorationRuleType.doubleQuoteDialogue);
+    final word = _rule('word', '甲');
+    final single = _rule(
+      'single',
+      '',
+    ).copyWith(type: ReaderDecorationRuleType.singleQuotePhrase);
+    expect(
+      (await _match(engine, pages, [dialogue, word])).first.text,
+      '“甲‘乙’丙”',
+    );
+    final withSingle = await _match(engine, pages, [dialogue, word, single]);
+    expect(withSingle.map((hit) => hit.text), ['“甲', '丙”', '甲', '‘乙’']);
+    expect(matcher.calls, ['', '甲', '', '']);
+    final restored = await _match(engine, pages, [
+      dialogue,
+      word,
+      single.copyWith(enabled: false),
+    ]);
+    expect(restored.first.text, '“甲‘乙’丙”');
+    expect(matcher.calls, ['', '甲', '', '', '']);
+  });
+
+  test('原文、排除区间和来源位置变化不会复用旧命中', () async {
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    Future<List<ReaderDecorationRuleMatch>> match(
+      DecorationRuleTextBlock block,
+    ) => engine.matchChapter(
+      pages: const [],
+      sourceBlocks: [block],
+      groups: _groups,
+      rules: [_rule('text', '正文')],
+      bookId: 'book',
+    );
+    final first = await match(
+      const DecorationRuleTextBlock(cfi: _baseCfi, text: '正文'),
+    );
+    final moved = await match(
+      DecorationRuleTextBlock(cfi: cfiWithCharOffset(_baseCfi, 20), text: '正文'),
+    );
+    expect(cfiCharOffset(first.single.startCfi), 7);
+    expect(cfiCharOffset(moved.single.startCfi), 20);
+    expect(
+      await match(const DecorationRuleTextBlock(cfi: _baseCfi, text: '原文')),
+      isEmpty,
+    );
+    expect(
+      await match(
+        const DecorationRuleTextBlock(
+          cfi: _baseCfi,
+          text: '正文',
+          excluded: [(0, 1)],
+        ),
+      ),
+      isEmpty,
+    );
+    expect(matcher.calls, hasLength(4));
+  });
+
+  test('跨段边界和作者保护范围变化使对话缓存失效', () async {
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    Future<List<ReaderDecorationRuleMatch>> match({
+      int boundary = 0,
+      List<(int, int)> protected = const [],
+    }) => engine.matchChapter(
+      pages: const [],
+      sourceBlocks: [
+        DecorationRuleTextBlock(
+          cfi: _baseCfi,
+          text: '“开头',
+          protected: protected,
+        ),
+        DecorationRuleTextBlock(
+          cfi: 'epubcfi(/6/2!/4/4/1:0)',
+          text: '结尾”',
+          boundary: boundary,
+        ),
+      ],
+      groups: _groups,
+      rules: [
+        _rule(
+          'dialogue',
+          '',
+        ).copyWith(type: ReaderDecorationRuleType.doubleQuoteDialogue),
+      ],
+      bookId: 'book',
+    );
+    expect((await match()).map((hit) => hit.text), ['“开头', '结尾”']);
+    expect((await match(boundary: 1)).map((hit) => hit.text), ['“开头']);
+    expect((await match(protected: [(1, 3)])).map((hit) => hit.text), [
+      '“',
+      '结尾”',
+    ]);
+    expect(matcher.calls, hasLength(3));
+  });
+
+  test('失败规则改样式不重试，修改匹配条件后恢复且复用其他规则', () async {
+    final matcher = _CountingMatcher();
+    final engine = ReaderDecorationRuleEngine(matcher: matcher);
+    addTearDown(engine.dispose);
+    final pages = [
+      _page([_block('正文', _baseCfi)]),
+    ];
+    final invalid = _rule('invalid', '(', isRegex: true);
+    final valid = _rule('valid', '正文');
+    await _match(engine, pages, [invalid, valid]);
+    await _match(engine, pages, [
+      invalid.copyWith(style: const ReaderDecorationRuleStyle(color: 1)),
+      valid,
+    ]);
+    expect(matcher.calls, ['(', '正文']);
+    final fixed = await _match(engine, pages, [
+      invalid.copyWith(pattern: '正文'),
+      valid,
+    ]);
+    expect(fixed, hasLength(2));
+    expect(matcher.calls, ['(', '正文', '正文']);
+    expect(engine.errors, isEmpty);
+  });
 
   for (final (isRegex, caseSensitive, offsets) in [
     (false, false, [(0, 3), (4, 7)]),

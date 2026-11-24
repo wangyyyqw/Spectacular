@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/layout/scroll_layout.dart';
+import 'package:reader_core/position/cfi.dart';
 
 import '../reader_session.dart';
+import '../selection/text_range_geometry.dart';
 import 'page_turn_mode.dart';
 
 import 'package:reader_core/source/chapter_source.dart';
@@ -76,6 +78,8 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
   late int _layoutGeneration;
   late final ReaderViewportSnapshot? Function() _viewportSnapshotProvider =
       _snapshotForSession;
+  late final Future<bool> Function(String, String) _viewportRangeRevealer =
+      _revealRange;
   Object? _error;
   bool _restoring = false;
   bool _programmaticJump = false;
@@ -88,6 +92,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     super.initState();
     _layoutGeneration = widget.session.generation;
     widget.session.registerViewportSnapshotProvider(_viewportSnapshotProvider);
+    widget.session.registerViewportRangeRevealer(_viewportRangeRevealer);
     _controller.addListener(_handleScroll);
     unawaited(_loadInitialWindow());
   }
@@ -101,9 +106,13 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
         oldWidget.session.unregisterViewportSnapshotProvider(
           _viewportSnapshotProvider,
         );
+        oldWidget.session.unregisterViewportRangeRevealer(
+          _viewportRangeRevealer,
+        );
         widget.session.registerViewportSnapshotProvider(
           _viewportSnapshotProvider,
         );
+        widget.session.registerViewportRangeRevealer(_viewportRangeRevealer);
       }
       _scheduleWindowReload(widget.session.generation);
     }
@@ -369,6 +378,114 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     } finally {
       _programmaticJump = false;
     }
+  }
+
+  Future<bool> _revealRange(String startCfi, String endCfi) async {
+    if (_loading || _restoring || _userDragging || !_controller.hasClients) {
+      return false;
+    }
+    final parsed = EpubCfi.parse(startCfi);
+    final spine = parsed == null ? null : spineIndexOfCfi(parsed);
+    if (spine == null) return false;
+    final token = _loadToken;
+    final generation = _layoutGeneration;
+    final revision = widget.session.navigationRevision;
+    await _ensureRangeChapter(spine, token, generation, revision);
+    if (!_canRevealRange(token, generation, revision)) return false;
+    final entry = _entryForRange(spine, startCfi);
+    if (entry == null) return false;
+    final line = ReaderTextRangeGeometry.linesFor(
+      entry.segment.content,
+      startCfi: startCfi,
+      endCfi: endCfi,
+    ).firstOrNull;
+    if (line == null || !_showRangeLine(entry, line.line.rect)) {
+      return line != null;
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    if (!_canRevealRange(token, generation, revision)) return false;
+    _showRangeLine(entry, line.line.rect);
+    return _commitRevealedViewport(generation);
+  }
+
+  _ScrollEntry? _entryForRange(int spine, String startCfi) {
+    final current = widget.session.page;
+    final entry = current == null
+        ? null
+        : _entryForPage(current.spineIndex, current.pageIndex);
+    if (entry != null &&
+        ReaderTextRangeGeometry.containsPoint(
+          entry.segment.content,
+          startCfi,
+        )) {
+      return entry;
+    }
+    return _entries
+        .where(
+          (entry) =>
+              entry.chapter.spineIndex == spine &&
+              ReaderTextRangeGeometry.containsPoint(
+                entry.segment.content,
+                startCfi,
+              ),
+        )
+        .firstOrNull;
+  }
+
+  Future<bool> _commitRevealedViewport(int generation) async {
+    _captureVisiblePage(commit: false, stage: false);
+    final visible = _visibleContent;
+    if (visible == null) return false;
+    return widget.session.commitScrollPosition(
+      visible.spineIndex,
+      visible.pageIndex,
+      _visiblePageOffset,
+      cfi: _cfiAtVisibleOffset(visible, _visiblePageOffset),
+      generation: generation,
+      userNavigation: false,
+    );
+  }
+
+  bool _canRevealRange(int token, int generation, int revision) =>
+      _isCurrentWindow(token, generation) &&
+      !_userDragging &&
+      revision == widget.session.navigationRevision;
+
+  Future<void> _ensureRangeChapter(
+    int spine,
+    int token,
+    int generation,
+    int revision,
+  ) async {
+    while (_canRevealRange(token, generation, revision) &&
+        _chapters.isNotEmpty &&
+        _chapters.last.spineIndex < spine) {
+      final last = _chapters.last.spineIndex;
+      await _extendAfter();
+      if (_chapters.isEmpty || _chapters.last.spineIndex <= last) return;
+    }
+  }
+
+  bool _showRangeLine(_ScrollEntry entry, Rect line) {
+    final box = _boxOf(entry);
+    final top =
+        (box == null ? null : _revealOffset(box)) ??
+        widget.padding.top + entry.top;
+    final screenTop = top - _controller.offset;
+    if (screenTop + line.top >= widget.padding.top &&
+        screenTop + line.bottom <=
+            _controller.position.viewportDimension - widget.padding.bottom) {
+      return false;
+    }
+    _syncTimer?.cancel();
+    _hasUserScrollSinceRestore = false;
+    _jumpProgrammatically(
+      (top + line.top - widget.padding.top).clamp(
+        0.0,
+        _controller.position.maxScrollExtent,
+      ),
+    );
+    return true;
   }
 
   void _handleScroll() {
@@ -1123,6 +1240,7 @@ class ContinuousScrollViewState extends State<ContinuousScrollView> {
     widget.session.unregisterViewportSnapshotProvider(
       _viewportSnapshotProvider,
     );
+    widget.session.unregisterViewportRangeRevealer(_viewportRangeRevealer);
     _loadToken++;
     _syncTimer?.cancel();
     _controller

@@ -271,13 +271,21 @@ void main() {
           bytes: _book(),
           bookId: 'theme-flow',
           store: MemoryReaderProgressStore(),
-          settings: ReaderSettings.defaults,
+          settings: ReaderSettings.defaults.copyWithBackgroundImageOpacity(
+            0.65,
+          ),
           onSettingsChanged: changes.add,
           onClosed: () => closed = true,
         ),
       ),
     );
     await pumpReaderUntil(tester, find.byType(ReaderView));
+    final session = tester
+        .widget<PageTurnView>(find.byType(PageTurnView))
+        .session;
+    final page = session.page;
+    final position = session.progress;
+    final fingerprint = session.layoutFingerprint;
     await _themeMenu(tester);
     await _tap(tester, 'settings-theme-sepia');
     await _tap(tester, 'settings-bg-paper');
@@ -287,6 +295,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(changes.last.themeId, 'sepia');
     expect(changes.last.backgroundId, 'paper');
+    expect(changes.last.backgroundImageOpacity, 0.65);
     tester
         .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
         .onToggleDayNight();
@@ -294,6 +303,20 @@ void main() {
     await _tap(tester, 'settings-theme-black');
     expect(changes.last.themeId, 'black');
     expect(changes.last.backgroundId, 'paper');
+    final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    expect(reader.backgroundImageOpacity, 0.65);
+    reader.onBackgroundImageOpacityChanged!(0.35);
+    await tester.pump();
+    expect(changes.last.backgroundImageOpacity, 0.35);
+    expect(changes.last.themeId, 'black');
+    expect(changes.last.backgroundId, 'paper');
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).backgroundImageOpacity,
+      0.35,
+    );
+    expect(session.page, same(page));
+    expect(session.progress, position);
+    expect(session.layoutFingerprint, fingerprint, reason: '宿主回传淡化值不重排或回退位置');
     await tester.pumpWidget(const SizedBox.shrink());
     await pumpReaderUntilComplete(
       tester,

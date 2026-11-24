@@ -95,6 +95,7 @@ void main() {
       'double_quote_dialogue',
       'single_quote_phrase',
     ]);
+    expect(rules.every((rule) => !rule.enabled), isTrue);
     expect(rules.first.style.typography.paddingLeft, 16);
     await store.removeRule(rules.first.id);
     expect(await store.listRules(), hasLength(1));
@@ -115,6 +116,25 @@ void main() {
     await preferences.saveGlobalRuleSelection(null);
     expect(await preferences.loadGlobalRuleSelection(), isNull);
     expect(await store.listRules(), hasLength(1));
+  });
+
+  test('重开书与新书初始化保留用户已开启的内置全局规则', () async {
+    final store = library.decorationRuleStore(book.id, images: images)!;
+    final rules = await store.listRules();
+    await store.saveRule(rules.first.copyWith(enabled: true));
+    final reopened = library.decorationRuleStore(book.id, images: images)!;
+    final reloaded = await reopened.listRules();
+    expect(reloaded.first.enabled, isTrue);
+    expect(reloaded.last.enabled, isFalse);
+    final other = await library.importBytes(
+      buildRevisionTestEpub(title: '默认开关另一书'),
+    );
+    final otherRules = await library
+        .decorationRuleStore(other.id, images: images)!
+        .listRules();
+    expect(otherRules, hasLength(2));
+    expect(otherRules.first.enabled, isTrue);
+    expect(otherRules.last.enabled, isFalse);
   });
 
   test('删除非默认组把规则移到同作用域默认组末尾，保留样式与排序', () async {

@@ -1,5 +1,13 @@
 part of 'reader_page.dart';
 
+typedef _DecorationPageGeometry = ({
+  int generation,
+  bool dark,
+  List<ReaderDecoration> manual,
+  List<ReaderDecorationRuleMatch>? rules,
+  List<ReaderDecorationBox> boxes,
+});
+
 extension _ReaderDecorationController on _ReaderPageState {
   bool get _hasEnabledDecorationRules =>
       ReaderDecorationRuleEngine.orderedRules(
@@ -147,13 +155,45 @@ extension _ReaderDecorationController on _ReaderPageState {
       ),
   ];
 
+  /// 同一页的背景、前景和分块绘制共用整页几何，源输入改变时重新计算。
+  List<ReaderDecorationBox> _decorationBoxesFor(
+    PageContent page, {
+    PageBlockSlice? slice,
+  }) {
+    final dark = (_effectiveTheme ?? ReaderTheme.white).isDark;
+    final rules = _chapterRuleMatches[page.spineIndex];
+    var cached = _decorationBoxes[page];
+    if (cached == null ||
+        cached.generation != _decorationGeneration ||
+        cached.dark != dark ||
+        !identical(cached.manual, _resolvedDecorations) ||
+        !identical(cached.rules, rules)) {
+      cached = (
+        generation: _decorationGeneration,
+        dark: dark,
+        manual: _resolvedDecorations,
+        rules: rules,
+        boxes: ReaderDecorationGeometry.boxesFor(
+          page,
+          _decorationRangesFor(page),
+        ),
+      );
+      _decorationBoxes[page] = cached;
+    }
+    return slice == null
+        ? cached.boxes
+        : [
+            for (final box in cached.boxes)
+              if (identical(box.range.line.slice, slice)) box,
+          ];
+  }
+
   void _paintDecorationsBeforeText(
     Canvas canvas,
     PageContent page,
     PageBlockSlice slice,
   ) {
-    final ranges = _decorationRangesFor(page);
-    final boxes = ReaderDecorationGeometry.boxesFor(page, ranges, slice: slice);
+    final boxes = _decorationBoxesFor(page, slice: slice);
     for (final box in boxes) {
       for (final rect in box.rects) {
         ReaderDecorationPainter.paintBox(
@@ -193,11 +233,11 @@ extension _ReaderDecorationController on _ReaderPageState {
   }
 
   void _paintDecorationHighlights(Canvas canvas, PageContent page) {
-    final ranges = _decorationRangesFor(page);
-    if (!ranges.any((range) => range.style.highlight != null)) return;
+    final boxes = _decorationBoxesFor(page);
+    if (!boxes.any((box) => box.style.highlight != null)) return;
     ReaderDecorationPainter.paintHighlights(
       canvas,
-      ReaderDecorationGeometry.boxesFor(page, ranges),
+      boxes,
       foreground: true,
       inkMode: _inkMode,
     );

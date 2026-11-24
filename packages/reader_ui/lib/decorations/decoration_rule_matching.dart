@@ -1,12 +1,12 @@
 import 'decoration_rules.dart';
 
-/// 与源项目一致：跨段最多七段，不截断超限正则输入。
+/// 跨段最多七段，不截断超限正则输入。
 const decorationRuleParagraphLimit = 7;
 const decorationRuleMaxPattern = 512;
 const decorationRuleMaxInput = 32768;
 const decorationRuleMaxResults = 1024;
 
-/// Dart 的 $ 会匹配尾换行之前；内部改写保留源项目的严格末尾语义。
+/// Dart 的 $ 会匹配尾换行之前；内部改写为严格末尾匹配。
 String decorationRegexSource(String pattern) {
   final output = StringBuffer();
   var inClass = false;

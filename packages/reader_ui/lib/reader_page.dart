@@ -71,6 +71,7 @@ import 'selection/selection.dart';
 import 'selection/selection_menu.dart';
 import 'selection/selection_support.dart';
 import 'selection/text_range_geometry.dart';
+import 'reading_highlight.dart';
 import 'selection/selection_layer.dart';
 import 'panels/toc_panel.dart';
 import 'reader_session.dart';
@@ -142,12 +143,15 @@ class ReaderPage extends StatefulWidget {
     this.onRenameFont,
     this.onRemoveFont,
     this.backgroundId = 'none',
+    this.backgroundImageOpacity = ReaderSettingsDefaults.backgroundImageOpacity,
     this.inkMode = false,
     this.onBackgroundChanged,
+    this.onBackgroundImageOpacityChanged,
     this.onInkModeChanged,
     this.onSearch,
     this.onSessionReady,
     this.persistInitialPosition = false,
+    this.readingHighlight,
     this.onBookEnd,
     this.editMode = false,
     this.onEditTarget,
@@ -257,6 +261,10 @@ class ReaderPage extends StatefulWidget {
   /// 初始背景 id（P4-22）。
   final String backgroundId;
 
+  /// 导入图片的可见强度；默认保留原色，不影响正文排版。
+  final double backgroundImageOpacity;
+  final ValueChanged<double>? onBackgroundImageOpacityChanged;
+
   /// 墨水屏模式（P4-23）：纯黑白、背景禁用、高亮改下划线。
   final bool inkMode;
 
@@ -338,12 +346,15 @@ class ReaderPage extends StatefulWidget {
   /// 系统栏显示开关变化，由宿主持久化。
   final ValueChanged<bool>? onShowSystemBarsChanged;
 
-  /// 听书入口；为 null 时菜单不显示听书按钮。
-  final VoidCallback? onTts;
-
   /// 会话就绪回调（测试/调试）。
   final ValueChanged<ReaderSession>? onSessionReady;
   final bool persistInitialPosition;
+
+  /// 打开听书控制面板，由宿主管理平台语音。
+  final VoidCallback? onTts;
+
+  /// 正在朗读的临时区间；高频更新只重绘高亮层。
+  final ValueListenable<ReaderReadingHighlight?>? readingHighlight;
 
   final void Function(ReaderSession session, bool rtl)? onBookEnd;
 
@@ -386,6 +397,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 当前背景（P4-22）：纹理解码结果缓存在这里，换背景不重排。
   late String _backgroundId;
+  late double _backgroundImageOpacity = widget.backgroundImageOpacity;
   ui.Image? _backgroundImage;
   int _backgroundRequest = 0;
   bool _pickingBackgroundImage = false;
@@ -684,7 +696,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       pageBackgroundImageTint: ReaderBackground.byId(_backgroundId).tint,
       pageBackgroundImageCover: ReaderBackground.byId(_backgroundId).isImage,
       pageBackgroundImageOpacity: ReaderBackground.byId(_backgroundId).isImage
-          ? 0.18
+          ? _backgroundImageOpacity
           : 0.10,
       imageLookup: widget.imageCache?.lookup,
       listMarkerImageOf: (block) => block.style?.listStyleImage,
@@ -1097,6 +1109,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Set<String>? _globalDecorationRuleIds;
   final _ruleEngine = ReaderDecorationRuleEngine();
   final Map<int, List<ReaderDecorationRuleMatch>> _chapterRuleMatches = {};
+  final _decorationBoxes = Expando<_DecorationPageGeometry>();
   final Map<String, ui.Image> _decorationImages = {};
   final Map<(int, String), Future<void>> _decorationImageLoads = {};
   final Map<String, ReaderDecorationNineSlice> _decorationNineSlices = {};
@@ -1229,6 +1242,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (oldWidget.backgroundId != widget.backgroundId &&
         widget.backgroundId != _backgroundId) {
       unawaited(_loadBackground(widget.backgroundId));
+    }
+    if (oldWidget.backgroundImageOpacity != widget.backgroundImageOpacity) {
+      _backgroundImageOpacity = widget.backgroundImageOpacity;
+      _painter = _buildPainter();
     }
     if (oldWidget.overrides != widget.overrides && widget.overrides != null) {
       _overrides = widget.overrides!;
@@ -1772,7 +1789,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     widget.onOverridesChanged?.call(next);
   }
 
-  /// 切换主题并持久化；规则日夜字体或留白不同时重新排版。
+  /// 切换主题并持久化，重新应用规则的日夜字体和绘制样式。
   void _applyTheme(String themeId) {
     final theme = ReaderTheme.byId(themeId);
     setState(() {
@@ -1893,12 +1910,23 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (await _loadBackground(id)) widget.onBackgroundChanged?.call(id);
   }
 
+  /// 淡化只更新纸面，不重新解码图片或改变阅读位置。
+  void _applyBackgroundImageOpacity(double opacity) {
+    if (opacity == _backgroundImageOpacity) return;
+    setState(() {
+      _backgroundImageOpacity = opacity;
+      _painter = _buildPainter();
+    });
+    widget.onBackgroundImageOpacityChanged?.call(opacity);
+  }
+
   /// 恢复默认设置（P4-21）。
   void _resetSettings() {
     final resetMargins = _savedMargins != null;
     _applyOverrides(ReaderSettingsDefaults.overrides);
     _applyTheme(ReaderSettingsDefaults.themeId);
     _applyBackground(ReaderBackground.none.id);
+    _applyBackgroundImageOpacity(ReaderSettingsDefaults.backgroundImageOpacity);
     unawaited(_applyPageTurnMode(PageTurnMode.cover));
     _applyInkMode(false);
     _applyMarkSettings(const ReaderMarkSettings());
@@ -3070,6 +3098,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             // 沉浸式菜单（设计稿 .menu-top / .menu-bottom / .drawer）。
             ReaderMenuOverlay(
+              onTts: widget.onTts == null
+                  ? null
+                  : () {
+                      _dismissReaderMenu();
+                      widget.onTts!.call();
+                    },
               open: _menuOpen,
               theme: _effectiveTheme,
               bookTitle: widget.bookTitle,
@@ -3077,7 +3111,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               chapterLabel: _chapterLabelOf(page),
               onBack: _exitReader,
               onEdit: widget.onOpenEditor,
-              onTts: widget.onTts,
               onToggleDayNight: _toggleDayNight,
               onAddBookmark: widget.bookmarks == null
                   ? null
@@ -3153,6 +3186,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       backgroundImageLoader: widget.backgroundImageLoader,
                       pickingBackgroundImage: _pickingBackgroundImage,
                       backgroundId: _backgroundId,
+                      backgroundImageOpacity: _backgroundImageOpacity,
                       inkMode: _inkMode,
                       pageTurnMode: _pageTurnMode,
                       tapZones: _tapZones,
@@ -3171,6 +3205,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onBackgroundChanged: widget.onBackgroundChanged == null
                           ? null
                           : _applyBackground,
+                      onBackgroundImageOpacityChanged:
+                          widget.onBackgroundImageOpacityChanged == null
+                          ? null
+                          : _applyBackgroundImageOpacity,
                       onInkModeChanged: _applyInkMode,
                       onResetSettings: _resetSettings,
                       onSearch: widget.onSearch,
@@ -3386,6 +3424,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _bookmarks,
       _bookmarkStyle,
       widget.bookmarkImageLoader,
+      widget.readingHighlight,
     );
     if (_effectiveTurnMode == PageTurnMode.scroll) {
       final padding = _bodyPadding();
@@ -3529,6 +3568,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
           ),
+        if (widget.readingHighlight != null)
+          Positioned.fill(
+            child: Padding(
+              padding: _bodyPadding(),
+              child: ReaderReadingHighlightLayer(
+                page: page,
+                highlight: widget.readingHighlight!,
+                color: (_effectiveTheme ?? ReaderTheme.white).accent,
+                inkMode: _inkMode,
+              ),
+            ),
+          ),
         if (furniture) ..._paperFurniture(page),
         ..._galleryLayers(page, padding: _bodyPadding()),
         if (!widget.editMode && !_pullingBookmark && _hasBookmarkOn(page))
@@ -3580,6 +3631,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               inkMode: _inkMode,
               settings: _markSettings,
               backgroundsBehindText: true,
+            ),
+          ),
+        if (widget.readingHighlight != null)
+          Positioned.fill(
+            child: ReaderReadingHighlightLayer(
+              page: page,
+              highlight: widget.readingHighlight!,
+              color: (_effectiveTheme ?? ReaderTheme.white).accent,
+              inkMode: _inkMode,
             ),
           ),
         ..._galleryLayers(page),
@@ -3763,6 +3823,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.backgroundImageLoader,
     required this.pickingBackgroundImage,
     required this.backgroundId,
+    required this.backgroundImageOpacity,
     required this.inkMode,
     required this.pageTurnMode,
     required this.tapZones,
@@ -3777,6 +3838,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onOverridesChanged,
     required this.onThemeChanged,
     required this.onBackgroundChanged,
+    required this.onBackgroundImageOpacityChanged,
     required this.onInkModeChanged,
     required this.onResetSettings,
     required this.onSearch,
@@ -3833,6 +3895,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final Future<Uint8List> Function(String id)? backgroundImageLoader;
   final bool pickingBackgroundImage;
   final String backgroundId;
+  final double backgroundImageOpacity;
   final bool inkMode;
   final PageTurnMode pageTurnMode;
   final ReaderTapZones tapZones;
@@ -3851,6 +3914,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<ReaderOverrides> onOverridesChanged;
   final ValueChanged<String> onThemeChanged;
   final ValueChanged<String>? onBackgroundChanged;
+  final ValueChanged<double>? onBackgroundImageOpacityChanged;
   final ValueChanged<bool>? onInkModeChanged;
   final VoidCallback onResetSettings;
   final Future<List<SearchPanelResult>> Function(String query)? onSearch;
@@ -3945,10 +4009,13 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           backgroundImageLoader: widget.backgroundImageLoader,
           pickingBackgroundImage: widget.pickingBackgroundImage,
           backgroundId: widget.backgroundId,
+          backgroundImageOpacity: widget.backgroundImageOpacity,
           inkMode: widget.inkMode,
           onOverridesChanged: widget.onOverridesChanged,
           onThemeChanged: widget.onThemeChanged,
           onBackgroundChanged: widget.onBackgroundChanged,
+          onBackgroundImageOpacityChanged:
+              widget.onBackgroundImageOpacityChanged,
           onInkModeChanged: widget.onInkModeChanged,
           onReset: widget.onResetSettings,
         );

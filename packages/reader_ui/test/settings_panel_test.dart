@@ -175,9 +175,62 @@ void main() {
     expect(backgrounds.single, 'wood');
   });
 
+  testWidgets('图片淡化默认保留原色，拖动合并提交且松手立即生效', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 720);
+    addTearDown(tester.view.reset);
+    final changes = <double>[];
+    final overrides = <ReaderOverrides>[];
+    Widget panel({double opacity = 1, String id = 'image:test'}) => MaterialApp(
+      home: Scaffold(
+        body: SettingsPanel(
+          section: SettingsSection.theme,
+          overrides: ReaderSettingsDefaults.overrides,
+          themeId: 'white',
+          backgroundId: id,
+          backgroundImageOpacity: opacity,
+          onOverridesChanged: overrides.add,
+          onThemeChanged: (_) {},
+          onBackgroundChanged: (_) {},
+          onBackgroundImageOpacityChanged: changes.add,
+        ),
+      ),
+    );
+    final fade = find.byKey(const ValueKey('settings-background-image-fade'));
+    await tester.pumpWidget(panel());
+    expect(tester.widget<Slider>(fade).value, 0);
+    expect(find.text('0% 保留原色，100% 使用主题底色'), findsOneWidget);
+
+    var slider = tester.widget<Slider>(fade);
+    slider.onChanged!(20);
+    await tester.pump(const Duration(milliseconds: 40));
+    slider.onChanged!(50);
+    expect(changes, isEmpty);
+    await tester.pump(const Duration(milliseconds: 40));
+    expect(changes, [0.5]);
+    expect(find.text('50%'), findsOneWidget);
+
+    slider = tester.widget<Slider>(fade);
+    slider.onChanged!(100);
+    slider.onChangeEnd!(100);
+    await tester.pump();
+    expect(changes, [0.5, 0]);
+    expect(find.text('100%'), findsOneWidget);
+    expect(overrides, isEmpty, reason: '图片淡化不进入排版覆盖');
+
+    await tester.pumpWidget(panel(opacity: 0.25));
+    expect(tester.widget<Slider>(fade).value, 75, reason: '恢复保存值同步到滑杆');
+    for (final id in ['none', 'paper']) {
+      await tester.pumpWidget(panel(opacity: 0.25, id: id));
+      expect(fade, findsNothing, reason: '纯色和内置纹理不受图片淡化影响');
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('墨水屏模式禁用主题与背景选择', (tester) async {
     final themes = <String>[];
     final backgrounds = <String>[];
+    final opacities = <double>[];
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -185,11 +238,12 @@ void main() {
             section: SettingsSection.theme,
             overrides: ReaderSettingsDefaults.overrides,
             themeId: 'white',
-            backgroundId: 'none',
+            backgroundId: 'image:test',
             inkMode: true,
             onOverridesChanged: (_) {},
             onThemeChanged: themes.add,
             onBackgroundChanged: backgrounds.add,
+            onBackgroundImageOpacityChanged: opacities.add,
           ),
         ),
       ),
@@ -213,6 +267,15 @@ void main() {
     }
     expect(themes, isEmpty);
     expect(backgrounds, isEmpty);
+    expect(
+      tester
+          .widget<Slider>(
+            find.byKey(const ValueKey('settings-background-image-fade')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(opacities, isEmpty);
   });
 
   testWidgets('内置字体仅提供宋体，可恢复书籍字体', (tester) async {

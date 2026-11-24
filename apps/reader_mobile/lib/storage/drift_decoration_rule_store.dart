@@ -389,6 +389,7 @@ class DriftDecorationRuleStore
               groupId: group.id,
               name: Value(rule.name),
               pattern: rule.pattern,
+              enabled: Value(rule.enabled),
               styleJson: jsonEncode({
                 ...rule.style.toJson(),
                 'matchType': rule.effectiveType.name,

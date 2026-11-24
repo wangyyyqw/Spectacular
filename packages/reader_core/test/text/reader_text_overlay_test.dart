@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/painting.dart';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,7 @@ import 'package:reader_core/api.dart'
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/position/text_cfi_map.dart';
 
 const _blockCfi = 'epubcfi(/6/2!/4/2/1)';
 
@@ -23,6 +26,167 @@ ReaderTextOverlay _overlay(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('大量无关覆盖只对命中原文区间进行精确映射', () {
+    String point(int paragraph, int offset) =>
+        'epubcfi(/6/2!/4/${paragraph * 2 + 2}/1:$offset)';
+    final overlays = [
+      for (var paragraph = 0; paragraph < 4096; paragraph++)
+        ReaderTextOverlay(
+          startCfi: point(paragraph, 1),
+          endCfi: point(paragraph, 3),
+          fontSizeScale: 1.5,
+        ),
+    ]..shuffle(Random(7));
+    final resolver = ReaderTextOverlayResolver(overlays);
+    for (final paragraph in [0, 2048, 4095]) {
+      final runs = resolver.resolve(
+        blockCfi: point(paragraph, 0),
+        text: '甲乙丙丁',
+        style: ComputedStyle(const {'font-size': '16px'}),
+        runs: const [],
+      );
+      expect(runs.map((run) => (run.start, run.end)), [(1, 3)]);
+      expect(runs.single.style.fontSize, 24);
+    }
+    expect(resolver.metrics!.resolveCalls, 3);
+    expect(resolver.metrics!.candidateChecks, 3);
+  });
+
+  test('乱序及跨章覆盖保持输入优先级，结果与原文交集一致', () {
+    String point(int paragraph, int offset) =>
+        'epubcfi(/6/2!/4/${paragraph * 2 + 2}/1:$offset)';
+    final random = Random(43);
+    final overlays = [
+      const ReaderTextOverlay(
+        startCfi: 'epubcfi(/6/2!/4/2/1:0)',
+        endCfi: 'epubcfi(/6/4!/4/2/1:2)',
+        fontSizeScale: 1.25,
+      ),
+      for (var index = 0; index < 120; index++)
+        (() {
+          final first = random.nextInt(20);
+          final last = first + random.nextInt(20 - first);
+          return ReaderTextOverlay(
+            startCfi: point(first, random.nextInt(4)),
+            endCfi: point(last, 4 + random.nextInt(4)),
+            fontSizeScale: index.isEven ? 1.5 : 2,
+          );
+        })(),
+    ]..shuffle(random);
+    final resolver = ReaderTextOverlayResolver(overlays);
+    final style = ComputedStyle(const {'font-size': '16px'});
+    for (var paragraph = 19; paragraph >= 0; paragraph--) {
+      final cfi = point(paragraph, 0);
+      final map = TextCfiMap.linear(EpubCfi.parse(cfi)!, 8);
+      final runs = resolver.resolve(
+        blockCfi: cfi,
+        textCfis: map,
+        text: '甲乙丙丁戊己庚辛',
+        style: style,
+        runs: const [],
+      );
+      for (var offset = 0; offset < 8; offset++) {
+        var expected = 16.0;
+        for (final overlay in overlays) {
+          final interval = map.rangeFor(overlay.startCfi, overlay.endCfi);
+          if (interval != null &&
+              interval.$1 <= offset &&
+              offset < interval.$2) {
+            expected = 16 * overlay.fontSizeScale;
+          }
+        }
+        final actual =
+            runs
+                .where((run) => run.start <= offset && offset < run.end)
+                .lastOrNull
+                ?.style
+                .fontSize ??
+            16;
+        expect(actual, expected, reason: '第 $paragraph 段偏移 $offset');
+      }
+    }
+  });
+
+  test('候选范围来自各来源 run，保留乱序映射及元素半开边界', () {
+    final builder = TextCfiMapBuilder()
+      ..add(
+        0,
+        2,
+        cfi: EpubCfi.parse('epubcfi(/6/2!/4/8/1)')!,
+        sourceStart: 0,
+        sourceEnd: 2,
+      )
+      ..add(
+        2,
+        3,
+        cfi: EpubCfi.parse('epubcfi(/6/2!/4/4/2)')!,
+        sourceStart: 0,
+        sourceEnd: 0,
+      )
+      ..add(
+        3,
+        5,
+        cfi: EpubCfi.parse('epubcfi(/6/2!/4/2/1)')!,
+        sourceStart: 0,
+        sourceEnd: 2,
+      );
+    final overlays = [
+      const ReaderTextOverlay(
+        startCfi: 'epubcfi(/6/2!/4/8/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/8/1:2)',
+        fontSizeScale: 1.5,
+      ),
+      const ReaderTextOverlay(
+        startCfi: 'epubcfi(/6/2!/4/4/2)',
+        endCfi: 'epubcfi(/6/2!/4/4/3:0)',
+        fontSizeScale: 2,
+      ),
+      const ReaderTextOverlay(
+        startCfi: 'epubcfi(/6/2!/4/4/1:0)',
+        endCfi: 'epubcfi(/6/2!/4/4/2)',
+        fontSizeScale: 1.75,
+      ),
+    ];
+    final resolver = ReaderTextOverlayResolver(overlays);
+    final runs = resolver.resolve(
+      blockCfi: _blockCfi,
+      textCfis: builder.build(5),
+      text: '甲乙图丙丁',
+      style: ComputedStyle(const {'font-size': '16px'}),
+      runs: const [],
+    );
+    expect(runs.map((run) => (run.start, run.end, run.style.fontSize)), [
+      (0, 2, 24.0),
+      (2, 3, 32.0),
+    ]);
+    expect(resolver.metrics!.candidateChecks, 2);
+  });
+
+  test('断言与侧偏不改变区间索引的文字位置顺序', () {
+    final map = TextCfiMap.linear(
+      EpubCfi.parse('epubcfi(/6/2[书]!/4/2[段]/1:0)')!,
+      5,
+    );
+    final start = EpubCfi.parse('epubcfi(/6/2!/4/2/1:1[;s=a])')!;
+    final end = EpubCfi.parse('epubcfi(/6/2!/4/2/1:4[;s=b])')!;
+    expect(map.rangeForPoints(start, end), (1, 4));
+    final resolver = ReaderTextOverlayResolver([
+      ReaderTextOverlay(
+        startCfi: start.serialize(),
+        endCfi: end.serialize(),
+        fontSizeScale: 2,
+      ),
+    ]);
+    final runs = resolver.resolve(
+      blockCfi: _blockCfi,
+      textCfis: map,
+      text: '甲😀乙丙',
+      style: ComputedStyle(const {'font-size': '16px'}),
+      runs: const [],
+    );
+    expect(runs.map((run) => (run.start, run.end)), [(1, 4)]);
+  });
 
   test('后置普通图片清除重叠点九占位，普通图片本身不失效几何', () {
     final source = ComputedStyle(const {

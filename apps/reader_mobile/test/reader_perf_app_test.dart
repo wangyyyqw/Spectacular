@@ -40,6 +40,51 @@ PageContent _page(double size, {int spine = 3, String text = '正文'}) =>
     );
 
 void main() {
+  test('续读验收只接受可见行中的 CFI，拒绝同段另一页', () {
+    const cfi = 'epubcfi(/6/18!/4/3838/1)';
+    final layout = TextLayoutResult(
+      text: '甲乙丙丁戊己',
+      lines: const [
+        LineBox(start: 0, end: 3, top: 0, height: 20, baseline: 16, width: 60),
+        LineBox(start: 3, end: 6, top: 20, height: 20, baseline: 16, width: 60),
+      ],
+      width: 60,
+      height: 40,
+      maxWidth: 60,
+    );
+    final page = PageContent(
+      spineIndex: 8,
+      pageIndex: 392,
+      slices: [
+        PageBlockSlice(
+          block: PageBlock(layout: layout, startCfi: cfi),
+          startLine: 1,
+          endLine: 2,
+          height: 20,
+        ),
+      ],
+      usedHeight: 20,
+      pageHeight: 100,
+      topPadding: 0,
+    );
+    expect(
+      perf.perfPageContainsCfi(page, 'epubcfi(/6/18!/4/3838/1:3)'),
+      isTrue,
+    );
+    expect(
+      perf.perfPageContainsCfi(page, 'epubcfi(/6/18!/4/3838/1:6)'),
+      isTrue,
+    );
+    expect(
+      perf.perfPageContainsCfi(page, 'epubcfi(/6/18!/4/3838/1:2)'),
+      isFalse,
+    );
+    expect(
+      perf.perfPageContainsCfi(page, 'epubcfi(/6/18!/4/3840/1:3)'),
+      isFalse,
+    );
+    expect(perf.perfPageContainsCfi(page, '非法位置'), isFalse);
+  });
   testWidgets('阅读页挂载后立即继续，不等待250ms点击重试', (tester) async {
     var mounted = false;
     var taps = 0;

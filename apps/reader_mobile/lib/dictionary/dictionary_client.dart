@@ -14,7 +14,7 @@ class DictionaryException implements Exception {
   String toString() => message;
 }
 
-/// 迁移阅微的兼容接口请求与不支持思考参数时的单次降级。
+/// 兼容释义服务接口，在不支持思考参数时降级重试一次。
 class DictionaryClient {
   DictionaryClient({http.Client? client})
     : _http =

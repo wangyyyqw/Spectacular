@@ -20,7 +20,7 @@ enum ReaderTtsMode {
   /// 系统语音引擎。
   system,
 
-  /// 阅微离线伴听引擎。
+  /// 离线伴听引擎。
   offline;
 
   /// 从持久化值解析；旧设置默认系统语音。
@@ -194,7 +194,7 @@ class ReaderTtsSettings {
       other.narratorSpeakerId == narratorSpeakerId;
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     mode,
     rate,
     pitch,
@@ -207,7 +207,7 @@ class ReaderTtsSettings {
     narratorSpeed,
     dialogueSpeed,
     narratorSpeakerId,
-  );
+  ]);
 }
 
 /// 阅读排版与主题设置（P4-21）：持久化在 settings 表。
@@ -224,6 +224,7 @@ class ReaderSettings {
     this.dayThemeId = ReaderSettingsDefaults.themeId,
     this.nightThemeId = 'black',
     this.backgroundId = 'none',
+    this.backgroundImageOpacity = ReaderSettingsDefaults.backgroundImageOpacity,
     this.customThemeId,
     this.inkMode = false,
     this.margins,
@@ -234,8 +235,8 @@ class ReaderSettings {
     this.volumeKeyPaging = false,
     this.showSystemBars = false,
     this.markSettings = const ReaderMarkSettings(),
-    this.tts = ReaderTtsSettings.defaults,
     this.bookmarkStyle = const ReaderBookmarkStyle(),
+    this.tts = ReaderTtsSettings.defaults,
   });
 
   /// 字号。
@@ -272,6 +273,9 @@ class ReaderSettings {
   /// 背景 id（P4-22：none/paper/wood/gray）。
   final String backgroundId;
 
+  /// 导入图片的可见强度，1 为原色、0 为主题底色。
+  final double backgroundImageOpacity;
+
   /// 墨水屏模式（P4-23）。
   final bool inkMode;
 
@@ -299,11 +303,11 @@ class ReaderSettings {
   /// 划线的默认外观和自定义颜色。
   final ReaderMarkSettings markSettings;
 
-  /// 听书偏好。
-  final ReaderTtsSettings tts;
-
   /// 阅读页右上角书签的全局外观。
   final ReaderBookmarkStyle bookmarkStyle;
+
+  /// 听书偏好。
+  final ReaderTtsSettings tts;
 
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
@@ -342,6 +346,8 @@ class ReaderSettings {
     String dayThemeId = ReaderSettingsDefaults.themeId,
     String nightThemeId = 'black',
     String backgroundId = 'none',
+    double backgroundImageOpacity =
+        ReaderSettingsDefaults.backgroundImageOpacity,
     String? customThemeId,
     bool inkMode = false,
     ReaderCornerInfo cornerInfo = ReaderCornerInfo.defaults,
@@ -350,8 +356,8 @@ class ReaderSettings {
     bool volumeKeyPaging = false,
     bool showSystemBars = false,
     ReaderMarkSettings markSettings = const ReaderMarkSettings(),
-    ReaderTtsSettings tts = ReaderTtsSettings.defaults,
     ReaderBookmarkStyle bookmarkStyle = const ReaderBookmarkStyle(),
+    ReaderTtsSettings tts = ReaderTtsSettings.defaults,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -366,6 +372,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     pageTurnMode: pageTurnMode,
@@ -373,8 +380,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -392,6 +399,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -401,8 +409,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -418,6 +426,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -427,8 +436,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换主题。
@@ -446,6 +455,7 @@ class ReaderSettings {
       nightThemeId: next.isDark ? id : themeForBrightness(Brightness.dark).id,
       customThemeId: ReaderTheme.customById(id)?.id ?? customThemeId,
       backgroundId: backgroundId,
+      backgroundImageOpacity: backgroundImageOpacity,
       inkMode: inkMode,
       cornerInfo: cornerInfo,
       margins: margins,
@@ -455,8 +465,8 @@ class ReaderSettings {
       volumeKeyPaging: volumeKeyPaging,
       showSystemBars: showSystemBars,
       markSettings: markSettings,
-      tts: tts,
       bookmarkStyle: bookmarkStyle,
+      tts: tts,
     );
   }
 
@@ -473,6 +483,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: id,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -482,9 +493,37 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
+
+  /// 修改图片淡化程度，保留全部阅读设置。
+  ReaderSettings copyWithBackgroundImageOpacity(double opacity) =>
+      ReaderSettings(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        overrideEmbeddedFonts: overrideEmbeddedFonts,
+        lineHeight: lineHeight,
+        paragraphSpacing: paragraphSpacing,
+        horizontalPadding: horizontalPadding,
+        themeId: themeId,
+        dayThemeId: dayThemeId,
+        nightThemeId: nightThemeId,
+        customThemeId: customThemeId,
+        backgroundId: backgroundId,
+        backgroundImageOpacity: opacity,
+        inkMode: inkMode,
+        cornerInfo: cornerInfo,
+        margins: margins,
+        tapZones: tapZones,
+        pageTurnMode: pageTurnMode,
+        keepScreenOn: keepScreenOn,
+        volumeKeyPaging: volumeKeyPaging,
+        showSystemBars: showSystemBars,
+        markSettings: markSettings,
+        bookmarkStyle: bookmarkStyle,
+        tts: tts,
+      );
 
   /// 复制并替换墨水屏开关。
   ReaderSettings copyWithInkMode(bool enabled) => ReaderSettings(
@@ -499,6 +538,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: enabled,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -508,8 +548,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换页边距。
@@ -525,6 +565,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: value,
@@ -534,8 +575,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 修改四角显示，保留全部阅读偏好。
@@ -551,6 +592,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     margins: margins,
     cornerInfo: value,
@@ -560,8 +602,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -577,6 +619,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -586,8 +629,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换翻页方式。
@@ -603,6 +646,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -612,8 +656,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换屏幕常亮开关。
@@ -629,6 +673,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -638,8 +683,8 @@ class ReaderSettings {
     volumeKeyPaging: volumeKeyPaging,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换音量键翻页开关。
@@ -655,6 +700,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -664,8 +710,8 @@ class ReaderSettings {
     volumeKeyPaging: enabled,
     showSystemBars: showSystemBars,
     markSettings: markSettings,
-    tts: tts,
     bookmarkStyle: bookmarkStyle,
+    tts: tts,
   );
 
   /// 复制并替换系统栏显示开关。
@@ -681,6 +727,7 @@ class ReaderSettings {
     nightThemeId: nightThemeId,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
     inkMode: inkMode,
     cornerInfo: cornerInfo,
     margins: margins,
@@ -691,32 +738,6 @@ class ReaderSettings {
     showSystemBars: enabled,
     markSettings: markSettings,
     tts: tts,
-    bookmarkStyle: bookmarkStyle,
-  );
-
-  /// 修改听书偏好，保留正文排版和阅读交互设置。
-  ReaderSettings copyWithTts(ReaderTtsSettings value) => ReaderSettings(
-    fontSize: fontSize,
-    fontFamily: fontFamily,
-    overrideEmbeddedFonts: overrideEmbeddedFonts,
-    lineHeight: lineHeight,
-    paragraphSpacing: paragraphSpacing,
-    horizontalPadding: horizontalPadding,
-    themeId: themeId,
-    dayThemeId: dayThemeId,
-    nightThemeId: nightThemeId,
-    customThemeId: customThemeId,
-    backgroundId: backgroundId,
-    inkMode: inkMode,
-    cornerInfo: cornerInfo,
-    margins: margins,
-    tapZones: tapZones,
-    pageTurnMode: pageTurnMode,
-    keepScreenOn: keepScreenOn,
-    volumeKeyPaging: volumeKeyPaging,
-    showSystemBars: showSystemBars,
-    markSettings: markSettings,
-    tts: value,
     bookmarkStyle: bookmarkStyle,
   );
 
@@ -734,6 +755,7 @@ class ReaderSettings {
         nightThemeId: nightThemeId,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
+        backgroundImageOpacity: backgroundImageOpacity,
         inkMode: inkMode,
         cornerInfo: cornerInfo,
         margins: margins,
@@ -743,8 +765,8 @@ class ReaderSettings {
         volumeKeyPaging: volumeKeyPaging,
         showSystemBars: showSystemBars,
         markSettings: value,
-        tts: tts,
         bookmarkStyle: bookmarkStyle,
+        tts: tts,
       );
 
   /// 修改书签样式，保留全部正文排版与阅读交互设置。
@@ -761,6 +783,7 @@ class ReaderSettings {
         nightThemeId: nightThemeId,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
+        backgroundImageOpacity: backgroundImageOpacity,
         inkMode: inkMode,
         cornerInfo: cornerInfo,
         margins: margins,
@@ -770,9 +793,36 @@ class ReaderSettings {
         volumeKeyPaging: volumeKeyPaging,
         showSystemBars: showSystemBars,
         markSettings: markSettings,
-        tts: tts,
         bookmarkStyle: value,
+        tts: tts,
       );
+
+  /// 修改听书偏好，保留全部正文排版与阅读交互设置。
+  ReaderSettings copyWithTts(ReaderTtsSettings value) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
+    inkMode: inkMode,
+    cornerInfo: cornerInfo,
+    margins: margins,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
+    showSystemBars: showSystemBars,
+    markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
+    tts: value,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -788,6 +838,7 @@ class ReaderSettings {
       other.nightThemeId == nightThemeId &&
       other.customThemeId == customThemeId &&
       other.backgroundId == backgroundId &&
+      other.backgroundImageOpacity == backgroundImageOpacity &&
       other.inkMode == inkMode &&
       other.margins == margins &&
       other.cornerInfo == cornerInfo &&
@@ -797,8 +848,8 @@ class ReaderSettings {
       other.volumeKeyPaging == volumeKeyPaging &&
       other.showSystemBars == showSystemBars &&
       other.markSettings == markSettings &&
-      other.tts == tts &&
-      other.bookmarkStyle == bookmarkStyle;
+      other.bookmarkStyle == bookmarkStyle &&
+      other.tts == tts;
 
   @override
   int get hashCode => Object.hashAll([
@@ -812,7 +863,7 @@ class ReaderSettings {
     dayThemeId,
     nightThemeId,
     customThemeId,
-    backgroundId,
+    Object.hash(backgroundId, backgroundImageOpacity),
     inkMode,
     margins,
     cornerInfo,
@@ -822,8 +873,7 @@ class ReaderSettings {
     volumeKeyPaging,
     showSystemBars,
     markSettings,
-    tts,
-    bookmarkStyle,
+    Object.hash(bookmarkStyle, tts),
   ]);
 }
 
@@ -850,20 +900,23 @@ class ReaderSettingsStore {
   static const String keyNightThemeId = 'reader.nightThemeId';
   static const String keyCustomThemeId = 'reader.customThemeId';
   static const String keyBackgroundId = 'reader.backgroundId';
+  static const String keyBackgroundImageOpacity =
+      'reader.backgroundImageOpacity';
   static const String keyInkMode = 'reader.inkMode';
   static const String keyPageTurnMode = 'reader.pageTurnMode';
   static const String keyKeepScreenOn = 'reader.keepScreenOn';
-  static const String keyShowSystemBars = 'reader.showSystemBars';
-
   static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
+  static const String keyShowSystemBars = 'reader.showSystemBars';
   static const String keyBookmarkStyle = 'reader.bookmarkStyle';
+
+  /// 听书偏好（JSON）。
+  static const String keyTts = 'reader.tts';
   static const String keyMarkLastColor = 'reader.mark.lastColor';
   static const String keyMarkLastStyle = 'reader.mark.lastStyle';
   static const String keyMarkStrokeWidth = 'reader.mark.strokeWidth';
   static const String keyMarkJoinBackgroundLines =
       'reader.mark.joinBackgroundLines';
   static const String keyMarkCustomColors = 'reader.mark.customColors';
-  static const String keyTts = 'reader.tts';
 
   /// 九宫格点击区域（JSON）。
   static const String keyTapZones = 'reader.tapZones';
@@ -897,6 +950,10 @@ class ReaderSettingsStore {
         await _library.getSetting(keyCustomThemeId),
       )?.id,
       backgroundId: await _library.getSetting(keyBackgroundId) ?? 'none',
+      backgroundImageOpacity:
+          (_readDouble(await _library.getSetting(keyBackgroundImageOpacity)) ??
+                  ReaderSettingsDefaults.backgroundImageOpacity)
+              .clamp(0, 1),
       inkMode: (await _library.getSetting(keyInkMode)) == 'true',
       margins: _readMargins(await _library.getSetting(keyMargins)),
       cornerInfo: _readCornerInfo(await _library.getSetting(keyCornerInfo)),
@@ -1049,6 +1106,10 @@ class ReaderSettingsStore {
     await _library.setSetting(keyNightThemeId, settings.nightThemeId);
     await _library.setSetting(keyCustomThemeId, settings.customThemeId ?? '');
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
+    await _library.setSetting(
+      keyBackgroundImageOpacity,
+      settings.backgroundImageOpacity.toString(),
+    );
     await _library.setSetting(keyInkMode, settings.inkMode.toString());
     await _library.setSetting(keyPageTurnMode, settings.pageTurnMode.id);
     await _library.setSetting(
@@ -1080,6 +1141,7 @@ class ReaderSettingsStore {
       keyBookmarkStyle,
       jsonEncode(settings.bookmarkStyle.toJson()),
     );
+    await _library.setSetting(keyTts, jsonEncode(settings.tts.toJson()));
     final mark = settings.markSettings;
     final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff
         ? mark.lastColor
@@ -1107,7 +1169,6 @@ class ReaderSettingsStore {
             .toList(),
       ),
     );
-    await _library.setSetting(keyTts, jsonEncode(settings.tts.toJson()));
   }
 
   static double? _readDouble(String? value) {

@@ -34,6 +34,7 @@ Future<void> _pump(
   double scale = 1,
   DateTime? now,
   Set<String> finished = const {},
+  Map<String, Color> bookColors = const {},
 }) async {
   tester.view.physicalSize = Size(width, 1000);
   tester.view.devicePixelRatio = 1;
@@ -53,6 +54,7 @@ Future<void> _pump(
             insights: ReadingInsights(sessions, now: now ?? _now),
             now: now ?? _now,
             finishedBookIds: finished,
+            bookColors: bookColors,
           ),
         ),
       ),
@@ -86,6 +88,33 @@ List<ReadingSession> _longAndShortSpans() => [
 ];
 
 void main() {
+  testWidgets('日历色条与单日明细沿用同一本书的封面配色', (tester) async {
+    const color = Color(0xFF28795B);
+    await _pump(
+      tester,
+      [_session('a', DateTime(2026, 11, 15, 8), 30)],
+      bookColors: const {'a': color},
+    );
+    final bar = tester.widget<Container>(_key('bar-2-a-0'));
+    final decoration = bar.decoration! as BoxDecoration;
+    expect((decoration.border! as Border).left.color, color);
+    await _tap(tester, 'day-2026-11-15');
+    final dots = find.descendant(
+      of: _key('detail-0'),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Container &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration! as BoxDecoration).shape == BoxShape.circle,
+      ),
+    );
+    expect(
+      (tester.widget<Container>(dots).decoration! as BoxDecoration).color,
+      color,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   test('日历隐藏未达标书名，月汇总和单日合计保留所有短时阅读', () {
     final day = DateTime(2026, 11, 20, 8);
     final insights = ReadingInsights(

@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:reader_mobile/reader/reader_tts_voice_store.dart';
-import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 
 void main() {
   late Directory root;
@@ -59,6 +59,7 @@ void main() {
         id: 'downloaded-voice',
         downloadUrl: 'http://127.0.0.1:${server.port}/voice.tar.bz2',
         name: '下载音色',
+        sha256Checksum: sha256.convert(package).toString(),
       );
       final installed = await store.download(voice);
       expect(installed.installed, isTrue);
@@ -73,33 +74,34 @@ void main() {
       final model = await store.modelFor('downloaded-voice');
       expect(model?.kind, ReaderOfflineModelKind.kokoro);
       expect(model?.speakerCount, 3);
+      expect(installed.sha256Checksum, voice.sha256Checksum);
+      await expectLater(
+        store.download(voice.copyWith(sha256Checksum: '0' * 64)),
+        throwsFormatException,
+      );
+      expect(await store.modelFor(voice.id), isNotNull);
     } finally {
       await server.close(force: true);
     }
   });
 
-  test('官方音色与远端目录按标识合并', () async {
-    final voices = await store.availableVoices(
-      remote: const <ReaMicroTtsVoice>[
-        ReaMicroTtsVoice(
-          id: 'vits-piper-zh_CN-chaowen-medium',
-          downloadUrl: 'https://example.com/chaowen.tar.bz2',
-        ),
-        ReaMicroTtsVoice(
-          id: 'kokoro-multi-lang-v1_0',
-          downloadUrl: 'https://example.com/kokoro.tar.bz2',
-        ),
-      ],
+  test('预设音色与本地音色按标识合并并保留下载地址', () async {
+    const id = 'vits-piper-zh_CN-chaowen-medium';
+    final directory = Directory('${root.path}/$id')..createSync();
+    File('${directory.path}/tokens.txt').writeAsStringSync('a 0\n');
+    File('${directory.path}/model.onnx').writeAsBytesSync(<int>[1, 2, 3]);
+    final voices = await store.availableVoices();
+    final voice = voices.firstWhere((voice) => voice.id == id);
+    expect(voices.where((voice) => voice.id == id), hasLength(1));
+    expect(voice.installed, isTrue);
+    expect(voice.name, '超文');
+    expect(voice.downloadUrl, isNotEmpty);
+    await store.delete(id);
+    expect(await store.modelFor(id), isNull);
+    expect(
+      (await store.availableVoices()).firstWhere((v) => v.id == id).installed,
+      isFalse,
     );
-    final official = voices.firstWhere(
-      (voice) => voice.id == 'vits-piper-zh_CN-chaowen-medium',
-    );
-    expect(official.downloadUrl, 'https://example.com/chaowen.tar.bz2');
-    expect(official.name, '超文');
-    final kokoro = voices.firstWhere(
-      (voice) => voice.id == 'kokoro-multi-lang-v1_0',
-    );
-    expect(kokoro.name, 'Kokoro 多语言');
   });
 }
 

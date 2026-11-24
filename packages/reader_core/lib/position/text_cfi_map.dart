@@ -138,9 +138,13 @@ class TextCfiMap {
   (int, int)? rangeFor(String startCfi, String endCfi) {
     final start = EpubCfi.parse(startCfi);
     final end = EpubCfi.parse(endCfi);
-    if (start == null || end == null || _comparePoints(start, end) >= 0) {
-      return null;
-    }
+    if (start == null || end == null) return null;
+    return rangeForPoints(start, end);
+  }
+
+  /// 已解析端点的交集入口，避免逐段匹配时重复序列化与解析。
+  (int, int)? rangeForPoints(EpubCfi start, EpubCfi end) {
+    if (_comparePoints(start, end) >= 0) return null;
     int? from;
     int? until;
     for (final run in runs) {
@@ -169,6 +173,12 @@ class TextCfiMap {
     }
     return from == null || until == null ? null : (from, until);
   }
+
+  /// 原文位置顺序；断言和侧偏不改变字符位置，省略偏移等同于零。
+  ///
+  /// 区间索引必须沿用交集映射的顺序，不能使用包含断言的 CFI 全序。
+  static int comparePoints(EpubCfi left, EpubCfi right) =>
+      _comparePoints(left, right);
 
   /// 切片只改变显示坐标，不改变原始字符块及源偏移。
   TextCfiMap slice(int start, int end) {

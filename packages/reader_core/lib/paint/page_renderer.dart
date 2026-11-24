@@ -72,6 +72,7 @@ class PagePainter {
   /// 列表标记 gutter（P3-23）：标记距文本左缘的距离（UA li margin-left
   /// 40px 的内半区）。
   static const double markerGutter = 20;
+  static final _textOverlayStates = Expando<_PaintTextOverlayState>();
 
   /// 创建绘制器。
   const PagePainter({
@@ -235,7 +236,13 @@ class PagePainter {
     _paintBookPageBackground(canvas, page, pageRect);
 
     _paintContents(
-      _PagePaintContext(canvas, page, pageRect, paintIndexOf),
+      _PagePaintContext(
+        canvas,
+        page,
+        pageRect,
+        paintIndexOf,
+        _textOverlayResolver(),
+      ),
       geometries,
       0,
       1,
@@ -592,7 +599,7 @@ class PagePainter {
       canvas.restore();
     }
     _notifyPhase(PagePaintPhase.text);
-    _paintBlockText(canvas, page, geometry, sliceIndex, context.pageRect);
+    _paintBlockText(context, geometry);
     _notifyPhase(PagePaintPhase.decoration);
     _paintBlockEmphasis(canvas, page, geometry, sliceIndex);
     _paintBlockRubies(canvas, geometry);
@@ -739,16 +746,14 @@ class PagePainter {
     );
   }
 
-  void _paintBlockText(
-    Canvas canvas,
-    PageContent page,
-    _SliceGeometry geometry,
-    int sliceIndex,
-    Rect pageRect,
-  ) {
+  void _paintBlockText(_PagePaintContext context, _SliceGeometry geometry) {
+    final canvas = context.canvas;
+    final page = context.page;
+    final pageRect = context.pageRect;
+    final sliceIndex = context.indexOf[geometry]!;
     final gallery = geometry.slice.block.gallery;
     if (gallery != null) {
-      _paintGallery(canvas, geometry, gallery);
+      _paintGallery(context, geometry, gallery);
       return;
     }
     final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
@@ -772,7 +777,10 @@ class PagePainter {
       contentClip: !verticalRuby,
       () {
         final layout = geometry.slice.block.layout;
-        final paintingLayout = _textOverlayLayout(geometry.slice.block);
+        final paintingLayout = _textOverlayLayout(
+          geometry.slice.block,
+          context.textOverlays,
+        );
         if (geometry.isVerticalBlock) {
           // 竖排：每行 = 一列，逐字符自上而下绘制（W22）。
           _paintVerticalColumns(
@@ -909,10 +917,11 @@ class PagePainter {
   }
 
   void _paintGallery(
-    Canvas canvas,
+    _PagePaintContext context,
     _SliceGeometry geometry,
     PageGallery gallery,
   ) {
+    final canvas = context.canvas;
     if (gallery.frames.isEmpty ||
         gallery.scale <= 0 ||
         gallery.contentHeight <= 0) {
@@ -933,10 +942,10 @@ class PagePainter {
     canvas.clipRect(
       Rect.fromLTWH(gallery.left, top, gallery.width, gallery.contentHeight),
     );
-    _paintGalleryAt(canvas, geometry, gallery, index, Offset(offset, top));
+    _paintGalleryAt(context, geometry, gallery, index, Offset(offset, top));
     if (offset < 0 && index + 1 < gallery.frames.length) {
       _paintGalleryAt(
-        canvas,
+        context,
         geometry,
         gallery,
         index + 1,
@@ -947,12 +956,13 @@ class PagePainter {
   }
 
   void _paintGalleryAt(
-    Canvas canvas,
+    _PagePaintContext context,
     _SliceGeometry geometry,
     PageGallery gallery,
     int index,
     Offset position,
   ) {
+    final canvas = context.canvas;
     final left = gallery.left + gallery.width * (1 - gallery.scale) / 2;
     canvas.save();
     canvas.clipRect(
@@ -966,12 +976,12 @@ class PagePainter {
     canvas.translate(left + position.dx, position.dy);
     canvas.scale(gallery.scale);
     canvas.translate(-gallery.left, 0);
-    _paintGalleryFrame(canvas, geometry, gallery.frames[index].content);
+    _paintGalleryFrame(context, geometry, gallery.frames[index].content);
     canvas.restore();
   }
 
   void _paintGalleryFrame(
-    Canvas canvas,
+    _PagePaintContext context,
     _SliceGeometry geometry,
     PageContent page,
   ) {
@@ -983,10 +993,11 @@ class PagePainter {
     );
     _paintContents(
       _PagePaintContext(
-        canvas,
+        context.canvas,
         page,
         Rect.fromLTWH(0, 0, size.width, page.pageHeight),
         {for (var i = 0; i < slices.length; i++) slices[i]: i},
+        context.textOverlays,
       ),
       slices,
       0,
@@ -1124,17 +1135,32 @@ class PagePainter {
     return color == null ? textStyle : textStyle.copyWith(color: color);
   }
 
-  TextLayoutResult _textOverlayLayout(PageBlock block) {
+  ReaderTextOverlayResolver? _textOverlayResolver() {
+    if (textOverlays.isEmpty) {
+      _textOverlayStates[this] = null;
+      return null;
+    }
+    var state = _textOverlayStates[this];
+    if (state == null || !state.matches(textOverlays)) {
+      state = _PaintTextOverlayState(textOverlays);
+      _textOverlayStates[this] = state;
+    }
+    return state.resolver;
+  }
+
+  TextLayoutResult _textOverlayLayout(
+    PageBlock block,
+    ReaderTextOverlayResolver? resolver,
+  ) {
     final layout = block.layout;
-    if (textOverlays.isEmpty || block.startCfi == null) return layout;
-    final runs = ReaderTextOverlayResolver(textOverlays, typography: false)
-        .resolve(
-          blockCfi: block.startCfi,
-          textCfis: block.textCoordinates,
-          text: layout.text,
-          style: block.style ?? ComputedStyle(const {}),
-          runs: layout.runs,
-        );
+    if (resolver == null || block.startCfi == null) return layout;
+    final runs = resolver.resolve(
+      blockCfi: block.startCfi,
+      textCfis: block.textCoordinates,
+      text: layout.text,
+      style: block.style ?? ComputedStyle(const {}),
+      runs: layout.runs,
+    );
     if (identical(runs, layout.runs)) return layout;
     return TextLayoutResult(
       text: layout.text,
@@ -5717,11 +5743,36 @@ class PagePainter {
 
 /// 一页绘制共享的只读上下文，递归容器沿用原切片索引供文字缓存使用。
 class _PagePaintContext {
-  const _PagePaintContext(this.canvas, this.page, this.pageRect, this.indexOf);
+  const _PagePaintContext(
+    this.canvas,
+    this.page,
+    this.pageRect,
+    this.indexOf,
+    this.textOverlays,
+  );
   final Canvas canvas;
   final PageContent page;
   final Rect pageRect;
   final Map<_SliceGeometry, int> indexOf;
+  final ReaderTextOverlayResolver? textOverlays;
+}
+
+/// 每次顶层绘制只检查一次列表，段落和画廊共享已解析区间。
+class _PaintTextOverlayState {
+  _PaintTextOverlayState(List<ReaderTextOverlay> values)
+    : snapshot = List.unmodifiable(values),
+      resolver = ReaderTextOverlayResolver(values, typography: false);
+
+  final List<ReaderTextOverlay> snapshot;
+  final ReaderTextOverlayResolver resolver;
+
+  bool matches(List<ReaderTextOverlay> values) {
+    if (snapshot.length != values.length) return false;
+    for (var index = 0; index < values.length; index++) {
+      if (!identical(snapshot[index], values[index])) return false;
+    }
+    return true;
+  }
 }
 
 class _PaintGroup {

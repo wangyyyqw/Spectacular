@@ -20,6 +20,15 @@ enum ReaderTraceName {
   /// 聚合章节内容并生成排版块。
   chapterCollect,
 
+  /// 章节文字测量累计耗时，包含测量期间的协作让出。
+  chapterTextMeasure,
+
+  /// 章节文字覆盖查询与样式合成的累计同步耗时。
+  chapterTextOverlays,
+
+  /// 排版前准备规则命中、手动装饰及其资源。
+  chapterDecorations,
+
   /// 测量并生成章节表格。
   chapterTables,
 
@@ -56,6 +65,8 @@ class ReaderTraceEvent {
     required this.bookId,
     required this.microseconds,
     required this.at,
+    this.spineIndex,
+    this.fields = const {},
   });
 
   /// 类别。
@@ -69,6 +80,12 @@ class ReaderTraceEvent {
 
   /// 记录时间。
   final DateTime at;
+
+  /// 章序号；开书等跨章事件可为空。
+  final int? spineIndex;
+
+  /// 作业完成后一次记录的计数，不包含正文或定位字符串。
+  final Map<String, num> fields;
 
   /// 耗时（毫秒）。
   double get milliseconds => microseconds / 1000;
@@ -159,13 +176,37 @@ class ReaderTrace {
       <String?, Map<ReaderTraceCounter, int>>{};
   final Map<String?, Map<ReaderTraceName, List<int>>> _samples =
       <String?, Map<ReaderTraceName, List<int>>>{};
+  final List<ReaderTraceEvent> _events = [];
+
+  /// 有界的阶段明细，用于区分当前章与后台邻章。
+  List<ReaderTraceEvent> eventsSince(DateTime started) => [
+    for (final event in _events)
+      if (!event.at.isBefore(started)) event,
+  ];
 
   /// 开始计时；配合 [stop] 记录一次耗时。
   ReaderTraceHandle start(ReaderTraceName name, {String? bookId}) =>
       ReaderTraceHandle._(this, name, bookId, Stopwatch()..start());
 
   /// 记录一次已测量的耗时（微秒）。
-  void record(ReaderTraceName name, int microseconds, {String? bookId}) {
+  void record(
+    ReaderTraceName name,
+    int microseconds, {
+    String? bookId,
+    int? spineIndex,
+    Map<String, num> fields = const {},
+  }) {
+    if (_events.length >= capacity) _events.removeAt(0);
+    _events.add(
+      ReaderTraceEvent(
+        name: name,
+        bookId: bookId,
+        spineIndex: spineIndex,
+        microseconds: microseconds,
+        at: DateTime.now(),
+        fields: Map.unmodifiable(fields),
+      ),
+    );
     final samples = _samples.putIfAbsent(
       bookId,
       () => <ReaderTraceName, List<int>>{},
@@ -235,6 +276,7 @@ class ReaderTrace {
     _summaries.clear();
     _counters.clear();
     _samples.clear();
+    _events.clear();
   }
 }
 

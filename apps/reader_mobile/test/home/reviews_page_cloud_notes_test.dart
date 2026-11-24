@@ -70,8 +70,9 @@ class _CloudNotesApi implements ReaMicroApiClient {
     String? bookId,
     int pageSize = 200,
   }) async {
-    if (bookId == mark.bookId && !deleted.contains(mark.id))
+    if (bookId == mark.bookId && !deleted.contains(mark.id)) {
       return <ReaMicroMark>[mark];
+    }
     return const <ReaMicroMark>[];
   }
 

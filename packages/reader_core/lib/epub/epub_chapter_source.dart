@@ -918,7 +918,9 @@ class EpubChapterSource
 
     try {
       check();
+      final structureWatch = Stopwatch()..start();
       final structure = await preparation.result;
+      _traceLayout(ReaderTraceName.chapterStructure, structureWatch, spine);
       check();
       return await _schedulePreparedLayout(
         spine,
@@ -948,12 +950,16 @@ class EpubChapterSource
     await budget.checkpoint(
       force: budget.priority == ChapterLayoutPriority.background,
     );
+    final decorationWatch = Stopwatch()..start();
     await _prepareChapterDecoration(spine, preparationKey);
+    _traceLayout(ReaderTraceName.chapterDecorations, decorationWatch, spine);
     check();
     await budget.checkpoint(
       force: budget.priority == ChapterLayoutPriority.background,
     );
+    final stylesWatch = Stopwatch()..start();
     final snapshot = await _prepareLayoutSnapshot(spine, structure, check);
+    _traceLayout(ReaderTraceName.chapterStyles, stylesWatch, spine);
     await budget.checkpoint(
       force: budget.priority == ChapterLayoutPriority.background,
     );
@@ -1093,14 +1099,14 @@ class EpubChapterSource
     _traceCache(cached != null && !_completed.requiresReplay(snapshot.key));
     if (cached != null && !_completed.requiresReplay(snapshot.key)) {
       _commitLayout(snapshot, budget, cached, retainResult());
-      _traceLayout(ReaderTraceName.pageRenderReuse, watch);
+      _traceLayout(ReaderTraceName.pageRenderReuse, watch, snapshot.spineIndex);
       return cached.pages;
     }
     if (cached != null) _blockCacheHits += 1;
     if (cached == null) _chapterLayoutCount += 1;
     final result = await _rebuildLayout(snapshot, budget, cached);
     _commitLayout(snapshot, budget, result.layout, retainResult());
-    _traceLayout(ReaderTraceName.chapterLayout, watch);
+    _traceLayout(ReaderTraceName.chapterLayout, watch, snapshot.spineIndex);
     return result.layout.pages;
   }
 
@@ -1180,12 +1186,13 @@ class EpubChapterSource
     );
   }
 
-  void _traceLayout(ReaderTraceName name, Stopwatch watch) {
+  void _traceLayout(ReaderTraceName name, Stopwatch watch, int spine) {
     if (!readerTraceEnabled) return;
     ReaderTrace.instance.record(
       name,
       watch.elapsedMicroseconds,
       bookId: bookIdForTrace,
+      spineIndex: spine,
     );
   }
 

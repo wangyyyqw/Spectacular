@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import xml.etree.ElementTree as ET
 
 from device_css_test import (
     APP_ID, ROOT, TEST_ID, drop_plugin_dependency, prepare_workspace, run)
@@ -116,6 +117,8 @@ def report_provenance(args, workspace, revisions, device):
         "working_tree": revisions["working_tree"],
         "book": {"path": str(args.book.resolve()), "sha256": file_sha256(args.book),
                  "size_bytes": args.book.stat().st_size},
+        "scenario": ({"manifest_sha256": file_sha256(args.scenario_dir / "scenario.json")}
+                     if args.scenario_dir else None),
         "command": {"argv": list(sys.argv), "cwd": str(Path.cwd()),
                     "parameters": {key: str(value) if isinstance(value, Path) else value
                                    for key, value in vars(args).items()}},
@@ -126,12 +129,23 @@ def report_provenance(args, workspace, revisions, device):
 class ReportHandler(SimpleHTTPRequestHandler):
     """保存样本；仅支持固定的隔离包后台恢复，不接受外部命令参数。"""
 
-    def __init__(self, *args, output, done, provenance, adb=None, **kwargs):
+    def __init__(self, *args, output, done, provenance, runtime, adb=None, **kwargs):
         self.adb = adb
+        self.runtime = runtime
         self.output = output
         self.done = done
         self.provenance = provenance
         super().__init__(*args, **kwargs)
+
+    def do_GET(self):
+        if self.path != "/run.json":
+            return super().do_GET()
+        data = json.dumps(self.runtime["config"]).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         if self.path == "/background" and self.adb:
@@ -151,7 +165,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return
         data = json.loads(self.rfile.read(size))
         data["provenance"] = self.provenance
-        self.output.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        destination = self.runtime.get("output", self.output)
+        destination.write_text(json.dumps(data, ensure_ascii=False, indent=2))
         print(json.dumps({"endpoint": self.path, "turns": len(data.get("turns", [])),
                           "error": data.get("error")}, ensure_ascii=False), flush=True)
         self.send_response(204)
@@ -215,27 +230,39 @@ def summarize_meminfo(samples):
     }
 
 
-def prepare(workspace, revision):
+def replace_business_source(workspace, bundle):
+    """归档只能替换业务目录；当前探针与构建入口始终保留。"""
+    for member in bundle.getmembers():
+        path = Path(member.name)
+        allowed = any(path == Path(root) or Path(root) in path.parents
+                      for root in SOURCE_ROOTS)
+        if (path.is_absolute() or ".." in path.parts or not allowed
+                or not (member.isfile() or member.isdir())):
+            raise RuntimeError(f"不支持的源码归档条目：{member.name}")
+    for name in SOURCE_ROOTS:
+        target = workspace / name
+        if target.exists():
+            shutil.rmtree(target)
+    bundle.extractall(workspace)
+
+
+def prepare(workspace, revision, source_archive=None):
     prepare_workspace(workspace)
     # 仅复制已经下载的原生依赖；sqlite3 hook 会按当前包内哈希重新校验。
     cache = Path("apps/reader_mobile/.dart_tool/hooks_runner/shared/sqlite3/build")
     for source in (ROOT / cache).glob("download-*"):
         shutil.copytree(source, workspace / cache / source.name, dirs_exist_ok=True)
-    if revision:
-        # 只替换业务源与包；测试入口始终用当前版本以保持测量口径一致。
+    if source_archive:
+        with tarfile.open(source_archive) as bundle:
+            replace_business_source(workspace, bundle)
+    elif revision:
         archive = subprocess.check_output([
             "git", "archive", revision, *SOURCE_ROOTS], cwd=ROOT)
         with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
-            for member in bundle.getmembers():
-                path = Path(member.name)
-                if path.is_absolute() or ".." in path.parts or not (member.isfile() or member.isdir()):
-                    raise RuntimeError(f"不支持的源码归档条目：{member.name}")
-            # 当前版本新增的文件不在旧归档中；先清临时业务目录，避免混入基线。
-            for name in SOURCE_ROOTS:
-                target = workspace / name
-                if target.exists():
-                    shutil.rmtree(target)
-            bundle.extractall(workspace)
+            replace_business_source(workspace, bundle)
+    (workspace / "tool").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "tool/generate_release_plugins.dart",
+                 workspace / "tool/generate_release_plugins.dart")
     # 基线与候选都启用同一现有布局埋点；仅隔离采样包定义此开关。
     trace = workspace / "packages/reader_core/lib/perf/trace.dart"
     if trace.exists():
@@ -244,22 +271,21 @@ def prepare(workspace, revision):
             "bool get readerTraceEnabled => kDebugMode || kProfileMode || "
             "const bool.fromEnvironment('READER_TURN_TRACE');"))
     manifest = workspace / "apps/reader_mobile/android/app/src/main/AndroidManifest.xml"
-    source = manifest.read_text()
-    if 'android:name="android.permission.INTERNET"' not in source:
-        source = source.replace(
-            "    <application",
-            '    <uses-permission android:name="android.permission.INTERNET"/>\n'
-            '    <application',
-        )
-    if 'android:usesCleartextTraffic=' not in source:
-        source = source.replace(
-            'android:label="CSS 真机测试"',
-            'android:usesCleartextTraffic="true" android:label="阅读性能测试"')
-    else:
-        source = source.replace(
-            'android:label="CSS 真机测试"',
-            'android:label="阅读性能测试"')
-    manifest.write_text(source)
+    android = "{http://schemas.android.com/apk/res/android}"
+    ET.register_namespace("android", android[1:-1])
+    document = ET.parse(manifest)
+    root = document.getroot()
+    application = root.find("application")
+    if application is None:
+        raise RuntimeError("隔离测试 manifest 缺少 application")
+    application.set(android + "label", "阅读性能测试")
+    application.set(android + "usesCleartextTraffic", "true")
+    if not any(item.get(android + "name") == "android.permission.INTERNET"
+               for item in root.findall("uses-permission")):
+        permission = ET.Element("uses-permission", {
+            android + "name": "android.permission.INTERNET"})
+        root.insert(0, permission)
+    document.write(manifest, encoding="unicode")
     drop_plugin_dependency(workspace / "apps/reader_mobile/pubspec.yaml")
 
 
@@ -275,6 +301,8 @@ def build(workspace, url, args):
         "PERF_START_PAGE": str(getattr(args, "start_page", 0)),
         "PERF_FAR_SPINES": getattr(args, "far_spines", ""),
         "READER_TURN_TRACE": "true",
+        "PERF_SCENARIO": "true" if args.scenario_dir else "false",
+        "PERF_OPENING_ONLY": "true" if args.opening_only else "false",
         **{name: "true" if value else "false" for name, value in {
             "PERF_RESIZE": args.resize, "PERF_IMPORT": args.measure_import,
             "PERF_FULL_CHAPTER": args.full_chapter,
@@ -287,12 +315,19 @@ def build(workspace, url, args):
         "--target=" + target,
         "--target-platform=android-arm64",
         *[f"--dart-define={key}={value}" for key, value in defines.items()]], cwd=app)
+    flutter_sdk = Path(shutil.which("flutter")).resolve().parent.parent
+    run(["dart", "--packages=" + str(flutter_sdk / "packages/flutter_tools/.dart_tool/package_config.json"),
+         "../../tool/generate_release_plugins.dart", str(flutter_sdk)], cwd=app)
     encoded = ",".join(base64.b64encode(f"{key}={value}".encode()).decode()
                        for key, value in defines.items())
     # target/defines 是 Gradle 项目参数；config-only 不持久化这两项。
+    build_env = dict(os.environ)
+    java = Path('/Applications/Android Studio.app/Contents/jbr/Contents/Home')
+    if "JAVA_HOME" not in build_env and java.is_dir():
+        build_env["JAVA_HOME"] = str(java)
     run(["./gradlew", "--offline", "--console=plain", ":app:assembleRelease",
          "-Ptarget-platform=android-arm64", "-Ptarget=" + target,
-         "-Pdart-defines=" + encoded], cwd=app / "android", env=dict(os.environ))
+         "-Pdart-defines=" + encoded], cwd=app / "android", env=build_env)
     apk = app / "build/app/outputs/flutter-apk/app-release.apk"
     actual = run(["apkanalyzer", "manifest", "application-id", str(apk)], capture=True).strip()
     if actual != TEST_ID:
@@ -307,16 +342,24 @@ def benchmark(args):
     args.output.mkdir(parents=True, exist_ok=True)
     done = threading.Event()
     revisions = revision_metadata(args.revision)
+    if args.source_archive:
+        revisions["source"] = {"kind": "source_archive", "path": str(args.source_archive),
+                               "archive_sha256": file_sha256(args.source_archive)}
     with tempfile.TemporaryDirectory(prefix="spectacular-perf-") as directory:
         workspace = Path(directory)
-        prepare(workspace, revisions["source"]["revision"] if args.revision else None)
+        prepare(workspace, revisions["source"]["revision"] if args.revision else None,
+                args.source_archive)
         provenance = report_provenance(args, workspace, revisions, device_metadata(adb))
         inputs = workspace / "inputs"
         inputs.mkdir()
         (inputs / "book.epub").symlink_to(args.book.resolve())
+        if args.scenario_dir:
+            (inputs / "scenario").symlink_to(args.scenario_dir.resolve(), target_is_directory=True)
+        runtime = {"config": {"cache_mode": args.cache_mode,
+                              "scope": str(time.time_ns()), "warmup": False}}
         server = ThreadingHTTPServer(("127.0.0.1", 0), partial(ReportHandler,
             directory=str(inputs), output=args.output / "report.json", done=done,
-            provenance=provenance, adb=adb))
+            provenance=provenance, runtime=runtime, adb=adb))
         port = str(server.server_port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -324,31 +367,40 @@ def benchmark(args):
             run(adb + ["reverse", f"tcp:{port}", f"tcp:{port}"])
             run(adb + ["shell", "am", "force-stop", TEST_ID])
             run(adb + ["install", "--no-streaming", "-r", str(apk)])
-            stop_meminfo = threading.Event()
-            meminfo_samples = []
-            meminfo_thread = None
-            if args.meminfo_interval > 0:
-                meminfo_thread = threading.Thread(
-                    target=sample_meminfo,
-                    args=(adb, TEST_ID, stop_meminfo, meminfo_samples,
-                          args.meminfo_interval),
-                    daemon=True,
-                )
-            run(adb + ["shell", "am", "start", "-n", TEST_ID + "/" + TEST_ID + ".MainActivity"])
-            if meminfo_thread is not None:
-                meminfo_thread.start()
-            if not done.wait(args.timeout):
-                raise TimeoutError("性能测试超时，已有样本保留在 report.json")
-            if meminfo_thread is not None:
+            reports = []
+            sequence = (["warmup"] if args.cache_mode == "warm" else []) + [
+                f"run-{index + 1}" for index in range(args.processes)]
+            for index, label in enumerate(sequence):
+                runtime["config"].update(warmup=label == "warmup", index=index)
+                runtime["output"] = args.output / f"{label}.json"
+                done.clear()
+                run(adb + ["shell", "am", "force-stop", TEST_ID])
+                stop_meminfo = threading.Event()
+                meminfo_samples = []
+                meminfo_thread = None
+                if args.meminfo_interval > 0:
+                    meminfo_thread = threading.Thread(
+                        target=sample_meminfo,
+                        args=(adb, TEST_ID, stop_meminfo, meminfo_samples,
+                              args.meminfo_interval), daemon=True)
+                    meminfo_thread.start()
+                run(adb + ["shell", "am", "start", "-n", TEST_ID + "/" + TEST_ID + ".MainActivity"])
+                if not done.wait(args.timeout):
+                    raise TimeoutError(f"性能测试 {label} 超时，已有样本保留")
                 stop_meminfo.set()
-                meminfo_thread.join(timeout=12)
-            report = json.loads((args.output / "report.json").read_text())
-            report["host_meminfo"] = summarize_meminfo(meminfo_samples)
-            (args.output / "report.json").write_text(
-                json.dumps(report, ensure_ascii=False, indent=2)
-            )
-            if "error" in report:
-                raise RuntimeError(report["error"])
+                if meminfo_thread is not None:
+                    meminfo_thread.join(timeout=12)
+                report = json.loads(runtime["output"].read_text())
+                report["host_meminfo"] = summarize_meminfo(meminfo_samples)
+                report["run"] = dict(runtime["config"])
+                runtime["output"].write_text(json.dumps(report, ensure_ascii=False, indent=2))
+                if "error" in report:
+                    raise RuntimeError(report["error"])
+                if label != "warmup":
+                    reports.append(report)
+                (args.output / "report.json").write_text(json.dumps(
+                    {"runs": reports, "warmup_excluded": args.cache_mode == "warm",
+                     "provenance": provenance}, ensure_ascii=False, indent=2))
         finally:
             if "stop_meminfo" in locals():
                 stop_meminfo.set()
@@ -366,6 +418,12 @@ def main():
     parser.add_argument("--book", type=Path, default=ROOT / "test_corpus/real/zhushen-yuxi.epub")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision", help="可选基线 Git revision；当前测试入口保持不变")
+    parser.add_argument("--source-archive", type=Path, help="冻结的业务源码归档；与当前计时入口组合")
+    parser.add_argument("--scenario-dir", type=Path, help="包含 scenario.json 及本地资源的复现场景")
+    parser.add_argument("--opening-only", action="store_true", help="只测开书，跳过目录跳转")
+    parser.add_argument("--processes", type=int, default=1, help="同一 APK 的独立进程样本数")
+    parser.add_argument("--cache-mode", choices=("cold", "warm"), default="cold",
+                        help="cold 使用独立页界作用域；warm 预热一次后跨进程复用页界")
     parser.add_argument("--rounds", type=int, default=5, help="每种开书及字号变化的样本轮数")
     parser.add_argument("--page-turn", action="store_true", help="测量翻页与滚动的准备、连续输入、跨章和恢复")
     parser.add_argument("--modes", default="cover,coverStack,slideHorizontal,simulationBessel,simulation3d,continuation,scroll")
@@ -392,6 +450,18 @@ def main():
         parser.error("找不到原书")
     if args.full_chapter and args.page_turn:
         parser.error("整章测量仅支持开书与字号测试")
+    if args.revision and args.source_archive:
+        parser.error("--revision 和 --source-archive 不能同时使用")
+    if args.source_archive and not args.source_archive.is_file():
+        parser.error("找不到源码归档")
+    if args.scenario_dir and not (args.scenario_dir / "scenario.json").is_file():
+        parser.error("场景目录缺少 scenario.json")
+    if args.processes < 1:
+        parser.error("--processes 必须为正数")
+    if args.processes > 1 or args.scenario_dir or args.cache_mode == "warm":
+        if not args.opening_only or args.page_turn or args.resize:
+            parser.error("多进程、场景与暖缓存只支持 --opening-only 开书测试")
+        args.rounds = 1
     benchmark(args)
 
 

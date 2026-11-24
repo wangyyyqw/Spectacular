@@ -13,6 +13,7 @@ import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/text_cfi_map.dart';
 import 'package:reader_core/source/chapter_source.dart';
 import 'package:reader_core/source/format_opener.dart';
+import 'package:reader_core/text/reader_text_overlay.dart';
 
 import '../audit/audit_epub_fixture.dart';
 
@@ -62,13 +63,74 @@ String _cfi(String steps, int offset) => 'epubcfi(/6/2!/4$steps:$offset)';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('正式引擎按真实版心解析密集覆盖，保留原文和每段半开边界', () async {
+    final body = [
+      for (var index = 0; index < 96; index++) '<p id="p$index">甲😀乙丙丁</p>',
+    ].join();
+    final source = await const EpubFormatOpener().openBytes(
+      _epub(body, ''),
+      options: ReaderOpenOptions(
+        contentWidth: 366,
+        contentHeight: 767.3333333333334,
+        style: ComputedStyle(const {
+          'font-family': 'Ahem',
+          'font-size': '21px',
+          'line-height': '1.6',
+        }),
+      ),
+    );
+    addTearDown(source.close);
+    final chapter = await source.loadAnchorChapter(0);
+    final overlays = [
+      for (var index = 95; index >= 0; index--)
+        ReaderTextOverlay(
+          startCfi: _cfi('/${index * 2 + 2}[p$index]/1', 1),
+          endCfi: _cfi('/${index * 2 + 2}[p$index]/1', 4),
+          fontSizeScale: 0.9,
+        ),
+    ];
+    expect(await source.applyTextOverlays(overlays), isTrue);
+    final pages = await source.loadChapter(0);
+    final blocks = pages
+        .expand((page) => page.slices)
+        .map((slice) => slice.block)
+        .toSet()
+        .toList();
+    expect(blocks.length, 96);
+    expect(blocks.map((block) => block.layout.text).join(), chapter.text);
+    for (final block in blocks) {
+      final highlighted = block.layout.runs.singleWhere(
+        (run) => run.start == 1 && run.end == 4,
+      );
+      expect(highlighted.style.fontSize, closeTo(18.9, 0.001));
+      expect(block.cfiAt(1), isNotNull);
+      expect(chapter.offsetFor(block.cfiAt(1)!), isNotNull);
+    }
+  });
+
+  test('解析端点映射保留折叠空白及非法原文方向的处理', () {
+    final cfi = EpubCfi.parse(_cfi('/2[p]/1', 0))!;
+    final map = TextCfiMapBuilder()
+      ..add(0, 1, cfi: cfi, sourceStart: 0, sourceEnd: 1)
+      ..add(1, 2, cfi: cfi, sourceStart: 1, sourceEnd: 5)
+      ..add(2, 3, cfi: cfi, sourceStart: 5, sourceEnd: 6);
+    final mapping = map.build(3);
+    final start = cfi.withCharOffset(2);
+    final end = cfi.withCharOffset(4);
+    expect(mapping.rangeForPoints(start, end), (1, 2));
+    expect(mapping.rangeFor(start.serialize(), end.serialize()), (1, 2));
+    expect(mapping.rangeForPoints(end, start), isNull);
+    expect(mapping.rangeForPoints(start, start), isNull);
+    expect(mapping.rangeFor('非法', end.serialize()), isNull);
+  });
+
   test('隐藏父节点下恢复可见的子段保留分页原文锚点', () async {
     final source = await const EpubFormatOpener().openBytes(
       _epub(
         '<p>前文</p><div style="visibility:hidden">隐藏父文'
-        '<p>继承隐藏</p><p style="visibility:visible">可见子段</p>隐藏尾文</div>'
-        '<div style="display:none"><p style="visibility:visible">不可恢复</p></div>'
-        '<p>后文</p>',
+            '<p>继承隐藏</p><p style="visibility:visible">可见子段</p>隐藏尾文</div>'
+            '<div style="display:none"><p style="visibility:visible">不可恢复</p></div>'
+            '<p>后文</p>',
         '',
       ),
       options: const ReaderOpenOptions(contentWidth: 350, contentHeight: 700),

@@ -7,6 +7,7 @@ import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'book_duration_summary.dart';
 import 'reading_calendar_month.dart';
 import 'reading_calendar_month_picker.dart';
+import 'reading_book_color.dart';
 import 'reading_insights.dart';
 
 /// 按月查看实际阅读日期：同一本书连续阅读的日期合并为书名色条，完读当天标记对勾。
@@ -15,12 +16,14 @@ class ReadingCalendar extends StatefulWidget {
     super.key,
     required this.insights,
     this.bookTitles = const {},
+    this.bookColors = const {},
     this.finishedBookIds = const {},
     this.now,
   });
 
   final ReadingInsights insights;
   final Map<String, String> bookTitles;
+  final Map<String, Color> bookColors;
   final Set<String> finishedBookIds;
   final DateTime? now;
 
@@ -85,6 +88,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
         date: date,
         portions: portions,
         bookTitles: {...widget.insights.bookTitles, ...widget.bookTitles},
+        bookColors: widget.bookColors,
         finishedBookIds: {
           for (final entry in month.finishDays.entries)
             if (entry.value.year == date.year &&
@@ -237,6 +241,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
           month: month,
           week: week,
           today: _today,
+          bookColors: widget.bookColors,
           onOpen: _openDay,
         ),
     ],
@@ -272,12 +277,14 @@ class _CalendarWeek extends StatelessWidget {
     required this.month,
     required this.week,
     required this.today,
+    required this.bookColors,
     required this.onOpen,
   });
 
   final ReadingCalendarMonth month;
   final int week;
   final DateTime today;
+  final Map<String, Color> bookColors;
   final void Function(ReadingCalendarMonth month, DateTime date) onOpen;
 
   @override
@@ -319,7 +326,8 @@ class _CalendarWeek extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         if (laneCount > 0) SizedBox(height: 4 * scale),
-        for (var lane = 0; lane < laneCount; lane++) _lane(spans, lane, scale),
+        for (var lane = 0; lane < laneCount; lane++)
+          _lane(context, spans, lane, scale),
         Row(
           children: [
             for (var column = 0; column < 7; column++)
@@ -330,7 +338,12 @@ class _CalendarWeek extends StatelessWidget {
     ),
   );
 
-  Widget _lane(List<ReadingCalendarSpan> spans, int lane, double scale) {
+  Widget _lane(
+    BuildContext context,
+    List<ReadingCalendarSpan> spans,
+    int lane,
+    double scale,
+  ) {
     final laneSpans = [
       for (final span in spans)
         if (span.lane == lane) span,
@@ -346,7 +359,7 @@ class _CalendarWeek extends StatelessWidget {
           flex: span.lastColumn - span.firstColumn + 1,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 1),
-            child: _bar(span, scale),
+            child: _bar(context, span, scale),
           ),
         ),
       );
@@ -359,8 +372,12 @@ class _CalendarWeek extends StatelessWidget {
     );
   }
 
-  Widget _bar(ReadingCalendarSpan span, double scale) {
-    final color = _bookColor(span.bookId);
+  Widget _bar(BuildContext context, ReadingCalendarSpan span, double scale) {
+    final color = readingBookColor(
+      span.bookId,
+      brightness: Theme.of(context).brightness,
+      bookColors: bookColors,
+    );
     final done =
         month.finishDays[span.bookId] == month.dateAt(week, span.lastColumn);
     return ClipRRect(
@@ -445,12 +462,14 @@ class _CalendarDaySheet extends StatelessWidget {
     required this.date,
     required this.portions,
     required this.bookTitles,
+    required this.bookColors,
     required this.finishedBookIds,
   });
 
   final DateTime date;
   final List<ReadingDayPortion> portions;
   final Map<String, String> bookTitles;
+  final Map<String, Color> bookColors;
   final Set<String> finishedBookIds;
 
   @override
@@ -605,7 +624,11 @@ class _CalendarDaySheet extends StatelessWidget {
                     width: 9,
                     height: 9,
                     decoration: BoxDecoration(
-                      color: _bookColor(bookId),
+                      color: readingBookColor(
+                        bookId,
+                        brightness: scheme.brightness,
+                        bookColors: bookColors,
+                      ),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -712,21 +735,4 @@ String _formatTimelineDuration(Duration duration) {
   final hours = minutes ~/ 60;
   final restMinutes = minutes % 60;
   return restMinutes == 0 ? '$hours小时' : '$hours小时$restMinutes分';
-}
-
-const _calendarColors = [
-  Color(0xFF397665),
-  Color(0xFF417786),
-  Color(0xFF95634F),
-  Color(0xFFA3413F),
-  Color(0xFF70658E),
-  Color(0xFF77723F),
-];
-
-Color _bookColor(String bookId) {
-  var hash = 0;
-  for (final unit in bookId.codeUnits) {
-    hash = (hash * 31 + unit) & 0x3fffffff;
-  }
-  return _calendarColors[hash % _calendarColors.length];
 }

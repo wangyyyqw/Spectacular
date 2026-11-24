@@ -1,7 +1,7 @@
 import 'decoration_style.dart';
 import 'style_values.dart';
 
-/// 匹配类型沿用阅微规则的语义，旧规则按原正则开关解析。
+/// 自动高亮的匹配类型，旧规则按原正则开关解析。
 enum ReaderDecorationRuleType {
   fixedText('固定文本'),
   regex('正则表达式'),
@@ -112,7 +112,7 @@ class ReaderDecorationRuleStyle {
   /// 边框颜色。
   final int? borderColor;
 
-  /// 规则字体与留白参与正式排版，保留原文 CFI。
+  /// 规则字体参与正式排版，留白用于装饰绘制，保留原文 CFI。
   final ReaderDecorationStyle typography;
 
   /// 未指定夜间样式时沿用日间。

@@ -4,13 +4,15 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
+
+import '../rea_micro/rea_micro_models.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../rea_micro/rea_micro_models.dart';
-
-/// 阅微离线音色的模型家族。
+/// 离线音色的模型家族。
 enum ReaderOfflineModelKind {
   /// VITS / Piper 模型。
   vits,
@@ -39,6 +41,7 @@ class ReaderOfflineVoice {
   const ReaderOfflineVoice({
     required this.id,
     required this.downloadUrl,
+    this.sha256Checksum = '',
     this.name = '',
     this.language = '',
     this.quality = '',
@@ -53,6 +56,9 @@ class ReaderOfflineVoice {
 
   /// 音色包下载地址。
   final String downloadUrl;
+
+  /// 下载包的 SHA-256；预设音色固定校验，其他本地音色可为空。
+  final String sha256Checksum;
 
   /// 显示名称。
   final String name;
@@ -125,6 +131,7 @@ class ReaderOfflineVoice {
   /// 切换安装状态。
   ReaderOfflineVoice copyWith({
     String? downloadUrl,
+    String? sha256Checksum,
     String? name,
     String? language,
     String? quality,
@@ -135,6 +142,7 @@ class ReaderOfflineVoice {
   }) => ReaderOfflineVoice(
     id: id,
     downloadUrl: downloadUrl ?? this.downloadUrl,
+    sha256Checksum: sha256Checksum ?? this.sha256Checksum,
     name: name ?? this.name,
     language: language ?? this.language,
     quality: quality ?? this.quality,
@@ -144,7 +152,7 @@ class ReaderOfflineVoice {
     localPath: localPath ?? this.localPath,
   );
 
-  /// 官方内置音色；未登录时也可直接下载。
+  /// 预设音色，按需下载。
   static const List<ReaderOfflineVoice> officialVoices = <ReaderOfflineVoice>[
     ReaderOfflineVoice(
       id: 'vits-piper-zh_CN-chaowen-medium',
@@ -153,9 +161,9 @@ class ReaderOfflineVoice {
       quality: '中等质量',
       speakerCount: 1,
       sampleRate: 22050,
-      downloadUrl:
-          'https://minio.zhendong.ltd/reamicro/'
-          'vits-piper-zh_CN-chaowen-medium.tar.bz2',
+      downloadUrl: 'https://streamshare.wireway.ch/download/9wqtzm51',
+      sha256Checksum:
+          '1b69bdcf10bb6331c7f8a7591940febeb175c6bb86caa3802d96531f8e4ad211',
     ),
     ReaderOfflineVoice(
       id: 'vits-piper-zh_CN-xiao_ya-medium',
@@ -164,9 +172,9 @@ class ReaderOfflineVoice {
       quality: '中等质量',
       speakerCount: 1,
       sampleRate: 22050,
-      downloadUrl:
-          'https://minio.zhendong.ltd/reamicro/'
-          'vits-piper-zh_CN-xiao_ya-medium.tar.bz2',
+      downloadUrl: 'https://streamshare.wireway.ch/download/fyhe1qeg',
+      sha256Checksum:
+          '9396a3dffbb95b037acaa18094500f58d0db9a7c4f2689554e2539717cf0db65',
     ),
   ];
 }
@@ -377,9 +385,9 @@ class ReaderTtsVoiceStore {
     return p.join(root.path, _safeDirectoryName(id));
   }
 
-  /// 合并官方、远端与本地音色，同一标识以远端地址和本地状态为准。
+  /// 合并预设与本地音色，保留本地安装状态。
   Future<List<ReaderOfflineVoice>> availableVoices({
-    Iterable<ReaMicroTtsVoice> remote = const <ReaMicroTtsVoice>[],
+    Iterable<ReaMicroTtsVoice> remote = const [],
   }) async {
     final installed = await listInstalled();
     final installedById = <String, ReaderOfflineVoice>{
@@ -399,6 +407,7 @@ class ReaderTtsVoiceStore {
           ? entry.value
           : entry.value.copyWith(
               downloadUrl: existing.downloadUrl,
+              sha256Checksum: existing.sha256Checksum,
               name: existing.name.trim().isEmpty
                   ? entry.value.name
                   : existing.name,
@@ -444,6 +453,12 @@ class ReaderTtsVoiceStore {
     Directory? temp;
     try {
       await _downloadToFile(url, archiveFile, onProgress: onProgress);
+      if (voice.sha256Checksum.isNotEmpty) {
+        final actual = await sha256.bind(archiveFile.openRead()).first;
+        if (actual.toString() != voice.sha256Checksum) {
+          throw const FormatException('音色包校验失败，请重新下载');
+        }
+      }
       temp = Directory(
         p.join(
           root.path,
@@ -473,6 +488,7 @@ class ReaderTtsVoiceStore {
       final installedVoice = ReaderOfflineVoice(
         id: voice.id,
         downloadUrl: url,
+        sha256Checksum: voice.sha256Checksum,
         name: voice.name.trim().isEmpty ? model.name : voice.name,
         language: voice.language.trim().isEmpty
             ? model.language
@@ -598,6 +614,9 @@ class ReaderTtsVoiceStore {
           downloadUrl: voiceMap['downloadUrl'] is String
               ? voiceMap['downloadUrl']! as String
               : '',
+          sha256Checksum: voiceMap['sha256Checksum'] is String
+              ? voiceMap['sha256Checksum']! as String
+              : '',
           name: voiceMap['name'] is String ? voiceMap['name']! as String : '',
           language: voiceMap['language'] is String
               ? voiceMap['language']! as String
@@ -630,6 +649,7 @@ class ReaderTtsVoiceStore {
         'id': voice.id,
         'voice': <String, Object?>{
           'downloadUrl': voice.downloadUrl,
+          'sha256Checksum': voice.sha256Checksum,
           'name': voice.name,
           'language': voice.language,
           'quality': voice.quality,
@@ -1020,11 +1040,6 @@ String _displayQuality(String value) {
   }
 }
 
-int _parseSampleRate(String value) {
-  final normalized = value.replaceAll(RegExp(r'[^0-9]'), '');
-  return int.tryParse(normalized) ?? 0;
-}
-
 bool _isSafeArchivePath(String name) {
   if (name.isEmpty || name.startsWith('/') || name.contains('\u0000')) {
     return false;
@@ -1063,4 +1078,9 @@ List<String> _stringList(Object? value) => <String>[
   if (value.contains('matcha')) return (name: 'Matcha', language: '中文');
   if (value.contains('kokoro')) return (name: 'Kokoro', language: '英文');
   return (name: id, language: '');
+}
+
+int _parseSampleRate(String value) {
+  final normalized = value.replaceAll(RegExp(r'[^0-9]'), '');
+  return int.tryParse(normalized) ?? 0;
 }
