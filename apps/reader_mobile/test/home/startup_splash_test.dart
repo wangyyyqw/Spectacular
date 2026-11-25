@@ -13,8 +13,15 @@ void main() {
         progressStore: MemoryReaderProgressStore(),
       ),
     );
-    await tester.pump();
+    // 推进偏好、书架和首帧就绪回调，但不推进动画时钟。
+    for (var frame = 0; frame < 4; frame++) {
+      await tester.pump();
+    }
     expect(find.byType(StartupSplash), findsOneWidget);
+    expect(
+      tester.widget<StartupSplash>(find.byType(StartupSplash)).ready,
+      isTrue,
+    );
 
     // 开屏期间拦截点击，避免误触书架。
     await tester.tap(find.text('统计'), warnIfMissed: false);

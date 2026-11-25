@@ -1,6 +1,8 @@
 package com.spectacular.reader_mobile
 
 import android.content.Intent
+import android.os.Build
+import android.os.Bundle
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
@@ -20,6 +22,15 @@ class MainActivity : FlutterActivity() {
     private var ttsPlayback: ReaderTtsPlaybackHandler? = null
     private var showStatusBar = true
     private var showNavigationBar = true
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        applyEdgeToEdge(window)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Flutter 首帧已显示同一标识，直接交接，避免系统再次淡出造成闪白。
+            splashScreen.setOnExitAnimationListener { it.remove() }
+        }
+        super.onCreate(savedInstanceState)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

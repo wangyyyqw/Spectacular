@@ -18,10 +18,8 @@ import 'reader/reader_text_warmup.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  await setReaderSystemBars(statusBar: true, navigationBar: true);
+void main() {
+  final binding = WidgetsFlutterBinding.ensureInitialized();
   final log = ReaderLog.instance;
   ReaderUiDiagnostics.onEvent = (event, fields) {
     unawaited(log.log(event, fields: fields));
@@ -48,12 +46,30 @@ Future<void> main() async {
     );
     return false;
   };
-  await log.initialize();
-  await log.log('app_start');
   assert(readerCorePackageName == 'reader_core');
   assert(readerUiPackageName == 'reader_ui');
-  // 数据库不可用时仍可启动，界面显示临时模式并提供同一路径的重试。
   final storage = StartupStorage(log: log);
+  runApp(
+    LiquidGlassWidgets.wrap(
+      brightnessResolver: Theme.maybeBrightnessOf,
+      child: ReaderApp.withStorage(
+        storage: storage,
+        initialize: () async {
+          // 先呈现带标识的开屏，再执行插件、数据库与字体初始化。
+          await binding.waitUntilFirstFrameRasterized;
+          await _initializeApp(storage, log);
+        },
+      ),
+    ),
+  );
+}
+
+Future<void> _initializeApp(StartupStorage storage, ReaderLog log) async {
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  await setReaderSystemBars(statusBar: true, navigationBar: true);
+  await log.initialize();
+  await log.log('app_start');
+  // 数据库不可用时仍可启动，界面显示临时模式并提供同一路径的重试。
   await storage.retry();
   try {
     warmUpReaderTextRendering();
@@ -65,28 +81,26 @@ Future<void> main() async {
       ),
     );
   }
-  runApp(
-    LiquidGlassWidgets.wrap(
-      brightnessResolver: Theme.maybeBrightnessOf,
-      child: ReaderApp.withStorage(storage: storage),
-    ),
-  );
 }
 
 /// 应用壳：四底栏（书架/统计/书评/我的）+ EPUB 导入 + 阅读页。
-class ReaderApp extends StatelessWidget {
+class ReaderApp extends StatefulWidget {
   /// 创建应用。
   const ReaderApp({
     super.key,
     required this.library,
     required this.progressStore,
-  }) : _startupStorage = null;
+  }) : _startupStorage = null,
+       initialize = null;
 
   /// 正式启动入口，监听数据库失败与恢复后的存储替换。
-  ReaderApp.withStorage({super.key, required StartupStorage storage})
-    : library = storage.library,
-      progressStore = storage.progressStore,
-      _startupStorage = storage;
+  ReaderApp.withStorage({
+    super.key,
+    required StartupStorage storage,
+    this.initialize,
+  }) : library = storage.library,
+       progressStore = storage.progressStore,
+       _startupStorage = storage;
 
   /// 构造时传入的书架存储；正式恢复入口在监听中使用最新启动存储。
   final LibraryStore library;
@@ -96,10 +110,59 @@ class ReaderApp extends StatelessWidget {
 
   final StartupStorage? _startupStorage;
 
+  /// 首帧开屏显示后执行；完成前不构建临时空书架。
+  final Future<void> Function()? initialize;
+
   @override
-  Widget build(BuildContext context) {
-    final storage = _startupStorage;
-    if (storage == null) return _buildApp(library, progressStore);
+  State<ReaderApp> createState() => _ReaderAppState();
+}
+
+class _ReaderAppState extends State<ReaderApp> {
+  late bool _initialized;
+  bool _bookshelfReady = false;
+  bool _splashFinished = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialize = widget.initialize;
+    _initialized = initialize == null;
+    if (initialize != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_initialize(initialize));
+      });
+    }
+  }
+
+  Future<void> _initialize(Future<void> Function() initialize) async {
+    try {
+      await initialize();
+    } catch (error, stackTrace) {
+      recordAppError('app_startup_failed', error, stackTrace: stackTrace);
+    } finally {
+      if (mounted) setState(() => _initialized = true);
+    }
+  }
+
+  void _onBookshelfReady() {
+    if (mounted && !_bookshelfReady) setState(() => _bookshelfReady = true);
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    alignment: Alignment.topLeft,
+    children: [
+      _initialized ? _buildReaderApp() : const SizedBox.shrink(),
+      if (!_splashFinished) _buildStartupSplash(context),
+    ],
+  );
+
+  Widget _buildReaderApp() {
+    final storage = widget._startupStorage;
+    if (storage == null) {
+      return _buildApp(widget.library, widget.progressStore);
+    }
     return ListenableBuilder(
       listenable: storage,
       builder: (context, child) => _buildApp(
@@ -119,6 +182,27 @@ class ReaderApp extends StatelessWidget {
     library: library,
     progressStore: progressStore,
     recovery: recovery,
+    onBookshelfReady: _onBookshelfReady,
+  );
+
+  Widget _buildStartupSplash(BuildContext context) => Theme(
+    data: buildAppTheme(
+      brightness: WidgetsBinding.instance.platformDispatcher.platformBrightness,
+    ),
+    child: Builder(
+      builder: (context) => Directionality(
+        textDirection: TextDirection.ltr,
+        child: MediaQuery.fromView(
+          view: View.of(context),
+          child: StartupSplash(
+            ready: _bookshelfReady,
+            onFinished: () {
+              if (mounted) setState(() => _splashFinished = true);
+            },
+          ),
+        ),
+      ),
+    ),
   );
 }
 
@@ -127,12 +211,14 @@ class _ThemedReaderApp extends StatefulWidget {
     super.key,
     required this.library,
     required this.progressStore,
+    required this.onBookshelfReady,
     this.recovery,
   });
 
   final LibraryStore library;
   final ReaderProgressStore progressStore;
   final StartupStorage? recovery;
+  final VoidCallback onBookshelfReady;
 
   @override
   State<_ThemedReaderApp> createState() => _ThemedReaderAppState();
@@ -150,7 +236,6 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
   String? _selectedFontFamily;
-  bool _splashFinished = false;
 
   @override
   void initState() {
@@ -273,38 +358,10 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   }
 
   @override
-  Widget build(BuildContext context) => Stack(
-    fit: StackFit.expand,
-    alignment: Alignment.topLeft,
-    children: [
-      FutureBuilder<_AppPreferences>(
-        future: _savedPreferences,
-        builder: (context, snapshot) => snapshot.hasData
-            ? _buildApp(snapshot.data!)
-            : const SizedBox.shrink(),
-      ),
-      // 开屏盖住偏好读取与首屏封面解码，结束后再露出书架。
-      if (!_splashFinished) _buildStartupSplash(context),
-    ],
-  );
-
-  Widget _buildStartupSplash(BuildContext context) => Theme(
-    data: buildAppTheme(
-      brightness: WidgetsBinding.instance.platformDispatcher.platformBrightness,
-    ),
-    child: Builder(
-      builder: (context) => Directionality(
-        textDirection: TextDirection.ltr,
-        child: MediaQuery.fromView(
-          view: View.of(context),
-          child: StartupSplash(
-            onFinished: () {
-              if (mounted) setState(() => _splashFinished = true);
-            },
-          ),
-        ),
-      ),
-    ),
+  Widget build(BuildContext context) => FutureBuilder<_AppPreferences>(
+    future: _savedPreferences,
+    builder: (context, snapshot) =>
+        snapshot.hasData ? _buildApp(snapshot.data!) : const SizedBox.shrink(),
   );
 
   Widget _buildApp(_AppPreferences preferences) {
@@ -339,6 +396,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         appFontFamily: fontFamily,
         appFontStore: _fontStore,
         onAppFontFamilyChanged: _setFontFamily,
+        onBookshelfReady: widget.onBookshelfReady,
       ),
     );
   }

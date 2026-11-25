@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 无图标底板的容器为 288dp，内缩后沿用 88dp 的开屏标识。 -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/startup_logo"
+    android:insetLeft="100dp"
+    android:insetTop="100dp"
+    android:insetRight="100dp"
+    android:insetBottom="100dp" />

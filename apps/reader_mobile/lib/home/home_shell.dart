@@ -31,6 +31,7 @@ class HomeShell extends StatefulWidget {
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
+    this.onBookshelfReady,
   });
 
   /// 书架存储。
@@ -57,6 +58,9 @@ class HomeShell extends StatefulWidget {
   /// 切换并保存应用字体。
   final Future<void> Function(String family)? onAppFontFamilyChanged;
 
+  /// 书架前 12 本封面就绪后通知开屏退场。
+  final VoidCallback? onBookshelfReady;
+
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
@@ -81,7 +85,8 @@ class _HomeShellState extends State<HomeShell> {
         oldWidget.onThemeModeChanged != widget.onThemeModeChanged ||
         oldWidget.appFontFamily != widget.appFontFamily ||
         oldWidget.appFontStore != widget.appFontStore ||
-        oldWidget.onAppFontFamilyChanged != widget.onAppFontFamilyChanged) {
+        oldWidget.onAppFontFamilyChanged != widget.onAppFontFamilyChanged ||
+        oldWidget.onBookshelfReady != widget.onBookshelfReady) {
       _pages = [];
     }
   }
@@ -124,6 +129,7 @@ class _HomeShellState extends State<HomeShell> {
       refreshToken: _bookshelfRefreshToken,
       active: _index == 0,
       allowImport: widget.storageRecovery == null,
+      onInitialCoversReady: widget.onBookshelfReady,
     ),
     1 => StatsPage(
       library: widget.library,

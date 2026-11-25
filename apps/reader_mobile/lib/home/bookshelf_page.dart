@@ -66,6 +66,7 @@ class BookshelfPage extends StatefulWidget {
     this.refreshToken = 0,
     this.allowImport = true,
     this.active = true,
+    this.onInitialCoversReady,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
   });
@@ -83,6 +84,9 @@ class BookshelfPage extends StatefulWidget {
   final bool allowImport;
 
   final bool active;
+
+  /// 当前排序的前 12 本封面准备好、可见封面绘制后回调。
+  final VoidCallback? onInitialCoversReady;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;
@@ -645,7 +649,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ),
     ];
     if (firstLoad) {
-      // 书架先按最终顺序显示；封面在开屏期间从首屏开始预解码。
+      // 开屏保持遮挡；布局确定后立即按实际显示宽度预解码前 12 本封面。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_preloadCovers());
       });
@@ -668,15 +672,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  /// 封面预解码：先首屏可见的书，再按书架顺序把其余封面解码完。
+  /// 前 12 本并发准备完成才允许开屏淡出，其余封面继续分批预加载。
   Future<void> _preloadCovers() async {
     final items = _items;
     if (items == null || !mounted) return;
-    final ordered = [
-      for (final item in _visible(items))
-        if (item.entry.coverPath case final path?) (path: path),
-    ];
-    if (ordered.isEmpty) return;
+    final ordered = _visible(items);
     final generation = ++_coverPreloadGeneration;
     final media = MediaQuery.of(context);
     final width = context.size?.width ?? media.size.width;
@@ -684,15 +684,34 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ? _shelfGridMetrics(width, media.textScaler).cardWidth
         : 66.0;
     final decodeWidth = coverDecodeWidth(cardWidth, media.devicePixelRatio);
-    // 从上到下分批解码，首屏完成后继续解码其余封面直到全部完成。
-    for (var offset = 0; offset < ordered.length; offset += 4) {
+    await Future.wait([
+      for (final item in ordered.take(12))
+        if (item.entry.coverPath case final path?)
+          _precacheCover(path, decodeWidth),
+    ]);
+    // 图像解码成功后还需让占位组件完成替换，不能只在 Future 完成时揭开书架。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _coverPreloadGeneration) return;
+    widget.onInitialCoversReady?.call();
+    for (var offset = 12; offset < ordered.length; offset += 4) {
       if (!mounted || generation != _coverPreloadGeneration) return;
       await Future.wait([
-        for (final cover in ordered.skip(offset).take(4))
-          precacheImage(coverImageProvider(cover.path, decodeWidth), context),
+        for (final item in ordered.skip(offset).take(4))
+          if (item.entry.coverPath case final path?)
+            _precacheCover(path, decodeWidth),
       ]);
     }
   }
+
+  Future<void> _precacheCover(String path, int decodeWidth) => precacheImage(
+    coverImageProvider(path, decodeWidth),
+    context,
+    onError: (error, stackTrace) => recordAppError(
+      'bookshelf_cover_preload_failed',
+      error,
+      stackTrace: stackTrace,
+    ),
+  );
 
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
