@@ -67,24 +67,25 @@ class AppThemeScope extends InheritedWidget {
       onUiStyleChanged != oldWidget.onUiStyleChanged;
 }
 
-AppBarTheme _appBar(ColorScheme colors, String fontFamily) => AppBarTheme(
-  backgroundColor: colors.surfaceContainerLowest,
-  foregroundColor: colors.onSurface,
-  surfaceTintColor: Colors.transparent,
-  elevation: 0,
-  scrolledUnderElevation: 0,
-  systemOverlayStyle: readerSystemBarStyle(colors.surfaceContainerLowest),
-  centerTitle: false,
-  titleTextStyle: TextStyle(
-    fontFamily: fontFamily,
-    fontFamilyFallback: fontFamily == AppFonts.defaultFamily
-        ? null
-        : AppFonts.fallback,
-    fontSize: 22,
-    fontWeight: FontWeight.w600,
-    color: colors.onSurface,
-  ),
-);
+AppBarTheme _appBar(ColorScheme colors, String fontFamily, Color background) =>
+    AppBarTheme(
+      backgroundColor: background,
+      foregroundColor: colors.onSurface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      systemOverlayStyle: readerSystemBarStyle(background),
+      centerTitle: false,
+      titleTextStyle: TextStyle(
+        fontFamily: fontFamily,
+        fontFamilyFallback: fontFamily == AppFonts.defaultFamily
+            ? null
+            : AppFonts.fallback,
+        fontSize: 22,
+        fontWeight: FontWeight.w600,
+        color: colors.onSurface,
+      ),
+    );
 
 /// 软件界面使用成对的日夜配色，正文保留独立阅读主题。
 ThemeData buildAppTheme({
@@ -95,18 +96,22 @@ ThemeData buildAppTheme({
   AppUiStyle uiStyle = AppUiStyle.classic,
 }) {
   final colors = colorScheme ?? preset.colorsFor(brightness);
+  // 动态取色使用带种子色的表面层，软件预设保留各自的日夜背景。
+  final background = colorScheme != null
+      ? colors.surfaceContainerLow
+      : colors.surfaceContainerLowest;
   final fallback = fontFamily == AppFonts.defaultFamily
       ? null
       : AppFonts.fallback;
   final base = ThemeData(
     useMaterial3: uiStyle == AppUiStyle.material3,
     colorScheme: colors,
-    scaffoldBackgroundColor: colors.surfaceContainerLowest,
+    scaffoldBackgroundColor: background,
     canvasColor: colors.surface,
     dividerColor: colors.outlineVariant,
     fontFamily: fontFamily,
     fontFamilyFallback: fallback,
-    appBarTheme: _appBar(colors, fontFamily),
+    appBarTheme: _appBar(colors, fontFamily, background),
     actionIconTheme: ActionIconThemeData(
       backButtonIconBuilder: (_) => const AppIcon(AppGlyph.arrowBack),
       closeButtonIconBuilder: (_) => const AppIcon(AppGlyph.close),

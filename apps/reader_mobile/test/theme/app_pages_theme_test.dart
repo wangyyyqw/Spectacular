@@ -114,6 +114,18 @@ void main() {
               await tester.pumpAndSettle();
               final context = tester.element(nav);
               expect(Theme.of(context).colorScheme, theme.colorScheme);
+              final page = find.byType(Scaffold).last;
+              final pageTheme = Theme.of(tester.element(page));
+              final scaffold = tester.widget<Scaffold>(page);
+              expect(
+                scaffold.backgroundColor ?? pageTheme.scaffoldBackgroundColor,
+                theme.colorScheme.surfaceContainerLow,
+                reason: '$label 页面背景应保留壁纸取色',
+              );
+              expect(
+                pageTheme.appBarTheme.backgroundColor,
+                theme.colorScheme.surfaceContainerLow,
+              );
               expect(
                 Theme.of(context).useMaterial3,
                 style == AppUiStyle.material3,
