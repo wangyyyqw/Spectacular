@@ -76,6 +76,30 @@ void main() {
       readDays: 24,
       duration: const Duration(hours: 12),
     );
+    final coverClip = tester.widget<ClipRRect>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey('review-ticket-cover')),
+            matching: find.byType(ClipRRect),
+          )
+          .first,
+    );
+    final ticketFrame = tester
+        .widgetList<Container>(
+          find.descendant(
+            of: find.byKey(const ValueKey('ticket')),
+            matching: find.byType(Container),
+          ),
+        )
+        .firstWhere(
+          (widget) =>
+              widget.decoration is BoxDecoration &&
+              (widget.decoration! as BoxDecoration).boxShadow != null,
+        );
+    expect(
+      (ticketFrame.decoration! as BoxDecoration).borderRadius,
+      coverClip.borderRadius,
+    );
     expect(
       tester.getTopLeft(find.text('林川')).dy,
       lessThan(tester.getTopLeft(find.text('阅读 24 天')).dy),

@@ -44,7 +44,8 @@ class ReaderPanelTheme extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final override = theme.id == 'ink'
+    // 选区菜单使用固定深色底板与浅色按钮，不能只覆盖底板的背景取色。
+    final override = theme.id == 'ink' || theme.id == 'selection'
         ? null
         : ReaderPanelColorScope.maybeOf(context);
     final scheme = override ?? _panelScheme(theme);

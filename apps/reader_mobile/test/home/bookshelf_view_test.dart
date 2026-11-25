@@ -7,6 +7,7 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 import '../support/test_epub.dart';
 
@@ -71,6 +72,30 @@ void main() {
         ),
       );
       await _settle(tester);
+      final searchSurface = tester.widget<Material>(
+        find.byKey(const ValueKey('bookshelf-search-surface')),
+      );
+      final importSurface = tester.widget<Material>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('bookshelf-import')),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      expect(searchSurface.borderRadius, BorderRadius.circular(20));
+      expect(searchSurface.elevation, 3);
+      expect(importSurface.borderRadius, searchSurface.borderRadius);
+      expect(importSurface.elevation, 2);
+      expect(importSurface.color, searchSurface.color);
+      expect(
+        importSurface.color,
+        ReaderDrawerStyle.searchSurfaceOf(
+          Theme.of(
+            tester.element(find.byKey(const ValueKey('bookshelf-import'))),
+          ),
+        ),
+      );
       final grid = find.byKey(const ValueKey('bookshelf-grid'));
       final list = find.byKey(const ValueKey('bookshelf-list'));
       final toolbar = tester.getRect(
@@ -81,7 +106,10 @@ void main() {
         find.byTooltip('列表视图'),
         find.byKey(const ValueKey('bookshelf-multi-select')),
       ]) {
-        final icon = find.descendant(of: button, matching: find.byType(AppIcon));
+        final icon = find.descendant(
+          of: button,
+          matching: find.byType(AppIcon),
+        );
         expect(tester.getCenter(icon).dy, closeTo(groupCenter, .01));
       }
       final cover = tester.getRect(

@@ -8,6 +8,9 @@ import '../book_source/book_cover_url.dart';
 import '../diagnostics/reader_log.dart';
 export '../book_source/book_cover_url.dart';
 
+/// 共用封面的圆角，书目卡片外框沿用同一尺寸。
+const bookCoverRadius = BorderRadius.all(Radius.circular(4));
+
 /// 封面解码宽度；预解码与显示必须用同一个宽度才会命中同一份缓存。
 int coverDecodeWidth(double logicalWidth, double devicePixelRatio) =>
     (logicalWidth * devicePixelRatio).ceil().clamp(96, 1200);
@@ -68,16 +71,16 @@ class BookCoverImage extends StatelessWidget {
             color: scheme.surface,
             elevation: showShadow ? 2 : 0,
             shadowColor: scheme.shadow.withValues(alpha: shadowOpacity),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: bookCoverRadius,
             child: Container(
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: scheme.surface,
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: bookCoverRadius,
               ),
               foregroundDecoration: BoxDecoration(
                 border: Border.all(color: scheme.outlineVariant),
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: bookCoverRadius,
               ),
               child: Stack(
                 fit: StackFit.expand,

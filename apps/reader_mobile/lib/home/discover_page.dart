@@ -536,9 +536,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Material(
-                color: colors.surface,
+                color: ReaderDrawerStyle.searchSurfaceOf(theme),
                 borderRadius: BorderRadius.circular(20),
                 elevation: 2,
+                surfaceTintColor: Colors.transparent,
                 shadowColor: colors.shadow.withValues(alpha: .12),
                 child: IconButton(
                   key: const ValueKey('discover-source-menu'),

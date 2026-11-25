@@ -9,6 +9,7 @@ import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/selection/selection_menu.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_panel_theme.dart';
 
 const _menuLabels = <String, String>{
   'copy': '复制',
@@ -32,6 +33,7 @@ Future<void> _pumpMenu(
   WidgetTester tester,
   SelectionMenu menu, {
   TextScaler textScaler = TextScaler.noScaling,
+  ColorScheme? panelScheme,
 }) async {
   await tester.binding.setSurfaceSize(menu.bounds);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -40,7 +42,10 @@ Future<void> _pumpMenu(
       home: Builder(
         builder: (context) => MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-          child: Scaffold(body: Stack(children: [menu])),
+          child: ReaderPanelColorScope(
+            scheme: panelScheme,
+            child: Scaffold(body: Stack(children: [menu])),
+          ),
         ),
       ),
     ),
@@ -333,7 +338,7 @@ void main() {
       );
     });
 
-    testWidgets('日夜正文下均显示紧凑深色单行菜单，图标在文字上方', (tester) async {
+    testWidgets('日夜正文及背景取色下均显示深色菜单，按钮可见且可点击', (tester) async {
       for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
         final selected = <String>[];
         await _pumpMenu(
@@ -343,6 +348,12 @@ void main() {
             readerTheme: theme,
             anchor: const Rect.fromLTWH(20, 180, 120, 24),
             bounds: const Size(360, 600),
+          ),
+          panelScheme: ColorScheme.fromSeed(
+            seedColor: Colors.brown,
+            brightness: theme == ReaderTheme.white
+                ? Brightness.light
+                : Brightness.dark,
           ),
         );
         final menu = find.byKey(const ValueKey<String>('selection-menu'));

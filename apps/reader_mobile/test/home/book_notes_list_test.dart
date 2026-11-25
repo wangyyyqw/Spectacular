@@ -94,6 +94,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('其他书'), findsNothing);
+    final cover = find.byType(BookCoverImage);
+    final card = tester.widget<Material>(
+      find.ancestor(of: cover, matching: find.byType(Material)).first,
+    );
+    expect(
+      (card.shape! as RoundedRectangleBorder).borderRadius,
+      bookCoverRadius,
+    );
     await tester.tap(find.text('匹配书'));
     await tester.pumpAndSettle();
     expect(find.text('本地'), findsOneWidget);
@@ -239,7 +247,10 @@ void main() {
     expect(tester.getTopLeft(body).dy, lessThan(tester.getTopLeft(quote).dy));
     expect(tester.getTopLeft(quote).dy, lessThan(tester.getTopLeft(mark).dy));
     expect(find.byType(EditableText), findsNothing);
-    await tester.tap(find.byTooltip('关闭'));
+    await tester.drag(
+      find.byKey(const ValueKey('reader-drawer-drag-handle')),
+      const Offset(0, 600),
+    );
     await tester.pumpAndSettle();
     expect(find.text('冬日'), findsOneWidget);
     expect(body, findsNothing);
@@ -296,7 +307,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('第 99 条原文'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('关闭'));
+    await tester.drag(
+      find.byKey(const ValueKey('reader-drawer-drag-handle')),
+      const Offset(0, 600),
+    );
     await tester.pumpAndSettle();
     expect(find.text('长篇笔记'), findsOneWidget);
     expect(find.text('第 99 条原文'), findsNothing);

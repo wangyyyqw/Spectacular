@@ -111,7 +111,12 @@ void main() {
     await _settle(tester);
     expect(find.text('详情'), findsOneWidget, reason: '长按打开快捷操作面板');
     expect(find.text('导入报告'), findsNothing);
-    expect(find.text('已读 1 / 1 章'), findsOneWidget);
+    expect(
+      tester.widget<LinearProgressIndicator>(
+        find.byKey(const ValueKey('book-detail-chapter-progress')),
+      ).value,
+      1,
+    );
 
     await tester.ensureVisible(find.text('删除'));
     await tester.pump();
