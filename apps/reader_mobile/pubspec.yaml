@@ -61,12 +61,14 @@ dependencies:
   file_selector: 1.1.0
   http: ^1.6.0
   html: ^0.15.7
-  xml: ^7.1.0
   multicast_dns: ^0.3.3+1
   pointycastle: ^4.0.0
   flutter_js: 0.8.7
   enough_convert: ^1.7.1
   url_launcher: ^6.3.2
+  xml: 7.1.0
+  cryptography: 2.9.0
+  flutter_secure_storage: 11.2.0
 
 dev_dependencies:
   flutter_test:

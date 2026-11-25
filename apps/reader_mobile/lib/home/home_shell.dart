@@ -26,6 +26,7 @@ import 'stats_page.dart';
 import 'welcome_announcement.dart';
 import 'navigation_settings.dart';
 import '../diagnostics/reader_log.dart';
+import '../sync/sync_controller.dart';
 
 /// 首页应用壳：桌面平台使用侧栏，移动平台使用底栏。
 class HomeShell extends StatefulWidget {
@@ -44,6 +45,7 @@ class HomeShell extends StatefulWidget {
     this.onAppFontFamilyChanged,
     this.showWelcomeAnnouncement = false,
     this.onBookshelfReady,
+    this.onSyncPreferences,
     this.windowTopInset = 0,
   });
 
@@ -82,6 +84,7 @@ class HomeShell extends StatefulWidget {
 
   /// 书架前 12 本封面就绪后通知开屏退场。
   final VoidCallback? onBookshelfReady;
+  final VoidCallback? onSyncPreferences;
 
   /// macOS 标题栏红绿灯区域的顶部高度；侧边栏背景需要补到该区域。
   final double windowTopInset;
@@ -95,6 +98,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   static const double _collapsedRailWidth = 84;
   static const double _expandedRailWidth = 160;
 
+  late SyncController _sync;
+  int _syncRevision = 0;
   int _index = 0;
   int _bookshelfRefreshToken = 0;
   int _statsRefreshToken = 0;
@@ -145,11 +150,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       unawaited(_reaMicro.initialize());
     }
     unawaited(_onlineBooks.initialize());
+    _startSync();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _sync.removeListener(_onSyncChanged);
+    _sync.dispose();
     _reaMicro.dispose();
     _navigation.removeListener(_navigationChanged);
     _navigation.dispose();
@@ -162,6 +170,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _reaMicro.handleAppResumed();
+      _sync.resumed();
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _sync.paused();
     }
   }
 
@@ -241,9 +254,33 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   MediaQueryData? _homeMedia;
   bool _restoringSystemPadding = false;
 
+  void _startSync() {
+    _sync = SyncController(widget.library)..addListener(_onSyncChanged);
+    unawaited(_sync.initialize());
+  }
+
+  void _onSyncChanged() {
+    if (!mounted || _syncRevision == _sync.dataRevision) return;
+    _syncRevision = _sync.dataRevision;
+    setState(() {
+      _bookshelfRefreshToken++;
+      _statsRefreshToken++;
+      if (_pages.isNotEmpty) {
+        _pages = List.generate(_desktop ? 6 : 5, _buildPage);
+      }
+    });
+    if (_sync.profile?.preferences == true) widget.onSyncPreferences?.call();
+  }
+
   @override
   void didUpdateWidget(HomeShell oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.library != widget.library) {
+      _sync.removeListener(_onSyncChanged);
+      _sync.dispose();
+      _syncRevision = 0;
+      _startSync();
+    }
     if (oldWidget.library != widget.library ||
         oldWidget.progressStore != widget.progressStore ||
         oldWidget.storageRecovery != widget.storageRecovery ||
@@ -335,6 +372,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       appFontStore: widget.appFontStore,
       onAppFontFamilyChanged: widget.onAppFontFamilyChanged,
       navigationSettings: _navigation,
+      sync: _sync,
     ),
   };
 
@@ -482,6 +520,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               useIndicator: false,
               unselectedIconTheme: const IconThemeData(opacity: 1),
               selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
+                color: colors.primary,
                 fontWeight: FontWeight.w600,
               ),
               unselectedLabelTextStyle: theme.textTheme.bodyMedium?.copyWith(

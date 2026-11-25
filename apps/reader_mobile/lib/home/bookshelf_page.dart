@@ -1402,7 +1402,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除《${entry.title}》'),
-        content: const Text('将删除书籍文件；笔记、书评、书单和阅读记录会保留，重新导入同一本书后恢复。'),
+        content: const Text(
+          '将删除书籍文件，保留笔记、书评、书单和阅读记录。'
+          '已配置同步时会传播到所有设备；仅清理本机副本请使用多设备同步页。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1438,7 +1441,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
       context: context,
       builder: (context) => ReaderFrostedAlertDialog(
         title: Text('删除选中的 ${entries.length} 本书？'),
-        content: const Text('将删除书籍文件；笔记、书评、书单和阅读记录会保留，重新导入后恢复。'),
+        content: const Text(
+          '将删除书籍文件，保留笔记、书评、书单和阅读记录。'
+          '已配置同步时会传播到所有设备；仅清理本机副本请使用多设备同步页。',
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -2582,7 +2588,9 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
           child: Text(
             widget.label,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface,
+              color: widget.selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
               fontWeight: widget.selected ? FontWeight.w600 : FontWeight.normal,
             ),
           ),

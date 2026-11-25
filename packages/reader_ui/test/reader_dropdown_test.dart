@@ -19,7 +19,10 @@ void main() {
         final form = GlobalKey<FormState>();
         await tester.pumpWidget(
           MaterialApp(
-            theme: ThemeData(platform: platform),
+            theme: ThemeData(
+              platform: platform,
+              brightness: dark ? Brightness.dark : Brightness.light,
+            ),
             home: ReaderPanelTheme(
               theme: dark ? ReaderTheme.black : ReaderTheme.white,
               child: Scaffold(
@@ -64,7 +67,7 @@ void main() {
         );
         expect(
           surface.color,
-          dark ? ReaderTheme.black.background : ReaderTheme.white.background,
+          Theme.of(tester.element(field)).colorScheme.surface,
         );
         final bounds = tester.getRect(find.text('第二项'));
         expect(bounds.left, greaterThanOrEqualTo(8));

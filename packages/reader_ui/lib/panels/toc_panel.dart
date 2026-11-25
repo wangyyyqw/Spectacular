@@ -350,7 +350,11 @@ class _TocPanelState extends State<TocPanel> {
                         final read = !current && _isRead(row.entry, readingCfi);
                         final expanded = _expanded.contains(row.entry);
                         final hasChildren = row.entry.children.isNotEmpty;
-                        final rowColor = missing || read ? muted : text;
+                        final rowColor = missing || read
+                            ? muted
+                            : current
+                            ? theme.colorScheme.primary
+                            : text;
                         final baseLeft = row.depth == 1
                             ? 22.0
                             : 58.0 + (row.depth - 2) * 18.0;
@@ -361,7 +365,7 @@ class _TocPanelState extends State<TocPanel> {
                           dense: true,
                           minTileHeight: _rowExtent,
                           selected: current && !missing,
-                          selectedColor: text,
+                          selectedColor: theme.colorScheme.primary,
                           tileColor: Colors.transparent,
                           focusColor: Colors.transparent,
                           hoverColor: Colors.transparent,

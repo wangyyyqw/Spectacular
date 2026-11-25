@@ -217,7 +217,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     widget.library,
     startupTheme: widget.startupTheme,
   );
-  late final Future<_AppPreferences> _savedPreferences = _loadPreferences();
+  late Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
   AppUiStyle? _selectedUiStyle;
@@ -231,6 +231,16 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   }
 
   double _windowTopInset = 0;
+
+  void _reloadSyncedPreferences() {
+    if (!mounted) return;
+    setState(() {
+      _selectedMode = null;
+      _selectedFontFamily = null;
+      _selectedUiStyle = null;
+      _savedPreferences = _loadPreferences();
+    });
+  }
 
   @override
   void initState() {
@@ -505,6 +515,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         onUiStyleChanged: _setUiStyle,
         showWelcomeAnnouncement: widget.showWelcomeAnnouncement,
         onBookshelfReady: _onBookshelfReady,
+        onSyncPreferences: _reloadSyncedPreferences,
         windowTopInset: _windowTopInset,
       ),
     );

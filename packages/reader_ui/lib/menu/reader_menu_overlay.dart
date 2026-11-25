@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_ink.dart';
+import '../theme/reader_environment.dart';
 import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
 import '../theme/reader_frosted_surface.dart';
@@ -83,7 +84,7 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 菜单是否展开（设计稿 `.menu-open`）。
   final bool open;
 
-  /// 当前阅读主题（取背景/文字/分隔线色）。
+  /// 当前阅读主题，用于识别墨水屏；界面颜色沿用宿主软件主题。
   final ReaderTheme? theme;
 
   /// 书名。
@@ -149,11 +150,16 @@ class ReaderMenuOverlay extends StatelessWidget {
   static const Curve _ease = Curves.easeOutCubic;
 
   @override
-  Widget build(BuildContext context) {
-    final panelTheme = theme ?? _fallbackTheme;
-    final fg = panelTheme.text;
-    final line = theme?.line ?? fg.withValues(alpha: 0.12);
-    final fill = theme?.fill ?? fg.withValues(alpha: 0.08);
+  Widget build(BuildContext context) => ReaderPanelTheme(
+    theme: inkMode ? ReaderEnvironment.inkTheme : theme ?? _fallbackTheme,
+    child: Builder(builder: _buildOverlay),
+  );
+
+  Widget _buildOverlay(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = scheme.onSurface;
+    final line = scheme.outlineVariant;
+    final fill = scheme.outlineVariant;
     final reduceMotion = inkMode || MediaQuery.disableAnimationsOf(context);
     final duration = reduceMotion ? Duration.zero : (open ? _enter : _exit);
 
@@ -354,10 +360,7 @@ class ReaderMenuOverlay extends StatelessWidget {
       ),
     );
     // 菜单与遮罩动画只重绘自身，不让静止的正文和背景重复录制绘图。
-    return ReaderPanelTheme(
-      theme: panelTheme,
-      child: RepaintBoundary(child: overlay),
-    );
+    return RepaintBoundary(child: overlay);
   }
 }
 
@@ -458,6 +461,7 @@ class _ProgressRowState extends State<_ProgressRow> {
   @override
   Widget build(BuildContext context) {
     final value = _dragging ? _dragValue : widget.progress.clamp(0.0, 1.0);
+    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       height: _progressRowHeight,
       child: Row(
@@ -519,7 +523,7 @@ class _ProgressRowState extends State<_ProgressRow> {
                         child: Container(
                           height: 4,
                           decoration: BoxDecoration(
-                            color: widget.fg.withValues(alpha: 0.78),
+                            color: scheme.primary,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -531,7 +535,7 @@ class _ProgressRowState extends State<_ProgressRow> {
                           width: 14,
                           height: 14,
                           decoration: BoxDecoration(
-                            color: widget.fg,
+                            color: scheme.primary,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -548,7 +552,7 @@ class _ProgressRowState extends State<_ProgressRow> {
                               vertical: 5,
                             ),
                             decoration: BoxDecoration(
-                              color: widget.fg,
+                              color: scheme.inverseSurface,
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
@@ -558,7 +562,7 @@ class _ProgressRowState extends State<_ProgressRow> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 11.5,
-                                color: Theme.of(context).colorScheme.surface,
+                                color: scheme.onInverseSurface,
                               ),
                             ),
                           ),
@@ -620,7 +624,7 @@ class _NavButton extends StatelessWidget {
             child: AppIcon(
               icon,
               size: 22,
-              color: color.withValues(alpha: onTap == null ? 0.2 : 0.55),
+              color: color.withValues(alpha: onTap == null ? 0.2 : 1),
             ),
           ),
         ),
@@ -709,7 +713,7 @@ class _EntriesRow extends StatelessWidget {
                   hoverColor: Colors.transparent,
                   focusColor: Colors.transparent,
                   onTap: () => onEntry(entry.key),
-                  child: _buildItem(entry.key, entry.value),
+                  child: _buildItem(context, entry.key, entry.value),
                 ),
               ),
             ),
@@ -719,10 +723,16 @@ class _EntriesRow extends StatelessWidget {
   }
 
   Widget _buildItem(
+    BuildContext context,
     ReaderMenuEntry entry,
     ({AppGlyph icon, String label}) item,
   ) {
-    final active = selected == null || selected == entry;
+    final scheme = Theme.of(context).colorScheme;
+    final color = selected == entry
+        ? scheme.primary
+        : selected == null
+        ? fg
+        : scheme.onSurfaceVariant;
     return SizedBox(
       height: itemHeight,
       child: Center(
@@ -731,18 +741,9 @@ class _EntriesRow extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              AppIcon(
-                item.icon,
-                size: _iconSize,
-                color: fg.withValues(alpha: active ? 1 : 0.65),
-              ),
+              AppIcon(item.icon, size: _iconSize, color: color),
               const SizedBox(width: _labelGap),
-              Text(
-                item.label,
-                style: _labelStyle.copyWith(
-                  color: fg.withValues(alpha: active ? 1 : 0.65),
-                ),
-              ),
+              Text(item.label, style: _labelStyle.copyWith(color: color)),
             ],
           ),
         ),

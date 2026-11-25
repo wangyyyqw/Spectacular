@@ -242,7 +242,9 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: 14,
-        color: Theme.of(context).colorScheme.onSurface,
+        color: _selected == family
+            ? Theme.of(context).colorScheme.onPrimaryContainer
+            : Theme.of(context).colorScheme.onSurface,
       ),
     ),
     onTap: () => _choose(family),

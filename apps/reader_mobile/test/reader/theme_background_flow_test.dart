@@ -71,8 +71,8 @@ void main() {
       ValueListenableBuilder<ThemeMode>(
         valueListenable: mode,
         builder: (_, value, child) => MaterialApp(
-          theme: ThemeData.light(),
-          darkTheme: ThemeData.dark(),
+          theme: buildAppTheme(),
+          darkTheme: buildAppTheme(brightness: Brightness.dark),
           themeMode: value,
           themeAnimationDuration: Duration.zero,
           builder: (_, child) => AppThemeScope(
@@ -113,6 +113,13 @@ void main() {
         expected.isDark ? Brightness.dark : Brightness.light,
       );
       expect(tester.widget<SettingsPanel>(panel).themeId, expected.id);
+      expect(
+        Theme.of(tester.element(panel)).colorScheme,
+        buildAppTheme(
+          brightness: expected.isDark ? Brightness.dark : Brightness.light,
+        ).colorScheme,
+        reason: '正文色变化后菜单仍保持软件主题',
+      );
       for (final theme in ReaderTheme.themes) {
         expect(
           find.byKey(ValueKey('settings-theme-${theme.id}')),

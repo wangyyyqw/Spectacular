@@ -15,6 +15,7 @@ import '../ye_she/ye_she_page.dart';
 import '../reader/reader_font_store.dart';
 import '../theme/app_theme.dart';
 import 'reading_insights.dart';
+import '../sync/sync_controller.dart';
 import 'app_settings_page.dart';
 import 'navigation_settings.dart';
 import 'reading_heatmap.dart';
@@ -36,6 +37,7 @@ class ProfilePage extends StatelessWidget {
     this.appFontStore,
     this.onAppFontFamilyChanged,
     this.navigationSettings,
+    this.sync,
   });
 
   /// 书架存储。
@@ -69,6 +71,7 @@ class ProfilePage extends StatelessWidget {
   /// 切换并保存应用字体。
   final Future<void> Function(String family)? onAppFontFamilyChanged;
   final NavigationSettings? navigationSettings;
+  final SyncController? sync;
 
   Future<void> _openAccount(BuildContext context) async {
     final controller = reaMicro;
@@ -161,6 +164,7 @@ class ProfilePage extends StatelessWidget {
                           appFontStore: appFontStore,
                           onAppFontFamilyChanged: onAppFontFamilyChanged,
                           navigationSettings: navigationSettings,
+                          sync: sync,
                         ),
                       ),
                     ),

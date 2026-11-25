@@ -53,6 +53,9 @@ void main() {
     for (final theme in ReaderTheme.themes) {
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData(
+            brightness: theme.isDark ? Brightness.dark : Brightness.light,
+          ),
           home: Scaffold(
             body: ReaderPanelTheme(
               theme: theme,
@@ -76,11 +79,9 @@ void main() {
         final color = DefaultTextStyle.of(tester.element(label)).style
             .merge(widget.style)
             .color!;
-        final ink = Color.alphaBlend(
-          color,
-          theme.background,
-        ).computeLuminance();
-        final paper = theme.background.computeLuminance();
+        final surface = Theme.of(tester.element(label)).colorScheme.surface;
+        final ink = Color.alphaBlend(color, surface).computeLuminance();
+        final paper = surface.computeLuminance();
         final contrast = ink > paper
             ? (ink + .05) / (paper + .05)
             : (paper + .05) / (ink + .05);
@@ -95,7 +96,7 @@ void main() {
       expect(option, findsOneWidget);
       expect(
         tester.widget<Text>(option).style!.color,
-        theme.text,
+        Theme.of(tester.element(option)).colorScheme.onSurface,
         reason: '${theme.id}:自定义字体名称',
       );
       await tester.tap(option);
