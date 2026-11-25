@@ -37,19 +37,26 @@ class BookOpener {
       return;
     }
     _opening = true;
+    _settings = null;
+    var protectingSync = false;
     final navigator = Navigator.of(context);
     try {
-      var current = entry;
+      var current = await library.bookBySyncId(entry.id) ?? entry;
+      await library.ensureSyncBookFile(current);
+      library.beginSyncRead();
+      protectingSync = true;
       while (context.mounted) {
         final result = await _openReader(navigator, current);
         if (result != EpubReaderExit.contentUpdated || !context.mounted) break;
-        final updated = await library.bookById(current.id);
+        final updated = await library.bookBySyncId(current.id);
         if (updated == null) throw StateError('保存后的书籍已不在书库中');
         current = updated;
       }
     } catch (error, stackTrace) {
       recordAppError('book_open_failed', error, stackTrace: stackTrace);
     } finally {
+      await _settingsSave;
+      if (protectingSync) library.endSyncRead();
       _opening = false;
     }
   }

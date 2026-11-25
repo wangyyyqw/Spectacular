@@ -7,6 +7,8 @@
         android:label="墨屿"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
+        android:fullBackupContent="@xml/sync_backup_rules"
+        android:dataExtractionRules="@xml/sync_data_extraction_rules"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

@@ -234,11 +234,20 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   );
 
   late final ReaderFontStore _fontStore = ReaderFontStore(widget.library);
-  late final Future<_AppPreferences> _savedPreferences = _loadPreferences();
+  late Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
   String? _selectedFontFamily;
   double _windowTopInset = 0;
+
+  void _reloadSyncedPreferences() {
+    if (!mounted) return;
+    setState(() {
+      _selectedMode = null;
+      _selectedFontFamily = null;
+      _savedPreferences = _loadPreferences();
+    });
+  }
 
   @override
   void initState() {
@@ -438,6 +447,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         appFontStore: _fontStore,
         onAppFontFamilyChanged: _setFontFamily,
         onBookshelfReady: widget.onBookshelfReady,
+        onSyncPreferences: _reloadSyncedPreferences,
         windowTopInset: _windowTopInset,
       ),
     );

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -34,13 +35,21 @@ import '../storage/reading_session_store.dart';
 import 'import_analysis.dart';
 import 'book_edit_models.dart';
 import 'revision_anchor_index.dart';
-import 'revision_anchor_store.dart' show requireAnchorRecord;
+import 'revision_anchor_store.dart' show requireAnchorRecord, resolveBookRow;
+import '../sync/sync_assets.dart';
+import '../sync/sync_layout.dart';
+import '../sync/sync_models.dart';
+import '../sync/sync_repository.dart';
+import '../sync/sync_state.dart';
 
 part 'library_revision.dart';
 part 'library_editing.dart';
 part 'library_edit_drafts.dart';
 part 'library_sweep_paths.dart';
 part 'library_txt.dart';
+part 'library_sync.dart';
+part 'library_sync_snapshot.dart';
+part 'library_sync_apply.dart';
 
 /// 导入成功的实际结果，覆盖更新不会新建用户数据。
 enum BookImportOutcome { added, updated, unchanged }
@@ -275,6 +284,10 @@ class LibraryStore {
   final Map<String, Set<String>> _memoryBookTags = <String, Set<String>>{};
   final List<void Function()> _listeners = <void Function()>[];
   Future<void>? _importQueue;
+  int _syncReaders = 0;
+  bool _syncTransaction = false;
+  Future<void> Function(String)? _syncRestoreBook;
+  void Function()? _syncSettingChanged;
   static final _databaseImportQueues = Expando<Future<void>>();
 
   bool get _isMemory => _db == null;
@@ -355,6 +368,7 @@ class LibraryStore {
         .insertOnConflictUpdate(
           SettingsTableCompanion.insert(key: key, value: value),
         );
+    if (!key.startsWith('sync.')) _syncSettingChanged?.call();
   }
 
   /// 读取自定义字体清单；字体字节按实际选择延迟加载。

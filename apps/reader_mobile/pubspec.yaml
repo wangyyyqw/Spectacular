@@ -60,6 +60,9 @@ dependencies:
   re_highlight: 0.0.3
   file_selector: 1.1.0
   http: ^1.6.0
+  xml: 7.1.0
+  cryptography: 2.9.0
+  flutter_secure_storage: 11.2.0
 
 dev_dependencies:
   flutter_test:

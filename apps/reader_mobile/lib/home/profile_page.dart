@@ -15,6 +15,8 @@ import '../reader/reader_font_store.dart';
 import '../theme/app_theme.dart';
 import 'app_font_picker.dart';
 import 'bookshelf_sort.dart';
+import '../sync/sync_controller.dart';
+import '../sync/sync_page.dart';
 
 /// 我的页：外观、书架设置、版本信息、诊断日志导出。
 class ProfilePage extends StatefulWidget {
@@ -27,6 +29,7 @@ class ProfilePage extends StatefulWidget {
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
+    this.sync,
   });
 
   /// 书架存储。
@@ -43,6 +46,7 @@ class ProfilePage extends StatefulWidget {
 
   /// 应用字体存储；为空时不显示应用字体入口。
   final ReaderFontStore? appFontStore;
+  final SyncController? sync;
 
   /// 切换并保存应用字体。
   final Future<void> Function(String family)? onAppFontFamilyChanged;
@@ -293,6 +297,23 @@ class _ProfilePageState extends State<ProfilePage> {
             children: [
               _identity(context),
               const SizedBox(height: 24),
+              if (widget.sync != null) ...[
+                _section(context, '数据', [
+                  ListTile(
+                    key: const ValueKey('multi-device-sync-entry'),
+                    leading: const Icon(Icons.cloud_sync_outlined),
+                    title: const Text('多设备同步'),
+                    subtitle: const Text('WebDAV / S3 · 完整阅读数据与可选加密'),
+                    trailing: const AppIcon(AppGlyph.chevronRight),
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => SyncPage(controller: widget.sync!),
+                      ),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 24),
+              ],
               if (widget.onThemeModeChanged != null) ...[
                 _appearance(context),
                 const SizedBox(height: 24),

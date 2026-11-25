@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,7 @@ import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
 import '../diagnostics/reader_log.dart';
+import '../sync/sync_controller.dart';
 
 /// 首页应用壳：桌面平台使用侧栏，移动平台使用底栏。
 class HomeShell extends StatefulWidget {
@@ -32,6 +34,7 @@ class HomeShell extends StatefulWidget {
     this.appFontStore,
     this.onAppFontFamilyChanged,
     this.onBookshelfReady,
+    this.onSyncPreferences,
     this.windowTopInset = 0,
   });
 
@@ -61,6 +64,7 @@ class HomeShell extends StatefulWidget {
 
   /// 书架前 12 本封面就绪后通知开屏退场。
   final VoidCallback? onBookshelfReady;
+  final VoidCallback? onSyncPreferences;
 
   /// macOS 标题栏红绿灯区域的顶部高度；侧边栏背景需要补到该区域。
   final double windowTopInset;
@@ -69,11 +73,13 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   /// 收起宽度需容纳 macOS 红绿灯，并让左右留白接近。
   static const double _collapsedRailWidth = 84;
   static const double _expandedRailWidth = 160;
 
+  late SyncController _sync;
+  int _syncRevision = 0;
   int _index = 0;
   int _bookshelfRefreshToken = 0;
   int _statsRefreshToken = 0;
@@ -85,8 +91,56 @@ class _HomeShellState extends State<HomeShell> {
   bool _restoringSystemPadding = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startSync();
+  }
+
+  void _startSync() {
+    _sync = SyncController(widget.library)..addListener(_onSyncChanged);
+    unawaited(_sync.initialize());
+  }
+
+  void _onSyncChanged() {
+    if (!mounted || _syncRevision == _sync.dataRevision) return;
+    _syncRevision = _sync.dataRevision;
+    setState(() {
+      _bookshelfRefreshToken++;
+      _statsRefreshToken++;
+      if (_pages.isNotEmpty) {
+        _pages = List.generate(_desktop ? 5 : 4, _buildPage);
+      }
+    });
+    if (_sync.profile?.preferences == true) widget.onSyncPreferences?.call();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _sync.resumed();
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _sync.paused();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _sync.removeListener(_onSyncChanged);
+    _sync.dispose();
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(HomeShell oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.library != widget.library) {
+      _sync.removeListener(_onSyncChanged);
+      _sync.dispose();
+      _syncRevision = 0;
+      _startSync();
+    }
     if (oldWidget.library != widget.library ||
         oldWidget.progressStore != widget.progressStore ||
         oldWidget.storageRecovery != widget.storageRecovery ||
@@ -155,6 +209,7 @@ class _HomeShellState extends State<HomeShell> {
       appFontFamily: widget.appFontFamily,
       appFontStore: widget.appFontStore,
       onAppFontFamilyChanged: widget.onAppFontFamilyChanged,
+      sync: _sync,
     ),
   };
 

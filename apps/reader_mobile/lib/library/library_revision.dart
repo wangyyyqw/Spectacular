@@ -186,7 +186,7 @@ extension LibraryRevisionOperations on LibraryStore {
       );
       committed = true;
       // 数据库已指向可读的新文件后才删除旧 EPUB；失败留给启动扫描。
-      await _deleteRetiredSource(old.sourcePath);
+      if (!_syncTransaction) await _deleteRetiredSource(old.sourcePath);
       onProgress?.call(1);
       _notify();
       return _withImportOutcome(
