@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,7 +8,9 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
+import 'package:reader_ui/selection/selection_menu.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -49,13 +52,17 @@ Future<void> _pumpReader(WidgetTester tester, EpubChapterSource source) async {
 }
 
 void main() {
+  Object? clipboardData;
   setUp(() {
+    clipboardData = null;
     // 剪贴板走测试 mock，避免 platform channel 未实现。
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(
-          SystemChannels.platform,
-          (call) async => null,
-        );
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardData = call.arguments;
+          }
+          return null;
+        });
   });
 
   tearDown(() {
@@ -74,16 +81,40 @@ void main() {
       find.byKey(const ValueKey<String>('selection-menu')),
       findsOneWidget,
     );
+    final menu = tester.widget<SelectionMenu>(find.byType(SelectionMenu));
+    expect(menu.actions.map((action) => action.id), [
+      'copy',
+      'mark',
+      'thought',
+      'decoration',
+      'dictionary',
+      'select-all',
+    ]);
+    expect(menu.actions.map((action) => action.label), [
+      '复制',
+      '划线',
+      '想法',
+      '装饰',
+      '词典',
+      '全选',
+    ]);
+    expect(find.byKey(const ValueKey('selection-action-more')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('selection-action-dismiss')),
+      findsNothing,
+    );
+    final layer = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
+    final selectedText = SelectionOps.textOf(layer.page, layer.selection);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('selection-action-copy')),
     );
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsNothing, reason: '复制后清除选区');
-    expect(find.text('已复制'), findsOneWidget);
+    expect(clipboardData, {'text': selectedText}, reason: '复制按钮必须交付实际选区原文');
   });
 
-  testWidgets('菜单里全选覆盖整页，取消清除选区（P4-16）', (tester) async {
+  testWidgets('全选直接覆盖整页，点击正文清除选区（P4-16）', (tester) async {
     final source = await openTestChapterSource(_corpusBook('basic.epub'));
     await _pumpReader(tester, source);
 
@@ -91,10 +122,6 @@ void main() {
     await tester.pumpAndSettle();
     final before = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-more')),
-    );
-    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey<String>('selection-action-select-all')),
     );
@@ -106,9 +133,10 @@ void main() {
       greaterThanOrEqualTo(before.selection.end.textOffset),
     );
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-dismiss')),
+    await tester.tapAt(
+      tester.getRect(find.byType(ReaderView)).centerRight - const Offset(8, 0),
     );
+    await tester.pump(kDoubleTapTimeout);
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsNothing);
   });

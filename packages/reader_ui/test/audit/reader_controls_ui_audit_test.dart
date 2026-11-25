@@ -116,7 +116,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('紧凑选区菜单保持复制和笔记入口', (tester) async {
+  testWidgets('圆角选区菜单保持复制和笔记入口', (tester) async {
     final selected = <String>[];
     await _pumpPage(
       tester,
@@ -142,7 +142,8 @@ void main() {
     }
     expect(selected, ['复制', '笔记']);
     final material = tester.widget<Material>(_key('selection-menu'));
-    expect(material.borderRadius, BorderRadius.circular(4));
+    expect(material.borderRadius, BorderRadius.circular(12));
+    expect(material.clipBehavior, Clip.antiAlias);
     expect(material.elevation, 0);
     expect(tester.takeException(), isNull);
   });

@@ -1062,7 +1062,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final Map<int, int> _decorationScheduledChapters = {};
   bool _decorationLoading = false;
   ReaderDecoration? _relocatingDecoration;
-  bool _selectionMore = false;
   double _paperContentWidth = 0;
 
   void _changeReaderState(VoidCallback change) => setState(change);
@@ -2248,7 +2247,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _selection = SelectionOps.wordAt(page, hit);
       _selectionLayoutRevision = _session.layoutRevision;
       _selectionSpineIndex = page.spineIndex;
-      _selectionMore = false;
     });
   }
 
@@ -2269,7 +2267,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _selection = SelectionOps.sentenceAt(page, hit);
       _selectionLayoutRevision = _session.layoutRevision;
       _selectionSpineIndex = page.spineIndex;
-      _selectionMore = false;
     });
   }
 
@@ -2563,7 +2560,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         _selectionPage = null;
         _selectionSpineIndex = null;
         _hideSelectionMenu = false;
-        _selectionMore = false;
       });
     }
   }

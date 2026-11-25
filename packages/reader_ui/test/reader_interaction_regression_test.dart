@@ -1050,8 +1050,6 @@ void main() {
     expect(sentence.startPageIndex, 1);
     expect(sentence.endPageIndex, 1);
 
-    await tester.tap(find.byKey(const ValueKey('selection-action-more')));
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('selection-action-select-all')));
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsOneWidget);

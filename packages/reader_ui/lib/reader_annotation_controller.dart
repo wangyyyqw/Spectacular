@@ -253,15 +253,11 @@ extension _ReaderAnnotationController on _ReaderPageState {
       ];
     }
     return [
-      if (widget.onEditTarget != null && SelectionOps.cfiOf(selection) != null)
-        _selectionAction(
-          'edit-source',
-          '编辑原文',
-          () => _requestTextEdit(
-            page.spineIndex,
-            SelectionOps.cfiOf(selection)!.start,
-          ),
-        ),
+      _selectionAction(
+        'copy',
+        '复制',
+        () => unawaited(_copySelection(page, selection)),
+      ),
       _selectionAction(
         'mark',
         '划线',
@@ -280,24 +276,20 @@ extension _ReaderAnnotationController on _ReaderPageState {
         () => unawaited(_addDecoration(page, selection)),
       ),
       _selectionAction(
-        'copy',
-        '复制',
-        () => unawaited(_copySelection(page, selection)),
-      ),
-      _selectionAction(
         'dictionary',
         '词典',
         () => unawaited(_lookupDictionary(page, selection)),
       ),
-      _selectionAction(
-        'more',
-        '更多',
-        () => _changeReaderState(() => _selectionMore = !_selectionMore),
-      ),
-      if (_selectionMore) ...[
-        _selectionAction('select-all', '全选', () => _selectAll(page)),
-        _selectionAction('dismiss', '取消选区', _clearSelection),
-      ],
+      _selectionAction('select-all', '全选', () => _selectAll(page)),
+      if (widget.onEditTarget != null && SelectionOps.cfiOf(selection) != null)
+        _selectionAction(
+          'edit-source',
+          '编辑原文',
+          () => _requestTextEdit(
+            page.spineIndex,
+            SelectionOps.cfiOf(selection)!.start,
+          ),
+        ),
     ];
   }
 
