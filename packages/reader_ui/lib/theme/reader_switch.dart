@@ -9,7 +9,9 @@ class ReaderSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final material3 = theme.useMaterial3;
     final enabled = onChanged != null;
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
@@ -20,25 +22,31 @@ class ReaderSwitch extends StatelessWidget {
       child: Opacity(
         opacity: enabled ? 1 : .42,
         child: InkWell(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(material3 ? 24 : 22),
           onTap: enabled ? () => onChanged!(!value) : null,
           child: SizedBox(
-            width: 48,
+            width: material3 ? 56 : 48,
             height: 44,
             child: Center(
               child: AnimatedContainer(
                 duration: duration,
-                width: 42,
-                height: 22,
-                padding: const EdgeInsets.all(2),
+                width: material3 ? 52 : 42,
+                height: material3 ? 32 : 22,
+                padding: EdgeInsets.all(material3 ? 4 : 2),
                 decoration: BoxDecoration(
                   color: value
-                      ? scheme.primary
+                      ? material3
+                            ? scheme.secondaryContainer
+                            : scheme.primary
                       : scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(material3 ? 16 : 11),
                   border: value
                       ? null
-                      : Border.all(color: scheme.outlineVariant),
+                      : Border.all(
+                          color: material3
+                              ? scheme.outline
+                              : scheme.outlineVariant,
+                        ),
                 ),
                 child: AnimatedAlign(
                   duration: duration,
@@ -47,18 +55,26 @@ class ReaderSwitch extends StatelessWidget {
                       ? Alignment.centerRight
                       : Alignment.centerLeft,
                   child: Container(
-                    width: 18,
-                    height: 18,
+                    width: material3 ? (value ? 24 : 16) : 18,
+                    height: material3 ? (value ? 24 : 16) : 18,
                     decoration: BoxDecoration(
-                      color: value ? scheme.onPrimary : scheme.onSurfaceVariant,
+                      color: value
+                          ? material3
+                                ? scheme.onSecondaryContainer
+                                : scheme.onPrimary
+                          : material3
+                          ? scheme.onSurfaceVariant
+                          : scheme.onSurfaceVariant,
                       shape: BoxShape.circle,
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x33000000),
-                          blurRadius: 3,
-                          offset: Offset(0, 1),
-                        ),
-                      ],
+                      boxShadow: material3
+                          ? null
+                          : const [
+                              BoxShadow(
+                                color: Color(0x33000000),
+                                blurRadius: 3,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
                     ),
                   ),
                 ),

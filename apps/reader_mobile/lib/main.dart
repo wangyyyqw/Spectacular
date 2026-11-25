@@ -186,6 +186,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   late final Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
+  AppUiStyle? _selectedUiStyle;
   String? _selectedFontFamily;
   bool _startupReadyReported = false;
 
@@ -227,13 +228,31 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   Future<_AppPreferences> _loadPreferences() async {
     final mode = _loadMode();
     final fontFamily = _loadFontFamily();
+    final uiStyle = _loadUiStyle();
     await _themeColors.initialize();
     final preferences = _AppPreferences(
       mode: await mode,
       fontFamily: await fontFamily,
+      uiStyle: await uiStyle,
     );
     unawaited(_cacheStartupTheme());
     return preferences;
+  }
+
+  Future<AppUiStyle> _loadUiStyle() async {
+    try {
+      return AppUiStyle.fromSetting(
+        await widget.library.getSetting(AppUiStyle.settingKey),
+      );
+    } catch (error) {
+      unawaited(
+        ReaderLog.instance.log(
+          'app_ui_style_load_failed',
+          fields: {'error': error},
+        ),
+      );
+      return AppUiStyle.classic;
+    }
   }
 
   Future<ThemeMode> _loadMode() async {
@@ -304,6 +323,12 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     await _syncWindow(mode);
   }
 
+  Future<void> _setUiStyle(AppUiStyle style) async {
+    await widget.library.setSetting(AppUiStyle.settingKey, style.name);
+    if (!mounted) return;
+    setState(() => _selectedUiStyle = style);
+  }
+
   Future<void> _cacheStartupTheme() async {
     final mode = _selectedMode ?? _loadedMode;
     if (!_themeColors.initialized || mode == null) return;
@@ -361,23 +386,28 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   Widget _buildApp(_AppPreferences preferences) {
     final mode = _selectedMode ?? preferences.mode;
     final fontFamily = _selectedFontFamily ?? preferences.fontFamily;
+    final uiStyle = _selectedUiStyle ?? preferences.uiStyle;
     return MaterialApp(
       title: '阅微Extend',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(
         fontFamily: fontFamily,
         colorScheme: _themeColors.wallpaperScheme(Brightness.light),
+        uiStyle: uiStyle,
       ),
       darkTheme: buildAppTheme(
         brightness: Brightness.dark,
         fontFamily: fontFamily,
         colorScheme: _themeColors.wallpaperScheme(Brightness.dark),
+        uiStyle: uiStyle,
       ),
       themeMode: mode,
       themeAnimationDuration: Duration.zero,
       builder: (context, child) => AppThemeScope(
         mode: mode,
         onModeChanged: _setMode,
+        uiStyle: uiStyle,
+        onUiStyleChanged: _setUiStyle,
         child: ThemeColorScope(
           settings: _themeColors,
           child: AnnotatedRegion<SystemUiOverlayStyle>(
@@ -397,6 +427,8 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         appFontFamily: fontFamily,
         appFontStore: _fontStore,
         onAppFontFamilyChanged: _setFontFamily,
+        uiStyle: uiStyle,
+        onUiStyleChanged: _setUiStyle,
         showWelcomeAnnouncement: widget.showWelcomeAnnouncement,
       ),
     );
@@ -404,8 +436,13 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
 }
 
 class _AppPreferences {
-  const _AppPreferences({required this.mode, required this.fontFamily});
+  const _AppPreferences({
+    required this.mode,
+    required this.fontFamily,
+    required this.uiStyle,
+  });
 
   final ThemeMode mode;
   final String fontFamily;
+  final AppUiStyle uiStyle;
 }

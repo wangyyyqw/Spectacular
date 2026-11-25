@@ -148,43 +148,55 @@ ThemeData _panelSurfaces(
   ThemeData base,
   ReaderTheme theme,
   ColorScheme scheme,
-) => base.copyWith(
-  cardTheme: base.cardTheme.copyWith(
-    color: theme.background,
-    elevation: 0,
-    shape: _shape.copyWith(side: BorderSide(color: scheme.outlineVariant)),
-  ),
-  dialogTheme: base.dialogTheme.copyWith(
-    backgroundColor: theme.background,
-    surfaceTintColor: Colors.transparent,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(24)),
+) {
+  final cardRadius = base.useMaterial3 ? 12.0 : 4.0;
+  final dialogRadius = base.useMaterial3 ? 28.0 : 24.0;
+  final sheetRadius = base.useMaterial3 ? 28.0 : 24.0;
+  final popupRadius = base.useMaterial3 ? 12.0 : 16.0;
+  return base.copyWith(
+    cardTheme: base.cardTheme.copyWith(
+      color: theme.background,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(cardRadius),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
     ),
-  ),
-  bottomSheetTheme: base.bottomSheetTheme.copyWith(
-    backgroundColor: theme.background,
-    surfaceTintColor: Colors.transparent,
-    modalBarrierColor: Colors.black54,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    dialogTheme: base.dialogTheme.copyWith(
+      backgroundColor: theme.background,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(dialogRadius),
+      ),
     ),
-    constraints: const BoxConstraints(maxWidth: 680),
-  ),
-  popupMenuTheme: base.popupMenuTheme.copyWith(
-    color: theme.background,
-    surfaceTintColor: Colors.transparent,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(16)),
+    bottomSheetTheme: base.bottomSheetTheme.copyWith(
+      backgroundColor: theme.background,
+      surfaceTintColor: Colors.transparent,
+      modalBarrierColor: Colors.black54,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(sheetRadius)),
+      ),
+      constraints: const BoxConstraints(maxWidth: 680),
     ),
-  ),
-);
+    popupMenuTheme: base.popupMenuTheme.copyWith(
+      color: theme.background,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(popupRadius),
+      ),
+    ),
+  );
+}
 
 ThemeData _panelButtons(ThemeData base, ReaderTheme theme, ColorScheme scheme) {
+  final shape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(base.useMaterial3 ? 20 : 4),
+  );
   final style = FilledButton.styleFrom(
     backgroundColor: scheme.primary,
     foregroundColor: scheme.onPrimary,
     elevation: 0,
-    shape: _shape,
+    shape: shape,
   );
   return base.copyWith(
     filledButtonTheme: FilledButtonThemeData(style: style),
@@ -193,13 +205,13 @@ ThemeData _panelButtons(ThemeData base, ReaderTheme theme, ColorScheme scheme) {
       style: OutlinedButton.styleFrom(
         foregroundColor: scheme.primary,
         side: BorderSide(color: theme.line),
-        shape: _shape,
+        shape: shape,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: scheme.primary,
-        shape: _shape,
+        shape: shape,
       ),
     ),
   );
@@ -213,7 +225,7 @@ ThemeData _panelInputs(ThemeData base, ReaderTheme theme, ColorScheme scheme) =>
         hintStyle: TextStyle(color: scheme.onSurfaceVariant),
         labelStyle: TextStyle(color: theme.text),
         focusedBorder: OutlineInputBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(4)),
+          borderRadius: BorderRadius.circular(base.useMaterial3 ? 12 : 4),
           borderSide: BorderSide(color: scheme.primary),
         ),
       ),

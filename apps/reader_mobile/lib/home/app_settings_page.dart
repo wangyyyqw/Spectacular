@@ -33,6 +33,8 @@ class AppSettingsPage extends StatefulWidget {
     this.onReadOnline,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.uiStyle = AppUiStyle.classic,
+    this.onUiStyleChanged,
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
@@ -52,6 +54,12 @@ class AppSettingsPage extends StatefulWidget {
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
 
+  /// 当前应用控件风格。
+  final AppUiStyle uiStyle;
+
+  /// 切换并保存应用控件风格。
+  final Future<void> Function(AppUiStyle)? onUiStyleChanged;
+
   /// 当前应用字体。
   final String appFontFamily;
 
@@ -69,7 +77,9 @@ class AppSettingsPage extends StatefulWidget {
 class _AppSettingsPageState extends State<AppSettingsPage> {
   bool _exporting = false;
   bool _savingTheme = false;
+  bool _savingUiStyle = false;
   late ThemeMode _themeMode;
+  late AppUiStyle _uiStyle;
   late String _appFontFamily;
   bool _gridShowTitles = true;
   bool _listDividers = true;
@@ -84,6 +94,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   void initState() {
     super.initState();
     _themeMode = widget.themeMode;
+    _uiStyle = widget.uiStyle;
     _appFontFamily = widget.appFontFamily;
     _loadShelfPreferences();
     _loadAppFonts();
@@ -94,6 +105,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.themeMode != widget.themeMode) {
       _themeMode = widget.themeMode;
+    }
+    if (oldWidget.uiStyle != widget.uiStyle) {
+      _uiStyle = widget.uiStyle;
     }
     if (oldWidget.appFontFamily != widget.appFontFamily) {
       _appFontFamily = widget.appFontFamily;
@@ -155,9 +169,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     }
   }
 
-  Future<void> _toggleShelfSetting(String key, bool value) async {
-    await widget.library.setSetting(key, value.toString());
-    if (!mounted) return;
+  Future<bool> _toggleShelfSetting(String key, bool value) async {
+    // 先更新抽屉内状态，让开关立即反馈；持久化失败时回滚并记录错误。
     setState(() {
       if (key == bookshelfGridShowTitlesKey) _gridShowTitles = value;
       if (key == bookshelfListDividersKey) _listDividers = value;
@@ -167,75 +180,159 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       if (key == bookshelfSkipFinishedUpdatesKey) _skipFinishedUpdates = value;
       if (key == bookshelfAllAsGroupKey) _allAsGroup = value;
     });
+    try {
+      await widget.library.setSetting(key, value.toString());
+      return true;
+    } catch (error, stackTrace) {
+      recordAppError(
+        'bookshelf_setting_save_failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return false;
+      setState(() {
+        if (key == bookshelfGridShowTitlesKey) _gridShowTitles = !value;
+        if (key == bookshelfListDividersKey) _listDividers = !value;
+        if (key == bookshelfNewestFirstKey) _newestFirst = !value;
+        if (key == bookshelfAutoUpdateFirstKey) _autoUpdateFirst = !value;
+        if (key == bookshelfAutoCheckUpdatesKey) _autoCheckUpdates = !value;
+        if (key == bookshelfSkipFinishedUpdatesKey) {
+          _skipFinishedUpdates = !value;
+        }
+        if (key == bookshelfAllAsGroupKey) _allAsGroup = !value;
+      });
+      return false;
+    }
   }
 
-  Future<void> _openShelfManagement() => showReaderDrawer<void>(
-    context: context,
-    builder: (_) => ReaderSheetForm(
-      title: const Text('书架管理'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ReaderSwitchListTile(
-            key: const ValueKey('bookshelf-grid-title-setting'),
-            title: const Text('宫格书架显示书名'),
-            value: _gridShowTitles,
-            onChanged: (value) =>
-                _toggleShelfSetting(bookshelfGridShowTitlesKey, value),
-          ),
-          ReaderSwitchListTile(
-            key: const ValueKey('bookshelf-list-divider-setting'),
-            title: const Text('列表书架显示分割线'),
-            value: _listDividers,
-            onChanged: (value) =>
-                _toggleShelfSetting(bookshelfListDividersKey, value),
-          ),
-          ReaderSwitchListTile(
-            key: const ValueKey('bookshelf-newest-first-setting'),
-            title: const Text('新导入图书放到最上面'),
-            value: _newestFirst,
-            onChanged: (value) =>
-                _toggleShelfSetting(bookshelfNewestFirstKey, value),
-          ),
-          ReaderSwitchListTile(
-            key: const ValueKey('bookshelf-auto-update-first-setting'),
-            title: const Text('在线图书更新后自动上浮'),
-            value: _autoUpdateFirst,
-            onChanged: (value) =>
-                _toggleShelfSetting(bookshelfAutoUpdateFirstKey, value),
-          ),
-          ReaderSwitchListTile(
-            key: const ValueKey('bookshelf-auto-check-updates-setting'),
-            title: const Text('在线图书自动检查更新'),
-            value: _autoCheckUpdates,
-            onChanged: (value) =>
-                _toggleShelfSetting(bookshelfAutoCheckUpdatesKey, value),
-          ),
-          ReaderSwitchListTile(
-            key: const ValueKey('bookshelf-skip-finished-updates-setting'),
-            title: const Text('完结或读完图书跳过检查更新'),
-            value: _skipFinishedUpdates,
-            onChanged: (value) =>
-                _toggleShelfSetting(bookshelfSkipFinishedUpdatesKey, value),
-          ),
-          ReaderSwitchListTile(
-            key: const ValueKey('bookshelf-all-as-group-setting'),
-            title: const Text('全部书架视为分组'),
-            value: _allAsGroup,
-            onChanged: _setAllAsGroup,
-          ),
-        ],
-      ),
-    ),
-  );
+  Future<void> _openShelfManagement() {
+    var gridShowTitles = _gridShowTitles;
+    var listDividers = _listDividers;
+    var newestFirst = _newestFirst;
+    var autoUpdateFirst = _autoUpdateFirst;
+    var autoCheckUpdates = _autoCheckUpdates;
+    var skipFinishedUpdates = _skipFinishedUpdates;
+    var allAsGroup = _allAsGroup;
 
-  Future<void> _setAllAsGroup(bool value) async {
-    if (value) {
-      final assignments = await widget.library.groupAssignments();
-      await widget.library.setBooksGroup(assignments.keys);
-      await widget.library.setSetting(bookshelfDefaultGroupNameKey, '默认');
+    return showReaderDrawer<void>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDrawerState) {
+          Future<void> change(String key, bool value) async {
+            setDrawerState(() {
+              if (key == bookshelfGridShowTitlesKey) gridShowTitles = value;
+              if (key == bookshelfListDividersKey) listDividers = value;
+              if (key == bookshelfNewestFirstKey) newestFirst = value;
+              if (key == bookshelfAutoUpdateFirstKey) autoUpdateFirst = value;
+              if (key == bookshelfAutoCheckUpdatesKey) {
+                autoCheckUpdates = value;
+              }
+              if (key == bookshelfSkipFinishedUpdatesKey) {
+                skipFinishedUpdates = value;
+              }
+              if (key == bookshelfAllAsGroupKey) allAsGroup = value;
+            });
+            final saved = key == bookshelfAllAsGroupKey
+                ? await _setAllAsGroup(value)
+                : await _toggleShelfSetting(key, value);
+            if (!saved && context.mounted) {
+              setDrawerState(() {
+                if (key == bookshelfGridShowTitlesKey) {
+                  gridShowTitles = !value;
+                }
+                if (key == bookshelfListDividersKey) listDividers = !value;
+                if (key == bookshelfNewestFirstKey) newestFirst = !value;
+                if (key == bookshelfAutoUpdateFirstKey) {
+                  autoUpdateFirst = !value;
+                }
+                if (key == bookshelfAutoCheckUpdatesKey) {
+                  autoCheckUpdates = !value;
+                }
+                if (key == bookshelfSkipFinishedUpdatesKey) {
+                  skipFinishedUpdates = !value;
+                }
+                if (key == bookshelfAllAsGroupKey) allAsGroup = !value;
+              });
+            }
+          }
+
+          return ReaderSheetForm(
+            title: const Text('书架管理'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ReaderSwitchListTile(
+                  key: const ValueKey('bookshelf-grid-title-setting'),
+                  title: const Text('宫格书架显示书名'),
+                  value: gridShowTitles,
+                  onChanged: (value) =>
+                      change(bookshelfGridShowTitlesKey, value),
+                ),
+                ReaderSwitchListTile(
+                  key: const ValueKey('bookshelf-list-divider-setting'),
+                  title: const Text('列表书架显示分割线'),
+                  value: listDividers,
+                  onChanged: (value) => change(bookshelfListDividersKey, value),
+                ),
+                ReaderSwitchListTile(
+                  key: const ValueKey('bookshelf-newest-first-setting'),
+                  title: const Text('新导入图书放到最上面'),
+                  value: newestFirst,
+                  onChanged: (value) => change(bookshelfNewestFirstKey, value),
+                ),
+                ReaderSwitchListTile(
+                  key: const ValueKey('bookshelf-auto-update-first-setting'),
+                  title: const Text('在线图书更新后自动上浮'),
+                  value: autoUpdateFirst,
+                  onChanged: (value) =>
+                      change(bookshelfAutoUpdateFirstKey, value),
+                ),
+                ReaderSwitchListTile(
+                  key: const ValueKey('bookshelf-auto-check-updates-setting'),
+                  title: const Text('在线图书自动检查更新'),
+                  value: autoCheckUpdates,
+                  onChanged: (value) =>
+                      change(bookshelfAutoCheckUpdatesKey, value),
+                ),
+                ReaderSwitchListTile(
+                  key: const ValueKey(
+                    'bookshelf-skip-finished-updates-setting',
+                  ),
+                  title: const Text('完结或读完图书跳过检查更新'),
+                  value: skipFinishedUpdates,
+                  onChanged: (value) =>
+                      change(bookshelfSkipFinishedUpdatesKey, value),
+                ),
+                ReaderSwitchListTile(
+                  key: const ValueKey('bookshelf-all-as-group-setting'),
+                  title: const Text('全部书架视为分组'),
+                  value: allAsGroup,
+                  onChanged: (value) => change(bookshelfAllAsGroupKey, value),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<bool> _setAllAsGroup(bool value) async {
+    try {
+      if (value) {
+        final assignments = await widget.library.groupAssignments();
+        await widget.library.setBooksGroup(assignments.keys);
+        await widget.library.setSetting(bookshelfDefaultGroupNameKey, '默认');
+      }
+      return await _toggleShelfSetting(bookshelfAllAsGroupKey, value);
+    } catch (error, stackTrace) {
+      recordAppError(
+        'bookshelf_group_setting_save_failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      return false;
     }
-    await _toggleShelfSetting(bookshelfAllAsGroupKey, value);
   }
 
   Future<void> _chooseTheme(ThemeMode current) async {
@@ -274,6 +371,47 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       recordAppError('theme_save_failed', error, stackTrace: stackTrace);
     } finally {
       if (mounted) setState(() => _savingTheme = false);
+    }
+  }
+
+  Future<void> _chooseUiStyle(AppUiStyle current) async {
+    final selected = await showReaderDrawer<AppUiStyle>(
+      context: context,
+      builder: (context) => ReaderSheetForm(
+        title: const Text('界面样式'),
+        content: RadioGroup<AppUiStyle>(
+          groupValue: current,
+          onChanged: (style) => Navigator.of(context).pop(style),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final style in AppUiStyle.values)
+                RadioListTile<AppUiStyle>(
+                  value: style,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(switch (style) {
+                    AppUiStyle.classic => '经典',
+                    AppUiStyle.material3 => 'Material 3',
+                  }),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || selected == null || selected == current) return;
+    final onChanged =
+        AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
+        widget.onUiStyleChanged;
+    if (onChanged == null) return;
+    setState(() => _savingUiStyle = true);
+    try {
+      await onChanged(selected);
+      if (mounted) setState(() => _uiStyle = selected);
+    } catch (error, stackTrace) {
+      recordAppError('ui_style_save_failed', error, stackTrace: stackTrace);
+    } finally {
+      if (mounted) setState(() => _savingUiStyle = false);
     }
   }
 
@@ -466,6 +604,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
 
   Widget _appearance(BuildContext context) {
     final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
+    final uiStyle = AppThemeScope.maybeOf(context)?.uiStyle ?? _uiStyle;
     return _section(context, '外观', [
       ListTile(
         key: const ValueKey('bookshelf-management-entry'),
@@ -509,6 +648,20 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           }),
           trailing: const AppIcon(AppGlyph.chevronRight),
           onTap: _savingTheme ? null : () => _chooseTheme(mode),
+        ),
+      if ((AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
+              widget.onUiStyleChanged) !=
+          null)
+        ListTile(
+          key: const ValueKey('app-ui-style-setting'),
+          leading: const AppIcon(AppGlyph.palette),
+          title: const Text('界面样式'),
+          subtitle: Text(switch (uiStyle) {
+            AppUiStyle.classic => '经典',
+            AppUiStyle.material3 => 'Material 3',
+          }),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: _savingUiStyle ? null : () => _chooseUiStyle(uiStyle),
         ),
       if (widget.appFontStore != null && widget.onAppFontFamilyChanged != null)
         ListTile(

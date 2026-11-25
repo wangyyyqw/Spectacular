@@ -24,4 +24,27 @@ void main() {
       expect(theme.bottomSheetTheme.constraints?.maxWidth, 680);
     }
   });
+
+  test('Material 3 样式切换框架控件并保留应用颜色体系', () {
+    final classic = buildAppTheme(uiStyle: AppUiStyle.classic);
+    final material3 = buildAppTheme(uiStyle: AppUiStyle.material3);
+
+    expect(classic.useMaterial3, isFalse);
+    expect(material3.useMaterial3, isTrue);
+    expect(material3.colorScheme, classic.colorScheme);
+    expect(
+      (material3.cardTheme.shape! as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(12),
+    );
+    expect(
+      (classic.cardTheme.shape! as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(4),
+    );
+    expect(material3.inputDecorationTheme.border, isA<OutlineInputBorder>());
+    expect(
+      (material3.inputDecorationTheme.border! as OutlineInputBorder)
+          .borderRadius,
+      BorderRadius.circular(12),
+    );
+  });
 }

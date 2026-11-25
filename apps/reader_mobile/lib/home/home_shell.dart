@@ -37,6 +37,8 @@ class HomeShell extends StatefulWidget {
     this.storageRecovery,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.uiStyle = AppUiStyle.classic,
+    this.onUiStyleChanged,
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
@@ -57,6 +59,12 @@ class HomeShell extends StatefulWidget {
 
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
+
+  /// 当前应用控件风格。
+  final AppUiStyle uiStyle;
+
+  /// 保存并应用应用控件风格。
+  final Future<void> Function(AppUiStyle)? onUiStyleChanged;
 
   /// 当前应用字体。
   final String appFontFamily;
@@ -226,6 +234,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         oldWidget.storageRecovery != widget.storageRecovery ||
         oldWidget.themeMode != widget.themeMode ||
         oldWidget.onThemeModeChanged != widget.onThemeModeChanged ||
+        oldWidget.uiStyle != widget.uiStyle ||
+        oldWidget.onUiStyleChanged != widget.onUiStyleChanged ||
         oldWidget.appFontFamily != widget.appFontFamily ||
         oldWidget.appFontStore != widget.appFontStore ||
         oldWidget.onAppFontFamilyChanged != widget.onAppFontFamilyChanged) {
@@ -302,6 +312,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       onReadOnline: _bookOpener.openOnline,
       themeMode: widget.themeMode,
       onThemeModeChanged: widget.onThemeModeChanged,
+      uiStyle: widget.uiStyle,
+      onUiStyleChanged: widget.onUiStyleChanged,
       appFontFamily: widget.appFontFamily,
       appFontStore: widget.appFontStore,
       onAppFontFamilyChanged: widget.onAppFontFamilyChanged,
@@ -406,7 +418,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               definitions[index].$2,
               size: 24,
               color: selectedColor,
-              filled: true,
+              filled: !theme.useMaterial3,
               cutoutColor: navigationBackground,
             ),
           ),
@@ -422,7 +434,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       minExtendedWidth: 160,
       backgroundColor:
           theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor,
-      useIndicator: false,
+      useIndicator: theme.useMaterial3,
       unselectedIconTheme: const IconThemeData(opacity: 1),
       selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
         fontWeight: FontWeight.w600,
@@ -496,6 +508,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ),
         bottomNavigationBar: useRail
             ? null
+            : theme.useMaterial3
+            ? NavigationBar(
+                selectedIndex: _visibleIndices.indexOf(_index),
+                onDestinationSelected: (index) =>
+                    _selectDestination(_visibleIndices[index]),
+                destinations: [
+                  for (final item in items)
+                    NavigationDestination(
+                      icon: item.icon,
+                      selectedIcon: item.activeIcon,
+                      label: item.label!,
+                    ),
+                ],
+              )
             : Material(
                 color: theme.colorScheme.surface,
                 elevation: 2,

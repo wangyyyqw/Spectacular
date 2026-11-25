@@ -117,6 +117,7 @@ void main() {
     late ThemeData captured;
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(useMaterial3: false),
         home: ReaderPanelTheme(
           theme: ReaderTheme.black,
           child: Builder(
@@ -143,9 +144,37 @@ void main() {
     );
   });
 
+  testWidgets('阅读面板保留 Material 3 控件模式并适配表面几何', (tester) async {
+    late ThemeData captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true),
+        home: ReaderPanelTheme(
+          theme: ReaderTheme.black,
+          child: Builder(
+            builder: (context) {
+              captured = Theme.of(context);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+    expect(captured.useMaterial3, isTrue);
+    expect(
+      (captured.dialogTheme.shape as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(28),
+    );
+    expect(
+      (captured.cardTheme.shape as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(12),
+    );
+  });
+
   testWidgets('设置面板在深色主题下使用深色背景', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(useMaterial3: false),
         home: ReaderPanelTheme(
           theme: ReaderTheme.black,
           child: SettingsPanel(

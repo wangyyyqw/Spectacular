@@ -9,7 +9,10 @@ void main() {
     var enabled = true;
     var seed = Colors.purple;
     Widget app() => MaterialApp(
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: seed)),
+      theme: ThemeData(
+        useMaterial3: false,
+        colorScheme: ColorScheme.fromSeed(seedColor: seed),
+      ),
       home: Scaffold(
         body: StatefulBuilder(
           builder: (context, update) => ReaderSwitchListTile(
@@ -52,6 +55,21 @@ void main() {
     await tester.tap(find.text('设置开关'));
     await tester.pumpAndSettle();
     expect(changes, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Material 3 使用更宽的轨道和独立选中颜色', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(useMaterial3: true),
+        home: const Scaffold(body: ReaderSwitch(value: true, onChanged: null)),
+      ),
+    );
+    final track = find.descendant(
+      of: find.byType(ReaderSwitch),
+      matching: find.byType(AnimatedContainer),
+    );
+    expect(tester.getSize(track), const Size(52, 32));
     expect(tester.takeException(), isNull);
   });
 }

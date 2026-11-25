@@ -29,6 +29,8 @@ class ProfilePage extends StatelessWidget {
     this.onReadOnline,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.uiStyle = AppUiStyle.classic,
+    this.onUiStyleChanged,
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
@@ -50,6 +52,12 @@ class ProfilePage extends StatelessWidget {
 
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
+
+  /// 当前应用控件风格。
+  final AppUiStyle uiStyle;
+
+  /// 保存并应用应用控件风格。
+  final Future<void> Function(AppUiStyle)? onUiStyleChanged;
 
   /// 当前应用字体。
   final String appFontFamily;
@@ -139,6 +147,8 @@ class ProfilePage extends StatelessWidget {
                         onReadOnline: onReadOnline,
                         themeMode: themeMode,
                         onThemeModeChanged: onThemeModeChanged,
+                        uiStyle: uiStyle,
+                        onUiStyleChanged: onUiStyleChanged,
                         appFontFamily: appFontFamily,
                         appFontStore: appFontStore,
                         onAppFontFamilyChanged: onAppFontFamilyChanged,
