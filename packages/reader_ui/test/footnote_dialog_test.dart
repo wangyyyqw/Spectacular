@@ -132,9 +132,9 @@ void main() {
     );
     expect(frosted, findsOneWidget);
     expect(
-      Theme.of(tester.element(frosted)).colorScheme.surface,
-      ReaderTheme.black.background,
-      reason: '深色阅读主题下脚注底板不能保持白色',
+      Theme.of(tester.element(frosted)).colorScheme.surface.computeLuminance(),
+      greaterThan(ReaderTheme.black.background.computeLuminance()),
+      reason: '深色阅读主题下脚注底板应比正文背景更浅',
     );
     expect(
       tester.getSize(find.byType(ReaderFootnoteDialog)).height,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/footnote_dialog.dart';
 import 'package:drift/native.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -59,6 +60,7 @@ void main() {
     const tts = ReaderTtsSettings(rate: 0.7, autoTurnPage: false);
     final settings = legacy
         .copyWithTheme('moss')
+        .copyWithFootnoteStyle(ReaderFootnoteStyle.bubble)
         .copyWithTts(tts)
         .copyWithBackgroundImageOpacity(0.65);
     for (final changed in [
@@ -74,12 +76,14 @@ void main() {
       settings.copyWithVolumeKeyPaging(true),
       settings.copyWithMarkSettings(settings.markSettings),
       settings.copyWithBookmarkStyle(settings.bookmarkStyle),
+      settings.copyWithFootnoteStyle(ReaderFootnoteStyle.paper),
       settings.copyWithTts(tts),
     ]) {
       await store.save(changed);
       final reloaded = await store.load();
       expect(reloaded, changed);
       expect(reloaded.tts, tts);
+      expect(reloaded.footnoteStyle, changed.footnoteStyle);
       expect(reloaded.backgroundImageOpacity, 0.65);
       expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.sepia);
       expect(reloaded.themeForBrightness(Brightness.dark), ReaderTheme.moss);

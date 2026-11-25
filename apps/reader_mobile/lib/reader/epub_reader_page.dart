@@ -1156,6 +1156,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       bookmarkStyle: settings.bookmarkStyle,
       onBookmarkStyleChanged: (style) =>
           _changeSettings(_settings.copyWithBookmarkStyle(style)),
+      footnoteStyle: settings.footnoteStyle,
+      onFootnoteStyleChanged: (style) =>
+          _changeSettings(_settings.copyWithFootnoteStyle(style)),
       onPickBookmarkImage: _bookmarkImages.pick,
       bookmarkImageLoader: _bookmarkImages.load,
       annotations: widget.annotations,

@@ -11,6 +11,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 
 import '../annotations/mark_settings.dart';
 import '../bookmarks/bookmark_style.dart';
+import '../footnote_dialog.dart';
 import '../icons/app_icon.dart';
 import '../paging/page_turn_mode.dart';
 import '../page_furniture/corner_info.dart';
@@ -116,6 +117,8 @@ class SettingsPanel extends StatefulWidget {
     this.markSettings = const ReaderMarkSettings(),
     this.onOpenBookmarkStyle,
     this.bookmarkStyle = const ReaderBookmarkStyle(),
+    this.footnoteStyle = ReaderFootnoteStyle.dialog,
+    this.onFootnoteStyleChanged,
     this.marginsActive = false,
     this.pageTurnMode = PageTurnMode.cover,
     this.onPageTurnModeChanged,
@@ -210,6 +213,10 @@ class SettingsPanel extends StatefulWidget {
 
   /// 当前书签外观。
   final ReaderBookmarkStyle bookmarkStyle;
+
+  /// 阅读页注释的展示样式。
+  final ReaderFootnoteStyle footnoteStyle;
+  final ValueChanged<ReaderFootnoteStyle>? onFootnoteStyleChanged;
 
   /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
   final bool marginsActive;
@@ -1033,6 +1040,46 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   List<Widget> _settingsChildren(ThemeData theme, {bool includeReset = true}) {
     return <Widget>[
+      if (widget.onFootnoteStyleChanged != null) ...[
+        Text(
+          '注释样式',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: ReaderDrawerStyle.textOf(theme),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Row(
+            children: [
+              for (
+                var index = 0;
+                index < ReaderFootnoteStyle.values.length;
+                index++
+              ) ...[
+                if (index > 0) const SizedBox(width: 6),
+                _PageTurnOption(
+                  key: ValueKey<String>(
+                    'settings-footnote-style-${ReaderFootnoteStyle.values[index].name}',
+                  ),
+                  label: ReaderFootnoteStyle.values[index].label,
+                  selected:
+                      widget.footnoteStyle == ReaderFootnoteStyle.values[index],
+                  onTap: () => widget.onFootnoteStyleChanged!(
+                    ReaderFootnoteStyle.values[index],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+        const SizedBox(height: 10),
+      ],
       if (widget.onOpenBookmarkStyle != null) ...[
         Text(
           '书签样式',

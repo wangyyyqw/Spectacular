@@ -61,7 +61,7 @@ void _expectSheet(WidgetTester tester, String key) {
 }
 
 void main() {
-  testWidgets('阅读菜单四入口可点击，夜间抽屉继承正文表面', (tester) async {
+  testWidgets('阅读菜单四入口可点击，夜间抽屉使用更浅的面板底色', (tester) async {
     ReaderMenuEntry? selected;
     Widget menu({Widget? drawer}) => ReaderMenuOverlay(
       open: true,
@@ -102,7 +102,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     final context = tester.element(find.text('章节内容'));
-    expect(Theme.of(context).colorScheme.surface, ReaderTheme.black.background);
+    expect(
+      Theme.of(context).colorScheme.surface.computeLuminance(),
+      greaterThan(ReaderTheme.black.background.computeLuminance()),
+      reason: '夜间菜单底板应与阅读页区分',
+    );
     final buttonColor = Theme.of(context).textButtonTheme.style?.foregroundColor
         ?.resolve({});
     expect(buttonColor, ReaderTheme.black.text);

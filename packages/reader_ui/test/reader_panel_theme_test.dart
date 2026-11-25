@@ -25,12 +25,35 @@ void main() {
     );
 
     expect(captured.brightness, Brightness.dark);
-    expect(captured.colorScheme.surface, ReaderTheme.black.background);
+    expect(
+      captured.colorScheme.surface.computeLuminance(),
+      greaterThan(ReaderTheme.black.background.computeLuminance()),
+      reason: '夜间面板应比阅读页背景更亮',
+    );
     expect(captured.colorScheme.onSurface, ReaderTheme.black.text);
     expect(captured.iconTheme.color, ReaderTheme.black.text);
   });
 
-  testWidgets('设置面板在深色主题下使用深色背景', (tester) async {
+  testWidgets('浅色阅读主题的面板底色保持不变', (tester) async {
+    late ThemeData captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPanelTheme(
+          theme: ReaderTheme.white,
+          child: Builder(
+            builder: (context) {
+              captured = Theme.of(context);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(captured.colorScheme.surface, ReaderTheme.white.background);
+  });
+
+  testWidgets('设置面板在深色主题下使用区分阅读页的面板底色', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: ReaderPanelTheme(
@@ -49,7 +72,10 @@ void main() {
     final surface = tester.widget<Material>(
       find.byKey(const ValueKey<String>('settings-panel-surface')),
     );
-    expect(surface.color, ReaderTheme.black.background);
+    expect(
+      surface.color,
+      Theme.of(tester.element(find.byType(SettingsPanel))).colorScheme.surface,
+    );
     expect(find.text('排版'), findsNothing);
     expect(
       tester

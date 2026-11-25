@@ -17,6 +17,7 @@ export 'theme/reader_theme.dart';
 export 'annotations/annotation.dart';
 export 'annotations/mark_settings.dart';
 export 'bookmarks/bookmark_style.dart';
+export 'footnote_dialog.dart' show ReaderFootnoteStyle;
 export 'decorations/decoration.dart';
 export 'decorations/decoration_image_store.dart';
 export 'decorations/decoration_rules.dart';
