@@ -140,7 +140,13 @@ class PackageEditor {
     });
   }
 
-  void addXhtml(String path, String title, {int? index}) {
+  void addXhtml(
+    String path,
+    String title, {
+    int? index,
+    bool blank = false,
+    String? stylesFrom,
+  }) {
     _requireNewPath(path);
     final doc = _package;
     final id = _addManifest(doc, path, 'application/xhtml+xml');
@@ -160,16 +166,62 @@ class PackageEditor {
         XmlAttribute(XmlName.parts('idref'), id),
       ]),
     );
-    final body = XmlDocument.parse(
-      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title/></head>'
-      '<body><h1/></body></html>',
-    );
-    _section(body, 'title').children.add(XmlText(title));
-    _section(body, 'h1').children.add(XmlText(title));
+    final body = _newXhtml(path, title, blank, stylesFrom);
     session.transaction('新增章节', (tx) {
       tx.writeText(path, body.toXmlString());
       tx.writeText(opfPath, doc.toXmlString());
     });
+  }
+
+  XmlDocument _newXhtml(
+    String path,
+    String title,
+    bool blank,
+    String? stylesFrom,
+  ) {
+    final document = XmlDocument.parse(
+      blank
+          ? '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<html xmlns="http://www.w3.org/1999/xhtml">\n'
+                '  <head>\n    <title/>\n  </head>\n'
+                '  <body>\n    \n  </body>\n</html>\n'
+          : '<html xmlns="http://www.w3.org/1999/xhtml"><head><title/></head>'
+                '<body><h1/></body></html>',
+    );
+    _section(document, 'title').children.add(
+      XmlText(
+        blank && title.trim().isEmpty
+            ? p.posix.basenameWithoutExtension(path)
+            : title,
+      ),
+    );
+    if (!blank) _section(document, 'h1').children.add(XmlText(title));
+    if (stylesFrom != null) {
+      _inheritXhtmlStyles(_section(document, 'head'), path, stylesFrom);
+    }
+    return document;
+  }
+
+  void _inheritXhtmlStyles(XmlElement head, String path, String stylesFrom) {
+    final original = XmlDocument.parse(session.readText(stylesFrom));
+    for (final node in _section(original, 'head').childElements) {
+      final isStyle = node.name.local == 'style';
+      final isLink =
+          node.name.local == 'link' &&
+          (node.getAttribute('rel') ?? '')
+              .toLowerCase()
+              .split(RegExp(r'\s+'))
+              .contains('stylesheet');
+      if (!isStyle && !isLink) continue;
+      final copy = _copyWithNamespaces(node);
+      _rewriteElementReferences(copy, (href) {
+        final uri = Uri.parse(href);
+        if (uri.hasScheme || uri.hasAuthority) return href;
+        final (target, suffix) = resolveEditReference(stylesFrom, href);
+        return relativeEditReference(path, target, suffix);
+      });
+      head.children.addAll([XmlText('\n    '), copy]);
+    }
   }
 
   void renameResource(String oldPath, String newPath) {
