@@ -53,7 +53,7 @@ class _FakeSessionStore implements ReadingSessionStore {
 }
 
 void main() {
-  testWidgets('重复点击当前标签不查询，统计仍可显式刷新', (tester) async {
+  testWidgets('重复点击当前标签不查询，移除刷新按钮后仍可下拉刷新统计', (tester) async {
     final library = _FakeLibrary();
     await tester.pumpWidget(
       MaterialApp(
@@ -78,7 +78,12 @@ void main() {
     await tester.tap(stats);
     await tester.pumpAndSettle();
     expect(library.sessionStore.listCalls, 1);
-    await tester.tap(find.byKey(const ValueKey('stats-refresh')));
+    expect(find.byKey(const ValueKey('stats-refresh')), findsNothing);
+    final list = find.descendant(
+      of: find.byType(RefreshIndicator),
+      matching: find.byType(ListView),
+    );
+    await tester.drag(list, const Offset(0, 300));
     await tester.pumpAndSettle();
     expect(library.sessionStore.listCalls, 2);
     expect(tester.takeException(), isNull);

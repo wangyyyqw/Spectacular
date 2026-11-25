@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
@@ -17,7 +18,7 @@ import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
 import '../diagnostics/reader_log.dart';
 
-/// 统计页：图书时长、阅读日历与按书排行，保留完整统计数据汇总。
+/// 统计页：阅读总览、图书时长、阅读日历与按书排行。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
 class StatsPage extends StatefulWidget {
@@ -133,6 +134,8 @@ class _StatsPageState extends State<StatsPage> {
           await (_sessionStore?.list() ??
               Future<List<ReadingSession>>.value(const []));
       // 已切走或被新刷新取代的读取结果不再聚合，也不重建隐藏图表。
+      if (!_acceptsReload(token)) return;
+      final noteCounts = await widget.library.bookNoteCounts();
       if (!_acceptsReload(token)) return;
       final now = widget.now ?? DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
@@ -259,6 +262,10 @@ class _StatsPageState extends State<StatsPage> {
         todayReading: readingByDay[today] ?? Duration.zero,
         totalReading: insights.totalReading,
         readingDays: readingByDay.length,
+        annotationCount: noteCounts.values.fold(
+          0,
+          (total, counts) => total + counts.marks + counts.thoughts,
+        ),
         pageTurns: insights.pageTurns,
         charactersRead: insights.charactersRead,
         hasReadingSessions: storedSessions.isNotEmpty,
@@ -328,25 +335,14 @@ class _StatsPageState extends State<StatsPage> {
   Widget build(BuildContext context) {
     final content = _content;
     return Scaffold(
-      appBar: AppBar(
-        centerTitle: false,
-        scrolledUnderElevation: 0,
-        title: const Text('统计'),
-        actions: [
-          IconButton(
-            key: const ValueKey<String>('stats-refresh'),
-            tooltip: '刷新统计',
-            onPressed: _reload,
-            icon: const AppIcon(AppGlyph.refresh),
-          ),
-        ],
-        bottom: const _AppBarHairline(),
+      body: SafeArea(
+        bottom: false,
+        child: content == null
+            ? _error == null
+                  ? const _StatsSkeleton()
+                  : _StatsError(onRetry: _reload)
+            : RefreshIndicator(onRefresh: _reload, child: content),
       ),
-      body: content == null
-          ? _error == null
-                ? const _StatsSkeleton()
-                : _StatsError(onRetry: _reload)
-          : RefreshIndicator(onRefresh: _reload, child: content),
     );
   }
 }
@@ -381,6 +377,8 @@ class _StatsContent extends StatelessWidget {
             36,
           ),
           children: [
+            _StatsOverviewCard(stats: stats),
+            SizedBox(height: desktop ? 32 : 24),
             if (desktop)
               LayoutBuilder(
                 builder: (context, constraints) {
@@ -459,7 +457,11 @@ List<Record> _statsSnapshot(
   _LibraryStats stats,
   List<ReadingSession> sessions,
 ) => [
-  (DateTime(now.year, now.month, now.day), stats.totalCharacters),
+  (
+    DateTime(now.year, now.month, now.day),
+    stats.totalCharacters,
+    stats.annotationCount,
+  ),
   for (final row in stats.rows)
     (
       (
@@ -493,7 +495,7 @@ List<Record> _statsSnapshot(
     ),
 ];
 
-/// 统计数据接口继续保留，顶部摘要与概览移除后仍按原口径填充全部字段。
+/// 当前阅读总览与各统计区块共用的数据快照。
 class _LibraryStats {
   const _LibraryStats({
     required this.rows,
@@ -509,6 +511,7 @@ class _LibraryStats {
     required this.todayReading,
     required this.totalReading,
     required this.readingDays,
+    required this.annotationCount,
     required this.pageTurns,
     required this.charactersRead,
     required this.hasReadingSessions,
@@ -527,6 +530,7 @@ class _LibraryStats {
   final Duration todayReading;
   final Duration totalReading;
   final int readingDays;
+  final int annotationCount;
   final int pageTurns;
   final int charactersRead;
   final bool hasReadingSessions;
@@ -564,19 +568,163 @@ class _BookReadingStat {
   final DateTime? recentReadAt;
 }
 
+/// 顶部阅读总览：时长、字数、完读、批注与天数来自当前统计快照。
+class _StatsOverviewCard extends StatelessWidget {
+  const _StatsOverviewCard({required this.stats});
+
+  final _LibraryStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final entries = <_OverviewEntry>[
+      _OverviewEntry(
+        label: '阅读总时长',
+        value: formatReadingDuration(stats.totalReading),
+        valueKey: const ValueKey<String>('stats-overview-total-duration'),
+      ),
+      _OverviewEntry(
+        label: '今日阅读时长',
+        value: formatReadingDuration(stats.todayReading),
+        valueKey: const ValueKey<String>('stats-overview-today-duration'),
+      ),
+      _OverviewEntry(
+        label: '已阅读',
+        value: _formatOverviewCharacters(stats.charactersRead),
+        valueKey: const ValueKey<String>('stats-overview-characters'),
+      ),
+      _OverviewEntry(
+        label: '已读完',
+        value: '${stats.finished} 本',
+        valueKey: const ValueKey<String>('stats-overview-finished'),
+      ),
+      _OverviewEntry(
+        label: '划线／笔记',
+        value: '${stats.annotationCount} 条',
+        valueKey: const ValueKey<String>('stats-overview-annotations'),
+      ),
+      _OverviewEntry(
+        label: '阅读天数',
+        value: '${stats.readingDays} 天',
+        valueKey: const ValueKey<String>('stats-overview-reading-days'),
+      ),
+    ];
+    return Material(
+      key: const ValueKey<String>('stats-overview-card'),
+      color: theme.colorScheme.surface,
+      shape: ReaderUiStyle.cardShapeOf(theme),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 640 ? 3 : 2;
+            final line = theme.colorScheme.outlineVariant;
+            return Column(
+              children: [
+                for (var row = 0; row < entries.length; row += columns) ...[
+                  if (row > 0) ...[
+                    const SizedBox(height: 16),
+                    Container(height: 1, color: line),
+                    const SizedBox(height: 16),
+                  ],
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (
+                          var column = 0;
+                          column < columns && row + column < entries.length;
+                          column++
+                        ) ...[
+                          if (column > 0)
+                            Container(
+                              width: 1,
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              color: line,
+                            ),
+                          Expanded(child: entries[row + column]),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewEntry extends StatelessWidget {
+  const _OverviewEntry({
+    required this.label,
+    required this.value,
+    required this.valueKey,
+  });
+
+  final String label;
+  final String value;
+  final Key valueKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      container: true,
+      label: '$label：$value',
+      child: ExcludeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              maxLines: 2,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                key: valueKey,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 22,
+                  height: 1.15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.3,
+                  fontFeatures: _tabularFigures,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatOverviewCharacters(int count) {
+  if (count <= 0) return '0 万字';
+  if (count < 1000) return '<0.1 万字';
+  final value = count / 10000;
+  final text = value >= 100
+      ? value.round().toString()
+      : value.toStringAsFixed(1);
+  return '$text 万字';
+}
+
 /// 数字统一使用等宽字形，避免刷新时左右跳动。
 const _tabularFigures = <FontFeature>[FontFeature.tabularFigures()];
-
-class _AppBarHairline extends StatelessWidget implements PreferredSizeWidget {
-  const _AppBarHairline();
-
-  @override
-  Size get preferredSize => const Size.fromHeight(1);
-
-  @override
-  Widget build(BuildContext context) =>
-      Container(height: 1, color: Theme.of(context).colorScheme.outlineVariant);
-}
 
 /// 细线分区：标题、右侧摘要与内容。
 class _Section extends StatelessWidget {
@@ -657,6 +805,8 @@ class _StatsSkeleton extends StatelessWidget {
           physics: const NeverScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 20, 16, 36),
           children: [
+            block(250),
+            const SizedBox(height: 24),
             Align(alignment: Alignment.centerLeft, child: block(20, width: 64)),
             const SizedBox(height: 12),
             block(48),
@@ -890,11 +1040,7 @@ class _NoReadingCard extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
+      decoration: ReaderUiStyle.cardDecorationOf(theme),
       child: Row(
         children: [
           AppIcon(
