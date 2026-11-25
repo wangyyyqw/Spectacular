@@ -164,7 +164,7 @@ void main() {
       );
       expect(
         tester.widget<Text>(find.text('第二章')).style?.color,
-        ReaderDrawerStyle.textOf(theme),
+        theme.colorScheme.primary,
       );
       expect(
         tester.widget<Text>(find.text('2.1')).style?.color,
@@ -463,7 +463,7 @@ void main() {
       final theme = Theme.of(tester.element(find.byType(TocPanel)));
       expect(
         tester.widget<Text>(find.text('第一节')).style?.color,
-        ReaderDrawerStyle.textOf(theme),
+        theme.colorScheme.primary,
       );
       expect(
         tester.widget<Text>(find.text('第一节子目')).style?.color,

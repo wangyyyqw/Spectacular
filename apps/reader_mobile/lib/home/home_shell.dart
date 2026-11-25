@@ -348,6 +348,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               useIndicator: false,
               unselectedIconTheme: const IconThemeData(opacity: 1),
               selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
+                color: colors.primary,
                 fontWeight: FontWeight.w600,
               ),
               unselectedLabelTextStyle: theme.textTheme.bodyMedium?.copyWith(

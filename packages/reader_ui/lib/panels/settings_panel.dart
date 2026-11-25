@@ -773,17 +773,18 @@ class _SettingsPanelState extends State<SettingsPanel> {
               child: SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 4,
-                  activeTrackColor: ReaderDrawerStyle.textOf(theme),
+                  activeTrackColor: theme.colorScheme.primary,
                   inactiveTrackColor: ReaderDrawerStyle.optionBorderOf(theme),
                   thumbColor: ReaderDrawerStyle.surfaceOf(theme),
                   thumbShape: _OutlinedThumbShape(
-                    color: ReaderDrawerStyle.textOf(theme),
+                    color: theme.colorScheme.primary,
                   ),
                   overlayShape: const RoundSliderOverlayShape(
                     overlayRadius: 16,
                   ),
-                  overlayColor: ReaderDrawerStyle.textOf(theme)
-                      .withValues(alpha: 0.08),
+                  overlayColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.08,
+                  ),
                   trackShape: const RoundedRectSliderTrackShape(),
                   tickMarkShape: SliderTickMarkShape.noTickMark,
                 ),
@@ -868,6 +869,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
     );
   }
 
+  // 色块属于正文阅读配色，不能用软件面板的背景亮度筛选。
+  Brightness get _readingBrightness => ReaderTheme.byId(widget.themeId).isDark
+      ? Brightness.dark
+      : Brightness.light;
+
   List<Widget> _themeChildren(ThemeData theme) {
     final text = ReaderDrawerStyle.textOf(theme);
     final muted = ReaderDrawerStyle.mutedOf(theme);
@@ -896,7 +902,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
         child: Row(
           children: <Widget>[
             for (final item in ReaderTheme.themesFor(
-              theme.brightness,
+              _readingBrightness,
             )) ...<Widget>[
               _themeCircle(
                 key: 'settings-theme-${item.id}',
@@ -1332,8 +1338,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   Widget _customColorCircle() {
     final custom =
-        widget.customTheme?.isDark ==
-            (Theme.of(context).brightness == Brightness.dark)
+        widget.customTheme?.isDark == (_readingBrightness == Brightness.dark)
         ? widget.customTheme
         : null;
     final circle = custom == null
@@ -1384,7 +1389,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
             borderRadius: ReaderUiStyle.controlRadius,
             border: Border.all(
               color: selected
-                  ? ReaderDrawerStyle.textOf(theme)
+                  ? theme.colorScheme.primary
                   : ReaderDrawerStyle.optionBorderOf(theme),
               width: selected ? 2 : 1,
             ),
@@ -1468,7 +1473,7 @@ class _FontButton extends StatelessWidget {
     return TextButton(
       onPressed: onPressed,
       style: TextButton.styleFrom(
-        foregroundColor: ReaderDrawerStyle.textOf(theme),
+        foregroundColor: theme.colorScheme.primary,
         disabledForegroundColor: ReaderDrawerStyle.faintOf(theme),
         minimumSize: ReaderUiStyle.controlSize,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
@@ -1510,7 +1515,7 @@ class _WideActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final text = ReaderDrawerStyle.textOf(theme);
+    final text = theme.colorScheme.primary;
     return Material(
       color: ReaderDrawerStyle.optionFillOf(theme),
       shape: RoundedRectangleBorder(
@@ -1558,7 +1563,7 @@ class _StepButton extends StatelessWidget {
             size: 18,
             color: onTap == null
                 ? ReaderDrawerStyle.faintOf(theme)
-                : ReaderDrawerStyle.textOf(theme),
+                : theme.colorScheme.primary,
           ),
         ),
       ),

@@ -30,7 +30,7 @@ abstract final class ReaderDrawerStyle {
       theme.colorScheme.surfaceContainerLow;
 
   /// 主题选中圆环。
-  static Color selectedRingOf(ThemeData theme) => theme.colorScheme.onSurface;
+  static Color selectedRingOf(ThemeData theme) => theme.colorScheme.primary;
 
   /// 背景选项边框。
   static Color optionBorderOf(ThemeData theme) =>

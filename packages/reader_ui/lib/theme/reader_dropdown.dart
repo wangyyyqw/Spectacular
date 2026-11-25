@@ -89,9 +89,11 @@ class ReaderDropdownButton<T> extends StatelessWidget {
                         Expanded(
                           child: DefaultTextStyle(
                             style: theme.textTheme.bodyMedium!.copyWith(
-                              color: item.enabled
-                                  ? theme.colorScheme.onSurface
-                                  : theme.disabledColor,
+                              color: !item.enabled
+                                  ? theme.disabledColor
+                                  : item.value == value
+                                  ? theme.colorScheme.onPrimaryContainer
+                                  : theme.colorScheme.onSurface,
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -102,7 +104,11 @@ class ReaderDropdownButton<T> extends StatelessWidget {
                         SizedBox.square(
                           dimension: 20,
                           child: item.value == value
-                              ? const AppIcon(AppGlyph.check, size: 18)
+                              ? AppIcon(
+                                  AppGlyph.check,
+                                  size: 18,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                )
                               : null,
                         ),
                       ],

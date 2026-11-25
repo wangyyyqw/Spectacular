@@ -258,7 +258,7 @@ class _SearchPanelState extends State<SearchPanel> {
                       onChanged: _onChanged,
                       textInputAction: TextInputAction.search,
                       style: _textStyle(theme),
-                      cursorColor: ReaderDrawerStyle.textOf(theme),
+                      cursorColor: theme.colorScheme.primary,
                       decoration: InputDecoration(
                         hintText: '搜索本书内容',
                         hintStyle: _textStyle(theme).copyWith(color: muted),

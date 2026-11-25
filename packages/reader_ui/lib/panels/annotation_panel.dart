@@ -405,7 +405,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                         onChanged: _setQuery,
                         textInputAction: TextInputAction.search,
                         style: searchStyle,
-                        cursorColor: ReaderDrawerStyle.textOf(theme),
+                        cursorColor: theme.colorScheme.primary,
                         decoration: InputDecoration(
                           hintStyle: searchStyle.copyWith(color: muted),
                           contentPadding: const EdgeInsets.symmetric(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_panel_theme.dart';
+import '../theme/reader_environment.dart';
 import '../theme/reader_theme.dart';
 
 /// 选区菜单动作（P4-16）：id 化预留，后续可配置。
@@ -56,25 +57,27 @@ class SelectionMenu extends StatelessWidget {
   static const double _iconSize = 22;
   static const double _labelSize = 12;
   static const double _labelHeight = 1.25;
-  static const _darkTheme = ReaderTheme(
-    id: 'selection',
-    name: '选区菜单',
-    background: Color(0xFF282B31),
-    text: Color(0xFFF5F5F5),
-  );
-
   @override
   Widget build(BuildContext context) {
     if (actions.isEmpty || anchor.bottom <= 0 || anchor.top >= bounds.height) {
       return const Positioned(left: 0, top: 0, child: SizedBox.shrink());
     }
-    final menuTheme = inkMode ? readerTheme ?? ReaderTheme.white : _darkTheme;
+    return ReaderPanelTheme(
+      theme: inkMode
+          ? ReaderEnvironment.inkTheme
+          : readerTheme ?? ReaderTheme.white,
+      child: Builder(builder: _buildMenu),
+    );
+  }
+
+  Widget _buildMenu(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurface;
     final labelStyle = Theme.of(context).textTheme.labelMedium!.copyWith(
       fontSize: _labelSize,
       height: _labelHeight,
       fontWeight: FontWeight.w400,
       letterSpacing: 0,
-      color: menuTheme.text,
+      color: color,
     );
     final available = math.max(1.0, bounds.width - 24);
     final textScaler = MediaQuery.textScalerOf(context);
@@ -94,7 +97,7 @@ class SelectionMenu extends StatelessWidget {
       top: _top(minimum.height),
       child: Center(
         child: _surface(
-          menuTheme,
+          color,
           labelStyle,
           Size(width, minimum.height),
           buttonWidth,
@@ -110,39 +113,36 @@ class SelectionMenu extends StatelessWidget {
   }
 
   Widget _surface(
-    ReaderTheme theme,
+    Color color,
     TextStyle labelStyle,
     Size size,
     double buttonWidth,
-  ) => ReaderPanelTheme(
-    theme: theme,
-    child: ReaderFrostedSurface(
-      radius: _radius,
-      inkMode: inkMode,
-      child: Material(
-        key: const ValueKey<String>('selection-menu'),
-        elevation: 0,
-        borderRadius: BorderRadius.circular(_radius),
-        clipBehavior: Clip.antiAlias,
-        color: Colors.transparent,
-        child: SizedBox(
-          width: size.width,
-          height: size.height,
-          child: SingleChildScrollView(
-            key: const ValueKey<String>('selection-menu-scroll'),
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final action in actions)
-                  SizedBox(
-                    width: buttonWidth,
-                    height: size.height,
-                    child: _button(action, theme.text, labelStyle),
-                  ),
-              ],
-            ),
+  ) => ReaderFrostedSurface(
+    radius: _radius,
+    inkMode: inkMode,
+    child: Material(
+      key: const ValueKey<String>('selection-menu'),
+      elevation: 0,
+      borderRadius: BorderRadius.circular(_radius),
+      clipBehavior: Clip.antiAlias,
+      color: Colors.transparent,
+      child: SizedBox(
+        width: size.width,
+        height: size.height,
+        child: SingleChildScrollView(
+          key: const ValueKey<String>('selection-menu-scroll'),
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final action in actions)
+                SizedBox(
+                  width: buttonWidth,
+                  height: size.height,
+                  child: _button(action, color, labelStyle),
+                ),
+            ],
           ),
         ),
       ),

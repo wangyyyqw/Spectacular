@@ -17,7 +17,7 @@ Widget _panel(
     body: SettingsPanel(
       section: SettingsSection.theme,
       overrides: const ReaderOverrides(),
-      themeId: 'white',
+      themeId: brightness == Brightness.dark ? 'black' : 'white',
       customTheme: custom,
       onOverridesChanged: (_) {},
       onThemeChanged: changes.add,

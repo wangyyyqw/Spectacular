@@ -5,57 +5,67 @@ import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_environment.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 void main() {
-  testWidgets('阅读面板主题跟随深色阅读主题', (tester) async {
+  for (final brightness in Brightness.values) {
+    testWidgets('阅读配色变化时面板保持宿主 $brightness 配色', (tester) async {
+      final host = ThemeData(brightness: brightness);
+      late ThemeData captured;
+      for (final reading in [ReaderTheme.sepia, ReaderTheme.moss]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: host,
+            home: ReaderPanelTheme(
+              theme: reading,
+              child: Builder(
+                builder: (context) {
+                  captured = Theme.of(context);
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          ),
+        );
+        expect(captured.colorScheme, host.colorScheme);
+        expect(captured.brightness, brightness);
+        expect(captured.iconTheme.color, host.colorScheme.onSurface);
+      }
+    });
+  }
+
+  testWidgets('墨水屏及其嵌套弹层保持黑白控件', (tester) async {
     late ThemeData captured;
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData.dark(),
         home: ReaderPanelTheme(
-          theme: ReaderTheme.black,
-          child: Builder(
-            builder: (context) {
-              captured = Theme.of(context);
-              return const SizedBox.shrink();
-            },
+          theme: ReaderEnvironment.inkTheme,
+          child: ReaderPanelTheme(
+            theme: ReaderTheme.moss,
+            child: Builder(
+              builder: (context) {
+                captured = Theme.of(context);
+                expect(ReaderFrostedScope.inkModeOf(context), isTrue);
+                return const SizedBox.shrink();
+              },
+            ),
           ),
         ),
       ),
     );
-
-    expect(captured.brightness, Brightness.dark);
-    expect(
-      captured.colorScheme.surface.computeLuminance(),
-      greaterThan(ReaderTheme.black.background.computeLuminance()),
-      reason: '夜间面板应比阅读页背景更亮',
-    );
-    expect(captured.colorScheme.onSurface, ReaderTheme.black.text);
-    expect(captured.iconTheme.color, ReaderTheme.black.text);
-  });
-
-  testWidgets('浅色阅读主题的面板底色保持不变', (tester) async {
-    late ThemeData captured;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ReaderPanelTheme(
-          theme: ReaderTheme.white,
-          child: Builder(
-            builder: (context) {
-              captured = Theme.of(context);
-              return const SizedBox.shrink();
-            },
-          ),
-        ),
-      ),
-    );
-
-    expect(captured.colorScheme.surface, ReaderTheme.white.background);
+    expect(captured.colorScheme.surface, Colors.white);
+    expect(captured.colorScheme.onSurface, Colors.black);
+    expect(captured.colorScheme.primary, Colors.black);
+    expect(captured.colorScheme.onPrimary, Colors.white);
+    expect(captured.colorScheme.error, Colors.black);
   });
 
   testWidgets('设置面板在深色主题下使用区分阅读页的面板底色', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData.dark(),
         home: ReaderPanelTheme(
           theme: ReaderTheme.black,
           child: SettingsPanel(
@@ -106,13 +116,14 @@ void main() {
 
   testWidgets('面板沿用宿主应用字体，语义色不受浅色硬编码影响', (tester) async {
     late ThemeData captured;
+    final host = ThemeData(fontFamily: '应用宋体');
     final theme = ReaderTheme.custom(
       background: const Color(0xFFEEE1C8),
       text: const Color(0xFF35291B),
     );
     await tester.pumpWidget(
       MaterialApp(
-        theme: ThemeData(fontFamily: '应用宋体'),
+        theme: host,
         home: ReaderPanelTheme(
           theme: theme,
           child: Builder(
@@ -127,8 +138,8 @@ void main() {
     expect(captured.textTheme.bodyMedium?.fontFamily, '应用宋体');
     expect(captured.textTheme.bodySmall?.fontFamily, '应用宋体');
     expect(captured.listTileTheme.titleTextStyle?.fontFamily, '应用宋体');
-    expect(ReaderDrawerStyle.surfaceOf(captured), theme.background);
-    expect(ReaderDrawerStyle.textOf(captured), theme.text);
+    expect(ReaderDrawerStyle.surfaceOf(captured), host.colorScheme.surface);
+    expect(ReaderDrawerStyle.textOf(captured), host.colorScheme.onSurface);
     expect(
       ReaderDrawerStyle.secondaryOf(captured),
       captured.colorScheme.onSurfaceVariant,
@@ -137,7 +148,10 @@ void main() {
       ReaderDrawerStyle.dividerOf(captured),
       captured.colorScheme.outlineVariant,
     );
-    expect(ReaderDrawerStyle.selectedRingOf(captured), theme.text);
+    expect(
+      ReaderDrawerStyle.selectedRingOf(captured),
+      host.colorScheme.primary,
+    );
   });
 
   testWidgets('抽屉内容共用凝光底板，设置面板不叠加实色背景', (tester) async {
@@ -175,6 +189,9 @@ void main() {
       PageTurnMode? selectedMode;
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData(
+            brightness: theme.isDark ? Brightness.dark : Brightness.light,
+          ),
           home: ReaderPanelTheme(
             theme: theme,
             child: Scaffold(

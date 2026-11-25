@@ -1177,6 +1177,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ),
         child: IconButton(
           key: const ValueKey<String>('bookshelf-import'),
+          color: colors.primary,
           tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
           constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           onPressed: busy || !widget.allowImport ? null : _import,
@@ -2140,7 +2141,9 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
           child: Text(
             widget.label,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface,
+              color: widget.selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
               fontWeight: widget.selected ? FontWeight.w600 : FontWeight.normal,
             ),
           ),

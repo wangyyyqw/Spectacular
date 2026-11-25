@@ -129,7 +129,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 title: Text(order.label),
                 selected: order == _shelfSort,
-                selectedColor: Theme.of(context).colorScheme.onSurface,
+                selectedColor: Theme.of(context).colorScheme.onPrimaryContainer,
                 onTap: () => Navigator.of(context).pop(order),
               ),
           ],
@@ -162,7 +162,7 @@ class _ProfilePageState extends State<ProfilePage> {
               for (final mode in ThemeMode.values)
                 RadioListTile(
                   value: mode,
-                  activeColor: Theme.of(context).colorScheme.onSurface,
+                  activeColor: Theme.of(context).colorScheme.primary,
                   contentPadding: EdgeInsets.zero,
                   title: Text(switch (mode) {
                     ThemeMode.system => '跟随系统',
@@ -434,10 +434,7 @@ class _ProfilePageState extends State<ProfilePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '墨屿',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
+              Text('墨屿', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 4),
               Text(
                 info == null

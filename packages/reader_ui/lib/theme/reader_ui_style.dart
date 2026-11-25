@@ -35,7 +35,7 @@ abstract final class ReaderUiStyle {
   );
 }
 
-/// 使用当前语义色与字体统一外观，阅读配色由调用方提供。
+/// 使用当前软件主题的语义色与字体统一界面外观。
 ThemeData applyReaderUiStyle(ThemeData base) {
   final surfaces = _surfaces(_overlays(base));
   final actions = _actions(surfaces);
@@ -141,10 +141,15 @@ ThemeData _inputs(ThemeData base) {
   final colors = base.colorScheme;
   return base.copyWith(
     inputDecorationTheme: _inputDecoration(base),
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: colors.primary,
+      selectionColor: colors.primary.withValues(alpha: .20),
+      selectionHandleColor: colors.primary,
+    ),
     listTileTheme: base.listTileTheme.copyWith(
       iconColor: colors.onSurfaceVariant,
       textColor: colors.onSurface,
-      selectedColor: colors.primary,
+      selectedColor: colors.onPrimaryContainer,
       selectedTileColor: colors.primaryContainer,
       titleTextStyle: base.textTheme.bodyMedium,
       subtitleTextStyle: base.textTheme.bodySmall,
@@ -171,7 +176,7 @@ InputDecorationThemeData _inputDecoration(ThemeData base) {
     enabledBorder: border,
     disabledBorder: border,
     focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: colors.primary),
+      borderSide: BorderSide(color: colors.primary, width: 2),
     ),
     errorBorder: border.copyWith(borderSide: BorderSide(color: colors.error)),
     focusedErrorBorder: border.copyWith(
@@ -288,7 +293,7 @@ ThemeData _feedback(ThemeData base) {
       shape: ReaderUiStyle.controlShape,
     ),
     tabBarTheme: base.tabBarTheme.copyWith(
-      labelColor: colors.onSurface,
+      labelColor: colors.primary,
       unselectedLabelColor: colors.onSurfaceVariant,
       labelStyle: base.textTheme.titleSmall,
       unselectedLabelStyle: base.textTheme.bodyMedium,
