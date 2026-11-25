@@ -45,6 +45,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
     this.imageCache,
     this.style = ReaderFootnoteStyle.dialog,
     this.anchor,
+    this.contentWidth,
   });
 
   /// 当前点击的注释。
@@ -58,6 +59,9 @@ class ReaderFootnoteDialog extends StatelessWidget {
 
   /// 正文中被点击注号的屏幕坐标；弹窗样式不使用。
   final Offset? anchor;
+
+  /// 正文排版区域宽度；气泡居中并与正文等宽。
+  final double? contentWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -180,15 +184,15 @@ class ReaderFootnoteDialog extends StatelessWidget {
     final point = anchor ?? Offset(screen.width / 2, screen.height / 2);
     final bubble = style == ReaderFootnoteStyle.bubble;
     final width = bubble
-        ? math.min(680.0, screen.width - 24).toDouble()
-        : math.min(560.0, screen.width * 0.82).toDouble();
+        ? (contentWidth ?? screen.width - 24).clamp(0.0, screen.width)
+        : screen.width * 0.70;
     final belowSpace = screen.height - point.dy - safe.bottom - 18;
     final aboveSpace = point.dy - safe.top - 18;
     final below = belowSpace >= 150 || belowSpace >= aboveSpace;
     final availableHeight = math
         .min(
-          math.min(360.0, screen.height * 0.46),
-          math.max(80.0, below ? belowSpace : aboveSpace),
+          screen.height * (bubble ? 0.40 : 0.20),
+          math.max(0.0, below ? belowSpace : aboveSpace),
         )
         .toDouble();
     final top = below
@@ -210,11 +214,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                 ),
               )
               .toDouble();
-    final left = bubble
-        ? (point.dx - width / 2)
-              .clamp(8.0, math.max(8.0, screen.width - width - 8))
-              .toDouble()
-        : 0.0;
+    final left = bubble ? (screen.width - width) / 2 : 0.0;
     final paragraphs = <String>[
       for (final paragraph in (footnote.text ?? '').split(RegExp(r'\n+')))
         if (paragraph.trim().isNotEmpty) paragraph.trim(),
@@ -226,16 +226,21 @@ class ReaderFootnoteDialog extends StatelessWidget {
           left: left,
           top: top,
           width: width,
-          child: _FootnoteCallout(
-            bubble: bubble,
-            pointerLeft: (point.dx - left - 8)
-                .clamp(14.0, math.max(14.0, width - 30))
-                .toDouble(),
-            pointerAtBottom: !below,
-            maxHeight: availableHeight,
-            paragraphs: paragraphs,
-            images: footnote.imageUrls,
-            imageCache: imageCache,
+          height: availableHeight,
+          // 短注释贴住靠近注号的一侧，最大高度只限制长内容，不参与实际间距。
+          child: Align(
+            alignment: below ? Alignment.topCenter : Alignment.bottomCenter,
+            child: _FootnoteCallout(
+              bubble: bubble,
+              pointerLeft: (point.dx - left - 8)
+                  .clamp(14.0, math.max(14.0, width - 30))
+                  .toDouble(),
+              pointerAtBottom: !below,
+              maxHeight: availableHeight,
+              paragraphs: paragraphs,
+              images: footnote.imageUrls,
+              imageCache: imageCache,
+            ),
           ),
         ),
       ],
@@ -249,6 +254,7 @@ Future<void> showReaderFootnotePopup({
   required PageFootnote footnote,
   required ReaderFootnoteStyle style,
   required Offset anchor,
+  required double contentWidth,
   DecodedImageCache? imageCache,
   ReaderTheme? readerTheme,
 }) async {
@@ -272,6 +278,7 @@ Future<void> showReaderFootnotePopup({
               footnote: footnote,
               style: style,
               anchor: anchor,
+              contentWidth: contentWidth,
               imageCache: imageCache,
             ),
           ),

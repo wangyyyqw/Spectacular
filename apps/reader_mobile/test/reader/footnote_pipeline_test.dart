@@ -1,15 +1,130 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_ui/footnote_dialog.dart';
+import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_view.dart';
 
 import 'support/css_chapter_book.dart';
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
+  for (final style in ReaderFootnoteStyle.values) {
+    testWidgets('${style.label}注释开关与前台恢复保持系统栏隐藏且不改变阅读位置', (tester) async {
+      final bars = <Object?>[];
+      const channel = MethodChannel('com.spectacular.reader_mobile/reader');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'setSystemBars') bars.add(call.arguments);
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      tester.view.physicalSize = const Size(384, 854);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const padding = EdgeInsets.fromLTRB(10, 40, 10, 34);
+      final source = await openCssChapter(
+        body:
+            '<p>${List.filled(26, '正文').join('<br/>')}'
+            '<a href="#fn1" role="doc-noteref">注</a></p>'
+            '<aside id="fn1" role="doc-footnote">治安：谓政治清明，社会安定。</aside>',
+        css: 'body,p {margin:0;font:18px/1.5 Ahem;text-indent:0;}',
+        contentWidth: 364,
+        contentHeight: 780,
+      );
+      addTearDown(source.close);
+      late ReaderSession session;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReaderPage(
+              source: source,
+              store: MemoryReaderProgressStore(),
+              bookId: 'bottom-footnote',
+              padding: padding,
+              overrides: const ReaderOverrides(),
+              showPageFooter: false,
+              footnoteStyle: style,
+              onSessionReady: (value) => session = value,
+            ),
+          ),
+        ),
+      );
+      await pumpReaderUntilComplete(
+        tester,
+        () => !session.loading && session.hasContent,
+        description: '底部注释首屏正文',
+      );
+      await tester.pumpAndSettle();
+      expect(bars.last, {'statusBar': false, 'navigationBar': false});
+      final page = session.page!;
+      final line = TextHitTester.lineBoxes(page).last;
+      final pagePosition = Offset(line.rect.right - 2, line.rect.center.dy);
+      expect(
+        TextHitTester.footnoteAt(page, pagePosition)?.text,
+        '治安：谓政治清明，社会安定。',
+      );
+      final tap =
+          tester.getTopLeft(find.byType(ReaderView)) +
+          Offset(padding.left, padding.top) +
+          pagePosition;
+      expect(tap.dy, greaterThan(700));
+      await tester.tapAt(tap);
+      await tester.pumpAndSettle();
+      final popup = find.byType(ReaderFootnoteDialog);
+      expect(popup, findsOneWidget);
+      expect(bars, everyElement({'statusBar': false, 'navigationBar': false}));
+      if (style != ReaderFootnoteStyle.dialog) {
+        final callout = find.byKey(
+          ValueKey('reader-footnote-callout-${style.name}'),
+        );
+        final gap = style == ReaderFootnoteStyle.bubble ? 18.0 : 10.0;
+        final rect = tester.getRect(callout);
+        expect(rect.bottom, closeTo(tap.dy - gap, .01));
+        if (style == ReaderFootnoteStyle.bubble) {
+          expect(rect.width, closeTo(384 - padding.horizontal, .01));
+          expect(rect.left, closeTo(384 - rect.right, .01));
+        } else {
+          expect(rect.width, closeTo(384 * .70, .01));
+        }
+      }
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(bars.last, {'statusBar': false, 'navigationBar': false});
+      expect(session.page, same(page));
+      await tester.tapAt(const Offset(190, 300));
+      await tester.pumpAndSettle();
+      expect(popup, findsNothing);
+      expect(bars, everyElement({'statusBar': false, 'navigationBar': false}));
+      expect(session.page, same(page));
+      // 注释关闭后，普通弹层仍恢复自己的系统栏状态。
+      showDialog<void>(
+        context: tester.element(find.byType(ReaderPage)),
+        builder: (_) => const AlertDialog(content: Text('普通弹层')),
+      );
+      await tester.pumpAndSettle();
+      expect(bars.last, {'statusBar': true, 'navigationBar': true});
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(bars.last, {'statusBar': false, 'navigationBar': false});
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   test('浮动绕排及跨页重建保留标题和正文图片注释的实际点击区', () async {
     const tail = '正文续行。';
     final source = await openCssChapter(
