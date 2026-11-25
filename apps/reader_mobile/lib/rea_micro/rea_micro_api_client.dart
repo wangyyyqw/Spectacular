@@ -707,12 +707,12 @@ class ReaMicroApiClient
     bool sessionAccounting = false,
   }) async {
     if (entries.isEmpty && sessionLogs.isEmpty) return;
-    // 正式版将按日列表、会话日志和开关放在同一个请求中；这样未关联书籍
-    // 也能沿用用户书内部 bookId 完成首次登记后的时长上报。
+    // 会话记账与旧式按日增量互斥；同时提交会被服务器以业务码 2 拒绝。
     final data = await _post(
       'rest/reader/update-read-time-by-date',
       <String, Object?>{
-        'list': <Object?>[for (final entry in entries) entry.toJson()],
+        if (!sessionAccounting)
+          'list': <Object?>[for (final entry in entries) entry.toJson()],
         if (sessionLogs.isNotEmpty)
           'sessionLogs': <Object?>[for (final log in sessionLogs) log.toJson()],
         if (sessionLogs.isNotEmpty || sessionAccounting)

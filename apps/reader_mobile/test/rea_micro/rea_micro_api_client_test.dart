@@ -129,7 +129,7 @@ void main() {
     expect(pages, 20);
   });
 
-  test('会话记账与按日时长使用同一正式接口', () async {
+  test('会话记账沿用正式接口并排除会被服务器拒绝的旧式增量', () async {
     final paths = <String>[];
     final api = ReaMicroApiClient(
       baseUrl: 'https://example.test/',
@@ -137,6 +137,7 @@ void main() {
         paths.add(request.url.path);
         final body = jsonDecode(request.body) as Map<String, Object?>;
         expect(body['sessionAccounting'], isTrue);
+        expect(body.containsKey('list'), isFalse);
         return _json({
           'code': 0,
           'data': {'sessionAccountingSupported': true},
@@ -147,7 +148,13 @@ void main() {
     await expectLater(
       api.updateReadTimeByDate(
         'token',
-        const [],
+        const [
+          ReaMicroReadTimeEntry(
+            cloudBookId: 7001,
+            date: '2026-11-20',
+            durationSeconds: 1,
+          ),
+        ],
         sessionLogs: const [
           ReaMicroReadSessionLog(
             id: 'stable-session',
@@ -218,16 +225,13 @@ void main() {
     addTearDown(api.close);
 
     await expectLater(
-      api.updateReadTimeByDate(
-        'token',
-        const <ReaMicroReadTimeEntry>[
-          ReaMicroReadTimeEntry(
-            cloudBookId: 0,
-            date: '2026-11-20',
-            durationSeconds: 60,
-          ),
-        ],
-      ),
+      api.updateReadTimeByDate('token', const <ReaMicroReadTimeEntry>[
+        ReaMicroReadTimeEntry(
+          cloudBookId: 0,
+          date: '2026-11-20',
+          durationSeconds: 60,
+        ),
+      ]),
       completes,
     );
   });
@@ -1196,12 +1200,7 @@ void main() {
     expect(bodies['hide-read-record'], <String, Object?>{'bookId': 8});
     final update = bodies['update-read-time-by-date']! as Map<String, Object?>;
     expect(update['sessionAccounting'], isTrue);
-    expect((update['list']! as List<Object?>).single, <String, Object?>{
-      'bookId': 21,
-      'date': '2026-11-18',
-      'duration': 60,
-      'verify': '',
-    });
+    expect(update.containsKey('list'), isFalse);
     expect((update['sessionLogs']! as List<Object?>).single, <String, Object?>{
       'id': 'session-1',
       'bookId': 21,
