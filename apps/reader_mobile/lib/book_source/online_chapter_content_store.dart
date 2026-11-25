@@ -33,6 +33,21 @@ class OnlineChapterContentStore {
     }
   }
 
+  /// 目录仅查询文件状态，避免读取全部章节正文。
+  Future<bool> contains({
+    required String sourceId,
+    required String bookUrl,
+    required String chapterUrl,
+    required String rulesFingerprint,
+  }) async {
+    try {
+      final file = await _file(sourceId, bookUrl, chapterUrl, rulesFingerprint);
+      return await file.exists() && await file.length() > 0;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
   Future<void> write({
     required String sourceId,
     required String bookUrl,

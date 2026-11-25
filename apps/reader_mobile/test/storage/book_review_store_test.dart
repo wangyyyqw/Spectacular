@@ -32,6 +32,18 @@ void main() {
     }
   });
 
+  test('半星评分落盘读回保持精度，修改正文不改变星级', () async {
+    final book = await library.importBytes(buildTestEpub(title: '半星书评'));
+    await progress.save(
+      book.id,
+      const ReaderProgress(spineIndex: 0, pageIndex: 0, finished: true),
+    );
+    await store.save(book.id, rating: 3.5, content: '七分评价');
+    expect((await store.snapshot())[book.id]!.rating, 3.5);
+    await store.save(book.id, rating: 3.5, content: '保留七分，修改正文');
+    expect((await store.snapshot())[book.id]!.rating, 3.5);
+  });
+
   test('内存书库默认没有已读完书籍', () async {
     final memory = LibraryStore.memory();
     await memory.importBytes(buildTestEpub(title: '内存未读完'));

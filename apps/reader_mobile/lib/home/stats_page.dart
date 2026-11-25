@@ -9,7 +9,6 @@ import 'package:reader_ui/theme/reader_ui_style.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_models.dart';
-import 'book_cover_image.dart';
 import 'book_duration_chart.dart';
 import 'cloud_stats_view.dart';
 import 'desktop_layout.dart';
@@ -423,6 +422,14 @@ class _StatsPageState extends State<StatsPage> {
         break;
       }
     }
+    if (localBookId == null) {
+      for (final entry in controller.syncBooks.entries) {
+        if (entry.value.userBookId == record.bookId) {
+          localBookId = entry.key;
+          break;
+        }
+      }
+    }
     if (localBookId == null && controller.s3Configured) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -494,6 +501,10 @@ class _StatsPageState extends State<StatsPage> {
               linkedCloudBookIds: <int>{
                 for (final link in controller.links.values) link.cloudBookId,
               },
+              linkedUserBookIds: {
+                for (final identity in controller.syncBooks.values)
+                  identity.userBookId,
+              },
               loading: controller.loadingCloudStats,
               onRefresh: _refresh,
               onOpenBook: _openCloudBook,
@@ -558,7 +569,6 @@ class _StatsContent extends StatelessWidget {
               )
             else
               ...sections,
-            _RecentSection(stats: stats, onOpenBook: onOpenBook),
           ],
         ),
       ),
@@ -604,6 +614,7 @@ class _StatsContent extends StatelessWidget {
                 entry.key: entry.value,
           },
           bookTitles: stats.insights.bookTitles,
+          percents: {for (final row in stats.rows) row.book.id: row.percent},
           onOpen: onOpenBook,
         ),
       ),
@@ -966,221 +977,6 @@ class _StatsError extends StatelessWidget {
       ),
     );
   }
-}
-
-class _RecentSection extends StatelessWidget {
-  const _RecentSection({required this.stats, required this.onOpenBook});
-
-  final _LibraryStats stats;
-  final ValueChanged<BookEntry> onOpenBook;
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = stats.rows.where((row) => row.recentReadAt != null).toList();
-    return StatsSection(
-      title: '最近阅读',
-      detail: rows.isEmpty ? null : '按最后阅读排序',
-      child: rows.isEmpty
-          ? const _NoReadingCard()
-          : Column(
-              children: [
-                for (var index = 0; index < rows.length; index++) ...[
-                  if (index > 0) const Divider(height: 1),
-                  _RecentBookRow(
-                    stat: rows[index],
-                    onOpen: () => onOpenBook(rows[index].book),
-                  ),
-                ],
-              ],
-            ),
-    );
-  }
-}
-
-class _RecentBookRow extends StatelessWidget {
-  const _RecentBookRow({required this.stat, required this.onOpen});
-
-  final _BookReadingStat stat;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    key: ValueKey<String>('stats-open-${stat.book.id}'),
-    onTap: onOpen,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Hero(
-            tag: bookCoverHeroTag(stat.book.id),
-            transitionOnUserGestures: true,
-            child: BookCoverImage(book: stat.book, width: 40, height: 54),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: _details(context)),
-        ],
-      ),
-    ),
-  );
-
-  Widget _details(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _headline(),
-        if (stat.book.author.isNotEmpty) ...[
-          const SizedBox(height: 3),
-          Text(
-            stat.book.author,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: muted),
-          ),
-        ],
-        const SizedBox(height: 6),
-        Text(
-          _positionLabel(stat.book, stat.progress),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 11, height: 1.4, color: muted),
-        ),
-        const SizedBox(height: 8),
-        _footer(context),
-      ],
-    );
-  }
-
-  Widget _headline() => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Expanded(
-        child: Text(
-          stat.book.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            height: 1.35,
-          ),
-        ),
-      ),
-      const SizedBox(width: 12),
-      Text(
-        stat.percent == null ? '--' : '${stat.percent}%',
-        key: ValueKey<String>('stats-book-${stat.book.id}'),
-        style: const TextStyle(
-          fontSize: 13,
-          height: 1.4,
-          fontWeight: FontWeight.w600,
-          fontFeatures: _tabularFigures,
-        ),
-      ),
-    ],
-  );
-
-  Widget _footer(BuildContext context) => Row(
-    children: [
-      Expanded(child: _ProgressLine(percent: stat.percent)),
-      const SizedBox(width: 12),
-      Text(
-        _relativeTime(stat.recentReadAt),
-        style: TextStyle(
-          fontSize: 11,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ),
-      const SizedBox(width: 2),
-      AppIcon(
-        AppGlyph.chevronRight,
-        size: 14,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-    ],
-  );
-}
-
-/// 进度条：零值不留填充，极小进度保留 2% 可见宽度。
-class _ProgressLine extends StatelessWidget {
-  const _ProgressLine({required this.percent});
-
-  final int? percent;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final value = percent == null ? 0.0 : (percent! / 100).clamp(0.0, 1.0);
-    final visible = percent == null || percent! <= 0
-        ? 0.0
-        : value < 0.02
-        ? 0.02
-        : value;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(2),
-      child: LayoutBuilder(
-        builder: (context, constraints) => Stack(
-          children: [
-            Container(
-              height: 3,
-              width: double.infinity,
-              color: theme.colorScheme.surfaceContainerHighest,
-            ),
-            Container(
-              height: 3,
-              width: constraints.maxWidth * visible,
-              color: theme.colorScheme.primary,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NoReadingCard extends StatelessWidget {
-  const _NoReadingCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
-      decoration: ReaderUiStyle.cardDecorationOf(theme),
-      child: Row(
-        children: [
-          AppIcon(
-            AppGlyph.autoStories,
-            size: 20,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '还没有阅读记录，从书架打开一本书吧。',
-              style: TextStyle(
-                fontSize: 13,
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-String _positionLabel(BookEntry book, ReaderProgress? progress) {
-  if (progress == null) {
-    return '尚未开始';
-  }
-  final position =
-      '第 ${progress.spineIndex + 1} 章 · 第 ${progress.pageIndex + 1} 页';
-  final total = book.spineCount;
-  return total == null ? position : '$position / 共 $total 章';
 }
 
 String _relativeTime(DateTime? time, {DateTime? now}) {

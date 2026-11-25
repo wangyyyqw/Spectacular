@@ -34,8 +34,10 @@ class BookReadingTotals {
   int pageTurns = 0;
   int charactersRead = 0;
   DateTime? lastEndedAt;
+  final Set<DateTime> readingDays = {};
 
   void add(ReadingSession session) {
+    readingDays.addAll(_splitByDay(session).map((portion) => portion.date));
     duration += session.duration;
     sessions++;
     pageTurns += _nonNegative(session.pageTurns);

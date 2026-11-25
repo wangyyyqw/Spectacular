@@ -127,7 +127,7 @@ void main() {
       ],
     );
 
-    expect(merge.reviews[local.id]?.rating, 5);
+    expect(merge.reviews[local.id]?.rating, 4.5);
     expect(merge.reviews[local.id]?.content, '云端书评正文');
     expect(merge.durations[local.id], const Duration(hours: 2));
     expect(merge.readDays[local.id], 12);

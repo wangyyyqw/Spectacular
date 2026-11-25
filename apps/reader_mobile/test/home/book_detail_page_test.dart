@@ -45,7 +45,7 @@ class _FailingReviewStore implements BookReviewStore {
   @override
   Future<void> save(
     String bookId, {
-    int? rating,
+    num? rating,
     required String content,
   }) async {
     await delegate.save(bookId, rating: rating, content: content);

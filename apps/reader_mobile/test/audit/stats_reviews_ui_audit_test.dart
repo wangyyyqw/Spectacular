@@ -27,7 +27,7 @@ class _ReviewStore implements BookReviewStore {
   @override
   Future<void> save(
     String bookId, {
-    int? rating,
+    num? rating,
     required String content,
   }) async {
     final now = DateTime.now();

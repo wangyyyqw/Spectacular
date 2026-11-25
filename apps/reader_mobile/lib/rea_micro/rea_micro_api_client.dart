@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../diagnostics/reader_log.dart';
 import 'rea_micro_models.dart';
 
 /// 阅微账号内置对象存储的同步接口。
@@ -479,20 +480,30 @@ class ReaMicroApiClient
     String token,
     Map<String, Object?> body,
   ) async {
-    const pageSize = 200;
+    // 正式服务固定每页 20 条，使用其实际页大小判断是否还有下一页。
+    const pageSize = 20;
     final records = <ReaMicroBookRecord>[];
-    for (var page = 1; page <= 20; page++) {
+    final seen = <int>{};
+    for (var page = 1; page <= 250; page++) {
       final data = await _post(endpoint, <String, Object?>{
         ...body,
         'pageNum': page,
         'pageSize': pageSize,
       }, token: token);
       final rawList = _responseList(data);
-      records.addAll(<ReaMicroBookRecord>[
-        for (final item in rawList)
-          if (item is Map<String, Object?>) ReaMicroBookRecord.fromJson(item),
-      ]);
+      var added = 0;
+      for (final item in rawList) {
+        if (item is! Map<String, Object?>) continue;
+        final record = ReaMicroBookRecord.fromJson(item);
+        if (seen.add(record.bookId)) {
+          records.add(record);
+          added++;
+        }
+      }
       if (rawList.length < pageSize) return records;
+      if (added == 0) {
+        throw const ReaMicroException('阅微书籍分页重复，未获得完整记录');
+      }
     }
     throw const ReaMicroException('阅微书籍记录超过分页上限，未获得完整记录');
   }
@@ -735,12 +746,17 @@ class ReaMicroApiClient
     required String chapterName,
     required double progress,
   }) async {
-    await _post('rest/reader/update-read-progress', <String, Object?>{
-      'bookId': cloudBookId,
-      'cfi': cfi,
-      'chapterName': chapterName,
-      'progress': progress.clamp(0.0, 1.0),
-    }, token: token);
+    try {
+      await _post('rest/reader/update-read-progress', <String, Object?>{
+        'bookId': cloudBookId,
+        'cfi': cfi,
+        'chapterName': chapterName,
+        'progress': progress.clamp(0.0, 1.0),
+      }, token: token);
+    } on ReaMicroException catch (error) {
+      _logProgressFailure(error, stage: 'upload', bookId: '$cloudBookId');
+      rethrow;
+    }
   }
 
   @override
@@ -748,9 +764,21 @@ class ReaMicroApiClient
     String token, {
     required String cloudBookId,
   }) async {
-    final data = await _post('rest/reader/get-read-progress', <String, Object?>{
-      'bookId': cloudBookId,
-    }, token: token);
+    final Object? data;
+    try {
+      data = await _post('rest/reader/get-read-progress', <String, Object?>{
+        'bookId': cloudBookId,
+      }, token: token);
+    } on ReaMicroException catch (error) {
+      // 首次同步尚无云端进度；继续上报本地位置，不消耗失败重试额度。
+      if (error.statusCode == 200 &&
+          error.code == 2 &&
+          error.message.trim().toLowerCase() == 'record not found') {
+        return null;
+      }
+      _logProgressFailure(error, stage: 'fetch', bookId: cloudBookId);
+      rethrow;
+    }
     final Map<String, Object?>? json = switch (data) {
       final Map<String, Object?> map => map,
       final List<Object?> list when list.isNotEmpty =>
@@ -762,6 +790,27 @@ class ReaMicroApiClient
     if (json == null) return null;
     final result = ReaMicroReadProgress.fromJson(json);
     return result.usable ? result : null;
+  }
+
+  void _logProgressFailure(
+    ReaMicroException error, {
+    required String stage,
+    required String bookId,
+  }) {
+    recordAppEvent(
+      'reamicro_progress_failed',
+      fields: {
+        'stage_enum': stage,
+        'user_book_id': int.tryParse(bookId) ?? 0,
+        'code': error.code ?? 0,
+        'http_status': error.statusCode ?? 0,
+        'failure_reason_enum': error.unauthorized
+            ? 'unauthorized'
+            : error.code != null
+            ? 'business_rejected'
+            : 'transport',
+      },
+    );
   }
 
   @override

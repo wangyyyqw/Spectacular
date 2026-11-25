@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../rea_micro/rea_micro_models.dart';
@@ -129,10 +130,7 @@ class _CloudReadingCalendarState extends State<CloudReadingCalendar>
     return Material(
       key: const ValueKey('stats-reading-calendar'),
       color: scheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
+      shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -167,14 +165,6 @@ class _CloudReadingCalendarState extends State<CloudReadingCalendar>
                       onPressed: () =>
                           _showMonth(DateTime(_month.year, _month.month + 1)),
                       icon: const Icon(Icons.chevron_right),
-                    ),
-                    TextButton(
-                      key: const ValueKey('stats-calendar-today'),
-                      onPressed: () {
-                        final now = DateTime.now();
-                        _showMonth(DateTime(now.year, now.month));
-                      },
-                      child: const Text('今天'),
                     ),
                   ],
                 ),

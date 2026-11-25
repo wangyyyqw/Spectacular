@@ -414,7 +414,7 @@ class BookReviews extends Table {
   IntColumn get bookId =>
       integer().references(Books, #id, onDelete: KeyAction.cascade)();
 
-  /// 评分 1～5；null 表示未评分。
+  /// 半星单位 1～10（1 为半星）；null 表示未评分。
   IntColumn get rating => integer().nullable()();
 
   /// 书评正文。
@@ -603,6 +603,24 @@ class AppDatabase extends _$AppDatabase {
       if (details.versionBefore case final version?) {
         await _mergeDevelopmentSchema(version);
       }
+      // 只迁移评分单位，表结构不变；标记与数据在同一事务中提交。
+      await transaction(() async {
+        final unit =
+            await (select(settingsTable)
+                  ..where((t) => t.key.equals('bookReviews.ratingUnit')))
+                .getSingleOrNull();
+        if (unit == null) {
+          await customStatement(
+            'UPDATE book_reviews SET rating = rating * 2 WHERE rating IS NOT NULL',
+          );
+          await into(settingsTable).insert(
+            SettingsTableCompanion.insert(
+              key: 'bookReviews.ratingUnit',
+              value: 'half-star',
+            ),
+          );
+        }
+      });
       // §36.2：级联删除依赖外键约束。
       await customStatement('PRAGMA foreign_keys = ON');
     },

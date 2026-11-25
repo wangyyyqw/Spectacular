@@ -20,6 +20,33 @@ TocEntry _entry(
 );
 
 void main() {
+  testWidgets('在线目录只给未缓存章节显示云朵，选择行为不变', (tester) async {
+    TocEntry? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TocPanel(
+            entries: [_entry('已下载章', 0), _entry('未下载章', 1)],
+            currentSpineIndex: 0,
+            onSelect: (entry) => selected = entry,
+            isChapterCached: (index) async => index == 0,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.cloud_outlined), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('toc-row-1-未下载章')),
+        matching: find.byIcon(Icons.cloud_outlined),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('未下载章'));
+    expect(selected?.spineIndex, 1);
+  });
+
   for (final (width, scale) in [(360.0, 1.0), (320.0, 1.5)]) {
     testWidgets('目录页头在宽度$width、字号倍率$scale下完整显示时间', (tester) async {
       tester.view.physicalSize = Size(width, 640);

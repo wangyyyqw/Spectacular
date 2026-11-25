@@ -6,8 +6,140 @@ import 'package:reader_mobile/home/cloud_stats_view.dart';
 import 'package:reader_mobile/home/cloud_reading_calendar.dart';
 import 'package:reader_mobile/home/weekday_average_chart.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
+import 'package:reader_mobile/home/reading_book_list.dart';
 
 void main() {
+  testWidgets('阅读记录抽屉隐藏入口先确认，取消保留记录，确认后调用隐藏接口', (tester) async {
+    final book = ReaMicroBookRecord.fromJson({
+      'bookId': 8,
+      'name': '待隐藏云端书',
+      'totalReadTime': 3600,
+      'readDays': 8,
+    });
+    var hidden = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudStatsView(
+            stats: _snapshot(_period(day: 3, total: 3600)),
+            loading: false,
+            linkedCloudBookIds: {},
+            onRefresh: () async {},
+            onOpenBook: (_) {},
+            onLoadBookRecords: (_, _) async => [book],
+            onHideBookRecord: (id) async {
+              expect(id, 8);
+              hidden++;
+              return const ReaMicroActionResult(success: true, message: '已隐藏');
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final all = find.byKey(const ValueKey('cloud-records-all'));
+    await tester.scrollUntilVisible(all, 250);
+    await tester.ensureVisible(all);
+    await tester.pumpAndSettle();
+    await tester.tap(all);
+    await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('reading-books-all-list'));
+    final hideButton = find.descendant(
+      of: drawer,
+      matching: find.byKey(const ValueKey('reading-book-hide-8')),
+    );
+    expect(
+      find.descendant(of: drawer, matching: find.textContaining('读了')),
+      findsNothing,
+    );
+    await tester.tap(hideButton);
+    await tester.pumpAndSettle();
+    expect(hidden, 0);
+    expect(find.text('隐藏阅读记录？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(hidden, 0);
+    await tester.ensureVisible(all);
+    await tester.pumpAndSettle();
+    await tester.tap(all);
+    await tester.pumpAndSettle();
+    await tester.tap(hideButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('隐藏').last);
+    await tester.pumpAndSettle();
+    expect(hidden, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('正式周接口按星期展示柱子，周期天数优先且累计天数明确标注', (tester) async {
+    final period = ReaMicroPeriodStats.fromJson({
+      'days': [
+        {'day': 1, 'duration': '32721'},
+        {'day': 2, 'duration': '17819'},
+        {'day': 3, 'duration': '12650'},
+      ],
+      'totalDuration': '63190',
+      'topBooks': [
+        {'bookId': '46664', 'readDays': 3, 'duration': '60352'},
+        {'bookId': '47573', 'readDays': 1, 'duration': '1458'},
+      ],
+    });
+    final original = _snapshot(period);
+    ReaMicroBookRecord book(int id, int seconds, int days) =>
+        ReaMicroBookRecord.fromJson({
+          'bookId': id,
+          'name': '书$id',
+          'totalReadTime': seconds,
+          'readDays': days,
+        });
+    final snapshot = ReaMicroCloudStats(
+      overview: original.overview,
+      week: period,
+      month: period,
+      year: period,
+      chart: [],
+      books: [
+        book(46664, 207340, 9),
+        book(47573, 1458, 1),
+        book(47560, 560, 2),
+      ],
+      fetchedAt: DateTime(2026, 11, 25),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CloudStatsView(
+            stats: snapshot,
+            loading: false,
+            linkedCloudBookIds: {},
+            onRefresh: () async {},
+            onOpenBook: (_) {},
+            onLoadBookRecords: (_, _) async => [
+              book(46664, 60352, 0),
+              book(47573, 1458, 0),
+              book(47560, 560, 0),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('周').first);
+    await tester.pumpAndSettle();
+    expect(find.text('本周期暂无阅读时长'), findsNothing);
+    expect(find.text('一'), findsOneWidget);
+    expect(find.text('周一阅读最久 · 9 小时 5 分钟'), findsOneWidget);
+    final list = tester.widget<ReadingBookList>(
+      find.byType(ReadingBookList).first,
+    );
+    expect(list.books.first.days, 3);
+    expect(list.books[1].days, 1);
+    expect(list.books[2].days, 2);
+    expect(list.books[2].daysCumulative, isTrue);
+    expect(find.text('最近阅读'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('图书时长共用周月年选择加载完整记录并可浏览历史周期', (tester) async {
     final calls = <(ReaMicroRecordPeriod, DateTime)>[];
     final summaryCalls = <(ReaMicroRecordPeriod, DateTime)>[];
@@ -47,7 +179,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls.single, (ReaMicroRecordPeriod.month, DateTime(2026, 11, 20)));
     expect(find.text('阅读记录 2'), findsOneWidget);
-    expect(find.text('阅读 1 小时'), findsOneWidget);
+    expect(find.text('1 小时 · 读了 0 天'), findsOneWidget);
+    expect(find.text('3日阅读最久 · 1 小时'), findsOneWidget);
+    expect(find.text('本期阅读最多'), findsNothing);
+    expect(find.text('1h'), findsWidgets);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('cloud-duration-previous')),
       150,
@@ -399,17 +534,17 @@ void main() {
     }
     expect(find.text('2 小时'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey<String>('cloud-stats-book-21')),
+      find.byKey(const ValueKey<String>('cloud-ranking-21')),
       300,
     );
     await tester.ensureVisible(
-      find.byKey(const ValueKey<String>('cloud-stats-book-21')),
+      find.byKey(const ValueKey<String>('cloud-ranking-21')),
     );
     await tester.pumpAndSettle();
     expect(find.text('云端书'), findsWidgets);
-    expect(find.text('已关联本地书籍，可打开'), findsOneWidget);
+    expect(find.byTooltip('已关联本地书籍'), findsWidgets);
 
-    await tester.tap(find.byKey(const ValueKey<String>('cloud-stats-book-21')));
+    await tester.tap(find.byKey(const ValueKey<String>('cloud-ranking-21')));
     expect(opened?.cloudBookId, 21);
   });
 }

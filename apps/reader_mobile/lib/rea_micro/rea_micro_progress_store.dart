@@ -11,6 +11,10 @@ class ReaMicroTrackingProgressStore implements ReaderProgressStore {
   final ReaderProgressStore _delegate;
   final Future<void> Function(String bookId, ReaderProgress progress) _onSaved;
 
+  /// 在线阅读使用独立位置存储时保留同一保存通知，避免绕过同步队列。
+  ReaderProgressStore withDelegate(ReaderProgressStore delegate) =>
+      ReaMicroTrackingProgressStore(delegate, _onSaved);
+
   @override
   Future<ReaderProgress?> load(String bookId) => _delegate.load(bookId);
 

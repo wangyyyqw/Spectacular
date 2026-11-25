@@ -241,7 +241,7 @@ void main() {
       ]) {
         expect(find.byKey(ValueKey(key)), findsNothing);
       }
-      for (final title in ['图书时长', '阅读日历', '阅读排行', '最近阅读']) {
+      for (final title in ['图书时长', '阅读日历', '阅读排行']) {
         expect(find.text(title), findsOneWidget);
       }
       expect(_valueOf(tester, 'stats-overview-total-duration'), '20 分钟');
@@ -529,8 +529,12 @@ void main() {
       tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
       isNot(same(original)),
     );
-    await _scrollTo(tester, find.byKey(const ValueKey('stats-book-a')), 300);
-    expect(_valueOf(tester, 'stats-book-a'), '25%');
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('stats-ranking-percent-a')),
+      300,
+    );
+    expect(_valueOf(tester, 'stats-ranking-percent-a'), '25%');
 
     library.books = [
       library.books.single.copyWith(title: '新书名', contentRevision: '修订2'),
@@ -542,7 +546,7 @@ void main() {
       finished: true,
     );
     await _pullToRefresh(tester);
-    expect(_valueOf(tester, 'stats-book-a'), '60%');
+    expect(_valueOf(tester, 'stats-ranking-percent-a'), '60%');
     expect(find.text('新书名'), findsWidgets);
     expect(find.text('旧书名'), findsNothing);
 
@@ -994,7 +998,10 @@ void main() {
     expect(_valueOf(tester, 'stats-book-duration-total'), '40 分钟');
     final ranking = find.byKey(const ValueKey('stats-ranking-archived'));
     await _scrollTo(tester, ranking, 180);
-    expect(_valueOf(tester, 'stats-ranking-duration-archived'), '30 分钟');
+    expect(
+      _valueOf(tester, 'stats-ranking-duration-archived'),
+      '30 分钟 · 读了 1 天',
+    );
     expect(
       find.descendant(of: ranking, matching: find.text('历史保留的书')),
       findsOneWidget,
@@ -1057,13 +1064,16 @@ void main() {
     expect(rankingTop.dy - calendarBottom.dy, inExclusiveRange(0, 90));
     await _scrollTo(
       tester,
-      find.byKey(const ValueKey('stats-ranking-counts-a')),
+      find.byKey(const ValueKey('stats-ranking-duration-a')),
       180,
     );
-    expect(_valueOf(tester, 'stats-ranking-duration-a'), '1 小时');
-    await _scrollTo(tester, find.byKey(const ValueKey('stats-open-a')), 180);
-    expect(find.text('最近阅读'), findsOneWidget);
-    expect(_valueOf(tester, 'stats-book-a'), '--');
+    expect(
+      _valueOf(tester, 'stats-ranking-duration-a'),
+      startsWith('1 小时 · 读了 '),
+    );
+    await _scrollTo(tester, find.byKey(const ValueKey('stats-ranking-a')), 180);
+    expect(find.text('最近阅读'), findsNothing);
+    expect(_valueOf(tester, 'stats-ranking-percent-a'), '--');
     expect(tester.takeException(), isNull);
   });
 
@@ -1105,12 +1115,15 @@ void main() {
       find.byKey(const ValueKey('stats-ranking-duration-a')),
       180,
     );
-    expect(_valueOf(tester, 'stats-ranking-duration-a'), '50 分钟');
     expect(
-      find.byKey(const ValueKey('stats-ranking-counts-a')),
+      _valueOf(tester, 'stats-ranking-duration-a'),
+      startsWith('50 分钟 · 读了 '),
+    );
+    expect(
+      find.byKey(const ValueKey('stats-ranking-duration-a')),
       findsOneWidget,
     );
-    expect(find.text('2 次 · 5 次翻页 · 500 字'), findsOneWidget);
+    expect(find.text('50 分钟 · 读了 2 天'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
@@ -1158,13 +1171,9 @@ void main() {
     expect(find.text('阅读分布'), findsNothing);
     expect(find.byKey(const ValueKey('stats-band-unread')), findsNothing);
     expect(find.byKey(const ValueKey('stats-band-finished')), findsNothing);
-    final rankingBottom = tester.getBottomLeft(
-      find.text('开始阅读后，这里会按投入时长列出书目。'),
-    );
-    final recentTop = tester.getTopLeft(find.text('最近阅读'));
-    expect(recentTop.dy - rankingBottom.dy, inExclusiveRange(0, 90));
-    expect(find.byKey(const ValueKey<String>('stats-open-a')), findsNothing);
-    expect(find.byKey(const ValueKey<String>('stats-open-b')), findsNothing);
+    expect(find.text('最近阅读'), findsNothing);
+    expect(find.byKey(const ValueKey<String>('stats-ranking-a')), findsNothing);
+    expect(find.byKey(const ValueKey<String>('stats-ranking-b')), findsNothing);
   });
 
   testWidgets('切回统计页时按刷新令牌重新读取阅读会话', (tester) async {
@@ -1205,7 +1214,7 @@ void main() {
     expect(_valueOf(tester, 'stats-book-duration-total'), '5 分钟');
   });
 
-  testWidgets('点击最近阅读卡片可直接续读', (tester) async {
+  testWidgets('点击阅读排行卡片可直接续读', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry entry;
     await tester.runAsync(() async {
@@ -1240,18 +1249,12 @@ void main() {
     }
     await _scrollTo(
       tester,
-      find.byKey(ValueKey<String>('stats-open-${entry.id}')),
+      find.byKey(ValueKey<String>('stats-ranking-${entry.id}')),
       300,
     );
     await tester.pumpAndSettle();
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is Hero && widget.tag == bookCoverHeroTag(entry.id),
-      ),
-      findsOneWidget,
-    );
 
-    await tester.tap(find.byKey(ValueKey<String>('stats-open-${entry.id}')));
+    await tester.tap(find.byKey(ValueKey<String>('stats-ranking-${entry.id}')));
     await pumpReaderUntil(
       tester,
       find.byKey(const ValueKey<String>('reader-page')),
@@ -1349,12 +1352,18 @@ void main() {
     Navigator.of(tester.element(find.text('合计 8 分钟'))).pop();
     await tester.pumpAndSettle();
     await _scrollTo(tester, find.byKey(const ValueKey('stats-ranking-a')), 180);
-    expect(_valueOf(tester, 'stats-ranking-duration-a'), '6 分钟');
+    expect(
+      _valueOf(tester, 'stats-ranking-duration-a'),
+      startsWith('6 分钟 · 读了 '),
+    );
     expect(find.byKey(const ValueKey('stats-ranking-b')), findsNothing);
-    expect(_valueOf(tester, 'stats-ranking-counts-a'), '3 次 · 0 次翻页 · 0 字');
-    await _scrollTo(tester, find.text('最近阅读'), 180);
-    expect(find.byKey(const ValueKey('stats-open-a')), findsOneWidget);
-    expect(find.byKey(const ValueKey('stats-open-b')), findsNothing);
+    expect(
+      _valueOf(tester, 'stats-ranking-duration-a'),
+      startsWith('6 分钟 · 读了 '),
+    );
+    await _scrollTo(tester, find.text('阅读排行'), 180);
+    expect(find.byKey(const ValueKey('stats-ranking-a')), findsOneWidget);
+    expect(find.byKey(const ValueKey('stats-ranking-b')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -1398,7 +1407,7 @@ void main() {
     );
   });
 
-  testWidgets('最近阅读仅展示单书单日达标书目，短记录和无会话书目均隐藏', (tester) async {
+  testWidgets('阅读排行仅展示单书单日达标书目，短记录和无会话书目均隐藏', (tester) async {
     final now = DateTime.now();
     final keptEnd = now.subtract(const Duration(days: 2));
     await tester.pumpWidget(
@@ -1432,10 +1441,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _scrollTo(tester, find.text('最近阅读'), 300);
-    expect(find.byKey(const ValueKey('stats-open-short')), findsNothing);
-    expect(find.text('2 天前'), findsOneWidget);
-    expect(find.byKey(const ValueKey('stats-open-legacy')), findsNothing);
+    await _scrollTo(tester, find.text('阅读排行'), 300);
+    expect(find.byKey(const ValueKey('stats-ranking-short')), findsNothing);
+    expect(find.byKey(const ValueKey('stats-ranking-kept')), findsOneWidget);
+    expect(find.byKey(const ValueKey('stats-ranking-legacy')), findsNothing);
   });
 
   testWidgets('首次加载失败时显示重试入口', (tester) async {

@@ -48,6 +48,16 @@ void main() {
       'reamicro_read_time_failed',
       fields: {'code': 2, 'sessions': 1},
     );
+    await log.log(
+      'reamicro_progress_failed',
+      fields: {
+        'stage_enum': 'fetch',
+        'user_book_id': 47560,
+        'code': 2,
+        'http_status': 200,
+        'failure_reason_enum': 'business_rejected',
+      },
+    );
     await File('${dir.path}/reader_log.txt').writeAsString(
       List.filled(
         20000,
@@ -56,6 +66,7 @@ void main() {
       mode: FileMode.append,
     );
     expect(await log.exportText(), contains('reamicro_read_time_failed'));
+    expect(await log.exportText(), contains('reamicro_progress_failed'));
     expect(await log.exportText(), contains('[日志已截断，'));
     log.resetForTest();
     log = create();
@@ -74,6 +85,7 @@ void main() {
       await log.exportText(),
       isNot(contains('reamicro_read_time_failed')),
     );
+    expect(await log.exportText(), isNot(contains('reamicro_progress_failed')));
     expect(await log.exportText(), isNot(contains('page_turn')));
     expect(await exported.readAsString(), isEmpty);
     log.resetForTest();

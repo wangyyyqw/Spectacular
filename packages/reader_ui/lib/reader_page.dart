@@ -117,6 +117,7 @@ class ReaderPage extends StatefulWidget {
     required this.store,
     required this.bookId,
     this.readingDuration,
+    this.isChapterCached,
     this.contentRevision,
     this.background = const Color(0xFFFFFFFF),
     this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -292,6 +293,7 @@ class ReaderPage extends StatefulWidget {
 
   /// 本书历史累计与当前有效阅读时长。
   final ValueListenable<Duration>? readingDuration;
+  final Future<bool> Function(int)? isChapterCached;
 
   /// 原 EPUB 文件摘要；当前内容锚点的解释版本。
   final String? contentRevision;
@@ -3214,6 +3216,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   ? null
                   : _ReaderDrawerContent(
                       readingDuration: widget.readingDuration,
+                      isChapterCached: widget.isChapterCached,
                       entry: _drawer!,
                       tab: _drawerTab,
                       onTabChanged: (tab) => setState(() => _drawerTab = tab),
@@ -3857,6 +3860,7 @@ enum _DrawerTab {
 class _ReaderDrawerContent extends StatefulWidget {
   const _ReaderDrawerContent({
     this.readingDuration,
+    this.isChapterCached,
     required this.entry,
     required this.tab,
     required this.onTabChanged,
@@ -3931,6 +3935,7 @@ class _ReaderDrawerContent extends StatefulWidget {
 
   final ReaderMenuEntry entry;
   final ValueListenable<Duration>? readingDuration;
+  final Future<bool> Function(int)? isChapterCached;
   final _DrawerTab tab;
   final ValueChanged<_DrawerTab> onTabChanged;
   final FocusNode searchFocus;
@@ -4194,6 +4199,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
             itemBuilder: (context, index) => switch (_tabs[index]) {
               _DrawerTab.content => TocPanel(
                 readingDuration: widget.readingDuration,
+                isChapterCached: widget.isChapterCached,
                 entries: widget.entries,
                 currentSpineIndex: widget.currentSpineIndex,
                 currentCfi: widget.currentCfi,

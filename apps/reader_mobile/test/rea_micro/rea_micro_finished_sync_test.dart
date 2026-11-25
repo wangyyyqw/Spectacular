@@ -14,7 +14,7 @@ class _Reviews implements BookReviewStore {
   @override
   Future<void> save(
     String bookId, {
-    int? rating,
+    num? rating,
     required String content,
   }) async {}
   @override
@@ -137,6 +137,29 @@ ReaMicroCloudBook _cloudBook() =>
     ReaMicroCloudBook.fromJson({'cloudBookId': 11, 'name': '关联书'});
 
 void main() {
+  test('读完评价预填阅微半星，保存半星和正文保留公开状态', () async {
+    final library = _Library();
+    final api = _Api()
+      ..review = ReaMicroBookReview.fromJson({
+        'id': 7,
+        'rating': 7,
+        'comment': '已有阅微评价',
+        'status': 2,
+      });
+    final progress = MemoryReaderProgressStore();
+    await progress.save('local', _position);
+    final controller = await _controller(library, api, progress);
+    addTearDown(controller.dispose);
+    await controller.linkBook('local', _cloudBook(), userBookId: 8);
+    final review = await controller.loadFinishedReview('local');
+    expect(review!.rating, 3.5);
+    expect(review.content, '已有阅微评价');
+    await controller.saveFinishedReview('local', 4.5, '调整后的评价');
+    expect(api.uploads.last.rating, 9);
+    expect(api.uploads.last.comment, '调整后的评价');
+    expect(api.uploads.last.publish, isTrue);
+  });
+
   test('本地标记读完后自动队列上传双 ID、评分并保留云端正文和发布状态', () async {
     final library = _Library();
     final api = _Api()

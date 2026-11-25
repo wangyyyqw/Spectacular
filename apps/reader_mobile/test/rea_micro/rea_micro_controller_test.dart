@@ -900,6 +900,7 @@ Future<ReaMicroController> _createController(
   ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
   ReaMicroAggregateSearch? aggregateSearch,
   DateTime Function()? now,
+  Future<String?> Function()? appVersion,
 }) async {
   if (signedIn) {
     await ReaMicroStore(library).saveToken('token');
@@ -924,6 +925,7 @@ Future<ReaMicroController> _createController(
     s3ClientFactory: s3ClientFactory,
     aggregateSearch: aggregateSearch,
     now: now,
+    appVersion: appVersion ?? () async => '1.0.0+19',
   );
   await controller.initialize();
   return controller;
@@ -1122,6 +1124,54 @@ void main() {
     expect(api.uploads, hasLength(12));
     expect(api.sessionLogUploads.last.single.id, id);
     expect(await ReaMicroStore(library).loadPendingSessionUpload(), isNull);
+  });
+
+  test('版本升级清零额度并在初始化自动补传，同版本重启保留上限', () async {
+    final library = _TestLibrary();
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 1))),
+    );
+    final store = ReaMicroStore(library);
+    final api = _FakeApi();
+    api.onSessionUpload = () async =>
+        throw const ReaMicroException('业务拒绝', code: 2);
+    var version = '1.0.0+19';
+    var controller = await _createController(
+      library,
+      api,
+      appVersion: () async => version,
+    );
+    for (var attempt = 0; attempt < 11; attempt++) {
+      await controller.syncReadingSessions();
+    }
+    final pendingId = api.sessionLogUploads.first.single.id;
+    expect((await store.loadUploadRetryBudget())['retries'], 10);
+    controller.dispose();
+    controller = await _createController(
+      library,
+      api,
+      appVersion: () async => version,
+    );
+    expect(api.uploads, hasLength(11));
+    expect((await store.loadUploadRetryBudget())['retries'], 10);
+    controller.dispose();
+    version = '1.0.0+21';
+    api.onSessionUpload = null;
+    controller = await _createController(
+      library,
+      api,
+      appVersion: () async => version,
+    );
+    addTearDown(controller.dispose);
+    expect(api.uploads, hasLength(12));
+    expect(api.sessionLogUploads.last.single.id, pendingId);
+    final budget = await store.loadUploadRetryBudget();
+    expect(budget['version'], version);
+    expect(budget['retries'], 0);
+    expect(budget['failed'], isNot(contains('sessions')));
+    expect(await store.loadPendingSessionUpload(), isNull);
+    expect(await store.loadSessionWatermarks(), isNotEmpty);
   });
 
   test('登记失败保留未关联时段，恢复后使用会话而不累计降级', () async {

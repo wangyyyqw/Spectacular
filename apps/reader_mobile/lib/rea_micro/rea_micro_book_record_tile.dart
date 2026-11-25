@@ -1,145 +1,93 @@
 import 'package:flutter/material.dart';
 
+import '../home/reading_book_list.dart';
 import 'rea_micro_models.dart';
 
-/// 统计与阅读记录共用的按书时长、进度与隐藏入口。
+/// 统计与阅读记录共用的云端书籍卡片。
 class ReaMicroBookRecordTile extends StatelessWidget {
-  /// 创建记录行；支持从统计页打开本地已关联书籍。
   const ReaMicroBookRecordTile({
     super.key,
     required this.record,
     required this.onHide,
     this.onOpen,
+    this.linked = false,
   });
 
   final ReaMicroBookRecord record;
   final VoidCallback? onHide;
   final VoidCallback? onOpen;
+  final bool linked;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: onOpen,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            _Cover(url: record.cover),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          record.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${(record.progress * 100).round()}%',
-                        style: theme.textTheme.labelMedium,
-                      ),
-                    ],
-                  ),
-                  if (record.author.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 2),
-                    Text(
-                      record.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                  const SizedBox(height: 7),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 4,
-                    children: <Widget>[
-                      Text(
-                        '阅读 ${_formatDuration(record.totalReadTimeSeconds)}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      if (record.listeningDurationSeconds > 0 &&
-                          record.readingDurationSeconds > 0)
-                        Text(
-                          '读 ${_formatDuration(record.readingDurationSeconds)}',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      if (record.listeningDurationSeconds > 0)
-                        Text(
-                          '听 ${_formatDuration(record.listeningDurationSeconds)}',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      if (record.finished)
-                        Text(
-                          '已读完',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: '隐藏记录',
-              onPressed: record.bookId > 0 ? onHide : null,
-              icon: const Icon(Icons.visibility_off_outlined, size: 20),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ReadingBookTile(
+    item: cloudReadingBookItem(
+      record,
+      linked: linked,
+      onOpen: onOpen,
+      onHide: onHide,
+    ),
+  );
 }
 
-class _Cover extends StatelessWidget {
-  const _Cover({required this.url});
+ReadingBookItem cloudReadingBookItem(
+  ReaMicroBookRecord record, {
+  bool linked = false,
+  VoidCallback? onOpen,
+  VoidCallback? onHide,
+  int recentOrder = 0,
+  Key? rowKey,
+  int? days,
+  bool daysCumulative = false,
+}) => ReadingBookItem(
+  id: '${record.bookId}',
+  title: record.name,
+  author: record.author,
+  duration: Duration(seconds: record.totalReadTimeSeconds),
+  days: days ?? record.readDays,
+  daysCumulative: daysCumulative,
+  recentOrder: record.lastReadTime > 0 ? record.lastReadTime : recentOrder,
+  percent: (record.progress * 100).round().clamp(0, 100),
+  linked: linked,
+  finished: record.finished,
+  statusIcon: linked ? Icons.cloud_done_outlined : Icons.cloud_outlined,
+  statusLabel: linked ? '已关联本地书籍' : '仅云端记录',
+  onOpen: onOpen,
+  onHide: record.bookId > 0 ? onHide : null,
+  rowKey: rowKey,
+  coverBuilder: (width, height) =>
+      _Cover(url: record.cover, width: width, height: height),
+);
 
+class _Cover extends StatelessWidget {
+  const _Cover({required this.url, required this.width, required this.height});
   final String url;
+  final double width;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    Widget fallback() => ColoredBox(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Icon(
+        Icons.menu_book_outlined,
+        color: theme.colorScheme.onSurfaceVariant,
+        size: 20,
+      ),
+    );
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
       child: SizedBox(
-        width: 42,
-        height: 56,
+        width: width,
+        height: height,
         child: url.isEmpty
-            ? ColoredBox(
-                color: theme.colorScheme.surfaceContainerHighest,
-                child: const Icon(Icons.menu_book_outlined, size: 20),
-              )
+            ? fallback()
             : Image.network(
                 url,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stack) => ColoredBox(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  child: const Icon(Icons.menu_book_outlined, size: 20),
-                ),
+                errorBuilder: (_, _, _) => fallback(),
               ),
       ),
     );
   }
-}
-
-String _formatDuration(int seconds) {
-  if (seconds <= 0) return '0 分钟';
-  final minutes = seconds ~/ 60;
-  if (minutes < 60) return minutes <= 0 ? '<1 分钟' : '$minutes 分钟';
-  final hours = minutes ~/ 60;
-  final rest = minutes % 60;
-  return rest == 0 ? '$hours 小时' : '$hours 小时 $rest 分钟';
 }

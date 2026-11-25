@@ -51,6 +51,18 @@ class ReaMicroStore {
   Future<void> saveUploadRetryBudget(Map<String, Object?> value) =>
       _library.setSetting(_uploadRetryKey, jsonEncode(value));
 
+  /// 新版本首次启动清零旧失败额度，保留待上传记录和幂等水位。
+  Future<bool> resetUploadRetriesForVersion(String version) async {
+    final budget = await loadUploadRetryBudget();
+    if (budget['version'] == version) return false;
+    await saveUploadRetryBudget({
+      'version': version,
+      'retries': 0,
+      'failed': <String>[],
+    });
+    return true;
+  }
+
   /// 正数为待标记读完，负数为待取消；绝对值是本地修改时间。
   Future<Map<String, int>> loadPendingFinished() async {
     final raw = await _library.getSetting(_finishedKey);

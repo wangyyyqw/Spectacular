@@ -320,8 +320,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Future<bool> _setAllAsGroup(bool value) async {
     try {
       if (value) {
-        final assignments = await widget.library.groupAssignments();
-        await widget.library.setBooksGroup(assignments.keys);
         await widget.library.setSetting(bookshelfDefaultGroupNameKey, '默认');
       }
       return await _toggleShelfSetting(bookshelfAllAsGroupKey, value);

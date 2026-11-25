@@ -119,6 +119,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       onlineBooks: _onlineBooks,
       onReadingFinished: _onReadingFinished,
       loadTtsVoices: _loadTtsVoices,
+      loadFinishedReview: _reaMicro.loadFinishedReview,
+      saveFinishedReview: _reaMicro.saveFinishedReview,
     );
     if (widget.showWelcomeAnnouncement) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -393,8 +395,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final unselectedColor =
         navigationTheme.unselectedItemColor ??
         theme.colorScheme.onSurfaceVariant;
-    final selectedColor =
-        navigationTheme.selectedItemColor ?? theme.colorScheme.onSurface;
+    final selectedColor = theme.useMaterial3
+        ? theme.colorScheme.onSecondaryContainer
+        : navigationTheme.selectedItemColor ?? theme.colorScheme.onSurface;
     final navigationBackground =
         navigationTheme.backgroundColor ?? theme.canvasColor;
     final iconOffset = Offset(0, usesDesktopLayout(context) ? 0 : 2);
@@ -424,8 +427,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               definitions[index].$2,
               size: 24,
               color: selectedColor,
-              filled: !theme.useMaterial3,
-              cutoutColor: navigationBackground,
+              filled: true,
+              cutoutColor: theme.useMaterial3
+                  ? theme.colorScheme.secondaryContainer
+                  : navigationBackground,
             ),
           ),
         ),

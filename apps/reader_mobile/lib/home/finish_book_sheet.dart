@@ -1,3 +1,4 @@
+import 'package:reader_ui/rating/reader_rating.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -11,7 +12,7 @@ import '../storage/book_review_store.dart';
 class FinishBookDraft {
   const FinishBookDraft({required this.rating, required this.content});
 
-  final int? rating;
+  final num? rating;
   final String content;
 }
 
@@ -44,7 +45,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
   late final _controller = TextEditingController(
     text: widget.review?.content ?? '',
   )..addListener(_changed);
-  late int? _rating = widget.review?.rating;
+  late num? _rating = widget.review?.rating;
   bool _saving = false;
   bool _allowPop = false;
   bool _closing = false;
@@ -163,32 +164,20 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     ],
   );
 
-  void _setRating(int star) => setState(() {
-    _rating = _rating == star ? null : star;
-    _error = null;
-  });
-
   Widget _ratingPicker(ThemeData theme) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text('评分（可选）', style: theme.textTheme.labelLarge),
       const SizedBox(height: 6),
-      Wrap(
-        spacing: 2,
-        children: [
-          for (var star = 1; star <= 5; star++)
-            Semantics(
-              selected: _rating == star,
-              child: IconButton(
-                key: ValueKey<String>('book-detail-finish-rating-$star'),
-                tooltip: '$star 星',
-                onPressed: _saving ? null : () => _setRating(star),
-                iconSize: 34,
-                color: theme.colorScheme.onSurface,
-                icon: AppIcon(AppGlyph.star, filled: star <= (_rating ?? 0)),
-              ),
-            ),
-        ],
+      ReaderRatingPicker(
+        rating: _rating,
+        keyPrefix: 'book-detail-finish-rating',
+        onChanged: _saving
+            ? null
+            : (value) => setState(() {
+                _rating = value;
+                _error = null;
+              }),
       ),
     ],
   );
@@ -352,7 +341,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
         : Material(
             key: const ValueKey<String>('book-detail-finish-sheet'),
             color: ReaderFrostedSurface.panelColorOf(context),
-            borderRadius: ReaderUiStyle.sheetRadius,
+            borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
             clipBehavior: Clip.antiAlias,
             child: SafeArea(
               top: false,

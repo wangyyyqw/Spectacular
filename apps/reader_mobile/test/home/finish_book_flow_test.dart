@@ -14,6 +14,7 @@ import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/rating/reader_rating.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -35,7 +36,7 @@ class _FailingReviews implements BookReviewStore {
   @override
   Future<void> save(
     String bookId, {
-    int? rating,
+    num? rating,
     required String content,
   }) async {
     if (fail) throw const FormatException('书评写入失败，请重试');
@@ -48,11 +49,18 @@ Future<ReaderSession> _openBook(
   LibraryStore library,
   DriftProgressStore progress, {
   BookReviewStore? reviews,
+  BookReviewLoader? loadReview,
+  BookReviewSaver? saveReview,
 }) async {
   final book = (await tester.runAsync(
     () => library.importBytes(buildTestEpub(title: '读完流程验收')),
   ))!;
-  final opener = BookOpener(library: library, progressStore: progress);
+  final opener = BookOpener(
+    library: library,
+    progressStore: progress,
+    loadFinishedReview: loadReview,
+    saveFinishedReview: saveReview,
+  );
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(),
@@ -133,6 +141,46 @@ void main() {
   tearDown(() async {
     await database.close();
     directory.deleteSync(recursive: true);
+  });
+
+  testWidgets('读完页显示已有阅微半星评价，修改后同时保存本地和云端', (tester) async {
+    num? savedRating;
+    String? savedContent;
+    final session = await _openBook(
+      tester,
+      library,
+      progress,
+      loadReview: (id) async => BookReview(
+        bookId: id,
+        rating: 3.5,
+        content: '已有阅微书评',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+      ),
+      saveReview: (id, rating, content) async {
+        savedRating = rating;
+        savedContent = content;
+      },
+    );
+    await _openFinish(tester);
+    expect(
+      tester.widget<ReaderRatingPicker>(find.byType(ReaderRatingPicker)).rating,
+      3.5,
+    );
+    expect(find.text('已有阅微书评'), findsOneWidget);
+    await tester.tap(_key('book-detail-finish-rating-half-9'));
+    await tester.pump();
+    await _save(tester, 'book-detail-finish-save');
+    expect(savedRating, 4.5);
+    expect(savedContent, '已有阅微书评');
+    expect(session.progress!.finished, isTrue);
+    final review = (await tester.runAsync(
+      () => library.reviewStore()!.snapshot(),
+    ))![session.bookId]!;
+    expect(review.rating, 4.5);
+    expect(review.content, '已有阅微书评');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('末页再翻打开读完页，取消和回翻不修改正文位置或读完状态', (tester) async {

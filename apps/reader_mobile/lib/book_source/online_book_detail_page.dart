@@ -3,12 +3,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
-import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import 'book_source_models.dart';
 import 'book_source_discovery.dart';
 import 'book_source_service.dart';
 import 'online_book_controller.dart';
+import 'online_chapter_cache_icon.dart';
 import 'online_chapter_request.dart';
 import 'online_reading_book.dart';
 
@@ -235,6 +236,13 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
         _info = catalog.book;
         _chapters = catalog.chapters;
       });
+      final entry = await widget.controller.addToShelf(
+        currentSource,
+        catalog.book,
+        catalog.chapters,
+        isCancelled: () => _closed,
+      );
+      if (!mounted) return;
       await widget.onRead!(
         context,
         OnlineReadingBook(
@@ -242,41 +250,10 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
           book: catalog.book,
           chapters: catalog.chapters,
           service: widget.controller.service,
-          bookshelfId: widget.controller
-              .shelfEntryFor(currentSource, catalog.book)
-              ?.id,
+          bookshelfId: entry.id,
         ),
         startChapter: start,
       );
-      if (mounted &&
-          widget.controller.shelfEntryFor(currentSource, catalog.book) ==
-              null) {
-        final add = await showReaderDialog<bool>(
-          context: context,
-          builder: (context) => ReaderFrostedAlertDialog(
-            title: const Text('加入书架'),
-            content: Text('是否将《${catalog.book.name}》加入书架，保留阅读位置？'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('暂不加入'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('加入书架'),
-              ),
-            ],
-          ),
-        );
-        if (add == true && mounted) {
-          await widget.controller.addToShelf(
-            currentSource,
-            catalog.book,
-            catalog.chapters,
-          );
-          if (mounted) setState(() {});
-        }
-      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -514,6 +491,16 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                 onTap: _canRead && !_downloading && !_opening
                     ? () => _read(chapter)
                     : null,
+                trailing: OnlineChapterCacheIcon(
+                  cached: widget.controller.service.isChapterCached(
+                    _currentSource!,
+                    chapter,
+                    (_info ?? widget.book).bookUrl,
+                    nextChapter: index + 1 < chapters.length
+                        ? chapters[index + 1]
+                        : null,
+                  ),
+                ),
                 title: Text(
                   '${index + 1}. ${chapter.title}',
                   maxLines: 1,
@@ -579,12 +566,31 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
 
   Widget _contentTabs() {
     final theme = Theme.of(context);
+    if (theme.useMaterial3) {
+      return SegmentedButton<bool>(
+        key: const ValueKey('online-book-content-tabs'),
+        segments: const [
+          ButtonSegment(
+            value: true,
+            label: Text('简介', key: ValueKey('online-book-intro-tab')),
+          ),
+          ButtonSegment(
+            value: false,
+            label: Text('目录', key: ValueKey('online-book-toc-tab')),
+          ),
+        ],
+        selected: {_showIntroduction},
+        showSelectedIcon: false,
+        onSelectionChanged: (values) =>
+            setState(() => _showIntroduction = values.single),
+      );
+    }
     return Container(
       key: const ValueKey('online-book-content-tabs'),
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: theme.colorScheme.onSurface.withValues(alpha: .09),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: ReaderUiStyle.buttonRadiusOf(theme),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -610,7 +616,7 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                   elevation: _showIntroduction == intro ? 1 : 0,
                   shadowColor: Colors.black.withValues(alpha: .05),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(17),
+                    borderRadius: ReaderUiStyle.buttonRadiusOf(theme),
                   ),
                   textStyle: theme.textTheme.bodySmall?.copyWith(
                     fontSize: 12,
@@ -703,7 +709,9 @@ class _OnlineBookDetailPageState extends State<OnlineBookDetailPage> {
                     // 为屏幕居中的切换按钮预留底部高度，大字模式随文字一起增高。
                     SizedBox(
                       height:
-                          34 + MediaQuery.textScalerOf(context).scale(12) - 12,
+                          (Theme.of(context).useMaterial3 ? 48 : 34) +
+                          MediaQuery.textScalerOf(context).scale(14) -
+                          14,
                     ),
                   ],
                 ),

@@ -1,6 +1,9 @@
+import 'package:reader_ui/rating/reader_rating.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 
@@ -319,26 +322,18 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
                   children: <Widget>[
                     const Text('评分'),
                     const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: <Widget>[
-                        for (var score = 1; score <= 10; score++)
-                          ChoiceChip(
-                            key: ValueKey<String>('reamicro-rating-$score'),
-                            label: Text('$score'),
-                            selected: _rating == score,
-                            onSelected: _saving
-                                ? null
-                                : (selected) => setState(
-                                    () => _rating = selected ? score : 0,
-                                  ),
-                          ),
-                      ],
+                    ReaderRatingPicker(
+                      rating: _rating == 0 ? null : _rating / 2,
+                      keyPrefix: 'reamicro-rating',
+                      onChanged: _saving
+                          ? null
+                          : (value) => setState(
+                              () => _rating = ((value ?? 0) * 2).round(),
+                            ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _rating <= 0 ? '尚未评分' : '已选 $_rating 分（满分 10 分）',
+                      _rating <= 0 ? '尚未评分' : '已选 ${_rating / 2} 星（满分 5 星）',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 10),
@@ -450,7 +445,7 @@ class _ReviewEditorDialogState extends State<_ReviewEditorDialog> {
                                     ),
                                   ),
                                   Text(
-                                    '${item.rating}/10',
+                                    '${item.rating / 2}/5',
                                     style: Theme.of(context)
                                         .textTheme
                                         .bodySmall,
@@ -540,24 +535,10 @@ class _MilestoneCard extends StatelessWidget {
             const SizedBox(height: 6),
             Row(
               children: <Widget>[
-                Wrap(
-                  spacing: 1,
-                  children: <Widget>[
-                    for (var score = 1; score <= 10; score++)
-                      Icon(
-                        score <= milestone.rating
-                            ? Icons.star
-                            : Icons.star_border,
-                        size: 14,
-                        color: score <= milestone.rating
-                            ? Colors.amber
-                            : theme.colorScheme.onSurfaceVariant,
-                      ),
-                  ],
-                ),
+                ReaderRatingStars(rating: milestone.rating / 2, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  '${milestone.rating}/10',
+                  '${milestone.rating / 2}/5',
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -613,7 +594,7 @@ class _Metric extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.chipRadiusOf(Theme.of(context)),
       ),
       child: Text(
         '$label $value',

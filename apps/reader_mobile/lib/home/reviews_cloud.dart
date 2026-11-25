@@ -397,9 +397,9 @@ BookEntry cloudReviewBook(CloudReviewRecord review) => BookEntry(
 
 int _larger(int left, int right) => left > right ? left : right;
 
-int? _stars(int rating) {
+double? _stars(int rating) {
   if (rating <= 0) return null;
-  return ((rating + 1) ~/ 2).clamp(1, 5).toInt();
+  return (rating / 2).clamp(.5, 5).toDouble();
 }
 
 int? _colorFromRemote(String value) {

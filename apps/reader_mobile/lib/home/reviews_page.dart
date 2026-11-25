@@ -1,3 +1,5 @@
+import 'package:reader_ui/rating/reader_rating.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -471,7 +473,7 @@ class _ReviewsPageState extends State<ReviewsPage>
             final rawRating = _cloudReviewRatings[book.id];
             final initialCloudRating = rawRating == null || rawRating == 0
                 ? null
-                : (rawRating / 2).round().clamp(1, 5);
+                : (rawRating / 2).clamp(.5, 5);
             final result = await controller.saveReview(
               cloudBookId: cloud.cloudBookId,
               bookId: cloud.bookId,
@@ -479,8 +481,8 @@ class _ReviewsPageState extends State<ReviewsPage>
                   (draft.delete ||
                       (draft.rating == review?.rating &&
                           draft.rating == initialCloudRating))
-                  ? rawRating ?? (review?.rating ?? 0) * 2
-                  : (draft.rating ?? 0) * 2,
+                  ? rawRating ?? ((review?.rating ?? 0) * 2).round()
+                  : ((draft.rating ?? 0) * 2).round(),
               comment: draft.delete ? '' : draft.content,
               publish: !draft.delete && draft.publish,
             );
@@ -673,7 +675,7 @@ class _ReviewsPageState extends State<ReviewsPage>
     final theme = Theme.of(context);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final border = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Material(
@@ -1270,22 +1272,15 @@ class _ReviewDetailSheet extends StatelessWidget {
 class _StarRow extends StatelessWidget {
   const _StarRow({required this.rating, required this.size});
 
-  final int? rating;
+  final num? rating;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final value = rating ?? 0;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (var star = 1; star <= 5; star++)
-          AppIcon(
-            AppGlyph.star,
-            filled: star <= value,
-            size: size,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
+        ReaderRatingStars(rating: rating, size: size),
         if (rating == null) ...[
           const SizedBox(width: 4),
           Text(
@@ -1365,7 +1360,7 @@ class _CloudNotice extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
       decoration: BoxDecoration(
         color: scheme.errorContainer.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: Row(
         children: [
@@ -1404,9 +1399,9 @@ class _ReviewEditorSheet extends StatefulWidget {
 
 class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   late final TextEditingController _controller;
-  late final int? _initialRating;
+  late final num? _initialRating;
   late final String _initialContent;
-  int? _rating;
+  num? _rating;
   late bool _publish;
   bool _allowPop = false;
   bool _discardDialogVisible = false;
@@ -1606,32 +1601,20 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
     ],
   );
 
-  void _setRating(int star) => setState(() {
-    _rating = _rating == star ? null : star;
-    _error = null;
-  });
-
   Widget _ratingPicker(ThemeData theme) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('评分', style: theme.textTheme.labelLarge),
-      const SizedBox(height: 8),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          for (var star = 1; star <= 5; star++)
-            Semantics(
-              selected: star == _rating,
-              child: IconButton(
-                key: ValueKey<String>('review-rating-$star'),
-                tooltip: '$star 星',
-                onPressed: _saving ? null : () => _setRating(star),
-                iconSize: 34,
-                color: theme.colorScheme.onSurface,
-                icon: AppIcon(AppGlyph.star, filled: star <= (_rating ?? 0)),
-              ),
-            ),
-        ],
+      Text('评分（可选）', style: theme.textTheme.labelLarge),
+      const SizedBox(height: 6),
+      ReaderRatingPicker(
+        rating: _rating,
+        keyPrefix: 'review-rating',
+        onChanged: _saving
+            ? null
+            : (value) => setState(() {
+                _rating = value;
+                _error = null;
+              }),
       ),
     ],
   );
@@ -1800,7 +1783,7 @@ class _ReviewDraft {
       delete = true,
       publish = false;
 
-  final int? rating;
+  final num? rating;
   final String content;
   final bool delete;
   final bool publish;

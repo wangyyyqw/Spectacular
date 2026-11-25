@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../rea_micro/rea_micro_book_record_tile.dart';
@@ -8,6 +9,7 @@ import '../rea_micro/rea_micro_models.dart';
 import 'cloud_reading_calendar.dart';
 import 'reading_insights.dart';
 import 'stats_section.dart';
+import 'reading_book_list.dart';
 import 'weekday_average_chart.dart';
 
 /// 阅微阅读数据视图，沿用统计页自己的分区、日历和排行排版。
@@ -20,6 +22,7 @@ class CloudStatsView extends StatefulWidget {
     required this.loading,
     required this.onRefresh,
     required this.onOpenBook,
+    this.linkedUserBookIds = const {},
     this.onLoadMonth,
     this.onLoadHourlyInsights,
     this.onLoadPeriod,
@@ -32,6 +35,7 @@ class CloudStatsView extends StatefulWidget {
 
   /// 已关联本地书籍的云端标识。
   final Set<int> linkedCloudBookIds;
+  final Set<int> linkedUserBookIds;
 
   /// 是否正在刷新。
   final bool loading;
@@ -131,14 +135,7 @@ class _CloudStatsViewState extends State<CloudStatsView> {
       final records = results[1] as List<ReaMicroBookRecord>?;
       setState(() {
         _data = results[0] as ReaMicroPeriodStats;
-        _records = records == null
-            ? null
-            : (List.of(records)..sort((left, right) {
-                final byTime = right.totalReadTimeSeconds.compareTo(
-                  left.totalReadTimeSeconds,
-                );
-                return byTime != 0 ? byTime : left.name.compareTo(right.name);
-              }));
+        _records = records;
         _loadingPeriod = false;
       });
     } catch (_) {
@@ -216,6 +213,60 @@ class _CloudStatsViewState extends State<CloudStatsView> {
       );
       await widget.onRefresh();
     }
+  }
+
+  bool _linked(ReaMicroBookRecord book) =>
+      widget.linkedUserBookIds.contains(book.bookId) ||
+      (book.cloudBookId > 0 &&
+          widget.linkedCloudBookIds.contains(book.cloudBookId));
+
+  Widget _bookList(
+    List<ReaMicroBookRecord> books,
+    String title,
+    String allKey, {
+    required String prefix,
+    ReadingBookSort initialSort = ReadingBookSort.recent,
+  }) {
+    final period = prefix == 'cloud-duration-record';
+    final periodDays = <int, int>{};
+    for (final book in _data?.topBooks ?? <ReaMicroTopBook>[]) {
+      final id = int.tryParse(book.bookId);
+      if (id != null) periodDays[id] = book.readDays;
+    }
+    final cumulativeDays = {
+      for (final book in widget.stats.books) book.bookId: book.readDays,
+    };
+    return ReadingBookList(
+      title: title,
+      allKey: ValueKey(allKey),
+      initialSort: initialSort,
+      books: [
+        for (var index = 0; index < books.length; index++)
+          cloudReadingBookItem(
+            books[index],
+            days: period && books[index].readDays == 0
+                ? periodDays[books[index].bookId] ??
+                      cumulativeDays[books[index].bookId]
+                : null,
+            daysCumulative:
+                period &&
+                books[index].readDays == 0 &&
+                !periodDays.containsKey(books[index].bookId) &&
+                cumulativeDays.containsKey(books[index].bookId),
+            linked: _linked(books[index]),
+            onOpen: _linked(books[index])
+                ? () => widget.onOpenBook(books[index])
+                : null,
+            onHide: widget.onHideBookRecord == null
+                ? null
+                : () => _hideRecord(books[index]),
+            recentOrder: -index,
+            rowKey: ValueKey(
+              '$prefix-${prefix == 'cloud-duration-record' ? books[index].bookId : books[index].cloudBookId}',
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -302,11 +353,11 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                     if (_data != null) ...[
                       _PeriodSummary(stats: _data!),
                       const SizedBox(height: 10),
-                      _PeriodBars(stats: _data!, period: _period),
-                      if (_data!.topBooks.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 6),
-                        _TopBooks(books: _data!.topBooks),
-                      ],
+                      _PeriodBars(
+                        stats: _data!,
+                        period: _period,
+                        anchor: _anchor,
+                      ),
                     ],
                     if (widget.onLoadBookRecords != null) ...[
                       const SizedBox(height: 14),
@@ -320,34 +371,11 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                       else if (_records?.isEmpty == true)
                         const Text('该周期没有阅微阅读记录。')
                       else if (_records != null)
-                        Card(
-                          child: Column(
-                            children: [
-                              for (
-                                var index = 0;
-                                index < _records!.length;
-                                index++
-                              ) ...[
-                                if (index > 0) const Divider(height: 1),
-                                ReaMicroBookRecordTile(
-                                  key: ValueKey(
-                                    'cloud-duration-record-${_records![index].bookId}',
-                                  ),
-                                  record: _records![index],
-                                  onHide: widget.onHideBookRecord == null
-                                      ? null
-                                      : () => _hideRecord(_records![index]),
-                                  onOpen:
-                                      widget.linkedCloudBookIds.contains(
-                                        _records![index].cloudBookId,
-                                      )
-                                      ? () =>
-                                            widget.onOpenBook(_records![index])
-                                      : null,
-                                ),
-                              ],
-                            ],
-                          ),
+                        _bookList(
+                          _records!,
+                          '阅读记录',
+                          'cloud-records-all',
+                          prefix: 'cloud-duration-record',
                         ),
                     ],
                   ],
@@ -374,19 +402,12 @@ class _CloudStatsViewState extends State<CloudStatsView> {
               StatsSection(
                 title: '阅读排行',
                 detail: '按累计时长',
-                child: _CloudRanking(
-                  books: stats.books,
-                  linkedCloudBookIds: widget.linkedCloudBookIds,
-                  onOpenBook: widget.onOpenBook,
-                ),
-              ),
-              StatsSection(
-                title: '最近阅读',
-                detail: '${stats.books.length} 本',
-                child: _CloudBookList(
-                  books: stats.books,
-                  linkedCloudBookIds: widget.linkedCloudBookIds,
-                  onOpenBook: widget.onOpenBook,
+                child: _bookList(
+                  stats.books,
+                  '阅读排行',
+                  'cloud-ranking-all',
+                  prefix: 'cloud-ranking',
+                  initialSort: ReadingBookSort.duration,
                 ),
               ),
               const SizedBox(height: 20),
@@ -476,7 +497,7 @@ class _MetricCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: ReaderUiStyle.cardRadiusOf(theme),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -531,423 +552,209 @@ class _PeriodSummary extends StatelessWidget {
 }
 
 class _PeriodBars extends StatelessWidget {
-  const _PeriodBars({required this.stats, required this.period});
-
+  const _PeriodBars({
+    required this.stats,
+    required this.period,
+    required this.anchor,
+  });
   final ReaMicroPeriodStats stats;
   final ReaMicroRecordPeriod period;
+  final DateTime anchor;
 
   @override
   Widget build(BuildContext context) {
-    if (period == ReaMicroRecordPeriod.year) {
-      return _Bars(
-        labels: <String>[for (final item in stats.months) '${item.month}月'],
-        durations: <int>[for (final item in stats.months) item.durationSeconds],
-        emptyText: '今年暂无阅读时长',
+    final start = period == ReaMicroRecordPeriod.week
+        ? DateTime(
+            anchor.year,
+            anchor.month,
+            anchor.day,
+          ).subtract(Duration(days: anchor.weekday - 1))
+        : DateTime(anchor.year, anchor.month);
+    final count = switch (period) {
+      ReaMicroRecordPeriod.week => 7,
+      ReaMicroRecordPeriod.month => DateTime(
+        anchor.year,
+        anchor.month + 1,
+        0,
+      ).day,
+      ReaMicroRecordPeriod.year => 12,
+    };
+    const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    final labels = <String>[];
+    final durations = <int>[];
+    for (var index = 0; index < count; index++) {
+      if (period == ReaMicroRecordPeriod.year) {
+        labels.add('${index + 1}月');
+        durations.add(
+          stats.months
+                  .where((m) => m.month == index + 1)
+                  .firstOrNull
+                  ?.durationSeconds ??
+              0,
+        );
+      } else {
+        final date = period == ReaMicroRecordPeriod.week
+            ? DateTime(start.year, start.month, start.day + index)
+            : DateTime(start.year, start.month, index + 1);
+        labels.add(
+          period == ReaMicroRecordPeriod.week
+              ? weekdays[index]
+              : '${date.day}日',
+        );
+        durations.add(
+          stats.days
+                  .where(
+                    (d) =>
+                        d.day ==
+                        (period == ReaMicroRecordPeriod.week
+                            ? index + 1
+                            : date.day),
+                  )
+                  .firstOrNull
+                  ?.durationSeconds ??
+              0,
+        );
+      }
+    }
+    final maximum = durations.fold<int>(0, (a, b) => a > b ? a : b);
+    if (maximum == 0) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text('本周期暂无阅读时长'),
       );
     }
-    return _Bars(
-      labels: <String>[for (final item in stats.days) '${item.day}日'],
-      durations: <int>[for (final item in stats.days) item.durationSeconds],
-      emptyText: '本周期暂无阅读时长',
-    );
-  }
-}
-
-class _Bars extends StatelessWidget {
-  const _Bars({
-    required this.labels,
-    required this.durations,
-    required this.emptyText,
-  });
-
-  final List<String> labels;
-  final List<int> durations;
-  final String emptyText;
-
-  @override
-  Widget build(BuildContext context) {
+    final peak = durations.indexOf(maximum);
+    final unit = maximum >= 3600 ? 3600 : 60;
+    final step = (maximum / unit / 3).ceil().clamp(1, 100000);
+    final ceiling = step * unit * 3;
     final theme = Theme.of(context);
-    if (labels.isEmpty || durations.isEmpty) {
-      return SizedBox(
-        height: 90,
-        child: Center(
-          child: Text(emptyText, style: theme.textTheme.bodyMedium),
-        ),
-      );
-    }
-    final maxDuration = durations.fold<int>(
-      1,
-      (max, value) => value > max ? value : max,
-    );
-    return SizedBox(
-      height: 126,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final barWidth = ((constraints.maxWidth / labels.length) * 0.58)
-              .clamp(2.0, 18.0)
-              .toDouble();
-          final spacing = labels.length > 1
-              ? (constraints.maxWidth - barWidth * labels.length) /
-                    (labels.length - 1)
-              : 0.0;
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              for (var index = 0; index < labels.length; index++) ...<Widget>[
-                Expanded(
-                  child: Tooltip(
-                    message:
-                        '${labels[index]}\n'
-                        '${_formatSeconds(durations[index])}',
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Container(
-                        width: barWidth,
-                        height: durations[index] <= 0
-                            ? 2
-                            : 8 +
-                                  88 *
-                                      (durations[index] / maxDuration)
-                                          .clamp(0.0, 1.0)
-                                          .toDouble(),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(
-                            alpha: index == labels.length - 1 ? 1 : 0.42,
+    final scale = MediaQuery.textScalerOf(context).scale(11) / 11;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 186 * scale,
+          child: Row(
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final slot = constraints.maxWidth / count;
+                    return Stack(
+                      children: [
+                        for (var tick = 0; tick <= 3; tick++)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: tick * constraints.maxHeight / 3,
+                            child: Divider(
+                              height: 1,
+                              color: theme.colorScheme.outlineVariant,
+                            ),
                           ),
-                          borderRadius: BorderRadius.circular(3),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            for (var index = 0; index < count; index++)
+                              Expanded(
+                                child: Tooltip(
+                                  message:
+                                      '${labels[index]} · ${_formatSeconds(durations[index])}',
+                                  triggerMode: TooltipTriggerMode.tap,
+                                  child: Align(
+                                    alignment: Alignment.bottomCenter,
+                                    child: Container(
+                                      width: (slot * .55).clamp(2, 18),
+                                      height: durations[index] == 0
+                                          ? 2
+                                          : constraints.maxHeight *
+                                                durations[index] /
+                                                ceiling,
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.primary
+                                            .withValues(
+                                              alpha: index == peak ? 1 : .5,
+                                            ),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                      ),
-                    ),
-                  ),
+                      ],
+                    );
+                  },
                 ),
-                if (index != labels.length - 1)
-                  SizedBox(width: spacing > 0 ? spacing : 0),
-              ],
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _TopBooks extends StatelessWidget {
-  const _TopBooks({required this.books});
-
-  final List<ReaMicroTopBook> books;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text('本期阅读最多', style: theme.textTheme.labelMedium),
-        const SizedBox(height: 8),
-        for (final book in books.take(3))
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    book.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  _formatSeconds(book.durationSeconds),
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _CloudRanking extends StatelessWidget {
-  const _CloudRanking({
-    required this.books,
-    required this.linkedCloudBookIds,
-    required this.onOpenBook,
-  });
-
-  final List<ReaMicroBookRecord> books;
-  final Set<int> linkedCloudBookIds;
-  final ValueChanged<ReaMicroBookRecord> onOpenBook;
-
-  @override
-  Widget build(BuildContext context) {
-    if (books.isEmpty) {
-      return Text(
-        '阅微账号暂无书籍阅读记录',
-        style: TextStyle(
-          fontSize: 13,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
-    }
-    final ranked = List<ReaMicroBookRecord>.of(books)
-      ..sort(
-        (left, right) =>
-            right.totalReadTimeSeconds.compareTo(left.totalReadTimeSeconds),
-      );
-    return Column(
-      children: <Widget>[
-        for (var index = 0; index < ranked.take(3).length; index++) ...[
-          if (index > 0) const Divider(height: 1),
-          _CloudRankingRow(
-            record: ranked[index],
-            linked: linkedCloudBookIds.contains(ranked[index].cloudBookId),
-            onOpen: () => onOpenBook(ranked[index]),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _CloudRankingRow extends StatelessWidget {
-  const _CloudRankingRow({
-    required this.record,
-    required this.linked,
-    required this.onOpen,
-  });
-
-  final ReaMicroBookRecord record;
-  final bool linked;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return InkWell(
-      key: ValueKey<String>('cloud-ranking-${record.cloudBookId}'),
-      onTap: linked ? onOpen : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            _CloudCover(url: record.cover),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    record.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
-                    ),
-                  ),
-                  if (record.author.isNotEmpty)
-                    Text(
-                      record.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: muted),
-                    ),
-                  const SizedBox(height: 5),
-                  Text(
-                    '进度 ${(record.progress * 100).round()}%'
-                    ' · 阅读 ${record.readDays} 天'
-                    '${record.finished ? ' · 已读完' : ''}',
-                    style: TextStyle(fontSize: 11, color: muted),
-                  ),
-                ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              _formatSeconds(record.totalReadTimeSeconds),
-              style: const TextStyle(
-                fontSize: 13,
-                height: 1.4,
-                fontWeight: FontWeight.w600,
-                fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CloudBookList extends StatelessWidget {
-  const _CloudBookList({
-    required this.books,
-    required this.linkedCloudBookIds,
-    required this.onOpenBook,
-  });
-
-  final List<ReaMicroBookRecord> books;
-  final Set<int> linkedCloudBookIds;
-  final ValueChanged<ReaMicroBookRecord> onOpenBook;
-
-  @override
-  Widget build(BuildContext context) {
-    if (books.isEmpty) {
-      return Text(
-        '阅微账号暂无书籍阅读记录',
-        style: Theme.of(context).textTheme.bodyMedium,
-      );
-    }
-    return Column(
-      children: <Widget>[
-        for (var index = 0; index < books.length; index++) ...<Widget>[
-          if (index > 0) const Divider(height: 1),
-          _CloudBookRow(
-            record: books[index],
-            linked: linkedCloudBookIds.contains(books[index].cloudBookId),
-            onOpen: () => onOpenBook(books[index]),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _CloudBookRow extends StatelessWidget {
-  const _CloudBookRow({
-    required this.record,
-    required this.linked,
-    required this.onOpen,
-  });
-
-  final ReaMicroBookRecord record;
-  final bool linked;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return InkWell(
-      key: ValueKey<String>('cloud-stats-book-${record.cloudBookId}'),
-      onTap: linked ? onOpen : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            _CloudCover(url: record.cover),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          record.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
+              SizedBox(
+                width: 44 * scale,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (var tick = 3; tick >= 0; tick--)
                       Text(
-                        '${(record.progress * 100).round()}%',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                        tick == 0
+                            ? '0'
+                            : '${step * tick}${unit == 3600 ? 'h' : 'm'}',
+                        style: theme.textTheme.labelSmall,
                       ),
-                    ],
-                  ),
-                  if (record.author.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 2),
-                    Text(
-                      record.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: muted),
-                    ),
                   ],
-                  const SizedBox(height: 6),
-                  Text(
-                    '累计 ${_formatSeconds(record.totalReadTimeSeconds)}'
-                    ' · 阅读 ${record.readDays} 天'
-                    '${record.finished ? ' · 已读完' : ''}',
-                    style: TextStyle(fontSize: 11, color: muted),
-                  ),
-                  const SizedBox(height: 5),
-                  Row(
-                    children: <Widget>[
-                      Icon(
-                        linked
-                            ? Icons.cloud_done_outlined
-                            : Icons.cloud_outlined,
-                        size: 14,
-                        color: linked ? theme.colorScheme.primary : muted,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        linked ? '已关联本地书籍，可打开' : '仅云端记录，本地未导入',
-                        style: TextStyle(fontSize: 11, color: muted),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _CloudCover extends StatelessWidget {
-  const _CloudCover({required this.url});
-
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(4),
-      child: SizedBox(
-        width: 40,
-        height: 54,
-        child: url.isEmpty
-            ? ColoredBox(
-                color: theme.colorScheme.surfaceContainerHighest,
-                child: Icon(
-                  Icons.menu_book_outlined,
-                  color: theme.colorScheme.onSurfaceVariant,
-                  size: 20,
+        const SizedBox(height: 8),
+        Padding(
+          padding: EdgeInsets.only(right: 44 * scale),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final slot = constraints.maxWidth / count;
+              final labelWidth = count <= 12 ? slot : 36.0;
+              return SizedBox(
+                height: 24 * scale,
+                child: Stack(
+                  children: [
+                    for (var index = 0; index < count; index++)
+                      if (count <= 12 || index == 0 || (index + 1) % 5 == 0)
+                        Positioned(
+                          left: (slot * (index + .5) - labelWidth / 2).clamp(
+                            0,
+                            constraints.maxWidth - labelWidth,
+                          ),
+                          width: labelWidth,
+                          child: Text(
+                            period == ReaMicroRecordPeriod.week
+                                ? labels[index].replaceFirst('周', '')
+                                : labels[index].replaceAll(RegExp('[日月]'), ''),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            style: theme.textTheme.labelSmall,
+                          ),
+                        ),
+                  ],
                 ),
-              )
-            : Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stack) => ColoredBox(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  child: Icon(
-                    Icons.menu_book_outlined,
-                    color: theme.colorScheme.onSurfaceVariant,
-                    size: 20,
-                  ),
-                ),
-              ),
-      ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          key: const ValueKey('cloud-duration-peak'),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer.withValues(alpha: .45),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Text(
+            '${labels[peak]}阅读最久 · ${_formatSeconds(maximum)}',
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+      ],
     );
   }
 }

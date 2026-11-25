@@ -1,10 +1,14 @@
 import 'dart:async';
+
+import '../storage/book_review_store.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -12,6 +16,7 @@ import 'package:reader_ui/reader_session.dart';
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
 import '../book_source/book_source_compat.dart';
+import '../book_source/online_reading_book.dart';
 import '../storage/reading_session_store.dart';
 import '../storage/drift_progress_store.dart';
 import 'rea_micro_api_client.dart';
@@ -69,10 +74,12 @@ class ReaMicroController extends ChangeNotifier {
     ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
     ReaMicroAggregateSearch? aggregateSearch,
     DateTime Function()? now,
+    Future<String?> Function()? appVersion,
   }) : _library = library,
        _api = api ?? ReaMicroApiClient(),
        _store = store ?? ReaMicroStore(library),
        _now = now ?? DateTime.now,
+       _appVersion = appVersion ?? _installedAppVersion,
        _rawProgressStore = progressStore,
        // ignore: prefer_initializing_formals
        _s3ClientFactory = s3ClientFactory,
@@ -97,6 +104,7 @@ class ReaMicroController extends ChangeNotifier {
   final ReaMicroApi _api;
   final ReaMicroStore _store;
   final DateTime Function() _now;
+  final Future<String?> Function() _appVersion;
   Future<void> _uploadRetryWork = Future<void>.value();
   late final ReaMicroAggregateSearch _aggregateSearch;
   final ReaderProgressStore? _rawProgressStore;
@@ -292,6 +300,11 @@ class ReaMicroController extends ChangeNotifier {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
+    final version = await _appVersion();
+    if (version != null) {
+      final reset = await _store.resetUploadRetriesForVersion(version);
+      if (reset) recordAppEvent('reamicro_upload_retries_reset');
+    }
     _token = await _store.loadToken();
     _user = await _store.loadCachedUser();
     _links = await _store.loadLinks();
@@ -340,6 +353,16 @@ class ReaMicroController extends ChangeNotifier {
           scheduleS3Sync(delay: const Duration(seconds: 9));
         }
       }
+    }
+  }
+
+  static Future<String?> _installedAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      return '${info.version}+${info.buildNumber}';
+    } catch (_) {
+      // 无法读取版本时保留额度，避免同版本重启误清零。
+      return null;
     }
   }
 
@@ -1367,6 +1390,48 @@ class ReaMicroController extends ChangeNotifier {
     }
   }
 
+  /// 读完编辑沿用该书已有的阅微评分和正文。
+  Future<BookReview?> loadFinishedReview(String bookId) async {
+    final link = _links[bookId];
+    if (link == null || !signedIn) return null;
+    final remote = await loadBookReview(
+      link.cloudBookId,
+      bookId: link.userBookId,
+    );
+    if (remote == null) return null;
+    final now = _now();
+    return BookReview(
+      bookId: bookId,
+      rating: remote.rating > 0 ? remote.rating / 2 : null,
+      content: remote.comment,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  /// 用户明确保存读完评价时同步正文和半星评分，保留发布状态。
+  Future<void> saveFinishedReview(
+    String bookId,
+    num? rating,
+    String content,
+  ) async {
+    final link = _links[bookId];
+    if (link == null || !signedIn) return;
+    final existing = await _api.fetchBookReview(
+      _token!,
+      cloudBookId: link.cloudBookId,
+      bookId: link.userBookId,
+    );
+    final result = await saveReview(
+      cloudBookId: link.cloudBookId,
+      bookId: link.userBookId,
+      rating: ((rating ?? 0) * 2).round(),
+      comment: content,
+      publish: existing?.published ?? false,
+    );
+    if (!result.success) throw FormatException(result.message);
+  }
+
   /// 提交一本书的评分与书评。
   Future<ReaMicroActionResult> saveReview({
     required int cloudBookId,
@@ -2216,6 +2281,7 @@ class ReaMicroController extends ChangeNotifier {
         retries++;
       }
       Map<String, Object?> state() => {
+        ...budget,
         'day': day,
         'retries': retries,
         'failed': failed.toList(),
@@ -3269,10 +3335,9 @@ class ReaMicroController extends ChangeNotifier {
             final milestone = remote.isEmpty ? null : remote.first;
             final remoteRating = existing?.rating ?? milestone?.rating ?? 0;
             final rating = review?.rating != null
-                ? (remoteRating > 0 &&
-                          (remoteRating / 2).round() == review!.rating
+                ? (remoteRating > 0 && remoteRating / 2 == review!.rating
                       ? remoteRating
-                      : review!.rating! * 2)
+                      : (review!.rating! * 2).round())
                 : remoteRating;
             final cloudComment = existing?.comment ?? milestone?.comment ?? '';
             final comment = cloudComment.trim().isNotEmpty
@@ -3400,6 +3465,12 @@ class ReaMicroController extends ChangeNotifier {
     final handledBooks = <String>{};
     String? failure;
     try {
+      // 旧版在线保存绕过跟踪器；补齐缺失快照后才能创建首次云端阅读记录。
+      for (final book in await _library.list()) {
+        if (!_progressStates.containsKey(book.id)) {
+          await _seedProgressStatesForBook(book.id, markDirty: false);
+        }
+      }
       for (final entry in List<MapEntry<String, ReaMicroProgressState>>.of(
         _progressStates.entries,
       )) {
@@ -4463,7 +4534,9 @@ class ReaMicroController extends ChangeNotifier {
   }) async {
     final store = _rawProgressStore;
     if (store == null) return;
-    final progress = await store.load(bookId);
+    final progress =
+        await store.load(bookId) ??
+        await OnlineReadingProgress.savedSnapshot(_library, bookId);
     final cfi = progress?.cfi?.trim() ?? '';
     if (cfi.isEmpty) return;
     final existing = _progressStates[bookId];

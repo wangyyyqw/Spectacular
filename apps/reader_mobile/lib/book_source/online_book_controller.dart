@@ -302,6 +302,7 @@ class OnlineBookController extends ChangeNotifier {
     }
     records.removeWhere((id, _) => !originalIds.contains(id));
     await library.setSetting(bookshelfOnlineUpdatesKey, jsonEncode(records));
+    if (!_disposed) notifyListeners();
   }
 
   Future<bool> _onlineProgressFinished(String bookId) async {
@@ -984,6 +985,7 @@ class OnlineBookController extends ChangeNotifier {
           bookshelfOnlineUpdatesKey,
           jsonEncode(decoded),
         );
+        if (!_disposed) notifyListeners();
       }
     } on Object catch (error, stackTrace) {
       recordAppError(

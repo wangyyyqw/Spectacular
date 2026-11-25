@@ -340,7 +340,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest,
-          borderRadius: ReaderUiStyle.cardRadius,
+          borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
           border: Border.all(color: scheme.outlineVariant),
         ),
         child: Row(
@@ -445,7 +445,16 @@ class _BookDurationChartState extends State<BookDurationChart>
       onSelected: _selectSlice,
       top: _periodSlider(context),
       controls: navigation,
-      footer: legend,
+      footer: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_peakLabel(summary) case final label?) ...[
+            Text(label, key: const ValueKey('stats-book-duration-peak')),
+            const SizedBox(height: 8),
+          ],
+          legend,
+        ],
+      ),
       weekMode: _period == BookDurationPeriod.week,
       startWithTimeOfDay: widget.startWithTimeOfDay,
     );
@@ -453,6 +462,29 @@ class _BookDurationChartState extends State<BookDurationChart>
       padding: const EdgeInsets.only(top: 16, bottom: 4),
       child: chart,
     );
+  }
+
+  String? _peakLabel(BookDurationSummary summary) {
+    final end = _period.shift(summary.start, 1);
+    final days =
+        widget.insights.byDay.entries
+            .where(
+              (entry) =>
+                  !entry.key.isBefore(summary.start) && entry.key.isBefore(end),
+            )
+            .toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+    if (days.isEmpty) return null;
+    final peak = days.first;
+    const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    final label = _period == BookDurationPeriod.week
+        ? weekdays[peak.key.weekday - 1]
+        : '${peak.key.day}日';
+    final minutes = peak.value.inMinutes;
+    final duration = minutes < 60
+        ? '${minutes == 0 ? '<1' : minutes} 分钟'
+        : '${minutes ~/ 60} 小时 ${minutes % 60} 分钟';
+    return '$label阅读最久 · $duration';
   }
 
   Widget _moreButton(BuildContext context, BookDurationSummary summary) {
@@ -464,7 +496,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         minimumSize: const Size.fromHeight(48),
         backgroundColor: scheme.surfaceContainerHighest,
         foregroundColor: scheme.onSurface,
-        shape: ReaderUiStyle.controlShape,
+        shape: ReaderUiStyle.controlShapeOf(Theme.of(context)),
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
       child: Text('更多 · ${summary.totalBookCount} 本'),
@@ -538,7 +570,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         color: selected ? scheme.surfaceContainerHighest : Colors.transparent,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
-          borderRadius: ReaderUiStyle.controlRadius,
+          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           side: BorderSide(
             color: selected ? scheme.outlineVariant : Colors.transparent,
           ),
@@ -546,7 +578,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         child: InkWell(
           key: ValueKey('stats-book-duration-tag-${slice.key}'),
           onTap: () => _selectSlice(slice),
-          borderRadius: ReaderUiStyle.controlRadius,
+          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           child: _legendContent(slice, summary.total),
         ),
       ),

@@ -110,6 +110,8 @@ class EpubReaderPage extends StatefulWidget {
     this.bookEditorRepository,
     this.book,
     this.reviewStore,
+    this.loadFinishedReview,
+    this.saveFinishedReview,
     this.enableFullTextSearch = true,
     this.persistInitialPosition = false,
     this.onlineReading,
@@ -119,6 +121,8 @@ class EpubReaderPage extends StatefulWidget {
   final BookEditRepository? bookEditorRepository;
   final BookEntry? book;
   final BookReviewStore? reviewStore;
+  final BookReviewLoader? loadFinishedReview;
+  final BookReviewSaver? saveFinishedReview;
   final DictionaryStore? dictionaryStore;
 
   /// 在线阅读不为全文搜索触发整本下载。
@@ -1329,6 +1333,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     return ReaderPage(
       key: const ValueKey<String>('reader-page'),
       readingDuration: _readingDuration,
+      isChapterCached: widget.onlineReading == null
+          ? null
+          : (index) async =>
+                (await widget.onlineReading!).isChapterCached(index),
       source: _source!,
       store: widget.store,
       bookId: widget.bookId,
@@ -1509,7 +1517,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _syncReadingActivity();
     try {
       await session.flushProgress();
-      final review = (await widget.reviewStore?.snapshot())?[widget.bookId];
+      final review =
+          await widget.loadFinishedReview?.call(widget.bookId) ??
+          (await widget.reviewStore?.snapshot())?[widget.bookId];
       if (!mounted || _closing) return;
       final saved = await Navigator.of(context)
           .push<bool>(_finishPageRoute(session, review, rtl));
@@ -1594,6 +1604,13 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     } else {
       await session.markFinished();
       if (draft != null && reviews != null) await saveReview();
+    }
+    if (draft != null) {
+      await widget.saveFinishedReview?.call(
+        widget.bookId,
+        draft.rating,
+        draft.content,
+      );
     }
   }
 

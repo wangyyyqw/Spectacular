@@ -99,12 +99,37 @@ Future<void> _expectUserRows(AppDatabase database, int bookId) async {
     (note.bookId, note.id, note.note, note.quote, note.updatedAt),
     (bookId, 'note-1', '旧笔记正文', '引用', 15),
   );
-  final setting = await database.select(database.settingsTable).getSingle();
+  final setting = await (database.select(
+    database.settingsTable,
+  )..where((t) => t.key.equals('主题'))).getSingle();
   expect((setting.key, setting.value), ('主题', '墨色'));
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('旧整星评分只迁移一次，正文和保存时间保持不变', () async {
+    final file = await _temporaryDatabaseFile();
+    var database = await AppDatabase.open(file);
+    final bookId = await _insertBook(database);
+    await database.customStatement(
+      'INSERT INTO book_reviews (book_id, rating, content, created_at, updated_at) VALUES (?, 4, ?, 11, 12)',
+      [bookId, '旧书评正文'],
+    );
+    await database.customStatement(
+      "DELETE FROM settings WHERE key='bookReviews.ratingUnit'",
+    );
+    await database.close();
+    for (var opening = 0; opening < 2; opening++) {
+      database = await AppDatabase.open(file);
+      final review = await database.select(database.bookReviews).getSingle();
+      expect(
+        (review.rating, review.content, review.createdAt, review.updatedAt),
+        (8, '旧书评正文', 11, 12),
+      );
+      await database.close();
+    }
+  });
 
   test('建库：表与索引齐全，外键已开启', () async {
     final database = await _openFresh();

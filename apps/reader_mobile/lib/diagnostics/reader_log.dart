@@ -378,6 +378,7 @@ bool _isUploadFailureLine(String line) {
   return parts.length >= 2 &&
       DateTime.tryParse(parts.first) != null &&
       (parts[1] == 'reamicro_read_time_failed' ||
+          parts[1] == 'reamicro_progress_failed' ||
           parts[1] == 'reamicro_upload_failed');
 }
 

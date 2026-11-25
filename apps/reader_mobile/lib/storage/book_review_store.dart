@@ -3,6 +3,13 @@ import 'package:flutter/widgets.dart' show StringCharacters;
 
 import 'db.dart';
 
+typedef BookReviewLoader = Future<BookReview?> Function(String bookId);
+typedef BookReviewSaver = Future<void> Function(
+  String bookId,
+  num? rating,
+  String content,
+);
+
 /// 一本书的书评快照。
 class BookReview {
   const BookReview({
@@ -19,8 +26,8 @@ class BookReview {
   /// 书籍 uuid。
   final String bookId;
 
-  /// 评分 1～5；null 表示未评分。
-  final int? rating;
+  /// 评分 0.5～5，以半星递增；null 表示未评分。
+  final num? rating;
 
   /// 书评正文。
   final String content;
@@ -38,7 +45,7 @@ abstract interface class BookReviewStore {
   Future<Map<String, BookReview>> snapshot();
 
   /// 保存或覆盖已读完书籍的书评；评分和正文都为空时删除。
-  Future<void> save(String bookId, {int? rating, required String content});
+  Future<void> save(String bookId, {num? rating, required String content});
 
   /// 删除书评。
   Future<void> remove(String bookId);
@@ -68,14 +75,16 @@ class DriftBookReviewStore implements BookReviewStore {
   @override
   Future<void> save(
     String bookId, {
-    int? rating,
+    num? rating,
     required String content,
   }) async {
     final normalizedContent = content.trim();
     if (normalizedContent.characters.length > BookReview.maxContentLength) {
       throw const FormatException('书评最多 5000 个字符');
     }
-    final normalizedRating = rating?.clamp(1, 5);
+    final normalizedRating = rating == null
+        ? null
+        : (rating * 2).round().clamp(1, 10);
     if (normalizedContent.isEmpty && normalizedRating == null) {
       await remove(bookId);
       return;
@@ -131,7 +140,7 @@ class DriftBookReviewStore implements BookReviewStore {
 
   BookReview _toReview(String bookId, BookReviewRow row) => BookReview(
     bookId: bookId,
-    rating: row.rating,
+    rating: row.rating == null ? null : row.rating! / 2,
     content: row.content,
     createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
     updatedAt: DateTime.fromMillisecondsSinceEpoch(row.updatedAt),

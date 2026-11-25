@@ -104,6 +104,35 @@ void main() {
     );
   });
 
+  test('书籍记录按服务实际二十条分页读取后续页，保留最近顺序', () async {
+    final pages = <int>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['pageSize'], 20);
+        final page = body['pageNum'] as int;
+        pages.add(page);
+        return _json({
+          'code': 0,
+          'data': {
+            'list': List.generate(
+              page == 1 ? 20 : 3,
+              (index) => {'bookId': (page - 1) * 20 + index + 1},
+            ),
+          },
+        });
+      }),
+    );
+    addTearDown(api.close);
+    final records = await api.fetchBookRecords('token');
+    expect(pages, [1, 2]);
+    expect(
+      records.map((book) => book.bookId),
+      List.generate(23, (index) => index + 1),
+    );
+  });
+
   test('书籍分页未读完时拒绝返回不完整清单', () async {
     var pages = 0;
     final api = ReaMicroApiClient(
@@ -114,8 +143,8 @@ void main() {
           'code': 0,
           'data': {
             'list': List.generate(
-              200,
-              (index) => {'bookId': pages * 200 + index},
+              20,
+              (index) => {'bookId': pages * 20 + index},
             ),
           },
         });
@@ -126,7 +155,7 @@ void main() {
       api.fetchBookRecords('token'),
       throwsA(isA<ReaMicroException>()),
     );
-    expect(pages, 20);
+    expect(pages, 250);
   });
 
   test('会话记账沿用正式接口并排除会被服务器拒绝的旧式增量', () async {
@@ -577,6 +606,41 @@ void main() {
     });
   });
 
+  test('首次进度不存在时继续上传本地位置，其他业务错误保持失败', () async {
+    var missing = true;
+    final requests = <http.Request>[];
+    final api = ReaMicroApiClient(
+      baseUrl: 'https://example.test/',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('get-read-progress')) {
+          return _json({
+            'code': 2,
+            'message': missing ? 'record not found' : 'book permission denied',
+          });
+        }
+        return _json({'code': 0});
+      }),
+    );
+    addTearDown(api.close);
+    expect(await api.fetchReadProgress('test', cloudBookId: '47560'), isNull);
+    await api.updateReadProgress(
+      'test',
+      cloudBookId: 47560,
+      cfi: 'epubcfi(/6/4!/4/2/1)',
+      chapterName: '第二章',
+      progress: .25,
+    );
+    expect(requests.last.url.path, '/rest/reader/update-read-progress');
+    final uploaded = jsonDecode(requests.last.body) as Map<String, dynamic>;
+    expect(uploaded['bookId'], 47560);
+    missing = false;
+    await expectLater(
+      api.fetchReadProgress('test', cloudBookId: '47560'),
+      throwsA(isA<ReaMicroException>()),
+    );
+  });
+
   test('读取云端阅读位置并解析秒级时间戳', () async {
     late http.Request request;
     final api = ReaMicroApiClient(
@@ -1020,7 +1084,7 @@ void main() {
     expect(bodies['get-year-read-duration'], <String, Object?>{'year': 2026});
     expect(bodies['get-read-record-list-by-all'], <String, Object?>{
       'pageNum': 1,
-      'pageSize': 200,
+      'pageSize': 20,
     });
   });
 
@@ -1176,18 +1240,18 @@ void main() {
     expect(bodies['get-read-record-list-by-week'], <String, Object?>{
       'date': '2026-11-18',
       'pageNum': 1,
-      'pageSize': 200,
+      'pageSize': 20,
     });
     expect(bodies['get-read-record-list-by-month'], <String, Object?>{
       'year': 2026,
       'month': 11,
       'pageNum': 1,
-      'pageSize': 200,
+      'pageSize': 20,
     });
     expect(bodies['get-read-record-list-by-year'], <String, Object?>{
       'year': 2026,
       'pageNum': 1,
-      'pageSize': 200,
+      'pageSize': 20,
     });
     expect(bodies['act-review'], <String, Object?>{
       'reviewId': 9,

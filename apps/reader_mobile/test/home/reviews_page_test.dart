@@ -48,7 +48,7 @@ class _MemoryReviewStore implements BookReviewStore {
   @override
   Future<void> save(
     String bookId, {
-    int? rating,
+    num? rating,
     required String content,
   }) async {
     saveCalls++;

@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'rea_micro_controller.dart';
 import 'rea_micro_book_record_tile.dart';
 import 'rea_micro_models.dart';
+import '../home/reading_book_list.dart';
 
 /// 阅微阅读记录与标注书籍。
 class ReaMicroRecordsPage extends StatefulWidget {
@@ -57,15 +59,8 @@ class _ReaMicroRecordsPageState extends State<ReaMicroRecordsPage>
     try {
       final records = await widget.controller.loadBookRecords(_period, _anchor);
       if (!mounted || request != _recordsRequest) return;
-      final sorted = List<ReaMicroBookRecord>.of(records)
-        ..sort((left, right) {
-          final compared = right.totalReadTimeSeconds.compareTo(
-            left.totalReadTimeSeconds,
-          );
-          return compared != 0 ? compared : left.name.compareTo(right.name);
-        });
       setState(() {
-        _records = sorted;
+        _records = records;
         _loadingRecords = false;
       });
     } catch (error) {
@@ -259,18 +254,21 @@ class _ReaMicroRecordsPageState extends State<ReaMicroRecordsPage>
           else if (_records.isEmpty)
             const _EmptyHint('该周期没有阅微阅读记录。')
           else
-            Card(
-              child: Column(
-                children: <Widget>[
-                  for (var index = 0; index < _records.length; index++) ...[
-                    if (index > 0) const Divider(height: 1),
-                    ReaMicroBookRecordTile(
-                      record: _records[index],
-                      onHide: () => _hideRecord(_records[index]),
+            ReadingBookList(
+              title: '阅读记录',
+              allKey: const ValueKey('reamicro-records-all'),
+              books: [
+                for (var index = 0; index < _records.length; index++)
+                  cloudReadingBookItem(
+                    _records[index],
+                    linked: widget.controller.syncBooks.values.any(
+                      (identity) =>
+                          identity.userBookId == _records[index].bookId,
                     ),
-                  ],
-                ],
-              ),
+                    onHide: () => _hideRecord(_records[index]),
+                    recentOrder: -index,
+                  ),
+              ],
             ),
         ],
       ),
@@ -379,7 +377,7 @@ class _MetricChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.chipRadiusOf(theme),
       ),
       child: Text('$label $value', style: theme.textTheme.bodySmall),
     );

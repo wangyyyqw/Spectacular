@@ -1,3 +1,5 @@
+import 'package:reader_ui/rating/reader_rating.dart';
+
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -37,6 +39,8 @@ class BookDetailPage extends StatefulWidget {
     this.sessionStore,
     this.progressStore,
     this.reviewStore,
+    this.loadFinishedReview,
+    this.saveFinishedReview,
     this.inDrawer = false,
   });
 
@@ -57,6 +61,8 @@ class BookDetailPage extends StatefulWidget {
 
   /// 可注入的书评存储；为空时使用书库数据库实现。
   final BookReviewStore? reviewStore;
+  final BookReviewLoader? loadFinishedReview;
+  final BookReviewSaver? saveFinishedReview;
 
   /// 从书架打开时展示为抽屉，保留直接打开完整页面的能力。
   final bool inDrawer;
@@ -334,6 +340,8 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _showMessage('当前无法保存读完标记');
       return;
     }
+    final review = await widget.loadFinishedReview?.call(_entry.id) ?? _review;
+    if (!mounted) return;
     final savedReview = await showReaderBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -342,7 +350,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
       enableDrag: false,
       builder: (_) => FinishBookSheet(
         book: _entry,
-        review: _review,
+        review: review,
         allowReview: _reviewStore != null,
         finished: _progress?.finished ?? false,
         onCommit: _saveFinished,
@@ -386,6 +394,13 @@ class _BookDetailPageState extends State<BookDetailPage> {
           content: draft.content,
         );
       }
+    }
+    if (draft != null) {
+      await widget.saveFinishedReview?.call(
+        _entry.id,
+        draft.rating,
+        draft.content,
+      );
     }
     final review = draft == null
         ? _review
@@ -1229,24 +1244,10 @@ class _ReadingStatusSection extends StatelessWidget {
 class _ReviewStars extends StatelessWidget {
   const _ReviewStars({required this.rating, required this.size});
 
-  final int rating;
+  final num rating;
   final double size;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        for (var star = 1; star <= 5; star++)
-          AppIcon(
-            AppGlyph.star,
-            filled: star <= rating,
-            size: size,
-            color: star <= rating
-                ? Theme.of(context).colorScheme.onSurface
-                : Theme.of(context).colorScheme.outlineVariant,
-          ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) =>
+      ReaderRatingStars(rating: rating, size: size);
 }

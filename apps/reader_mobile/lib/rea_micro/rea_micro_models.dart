@@ -398,6 +398,7 @@ class ReaMicroBookRecord {
     required this.finishReadTime,
     required this.listeningDurationSeconds,
     required this.readingDurationSeconds,
+    this.lastReadTime = 0,
   });
 
   /// 阅微书籍标识。
@@ -433,6 +434,9 @@ class ReaMicroBookRecord {
   /// 阅读时长（秒）。
   final int readingDurationSeconds;
 
+  /// 接口提供时使用最后阅读时间；旧接口缺失时沿用响应顺序。
+  final int lastReadTime;
+
   /// 是否已读完。
   bool get finished => finishReadTime > 0 || progress >= 1;
 
@@ -450,6 +454,7 @@ class ReaMicroBookRecord {
       finishReadTime: _timestampMillis(json['finishReadTime']),
       listeningDurationSeconds: _intValue(json['listeningDuration']),
       readingDurationSeconds: _intValue(json['readingDuration']),
+      lastReadTime: _timestampMillis(json['lastReadTime']),
     );
   }
 }

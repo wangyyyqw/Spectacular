@@ -24,13 +24,146 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_progress_store.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/paging/page_turn_view.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
+  testWidgets('详情在线阅读复用封面动画及书签标注装饰存储，缓存目录显示云朵', (tester) async {
+    final f = (await tester.runAsync(() => _ReadingFixture.create(4)))!;
+    addTearDown(() => f.dispose(tester: tester));
+    final opener = BookOpener(
+      library: f.library,
+      progressStore: MemoryReaderProgressStore(),
+    );
+    Future<void>? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnlineBookDetailPage(
+          controller: f.controller,
+          source: f.source,
+          book: f.readingBook.book,
+          onRead: (context, book, {startChapter}) => opened = opener.openOnline(
+            context,
+            book,
+            startChapter: startChapter,
+          ),
+        ),
+      ),
+    );
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('online-book-read')),
+    );
+    await tester.tap(find.byKey(const ValueKey('online-book-read')));
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('book-opening-view')),
+    );
+    expect(find.text('正在排版…').hitTestable(), findsNothing);
+    await pumpReaderUntil(tester, find.byType(ReaderPage));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byKey(const ValueKey('book-opening-view')).evaluate().isEmpty,
+    );
+    final page = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    expect(page.bookmarks, isNotNull);
+    expect(page.annotations, isNotNull);
+    expect(page.decorations, isNotNull);
+    expect(page.decorationRules, isNotNull);
+    expect(page.isChapterCached, isNotNull);
+    expect(await pumpReaderTask(tester, page.isChapterCached!(3)), isFalse);
+    expect(await pumpReaderTask(tester, page.isChapterCached!(0)), isTrue);
+    final entry = f.controller.shelfEntryFor(f.source, f.readingBook.book)!;
+    expect(page.bookId, entry.id);
+    // 正常续读不回写未变化的位置，实际翻页后验证退出时保存。
+    final session = tester
+        .widget<PageTurnView>(find.byType(PageTurnView))
+        .session;
+    final initial = session.progress;
+    final content = tester.getRect(
+      find.byKey(const ValueKey('reader-content')),
+    );
+    await tester.tapAt(Offset(content.right - 24, content.center.dy));
+    await pumpReaderUntilComplete(tester, () => session.progress != initial);
+    Navigator.of(tester.element(find.byType(ReaderPage))).pop();
+    await pumpReaderTask(tester, opened!);
+    expect(
+      await pumpReaderTask(
+        tester,
+        OnlineReadingProgress.savedSnapshot(f.library, entry.id),
+      ),
+      isNotNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('书架在线阅读保存后通知同步器，位置仍写入在线存储', (tester) async {
+    final f = (await tester.runAsync(() => _ReadingFixture.create(3)))!;
+    addTearDown(() => f.dispose(tester: tester));
+    final entry = await pumpReaderTask(
+      tester,
+      f.library.importBytes(buildTestEpub(title: '在线同步')),
+    );
+    final online = OnlineReadingBook(
+      source: f.source,
+      book: f.readingBook.book,
+      chapters: f.readingBook.chapters,
+      service: f.service,
+      bookshelfId: entry.id,
+    );
+    final observed = <ReaderProgress>[];
+    final raw = MemoryReaderProgressStore();
+    final opener = BookOpener(
+      library: f.library,
+      progressStore: ReaMicroTrackingProgressStore(raw, (
+        bookId,
+        progress,
+      ) async {
+        expect(bookId, entry.id);
+        observed.add(progress);
+      }),
+    );
+    Future<void>? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () =>
+                opened = opener.openOnline(context, online, startChapter: 1),
+            child: const Text('打开在线书'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开在线书'));
+    await pumpReaderUntil(tester, find.byKey(const ValueKey('reader-content')));
+    await tester.pump(const Duration(seconds: 1));
+    Navigator.of(tester.element(find.byType(ReaderPage))).pop();
+    await pumpReaderTask(tester, opened!);
+    final saved = await pumpReaderTask(
+      tester,
+      OnlineReadingProgress(f.library, online).load(entry.id),
+    );
+    expect(saved!.cfi, isNotEmpty);
+    expect(observed.last.cfi, saved.cfi);
+    expect(observed.last.spineIndex, 1);
+    expect(await raw.load(entry.id), isNull);
+    expect(
+      (await pumpReaderTask(
+        tester,
+        OnlineReadingProgress.savedSnapshot(f.library, entry.id),
+      ))!.cfi,
+      saved.cfi,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('简介目录切换只滚动内容区域，慢详情可返回且慢下载可取消', (tester) async {
     final f = (await tester.runAsync(() => _ReadingFixture.create(80)))!;
     addTearDown(() => f.dispose(tester: tester));
@@ -119,17 +252,23 @@ void main() {
       f.controller.catalogs.save(f.source, book, f.readingBook.chapters),
     );
     f.catalogGate = Completer<void>();
-    for (final (width, scale) in [(384.0, 1.0), (320.0, 1.5), (320.0, 2.0)]) {
+    for (final (width, scale, style) in [
+      for (final style in AppUiStyle.values)
+        for (final (width, scale) in [(384.0, 1.0), (320.0, 1.5), (320.0, 2.0)])
+          (width, scale, style),
+    ]) {
       tester.view.physicalSize = Size(width, 836);
       await tester.pumpWidget(
         MaterialApp(
+          theme: buildAppTheme(uiStyle: style),
+          themeAnimationDuration: Duration.zero,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(context)
                 .copyWith(textScaler: TextScaler.linear(scale)),
             child: child!,
           ),
           home: OnlineBookDetailPage(
-            key: ValueKey((width, scale)),
+            key: ValueKey((width, scale, style)),
             controller: f.controller,
             source: f.source,
             book: book,
@@ -145,7 +284,20 @@ void main() {
       );
       expect(tabs.bottom, closeTo(cover.bottom, .01));
       expect(tabs.center.dx, closeTo(width / 2, .01));
-      if (scale == 1) expect(tabs.height, lessThanOrEqualTo(32));
+      if (scale == 1) {
+        expect(
+          tabs.height,
+          style == AppUiStyle.classic
+              ? lessThanOrEqualTo(32)
+              : greaterThanOrEqualTo(44),
+        );
+      }
+      await tester.tap(find.byKey(const ValueKey('online-book-toc-tab')));
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('online-book-chapter-0')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     }
     f.catalogGate!.complete();
@@ -239,10 +391,14 @@ void main() {
       ),
     );
     await tester.tap(find.byKey(const ValueKey('online-book-chapter-6')));
-    await pumpReaderUntil(tester, find.text('暂不加入'));
-    expect(selected, 6);
-    await tester.tap(find.text('暂不加入'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => selected != null,
+      maxFrames: 300,
+    );
     await tester.pump();
+    expect(selected, 6);
+    expect(f.controller.shelfEntryFor(f.source, f.readingBook.book), isNotNull);
     expect(tester.takeException(), isNull);
     f.catalogGate!.complete();
     await pumpReaderTask(
@@ -358,6 +514,11 @@ void main() {
     await tester.ensureVisible(find.text('75. 第75章'));
     await tester.pump();
     await tester.tap(find.text('75. 第75章'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => selected != null,
+      maxFrames: 300,
+    );
     await pumpReaderUntil(tester, find.byKey(const ValueKey('reader-content')));
     expect(selected, 74);
     final source =
@@ -374,7 +535,10 @@ void main() {
     await pumpReaderTask(tester, opened!);
     final saved = await pumpReaderTask(
       tester,
-      OnlineReadingProgress(f.library, book).load(book.id),
+      OnlineReadingProgress.savedSnapshot(
+        f.library,
+        f.controller.shelfEntryFor(f.source, book.book)!.id,
+      ),
     );
     expect(saved?.spineIndex, 74);
     expect(f.requested.where((path) => path == '/toc'), isEmpty);

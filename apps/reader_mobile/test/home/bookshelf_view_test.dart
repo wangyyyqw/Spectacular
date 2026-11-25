@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_mobile/home/bookshelf_sort.dart';
+import 'package:reader_mobile/book_source/online_book_controller.dart';
 
 import '../support/test_epub.dart';
 
@@ -32,6 +35,15 @@ List<String> _listTitles(WidgetTester tester) => <String>[
       text.data ?? '',
 ];
 
+class _UpdateController extends OnlineBookController {
+  _UpdateController(LibraryStore library) : super(library: library);
+
+  Future<void> publishUpdates(Map<String, Object?> updates) async {
+    await library.setSetting(bookshelfOnlineUpdatesKey, jsonEncode(updates));
+    notifyListeners();
+  }
+}
+
 void main() {
   late Directory temp;
   late List<File> files;
@@ -49,6 +61,97 @@ void main() {
     if (temp.existsSync()) {
       temp.deleteSync(recursive: true);
     }
+  });
+
+  testWidgets('更新事件立即刷新书架，按最新章节时间上浮且保留最近阅读优先级', (tester) async {
+    final library = LibraryStore.memory();
+    final books = (await tester.runAsync(
+      () async => [for (final file in files) await library.importFile(file.path)],
+    ))!;
+    final online = _UpdateController(library);
+    await library.setSetting('bookshelf.grid', 'false');
+    await library.setSetting(bookshelfAutoUpdateFirstKey, 'true');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          onlineBooks: online,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    final original = _listTitles(tester);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await online.publishUpdates({
+      books[0].id: {
+        'updated': true,
+        'updatedAt': now - 3600000,
+        'checkedAt': now + 1,
+      },
+      books[1].id: {
+        'updated': true,
+        'updatedAt': now - 60000,
+        'checkedAt': now,
+      },
+    });
+    await _settle(tester);
+    expect(_listTitles(tester).take(2), [books[1].title, books[0].title]);
+    expect(_listTitles(tester), isNot(original));
+    await library.touchLastRead(books[2].id);
+    await _settle(tester);
+    expect(_listTitles(tester).first, books[2].title);
+    await tester.pumpWidget(const SizedBox());
+    online.dispose();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('已选分组及切换动画中启用全部书架分组，书籍保持可见', (tester) async {
+    final library = LibraryStore.memory();
+    final book = (await tester.runAsync(
+      () => library.importBytes(buildTestEpub(title: '分组切换保留书架')),
+    ))!;
+    final group = await library.createGroup('测试分组');
+    await library.setBooksGroup([book.id], groupId: group.id);
+    final ungrouped = (await tester.runAsync(
+      () => library.importBytes(buildTestEpub(title: '默认未分组图书')),
+    ))!;
+    Widget page(int token) => MaterialApp(
+      home: BookshelfPage(
+        library: library,
+        progressStore: MemoryReaderProgressStore(),
+        refreshToken: token,
+      ),
+    );
+    await tester.pumpWidget(page(0));
+    await _settle(tester);
+    await tester.tap(find.text('测试分组 1'));
+    await tester.pump(const Duration(milliseconds: 30));
+    await library.setSetting(bookshelfAllAsGroupKey, 'true');
+    await tester.pumpWidget(page(1));
+    await _settle(tester);
+    expect(
+      find.byKey(const ValueKey('bookshelf-grid')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(find.byKey(ValueKey('book-card-title-${book.id}')), findsOneWidget);
+    expect(find.text('测试分组 1'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('bookshelf-group-all')));
+    await _settle(tester);
+    expect(find.byKey(ValueKey('book-card-title-${book.id}')), findsNothing);
+    expect(
+      find.byKey(ValueKey('book-card-title-${ungrouped.id}')),
+      findsOneWidget,
+    );
+    expect((await library.groupAssignments())[book.id], group.id);
+    expect(tester.takeException(), isNull);
+    await library.setSetting(bookshelfAllAsGroupKey, 'false');
+    await tester.pumpWidget(page(2));
+    await _settle(tester);
+    expect(find.text('测试分组 1'), findsOneWidget);
+    expect(find.byKey(ValueKey('book-card-title-${book.id}')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
   });
 
   for (final reducedMotion in [false, true]) {
@@ -128,12 +231,14 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 80));
       expect(
-        tester.getCenter(
-          find.descendant(
-            of: find.byTooltip('网格视图'),
-            matching: find.byType(AppIcon),
-          ),
-        ).dy,
+        tester
+            .getCenter(
+              find.descendant(
+                of: find.byTooltip('网格视图'),
+                matching: find.byType(AppIcon),
+              ),
+            )
+            .dy,
         closeTo(groupCenter, .01),
       );
       expect(list, findsOneWidget);
@@ -308,7 +413,7 @@ void main() {
           enableLanLoginServer: false,
         );
         addTearDown(reaMicro.dispose);
-        await reaMicro.initialize();
+        await tester.runAsync(reaMicro.initialize);
         await tester.pumpWidget(
           MaterialApp(
             home: BookshelfPage(

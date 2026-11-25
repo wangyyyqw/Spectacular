@@ -6,6 +6,7 @@ import '../home/book_import_conflict_dialog.dart';
 import 'rea_micro_lan_book_picker.dart';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import 'rea_micro_controller.dart';
 import 'rea_micro_lan.dart';
@@ -167,7 +168,7 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
       const SizedBox(height: 10),
       Card(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -192,17 +193,14 @@ class _ReaMicroLanPageState extends State<ReaMicroLanPage> {
                       : controller.lanAuthorizationError ?? '请检查本地网络后重试',
                 ),
               ),
-              const SizedBox(width: 8),
-              controller.lanAuthorizationRunning
-                  ? const Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Icon(Icons.radar, size: 20),
-                    )
-                  : TextButton(
-                      onPressed: () =>
-                          unawaited(controller.retryLanAuthorization()),
-                      child: const Text('重试'),
-                    ),
+              if (!controller.lanAuthorizationRunning) ...[
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () =>
+                      unawaited(controller.retryLanAuthorization()),
+                  child: const Text('重试'),
+                ),
+              ],
             ],
           ),
         ),
@@ -420,7 +418,7 @@ class _StatusBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: Text(text, style: TextStyle(color: color, height: 1.4)),
     );

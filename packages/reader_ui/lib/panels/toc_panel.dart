@@ -17,6 +17,7 @@ class TocPanel extends StatefulWidget {
     required this.currentSpineIndex,
     required this.onSelect,
     this.currentCfi,
+    this.isChapterCached,
     this.readingDuration,
     this.scrollController,
     this.onBack,
@@ -32,6 +33,7 @@ class TocPanel extends StatefulWidget {
 
   /// 当前位置 CFI（用于多个目录项指向同一 spine 时定位当前项）。
   final String? currentCfi;
+  final Future<bool> Function(int)? isChapterCached;
   final ValueListenable<Duration>? readingDuration;
 
   /// 选择回调（点击目录项）。
@@ -438,7 +440,24 @@ class _TocPanelState extends State<TocPanel> {
                                     ),
                                   ),
                                 )
-                              : null,
+                              : widget.isChapterCached == null ||
+                                    row.entry.spineIndex < 0
+                              ? null
+                              : FutureBuilder<bool>(
+                                  future: widget.isChapterCached!(
+                                    row.entry.spineIndex,
+                                  ),
+                                  builder: (context, snapshot) =>
+                                      snapshot.data == false
+                                      ? const Tooltip(
+                                          message: '未下载',
+                                          child: Icon(
+                                            Icons.cloud_outlined,
+                                            size: 18,
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
                           onTap: missing
                               ? null
                               : () => widget.onSelect(row.entry),

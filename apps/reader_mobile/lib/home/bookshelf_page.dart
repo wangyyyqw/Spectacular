@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -198,6 +199,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       debugPrint('reader text warm-up failed: $error\n$stack');
     }
     widget.library.addListener(_reload);
+    widget.onlineBooks?.addListener(_reload);
     _bookOpener =
         widget.bookOpener ??
         BookOpener(
@@ -233,6 +235,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
   @override
   void didUpdateWidget(BookshelfPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.onlineBooks != widget.onlineBooks) {
+      oldWidget.onlineBooks?.removeListener(_reload);
+      widget.onlineBooks?.addListener(_reload);
+      _reload();
+    }
     if (oldWidget.refreshToken != widget.refreshToken) {
       _loadPreferences();
     }
@@ -601,9 +608,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
         final lastReadAt = item.entry.lastReadAt?.millisecondsSinceEpoch ?? 0;
         final update = _onlineUpdates[item.entry.id];
         if (update?['updated'] != true) return lastReadAt;
-        final checkedAt =
-            update?['checkedAt'] as int? ?? update?['updatedAt'] as int? ?? 0;
-        return checkedAt > lastReadAt ? checkedAt : lastReadAt;
+        final updatedAt =
+            update?['updatedAt'] as int? ?? update?['checkedAt'] as int? ?? 0;
+        return updatedAt > lastReadAt ? updatedAt : lastReadAt;
       }
 
       sorted.sort((a, b) {
@@ -624,6 +631,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
   List<_ShelfItem> _visible(List<_ShelfItem> items, {String? groupId}) {
     final query = _query.trim().toLowerCase();
     final filtered = items.where((item) {
+      if (_allAsGroup &&
+          groupId == null &&
+          _bookGroups[item.entry.id] != null) {
+        return false;
+      }
       if (groupId != null && _bookGroups[item.entry.id] != groupId) {
         return false;
       }
@@ -639,6 +651,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   @override
   void dispose() {
     widget.library.removeListener(_reload);
+    widget.onlineBooks?.removeListener(_reload);
     _searchController.dispose();
     _searchFocus.dispose();
     _keyboardFocus.dispose();
@@ -1216,6 +1229,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
             entry: entry,
             library: widget.library,
             progressStore: widget.progressStore,
+            loadFinishedReview: widget.reaMicro?.loadFinishedReview,
+            saveFinishedReview: widget.reaMicro?.saveFinishedReview,
             inDrawer: true,
           ),
         ),
@@ -1722,11 +1737,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         if (_error == null && items != null) _buildShelfControls(items),
         Expanded(
           child: _ShelfGroupPages(
-            groupIds: [
-              null,
-              if (!_allAsGroup)
-                for (final group in _groups) group.id,
-            ],
+            groupIds: [null, for (final group in _groups) group.id],
             groupId: _activeGroupId,
             enabled: canSwipe,
             onChanged: (id) => setState(() => _activeGroupId = id),
@@ -1816,6 +1827,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             final pinned = _pinnedIds.contains(item.entry.id);
             return _BookCard(
               entry: item.entry,
+              isOnline: item.isOnline,
               pinned: pinned,
               showTitle: _gridShowTitles,
               selectionMode: _selectionMode,
@@ -2022,11 +2034,14 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
   @override
   void didUpdateWidget(_ShelfGroupPages oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.enabled || !widget.groupIds.contains(_displayId)) {
+    if (!widget.enabled ||
+        !listEquals(oldWidget.groupIds, widget.groupIds) ||
+        !widget.groupIds.contains(_displayId)) {
       _controller.stop();
       _displayId = widget.groupId;
       _offset = 0;
       _direction = 0;
+      _targetIndex = null;
     } else if (oldWidget.groupId != widget.groupId &&
         _displayId != widget.groupId) {
       _controller.stop();
@@ -2492,20 +2507,20 @@ class _ShelfGroupBar extends StatelessWidget {
           children: <Widget>[
             _ShelfGroupTab(
               key: const ValueKey<String>('bookshelf-group-all'),
-              label: '${allAsGroup ? defaultGroupName : '全部'} ${items.length}',
+              label:
+                  '${allAsGroup ? defaultGroupName : '全部'} ${allAsGroup ? items.where((item) => assignments[item.entry.id] == null).length : items.length}',
               selected: activeGroupId == null,
               onTap: onShowAll,
               onLongPress: allAsGroup ? onManageDefault : null,
             ),
-            if (!allAsGroup)
-              for (final group in groups)
-                _ShelfGroupTab(
-                  key: ValueKey<String>('bookshelf-group-${group.id}'),
-                  label: '${group.name} ${counts[group.id] ?? 0}',
-                  selected: group.id == activeGroupId,
-                  onTap: () => onToggle(group.id),
-                  onLongPress: () => onManage(group),
-                ),
+            for (final group in groups)
+              _ShelfGroupTab(
+                key: ValueKey<String>('bookshelf-group-${group.id}'),
+                label: '${group.name} ${counts[group.id] ?? 0}',
+                selected: group.id == activeGroupId,
+                onTap: () => onToggle(group.id),
+                onLongPress: () => onManage(group),
+              ),
           ],
         ),
       ),
@@ -2672,8 +2687,17 @@ class _BookRow extends StatelessWidget {
       ),
     );
     final trailing = <Widget>[
-      if (entry.readabilityLevel >= 2)
-        AppIcon(AppGlyph.warning, color: theme.colorScheme.error, size: 18),
+      if (!isOnline && entry.readabilityLevel >= 2)
+        Tooltip(
+          message: entry.readabilityLevel >= 3
+              ? '结构异常：进度与目录可能不可靠'
+              : '部分内容降级：目录或资源缺失',
+          child: AppIcon(
+            AppGlyph.warning,
+            color: theme.colorScheme.error,
+            size: 18,
+          ),
+        ),
       if (selectionMode)
         Checkbox(
           key: ValueKey<String>('book-row-check-${entry.id}'),
@@ -2943,6 +2967,7 @@ class _ErrorPane extends StatelessWidget {
 class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.entry,
+    required this.isOnline,
     required this.pinned,
     required this.showTitle,
     required this.selectionMode,
@@ -2954,6 +2979,7 @@ class _BookCard extends StatelessWidget {
   });
 
   final BookEntry entry;
+  final bool isOnline;
   final bool pinned;
   final bool showTitle;
   final bool selectionMode;
@@ -2974,7 +3000,7 @@ class _BookCard extends StatelessWidget {
         children: [
           BookCoverImage(
             book: entry,
-            showReadabilityBadge: true,
+            showReadabilityBadge: !isOnline,
             showShadow: true,
             shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
           ),

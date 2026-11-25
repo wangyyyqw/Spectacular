@@ -71,6 +71,13 @@ class OnlineReadingBook {
         service.loadCover(source, url, referer: book.bookUrl),
   );
 
+  Future<bool> isChapterCached(int index) => service.isChapterCached(
+    source,
+    chapters[index],
+    book.bookUrl,
+    nextChapter: _nextChapter(index),
+  );
+
   String chapterRevision(int index) => _digest([
     '在线正文5',
     service.chapterContentRevision(
@@ -120,6 +127,43 @@ class OnlineReadingProgress implements ReaderProgressStore {
   final int? startChapter;
 
   String get _key => 'online_reading_progress:${book.id}';
+
+  /// 同步器读取最后一次实际保存的位置；目录重排仍由正式 load 处理。
+  static Future<ReaderProgress?> savedSnapshot(
+    LibraryStore library,
+    String bookId,
+  ) async {
+    final raw = await library.getSetting('online_reading_progress:$bookId');
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map<String, dynamic>) return null;
+      final cfi = value['cfi'] as String?;
+      final spine = value['spine'] as int?;
+      final revision = value['revision'] as String?;
+      if (cfi == null ||
+          cfi.trim().isEmpty ||
+          spine == null ||
+          spine < 0 ||
+          revision == null ||
+          revision.isEmpty) {
+        return null;
+      }
+      return ReaderProgress(
+        spineIndex: spine,
+        pageIndex: value['page'] as int? ?? 0,
+        cfi: cfi,
+        contentRevision: revision,
+        finished: value['finished'] == true,
+        readingPercent: (value['percent'] as num?)?.toDouble(),
+        chapterTitle: value['title'] as String?,
+      );
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
 
   @override
   Future<ReaderProgress?> load(String bookId) async {

@@ -91,7 +91,8 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
   late final AnimationController _lightController;
   late final Animation<double> _morphLights;
   late _VoxelChartMode _mode;
-  _VoxelChartMode? _fromMode;  bool _morphing = false;
+  _VoxelChartMode? _fromMode;
+  bool _morphing = false;
   bool _started = false;
   bool _reduceMotion = false;
   bool _morphLightsActive = false;
@@ -373,7 +374,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
           minimumSize: const Size(48, 48),
           backgroundColor: scheme.surfaceContainerHighest,
           foregroundColor: scheme.onSurface,
-          shape: ReaderUiStyle.controlShape,
+          shape: ReaderUiStyle.controlShapeOf(Theme.of(context)),
         ),
         icon: AppIcon(
           switchingToTime ? AppGlyph.stats : AppGlyph.menuBook,
@@ -391,10 +392,12 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     required bool showRooftops,
   }) {
     final scheme = Theme.of(context).colorScheme;
-    final targetScene = _sceneFor(_mode, width);
+    final axisWidth = _mode == _VoxelChartMode.timeOfDay ? 42.0 : 0.0;
+    final chartWidth = width - axisWidth;
+    final targetScene = _sceneFor(_mode, chartWidth);
     final lights = _morphLightsActive ? _morphLights : _lightController;
     final fromScene = _morphing
-        ? _sceneFor(_fromMode ?? _VoxelChartMode.books, width)
+        ? _sceneFor(_fromMode ?? _VoxelChartMode.books, chartWidth)
         : null;
     final painter = fromScene == null
         ? _ScenePainter(
@@ -417,9 +420,9 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
             shadowColor: scheme.shadow,
             baseColor: scheme.surfaceContainerHighest,
           );
-    return _StaticVoxelChart(
+    final chart = _StaticVoxelChart(
       scene: targetScene,
-      width: width,
+      width: chartWidth,
       plotHeight: _plotHeight,
       labelHeight: labelHeight,
       selectedBookId: widget.selectedBookId,
@@ -435,6 +438,47 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
           : null,
       onBookSelected: widget.onSelected,
       books: widget.bars,
+    );
+    if (axisWidth == 0) return chart;
+    final maximum = _maximumDuration(
+      widget.timeBars.map((bar) => bar.duration),
+    );
+    final tallest = targetScene.bars
+        .where((bar) => bar.duration == maximum)
+        .firstOrNull;
+    final seconds = maximum.inSeconds;
+    String tick(int index) {
+      final value = seconds * index / 3;
+      return seconds >= 3600
+          ? '${(value / 3600).toStringAsFixed(1)}h'
+          : '${(value / 60).toStringAsFixed(0)}m';
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: chartWidth, child: chart),
+        SizedBox(
+          width: axisWidth,
+          height: _plotHeight,
+          child: Stack(
+            children: [
+              for (var index = 0; index <= 3; index++)
+                Positioned(
+                  right: 0,
+                  bottom:
+                      _plotHeight -
+                      (tallest?.baseY ?? _plotHeight) +
+                      (tallest?.height ?? 144) * index / 3,
+                  child: Text(
+                    index == 0 ? '0' : tick(index),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -576,7 +620,7 @@ class _StaticVoxelChart extends StatelessWidget {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          bar.label,
+                          bar.label.replaceFirst('周', ''),
                           maxLines: 1,
                           style: TextStyle(
                             fontSize: scene.bars.length <= 7 ? 10 : 8.5,

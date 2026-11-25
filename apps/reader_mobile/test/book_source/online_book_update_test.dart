@@ -161,6 +161,8 @@ void main() {
     );
     addTearDown(controller.dispose);
     await controller.initialize();
+    var updateNotifications = 0;
+    controller.addListener(() => updateNotifications++);
     await controller.refreshShelfOnlineUpdates();
     final checked =
         (jsonDecode((await library.getSetting('bookshelf.onlineUpdates.v1'))!)
@@ -168,6 +170,7 @@ void main() {
             as Map<String, dynamic>;
     expect(checked['chapterCount'], 2);
     expect(checked['updated'], isTrue);
+    expect(updateNotifications, greaterThan(0));
 
     final updated = await controller.updateBook(entry);
     expect(updated.id, entry.id);
@@ -178,6 +181,7 @@ void main() {
                 as Map<String, dynamic>)[entry.id]
             as Map<String, dynamic>;
     expect(cleared['updated'], isFalse);
+    expect(updateNotifications, greaterThan(1));
     expect((await progress.load(entry.id))!.cfi, start);
     final retained = (await library.listBookAnnotations(entry.id)).single;
     expect(retained.id, annotation.id);

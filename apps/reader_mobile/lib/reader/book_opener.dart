@@ -17,6 +17,8 @@ import '../dictionary/dictionary_store.dart';
 import '../library/library_store.dart';
 import '../editing/book_edit_repository.dart';
 import '../rea_micro/rea_micro_models.dart';
+import '../rea_micro/rea_micro_progress_store.dart';
+import '../storage/book_review_store.dart';
 import 'book_opening_reader.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
@@ -33,6 +35,8 @@ class BookOpener {
     this.onlineBooks,
     this.onReadingFinished,
     this.loadTtsVoices,
+    this.loadFinishedReview,
+    this.saveFinishedReview,
   });
 
   /// 书架存储。
@@ -43,6 +47,8 @@ class BookOpener {
 
   /// 已同步或导入的按需 EPUB 通过原书架身份进入在线阅读。
   final OnlineBookController? onlineBooks;
+  final BookReviewLoader? loadFinishedReview;
+  final BookReviewSaver? saveFinishedReview;
 
   /// 阅读会话落盘并关闭阅读页后通知宿主，供后台同步使用。
   final VoidCallback? onReadingFinished;
@@ -153,10 +159,17 @@ class BookOpener {
         ? remembered
         : Future.any<OnlineReadingBook>([remembered, cancellation.future]);
     prepared.ignore();
-    final progressReady = prepared.then<ReaderProgressStore>(
-      (book) =>
-          OnlineReadingProgress(library, book, startChapter: startChapter),
-    );
+    final progressReady = prepared.then<ReaderProgressStore>((book) {
+      final online = OnlineReadingProgress(
+        library,
+        book,
+        startChapter: startChapter,
+      );
+      final tracked = progressStore;
+      return entry != null && tracked is ReaMicroTrackingProgressStore
+          ? tracked.withDelegate(online)
+          : online;
+    });
     // 目录失败时尚未创建 ReaderSession，派生存储也需立即接住异常。
     progressReady.ignore();
     final store = _DeferredOnlineProgress(progressReady);
@@ -197,6 +210,8 @@ class BookOpener {
                   ? null
                   : library.readingSessionStore(),
               reviewStore: entry == null ? null : library.reviewStore(),
+              loadFinishedReview: loadFinishedReview,
+              saveFinishedReview: saveFinishedReview,
               bookmarks: bookmarks,
               annotations: annotations,
               decorations: decorations,
@@ -416,6 +431,8 @@ class BookOpener {
       onClosed: opening.finishClose,
       book: entry,
       reviewStore: reviews,
+      loadFinishedReview: loadFinishedReview,
+      saveFinishedReview: saveFinishedReview,
     );
   }
 }

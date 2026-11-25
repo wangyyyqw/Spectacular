@@ -1,7 +1,8 @@
+import 'package:reader_ui/rating/reader_rating.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
@@ -261,24 +262,10 @@ class ReviewTicket extends StatelessWidget {
       Theme.of(context).textTheme.bodySmall!
           .copyWith(fontSize: 12, height: 1.35);
 
-  Widget _stars(BuildContext context, int rating) => FittedBox(
+  Widget _stars(BuildContext context, num rating) => FittedBox(
     fit: BoxFit.scaleDown,
     alignment: Alignment.centerLeft,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var star = 1; star <= 5; star++)
-          Padding(
-            padding: const EdgeInsets.only(right: 1),
-            child: AppIcon(
-              AppGlyph.star,
-              size: 16,
-              color: Theme.of(context).colorScheme.onSurface,
-              filled: star <= rating,
-            ),
-          ),
-      ],
-    ),
+    child: ReaderRatingStars(rating: rating, size: 16),
   );
 
   Widget _stub(BuildContext context, DateTime? date, bool stacked) {

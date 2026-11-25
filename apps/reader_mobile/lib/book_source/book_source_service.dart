@@ -1330,6 +1330,26 @@ class BookSourceService {
     );
   }
 
+  /// 查询与正式加载规则一致的正文缓存，不发网络请求。
+  Future<bool> isChapterCached(
+    BookSource source,
+    OnlineChapter chapter,
+    String bookUrl, {
+    OnlineChapter? nextChapter,
+  }) {
+    final request = onlineChapterRequest(chapter);
+    return chapterContentStore.contains(
+      sourceId: source.id,
+      bookUrl: bookUrl,
+      chapterUrl: request.url,
+      rulesFingerprint: chapterContentRevision(
+        source,
+        chapter,
+        nextChapter: nextChapter,
+      ),
+    );
+  }
+
   /// 下载单章正文，并跟随 `nextContentUrl` 合并分页。
   Future<String> fetchChapterContent(
     BookSource source,

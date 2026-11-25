@@ -89,7 +89,7 @@ class ProfilePage extends StatelessWidget {
           children: [
             InkWell(
               key: const ValueKey('profile-account-entry'),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
               onTap: reaMicro == null ? null : () => _openAccount(context),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -102,62 +102,70 @@ class ProfilePage extends StatelessWidget {
               color: Theme.of(context).colorScheme.surface,
               shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
               clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  if (reaMicro != null) ...[
-                    _YeSheEntry(controller: reaMicro!),
-                    const Divider(height: 1, indent: 16, endIndent: 16),
-                    _CommunityEntry(controller: reaMicro!),
-                    const Divider(height: 1, indent: 16, endIndent: 16),
+              child: ListTileTheme(
+                data: const ListTileThemeData(
+                  minTileHeight: 48,
+                  minVerticalPadding: 6,
+                  visualDensity: VisualDensity(vertical: -1),
+                ),
+                child: Column(
+                  children: [
+                    if (reaMicro != null) ...[
+                      _YeSheEntry(controller: reaMicro!),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      _CommunityEntry(controller: reaMicro!),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        key: const ValueKey('profile-lan-entry'),
+                        leading: const Icon(Icons.sync_alt),
+                        title: const Text('互联'),
+                        trailing: const AppIcon(AppGlyph.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ReaMicroLanPage(controller: reaMicro!),
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        key: const ValueKey('profile-sync-entry'),
+                        leading: const Icon(Icons.cloud_upload_outlined),
+                        title: const Text('同步'),
+                        trailing: const AppIcon(AppGlyph.chevronRight),
+                        onTap: () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ReaMicroS3Page(controller: reaMicro!),
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                    ],
                     ListTile(
-                      key: const ValueKey('profile-lan-entry'),
-                      leading: const Icon(Icons.sync_alt),
-                      title: const Text('互联'),
+                      key: const ValueKey('profile-settings-entry'),
+                      leading: const AppIcon(AppGlyph.settings),
+                      title: const Text('设置'),
                       trailing: const AppIcon(AppGlyph.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              ReaMicroLanPage(controller: reaMicro!),
+                      onTap: () => showReaderDrawer<void>(
+                        context: context,
+                        builder: (_) => AppSettingsPage(
+                          library: library,
+                          onlineBooks: onlineBooks,
+                          onReadOnline: onReadOnline,
+                          themeMode: themeMode,
+                          onThemeModeChanged: onThemeModeChanged,
+                          uiStyle: uiStyle,
+                          onUiStyleChanged: onUiStyleChanged,
+                          appFontFamily: appFontFamily,
+                          appFontStore: appFontStore,
+                          onAppFontFamilyChanged: onAppFontFamilyChanged,
+                          navigationSettings: navigationSettings,
                         ),
                       ),
                     ),
-                    const Divider(height: 1, indent: 16, endIndent: 16),
-                    ListTile(
-                      key: const ValueKey('profile-sync-entry'),
-                      leading: const Icon(Icons.cloud_upload_outlined),
-                      title: const Text('同步'),
-                      trailing: const AppIcon(AppGlyph.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) => ReaMicroS3Page(controller: reaMicro!),
-                        ),
-                      ),
-                    ),
-                    const Divider(height: 1, indent: 16, endIndent: 16),
                   ],
-                  ListTile(
-                    key: const ValueKey('profile-settings-entry'),
-                    leading: const AppIcon(AppGlyph.settings),
-                    title: const Text('设置'),
-                    trailing: const AppIcon(AppGlyph.chevronRight),
-                    onTap: () => showReaderDrawer<void>(
-                      context: context,
-                      builder: (_) => AppSettingsPage(
-                        library: library,
-                        onlineBooks: onlineBooks,
-                        onReadOnline: onReadOnline,
-                        themeMode: themeMode,
-                        onThemeModeChanged: onThemeModeChanged,
-                        uiStyle: uiStyle,
-                        onUiStyleChanged: onUiStyleChanged,
-                        appFontFamily: appFontFamily,
-                        appFontStore: appFontStore,
-                        onAppFontFamilyChanged: onAppFontFamilyChanged,
-                        navigationSettings: navigationSettings,
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ],
