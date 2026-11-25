@@ -141,22 +141,20 @@ void main() {
       lessThan(400),
       reason: '短注释应贴合内容高度，不能被最大高度撑开',
     );
-    expect(find.text('脚注'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('脚注'), findsNothing);
+    expect(find.text('1'), findsNothing);
     expect(find.text('第一段注释'), findsOneWidget);
     expect(find.text('第二段注释'), findsOneWidget);
-    expect(find.textContaining('正文注释引用 · 10 字'), findsOneWidget);
+    expect(find.textContaining('正文注释引用'), findsNothing);
     expect(session.progress?.pageIndex, 1);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('reader-footnote-close')),
-    );
+    Navigator.of(tester.element(find.byType(ReaderFootnoteDialog))).pop();
     await tester.pumpAndSettle();
     expect(find.byType(ReaderFootnoteDialog), findsNothing);
     expect(session.progress?.pageIndex, 1);
   });
 
-  testWidgets('空注释使用链接类型标题与空态卡片', (tester) async {
+  testWidgets('空注释显示空态卡片', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
@@ -176,12 +174,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('注释'), findsOneWidget);
+    expect(find.text('注释'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('reader-footnote-label')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('参见'), findsOneWidget);
+    expect(find.text('参见'), findsNothing);
     expect(find.text('这条注释暂无内容'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -264,20 +262,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('尾注'), findsOneWidget);
+    expect(find.text('尾注'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('reader-footnote-scrollbar')),
       findsOneWidget,
-    );
-    expect(
-      tester.getRect(
-        find.byKey(const ValueKey<String>('reader-footnote-close')),
-      ),
-      isA<Rect>().having(
-        (rect) => rect.bottom,
-        '关闭按钮底部',
-        lessThanOrEqualTo(360),
-      ),
     );
     expect(
       tester.getRect(
@@ -340,16 +328,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(
-      tester.getRect(
-        find.byKey(const ValueKey<String>('reader-footnote-close')),
-      ),
-      isA<Rect>().having(
-        (rect) => rect.bottom,
-        '关闭按钮底部',
-        lessThanOrEqualTo(284),
-      ),
-    );
     final copyRect = tester.getRect(
       find.byKey(const ValueKey<String>('reader-footnote-copy')),
     );
@@ -399,16 +377,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(
-      tester.getRect(
-        find.byKey(const ValueKey<String>('reader-footnote-close')),
-      ),
-      isA<Rect>().having(
-        (rect) => rect.bottom,
-        '关闭按钮底部',
-        lessThanOrEqualTo(480),
-      ),
-    );
     expect(
       tester.getRect(
         find.byKey(const ValueKey<String>('reader-footnote-copy')),

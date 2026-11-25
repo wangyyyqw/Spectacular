@@ -249,7 +249,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('脚注弹层显示多段文本并可关闭', (tester) async {
+  testWidgets('脚注弹层显示多段文本', (tester) async {
     await _openSheet(
       tester,
       const ReaderFootnoteDialog(
@@ -266,7 +266,7 @@ void main() {
     _expectSheet(tester, 'reader-footnote-dialog');
     expect(find.text('第一段脚注'), findsOneWidget);
     expect(find.text('第二段脚注'), findsOneWidget);
-    await tester.tap(_key('reader-footnote-close'));
+    Navigator.of(tester.element(_key('reader-footnote-dialog'))).pop();
     await tester.pumpAndSettle();
     expect(_key('reader-footnote-dialog'), findsNothing);
   });

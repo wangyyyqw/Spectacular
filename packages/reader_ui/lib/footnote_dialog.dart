@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'package:flutter/services.dart';
-import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/image_cache.dart';
 
@@ -26,18 +25,6 @@ class ReaderFootnoteDialog extends StatelessWidget {
   /// 书内图片解码缓存。
   final DecodedImageCache? imageCache;
 
-  String get _title => switch (footnote.kind) {
-    NoteKind.endnote => '尾注',
-    NoteKind.footnote => '脚注',
-    NoteKind.link => '注释',
-  };
-
-  AppGlyph get _icon => switch (footnote.kind) {
-    NoteKind.endnote => AppGlyph.article,
-    NoteKind.footnote => AppGlyph.note,
-    NoteKind.link => AppGlyph.link,
-  };
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -48,15 +35,6 @@ class ReaderFootnoteDialog extends StatelessWidget {
       for (final paragraph in (text ?? '').split(RegExp(r'\n+')))
         if (paragraph.trim().isNotEmpty) paragraph.trim(),
     ];
-    final characterCount = paragraphs
-        .join()
-        .replaceAll(RegExp(r'\s+'), '')
-        .length;
-    final details = <String>[
-      if (characterCount > 0) '$characterCount 字',
-      if (images.isNotEmpty) '${images.length} 张图片',
-    ];
-    final label = footnote.label.trim();
     return Material(
       key: const ValueKey('reader-footnote-dialog'),
       color: ReaderFrostedSurface.panelColorOf(context),
@@ -80,98 +58,6 @@ class ReaderFootnoteDialog extends StatelessWidget {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: AppIcon(
-                            _icon,
-                            size: 21,
-                            color: theme.colorScheme.onPrimaryContainer,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 4,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Text(
-                                    _title,
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                  if (label.isNotEmpty)
-                                    Container(
-                                      key: const ValueKey(
-                                        'reader-footnote-label',
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color:
-                                            theme.colorScheme.surfaceContainer,
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color:
-                                              theme.colorScheme.outlineVariant,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        label,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.labelSmall
-                                            ?.copyWith(
-                                              color: theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                            ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                details.isEmpty
-                                    ? '正文注释引用'
-                                    : '正文注释引用 · ${details.join(' · ')}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          key: const ValueKey('reader-footnote-close'),
-                          onPressed: () => Navigator.of(context).pop(),
-                          tooltip: '关闭注释',
-                          icon: const AppIcon(AppGlyph.close, size: 20),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
               Flexible(
                 child: Scrollbar(
                   key: const ValueKey('reader-footnote-scrollbar'),
