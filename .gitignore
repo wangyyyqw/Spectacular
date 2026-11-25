@@ -117,6 +117,11 @@ apps/reader_mobile/.release-version.lock
 # 本地助手记忆与文档生成临时产物
 /.workbuddy/
 /output/
+/.codex-temp/
+/.codex-installed-apps.json
+/.codex-mcp-tools.json
+/.codex-reamicro-workspace.json
+/.tmp_*
 
 # flutter 误建工程排除（P8-10 修复提交误生成）
 packages/reader_core/android/
