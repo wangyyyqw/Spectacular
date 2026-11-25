@@ -36,6 +36,7 @@ class ReaMicroSyncResult {
     required this.message,
     this.requests = 0,
     this.durationSeconds = 0,
+    this.hasFailures = false,
   });
 
   /// 是否至少成功提交了一部分数据。
@@ -49,6 +50,9 @@ class ReaMicroSyncResult {
 
   /// 成功上报的总秒数。
   final int durationSeconds;
+
+  /// 部分成功仍有失败批次时，继续受每日重试上限约束。
+  final bool hasFailures;
 }
 
 /// 阅微登录、账号数据与阅读时长同步状态。
@@ -64,9 +68,11 @@ class ReaMicroController extends ChangeNotifier {
     bool enableLanLoginServer = true,
     ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
     ReaMicroAggregateSearch? aggregateSearch,
+    DateTime Function()? now,
   }) : _library = library,
        _api = api ?? ReaMicroApiClient(),
        _store = store ?? ReaMicroStore(library),
+       _now = now ?? DateTime.now,
        _rawProgressStore = progressStore,
        // ignore: prefer_initializing_formals
        _s3ClientFactory = s3ClientFactory,
@@ -90,6 +96,8 @@ class ReaMicroController extends ChangeNotifier {
   final LibraryStore _library;
   final ReaMicroApi _api;
   final ReaMicroStore _store;
+  final DateTime Function() _now;
+  Future<void> _uploadRetryWork = Future<void>.value();
   late final ReaMicroAggregateSearch _aggregateSearch;
   final ReaderProgressStore? _rawProgressStore;
   final ReaMicroLanClient _lan;
@@ -2172,7 +2180,71 @@ class ReaMicroController extends ChangeNotifier {
   ///
   /// 未公开关联的书籍先登记内部用户书，再用稳定会话标识上传。
   /// 登记失败保留记录等待重试，不退回缺少幂等标识的累计接口。
-  Future<ReaMicroSyncResult> syncReadingSessions() async {
+  Future<ReaMicroSyncResult> syncReadingSessions() =>
+      _limitUploadRetries('sessions', _syncReadingSessions);
+
+  /// 四类阅读数据共用每天十次失败重试额度；首次尝试不计入重试。
+  Future<ReaMicroSyncResult> _limitUploadRetries(
+    String kind,
+    Future<ReaMicroSyncResult> Function() operation,
+  ) {
+    final result = _uploadRetryWork.then((_) async {
+      if (_disposed || !signedIn) {
+        return const ReaMicroSyncResult(success: false, message: '请先登录阅微账号');
+      }
+      final token = _token;
+      final budget = await _store.loadUploadRetryBudget();
+      final day = _now()
+          .toUtc()
+          .add(const Duration(hours: 8))
+          .toIso8601String()
+          .substring(0, 10);
+      final failed = <String>{
+        for (final value in (budget['failed'] as List<Object?>? ?? const []))
+          if (value is String) value,
+      };
+      var retries = budget['day'] == day
+          ? (budget['retries'] as num? ?? 0).toInt()
+          : 0;
+      if (failed.contains(kind)) {
+        if (retries >= 10) {
+          const message = '今天上传失败重试已达 10 次，未上传数据保留，明天再试';
+          _error = message;
+          _notify();
+          return const ReaMicroSyncResult(success: false, message: message);
+        }
+        retries++;
+      }
+      Map<String, Object?> state() => {
+        'day': day,
+        'retries': retries,
+        'failed': failed.toList(),
+      };
+      // 先落盘再发请求，避免退出应用绕过每日上限。
+      await _store.saveUploadRetryBudget(state());
+      final outcome = await operation();
+      if (_token == token) {
+        if (outcome.success && !outcome.hasFailures) {
+          failed.remove(kind);
+        } else {
+          failed.add(kind);
+          recordAppEvent(
+            'reamicro_upload_failed',
+            fields: {'upload_kind_enum': kind, 'retry_count': retries},
+          );
+        }
+        await _store.saveUploadRetryBudget(state());
+      }
+      return outcome;
+    });
+    _uploadRetryWork = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<ReaMicroSyncResult> _syncReadingSessions() async {
     final token = _token;
     if (token == null) {
       return const ReaMicroSyncResult(success: false, message: '请先登录阅微账号');
@@ -2457,9 +2529,18 @@ class ReaMicroController extends ChangeNotifier {
             fields: {
               'duration_seconds': group.durationSeconds,
               'sessions': group.keys.length,
+              'session_accounting': group.logs.isNotEmpty,
               if (error is ReaMicroException) 'code': error.code ?? 0,
               if (error is ReaMicroException)
                 'http_status': error.statusCode ?? 0,
+              'failure_reason_enum':
+                  error is ReaMicroException &&
+                      error.message ==
+                          'session accounting cannot include legacy increments'
+                  ? 'legacy_increment_conflict'
+                  : error is ReaMicroException && error.code != null
+                  ? 'business_rejected'
+                  : 'transport_or_storage',
             },
           );
           if (error is ReaMicroException && error.unauthorized) {
@@ -2508,6 +2589,7 @@ class ReaMicroController extends ChangeNotifier {
       _schedulePendingReadingRetry();
       return ReaMicroSyncResult(
         success: requests > 0,
+        hasFailures: true,
         message: requests == 0 ? failure : '已同步 $requests 天，其余记录失败：$failure',
         requests: requests,
         durationSeconds: durationSeconds,
@@ -2524,7 +2606,10 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   /// 双向同步阅微划线与想法。
-  Future<ReaMicroSyncResult> syncMarks() async {
+  Future<ReaMicroSyncResult> syncMarks() =>
+      _limitUploadRetries('marks', _syncMarks);
+
+  Future<ReaMicroSyncResult> _syncMarks() async {
     final token = _token;
     if (token == null) {
       return const ReaMicroSyncResult(success: false, message: '请先登录阅微账号');
@@ -2807,6 +2892,7 @@ class ReaMicroController extends ChangeNotifier {
     if (failure != null) _schedulePendingReadingRetry();
     return ReaMicroSyncResult(
       success: failure == null || requests > 0,
+      hasFailures: failure != null,
       message: message,
       requests: requests,
     );
@@ -3138,7 +3224,10 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   /// 以里程碑同步已关联书籍的读完状态；待传修改先上传，避免被旧云数据覆盖。
-  Future<ReaMicroSyncResult> syncFinishedBooks() async {
+  Future<ReaMicroSyncResult> syncFinishedBooks() =>
+      _limitUploadRetries('finished', _syncFinishedBooks);
+
+  Future<ReaMicroSyncResult> _syncFinishedBooks() async {
     final token = _token;
     final progressStore = _rawProgressStore;
     if (token == null || progressStore == null || _links.isEmpty) {
@@ -3285,7 +3374,13 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   /// 上报本地待同步位置，并按需拉取云端较新的位置。
-  Future<ReaMicroSyncResult> syncProgress({bool pullCloud = true}) async {
+  Future<ReaMicroSyncResult> syncProgress({bool pullCloud = true}) =>
+      _limitUploadRetries(
+        'progress',
+        () => _syncProgress(pullCloud: pullCloud),
+      );
+
+  Future<ReaMicroSyncResult> _syncProgress({bool pullCloud = true}) async {
     final token = _token;
     final store = _rawProgressStore;
     if (token == null) {
@@ -3502,6 +3597,7 @@ class ReaMicroController extends ChangeNotifier {
     _notify();
     return ReaMicroSyncResult(
       success: failure == null || requests > 0,
+      hasFailures: failure != null,
       message: message,
       requests: requests,
     );

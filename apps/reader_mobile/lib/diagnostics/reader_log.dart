@@ -29,6 +29,7 @@ class ReaderLog {
   final ListQueue<String> _lines = ListQueue<String>();
   int _droppedLineCount = 0;
   File? _file;
+  File? _uploadFailuresFile;
   Future<void>? _initializing;
   Future<void> _fileWork = Future<void>.value();
   bool _ready = false;
@@ -80,10 +81,54 @@ class ReaderLog {
     final directory = await _directoryProvider();
     await directory.create(recursive: true);
     final file = _file = File('${directory.path}/reader_log.txt');
+    final failures = _uploadFailuresFile = File(
+      '${directory.path}/reader_upload_failures.txt',
+    );
     await file.create(recursive: true);
+    await failures.create(recursive: true);
+    final info = await _deviceInfoProvider();
+    // 从旧会话头识别版本，首次引入版本标记也能清理上一版日志。
+    final migrated = <String>[];
+    String? storedVersion;
+    String? storedBuild;
+    await for (final line
+        in file
+            .openRead()
+            .transform(const Utf8Decoder(allowMalformed: true))
+            .transform(const LineSplitter())) {
+      if (line.startsWith('app_version=')) storedVersion = line.substring(12);
+      if (line.startsWith('build_number=')) storedBuild = line.substring(13);
+      if (_isUploadFailureLine(line)) migrated.add(_sanitizeStoredLine(line));
+    }
+    final version = info['app_version'];
+    final build = info['build_number'];
+    final versionFile = File('${directory.path}/reader_log_version.txt');
+    if (version != null && build != null) {
+      final current = '$version+$build';
+      final previous = await versionFile.exists()
+          ? (await versionFile.readAsString()).trim()
+          : storedVersion != null && storedBuild != null
+          ? '$storedVersion+$storedBuild'
+          : null;
+      if (previous != null && previous != current) {
+        await file.writeAsString('', flush: true);
+        await failures.writeAsString('', flush: true);
+        final export = File('${directory.path}/reader_log_export.txt');
+        if (await export.exists()) await export.writeAsString('', flush: true);
+        migrated.clear();
+      }
+      await versionFile.writeAsString(current, flush: true);
+    }
+    // 首次升级日志策略时先迁移旧上传错误，再截断普通日志。
+    if (migrated.isNotEmpty) {
+      await failures.writeAsString(
+        '${migrated.join('\n')}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    }
     await _trimIfOversize(file);
     await _sanitizeFile(file);
-    final info = await _deviceInfoProvider();
     final header = [
       '',
       '=== 新会话 ${DateTime.now().toIso8601String()} ===',
@@ -132,7 +177,7 @@ class ReaderLog {
         try {
           await _trimIfOversize(file);
           await _sanitizeFile(file);
-          return await file.readAsString();
+          return await _exportText(file);
         } catch (error, stackTrace) {
           _reportLogFailure('读取', error, stackTrace);
         }
@@ -146,7 +191,7 @@ class ReaderLog {
     ..._lines,
   ].join('\n');
 
-  /// 清空日志文件、内存缓存与丢弃计数。
+  /// 清空普通日志与内存缓存；上传失败证据保留到版本更新。
   Future<void> clear() async {
     await initialize();
     _lines.clear();
@@ -186,7 +231,10 @@ class ReaderLog {
 
   Future<void> _sanitizeFile(File file) async {
     final text = utf8.decode(await file.readAsBytes(), allowMalformed: true);
-    final safe = _sanitizeText(text);
+    final safe = _sanitizeText(text)
+        .split('\n')
+        .where((line) => !_isUploadFailureLine(line))
+        .join('\n');
     if (safe != text) await file.writeAsString(safe, flush: true);
     await _trimIfOversize(file);
   }
@@ -195,6 +243,14 @@ class ReaderLog {
     final result = _fileWork.then((_) => operation());
     _fileWork = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
+  }
+
+  Future<String> _exportText(File file) async {
+    final normal = await file.readAsString();
+    final failures = _uploadFailuresFile;
+    if (failures == null || !await failures.exists()) return normal;
+    final retained = await failures.readAsString();
+    return retained.isEmpty ? normal : '$normal\n$retained';
   }
 
   /// 确保日志文件存在并返回路径。
@@ -209,7 +265,9 @@ class ReaderLog {
       }
       await _trimIfOversize(file);
       await _sanitizeFile(file);
-      return file.path;
+      final export = File('${file.parent.path}/reader_log_export.txt');
+      await export.writeAsString(await _exportText(file), flush: true);
+      return export.path;
     });
   }
 
@@ -234,8 +292,20 @@ class ReaderLog {
       final file = _file;
       if (file == null) return;
       try {
-        await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
-        await _trimIfOversize(file);
+        if (_isUploadFailureLine(line) && _uploadFailuresFile != null) {
+          await _uploadFailuresFile!.writeAsString(
+            '$line\n',
+            mode: FileMode.append,
+            flush: true,
+          );
+        } else {
+          await file.writeAsString(
+            '$line\n',
+            mode: FileMode.append,
+            flush: true,
+          );
+          await _trimIfOversize(file);
+        }
       } catch (error, stackTrace) {
         _reportLogFailure('追加', error, stackTrace);
       }
@@ -247,6 +317,7 @@ class ReaderLog {
     _lines.clear();
     _droppedLineCount = 0;
     _file = null;
+    _uploadFailuresFile = null;
     _initializing = null;
     _fileWork = Future<void>.value();
     _ready = false;
@@ -300,6 +371,14 @@ class ReaderLog {
     }
     return info;
   }
+}
+
+bool _isUploadFailureLine(String line) {
+  final parts = line.split(' | ');
+  return parts.length >= 2 &&
+      DateTime.tryParse(parts.first) != null &&
+      (parts[1] == 'reamicro_read_time_failed' ||
+          parts[1] == 'reamicro_upload_failed');
 }
 
 /// 将界面已处理的异常写入“我的”页可查看的本地日志，不弹出浮动提示。

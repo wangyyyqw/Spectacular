@@ -21,6 +21,7 @@ class ReaMicroStore {
   static const String _uploadedKey = 'reamicro.sync.uploaded';
   static const String _watermarksKey = 'reamicro.sync.watermarks';
   static const String _pendingSessionsKey = 'reamicro.sync.pendingSessions';
+  static const String _uploadRetryKey = 'reamicro.sync.retryBudget';
   static const String _lastSyncKey = 'reamicro.sync.lastAt';
   static const String _progressKey = 'reamicro.progress.state';
   static const String _deviceIdKey = 'reamicro.device.id';
@@ -34,6 +35,21 @@ class ReaMicroStore {
   static const String _finishedKey = 'reamicro.finished.pending';
   static const String _finishedMirrorKey = 'reamicro.finished.mirror';
   static const int _maxUploadedKeys = 5000;
+
+  /// 重试次数按北京时间自然日保存，进程重启不会重置。
+  Future<Map<String, Object?>> loadUploadRetryBudget() async {
+    final raw = await _library.getSetting(_uploadRetryKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, Object?> ? value : {};
+    } on FormatException {
+      return {};
+    }
+  }
+
+  Future<void> saveUploadRetryBudget(Map<String, Object?> value) =>
+      _library.setSetting(_uploadRetryKey, jsonEncode(value));
 
   /// 正数为待标记读完，负数为待取消；绝对值是本地修改时间。
   Future<Map<String, int>> loadPendingFinished() async {

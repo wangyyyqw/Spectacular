@@ -32,6 +32,76 @@ void _expectNoReadingContent(String text) {
 
 void main() {
   final sharedClockLog = ReaderLog();
+  test('上传失败不随普通日志截断删除，同版本重启保留，升级后清除旧日志', () async {
+    final dir = Directory.systemTemp.createTempSync('reader-upload-failure');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    var build = '18';
+    ReaderLog create() => ReaderLog(
+      directoryProvider: () async => dir,
+      deviceInfoProvider: () async => {
+        'app_version': '1.0.0',
+        'build_number': build,
+      },
+    );
+    var log = create();
+    await log.log(
+      'reamicro_read_time_failed',
+      fields: {'code': 2, 'sessions': 1},
+    );
+    await File('${dir.path}/reader_log.txt').writeAsString(
+      List.filled(
+        20000,
+        '2026-11-25T10:00:00 | page_turn | spine=1',
+      ).join('\n'),
+      mode: FileMode.append,
+    );
+    expect(await log.exportText(), contains('reamicro_read_time_failed'));
+    expect(await log.exportText(), contains('[日志已截断，'));
+    log.resetForTest();
+    log = create();
+    expect(await log.exportText(), contains('reamicro_read_time_failed'));
+    await log.clear();
+    expect(await log.exportText(), contains('reamicro_read_time_failed'));
+    final exported = File((await log.exportFile())!);
+    expect(
+      await exported.readAsString(),
+      contains('reamicro_read_time_failed'),
+    );
+    log.resetForTest();
+    build = '19';
+    log = create();
+    expect(
+      await log.exportText(),
+      isNot(contains('reamicro_read_time_failed')),
+    );
+    expect(await log.exportText(), isNot(contains('page_turn')));
+    expect(await exported.readAsString(), isEmpty);
+    log.resetForTest();
+  });
+
+  test('首次引入版本标记时按旧会话头清理上一版本的上传失败', () async {
+    final dir = Directory.systemTemp.createTempSync(
+      'reader-log-version-migration',
+    );
+    addTearDown(() => dir.deleteSync(recursive: true));
+    await File('${dir.path}/reader_log.txt').writeAsString(
+      'app_version=1.0.0\nbuild_number=18\n'
+      '2026-11-25T10:00:00 | reamicro_read_time_failed | code=2\n',
+    );
+    final log = ReaderLog(
+      directoryProvider: () async => dir,
+      deviceInfoProvider: () async => {
+        'app_version': '1.0.0',
+        'build_number': '19',
+      },
+    );
+    expect(
+      await log.exportText(),
+      isNot(contains('reamicro_read_time_failed')),
+    );
+    log.resetForTest();
+  });
+
   test('日志初始化、追加、导出文件', () async {
     final dir = Directory.systemTemp.createTempSync('reader_log_test');
     final log = ReaderLog(

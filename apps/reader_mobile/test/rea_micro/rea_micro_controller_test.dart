@@ -899,6 +899,7 @@ Future<ReaMicroController> _createController(
   ReaMicroLanClient? lan,
   ReaMicroS3Client Function(ReaMicroS3Config config)? s3ClientFactory,
   ReaMicroAggregateSearch? aggregateSearch,
+  DateTime Function()? now,
 }) async {
   if (signedIn) {
     await ReaMicroStore(library).saveToken('token');
@@ -922,6 +923,7 @@ Future<ReaMicroController> _createController(
     enableLanLoginServer: false,
     s3ClientFactory: s3ClientFactory,
     aggregateSearch: aggregateSearch,
+    now: now,
   );
   await controller.initialize();
   return controller;
@@ -1063,10 +1065,8 @@ void main() {
         duration: const Duration(minutes: 3),
       ),
     );
-    api.onSessionUpload = () async => throw const ReaMicroException(
-      '会话记账暂不可用',
-      code: 409,
-    );
+    api.onSessionUpload = () async =>
+        throw const ReaMicroException('会话记账暂不可用', code: 409);
 
     final rejected = await controller.syncReadingSessions();
     expect(rejected.success, isFalse);
@@ -1080,14 +1080,48 @@ void main() {
     final retried = await controller.syncReadingSessions();
     expect(retried.success, isTrue);
     expect(retried.durationSeconds, 180);
-    expect(api.sessionLogUploads.last.single.id,
-        api.sessionLogUploads.first.single.id);
+    expect(
+      api.sessionLogUploads.last.single.id,
+      api.sessionLogUploads.first.single.id,
+    );
     expect(api.sessionLogUploads.last.single.cloudBookId, 7001);
     expect(await ReaMicroStore(library).loadSessionWatermarks(), {
       book.id: start.add(const Duration(minutes: 3)).millisecondsSinceEpoch,
     });
     expect(await ReaMicroStore(library).loadPendingSessionUpload(), isNull);
     expect((await controller.syncReadingSessions()).requests, 0);
+  });
+
+  test('失败每天最多重试十次，重建控制器保留次数，次日恢复且水位不丢失', () async {
+    final library = _TestLibrary();
+    final start = DateTime.utc(2026, 11, 23, 1);
+    library.sessions.add(
+      _session(start, start.add(const Duration(minutes: 1))),
+    );
+    final api = _FakeApi();
+    api.onSessionUpload = () async =>
+        throw const ReaMicroException('业务拒绝', code: 2);
+    var now = DateTime.utc(2026, 11, 25, 2);
+    var controller = await _createController(library, api, now: () => now);
+    for (var attempt = 0; attempt < 11; attempt++) {
+      expect((await controller.syncReadingSessions()).success, isFalse);
+    }
+    expect(api.uploads, hasLength(11), reason: '首次失败加十次重试');
+    final id = api.sessionLogUploads.first.single.id;
+    expect((await controller.syncReadingSessions()).message, contains('10 次'));
+    expect(api.uploads, hasLength(11));
+    controller.dispose();
+    controller = await _createController(library, api, now: () => now);
+    addTearDown(controller.dispose);
+    expect((await controller.syncReadingSessions()).success, isFalse);
+    expect(api.uploads, hasLength(11));
+    expect(await ReaMicroStore(library).loadSessionWatermarks(), isEmpty);
+    now = now.add(const Duration(days: 1));
+    api.onSessionUpload = null;
+    expect((await controller.syncReadingSessions()).success, isTrue);
+    expect(api.uploads, hasLength(12));
+    expect(api.sessionLogUploads.last.single.id, id);
+    expect(await ReaMicroStore(library).loadPendingSessionUpload(), isNull);
   });
 
   test('登记失败保留未关联时段，恢复后使用会话而不累计降级', () async {
