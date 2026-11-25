@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,51 @@ Future<void> _writeWideCover(File file) async {
 }
 
 void main() {
+  testWidgets('宽高缓存档位只限制尺寸，解码保持原封面比例', (tester) async {
+    final directory = Directory.systemTemp.createTempSync('cover-aspect');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final file = File('${directory.path}/wide.png');
+    await tester.runAsync(() async {
+      await _writeWideCover(file);
+      for (final size in [
+        const Size(92, 123),
+        const Size(153, 204),
+        const Size(66, 88),
+      ]) {
+        final result = Completer<ImageInfo>();
+        final stream = coverImageProvider(
+          file.path,
+          coverDecodeWidth(size.width, 1),
+          decodeHeight: coverDecodeHeight(size.height, 1),
+        ).resolve(const ImageConfiguration());
+        final listener = ImageStreamListener(
+          (image, _) => result.complete(image),
+          onError: result.completeError,
+        );
+        stream.addListener(listener);
+        final image = await result.future;
+        try {
+          expect(
+            image.image.width / image.image.height,
+            closeTo(4, .15),
+            reason: '原图为4:1，解码不能被两个缓存档位拉成其他比例',
+          );
+          expect(
+            image.image.width,
+            lessThanOrEqualTo(coverDecodeWidth(size.width, 1)),
+          );
+          expect(
+            image.image.height,
+            lessThanOrEqualTo(coverDecodeHeight(size.height, 1)),
+          );
+        } finally {
+          stream.removeListener(listener);
+          image.dispose();
+        }
+      }
+    });
+  });
+
   testWidgets('封面居中等比裁切并铺满三比四边框', (tester) async {
     final directory = Directory.systemTemp.createTempSync('cover-visible');
     addTearDown(() => directory.deleteSync(recursive: true));

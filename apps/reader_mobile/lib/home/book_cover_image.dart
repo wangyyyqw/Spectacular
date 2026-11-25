@@ -22,10 +22,11 @@ ImageProvider coverImageProvider(
   String path,
   int decodeWidth, {
   int? decodeHeight,
-}) => ResizeImage.resizeIfNeeded(
-  decodeWidth,
-  decodeHeight,
+}) => ResizeImage(
   FileImage(File(path)),
+  width: decodeWidth,
+  height: decodeHeight,
+  policy: ResizeImagePolicy.fit,
 );
 
 /// 书架、详情、统计与书评共用封面；等比缩放并居中裁切铺满容器。

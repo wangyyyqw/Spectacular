@@ -50,6 +50,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   final FocusNode _searchFocus = FocusNode();
   final FocusNode _keyboardFocus = FocusNode();
   bool _searching = false;
+  bool _inlineSearchAvailable = false;
   String _query = '';
   int _reloadToken = 0;
   int _editToken = 0;
@@ -157,7 +158,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
       _searchFocus.requestFocus();
       return;
     }
-    if (usesDesktopLayout(context) && MediaQuery.sizeOf(context).width >= 900) {
+    if (_inlineSearchAvailable) {
       _searchFocus.requestFocus();
       return;
     }
@@ -303,6 +304,16 @@ class _ReviewsPageState extends State<ReviewsPage> {
     return CallbackShortcuts(
       bindings: {
         if (desktop && widget.active)
+          const SingleActivator(
+            LogicalKeyboardKey.escape,
+            includeRepeats: false,
+          ): () {
+            if (_searching || _query.isNotEmpty || _searchFocus.hasFocus) {
+              _resetSearch();
+              _keyboardFocus.requestFocus();
+            }
+          },
+        if (desktop && widget.active)
           SingleActivator(
             LogicalKeyboardKey.keyF,
             meta: Theme.of(context).platform == TargetPlatform.macOS,
@@ -363,21 +374,23 @@ class _ReviewsPageState extends State<ReviewsPage> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final fullWidth = constraints.maxWidth;
-            final wide = desktop && MediaQuery.sizeOf(context).width >= 900;
-            final inlineSearch = wide && !_searching;
+            final wide = desktop && fullWidth >= 680;
+            _inlineSearchAvailable = wide;
+            final expandedSearch = _searching || (!wide && _query.isNotEmpty);
+            final inlineSearch = wide && !expandedSearch;
             return Stack(
               alignment: Alignment.centerRight,
               children: [
                 Positioned.fill(
                   child: ExcludeFocus(
-                    excluding: _searching,
+                    excluding: expandedSearch,
                     child: ExcludeSemantics(
-                      excluding: _searching,
+                      excluding: expandedSearch,
                       child: AnimatedOpacity(
-                        opacity: _searching ? 0 : 1,
+                        opacity: expandedSearch ? 0 : 1,
                         duration: const Duration(milliseconds: 140),
                         child: IgnorePointer(
-                          ignoring: _searching,
+                          ignoring: expandedSearch,
                           child: Row(
                             children: [
                               Expanded(
@@ -404,11 +417,11 @@ class _ReviewsPageState extends State<ReviewsPage> {
                     ),
                   ),
                 ),
-                if (!wide || _searching)
+                if (!wide || expandedSearch)
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 220),
                     curve: Curves.easeOutCubic,
-                    width: _searching ? fullWidth : 44,
+                    width: expandedSearch ? fullWidth : 44,
                     height: 44,
                     alignment: Alignment.centerRight,
                     child: ClipRect(
@@ -418,7 +431,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
                           alignment: Alignment.centerRight,
                           children: [...previous, ?current],
                         ),
-                        child: _searching
+                        child: expandedSearch
                             ? OverflowBox(
                                 key: const ValueKey('reviews-search-expanded'),
                                 alignment: Alignment.centerRight,
@@ -436,7 +449,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
                                         highlightColor: Colors.transparent,
                                         hoverColor: Colors.transparent,
                                         focusColor: Colors.transparent,
-                                        onPressed: _toggleSearch,
+                                        onPressed: _resetSearch,
                                         icon: const AppIcon(AppGlyph.close),
                                       ),
                                     ),

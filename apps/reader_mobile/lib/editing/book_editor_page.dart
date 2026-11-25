@@ -23,6 +23,7 @@ import 'book_editor_image_dialog.dart';
 import 'book_editor_note_dialog.dart';
 import 'book_editor_tools.dart';
 import '../diagnostics/reader_log.dart';
+import '../home/desktop_shortcuts_dialog.dart';
 
 /// 桌面编辑工作台：按窗口可用空间停靠书籍浏览器、源码和手机预览。
 class BookEditorPage extends StatefulWidget {
@@ -388,6 +389,11 @@ class _BookEditorPageState extends State<BookEditorPage> {
         },
         child: CallbackShortcuts(
           bindings: {
+            const SingleActivator(
+              LogicalKeyboardKey.f1,
+              includeRepeats: false,
+            ): () =>
+                unawaited(showDesktopShortcuts(context, editor: true)),
             const SingleActivator(LogicalKeyboardKey.keyF, control: true):
                 _openDocumentFind,
             const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
@@ -609,6 +615,11 @@ class _BookEditorPageState extends State<BookEditorPage> {
       _toolItem('新增章节或资源', 'add'),
       _toolItem('新建空白 HTML', 'new-html'),
       _toolItem('编辑历史与恢复', 'history'),
+      MenuItemButton(
+        shortcut: const SingleActivator(LogicalKeyboardKey.f1),
+        onPressed: () => showDesktopShortcuts(context, editor: true),
+        child: const Text('编辑器快捷键'),
+      ),
     ],
     child: const Text('文件'),
   );

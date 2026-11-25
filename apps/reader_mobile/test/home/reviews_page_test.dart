@@ -138,7 +138,7 @@ Future<void> _openReviewsTab(WidgetTester tester) async {
 
 void main() {
   testWidgets(
-    '桌面书评并排展示、常驻搜索，窄窗编辑抽屉可取消并保存',
+    '桌面书评缩窗保留搜索入口，窄窗编辑抽屉可取消并保存',
     (tester) async {
       final books = [_book('one', '第一本书', '作者甲'), _book('two', '第二本书', '作者乙')];
       final store = _MemoryReviewStore()
@@ -172,12 +172,23 @@ void main() {
       await tester.sendKeyUpEvent(modifier);
       await tester.pump();
       expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(tester.widget<TextField>(search).focusNode!.hasFocus, isFalse);
       await tester.enterText(search, '第二');
       await tester.pumpAndSettle();
       expect(first, findsNothing);
       expect(second, findsOneWidget);
       tester.view.physicalSize = const Size(1120, 1600);
       await tester.pumpAndSettle();
+      expect(search, findsOneWidget);
+      expect(tester.widget<TextField>(search).controller!.text, '第二');
+      expect(first, findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(search, findsNothing);
+      expect(first, findsOneWidget);
+      expect(second, findsOneWidget);
       await tester.tap(second);
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);

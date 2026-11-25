@@ -24,6 +24,7 @@ import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import '../txt/txt_encoding_dialog.dart';
 import 'desktop_layout.dart';
+import 'desktop_book_interaction.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
 import 'book_lists_view.dart';
@@ -39,6 +40,9 @@ typedef _ShelfItem = ({BookEntry entry, int? spineIndex, Duration duration});
 
 const _shelfMinColumns = 3;
 const _shelfTargetCardWidth = 192.0;
+const _desktopShelfMaxWidth = 1440.0;
+const _desktopShelfCoverWidth = 160.0;
+const _desktopShelfListWidth = 920.0;
 const _shelfGridPadding = 16.0;
 const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
@@ -53,8 +57,8 @@ ThemeData _noFeedback(BuildContext context) => Theme.of(context).copyWith(
   splashFactory: NoSplash.splashFactory,
   splashColor: Colors.transparent,
   highlightColor: Colors.transparent,
-  hoverColor: Colors.transparent,
-  focusColor: Colors.transparent,
+  hoverColor: usesDesktopLayout(context) ? null : Colors.transparent,
+  focusColor: usesDesktopLayout(context) ? null : Colors.transparent,
 );
 
 /// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
@@ -138,6 +142,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   bool _exportingBook = false;
   String _query = '';
   final Set<String> _selectedIds = <String>{};
+  String? _selectionAnchor;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode(debugLabel: 'bookshelf-search');
   final FocusNode _keyboardFocus = FocusNode(debugLabel: 'bookshelf-keyboard');
@@ -187,7 +192,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return KeyEventResult.ignored;
     }
     final command = Theme.of(context).platform == TargetPlatform.macOS;
+    final editingText =
+        FocusManager.instance.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<EditableText>() !=
+        null;
     final bindings = <ShortcutActivator, VoidCallback>{
+      if (usesDesktopLayout(context) && !editingText) ...{
+        SingleActivator(
+          LogicalKeyboardKey.keyA,
+          meta: command,
+          control: !command,
+          includeRepeats: false,
+        ): _selectVisibleBooks,
+        if (_selectionMode && _selectedIds.isNotEmpty)
+          SingleActivator(
+            command ? LogicalKeyboardKey.backspace : LogicalKeyboardKey.delete,
+            meta: command,
+            includeRepeats: false,
+          ): () =>
+              unawaited(_confirmBatchRemove()),
+      },
       if (!_selectionMode) ...{
         SingleActivator(
           LogicalKeyboardKey.keyF,
@@ -435,6 +459,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     setState(() {
       _selectionMode = true;
       _selectedIds.clear();
+      _selectionAnchor = entry?.id;
       if (entry != null) _selectedIds.add(entry.id);
     });
   }
@@ -446,6 +471,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     setState(() {
       _selectionMode = false;
       _selectedIds.clear();
+      _selectionAnchor = null;
     });
     _keyboardFocus.requestFocus();
   }
@@ -455,11 +481,77 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     setState(() {
+      _selectionAnchor = id;
       if (!_selectedIds.add(id)) {
         _selectedIds.remove(id);
       }
     });
   }
+
+  void _selectVisibleBooks() {
+    if (_removing || _items == null) return;
+    final visible = _visible(_items!, groupId: _activeGroupId);
+    if (visible.isEmpty) return;
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..addAll(visible.map((item) => item.entry.id));
+      _selectionAnchor = visible.first.entry.id;
+    });
+  }
+
+  void _selectDesktopBook(BookEntry entry, List<_ShelfItem> books) {
+    if (_removing) return;
+    final keyboard = HardwareKeyboard.instance;
+    final anchor = books.indexWhere(
+      (item) => item.entry.id == _selectionAnchor,
+    );
+    final target = books.indexWhere((item) => item.entry.id == entry.id);
+    if (keyboard.isShiftPressed && anchor >= 0 && target >= 0) {
+      final additive = Theme.of(context).platform == TargetPlatform.macOS
+          ? keyboard.isMetaPressed
+          : keyboard.isControlPressed;
+      setState(() {
+        _selectionMode = true;
+        if (!additive) _selectedIds.clear();
+        _selectedIds.addAll(
+          books
+              .sublist(math.min(anchor, target), math.max(anchor, target) + 1)
+              .map((item) => item.entry.id),
+        );
+      });
+    } else {
+      _selectionMode = true;
+      _toggleSelected(entry.id);
+    }
+  }
+
+  Future<void> _activateBook(BookEntry entry, List<_ShelfItem> books) async {
+    final keyboard = HardwareKeyboard.instance;
+    final command = Theme.of(context).platform == TargetPlatform.macOS
+        ? keyboard.isMetaPressed
+        : keyboard.isControlPressed;
+    if (usesDesktopLayout(context) &&
+        (_selectionMode || command || keyboard.isShiftPressed)) {
+      _selectDesktopBook(entry, books);
+    } else if (_selectionMode) {
+      _toggleSelected(entry.id);
+    } else {
+      await _open(entry);
+    }
+  }
+
+  Widget _desktopBook(Widget child, BookEntry entry, List<_ShelfItem> books) =>
+      usesDesktopLayout(context)
+      ? DesktopBookInteraction(
+          key: ValueKey('desktop-book-${entry.id}'),
+          onActivate: () => unawaited(_activateBook(entry, books)),
+          onSelect: () => _selectDesktopBook(entry, books),
+          onMenu: (position) => unawaited(_openBookMenu(entry, position)),
+          child: child,
+        )
+      : child;
 
   bool _allSelected(List<_ShelfItem>? items) {
     final entries = items ?? const <_ShelfItem>[];
@@ -1129,21 +1221,63 @@ class _BookshelfPageState extends State<BookshelfPage> {
         focusNode: _keyboardFocus,
         autofocus: widget.active,
         onKeyEvent: _handleShelfKey,
-        child: Scaffold(
-          appBar: _buildAppBar(items, busy || _pickingFiles),
-          bottomNavigationBar: _selectionMode ? _buildSelectionBar() : null,
-          body: _buildBody(items, visible, busy),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: usesDesktopLayout(context)
+                  ? _desktopShelfMaxWidth
+                  : double.infinity,
+            ),
+            child: LayoutBuilder(
+              builder: (_, bounds) => Scaffold(
+                appBar: _buildAppBar(
+                  visible,
+                  busy || _pickingFiles,
+                  bounds.maxWidth,
+                ),
+                bottomNavigationBar: _selectionMode
+                    ? _buildSelectionBar()
+                    : null,
+                body: _buildBody(items, visible, busy),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(List<_ShelfItem>? items, bool busy) {
+  PreferredSizeWidget _buildAppBar(
+    List<_ShelfItem>? items,
+    bool busy,
+    double width,
+  ) {
+    final desktop = usesDesktopLayout(context);
+    final roomy = desktop && width >= 640;
     return AppBar(
       automaticallyImplyLeading: false,
-      toolbarHeight: 56,
+      toolbarHeight: desktop ? 64 : 56,
       titleSpacing: 16,
-      title: _buildSearchField(),
+      title: desktop
+          ? Row(
+              children: [
+                if (roomy) ...[
+                  Text('书架', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(width: 24),
+                ],
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      child: _buildSearchField(),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : _buildSearchField(),
       actions: [
         if (_selectionMode)
           TextButton(
@@ -1153,14 +1287,31 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
         Padding(
           padding: const EdgeInsets.only(right: 16),
-          child: Center(child: _buildImportButton(busy)),
+          child: Center(child: _buildImportButton(busy, extended: roomy)),
         ),
       ],
     );
   }
 
-  Widget _buildImportButton(bool busy) {
+  Widget _buildImportButton(bool busy, {bool extended = false}) {
     final colors = Theme.of(context).colorScheme;
+    if (extended) {
+      return FilledButton.tonalIcon(
+        key: const ValueKey('bookshelf-import'),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 44),
+          visualDensity: VisualDensity.standard,
+        ),
+        onPressed: busy || !widget.allowImport ? null : _import,
+        icon: busy
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const AppIcon(AppGlyph.add, size: 18),
+        label: Text(busy ? '导入中…' : '导入书籍'),
+      );
+    }
     return Material(
       color: colors.surface,
       shape: ReaderUiStyle.controlShape.copyWith(
@@ -1172,8 +1323,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
           splashFactory: NoSplash.splashFactory,
           splashColor: Colors.transparent,
           highlightColor: Colors.transparent,
-          hoverColor: Colors.transparent,
-          focusColor: Colors.transparent,
+          hoverColor: usesDesktopLayout(context) ? null : Colors.transparent,
+          focusColor: usesDesktopLayout(context) ? null : Colors.transparent,
         ),
         child: IconButton(
           key: const ValueKey<String>('bookshelf-import'),
@@ -1266,7 +1417,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         data: _noFeedback(context),
         child: IconButton(
           tooltip: _grid ? '列表视图' : '网格视图',
-          constraints: const BoxConstraints.tightFor(width: 36, height: 40),
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           padding: EdgeInsets.zero,
           onPressed: _toggleView,
           icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
@@ -1277,7 +1428,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         child: IconButton(
           key: const ValueKey('bookshelf-multi-select'),
           tooltip: _selectionMode ? '退出多选' : '多选',
-          constraints: const BoxConstraints.tightFor(width: 36, height: 40),
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           padding: EdgeInsets.zero,
           onPressed: _removing
               ? null
@@ -1400,16 +1551,21 @@ class _BookshelfPageState extends State<BookshelfPage> {
           itemBuilder: (context, index) {
             final item = books[index];
             final pinned = _pinnedIds.contains(item.entry.id);
-            return _BookCard(
-              entry: item.entry,
-              pinned: pinned,
-              showTitle: _showTitles,
-              selectionMode: _selectionMode,
-              selected: _selectedIds.contains(item.entry.id),
-              onSelect: () => _toggleSelected(item.entry.id),
-              onOpen: _open,
-              onLongPress: _openBookDetail,
-              onSecondaryTap: (position) => _openBookMenu(item.entry, position),
+            return _desktopBook(
+              _BookCard(
+                entry: item.entry,
+                pinned: pinned,
+                showTitle: _showTitles,
+                selectionMode: _selectionMode,
+                selected: _selectedIds.contains(item.entry.id),
+                onSelect: () => _activateBook(item.entry, books),
+                onOpen: (entry) => _activateBook(entry, books),
+                onLongPress: _openBookDetail,
+                onSecondaryTap: (position) =>
+                    _openBookMenu(item.entry, position),
+              ),
+              item.entry,
+              books,
             );
           },
         );
@@ -1419,12 +1575,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   ({SliverGridDelegateWithFixedCrossAxisCount delegate, double cardWidth})
   _shelfGridMetrics(double width, TextScaler textScaler) {
+    final desktop = usesDesktopLayout(context);
+    if (desktop) width = math.min(width, _desktopShelfMaxWidth);
     final available = width - _shelfGridPadding * 2;
-    final columns = math.max(
-      _shelfMinColumns,
-      (available + _shelfGridSpacing) ~/
-          (_shelfTargetCardWidth + _shelfGridSpacing),
-    );
+    // 桌面以封面上限增列，避免向下取整后把多余空间重新放大到封面。
+    final columns = desktop
+        ? math.max(
+            1,
+            ((available + _shelfGridSpacing) /
+                    (_desktopShelfCoverWidth + _shelfGridSpacing))
+                .ceil(),
+          )
+        : math.max(
+            _shelfMinColumns,
+            (available + _shelfGridSpacing) ~/
+                (_shelfTargetCardWidth + _shelfGridSpacing),
+          );
     final cardWidth = (available - _shelfGridSpacing * (columns - 1)) / columns;
     return (
       delegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1442,23 +1608,40 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildBookList(List<_ShelfItem> books) {
-    return ListView.separated(
-      key: const ValueKey<String>('bookshelf-list'),
-      padding: EdgeInsets.fromLTRB(16, 8, 16, _selectionMode ? 160 : 96),
-      itemCount: books.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final item = books[index];
-        return _BookRow(
-          item: item,
-          pinned: _pinnedIds.contains(item.entry.id),
-          showTitle: _showTitles,
-          selectionMode: _selectionMode,
-          selected: _selectedIds.contains(item.entry.id),
-          onSelect: () => _toggleSelected(item.entry.id),
-          onOpen: _open,
-          onLongPress: _openBookDetail,
-          onSecondaryTap: (position) => _openBookMenu(item.entry, position),
+    return LayoutBuilder(
+      builder: (_, bounds) {
+        final inset = usesDesktopLayout(context)
+            ? math.max(16.0, (bounds.maxWidth - _desktopShelfListWidth) / 2)
+            : 16.0;
+        return ListView.separated(
+          key: const ValueKey<String>('bookshelf-list'),
+          padding: EdgeInsets.fromLTRB(
+            inset,
+            8,
+            inset,
+            _selectionMode ? 160 : 96,
+          ),
+          itemCount: books.length,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final item = books[index];
+            return _desktopBook(
+              _BookRow(
+                item: item,
+                pinned: _pinnedIds.contains(item.entry.id),
+                showTitle: _showTitles,
+                selectionMode: _selectionMode,
+                selected: _selectedIds.contains(item.entry.id),
+                onSelect: () => _activateBook(item.entry, books),
+                onOpen: (entry) => _activateBook(entry, books),
+                onLongPress: _openBookDetail,
+                onSecondaryTap: (position) =>
+                    _openBookMenu(item.entry, position),
+              ),
+              item.entry,
+              books,
+            );
+          },
         );
       },
     );
@@ -1467,86 +1650,94 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildSelectionBar() {
     final theme = Theme.of(context);
     final count = _selectedIds.length;
+    final buttons = [
+      OutlinedButton.icon(
+        key: const ValueKey('bookshelf-batch-create-group'),
+        onPressed: count == 0 || _removing
+            ? null
+            : () => _createGroup(initialBookIds: Set<String>.of(_selectedIds)),
+        icon: const AppIcon(AppGlyph.folderAdd, size: 18),
+        label: const Text('新建分组'),
+      ),
+      OutlinedButton.icon(
+        key: const ValueKey('bookshelf-batch-group'),
+        onPressed: count == 0 || _removing ? null : _moveSelectedToGroup,
+        icon: const AppIcon(AppGlyph.folderMove, size: 18),
+        label: const Text('分组'),
+      ),
+      OutlinedButton.icon(
+        key: const ValueKey('bookshelf-batch-delete'),
+        onPressed: count == 0 || _removing ? null : _confirmBatchRemove,
+        icon: _removing
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const AppIcon(AppGlyph.delete, size: 18),
+        label: Text(_removing ? '删除中' : '删除'),
+      ),
+    ];
     return Material(
       color: theme.colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 16, 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                count == 0 ? '请选择书籍' : '已选 $count 本',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          child: OutlinedButtonTheme(
+            data: OutlinedButtonThemeData(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.onSurface,
+                minimumSize: const Size(0, 44),
+                visualDensity: VisualDensity.standard,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
             ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>(
-                        'bookshelf-batch-create-group',
-                      ),
-                      onPressed: count == 0 || _removing
-                          ? null
-                          : () => _createGroup(
-                              initialBookIds: Set<String>.of(_selectedIds),
-                            ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      icon: const AppIcon(AppGlyph.folderAdd, size: 18),
-                      label: const Text('新建分组'),
-                    ),
+            child: LayoutBuilder(
+              builder: (_, bounds) {
+                final desktop = usesDesktopLayout(context);
+                final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+                final wide = desktop && bounds.maxWidth >= 640 * scale;
+                final countLabel = Text(
+                  count == 0 ? '请选择书籍' : '已选 $count 本',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>('bookshelf-batch-group'),
-                      onPressed: count == 0 || _removing
-                          ? null
-                          : _moveSelectedToGroup,
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      icon: const AppIcon(AppGlyph.folderMove, size: 18),
-                      label: const Text('分组'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>('bookshelf-batch-delete'),
-                      onPressed: count == 0 || _removing
-                          ? null
-                          : _confirmBatchRemove,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: theme.colorScheme.onSurface,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      icon: _removing
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: theme.colorScheme.onSurface,
-                              ),
-                            )
-                          : const AppIcon(AppGlyph.delete, size: 18),
-                      label: Text(_removing ? '删除中' : '删除'),
-                    ),
-                  ),
-                ],
-              ),
+                );
+                if (wide) {
+                  return Row(
+                    children: [
+                      countLabel,
+                      const Spacer(),
+                      for (final button in buttons)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: button,
+                        ),
+                    ],
+                  );
+                }
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    countLabel,
+                    const SizedBox(height: 8),
+                    if (bounds.maxWidth >= 300 * scale)
+                      Row(
+                        children: [
+                          for (final (index, button) in buttons.indexed) ...[
+                            if (index > 0) const SizedBox(width: 8),
+                            Expanded(child: button),
+                          ],
+                        ],
+                      )
+                    else
+                      Wrap(spacing: 8, runSpacing: 8, children: buttons),
+                  ],
+                );
+              },
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1773,17 +1964,17 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.animate || MediaQuery.disableAnimationsOf(context)) {
-      return widget.child;
-    }
+    final animate = widget.animate && !MediaQuery.disableAnimationsOf(context);
     final key = ValueKey((widget.groupId, widget.grid));
     return ClipRect(
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
+        duration: animate ? const Duration(milliseconds: 200) : Duration.zero,
+        // 旧条目创建于加载期也保留退出时长，减少动态效果时不展示旧层。
         reverseDuration: const Duration(milliseconds: 150),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeOutCubic,
-        layoutBuilder: _layoutLayers,
+        layoutBuilder: (current, previous) =>
+            _layoutLayers(current, animate ? previous : const []),
         transitionBuilder: (child, animation) =>
             _transitionContent(child, animation, key),
         child: KeyedSubtree(key: key, child: widget.child),
@@ -2256,6 +2447,7 @@ class _BookRow extends StatelessWidget {
       selected: selectionMode && selected,
       child: InkWell(
         key: ValueKey<String>('book-row-${entry.id}'),
+        canRequestFocus: !usesDesktopLayout(context),
         overlayColor: _bookPressOverlay,
         splashFactory: NoSplash.splashFactory,
         highlightColor: Colors.transparent,
@@ -2520,6 +2712,7 @@ class _BookCard extends StatelessWidget {
     );
     return InkWell(
       key: ValueKey<String>('book-card-${entry.id}'),
+      canRequestFocus: !usesDesktopLayout(context),
       borderRadius: BorderRadius.circular(4),
       overlayColor: _bookPressOverlay,
       splashFactory: NoSplash.splashFactory,

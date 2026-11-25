@@ -14,6 +14,7 @@ import '../storage/startup_storage.dart';
 import '../theme/app_theme.dart';
 import 'bookshelf_page.dart';
 import 'desktop_layout.dart';
+import 'desktop_shortcuts_dialog.dart';
 import 'profile_page.dart';
 import 'reviews_page.dart';
 import 'stats_page.dart';
@@ -85,7 +86,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _statsRefreshToken = 0;
   bool _exportingDiagnostics = false;
   bool _desktop = false;
-  bool _railCollapsed = false;
+  bool? _railCollapsed;
   List<Widget> _pages = [];
   MediaQueryData? _homeMedia;
   bool _restoringSystemPadding = false;
@@ -312,15 +313,22 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     ];
   }
 
-  Widget _buildRail(ThemeData theme, List<BottomNavigationBarItem> items) {
+  Widget _buildRail(
+    ThemeData theme,
+    List<BottomNavigationBarItem> items,
+    bool collapsed,
+    bool canExpand,
+  ) {
     final colors = theme.colorScheme;
     final background =
         theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor;
     return AnimatedContainer(
       key: const ValueKey('home-sidebar'),
-      duration: const Duration(milliseconds: 180),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
-      width: _railCollapsed ? _collapsedRailWidth : _expandedRailWidth,
+      width: collapsed ? _collapsedRailWidth : _expandedRailWidth,
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.only(
@@ -340,7 +348,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         children: [
           Expanded(
             child: NavigationRail(
-              extended: !_railCollapsed,
+              extended: !collapsed,
               scrollable: true,
               minWidth: 56,
               minExtendedWidth: 160,
@@ -373,20 +381,34 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           Align(
             alignment: AlignmentDirectional.bottomStart,
             child: Padding(
-              padding: EdgeInsets.fromLTRB(_railCollapsed ? 8 : 12, 4, 8, 8),
+              padding: EdgeInsets.fromLTRB(collapsed ? 8 : 12, 4, 8, 4),
               child: IconButton(
-                tooltip: _railCollapsed ? '展开侧边栏' : '收起侧边栏',
-                onPressed: () =>
-                    setState(() => _railCollapsed = !_railCollapsed),
-                icon: AnimatedRotation(
-                  turns: _railCollapsed ? .5 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  child: const AppIcon(AppGlyph.chevronLeft, size: 18),
-                ),
+                tooltip: '桌面快捷键（F1）',
+                onPressed: () => showDesktopShortcuts(context),
+                icon: const AppIcon(AppGlyph.info, size: 18),
               ),
             ),
           ),
+          if (canExpand) ...[
+            Align(
+              alignment: AlignmentDirectional.bottomStart,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(collapsed ? 8 : 12, 4, 8, 8),
+                child: IconButton(
+                  tooltip: collapsed ? '展开侧边栏' : '收起侧边栏',
+                  onPressed: () => setState(() => _railCollapsed = !collapsed),
+                  icon: AnimatedRotation(
+                    turns: collapsed ? .5 : 0,
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: const AppIcon(AppGlyph.chevronLeft, size: 18),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -425,15 +447,26 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, bounds) => _layout(context, bounds.maxWidth),
+  );
+
+  Widget _layout(BuildContext context, double width) {
     final theme = Theme.of(context);
     final items = _navigationItems(theme);
     final useRail = usesDesktopLayout(context);
+    // 窄窗优先让出正文空间；回到宽窗恢复用户手动选择或默认展开。
+    final collapsed = width < 600 || (_railCollapsed ?? width < 1000);
     final pages = Expanded(child: _buildBody(useRail));
     final scaffold = MediaQuery(
       data: _homeLayoutMedia(),
       child: Scaffold(
-        body: Row(children: [if (useRail) _buildRail(theme, items), pages]),
+        body: Row(
+          children: [
+            if (useRail) _buildRail(theme, items, collapsed, width >= 600),
+            pages,
+          ],
+        ),
         bottomNavigationBar: useRail
             ? null
             : Material(
@@ -457,16 +490,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (!useRail) return scaffold;
     final railBackground =
         theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor;
-    final sidebarWidth = _railCollapsed
-        ? _collapsedRailWidth
-        : _expandedRailWidth;
+    final sidebarWidth = collapsed ? _collapsedRailWidth : _expandedRailWidth;
     final content = Stack(
       clipBehavior: Clip.none,
       children: [
         scaffold,
         if (widget.windowTopInset > 0)
           AnimatedPositioned(
-            duration: const Duration(milliseconds: 180),
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
             left: 0,
             top: -widget.windowTopInset,
@@ -493,6 +526,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final macOS = theme.platform == TargetPlatform.macOS;
     return CallbackShortcuts(
       bindings: {
+        const SingleActivator(
+          LogicalKeyboardKey.f1,
+          includeRepeats: false,
+        ): () {
+          if (ModalRoute.isCurrentOf(context) != false) {
+            unawaited(showDesktopShortcuts(context));
+          }
+        },
         for (final (index, key) in const [
           LogicalKeyboardKey.digit1,
           LogicalKeyboardKey.digit2,

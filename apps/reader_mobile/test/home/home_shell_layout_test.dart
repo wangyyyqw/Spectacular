@@ -41,7 +41,19 @@ Future<void> _select(
   Finder navigation,
   String label,
 ) async {
-  await tester.tap(find.descendant(of: navigation, matching: find.text(label)));
+  await tester.pump(const Duration(milliseconds: 250));
+  final compact =
+      navigation.evaluate().single.widget is NavigationRail &&
+      !tester.widget<NavigationRail>(navigation).extended;
+  await tester.tap(
+    find
+        .descendant(
+          of: navigation,
+          matching: compact ? find.byTooltip(label) : find.text(label),
+        )
+        .hitTestable()
+        .first,
+  );
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 250));
 }
@@ -426,7 +438,7 @@ void main() {
     }),
   );
 
-  testWidgets('书架按侧栏外的可用宽度增列，窄窗仍为三列', (tester) async {
+  testWidgets('书架按内容宽度增列并限制封面，窄窗减列且侧栏自动收起', (tester) async {
     final library = LibraryStore.memory();
     for (var index = 1; index <= 4; index++) {
       await library.importBytes(buildTestEpub(title: '书目$index'));
@@ -439,9 +451,18 @@ void main() {
 
     for (final width in [960.0, 390.0]) {
       tester.view.physicalSize = Size(width, 800);
-      await tester.pump();
-      expect(rowTop(2), rowTop(0));
-      expect(rowTop(3), greaterThan(rowTop(0)));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
+        isFalse,
+      );
+      expect(tester.getSize(covers.first).width, lessThanOrEqualTo(160));
+      if (width == 960) {
+        expect(rowTop(3), rowTop(0));
+      } else {
+        expect(rowTop(1), rowTop(0));
+        expect(rowTop(2), greaterThan(rowTop(0)));
+      }
     }
   }, variant: _desktopPlatforms);
 }
