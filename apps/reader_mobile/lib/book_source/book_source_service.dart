@@ -1579,10 +1579,19 @@ class BookSourceService {
       }
       final reason = chapterContentFailureReason(content);
       if (reason != null) {
-        throw BookSourceException(
-          '章节正文无效：$reason',
-          code: 'ONLINE_CONTENT_INVALID',
-        );
+        // 有正文地址的卷首可能只返回卷名，不能把这类目录项卡在“正文为空”。
+        // 仅对标题与分卷名相同且确实为空的响应回退，接口错误和普通章节仍报错。
+        if (reason == '章节正文为空' &&
+            chapter.title.trim().isNotEmpty &&
+            chapter.title.trim() == chapter.volume.trim()) {
+          content =
+              '<p>${const HtmlEscape().convert(chapter.title.trim())}</p>';
+        } else {
+          throw BookSourceException(
+            '章节正文无效：$reason',
+            code: 'ONLINE_CONTENT_INVALID',
+          );
+        }
       }
       _memoryChapters.add('${source.id}|${onlineChapterIdentity(chapter)}');
       return content;

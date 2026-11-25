@@ -21,6 +21,7 @@ import 'package:reader_mobile/book_source/online_book_controller.dart';
 import 'package:reader_mobile/book_source/online_chapter_content_store.dart';
 import 'package:reader_mobile/book_source/online_chapter_request.dart';
 import 'package:reader_mobile/book_source/online_epub_metadata.dart';
+import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
 import 'package:reader_mobile/book_source/online_reading_book.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -146,8 +147,12 @@ void main() {
     );
     expect(updated.id, entry.id);
     expect(calls.first['message'], '正在准备下载');
-    expect(calls.last['message'], '已保存到书架');
-    expect(calls.last['done'], isTrue);
+    final completedCall = calls.lastWhere(
+      (call) => call['done'] == true,
+      orElse: () => <Object?, Object?>{},
+    );
+    expect(completedCall['message'], '已保存到书架');
+    expect(completedCall['done'], isTrue);
     expect(
       (await OnlineEpubMetadata.read(
         f.library,
@@ -674,6 +679,51 @@ void main() {
     expect(f.requested, isEmpty);
   });
 
+  testWidgets('在线书架进度按章节身份映射且在线读完状态生效', (tester) async {
+    final f = (await tester.runAsync(_Fixture.create))!;
+    addTearDown(f.dispose);
+    final entry = await pumpReaderTask(tester, f.library.importBytes(_epub()));
+    final metadata = (await pumpReaderTask(
+      tester,
+      OnlineEpubMetadata.read(f.library, entry),
+    ))!;
+    final chapterIdentity = onlineChapterIdentity(
+      metadata.chapters[1].toChapter(1, metadata.detailUrl),
+    );
+    await pumpReaderTask(
+      tester,
+      f.library.setSetting(
+        'online_reading_progress:${entry.id}',
+        jsonEncode({
+          'spine': 1,
+          'chapterIdentity': chapterIdentity,
+          'finished': true,
+        }),
+      ),
+    );
+    await pumpReaderTask(
+      tester,
+      f.library.setSetting('bookshelf.grid', 'false'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: f.library,
+          progressStore: f.progress,
+          onlineBooks: f.controller,
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.text('在线同步书'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('在线同步书'), findsOneWidget);
+    expect(find.text('已读 0 / 3 章'), findsNothing);
+    expect(find.text('尚未检查更新 · 最新章节未知'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('书架打开在线同步书等待目录，退出首帧恢复入口并保留身份和续读', (tester) async {
     final f = (await tester.runAsync(_Fixture.create))!;
     addTearDown(f.dispose);
@@ -715,7 +765,10 @@ void main() {
       (await pumpReaderTask(tester, source.loadAnchorChapter(0))).text,
       contains('源站第1章正文'),
     );
-    expect(tester.widget<ReaderPage>(find.byType(ReaderPage)).onSearch, isNull);
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).onSearch,
+      isNotNull,
+    );
     // 先完成入场，避免尚未展开的路由掩盖退出动画。
     await tester.pump(
       ModalRoute.of(tester.element(find.byType(EpubReaderPage)))!

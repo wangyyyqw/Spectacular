@@ -381,18 +381,65 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            Text(
-                              book.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    book.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                ),
+                                if (widget.controller.shelfEntryFor(
+                                      result.source,
+                                      book,
+                                    ) !=
+                                    null) ...[
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '已在书架',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                        ),
+                                  ),
+                                ],
+                              ],
                             ),
                             const SizedBox(height: 3),
                             Row(
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    book.author.isEmpty ? '佚名' : book.author,
+                                  child: Text.rich(
+                                    TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: book.author.isEmpty
+                                              ? '佚名'
+                                              : book.author,
+                                        ),
+                                        if ((book.status.isNotEmpty
+                                                ? book.status
+                                                : normalizeOnlineStatus(
+                                                    book.kind,
+                                                    lastChapter:
+                                                        book.lastChapter,
+                                                  ))
+                                            .trim()
+                                            .isNotEmpty)
+                                          TextSpan(
+                                            text:
+                                                ' · ${book.status.isNotEmpty ? book.status : normalizeOnlineStatus(book.kind, lastChapter: book.lastChapter)}',
+                                          ),
+                                      ],
+                                    ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context)
@@ -421,6 +468,8 @@ class _OnlineSearchPageState extends State<OnlineSearchPage> {
                             Text(
                               onlineSearchTagLine(
                                 sourceName: result.source.name,
+                                includePlatform: false,
+                                includeStatus: false,
                                 status: book.status.isNotEmpty
                                     ? book.status
                                     : normalizeOnlineStatus(

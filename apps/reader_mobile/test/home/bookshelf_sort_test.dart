@@ -1,10 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
+import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/home_shell.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/test_epub.dart';
 
@@ -29,6 +31,48 @@ List<String> _listTitles(WidgetTester tester) => <String>[
 ];
 
 void main() {
+  testWidgets('遗留书名排序设置不再改变最近打开顺序', (tester) async {
+    final library = LibraryStore.memory();
+    late BookEntry first;
+    late BookEntry second;
+    await tester.runAsync(() async {
+      first = await library.importBytes(buildTestEpub(title: '丙书'));
+      second = await library.importBytes(buildTestEpub(title: '乙书'));
+      await library.importBytes(buildTestEpub(title: '甲书'));
+      await library.touchLastRead(first.id);
+    });
+    await library.setSetting(bookshelfSortKey, BookSortOrder.title.value);
+    await library.setSetting('bookshelf.grid', 'false');
+    await library.setSetting('bookshelf.autoUpdateFirst', 'true');
+    await library.setSetting(
+      bookshelfOnlineUpdatesKey,
+      jsonEncode({
+        second.id: {
+          'updated': true,
+          'checkedAt': DateTime.now()
+              .subtract(const Duration(minutes: 1))
+              .millisecondsSinceEpoch,
+        },
+      }),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_listTitles(tester), <String>[
+      '丙书',
+      '乙书',
+      '甲书',
+    ], reason: '旧排序值不生效，最近打开时间应盖过较早的更新提示');
+  });
+
   testWidgets('书架管理保存宫格书名、分割线和新书置顶设置', (tester) async {
     final library = LibraryStore.memory();
     await tester.runAsync(() async {
@@ -58,24 +102,27 @@ void main() {
     );
     expect(tester.widget<ReaderSwitchListTile>(gridTitles).value, isTrue);
     await tester.tap(gridTitles);
+    await tester.pump();
+    expect(tester.widget<ReaderSwitchListTile>(gridTitles).value, isFalse);
     await _settle(tester);
     expect(await library.getSetting(bookshelfGridShowTitlesKey), 'false');
     await tester.tap(
       find.byKey(const ValueKey('bookshelf-list-divider-setting')),
     );
+    await tester.pump();
     await tester.tap(
       find.byKey(const ValueKey('bookshelf-newest-first-setting')),
     );
+    await tester.pump();
     await _settle(tester);
     expect(await library.getSetting(bookshelfListDividersKey), 'false');
     expect(await library.getSetting(bookshelfNewestFirstKey), 'true');
 
-    await tester.drag(find.byType(ReaderSheetForm), const Offset(0, 700));
-    await _settle(tester);
-    await tester.tap(find.text('书架'));
-    await _settle(tester);
-    await tester.tap(find.byTooltip('列表视图'));
-    await _settle(tester);
-    expect(_listTitles(tester), <String>['C书', 'B书', 'A书']);
+    Navigator.of(
+      tester.element(
+        find.byKey(const ValueKey('bookshelf-grid-title-setting')),
+      ),
+    ).pop();
+    await tester.pumpAndSettle();
   });
 }

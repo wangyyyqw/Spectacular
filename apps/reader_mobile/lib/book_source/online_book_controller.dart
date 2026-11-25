@@ -1,9 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/position/revision_relocator.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../library/library_store.dart';
@@ -104,6 +109,7 @@ class OnlineBookController extends ChangeNotifier {
   final Map<String, Future<OnlineEpubMetadata?>> _metadataReads = {};
   Future<void>? _initializing;
   Future<void>? _registration;
+  Future<void>? _shelfUpdateTask;
   Future<void> _configurationWork = Future.value();
   bool _disposed = false;
   String? selectedDiscoverSourceId;
@@ -195,8 +201,29 @@ class OnlineBookController extends ChangeNotifier {
     }
   }
 
-  Future<void> checkShelfOnlineUpdates() async {
-    if (await library.getSetting(bookshelfAutoCheckUpdatesKey) != 'true') {
+  /// 书架下拉刷新使用强制检查；启动时仍遵循用户的自动检查开关。
+  Future<void> refreshShelfOnlineUpdates() async {
+    await initialize();
+    // initialize() 会同时发起一次遵循设置开关的启动检查。等它完成后
+    // 再强制刷新，避免启动检查占用去重锁而让手动刷新被跳过。
+    await _shelfUpdateTask;
+    await checkShelfOnlineUpdates(force: true);
+  }
+
+  Future<void> checkShelfOnlineUpdates({bool force = false}) {
+    final pending = _shelfUpdateTask;
+    if (pending != null) return pending;
+    final task = _checkShelfOnlineUpdates(force: force);
+    _shelfUpdateTask = task;
+    task.whenComplete(() {
+      if (identical(_shelfUpdateTask, task)) _shelfUpdateTask = null;
+    }).ignore();
+    return task;
+  }
+
+  Future<void> _checkShelfOnlineUpdates({required bool force}) async {
+    if (!force &&
+        await library.getSetting(bookshelfAutoCheckUpdatesKey) != 'true') {
       return;
     }
     final baselineRaw = await library.getSetting(bookshelfOnlineUpdatesKey);
@@ -214,15 +241,19 @@ class OnlineBookController extends ChangeNotifier {
     final entries = await library.list();
     final originalIds = <String>{};
     for (final entry in entries) {
-      if (skipFinished && finished.contains(entry.id)) continue;
       final link = _links[entry.id];
       if (link == null) continue;
+      originalIds.add(entry.id);
+      if (skipFinished &&
+          (finished.contains(entry.id) ||
+              await _onlineProgressFinished(entry.id))) {
+        continue;
+      }
       final metadata = await _metadataFor(entry).catchError((Object _) => null);
       final source =
           metadata?.sourceIn(_sources) ??
           OnlineEpubMetadata.findSource(link.sourceId, _sources);
       if (source == null) continue;
-      originalIds.add(entry.id);
       final book = link.bookFor(source);
       try {
         final info = await service.loadBookInfo(source, book);
@@ -240,6 +271,8 @@ class OnlineBookController extends ChangeNotifier {
             old?['chapterCount'] as int? ??
             (metadata?.chapters.isNotEmpty == true
                 ? metadata!.chapters.length
+                : entry.spineCount != null && entry.spineCount! > 0
+                ? entry.spineCount
                 : null);
         final count = chapters.length;
         final changed = oldCount != null && count > oldCount;
@@ -254,6 +287,8 @@ class OnlineBookController extends ChangeNotifier {
           'updatedAt':
               sourceTime ??
               (changed ? observedAt : old?['updatedAt'] as int? ?? observedAt),
+          // 目录变化后保持上浮标记，直到用户手动更新成功；重复检查只
+          // 刷新目录基线，不应因为一次无变化检查吞掉待处理提示。
           'updated': changed || old?['updated'] == true,
           'checkedAt': observedAt,
         };
@@ -267,6 +302,17 @@ class OnlineBookController extends ChangeNotifier {
     }
     records.removeWhere((id, _) => !originalIds.contains(id));
     await library.setSetting(bookshelfOnlineUpdatesKey, jsonEncode(records));
+  }
+
+  Future<bool> _onlineProgressFinished(String bookId) async {
+    final raw = await library.getSetting('online_reading_progress:$bookId');
+    if (raw == null || raw.isEmpty) return false;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map && value['finished'] == true;
+    } on Object {
+      return false;
+    }
   }
 
   int? _parseSourceUpdateTime(String raw) {
@@ -898,7 +944,7 @@ class OnlineBookController extends ChangeNotifier {
       throw const BookSourceException('这本书正在下载，请查看通知中的进度');
     }
     try {
-      return await _withDownloadNotification(
+      final updated = await _withDownloadNotification(
         entry.title,
         (progress, cancelled) => _updateBook(
           entry,
@@ -909,8 +955,42 @@ class OnlineBookController extends ChangeNotifier {
         onProgress: onProgress,
         isCancelled: isCancelled,
       );
+      await _clearOnlineUpdate(updated);
+      return updated;
     } finally {
       _updatingBookIds.remove(entry.id);
+    }
+  }
+
+  Future<void> _clearOnlineUpdate(BookEntry entry) async {
+    final raw = await library.getSetting(bookshelfOnlineUpdatesKey);
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final record = decoded[entry.id];
+      if (record is Map) {
+        final previous = record.cast<String, Object?>();
+        final metadata = await OnlineEpubMetadata.read(library, entry);
+        decoded[entry.id] = <String, Object?>{
+          ...previous,
+          if (metadata != null && metadata.chapters.isNotEmpty)
+            'chapterCount': metadata.chapters.length,
+          if (metadata != null && metadata.chapters.isNotEmpty)
+            'latestChapter': metadata.chapters.last.title,
+          'updated': false,
+        };
+        await library.setSetting(
+          bookshelfOnlineUpdatesKey,
+          jsonEncode(decoded),
+        );
+      }
+    } on Object catch (error, stackTrace) {
+      recordAppError(
+        'shelf_online_update_clear_failed',
+        error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -940,6 +1020,123 @@ class OnlineBookController extends ChangeNotifier {
     }
     final book = link.bookFor(source);
     onProgress?.call(0, 0, '正在获取最新目录');
+    if (metadata?.requiresOnlineReading == true) {
+      final catalog = await refreshCatalog(source, book);
+      if (isCancelled?.call() ?? false) {
+        throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
+      }
+      final result = await service.download(
+        source,
+        catalog.book,
+        preparedBook: catalog.book,
+        selectedChapters: catalog.chapters,
+        chapterDirectory: catalog.chapters,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+      if (result.skippedChapters > 0) {
+        throw const BookSourceException('章节未全部获取成功，原书保持不变');
+      }
+      final reading = OnlineReadingBook(
+        source: source,
+        book: catalog.book,
+        chapters: catalog.chapters,
+        service: service,
+        bookshelfId: entry.id,
+      );
+      final prior = await OnlineReadingProgress(
+        library,
+        reading,
+      ).load(entry.id);
+      AnchorBook? oldAnchors;
+      LocationAnchor? oldLocation;
+      if (prior?.cfi != null && progressStore != null) {
+        final online = reading.open();
+        try {
+          oldAnchors = AnchorBook(
+            revision: reading.revision,
+            chapters: [await online.loadAnchorChapter(prior!.spineIndex)],
+          );
+          oldLocation = oldAnchors.capture(prior.cfi!);
+        } finally {
+          online.close();
+          await online.preparationsStopped;
+        }
+      }
+      final updated = await library.updateBytes(
+        entry.id,
+        await OnlineEpubUpdate.preserveBookIdentity(
+          entry.filePath,
+          result.bytes,
+        ),
+        isCancelled: isCancelled,
+      );
+      if (prior != null && progressStore != null) {
+        final offline = await EpubChapterSource.openFile(
+          File(updated.filePath),
+        );
+        try {
+          final nextMetadata = await OnlineEpubMetadata.read(library, updated);
+          final identity = onlineChapterIdentity(
+            reading.chapters[prior.spineIndex],
+          );
+          var spine = -1;
+          for (var index = 0; index < offline.chapterCount; index++) {
+            final href = offline.document.resources.resolve(
+              offline.document.spine[index].href,
+              baseDir: p.posix.dirname(offline.document.opfPath),
+            );
+            final indexed = nextMetadata?.chapters
+                .where((chapter) => chapter.href == href)
+                .firstOrNull;
+            if (indexed != null &&
+                onlineChapterIdentity(
+                      indexed.toChapter(index, nextMetadata!.detailUrl),
+                    ) ==
+                    identity) {
+              spine = index;
+              break;
+            }
+          }
+          if (spine >= 0) {
+            final chapter = await offline.loadAnchorChapter(spine);
+            final nextAnchors = AnchorBook(
+              revision: updated.contentRevision!,
+              chapters: [chapter],
+            );
+            final relocated = oldLocation == null || oldAnchors == null
+                ? null
+                : RevisionRelocator.relocate(
+                    oldBook: oldAnchors,
+                    newBook: nextAnchors,
+                    record: AnchorRecord(original: oldLocation),
+                    progress: true,
+                  );
+            await progressStore.save(
+              updated.id,
+              ReaderProgress(
+                spineIndex: spine,
+                pageIndex: 0,
+                cfi: relocated?.effective.revision == updated.contentRevision
+                    ? relocated!.effective.start.cfi
+                    : chapter.cfiAt(0),
+                approximate: relocated == null || !relocated.isResolved,
+                finished: prior.finished,
+                chapterTitle: chapter.title,
+                contentRevision: updated.contentRevision,
+              ),
+            );
+          }
+        } finally {
+          offline.close();
+          await offline.preparationsStopped;
+        }
+      }
+      _lastAddedChapters = catalog.chapters.length;
+      _shelfEntries[entry.id] = updated;
+      notifyListeners();
+      return updated;
+    }
     final original = await OnlineEpubUpdate.open(
       entry.filePath,
       sourceMetadata: metadata,

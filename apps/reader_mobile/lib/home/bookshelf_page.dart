@@ -16,6 +16,8 @@ import 'package:reader_core/epub/importer.dart';
 import '../book_source/book_source_models.dart';
 import '../book_source/online_book_controller.dart';
 import '../book_source/online_book_detail_page.dart';
+import '../book_source/online_chapter_request.dart';
+import '../book_source/online_epub_metadata.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import '../rea_micro/rea_micro_models.dart';
@@ -41,7 +43,26 @@ import '../storage/reading_session_store.dart';
 import '../diagnostics/reader_log.dart';
 
 /// 书架条目及列表显示的阅读记录。
-typedef _ShelfItem = ({BookEntry entry, int? spineIndex, Duration duration});
+typedef _ShelfItem = ({
+  BookEntry entry,
+  int? spineIndex,
+  Duration duration,
+  int? onlineSpineIndex,
+  int? onlineSpineCount,
+  bool isOnline,
+});
+
+typedef _OnlineShelfProgress = ({
+  int? spineIndex,
+  int? chapterCount,
+  bool finished,
+  bool isOnline,
+});
+typedef _OnlineStoredProgress = ({
+  int spineIndex,
+  String? chapterIdentity,
+  bool finished,
+});
 
 const _shelfMinColumns = 3;
 const _shelfTargetCardWidth = 192.0;
@@ -134,7 +155,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
   int _reportedJobs = 0;
   String? _error;
   ImportJob? _encodingJob;
-  BookSortOrder _sort = BookSortOrder.recent;
   List<String> _pinnedIds = const <String>[];
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
@@ -258,9 +278,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
     _searchFocus.requestFocus();
   }
 
-  /// 读持久化的排序、视图模式与书名显示（settings 表）。
+  /// 读持久化的书架视图与书名显示（settings 表）。
   Future<void> _loadPreferences() async {
-    final sort = await widget.library.getSetting(bookshelfSortKey);
     final grid = await widget.library.getSetting(_viewKey);
     final pinned = await widget.library.getSetting(_pinnedKey);
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
@@ -284,7 +303,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     setState(() {
-      _sort = BookSortOrder.fromValue(sort);
       _grid = grid != 'false';
       _gridShowTitles = gridShowTitles == null
           ? showTitles != 'false'
@@ -552,27 +570,42 @@ class _BookshelfPageState extends State<BookshelfPage> {
     });
   }
 
-  /// 置顶书籍按置顶先后排在前面，其余沿用当前排序。
+  /// 置顶书籍按置顶先后排在前面，其余沿用库中最近阅读顺序。
   List<_ShelfItem> _sorted(List<_ShelfItem> items) {
     final sorted = List<_ShelfItem>.of(items);
-    switch (_sort) {
-      case BookSortOrder.recent:
-        break;
-      case BookSortOrder.added:
-        sorted.sort((a, b) => b.entry.addedAt.compareTo(a.entry.addedAt));
-      case BookSortOrder.title:
-        sorted.sort((a, b) => a.entry.title.compareTo(b.entry.title));
-    }
+    // “新导入图书放到最上面”是显式开关，默认最近打开顺序完全交给
+    // LibraryStore。这里使用稳定排序，保证同一导入时间的相对顺序不变。
     if (_newestFirst) {
-      sorted.sort((a, b) => b.entry.addedAt.compareTo(a.entry.addedAt));
-    }
-    if (_autoUpdateFirst && _onlineUpdates.isNotEmpty) {
+      final originalOrder = <String, int>{
+        for (var index = 0; index < sorted.length; index++)
+          sorted[index].entry.id: index,
+      };
       sorted.sort((a, b) {
-        final leftRecord = _onlineUpdates[a.entry.id];
-        final rightRecord = _onlineUpdates[b.entry.id];
-        final left = leftRecord?['updatedAt'] as int? ?? 0;
-        final right = rightRecord?['updatedAt'] as int? ?? 0;
-        return right.compareTo(left);
+        final result = b.entry.addedAt.compareTo(a.entry.addedAt);
+        if (result != 0) return result;
+        return originalOrder[a.entry.id]!.compareTo(originalOrder[b.entry.id]!);
+      });
+    }
+    // 更新检查可以临时提升在线书；用户在检查后重新打开的书仍按最近
+    // 阅读顺序置顶，避免更新标记冻结正常的阅读排序。
+    if (_autoUpdateFirst && _onlineUpdates.isNotEmpty) {
+      final originalOrder = <String, int>{
+        for (var index = 0; index < sorted.length; index++)
+          sorted[index].entry.id: index,
+      };
+      int priority(_ShelfItem item) {
+        final lastReadAt = item.entry.lastReadAt?.millisecondsSinceEpoch ?? 0;
+        final update = _onlineUpdates[item.entry.id];
+        if (update?['updated'] != true) return lastReadAt;
+        final checkedAt =
+            update?['checkedAt'] as int? ?? update?['updatedAt'] as int? ?? 0;
+        return checkedAt > lastReadAt ? checkedAt : lastReadAt;
+      }
+
+      sorted.sort((a, b) {
+        final byPriority = priority(b).compareTo(priority(a));
+        if (byPriority != 0) return byPriority;
+        return originalOrder[a.entry.id]!.compareTo(originalOrder[b.entry.id]!);
       });
     }
     final byId = {for (final item in sorted) item.entry.id: item};
@@ -747,12 +780,31 @@ class _BookshelfPageState extends State<BookshelfPage> {
         onlineUpdates = const {};
       }
     }
+    // 没有在线书源控制器时，书架只展示本地 EPUB；不要为了确认每本
+    // 普通书是否带有在线元数据而逐本打开 EPUB，保持首屏加载路径。
+    final onlineProgress = widget.onlineBooks == null
+        ? <_OnlineShelfProgress>[
+            for (final book in books)
+              (
+                spineIndex: progress[book.id]?.spineIndex,
+                chapterCount: book.spineCount,
+                finished: progress[book.id]?.finished == true,
+                isOnline: false,
+              ),
+          ]
+        : await Future.wait<_OnlineShelfProgress>([
+            for (final book in books)
+              _readOnlineShelfProgress(book, progress[book.id]),
+          ]);
     final items = <_ShelfItem>[
-      for (final book in books)
+      for (final (index, book) in books.indexed)
         (
           entry: book,
           spineIndex: progress[book.id]?.spineIndex,
           duration: durations[book.id] ?? Duration.zero,
+          onlineSpineIndex: onlineProgress[index].spineIndex,
+          onlineSpineCount: onlineProgress[index].chapterCount,
+          isOnline: onlineProgress[index].isOnline,
         ),
     ];
     if (firstLoad) {
@@ -767,7 +819,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _items = items;
         _groups = groups;
         _bookGroups = bookGroups;
-        _finishedBooks = finished;
+        _finishedBooks = {
+          ...finished,
+          for (final (index, book) in books.indexed)
+            if (onlineProgress[index].finished) book.id,
+        };
         _onlineUpdates = onlineUpdates;
         if (_activeGroupId != null &&
             !groups.any((group) => group.id == _activeGroupId)) {
@@ -778,6 +834,107 @@ class _BookshelfPageState extends State<BookshelfPage> {
           _selectionMode = false;
         }
       });
+    }
+  }
+
+  Future<_OnlineShelfProgress> _readOnlineShelfProgress(
+    BookEntry entry,
+    ReaderProgress? localProgress,
+  ) async {
+    OnlineEpubMetadata? metadata;
+    try {
+      metadata = await OnlineEpubMetadata.read(widget.library, entry);
+    } on Object {
+      metadata = null;
+    }
+    final indexed = metadata;
+    final chapterCount = indexed?.chapters.length;
+    if (indexed == null || chapterCount == null || chapterCount <= 0) {
+      final onlineProgress = await _readOnlineProgress(entry.id);
+      return (
+        spineIndex: localProgress?.spineIndex ?? onlineProgress?.spineIndex,
+        chapterCount: entry.spineCount,
+        finished:
+            localProgress?.finished == true || onlineProgress?.finished == true,
+        isOnline: widget.onlineBooks?.sourceForBook(entry.id) != null,
+      );
+    }
+    final onlineProgress = await _readOnlineProgress(entry.id);
+    final localIndex = await _onlineChapterIndexForSpine(
+      entry,
+      indexed,
+      localProgress?.spineIndex,
+    );
+    final onlineIndex = _onlineChapterIndex(indexed, onlineProgress);
+    return (
+      spineIndex: indexed.requiresOnlineReading
+          ? onlineIndex
+          : localIndex ?? onlineIndex,
+      chapterCount: chapterCount,
+      finished:
+          localProgress?.finished == true || onlineProgress?.finished == true,
+      isOnline: true,
+    );
+  }
+
+  Future<_OnlineStoredProgress?> _readOnlineProgress(String bookId) async {
+    final raw = await widget.library.getSetting(
+      'online_reading_progress:$bookId',
+    );
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map || value['spine'] is! num) return null;
+      return (
+        spineIndex: (value['spine'] as num).toInt(),
+        chapterIdentity: value['chapterIdentity'] as String?,
+        finished: value['finished'] == true,
+      );
+    } on Object {
+      // 损坏的在线进度不阻塞书架，回退到普通 EPUB 进度。
+      return null;
+    }
+  }
+
+  int? _onlineChapterIndex(
+    OnlineEpubMetadata metadata,
+    _OnlineStoredProgress? progress,
+  ) {
+    if (progress == null) return null;
+    final identity = progress.chapterIdentity;
+    if (identity != null && identity.isNotEmpty) {
+      final match = metadata.chapters.indexWhere(
+        (chapter) =>
+            onlineChapterIdentity(chapter.toChapter(0, metadata.detailUrl)) ==
+            identity,
+      );
+      if (match >= 0) return match;
+    }
+    final index = progress.spineIndex;
+    return index >= 0 && index < metadata.chapters.length ? index : null;
+  }
+
+  Future<int?> _onlineChapterIndexForSpine(
+    BookEntry entry,
+    OnlineEpubMetadata metadata,
+    int? spineIndex,
+  ) async {
+    if (spineIndex == null) return null;
+    try {
+      final identity = await metadata.chapterIdentityForSpine(
+        widget.library,
+        entry,
+        spineIndex,
+      );
+      if (identity == null) return null;
+      final match = metadata.chapters.indexWhere(
+        (chapter) =>
+            onlineChapterIdentity(chapter.toChapter(0, metadata.detailUrl)) ==
+            identity,
+      );
+      return match < 0 ? null : match;
+    } on Object {
+      return null;
     }
   }
 
@@ -1611,7 +1768,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
       );
     }
     return RefreshIndicator(
-      onRefresh: () async => _reload(),
+      onRefresh: () async {
+        final online = widget.onlineBooks;
+        if (online != null) {
+          await online.refreshShelfOnlineUpdates();
+        }
+        await _reload();
+      },
       child: _grid ? _buildBookGrid(books) : _buildBookList(books),
     );
   }
@@ -1695,7 +1858,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           onOpen: _open,
           onLongPress: _openBookDetail,
           onlineUpdate: _onlineUpdates[item.entry.id],
-          isOnline: widget.onlineBooks?.sourceForBook(item.entry.id) != null,
+          isOnline: item.isOnline,
           finished: _finishedBooks.contains(item.entry.id),
           onSecondaryTap: (position) => _openBookMenu(item.entry, position),
         );
@@ -2558,7 +2721,7 @@ class _BookRow extends StatelessWidget {
                     ),
                     if (isOnline && !finished) ...[
                       Text(
-                        '已读 ${formatReadingDuration(item.duration)} · ${_readingChapterCount(item.spineIndex, entry.spineCount)}',
+                        '已读 ${formatReadingDuration(item.duration)} · ${_readingChapterCount(item.onlineSpineIndex, item.onlineSpineCount)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: metadataStyle,
@@ -2576,21 +2739,23 @@ class _BookRow extends StatelessWidget {
                       ),
                       Text(
                         formatReadingChapters(
-                          item.spineIndex,
-                          entry.spineCount,
+                          item.onlineSpineIndex,
+                          item.onlineSpineCount,
                         ),
                         style: metadataStyle,
                       ),
                     ] else ...[
                       Text(
-                        '已读 ${formatReadingDuration(item.duration)} · ${_readingChapterCount(item.spineIndex, entry.spineCount)}',
+                        '已读 ${formatReadingDuration(item.duration)}',
                         style: metadataStyle,
                       ),
-                      if (isOnline)
-                        Text(
-                          _onlineUpdateLabel(onlineUpdate),
-                          style: metadataStyle,
+                      Text(
+                        formatReadingChapters(
+                          item.spineIndex,
+                          entry.spineCount,
                         ),
+                        style: metadataStyle,
+                      ),
                     ],
                   ],
                 ),
@@ -2613,7 +2778,7 @@ class _BookRow extends StatelessWidget {
     final elapsed = millis == null
         ? '更新时间未知'
         : _relativeShelfTime(DateTime.fromMillisecondsSinceEpoch(millis));
-    return '$elapsed · ${title.isEmpty ? '最新章节未知' : '最新：$title'}';
+    return '$elapsed · ${title.isEmpty ? '最新章节未知' : title}';
   }
 }
 

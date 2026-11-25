@@ -324,7 +324,12 @@ class OnlineEpubBuilder {
     final heading = leadingHeading == null
         ? _chapterHeading(chapter.title)
         : '';
-    return '$artwork$heading$body';
+    final content = '$artwork$heading$body';
+    // 书源偶尔将目录卷名同时作为正文返回。去掉重复开头后仍需保留
+    // 可打开的章首标题，避免正式引擎收到空 XHTML。
+    return content.trim().isEmpty && chapter.title.trim().isNotEmpty
+        ? _chapterHeading(chapter.title)
+        : content;
   }
 
   /// 参考阅微：章节编号和名称分别一行，保留目录中的完整标题。

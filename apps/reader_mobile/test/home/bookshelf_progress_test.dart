@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/book_source/online_epub_builder.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -117,7 +118,8 @@ void main() {
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
     final row = find.byKey(ValueKey('book-row-${entry.id}'));
-    Finder line(String label) => find.descendant(of: row, matching: find.text(label));
+    Finder line(String label) =>
+        find.descendant(of: row, matching: find.text(label));
     final author = tester.getRect(line('未知作者'));
     final duration = tester.getRect(line('已读 1 小时 16 分'));
     final chapters = tester.getRect(line('已读 2 / 3 章'));
@@ -167,6 +169,63 @@ void main() {
     await _settle(tester);
     expect(find.text('已读 1 / 2 章'), findsOneWidget);
     expect(find.text('已读 0 分钟'), findsOneWidget);
+  });
+
+  testWidgets('在线书架章节进度忽略封面 spine 并读取在线读完状态', (tester) async {
+    final library = LibraryStore.memory();
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(
+        const OnlineEpubBuilder().build(
+          OnlineEpubInput(
+            title: '在线进度书',
+            author: '作者',
+            sourceName: '测试源',
+            bookUrl: 'https://example.test/book',
+            sourceId: 'test-source',
+            chapters: const [
+              OnlineEpubChapter(
+                title: '第一章',
+                html: '正文一',
+                sourceUrl: 'https://example.test/1',
+              ),
+              OnlineEpubChapter(
+                title: '第二章',
+                html: '正文二',
+                sourceUrl: 'https://example.test/2',
+              ),
+              OnlineEpubChapter(
+                title: '第三章',
+                html: '正文三',
+                sourceUrl: 'https://example.test/3',
+              ),
+            ],
+          ),
+        ),
+      );
+      await library.setSetting(
+        'online_reading_progress:${entry.id}',
+        '{"spine":2,"chapterIdentity":"${entry.id}","finished":true}',
+      );
+    });
+    final sourceIdentity = '';
+    await library.setSetting(
+      'online_reading_progress:${entry.id}',
+      '{"spine":1,"chapterIdentity":"$sourceIdentity","finished":true}',
+    );
+    await library.setSetting('bookshelf.grid', 'false');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester, frames: 16);
+
+    expect(find.text('在线进度书'), findsOneWidget);
   });
 
   testWidgets('刷新进行中连续通知只追加一次最终刷新', (tester) async {

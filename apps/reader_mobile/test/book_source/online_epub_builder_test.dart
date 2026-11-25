@@ -169,6 +169,21 @@ void main() {
     expect('天天告白'.allMatches(xhtml), hasLength(2)); // 文档标题与正文标题各一处。
   });
 
+  test('正文只有目录标题时保留章首标题，不生成空章节', () async {
+    const builder = OnlineEpubBuilder();
+    for (final html in ['第一卷', '<p>第一卷</p>', '<h1>第一卷</h1>']) {
+      final xhtml = builder.buildChapterDocument(
+        OnlineEpubChapter(title: '第一卷', html: html),
+      );
+      expect(xhtml, contains('<h1 class="chapter-title">第一卷</h1>'));
+      final source = await _openChapter(
+        OnlineEpubChapter(title: '第一卷', html: html),
+      );
+      final chapter = await source.loadAnchorChapter(0);
+      expect(chapter.text.trim(), '第一卷');
+    }
+  });
+
   test('章节编号与标题另起一行，特殊标题和无编号标题保留文本', () async {
     final source = await _openChapter(
       const OnlineEpubChapter(title: '第1章 穿越？（魔法，异能等）', html: '<p>正文</p>'),

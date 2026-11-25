@@ -247,11 +247,11 @@ void main() {
         .first;
     expect(
       find.descendant(of: details, matching: find.byType(Text)),
-      findsNWidgets(4),
+      findsNWidgets(5),
     );
     expect(find.text('10章 · 最新：第十章'), findsOneWidget);
     expect(find.text('25万字 / 玄幻 · 今天'), findsOneWidget);
-    expect(find.textContaining('/ 测试平台'), findsNothing);
+    expect(find.text('测试平台'), findsOneWidget);
     final categoryText = tester.widget<Text>(find.text('最近更新'));
     final categoryTheme = Theme.of(tester.element(find.text('最近更新')));
     expect(
@@ -711,7 +711,7 @@ void main() {
         .first;
     expect(
       find.descendant(of: details, matching: find.byType(Text)),
-      findsNWidgets(4),
+      findsNWidgets(5),
     );
     await tester.tap(find.byTooltip('网格视图'));
     await pumpReaderUntilComplete(

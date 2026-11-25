@@ -109,6 +109,7 @@ void main() {
     );
     var count = 2;
     var fail = false;
+    var bookInfoRequests = 0;
     final contentRequests = <String>[];
     final service = BookSourceService(
       cookieStore: cookies,
@@ -117,6 +118,7 @@ void main() {
         client: MockClient((request) async {
           final path = request.url.path;
           if (path == '/book') {
+            bookInfoRequests++;
             return http.Response(
               jsonEncode({
                 'name': '在线书',
@@ -159,10 +161,23 @@ void main() {
     );
     addTearDown(controller.dispose);
     await controller.initialize();
+    await controller.refreshShelfOnlineUpdates();
+    final checked =
+        (jsonDecode((await library.getSetting('bookshelf.onlineUpdates.v1'))!)
+                as Map<String, dynamic>)[entry.id]
+            as Map<String, dynamic>;
+    expect(checked['chapterCount'], 2);
+    expect(checked['updated'], isTrue);
+
     final updated = await controller.updateBook(entry);
     expect(updated.id, entry.id);
     expect(controller.lastAddedChapters, 1);
     expect(contentRequests, ['/2']);
+    final cleared =
+        (jsonDecode((await library.getSetting('bookshelf.onlineUpdates.v1'))!)
+                as Map<String, dynamic>)[entry.id]
+            as Map<String, dynamic>;
+    expect(cleared['updated'], isFalse);
     expect((await progress.load(entry.id))!.cfi, start);
     final retained = (await library.listBookAnnotations(entry.id)).single;
     expect(retained.id, annotation.id);
@@ -175,6 +190,17 @@ void main() {
     expect(controller.lastAddedChapters, 0);
     expect(contentRequests, ['/2']);
     expect((await library.bookById(entry.id))!.contentRevision, revision);
+    await library.setSetting(
+      'online_reading_progress:${entry.id}',
+      '{"spine":1,"finished":true}',
+    );
+    final requestsBeforeFinishedRefresh = bookInfoRequests;
+    await controller.refreshShelfOnlineUpdates();
+    expect(
+      bookInfoRequests,
+      requestsBeforeFinishedRefresh,
+      reason: '在线阅读标记读完后应跳过自动更新检查',
+    );
     count = 3;
     fail = true;
     await expectLater(

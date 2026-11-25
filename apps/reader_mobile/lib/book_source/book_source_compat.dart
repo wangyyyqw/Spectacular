@@ -149,6 +149,8 @@ String formatOnlineUpdateTime(String raw) {
 String onlineSearchTagLine({
   String platformName = '',
   String sourceName = '',
+  bool includePlatform = true,
+  bool includeStatus = true,
   String status = '',
   String wordCount = '',
   int chapterCount = 0,
@@ -165,8 +167,8 @@ String onlineSearchTagLine({
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
   final values = <String>[
-    platform,
-    status.trim(),
+    if (includePlatform) platform,
+    if (includeStatus) status.trim(),
     wordCount.trim(),
     if (chapterCount > 0) '$chapterCount章',
     time,

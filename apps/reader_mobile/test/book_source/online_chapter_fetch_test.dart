@@ -163,6 +163,24 @@ void main() {
     expect(boundaries, ['https://example.test/read/2', '']);
   });
 
+  test('有正文地址的卷首返回空正文时回退到卷标题', () async {
+    final service = _service(directory, (_) async => _json({'content': ''}));
+    const chapter = OnlineChapter(
+      index: 0,
+      title: '第二卷',
+      volume: '第二卷',
+      url: 'https://example.test/foreword',
+    );
+
+    final content = await service.fetchChapterContent(
+      _source(),
+      chapter,
+      _book.bookUrl,
+    );
+
+    expect(content, contains('第二卷'));
+  });
+
   test('同一 POST 接口的目录页和章节正文按请求选项区分，下一章不会误判当前章', () async {
     final tocBodies = <String>[];
     final contentBodies = <String>[];
