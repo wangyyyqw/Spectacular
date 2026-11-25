@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 class EditorFindBar extends StatefulWidget {
   const EditorFindBar({
@@ -99,8 +100,8 @@ class _EditorFindBarState extends State<EditorFindBar> {
     final result = value.result;
     final theme = Theme.of(context);
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     final searchFieldDecoration = InputDecoration(
       isDense: true,
@@ -109,7 +110,9 @@ class _EditorFindBarState extends State<EditorFindBar> {
       contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       border: border,
       enabledBorder: border,
-      focusedBorder: border,
+      focusedBorder: border.copyWith(
+        borderSide: BorderSide(color: theme.colorScheme.primary),
+      ),
     );
     return Material(
       key: const ValueKey('editor-find-bottom-bar'),
@@ -131,9 +134,8 @@ class _EditorFindBarState extends State<EditorFindBar> {
                     child: Material(
                       color: ReaderDrawerStyle.searchSurfaceOf(theme),
                       borderRadius: border.borderRadius,
-                      elevation: 3,
+                      elevation: 0,
                       surfaceTintColor: Colors.transparent,
-                      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
                       child: TextField(
                         controller: find.findInputController,
                         focusNode: find.findInputFocusNode,

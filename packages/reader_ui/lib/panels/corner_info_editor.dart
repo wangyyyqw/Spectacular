@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../icons/app_icon.dart';
 import '../page_furniture/corner_info.dart';
 import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_ui_style.dart';
 
 /// 四角位置预览；选择后即时应用，宿主负责保存。
 class CornerInfoEditor extends StatelessWidget {
@@ -38,7 +39,7 @@ class CornerInfoEditor extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         border: Border.all(color: scheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.controlRadius,
       ),
       child: Column(
         children: [

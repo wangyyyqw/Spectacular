@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../theme/reader_ui_style.dart';
+
 import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 
@@ -123,10 +126,7 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
   Widget _card(BuildContext context, ReaderDecoration item) => Card(
     margin: EdgeInsets.zero,
     elevation: 0,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(4),
-      side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
-    ),
+    shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
     child: ListTile(
       key: ValueKey<String>('decoration-row-${item.id}'),
       contentPadding: const EdgeInsets.fromLTRB(14, 8, 4, 8),

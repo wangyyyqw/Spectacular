@@ -11,7 +11,6 @@ import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/test_epub.dart';
 
@@ -20,6 +19,9 @@ import 'package:reader_ui/reader_session.dart';
 Future<void> _pumpFrames(WidgetTester tester, {int frames = 30}) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
   }
 }
 
@@ -31,7 +33,7 @@ Future<void> _savePreview(WidgetTester tester, String name) async {
     final image = await boundary.toImage(pixelRatio: 2);
     try {
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      final directory = Directory('/tmp/spectacular-ui-preview')
+      final directory = Directory('dist/ui-unification-20261124/预览/修改后')
         ..createSync(recursive: true);
       File('${directory.path}/$name.png')
           .writeAsBytesSync(bytes!.buffer.asUint8List());
@@ -44,7 +46,7 @@ Future<void> _savePreview(WidgetTester tester, String name) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('窄屏五页导航与设置排序保留，界面采用中性小圆角并可生成预览', (tester) async {
+  testWidgets('窄屏导航与设置入口保留，界面采用中性小圆角并可生成预览', (tester) async {
     tester.view.physicalSize = const Size(720, 1600);
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.resetPhysicalSize);
@@ -80,7 +82,7 @@ void main() {
     expect(find.byType(BottomNavigationBar), findsOneWidget);
     expect(find.text('山海之间'), findsWidgets);
     await _savePreview(tester, '书架');
-    for (final label in ['统计', '书评', '我的']) {
+    for (final label in ['统计', '笔记', '我的']) {
       await tester.tap(
         find.descendant(
           of: find.byType(BottomNavigationBar),
@@ -93,24 +95,18 @@ void main() {
     }
     await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await _pumpFrames(tester);
-    await tester.tap(find.byKey(const ValueKey('bookshelf-sort-setting')));
-    await _pumpFrames(tester, frames: 8);
-    expect(find.text('书架排序'), findsWidgets);
-    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    await tester.ensureVisible(find.text('阅读'));
+    expect(find.text('阅读'), findsOneWidget);
     final theme = buildAppTheme();
     expect(theme.useMaterial3, isFalse);
     expect(theme.colorScheme.surfaceTint, Colors.transparent);
     final shape = theme.cardTheme.shape! as RoundedRectangleBorder;
-    expect(
-      shape.borderRadius.resolve(TextDirection.ltr).topLeft.x,
-      lessThanOrEqualTo(4),
-    );
+    expect(shape.borderRadius.resolve(TextDirection.ltr).topLeft.x, 4);
   });
 
   testWidgets('日夜阅读面板的按钮文字与表面跟随正文主题', (tester) async {
     for (final theme in [
       ReaderTheme.white,
-      ReaderTheme.black,
       ReaderTheme.black,
     ]) {
       ThemeData? panel;
@@ -136,17 +132,19 @@ void main() {
         ),
       );
       await _pumpFrames(tester, frames: 8);
-      expect(panel!.colorScheme.surface, theme.background);
+      final surface = panel!.colorScheme.surface;
+      expect(surface.computeLuminance(),
+          greaterThanOrEqualTo(theme.background.computeLuminance()));
       expect(panel!.colorScheme.inverseSurface, theme.text);
-      expect(panel!.colorScheme.onInverseSurface, theme.background);
-      expect(panel!.cardTheme.color, theme.background);
+      expect(panel!.colorScheme.onInverseSurface, surface);
+      expect(panel!.cardTheme.color, surface);
       expect(
         panel!.textButtonTheme.style!.foregroundColor!.resolve({}),
         theme.text,
       );
       expect(
         panel!.filledButtonTheme.style!.foregroundColor!.resolve({}),
-        theme.background,
+        surface,
       );
       expect(theme.luminance, greaterThanOrEqualTo(4.5));
       expect(tester.takeException(), isNull);

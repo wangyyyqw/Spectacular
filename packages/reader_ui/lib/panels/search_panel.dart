@@ -5,6 +5,7 @@ import 'package:reader_core/position/cfi.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_ui_style.dart';
 
 /// 一条搜索结果的展示模型（P4-26，§29.4）。
 class SearchPanelResult {
@@ -223,8 +224,8 @@ class _SearchPanelState extends State<SearchPanel> {
     final theme = Theme.of(context);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Material(
       color: ReaderDrawerStyle.surfaceOf(theme),
@@ -247,9 +248,8 @@ class _SearchPanelState extends State<SearchPanel> {
                     key: const ValueKey('search-input-surface'),
                     color: ReaderDrawerStyle.searchSurfaceOf(theme),
                     borderRadius: border.borderRadius,
-                    elevation: 3,
+                    elevation: 0,
                     surfaceTintColor: Colors.transparent,
-                    shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
                     child: TextField(
                       key: const ValueKey<String>('search-input'),
                       controller: _controller,
@@ -268,7 +268,11 @@ class _SearchPanelState extends State<SearchPanel> {
                         contentPadding: const EdgeInsets.symmetric(vertical: 8),
                         border: border,
                         enabledBorder: border,
-                        focusedBorder: border,
+                        focusedBorder: border.copyWith(
+                          borderSide: BorderSide(
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
                         prefixIconConstraints: const BoxConstraints.tightFor(
                           width: 40,
                           height: 40,

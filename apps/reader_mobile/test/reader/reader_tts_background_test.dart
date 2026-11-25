@@ -21,6 +21,45 @@ void main() {
     background.close();
   });
 
+  test('服务启动尚未回调时通知栏暂停仍生效，不在就绪后自动出声', () async {
+    final ready = Completer<void>();
+    background.starting = ready.future;
+    system.autoComplete = false;
+    final controller = _controller();
+    addTearDown(controller.dispose);
+    final task = controller.start(ReaderTtsSettings.defaults);
+    await _until(
+      () => background.methods.any((call) => call.method == 'start'),
+    );
+    await background.emit('pause');
+    expect(controller.paused, isTrue);
+    ready.complete();
+    await _until(() => background.state?['phase'] == 'paused');
+    expect(system.spoken, isEmpty);
+    await background.emit('play');
+    await _until(() => system.spoken.isNotEmpty);
+    await controller.stop();
+    await task;
+  });
+
+  test('服务启动期间从通知结束听书，就绪后释放服务且不朗读', () async {
+    final ready = Completer<void>();
+    background.starting = ready.future;
+    final controller = _controller();
+    addTearDown(controller.dispose);
+    final task = controller.start(ReaderTtsSettings.defaults);
+    await _until(
+      () => background.methods.any((call) => call.method == 'start'),
+    );
+    final stopped = background.emit('stop');
+    await _until(() => controller.snapshot.phase == ReaderTtsPhase.idle);
+    ready.complete();
+    await Future.wait([stopped, task]);
+    expect(background.active, isFalse);
+    expect(system.spoken, isEmpty);
+    expect(background.methods.last.method, 'stop');
+  });
+
   test('服务就绪后才朗读，媒体命令保留偏移且字词回调不重复刷新通知', () async {
     system.autoComplete = false;
     system.onSpeak = (_) async {

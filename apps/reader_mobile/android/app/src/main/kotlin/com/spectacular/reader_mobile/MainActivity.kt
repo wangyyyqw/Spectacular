@@ -3,10 +3,15 @@ package com.spectacular.reader_mobile
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ObjectAnimator
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
+import android.view.animation.AnticipateInterpolator
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -31,6 +36,22 @@ class MainActivity : FlutterActivity() {
     private var showNavigationBar = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        applyEdgeToEdge(window)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // 首批封面和应用首帧就绪后再淡出系统层，避免首帧交接露出空白。
+            splashScreen.setOnExitAnimationListener { splash ->
+                ObjectAnimator.ofFloat(splash, View.ALPHA, 1f, 0f).apply {
+                    interpolator = AnticipateInterpolator()
+                    duration = 500L
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            splash.remove()
+                        }
+                    })
+                    start()
+                }
+            }
+        }
         super.onCreate(savedInstanceState)
         startupTheme.applyWindowBackground()
     }

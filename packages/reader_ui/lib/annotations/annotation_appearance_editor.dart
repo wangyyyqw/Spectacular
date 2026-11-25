@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/reader_switch.dart';
+import '../theme/reader_ui_style.dart';
 
 import '../reader_ui_diagnostics.dart';
 
@@ -301,10 +302,10 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
                     color: (inkMode ? style.inkStyle : style) == item
                         ? scheme.secondaryContainer
                         : scheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: ReaderUiStyle.controlRadius,
                     child: InkWell(
                       key: ValueKey<String>('annotation-style-${item.name}'),
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: ReaderUiStyle.controlRadius,
                       onTap: () => onStyle(item),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,

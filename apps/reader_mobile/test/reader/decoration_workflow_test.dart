@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:drift/native.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -484,19 +485,19 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('320dp 六按钮菜单可换行，更多可收起，词典提示后可取消选区', (tester) async {
+  testWidgets('320dp 六按钮菜单保持紧凑顺序，词典提示后可直接全选并取消', (tester) async {
     final fixture = await _fixture(tester);
     addTearDown(() => tester.runAsync(fixture.close));
     await _show(tester, fixture);
     await _selectText(tester, fixture);
     final positions = <Offset>[];
     for (final action in [
+      'copy',
       'mark',
       'thought',
       'decoration',
-      'copy',
       'dictionary',
-      'more',
+      'select-all',
     ]) {
       final finder = find.byKey(ValueKey('selection-action-$action'));
       final rect = tester.getRect(finder);
@@ -505,28 +506,31 @@ void main() {
       expect(rect.height, greaterThanOrEqualTo(44));
       positions.add(rect.center);
     }
-    expect(positions[3].dy, greaterThan(positions[0].dy));
+    expect(positions.map((position) => position.dy).toSet(), hasLength(1));
+    for (var index = 1; index < positions.length; index++) {
+      expect(positions[index].dx, greaterThan(positions[index - 1].dx));
+    }
     await tester.tap(find.byKey(const ValueKey('selection-action-dictionary')));
     await tester.pumpAndSettle();
     expect(_messages, contains('请在词典设置中配置释义服务'));
-    final more = find.byKey(const ValueKey('selection-action-more'));
-    await tester.tap(more);
+    expect(find.byKey(const ValueKey('selection-action-more')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('selection-action-select-all')));
     await tester.pumpAndSettle();
     expect(
-      find.byKey(const ValueKey('selection-action-select-all')),
-      findsOneWidget,
+      tester
+          .widget<SelectionLayer>(find.byType(SelectionLayer))
+          .selection
+          .start
+          .charOffset,
+      0,
     );
-    await tester.tap(more);
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('selection-action-select-all')),
-      findsNothing,
+    await tester.tapAt(
+      tester.getRect(find.byType(ReaderView)).centerRight - const Offset(8, 0),
     );
-    await tester.tap(more);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('selection-action-dismiss')));
+    await tester.pump(kDoubleTapTimeout);
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsNothing);
+    expect(fixture.session.pageTurns, 0);
     expect(
       await fixture.database.select(fixture.database.annotations).get(),
       isEmpty,

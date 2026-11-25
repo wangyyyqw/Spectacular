@@ -131,7 +131,11 @@ void main() {
     );
 
     expect(captured.brightness, Brightness.dark);
-    expect(captured.colorScheme.surface, ReaderTheme.black.background);
+    expect(
+      captured.colorScheme.surface.computeLuminance(),
+      greaterThan(ReaderTheme.black.background.computeLuminance()),
+      reason: '夜间面板应比阅读页背景更亮',
+    );
     expect(captured.colorScheme.onSurface, ReaderTheme.black.text);
     expect(captured.iconTheme.color, ReaderTheme.black.text);
     expect(
@@ -171,7 +175,26 @@ void main() {
     );
   });
 
-  testWidgets('设置面板在深色主题下使用深色背景', (tester) async {
+  testWidgets('浅色阅读主题的面板底色保持不变', (tester) async {
+    late ThemeData captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReaderPanelTheme(
+          theme: ReaderTheme.white,
+          child: Builder(
+            builder: (context) {
+              captured = Theme.of(context);
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(captured.colorScheme.surface, ReaderTheme.white.background);
+  });
+
+  testWidgets('设置面板在深色主题下使用区分阅读页的面板底色', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(useMaterial3: false),
@@ -191,7 +214,10 @@ void main() {
     final surface = tester.widget<Material>(
       find.byKey(const ValueKey<String>('settings-panel-surface')),
     );
-    expect(surface.color, ReaderTheme.black.background);
+    expect(
+      surface.color,
+      Theme.of(tester.element(find.byType(SettingsPanel))).colorScheme.surface,
+    );
     expect(find.text('排版'), findsNothing);
     expect(
       tester
@@ -280,4 +306,61 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
+    testWidgets('翻页选项与开关适配${theme.id}主题，控件边缘仍可点击', (tester) async {
+      tester.view
+        ..physicalSize = const Size(360, 900)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      bool? keepScreenOn;
+      PageTurnMode? selectedMode;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReaderPanelTheme(
+            theme: theme,
+            child: Scaffold(
+              body: SettingsPanel(
+                section: SettingsSection.settings,
+                overrides: ReaderSettingsDefaults.overrides,
+                themeId: theme.id,
+                onOverridesChanged: (_) {},
+                onThemeChanged: (_) {},
+                pageTurnMode: PageTurnMode.cover,
+                onPageTurnModeChanged: (mode) => selectedMode = mode,
+                keepScreenOn: true,
+                onKeepScreenOnChanged: (value) => keepScreenOn = value,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final settings = find.byType(SettingsPanel);
+      final scheme = Theme.of(tester.element(settings)).colorScheme;
+      final option = find.byKey(
+        ValueKey('settings-page-turn-${PageTurnMode.cover.id}'),
+      );
+      final optionSurface = tester.widget<Material>(
+        find.descendant(of: option, matching: find.byType(Material)),
+      );
+      expect(optionSurface.color, scheme.primaryContainer);
+      expect(tester.getSize(option).height, greaterThanOrEqualTo(44));
+      await tester.tap(option);
+      expect(selectedMode, PageTurnMode.cover);
+      final toggle = find.byKey(const ValueKey('settings-keep-screen-on'));
+      final track = tester.widget<AnimatedContainer>(
+        find.descendant(of: toggle, matching: find.byType(AnimatedContainer)),
+      );
+      final material3 = Theme.of(tester.element(settings)).useMaterial3;
+      expect(
+        (track.decoration! as BoxDecoration).color,
+        material3 ? scheme.secondaryContainer : scheme.primary,
+      );
+      expect(tester.getSize(toggle), Size(material3 ? 56 : 48, 44));
+      await tester.tapAt(tester.getCenter(toggle) + const Offset(0, 16));
+      expect(keepScreenOn, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

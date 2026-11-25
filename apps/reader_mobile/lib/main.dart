@@ -53,29 +53,31 @@ Future<void> main() async {
     );
     return false;
   };
-  await log.initialize();
-  await log.log('app_start');
   assert(readerCorePackageName == 'reader_core');
   assert(readerUiPackageName == 'reader_ui');
-  // 数据库不可用时仍可启动，界面显示临时模式并提供同一路径的重试。
   final storage = StartupStorage(log: log);
-  await storage.retry();
-  try {
-    warmUpReaderTextRendering();
-  } catch (error, stack) {
-    unawaited(
-      log.log(
-        'text_warmup_failed',
-        fields: <String, Object?>{'error': '$error', 'stack': '$stack'},
-      ),
-    );
-  }
   runApp(
     LiquidGlassWidgets.wrap(
       brightnessResolver: Theme.maybeBrightnessOf,
       child: ReaderApp.withStorage(
         storage: storage,
         startupTheme: await startupTheme,
+        initialize: () async {
+          await log.initialize();
+          await log.log('app_start');
+          // 系统窗口保持可见，初始化完成后直接绑定真实书库。
+          await storage.retry();
+          try {
+            warmUpReaderTextRendering();
+          } catch (error, stack) {
+            unawaited(
+              log.log(
+                'text_warmup_failed',
+                fields: <String, Object?>{'error': '$error', 'stack': '$stack'},
+              ),
+            );
+          }
+        },
         onStartupReady: () {
           if (firstFrameAllowed) return;
           firstFrameAllowed = true;
@@ -87,7 +89,7 @@ Future<void> main() async {
 }
 
 /// 应用壳：书架、发现、统计、书评与我的，以及 EPUB 导入和阅读页。
-class ReaderApp extends StatelessWidget {
+class ReaderApp extends StatefulWidget {
   /// 创建应用。
   const ReaderApp({
     super.key,
@@ -96,7 +98,8 @@ class ReaderApp extends StatelessWidget {
     this.showWelcomeAnnouncement = false,
     this.startupTheme,
     this.onStartupReady,
-  }) : _startupStorage = null;
+  }) : _startupStorage = null,
+       initialize = null;
 
   /// 正式启动入口，监听数据库失败与恢复后的存储替换。
   ReaderApp.withStorage({
@@ -104,6 +107,7 @@ class ReaderApp extends StatelessWidget {
     required StartupStorage storage,
     this.startupTheme,
     this.onStartupReady,
+    this.initialize,
   }) : library = storage.library,
        progressStore = storage.progressStore,
        showWelcomeAnnouncement = true,
@@ -119,11 +123,41 @@ class ReaderApp extends StatelessWidget {
   final bool showWelcomeAnnouncement;
   final StartupThemeCache? startupTheme;
   final VoidCallback? onStartupReady;
+  final Future<void> Function()? initialize;
+
+  @override
+  State<ReaderApp> createState() => _ReaderAppState();
+}
+
+class _ReaderAppState extends State<ReaderApp> {
+  late bool _initialized;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialized = widget.initialize == null;
+    if (!_initialized) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_initialize());
+      });
+    }
+  }
+
+  Future<void> _initialize() async {
+    try {
+      await widget.initialize!();
+    } catch (error, stackTrace) {
+      recordAppError('app_startup_failed', error, stackTrace: stackTrace);
+    } finally {
+      if (mounted) setState(() => _initialized = true);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final storage = _startupStorage;
-    if (storage == null) return _buildApp(library, progressStore);
+    if (!_initialized) return const SizedBox.shrink();
+    final storage = widget._startupStorage;
+    if (storage == null) return _buildApp(widget.library, widget.progressStore);
     return ListenableBuilder(
       listenable: storage,
       builder: (context, child) => _buildApp(
@@ -143,9 +177,9 @@ class ReaderApp extends StatelessWidget {
     library: library,
     progressStore: progressStore,
     recovery: recovery,
-    showWelcomeAnnouncement: showWelcomeAnnouncement,
-    startupTheme: startupTheme,
-    onStartupReady: onStartupReady,
+    showWelcomeAnnouncement: widget.showWelcomeAnnouncement,
+    startupTheme: widget.startupTheme,
+    onStartupReady: widget.onStartupReady,
   );
 }
 
@@ -189,6 +223,12 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   AppUiStyle? _selectedUiStyle;
   String? _selectedFontFamily;
   bool _startupReadyReported = false;
+
+  void _onBookshelfReady() {
+    if (!mounted || _startupReadyReported) return;
+    _startupReadyReported = true;
+    widget.onStartupReady?.call();
+  }
 
   @override
   void initState() {
@@ -373,12 +413,6 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     future: _savedPreferences,
     builder: (context, snapshot) {
       if (!snapshot.hasData) return const SizedBox.shrink();
-      if (!_startupReadyReported) {
-        _startupReadyReported = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) widget.onStartupReady?.call();
-        });
-      }
       return _buildApp(snapshot.data!);
     },
   );
@@ -430,6 +464,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         uiStyle: uiStyle,
         onUiStyleChanged: _setUiStyle,
         showWelcomeAnnouncement: widget.showWelcomeAnnouncement,
+        onBookshelfReady: _onBookshelfReady,
       ),
     );
   }

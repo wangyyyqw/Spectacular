@@ -13,6 +13,24 @@ const _fallbackTheme = ReaderTheme(
   text: Color(0xFF3B3228),
 );
 
+const double _topRowHeight = 48;
+const double _dividerHeight = .5;
+const double _progressTopPadding = 6;
+const double _progressRowHeight = 34;
+
+/// 底部菜单栏的实际高度（含安全区），供宿主把底部悬浮控件摆在菜单栏上方。
+double readerMenuBarHeight(BuildContext context, {double safeBottom = 0}) {
+  final viewBottom = MediaQuery.paddingOf(context).bottom;
+  final bottomInset = viewBottom > safeBottom ? viewBottom : safeBottom;
+  return _topRowHeight +
+      _dividerHeight +
+      _progressTopPadding +
+      _progressRowHeight +
+      _EntriesRow.padding.vertical +
+      _EntriesRow.itemHeight +
+      bottomInset;
+}
+
 /// 抽屉面板类型（设计稿底部四个入口）。
 enum ReaderMenuEntry {
   /// 目录。
@@ -162,7 +180,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     SizedBox(
-                      height: 48,
+                      height: _topRowHeight,
                       child: Row(
                         children: <Widget>[
                           _IconButton(
@@ -236,9 +254,14 @@ class ReaderMenuOverlay extends StatelessWidget {
                         ],
                       ),
                     ),
-                    Container(height: .5, color: line),
+                    Container(height: _dividerHeight, color: line),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                      padding: const EdgeInsets.fromLTRB(
+                        14,
+                        _progressTopPadding,
+                        14,
+                        0,
+                      ),
                       child: _ProgressRow(
                         fg: fg,
                         fill: fill,
@@ -422,7 +445,7 @@ class _ProgressRowState extends State<_ProgressRow> {
   Widget build(BuildContext context) {
     final value = _dragging ? _dragValue : widget.progress.clamp(0.0, 1.0);
     return SizedBox(
-      height: 34,
+      height: _progressRowHeight,
       child: Row(
         children: <Widget>[
           _NavButton(

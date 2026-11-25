@@ -187,15 +187,15 @@ void main() {
       expect(field.style?.fontSize, 14);
       expect(field.style?.color, theme.colorScheme.onSurface);
       final border = field.decoration!.enabledBorder! as OutlineInputBorder;
-      expect(border.borderRadius, BorderRadius.circular(20));
-      expect(border.borderSide, BorderSide.none);
-      expect(field.decoration?.focusedBorder, border);
+      expect(border.borderRadius, BorderRadius.circular(12));
+      expect(border.borderSide.color, theme.colorScheme.outlineVariant);
+      final focused = field.decoration!.focusedBorder! as OutlineInputBorder;
+      expect(focused.borderRadius, border.borderRadius);
+      expect(focused.borderSide.color, theme.colorScheme.primary);
       expect(field.decoration?.filled, isTrue);
       expect(
         field.decoration?.fillColor,
-        brightness == Brightness.dark
-            ? theme.colorScheme.surfaceContainerHighest
-            : theme.colorScheme.surface,
+        theme.colorScheme.surfaceContainerLow,
       );
       expect(
         field.decoration?.contentPadding,
@@ -204,14 +204,9 @@ void main() {
       final inputSurface = tester.widget<Material>(
         find.byKey(const ValueKey('search-input-surface')),
       );
-      expect(inputSurface.elevation, 3);
-      expect(
-        inputSurface.shadowColor,
-        (brightness == Brightness.dark ? Colors.white : Colors.black)
-            .withValues(alpha: brightness == Brightness.dark ? .24 : .28),
-      );
+      expect(inputSurface.elevation, 0);
       expect(inputSurface.surfaceTintColor, Colors.transparent);
-      expect(inputSurface.borderRadius, BorderRadius.circular(20));
+      expect(inputSurface.borderRadius, BorderRadius.circular(12));
       await tester.enterText(input, '沈河');
       await tester.pumpAndSettle();
       final title = tester.widget<Text>(find.text('第一章 简单正文 · 2 处'));

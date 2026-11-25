@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -203,10 +204,7 @@ class _BookListCard extends StatelessWidget {
     final description = bookList.description.trim();
     return Material(
       color: scheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
+      shape: ReaderUiStyle.cardShapeOf(theme),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         key: ValueKey<String>('booklist-card-${bookList.id}'),

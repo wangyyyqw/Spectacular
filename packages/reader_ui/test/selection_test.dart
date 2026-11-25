@@ -4,9 +4,49 @@ import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_layer.dart';
 import 'package:reader_ui/selection/selection_menu.dart';
+import 'package:reader_ui/theme/reader_theme.dart';
+
+const _menuLabels = <String, String>{
+  'copy': '复制',
+  'mark': '划线',
+  'thought': '想法',
+  'decoration': '装饰',
+  'dictionary': '词典',
+  'select-all': '全选',
+};
+
+List<SelectionAction> _menuActions(ValueChanged<String> onTap) => [
+  for (final entry in _menuLabels.entries)
+    SelectionAction(
+      id: entry.key,
+      label: entry.value,
+      onTap: () => onTap(entry.key),
+    ),
+];
+
+Future<void> _pumpMenu(
+  WidgetTester tester,
+  SelectionMenu menu, {
+  TextScaler textScaler = TextScaler.noScaling,
+}) async {
+  await tester.binding.setSurfaceSize(menu.bounds);
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Builder(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          child: Scaffold(body: Stack(children: [menu])),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
   'font-size': '16px',
@@ -291,6 +331,143 @@ void main() {
         find.byKey(const ValueKey<String>('selection-menu')),
         findsNothing,
       );
+    });
+
+    testWidgets('日夜正文下均显示紧凑深色单行菜单，图标在文字上方', (tester) async {
+      for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
+        final selected = <String>[];
+        await _pumpMenu(
+          tester,
+          SelectionMenu(
+            actions: _menuActions(selected.add),
+            readerTheme: theme,
+            anchor: const Rect.fromLTWH(20, 180, 120, 24),
+            bounds: const Size(360, 600),
+          ),
+        );
+        final menu = find.byKey(const ValueKey<String>('selection-menu'));
+        final material = tester.widget<Material>(menu);
+        expect(material.borderRadius, BorderRadius.circular(12));
+        expect(material.clipBehavior, Clip.antiAlias);
+        expect(tester.getSize(menu).width, lessThanOrEqualTo(300));
+        expect(tester.getSize(menu).height, lessThanOrEqualTo(60));
+        final scheme = Theme.of(tester.element(menu)).colorScheme;
+        expect(scheme.surface, const Color(0xFF282B31));
+        expect(scheme.onSurface, const Color(0xFFF5F5F5));
+        final positions = <double>[];
+        for (final entry in _menuLabels.entries) {
+          final button = find.byKey(ValueKey('selection-action-${entry.key}'));
+          final icon = find.descendant(
+            of: button,
+            matching: find.byType(AppIcon),
+          );
+          final label = find.descendant(
+            of: button,
+            matching: find.text(entry.value),
+          );
+          expect(tester.getSize(button).width, greaterThanOrEqualTo(44));
+          expect(tester.getSize(button).height, greaterThanOrEqualTo(44));
+          expect(
+            tester.getBottomLeft(icon).dy,
+            lessThan(tester.getTopLeft(label).dy),
+          );
+          expect(tester.widget<AppIcon>(icon).color, scheme.onSurface);
+          expect(tester.widget<AppIcon>(icon).size, 22);
+          expect(tester.widget<Text>(label).style?.fontSize, 12);
+          positions.add(tester.getCenter(button).dy);
+          await tester.tap(button);
+        }
+        expect(positions.toSet(), hasLength(1));
+        expect(selected, _menuLabels.keys.toList());
+        expect(tester.takeException(), isNull);
+      }
+    });
+
+    testWidgets('窄屏大字号不换行或溢出，横向滑动可点击末项', (tester) async {
+      final selected = <String>[];
+      await _pumpMenu(
+        tester,
+        SelectionMenu(
+          actions: _menuActions(selected.add),
+          anchor: const Rect.fromLTWH(20, 180, 120, 24),
+          bounds: const Size(280, 500),
+        ),
+        textScaler: const TextScaler.linear(2),
+      );
+      final menu = find.byKey(const ValueKey<String>('selection-menu'));
+      final scroll = find.byKey(
+        const ValueKey<String>('selection-menu-scroll'),
+      );
+      expect(tester.getSize(menu).width, lessThanOrEqualTo(256));
+      expect(tester.getSize(menu).height, greaterThan(70));
+      expect(
+        find.byKey(const ValueKey('selection-action-copy')).hitTestable(),
+        findsOneWidget,
+      );
+      final positions = [
+        for (final id in _menuLabels.keys)
+          tester.getCenter(find.byKey(ValueKey('selection-action-$id'))).dy,
+      ];
+      expect(positions.toSet(), hasLength(1));
+      await tester.drag(scroll, const Offset(-400, 0));
+      await tester.pumpAndSettle();
+      final selectAll = find.byKey(
+        const ValueKey<String>('selection-action-select-all'),
+      );
+      expect(
+        tester.getRect(menu).contains(tester.getCenter(selectAll)),
+        isTrue,
+      );
+      await tester.tap(selectAll);
+      expect(selected, ['select-all']);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('靠近页首或页尾时菜单留在视口内且不遮挡选区', (tester) async {
+      for (final anchor in [
+        const Rect.fromLTWH(20, 4, 120, 24),
+        const Rect.fromLTWH(20, 560, 120, 24),
+      ]) {
+        await _pumpMenu(
+          tester,
+          SelectionMenu(
+            actions: _menuActions((_) {}),
+            anchor: anchor,
+            bounds: const Size(360, 600),
+          ),
+        );
+        final rect = tester.getRect(
+          find.byKey(const ValueKey<String>('selection-menu')),
+        );
+        expect(rect.left, greaterThanOrEqualTo(12));
+        expect(rect.right, lessThanOrEqualTo(348));
+        expect(rect.top, greaterThanOrEqualTo(0));
+        expect(rect.bottom, lessThanOrEqualTo(600));
+        expect(rect.overlaps(anchor), isFalse);
+      }
+    });
+
+    testWidgets('墨水屏菜单保留黑白阅读配色', (tester) async {
+      await _pumpMenu(
+        tester,
+        SelectionMenu(
+          actions: _menuActions((_) {}),
+          inkMode: true,
+          readerTheme: const ReaderTheme(
+            id: 'ink',
+            name: '墨水屏',
+            background: Colors.white,
+            text: Colors.black,
+          ),
+          anchor: const Rect.fromLTWH(20, 180, 120, 24),
+          bounds: const Size(360, 600),
+        ),
+      );
+      final menu = find.byKey(const ValueKey<String>('selection-menu'));
+      final scheme = Theme.of(tester.element(menu)).colorScheme;
+      expect(scheme.surface, Colors.white);
+      expect(scheme.onSurface, Colors.black);
+      expect(tester.takeException(), isNull);
     });
   });
 

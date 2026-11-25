@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_ui_style.dart';
+
 import '../icons/app_icon.dart';
 import '../tap_zones.dart';
 
@@ -150,11 +152,11 @@ class _TapZoneCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: fill,
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: ReaderUiStyle.controlRadius,
       child: InkWell(
         key: ValueKey<String>('tap-zone-${zone.name}'),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: ReaderUiStyle.controlRadius,
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'reading_insights.dart';
@@ -241,11 +242,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     final switchingToTime = _mode == _VoxelChartMode.books;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
+      decoration: ReaderUiStyle.cardDecorationOf(Theme.of(context)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -376,7 +373,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
           minimumSize: const Size(48, 48),
           backgroundColor: scheme.surfaceContainerHighest,
           foregroundColor: scheme.onSurface,
-          shape: const CircleBorder(),
+          shape: ReaderUiStyle.controlShape,
         ),
         icon: AppIcon(
           switchingToTime ? AppGlyph.stats : AppGlyph.menuBook,

@@ -489,7 +489,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
           color: ReaderDrawerStyle.searchSurfaceOf(theme),
           elevation: 3,
           surfaceTintColor: Colors.transparent,
-          shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
+          shadowColor: colors.shadow.withValues(alpha: .12),
           borderRadius: border.borderRadius,
           child: TextField(
             key: const ValueKey('discover-search-field'),

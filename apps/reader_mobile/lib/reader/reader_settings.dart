@@ -6,6 +6,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/mark_settings.dart';
 import 'package:reader_ui/bookmarks/bookmark_style.dart';
+import 'package:reader_ui/footnote_dialog.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/page_furniture/corner_info.dart';
@@ -20,7 +21,7 @@ enum ReaderTtsMode {
   /// 系统语音引擎。
   system,
 
-  /// 离线伴听引擎。
+  /// 离线模型引擎。
   offline;
 
   /// 从持久化值解析；旧设置默认系统语音。
@@ -236,6 +237,7 @@ class ReaderSettings {
     this.showSystemBars = false,
     this.markSettings = const ReaderMarkSettings(),
     this.bookmarkStyle = const ReaderBookmarkStyle(),
+    this.footnoteStyle = ReaderFootnoteStyle.dialog,
     this.tts = ReaderTtsSettings.defaults,
   });
 
@@ -306,6 +308,9 @@ class ReaderSettings {
   /// 阅读页右上角书签的全局外观。
   final ReaderBookmarkStyle bookmarkStyle;
 
+  /// 阅读页注释的展示样式。
+  final ReaderFootnoteStyle footnoteStyle;
+
   /// 听书偏好。
   final ReaderTtsSettings tts;
 
@@ -357,6 +362,7 @@ class ReaderSettings {
     bool showSystemBars = false,
     ReaderMarkSettings markSettings = const ReaderMarkSettings(),
     ReaderBookmarkStyle bookmarkStyle = const ReaderBookmarkStyle(),
+    ReaderFootnoteStyle footnoteStyle = ReaderFootnoteStyle.dialog,
     ReaderTtsSettings tts = ReaderTtsSettings.defaults,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
@@ -381,6 +387,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -410,6 +417,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -437,6 +445,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -466,6 +475,7 @@ class ReaderSettings {
       showSystemBars: showSystemBars,
       markSettings: markSettings,
       bookmarkStyle: bookmarkStyle,
+      footnoteStyle: footnoteStyle,
       tts: tts,
     );
   }
@@ -494,6 +504,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -522,6 +533,7 @@ class ReaderSettings {
         showSystemBars: showSystemBars,
         markSettings: markSettings,
         bookmarkStyle: bookmarkStyle,
+        footnoteStyle: footnoteStyle,
         tts: tts,
       );
 
@@ -549,6 +561,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -576,6 +589,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -603,6 +617,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -630,6 +645,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -657,6 +673,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -684,6 +701,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -711,6 +729,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: tts,
   );
 
@@ -766,6 +785,7 @@ class ReaderSettings {
         showSystemBars: showSystemBars,
         markSettings: value,
         bookmarkStyle: bookmarkStyle,
+        footnoteStyle: footnoteStyle,
         tts: tts,
       );
 
@@ -794,6 +814,35 @@ class ReaderSettings {
         showSystemBars: showSystemBars,
         markSettings: markSettings,
         bookmarkStyle: value,
+        footnoteStyle: footnoteStyle,
+        tts: tts,
+      );
+
+  /// 修改阅读页注释样式，保留其它阅读偏好。
+  ReaderSettings copyWithFootnoteStyle(ReaderFootnoteStyle value) =>
+      ReaderSettings(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        overrideEmbeddedFonts: overrideEmbeddedFonts,
+        lineHeight: lineHeight,
+        paragraphSpacing: paragraphSpacing,
+        horizontalPadding: horizontalPadding,
+        themeId: themeId,
+        dayThemeId: dayThemeId,
+        nightThemeId: nightThemeId,
+        customThemeId: customThemeId,
+        backgroundId: backgroundId,
+        backgroundImageOpacity: backgroundImageOpacity,
+        inkMode: inkMode,
+        cornerInfo: cornerInfo,
+        margins: margins,
+        tapZones: tapZones,
+        pageTurnMode: pageTurnMode,
+        keepScreenOn: keepScreenOn,
+        volumeKeyPaging: volumeKeyPaging,
+        markSettings: markSettings,
+        bookmarkStyle: bookmarkStyle,
+        footnoteStyle: value,
         tts: tts,
       );
 
@@ -821,6 +870,7 @@ class ReaderSettings {
     showSystemBars: showSystemBars,
     markSettings: markSettings,
     bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
     tts: value,
   );
 
@@ -849,6 +899,7 @@ class ReaderSettings {
       other.showSystemBars == showSystemBars &&
       other.markSettings == markSettings &&
       other.bookmarkStyle == bookmarkStyle &&
+      other.footnoteStyle == footnoteStyle &&
       other.tts == tts;
 
   @override
@@ -873,7 +924,7 @@ class ReaderSettings {
     volumeKeyPaging,
     showSystemBars,
     markSettings,
-    Object.hash(bookmarkStyle, tts),
+    Object.hash(bookmarkStyle, footnoteStyle, tts),
   ]);
 }
 
@@ -908,6 +959,7 @@ class ReaderSettingsStore {
   static const String keyVolumeKeyPaging = 'reader.volumeKeyPaging';
   static const String keyShowSystemBars = 'reader.showSystemBars';
   static const String keyBookmarkStyle = 'reader.bookmarkStyle';
+  static const String keyFootnoteStyle = 'reader.footnoteStyle';
 
   /// 听书偏好（JSON）。
   static const String keyTts = 'reader.tts';
@@ -969,6 +1021,9 @@ class ReaderSettingsStore {
       tts: _readTts(await _library.getSetting(keyTts)),
       bookmarkStyle: _readBookmarkStyle(
         await _library.getSetting(keyBookmarkStyle),
+      ),
+      footnoteStyle: ReaderFootnoteStyle.fromId(
+        await _library.getSetting(keyFootnoteStyle),
       ),
     );
   }
@@ -1141,6 +1196,7 @@ class ReaderSettingsStore {
       keyBookmarkStyle,
       jsonEncode(settings.bookmarkStyle.toJson()),
     );
+    await _library.setSetting(keyFootnoteStyle, settings.footnoteStyle.name);
     await _library.setSetting(keyTts, jsonEncode(settings.tts.toJson()));
     final mark = settings.markSettings;
     final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff

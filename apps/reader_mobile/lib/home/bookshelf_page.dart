@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
@@ -90,6 +91,7 @@ class BookshelfPage extends StatefulWidget {
     this.onlineBooks,
     this.bookOpener,
     this.active = true,
+    this.onInitialCoversReady,
     this.pickEpubFiles = _pickWithFilePicker,
     this.readFile = _readFile,
   });
@@ -119,6 +121,9 @@ class BookshelfPage extends StatefulWidget {
 
   /// 页面是否处于当前分栏；桌面快捷键只响应活动页。
   final bool active;
+
+  /// 当前排序的前 12 本封面准备好、可见封面绘制后回调。
+  final VoidCallback? onInitialCoversReady;
 
   /// 选文件入口（默认 file_picker 多选；测试注入）。
   final Future<List<String>> Function() pickEpubFiles;
@@ -808,7 +813,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ),
     ];
     if (firstLoad) {
-      // 书架先按最终顺序显示；封面在开屏期间从首屏开始预解码。
+      // 开屏保持遮挡；布局确定后立即按实际显示宽度预解码前 12 本封面。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_preloadCovers());
       });
@@ -938,31 +943,41 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  /// 封面预解码：先首屏可见的书，再按书架顺序把其余封面解码完。
+  /// 首批 12 本封面与显示共用缓存，其余封面按需解码。
   Future<void> _preloadCovers() async {
     final items = _items;
     if (items == null || !mounted) return;
-    final ordered = [
-      for (final item in _visible(items))
-        if (item.entry.coverPath case final path?) (path: path),
-    ];
-    if (ordered.isEmpty) return;
+    final ordered = _visible(items);
     final generation = ++_coverPreloadGeneration;
     final media = MediaQuery.of(context);
     final width = context.size?.width ?? media.size.width;
     final cardWidth = _grid
         ? _shelfGridMetrics(width, media.textScaler).cardWidth
         : 66.0;
+    final cardHeight = _grid ? cardWidth / _shelfCoverAspectRatio : 88.0;
     final decodeWidth = coverDecodeWidth(cardWidth, media.devicePixelRatio);
-    // 从上到下分批解码，首屏完成后继续解码其余封面直到全部完成。
-    for (var offset = 0; offset < ordered.length; offset += 4) {
-      if (!mounted || generation != _coverPreloadGeneration) return;
-      await Future.wait([
-        for (final cover in ordered.skip(offset).take(4))
-          precacheImage(coverImageProvider(cover.path, decodeWidth), context),
-      ]);
-    }
+    final decodeHeight = coverDecodeHeight(cardHeight, media.devicePixelRatio);
+    await Future.wait([
+      for (final item in ordered.take(12))
+        if (item.entry.coverPath case final path?)
+          _precacheCover(path, decodeWidth, decodeHeight),
+    ]);
+    // 图像解码成功后还需让占位组件完成替换，不能只在 Future 完成时揭开书架。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _coverPreloadGeneration) return;
+    widget.onInitialCoversReady?.call();
   }
+
+  Future<void> _precacheCover(String path, int decodeWidth, int decodeHeight) =>
+      precacheImage(
+        coverImageProvider(path, decodeWidth, decodeHeight: decodeHeight),
+        context,
+        onError: (error, stackTrace) => recordAppError(
+          'bookshelf_cover_preload_failed',
+          error,
+          stackTrace: stackTrace,
+        ),
+      );
 
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
   Future<void> _import() async {
@@ -1559,21 +1574,31 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final colors = Theme.of(context).colorScheme;
     return Material(
       color: colors.surface,
-      borderRadius: BorderRadius.circular(20),
-      elevation: 2,
-      shadowColor: colors.shadow.withValues(alpha: .12),
-      child: IconButton(
-        key: const ValueKey<String>('bookshelf-import'),
-        tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-        onPressed: busy || !widget.allowImport ? null : _import,
-        icon: busy
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const AppIcon(AppGlyph.add),
+      shape: ReaderUiStyle.controlShape.copyWith(
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      elevation: 0,
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          splashFactory: NoSplash.splashFactory,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          hoverColor: Colors.transparent,
+          focusColor: Colors.transparent,
+        ),
+        child: IconButton(
+          key: const ValueKey<String>('bookshelf-import'),
+          tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+          onPressed: busy || !widget.allowImport ? null : _import,
+          icon: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const AppIcon(AppGlyph.add),
+        ),
       ),
     );
   }
@@ -1581,16 +1606,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildSearchField() {
     final theme = Theme.of(context);
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Material(
       key: const ValueKey('bookshelf-search-surface'),
       color: ReaderDrawerStyle.searchSurfaceOf(theme),
       borderRadius: border.borderRadius,
-      elevation: 3,
+      elevation: 0,
       surfaceTintColor: Colors.transparent,
-      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
       child: TextField(
         key: const ValueKey<String>('bookshelf-search-field'),
         controller: _searchController,
@@ -1605,7 +1629,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
           contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: border,
           enabledBorder: border,
-          focusedBorder: border,
+          focusedBorder: border.copyWith(
+            borderSide: BorderSide(color: theme.colorScheme.primary),
+          ),
           prefixIconConstraints: const BoxConstraints.tightFor(
             width: 40,
             height: 40,

@@ -488,6 +488,78 @@ void main() {
     controller.cancel();
   });
 
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      for (final top in [false, true]) {
+        testWidgets('3D 起卷过渡不因首帧微动切角：$rtl/$next/$top', (tester) async {
+          final controller = (await _curlController(tester, rtl: rtl))
+            ..size = const ui.Size(360, 800);
+          final sign = next ? -1.0 : 1.0;
+          final down = ui.Offset(next ? 310 : 50, top ? 200 : 600);
+          final touch = down.translate(sign * 25, top ? 8 : -8);
+          await _startCurlDrag(tester, controller, down, touch);
+
+          final initial = controller.point;
+          final moved = touch.translate(sign * 4, top ? -1 : 1);
+          _move(controller, moved);
+          expect(controller.point, initial, reason: '尚未抬起时只更新目标，不平移固定页角');
+          expect(controller.curl3dGeometry!.active, isFalse);
+          await tester.pump(const Duration(milliseconds: 16));
+          final geometry = controller.curl3dGeometry!;
+          expect(geometry.active, isTrue);
+          expect(top ? geometry.u.dy > 0 : geometry.u.dy < 0, isTrue);
+          final opposite = ui.Offset(360, top ? 800 : 0);
+          expect(geometry.pointAt(opposite).position, opposite);
+
+          final displayed = controller.point!;
+          final inward = top ? 1.0 : -1.0;
+          _move(controller, moved.translate(sign * 4, inward));
+          expect(controller.point, displayed.translate(-4, inward));
+          await tester.pumpAndSettle(const Duration(milliseconds: 16));
+          expect(
+            controller.point,
+            ui.Offset(
+              next ? moved.dx - 4 : 360 - moved.dx - 4,
+              moved.dy + inward,
+            ),
+          );
+          controller.cancel();
+        });
+      }
+    }
+  }
+
+  for (final top in [false, true]) {
+    testWidgets('3D 起卷过渡不将页内触点补偿到页外：$top', (tester) async {
+      final gate = Completer<void>();
+      final controller = (await _curlController(
+        tester,
+        targetImageGate: gate.future,
+      ))..size = const ui.Size(360, 800);
+      final down = ui.Offset(310, top ? 200 : 600);
+      final touch = down.translate(-25, top ? 8 : -8);
+      await _startCurlDrag(tester, controller, down, touch);
+      await tester.pump(const Duration(milliseconds: 16));
+      final displayed = controller.point!;
+      final outward = top ? -displayed.dy - 1 : 801 - displayed.dy;
+      final moved = touch.translate(-4, outward);
+      expect(moved.dy, inExclusiveRange(0, 800));
+      _move(controller, moved);
+      expect(controller.point, displayed, reason: '补偿暂不越过所选页角，由起卷时钟继续接上');
+      await tester.pump(const Duration(milliseconds: 16));
+      final geometry = controller.curl3dGeometry!;
+      expect(top ? geometry.u.dy > 0 : geometry.u.dy < 0, isTrue);
+
+      gate.complete();
+      await tester.pumpAndSettle(const Duration(milliseconds: 16));
+      expect(controller.point, moved);
+      final outside = ui.Offset(moved.dx - 4, top ? -40 : 840);
+      _move(controller, outside);
+      expect(controller.point, outside, reason: '正常拖动仍允许真实手指越过页缘');
+      controller.cancel();
+    });
+  }
+
   testWidgets('无动画目标激活前取消后可继续翻页', (tester) async {
     final controller = (await _controller(tester))..mode = PageTurnMode.none;
     final cancelled = _requestWithActivationCancellation(controller);

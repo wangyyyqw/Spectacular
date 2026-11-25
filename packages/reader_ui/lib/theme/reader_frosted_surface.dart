@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import 'reader_ui_style.dart';
+
 /// 阅读控件共用的实色底板：完全不透明，保留柔和高光和阴影，不采样背景。
 class ReaderFrostedSurface extends StatelessWidget {
   const ReaderFrostedSurface({
     super.key,
     required this.child,
-    this.radius = 20,
+    this.radius = ReaderUiStyle.cardCorner,
     this.bottomRadius,
     this.inkMode = false,
     this.inset = EdgeInsets.zero,

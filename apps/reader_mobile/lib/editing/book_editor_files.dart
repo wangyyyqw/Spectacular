@@ -181,17 +181,16 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
   Widget _filterField() {
     final theme = Theme.of(context);
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
       child: Material(
         color: ReaderDrawerStyle.searchSurfaceOf(theme),
         borderRadius: border.borderRadius,
-        elevation: 3,
+        elevation: 0,
         surfaceTintColor: Colors.transparent,
-        shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
         child: TextField(
           controller: _filter,
           style: theme.textTheme.bodyMedium,
@@ -204,7 +203,9 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
             contentPadding: const EdgeInsets.symmetric(vertical: 8),
             border: border,
             enabledBorder: border,
-            focusedBorder: border,
+            focusedBorder: border.copyWith(
+              borderSide: BorderSide(color: theme.colorScheme.primary),
+            ),
             prefixIconConstraints: const BoxConstraints.tightFor(
               width: 40,
               height: 40,

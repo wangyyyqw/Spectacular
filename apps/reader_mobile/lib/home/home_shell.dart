@@ -43,6 +43,7 @@ class HomeShell extends StatefulWidget {
     this.appFontStore,
     this.onAppFontFamilyChanged,
     this.showWelcomeAnnouncement = false,
+    this.onBookshelfReady,
   });
 
   /// 书架存储。
@@ -77,6 +78,9 @@ class HomeShell extends StatefulWidget {
 
   /// 正式应用启动启用公告；独立组件测试可直接构造壳。
   final bool showWelcomeAnnouncement;
+
+  /// 书架前 12 本封面就绪后通知开屏退场。
+  final VoidCallback? onBookshelfReady;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -238,7 +242,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         oldWidget.onUiStyleChanged != widget.onUiStyleChanged ||
         oldWidget.appFontFamily != widget.appFontFamily ||
         oldWidget.appFontStore != widget.appFontStore ||
-        oldWidget.onAppFontFamilyChanged != widget.onAppFontFamilyChanged) {
+        oldWidget.onAppFontFamilyChanged != widget.onAppFontFamilyChanged ||
+        oldWidget.onBookshelfReady != widget.onBookshelfReady) {
       _pages = [];
     }
   }
@@ -285,6 +290,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       reaMicro: _reaMicro,
       onlineBooks: _onlineBooks,
       bookOpener: _bookOpener,
+      onInitialCoversReady: widget.onBookshelfReady,
     ),
     1 => DiscoverPage(
       controller: _onlineBooks,

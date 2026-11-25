@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:reader_ui/reading_highlight.dart';
 
+import '../diagnostics/reader_log.dart';
 import 'reader_offline_tts.dart';
 import 'reader_settings.dart';
 import 'reader_system_tts.dart';
@@ -73,7 +74,6 @@ class ReaderTtsController {
   final _system = ReaderSystemTts();
 
   void Function(Object error)? onError;
-  void Function(String message)? onFallback;
   Future<void> Function(ReaderReadingHighlight range)? onPositionChanged;
 
   ReaderTtsSettings _settings = ReaderTtsSettings.defaults;
@@ -85,13 +85,18 @@ class ReaderTtsController {
   int _settingsRevision = 0;
   int _pieceRevision = 0;
   int _systemSettingsRevision = -1;
-  bool _fallback = false;
   Completer<void>? _cancel;
   Completer<void>? _resume;
   Future<void> _transition = Future.value();
+  Stopwatch? _startupWatch;
   String? _voiceKey;
   Future<_OfflineVoices>? _voices;
-  ({ReaderTtsSegment segment, int revision, Future<_PreparedClip> result})?
+  ({
+    ReaderTtsSegment segment,
+    int index,
+    ReaderTtsSettings settings,
+    Future<_PreparedClip> result,
+  })?
   _prefetch;
 
   ReaderTtsSnapshot get snapshot => state.value;
@@ -121,6 +126,18 @@ class ReaderTtsController {
   }
 
   Future<List<ReaderTtsVoice>> loadVoices() => _system.voices();
+
+  /// 正文首屏就绪后预热旁白，不改变播放状态；对白按需加载。
+  Future<void> prepare(ReaderTtsSettings settings) async {
+    if (settings.mode != ReaderTtsMode.offline || !settings.hasOfflineVoice) {
+      return;
+    }
+    final generation = _generation;
+    final voice = await resolveOfflineVoice?.call(settings.narratorVoiceId);
+    if (voice != null && _valid(generation)) {
+      await offlineSynthesizer?.prepare(voice);
+    }
+  }
 
   void _publish(ReaderTtsPhase phase, {Object? error}) {
     state.value = ReaderTtsSnapshot(
@@ -163,16 +180,16 @@ class ReaderTtsController {
   }) async {
     final stopping = stop();
     final generation = _generation;
-    await stopping;
-    if (!_valid(generation)) return;
+    _startupWatch = Stopwatch()..start();
     _cancel = Completer<void>();
     _settings = settings;
     _activeMode = settings.mode;
     _settingsRevision++;
     _systemSettingsRevision = -1;
-    _fallback = false;
     _publish(ReaderTtsPhase.loading);
     try {
+      await stopping;
+      if (!_valid(generation)) return;
       await _wait(
         backgroundPlayback?.start() ?? Future<void>.value(),
         generation,
@@ -185,6 +202,9 @@ class ReaderTtsController {
             generation,
           );
       _segmentIndex = segmentIndex;
+      if (settings.mode == ReaderTtsMode.offline) {
+        _chunk = _chunk?.withShortLead(segmentIndex);
+      }
       if (_valid(generation)) await _run(generation);
     } catch (error) {
       await _fail(generation, error);
@@ -214,13 +234,13 @@ class ReaderTtsController {
       }
       _pieceSettings = _settings;
       _pieceRevision = _settingsRevision;
-      _activeMode = _fallback ? ReaderTtsMode.system : _pieceSettings.mode;
+      _activeMode = _pieceSettings.mode;
       _publish(ReaderTtsPhase.loading);
       final range = _chunk!.highlightFor(_segment!);
       if (range != null) await onPositionChanged?.call(range);
       if (!await _waitResumed(generation)) return;
       final completed = _mode == ReaderTtsMode.offline
-          ? await _playOfflineOrFallback(generation)
+          ? await _playOffline(generation)
           : await _playSystem(generation);
       if (!completed || !await _waitResumed(generation)) return;
       _segmentIndex++;
@@ -251,6 +271,19 @@ class ReaderTtsController {
 
   void _started(int generation) {
     if (!_valid(generation) || paused) return;
+    final watch = _startupWatch;
+    if (watch != null) {
+      watch.stop();
+      _startupWatch = null;
+      recordAppEvent(
+        'tts_started',
+        fields: {
+          'ms': watch.elapsedMilliseconds,
+          'mode': _mode,
+          'characters': _segment?.text.length,
+        },
+      );
+    }
     final range = _chunk?.highlightFor(_segment!);
     if (range != null) highlight.value = range;
     _publish(ReaderTtsPhase.playing);
@@ -350,24 +383,6 @@ class ReaderTtsController {
     return false;
   }
 
-  Future<bool> _playOfflineOrFallback(int generation) async {
-    try {
-      return await _playOffline(generation);
-    } catch (error) {
-      if (!_valid(generation)) return false;
-      await player?.stop();
-      await offlineSynthesizer?.stop();
-      if (!_valid(generation)) return false;
-      _prefetch = null;
-      _fallback = true;
-      _activeMode = ReaderTtsMode.system;
-      _systemSettingsRevision = -1;
-      onFallback?.call('离线伴听不可用，已从当前片段切换系统语音：$error');
-      if (!paused) _publish(ReaderTtsPhase.loading);
-      return _playSystem(generation);
-    }
-  }
-
   Future<bool> _playOffline(int generation) async {
     final audioPlayer = player;
     if (audioPlayer == null) throw StateError('离线播放器未配置');
@@ -401,8 +416,9 @@ class ReaderTtsController {
   ) async {
     final cached = _prefetch;
     final pending =
-        cached?.segment == segments.first && cached?.revision == _pieceRevision
-        ? cached!.result
+        cached?.segment == segments.first &&
+            _sameOfflineAudio(cached!.settings, _pieceSettings)
+        ? cached.result
         : _prepareClip(segments, _pieceSettings, generation);
     _prefetch = null;
     final prepared = await _wait(pending, generation);
@@ -420,7 +436,8 @@ class ReaderTtsController {
     final next = _playbackSegments(nextIndex);
     _prefetch = (
       segment: next.first,
-      revision: _settingsRevision,
+      index: nextIndex,
+      settings: _settings,
       result: _prepareClip(next, _settings, generation),
     );
   }
@@ -489,13 +506,26 @@ class ReaderTtsController {
     if (_settings == settings) return;
     _settings = settings;
     _settingsRevision++;
-    _fallback = false;
-    _prefetch = null;
+    final cached = _prefetch;
+    if (settings.mode != ReaderTtsMode.offline) {
+      _prefetch = null;
+    } else if (cached != null &&
+        !_sameOfflineAudio(cached.settings, settings)) {
+      _prefetchNext(_generation, cached.index);
+    }
     if (!hasSession) {
       _activeMode = settings.mode;
       _publish(snapshot.phase, error: snapshot.error);
     }
   }
+
+  // 音量和续读开关不改变 WAV，保留已经准备的下一句。
+  bool _sameOfflineAudio(ReaderTtsSettings left, ReaderTtsSettings right) =>
+      left.narratorVoiceId == right.narratorVoiceId &&
+      left.dialogueVoiceId == right.dialogueVoiceId &&
+      left.narratorSpeakerId == right.narratorSpeakerId &&
+      left.narratorSpeed == right.narratorSpeed &&
+      left.dialogueSpeed == right.dialogueSpeed;
 
   Future<void> _serialize(Future<void> Function() action) {
     final operation = _transition.then((_) => action());
@@ -542,6 +572,7 @@ class ReaderTtsController {
 
   Future<void> stop() async {
     _generation++;
+    _startupWatch = null;
     final cancellation = _cancel;
     if (cancellation != null && !cancellation.isCompleted) {
       cancellation.complete();
@@ -566,7 +597,6 @@ class ReaderTtsController {
     await offlineSynthesizer?.dispose();
     await backgroundPlayback?.dispose();
     onError = null;
-    onFallback = null;
     onPositionChanged = null;
     highlight.dispose();
     state.dispose();

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_ui_style.dart';
+
 import 'package:reader_core/css/font_face.dart';
 
 import '../icons/app_icon.dart';
@@ -209,7 +211,8 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: ReaderUiStyle.controlRadius,
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
     ),
     child: Text(
       '清风翻过书页，阅读从这里开始。\nAa Bb 0123456789',

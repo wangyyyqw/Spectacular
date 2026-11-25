@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/system_ui.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 /// 应用界面的字体约定，不作用于书籍正文。
 abstract final class AppFonts {
@@ -242,7 +243,11 @@ ThemeData buildAppTheme({
       type: BottomNavigationBarType.fixed,
     ),
   );
-  return _withControls(_withSurfaces(base, colors, uiStyle), colors, uiStyle);
+  return _withControls(
+    _withSurfaces(applyReaderUiStyle(base), colors, uiStyle),
+    colors,
+    uiStyle,
+  );
 }
 
 ThemeData _withSurfaces(

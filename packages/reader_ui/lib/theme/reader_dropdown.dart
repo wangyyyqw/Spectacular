@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import 'reader_ui_style.dart';
 
 /// 选择框与书源菜单共用圆角浮层，保留当前项、键盘和菜单滚动行为。
 class ReaderDropdownButton<T> extends StatelessWidget {
@@ -56,11 +57,7 @@ class ReaderDropdownButton<T> extends StatelessWidget {
           color: theme.popupMenuTheme.color ?? theme.colorScheme.surface,
           surfaceTintColor: Colors.transparent,
           elevation: theme.popupMenuTheme.elevation ?? 2,
-          shape:
-              theme.popupMenuTheme.shape ??
-              const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(16)),
-              ),
+          shape: theme.popupMenuTheme.shape ?? ReaderUiStyle.cardShape,
           constraints: BoxConstraints(
             minWidth: width,
             maxWidth: width,
@@ -83,9 +80,9 @@ class ReaderDropdownButton<T> extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: item.value == value
-                          ? theme.colorScheme.onSurface.withValues(alpha: .06)
+                          ? theme.colorScheme.primaryContainer
                           : Colors.transparent,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: ReaderUiStyle.controlRadius,
                     ),
                     child: Row(
                       children: [

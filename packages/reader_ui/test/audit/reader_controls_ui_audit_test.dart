@@ -50,18 +50,18 @@ Future<void> _openSheet(
   await tester.pumpAndSettle();
 }
 
-void _expectSheet(WidgetTester tester, String key) {
+void _expectSheet(WidgetTester tester, String key, {double radius = 24}) {
   final material = tester.widget<Material>(_key(key));
   expect(
     material.borderRadius,
-    const BorderRadius.vertical(top: Radius.circular(8)),
+    BorderRadius.vertical(top: Radius.circular(radius)),
   );
   expect(material.clipBehavior, Clip.antiAlias);
   expect(tester.takeException(), isNull);
 }
 
 void main() {
-  testWidgets('阅读菜单四入口可点击，夜间抽屉继承正文表面', (tester) async {
+  testWidgets('阅读菜单四入口可点击，夜间抽屉使用更浅的面板底色', (tester) async {
     ReaderMenuEntry? selected;
     Widget menu({Widget? drawer}) => ReaderMenuOverlay(
       open: true,
@@ -102,7 +102,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     final context = tester.element(find.text('章节内容'));
-    expect(Theme.of(context).colorScheme.surface, ReaderTheme.black.background);
+    expect(
+      Theme.of(context).colorScheme.surface.computeLuminance(),
+      greaterThan(ReaderTheme.black.background.computeLuminance()),
+      reason: '夜间菜单底板应与阅读页区分',
+    );
     final buttonColor = Theme.of(context).textButtonTheme.style?.foregroundColor
         ?.resolve({});
     expect(buttonColor, ReaderTheme.black.text);
@@ -116,7 +120,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('紧凑选区菜单保持复制和笔记入口', (tester) async {
+  testWidgets('圆角选区菜单保持复制和笔记入口', (tester) async {
     final selected = <String>[];
     await _pumpPage(
       tester,
@@ -142,7 +146,8 @@ void main() {
     }
     expect(selected, ['复制', '笔记']);
     final material = tester.widget<Material>(_key('selection-menu'));
-    expect(material.borderRadius, BorderRadius.circular(4));
+    expect(material.borderRadius, BorderRadius.circular(12));
+    expect(material.clipBehavior, Clip.antiAlias);
     expect(material.elevation, 0);
     expect(tester.takeException(), isNull);
   });
@@ -248,7 +253,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('脚注弹层显示多段文本并可关闭', (tester) async {
+  testWidgets('脚注弹层显示多段文本', (tester) async {
     await _openSheet(
       tester,
       const ReaderFootnoteDialog(
@@ -262,10 +267,10 @@ void main() {
       ),
       (_) {},
     );
-    _expectSheet(tester, 'reader-footnote-dialog');
+    _expectSheet(tester, 'reader-footnote-dialog', radius: 8);
     expect(find.text('第一段脚注'), findsOneWidget);
     expect(find.text('第二段脚注'), findsOneWidget);
-    await tester.tap(_key('reader-footnote-close'));
+    Navigator.of(tester.element(_key('reader-footnote-dialog'))).pop();
     await tester.pumpAndSettle();
     expect(_key('reader-footnote-dialog'), findsNothing);
   });

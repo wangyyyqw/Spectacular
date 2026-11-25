@@ -131,6 +131,8 @@ class ReaderPage extends StatefulWidget {
     this.decorationImages,
     this.markSettings = const ReaderMarkSettings(),
     this.onMarkSettingsChanged,
+    this.footnoteStyle = ReaderFootnoteStyle.dialog,
+    this.onFootnoteStyleChanged,
     this.onOverridesChanged,
     this.onThemeChanged,
     this.onToggleDayNight,
@@ -151,6 +153,8 @@ class ReaderPage extends StatefulWidget {
     this.onSearch,
     this.onSessionReady,
     this.persistInitialPosition = false,
+    this.onTts,
+    this.onMenuBarVisibleChanged,
     this.readingHighlight,
     this.onBookEnd,
     this.editMode = false,
@@ -181,7 +185,6 @@ class ReaderPage extends StatefulWidget {
     this.showSystemBars = false,
     this.onVolumeKeyPagingChanged,
     this.onShowSystemBarsChanged,
-    this.onTts,
     this.onContentAction,
     this.onDictionary,
   });
@@ -227,6 +230,10 @@ class ReaderPage extends StatefulWidget {
   /// 划线快捷设置及其持久化回调。
   final ReaderMarkSettings markSettings;
   final ValueChanged<ReaderMarkSettings>? onMarkSettingsChanged;
+
+  /// 注释展示样式及其持久化回调。
+  final ReaderFootnoteStyle footnoteStyle;
+  final ValueChanged<ReaderFootnoteStyle>? onFootnoteStyleChanged;
 
   /// 排版设置变化（P4-21）：调用方负责持久化。
   final ValueChanged<ReaderOverrides>? onOverridesChanged;
@@ -352,6 +359,9 @@ class ReaderPage extends StatefulWidget {
 
   /// 打开听书控制面板，由宿主管理平台语音。
   final VoidCallback? onTts;
+
+  /// 底部菜单栏可见状态变化（菜单展开且没有抽屉）；宿主据此显示悬浮控件。
+  final ValueChanged<bool>? onMenuBarVisibleChanged;
 
   /// 正在朗读的临时区间；高频更新只重绘高亮层。
   final ValueListenable<ReaderReadingHighlight?>? readingHighlight;
@@ -501,6 +511,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 菜单是否展开（设计稿沉浸式菜单）。
   bool _menuOpen = false;
   int _navigationErrorToken = 0;
+
+  /// 底栏区域是否完整露出：菜单展开且没有抽屉盖住底栏。
+  bool _menuBarVisible = false;
+
+  void _setMenuOpen(bool open) {
+    if (_menuOpen == open) return;
+    _menuOpen = open;
+    _syncMenuBarVisible();
+  }
+
+  /// 同步底栏可见状态给宿主，底部悬浮控件据此显示或隐藏。
+  void _syncMenuBarVisible() {
+    final visible = _menuOpen && _drawer == null;
+    if (_menuBarVisible == visible) return;
+    _menuBarVisible = visible;
+    widget.onMenuBarVisibleChanged?.call(visible);
+  }
+
   ({bool statusBar, bool navigationBar})? _systemBars;
   Timer? _systemBarRestoreTimer;
   bool _keyboardVisible = false;
@@ -616,9 +644,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _pageTurnKey.currentState?.controller.cancel();
     _clearSelection();
     setState(() {
-      _menuOpen = true;
+      _setMenuOpen(true);
       _drawer = ReaderMenuEntry.toc;
       _drawerTab = _DrawerTab.search;
+      _syncMenuBarVisible();
     });
     _searchFocus.requestFocus();
   }
@@ -1119,7 +1148,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final Map<int, int> _decorationScheduledChapters = {};
   bool _decorationLoading = false;
   ReaderDecoration? _relocatingDecoration;
-  bool _selectionMore = false;
   double _paperContentWidth = 0;
 
   void _changeReaderState(VoidCallback change) => setState(change);
@@ -1304,7 +1332,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final open = !_menuOpen;
     _log('user_menu', <String, Object?>{'open': open});
     setState(() {
-      _menuOpen = open;
+      _setMenuOpen(open);
       if (!_menuOpen) {
         _drawer = null;
         _drawerTab = _DrawerTab.content;
@@ -1318,6 +1346,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _drawer = entry;
       _drawerTab = _DrawerTab.content;
+      _syncMenuBarVisible();
     });
   }
 
@@ -1326,6 +1355,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
+      _syncMenuBarVisible();
     });
     _keyboardFocus.requestFocus();
   }
@@ -1336,7 +1366,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     setState(() {
-      _menuOpen = false;
+      _setMenuOpen(false);
       _drawer = null;
       _drawerTab = _DrawerTab.content;
     });
@@ -1379,7 +1409,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
-      _menuOpen = false;
+      _setMenuOpen(false);
       _editingTapZones = true;
     });
   }
@@ -1930,6 +1960,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     unawaited(_applyPageTurnMode(PageTurnMode.cover));
     _applyInkMode(false);
     _applyMarkSettings(const ReaderMarkSettings());
+    if (widget.footnoteStyle != ReaderFootnoteStyle.dialog) {
+      widget.onFootnoteStyleChanged?.call(ReaderFootnoteStyle.dialog);
+    }
     _applyCornerInfo(ReaderCornerInfo.defaults);
     if (widget.keepScreenOn) {
       widget.onKeepScreenOnChanged?.call(false);
@@ -2306,7 +2339,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _selection = SelectionOps.wordAt(page, hit);
       _selectionLayoutRevision = _session.layoutRevision;
       _selectionSpineIndex = page.spineIndex;
-      _selectionMore = false;
     });
   }
 
@@ -2327,7 +2359,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _selection = SelectionOps.sentenceAt(page, hit);
       _selectionLayoutRevision = _session.layoutRevision;
       _selectionSpineIndex = page.spineIndex;
-      _selectionMore = false;
     });
   }
 
@@ -2363,19 +2394,53 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return handled;
     }
     _clearSelection();
-    unawaited(
-      showReaderBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        readerTheme: _effectiveTheme ?? ReaderTheme.white,
-        builder: (context) => ReaderFootnoteDialog(
-          footnote: footnote,
-          imageCache: widget.imageCache,
+    final style = widget.footnoteStyle;
+    final anchor = _footnoteAnchorOnScreen(page, pagePosition);
+    if (style == ReaderFootnoteStyle.dialog || anchor == null) {
+      unawaited(
+        showReaderBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          readerTheme: _effectiveTheme ?? ReaderTheme.white,
+          builder: (context) => ReaderFootnoteDialog(
+            footnote: footnote,
+            imageCache: widget.imageCache,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      unawaited(
+        showReaderFootnotePopup(
+          context: context,
+          footnote: footnote,
+          style: style,
+          anchor: anchor,
+          imageCache: widget.imageCache,
+          readerTheme: _effectiveTheme ?? ReaderTheme.white,
+        ),
+      );
+    }
     return true;
+  }
+
+  Offset? _footnoteAnchorOnScreen(PageContent page, Offset pagePosition) {
+    final padding = _bodyPadding();
+    final Offset local;
+    if (_effectiveTurnMode == PageTurnMode.scroll) {
+      final top = _scrollKey.currentState?.pageTopOnScreen(page);
+      if (top == null) return null;
+      local = Offset(padding.left + pagePosition.dx, top + pagePosition.dy);
+    } else {
+      local = Offset(
+        padding.left + pagePosition.dx,
+        padding.top + pagePosition.dy,
+      );
+    }
+    final renderObject = context.findRenderObject();
+    return renderObject is RenderBox && renderObject.hasSize
+        ? renderObject.localToGlobal(local)
+        : null;
   }
 
   /// 单击正文：优先编辑命中的高亮/笔记，其次打开脚注或尾注。
@@ -2628,7 +2693,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         _selectionPage = null;
         _selectionSpineIndex = null;
         _hideSelectionMenu = false;
-        _selectionMore = false;
       });
     }
   }
@@ -3168,6 +3232,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       decorationRuleCount: _decorationRules.length,
                       decorationRulesEnabled: _hasEnabledDecorationRules,
                       markSettings: _markSettings,
+                      footnoteStyle: widget.footnoteStyle,
                       bookmarkStyle: _bookmarkStyle,
                       overrides: _overrides,
                       themeId: (_effectiveTheme ?? ReaderTheme.white).id,
@@ -3252,6 +3317,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onDecorationRules: () =>
                           unawaited(_openDecorationRules()),
                       onOpenMarkSettings: () => unawaited(_openMarkSettings()),
+                      onFootnoteStyleChanged: widget.onFootnoteStyleChanged,
                       onOpenMarginEditor: () {
                         _dismissReaderMenu();
                         setState(() {
@@ -3809,6 +3875,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.decorationRuleCount,
     required this.decorationRulesEnabled,
     required this.markSettings,
+    required this.footnoteStyle,
     required this.overrides,
     required this.themeId,
     required this.customTheme,
@@ -3857,6 +3924,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onDecorationRemove,
     required this.onDecorationRules,
     required this.onOpenMarkSettings,
+    required this.onFootnoteStyleChanged,
     required this.onOpenMarginEditor,
     required this.onOpenTapZoneEditor,
   });
@@ -3880,6 +3948,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final int decorationRuleCount;
   final bool decorationRulesEnabled;
   final ReaderMarkSettings markSettings;
+  final ReaderFootnoteStyle footnoteStyle;
   final ReaderOverrides overrides;
   final String themeId;
   final ReaderTheme? customTheme;
@@ -3933,6 +4002,7 @@ class _ReaderDrawerContent extends StatefulWidget {
   final ValueChanged<ReaderDecoration> onDecorationRemove;
   final VoidCallback onDecorationRules;
   final VoidCallback onOpenMarkSettings;
+  final ValueChanged<ReaderFootnoteStyle>? onFootnoteStyleChanged;
   final VoidCallback onOpenMarginEditor;
   final VoidCallback onOpenTapZoneEditor;
 
@@ -4060,6 +4130,8 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
           markSettings: widget.markSettings,
           bookmarkStyle: widget.bookmarkStyle,
           onOpenBookmarkStyle: widget.onBookmarkStyle,
+          footnoteStyle: widget.footnoteStyle,
+          onFootnoteStyleChanged: widget.onFootnoteStyleChanged,
         );
     }
   }

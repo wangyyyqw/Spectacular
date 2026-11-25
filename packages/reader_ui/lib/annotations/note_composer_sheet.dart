@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../theme/reader_ui_style.dart';
+
 import '../icons/app_icon.dart';
 import 'annotation.dart';
 import 'annotation_appearance_editor.dart';
@@ -124,7 +126,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
       child: Material(
         key: const ValueKey<String>('note-composer-sheet'),
         color: ReaderFrostedSurface.panelColorOf(context),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+        borderRadius: ReaderUiStyle.sheetRadius,
         clipBehavior: Clip.antiAlias,
         child: SafeArea(
           top: false,
@@ -208,10 +210,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
         maxLines: 8,
         textInputAction: TextInputAction.newline,
         onChanged: (_) => setState(() {}),
-        decoration: const InputDecoration(
-          hintText: '写下此刻的想法…',
-          border: OutlineInputBorder(),
-        ),
+        decoration: const InputDecoration(hintText: '写下此刻的想法…'),
       ),
       const SizedBox(height: 16),
       ReaderAnnotationAppearanceEditor(

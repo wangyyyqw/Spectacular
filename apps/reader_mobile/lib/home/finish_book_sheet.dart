@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
@@ -351,7 +352,7 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
         : Material(
             key: const ValueKey<String>('book-detail-finish-sheet'),
             color: ReaderFrostedSurface.panelColorOf(context),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+            borderRadius: ReaderUiStyle.sheetRadius,
             clipBehavior: Clip.antiAlias,
             child: SafeArea(
               top: false,

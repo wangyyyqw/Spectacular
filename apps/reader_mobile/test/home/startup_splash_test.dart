@@ -19,7 +19,7 @@ void main() {
     );
     await pumpReaderUntilComplete(
       tester,
-      () => find.byType(BottomNavigationBar).evaluate().isNotEmpty,
+      () => ready == 1,
     );
     expect(ready, 1);
     expect(find.byType(AppBrandIcon), findsNothing);

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/reader_offline_tts.dart';
+import 'package:reader_mobile/reader/reader_offline_tts_worker.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_mobile/reader/reader_tts_controller.dart';
 import 'package:reader_mobile/reader/reader_tts_background.dart';
@@ -21,6 +22,104 @@ const _settings = ReaderTtsSettings(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('预热与停止重启复用模型工作线程，旧合成丢弃且退出释放', () async {
+    final worker = _FakeWorker();
+    var opens = 0;
+    final synthesizer = SherpaReaderOfflineTtsSynthesizer(
+      openWorker: () async {
+        opens++;
+        return worker;
+      },
+    );
+    final voice = (await _resolveVoice('narrator'))!;
+    await synthesizer.prepare(voice);
+    expect(worker.prepares, 1);
+    final ready = worker.ready = Completer<void>();
+    Future<List<ReaderTtsClip>> generate() => synthesizer
+        .synthesize(
+          segments: ReaderTtsSegmentation.split('复用音色。'),
+          narrator: voice,
+          dialogue: null,
+          settings: _settings,
+        )
+        .toList();
+    final cancelled = generate();
+    await _until(() => worker.generations == 1);
+    await synthesizer.stop();
+    expect(worker.closes, 0);
+    ready.complete();
+    expect(await cancelled, isEmpty);
+    expect(await generate(), hasLength(1));
+    expect(opens, 1);
+    await synthesizer.dispose();
+    expect(worker.closes, 1);
+  });
+
+  test('预热只加载已选旁白，不朗读、不启动后台会话或改变状态', () async {
+    final background = FakeTtsBackground()..install();
+    addTearDown(background.close);
+    final synthesizer = _FakeSynthesizer();
+    final player = _FakePlayer();
+    final controller = _controller(
+      '预热不能朗读这句。',
+      synthesizer,
+      player,
+      backgroundPlayback: ReaderTtsBackgroundPlayback(bookTitle: '预热测试'),
+    );
+    addTearDown(controller.dispose);
+    await controller.prepare(_settings);
+    expect(synthesizer.prepared.map((voice) => voice.id), ['narrator']);
+    expect(synthesizer.segments, isEmpty);
+    expect(player.clips, isEmpty);
+    expect(background.methods, isEmpty);
+    expect(controller.snapshot.phase, ReaderTtsPhase.idle);
+  });
+
+  test('长首句先播自然短语，后半句准备不阻塞起播且原文不丢失', () async {
+    const lead = '这是准备首先开始朗读的一小段，';
+    final text = '$lead${'后续的长句内容' * 12}。末句。';
+    final ready = Completer<void>();
+    final finished = Completer<void>();
+    final synthesizer = _FakeSynthesizer()
+      ..beforeSynthesis = (text) =>
+          text == lead ? Future.value() : ready.future;
+    final player = _FakePlayer()
+      ..waitForClip = (index) => index == 0 ? finished.future : Future.value();
+    final controller = _controller(text, synthesizer, player);
+    addTearDown(controller.dispose);
+    final running = controller.start(_settings);
+    expect(controller.snapshot.phase, ReaderTtsPhase.loading);
+    await _until(() => player.clips.isNotEmpty);
+    expect(controller.snapshot.text, lead);
+    expect(controller.highlight.value!.endCfi, endsWith(':${lead.length})'));
+    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
+    ready.complete();
+    finished.complete();
+    await running;
+    expect(synthesizer.segments.map((segment) => segment.text).join(), text);
+    expect(controller.snapshot.phase, ReaderTtsPhase.completed);
+  });
+
+  test('准备中暂停不会提前出声，取消后晚到的合成结果不能播放', () async {
+    final ready = Completer<void>();
+    final synthesizer = _FakeSynthesizer()
+      ..beforeSynthesis = (_) => ready.future;
+    final player = _FakePlayer();
+    final controller = _controller('尚未合成的正文。', synthesizer, player);
+    addTearDown(controller.dispose);
+    final running = controller.start(_settings);
+    await _until(() => synthesizer.segments.isNotEmpty);
+    await controller.pause();
+    ready.complete();
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.snapshot.phase, ReaderTtsPhase.paused);
+    expect(player.clips, isEmpty);
+    await controller.stop();
+    await running;
+    expect(player.clips, isEmpty);
+    expect(controller.snapshot.phase, ReaderTtsPhase.idle);
+  });
 
   test('离线听书保留旁白与对白配置并按原文顺序播放', () async {
     final synthesizer = _FakeSynthesizer();
@@ -138,7 +237,7 @@ void main() {
     expect(background.active, isFalse);
   });
 
-  test('改变语速在下一句生效，并丢弃旧参数预合成片段', () async {
+  test('改变语速立即重备下一句，当前音频与位置保持不变', () async {
     final first = Completer<void>();
     final synthesizer = _FakeSynthesizer();
     final player = _FakePlayer()
@@ -152,6 +251,10 @@ void main() {
     controller.updateSettings(
       _settings.copyWith(narratorSpeed: 1.8, volume: 0.3),
     );
+    await _until(() => synthesizer.requestSettings.length == 3);
+    expect(player.clips, hasLength(1));
+    expect(controller.snapshot.text, '当前句。');
+    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
     first.complete();
     await task;
     expect(
@@ -161,7 +264,56 @@ void main() {
     expect(player.volumes, [1, 0.3]);
   });
 
-  test('离线后段失败只从失败片段回退系统，不重读已播放正文', () async {
+  test('只改音量不重合成下一句，播放时采用新音量', () async {
+    final first = Completer<void>();
+    final synthesizer = _FakeSynthesizer();
+    final player = _FakePlayer()
+      ..waitForClip = (index) => index == 0 ? first.future : Future.value();
+    final controller = _controller('当前句。下一句。', synthesizer, player);
+    addTearDown(controller.dispose);
+    final task = controller.start(_settings);
+    await _until(() => synthesizer.segments.length == 2);
+    controller.updateSettings(_settings.copyWith(volume: 0.3));
+    first.complete();
+    await task;
+    expect(synthesizer.segments.map((segment) => segment.text), [
+      '当前句。',
+      '下一句。',
+    ]);
+    expect(player.volumes, [1, 0.3]);
+  });
+
+  test('暂停时切换音色立即预备后句，旧结果晚到不会覆盖新音色', () async {
+    final first = Completer<void>();
+    final stale = Completer<void>();
+    final synthesizer = _FakeSynthesizer()
+      ..beforeSynthesis = (text) =>
+          text == '下一句。' ? stale.future : Future.value();
+    final player = _FakePlayer()
+      ..waitForClip = (index) => index == 0 ? first.future : Future.value();
+    final controller = _controller('当前句。下一句。', synthesizer, player);
+    addTearDown(controller.dispose);
+    final task = controller.start(_settings);
+    await _until(() => synthesizer.segments.length == 2);
+    await controller.pause();
+    synthesizer.beforeSynthesis = (_) => Future.value();
+    controller.updateSettings(
+      _settings.copyWith(narratorVoiceId: 'dialogue', dialogueVoiceId: ''),
+    );
+    await _until(() => synthesizer.requestSettings.length == 3);
+    expect(controller.paused, isTrue);
+    expect(player.clips, hasLength(1));
+    stale.complete();
+    await controller.resume();
+    first.complete();
+    await task;
+    expect(synthesizer.requestSettings.last.narratorVoiceId, 'dialogue');
+    expect(synthesizer.requestSettings, hasLength(3));
+    expect(player.clips, hasLength(2));
+    expect(String.fromCharCodes(player.clips.last.wav), 'dialogue');
+  });
+
+  test('离线合成失败不回退系统语音，保留失败片段状态', () async {
     final system = FakeSystemTts()..install();
     addTearDown(system.close);
     final synthesizer = _FakeSynthesizer()
@@ -170,9 +322,10 @@ void main() {
     final controller = _controller('第一句。第二句。第三句。', synthesizer, _FakePlayer());
     addTearDown(controller.dispose);
     await controller.start(_settings);
-    expect(system.spoken, ['第二句。', '第三句。']);
-    expect(controller.snapshot.phase, ReaderTtsPhase.completed);
-    expect(controller.snapshot.mode, ReaderTtsMode.system);
+    expect(system.spoken, isEmpty);
+    expect(controller.snapshot.phase, ReaderTtsPhase.failed);
+    expect(controller.snapshot.error, isA<StateError>());
+    expect(controller.snapshot.mode, ReaderTtsMode.offline);
     expect(controller.settings.mode, ReaderTtsMode.offline);
   });
 }
@@ -204,12 +357,18 @@ Future<ReaderOfflineVoiceInstance?> _resolveVoice(String id) async =>
       );
 
 class _FakeSynthesizer implements ReaderOfflineTtsSynthesizer {
+  final prepared = <ReaderOfflineVoiceInstance>[];
   final segments = <ReaderTtsSegment>[];
   final requestSettings = <ReaderTtsSettings>[];
   ReaderOfflineVoiceInstance? narrator;
   ReaderOfflineVoiceInstance? dialogue;
   ReaderTtsSettings? settings;
   Future<void> Function(String text)? beforeSynthesis;
+
+  @override
+  Future<void> prepare(ReaderOfflineVoiceInstance voice) async {
+    prepared.add(voice);
+  }
 
   @override
   Stream<ReaderTtsClip> synthesize({
@@ -226,7 +385,7 @@ class _FakeSynthesizer implements ReaderOfflineTtsSynthesizer {
     for (var i = 0; i < segments.length; i++) {
       await beforeSynthesis?.call(segments[i].text);
       yield ReaderTtsClip(
-        wav: Uint8List.fromList([0]),
+        wav: Uint8List.fromList(narrator.id.codeUnits),
         sampleRate: 22050,
         sampleCount: 22050,
         index: i,
@@ -295,4 +454,28 @@ Future<void> _until(bool Function() condition) async {
     await Future<void>.delayed(Duration.zero);
   }
   expect(condition(), isTrue, reason: '预期的播放状态没有出现');
+}
+
+class _FakeWorker extends Fake implements ReaderOfflineTtsWorker {
+  int prepares = 0;
+  int generations = 0;
+  int closes = 0;
+  Completer<void>? ready;
+
+  @override
+  Future<void> prepare(Map<String, Object?> input) async {
+    prepares++;
+  }
+
+  @override
+  Future<Map<String, Object?>> generate(Map<String, Object?> input) async {
+    generations++;
+    await ready?.future;
+    return {'wav': Uint8List(0), 'sampleRate': 22050, 'sampleCount': 22050};
+  }
+
+  @override
+  Future<void> close() async {
+    closes++;
+  }
 }

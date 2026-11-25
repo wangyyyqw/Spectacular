@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../book_source/online_book_controller.dart';
 import '../book_source/online_book_detail_page.dart';
@@ -99,7 +100,7 @@ class ProfilePage extends StatelessWidget {
             const SizedBox(height: 24),
             Material(
               color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(4),
+              shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
               clipBehavior: Clip.antiAlias,
               child: Column(
                 children: [

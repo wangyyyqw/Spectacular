@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -915,11 +916,7 @@ class _ReadingStatsSection extends StatelessWidget {
           key: const ValueKey<String>('book-detail-reading-summary'),
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(4),
-          ),
+          decoration: ReaderUiStyle.cardDecorationOf(theme),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -1150,11 +1147,7 @@ class _ReadingStatusSection extends StatelessWidget {
       key: const ValueKey<String>('book-detail-reading-status'),
       width: double.infinity,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(4),
-      ),
+      decoration: ReaderUiStyle.cardDecorationOf(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[

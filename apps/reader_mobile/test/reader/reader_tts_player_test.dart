@@ -8,6 +8,76 @@ import 'package:reader_mobile/reader/reader_offline_tts.dart';
 import '../support/reader_tts_fakes.dart';
 
 void main() {
+  test('后台不提供界面帧时仍按真实播放位置更新，暂停和停止不再轮询', () async {
+    final native = _AudioPlayer();
+    final player = AudioplayersReaderTtsPlayer(audioPlayer: native);
+    final received = <Duration>[];
+    final playing = player.play(_clip(), onPosition: received.add);
+    try {
+      await _until(() => native.resumes == 1);
+      native.currentPosition = const Duration(milliseconds: 18);
+      // 仅推进真实时间，不请求 Flutter 帧；复现熄屏后的播放环境。
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      expect(received, contains(const Duration(milliseconds: 18)));
+      await player.pause();
+      final reads = native.positionReads;
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      expect(native.positionReads, reads);
+      await player.resume();
+      native.currentPosition = const Duration(milliseconds: 25);
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      expect(received.last, const Duration(milliseconds: 25));
+      await player.stop();
+      await playing;
+      final stoppedReads = native.positionReads;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      expect(native.positionReads, stoppedReads);
+    } finally {
+      await player.dispose();
+    }
+  });
+
+  test('音源尚未就绪时暂停再继续，只在就绪后真正起播一次', () async {
+    final ready = Completer<void>();
+    final native = _AudioPlayer()..sourceReady = ready.future;
+    final player = AudioplayersReaderTtsPlayer(audioPlayer: native);
+    var starts = 0;
+    final playing = player.play(_clip(), onStarted: () => starts++);
+    await _until(() => native.sources.isNotEmpty);
+    await player.pause();
+    await player.resume();
+    expect(native.resumes, 0);
+    expect(starts, 0);
+    ready.complete();
+    await _until(() => starts == 1);
+    expect(native.resumes, 1);
+    native.complete.add(null);
+    await playing;
+    await player.dispose();
+  });
+
+  test('取消准备后立即重新播放，旧音源完成不能覆盖新音源或出声', () async {
+    final ready = Completer<void>();
+    final native = _AudioPlayer()..sourceReady = ready.future;
+    final player = AudioplayersReaderTtsPlayer(audioPlayer: native);
+    var oldStarts = 0;
+    var newStarts = 0;
+    final old = player.play(_clip(), onStarted: () => oldStarts++);
+    await _until(() => native.sources.isNotEmpty);
+    await player.stop();
+    final current = player.play(_clip(), onStarted: () => newStarts++);
+    await Future<void>.delayed(Duration.zero);
+    expect(native.sources, hasLength(1));
+    ready.complete();
+    await _until(() => newStarts == 1);
+    expect(native.sources, hasLength(2));
+    expect(oldStarts, 0);
+    expect(native.resumes, 1);
+    native.complete.add(null);
+    await Future.wait([old, current]);
+    await player.dispose();
+  });
+
   test('长时间暂停不消耗播放超时，继续复用音频及位置', () async {
     final native = _AudioPlayer();
     final player = AudioplayersReaderTtsPlayer(audioPlayer: native);
@@ -141,7 +211,24 @@ class _AudioPlayer extends Fake implements AudioPlayer {
   final sources = <Source>[];
   final volumes = <double>[];
   final contexts = <AudioContext>[];
+  Future<void>? sourceReady;
   int resumes = 0;
+  PositionUpdater? _updater;
+  StreamSubscription<Duration>? _positionSubscription;
+  Duration currentPosition = Duration.zero;
+  int positionReads = 0;
+
+  @override
+  set positionUpdater(PositionUpdater? updater) {
+    _updater = updater;
+    _positionSubscription = updater?.positionStream.listen(positions.add);
+  }
+
+  @override
+  Future<Duration?> getCurrentPosition() async {
+    positionReads++;
+    return currentPosition;
+  }
 
   @override
   Stream<void> get onPlayerComplete => complete.stream;
@@ -150,6 +237,7 @@ class _AudioPlayer extends Fake implements AudioPlayer {
   @override
   Future<void> setSource(Source source) async {
     sources.add(source);
+    await sourceReady;
   }
 
   @override
@@ -163,17 +251,33 @@ class _AudioPlayer extends Fake implements AudioPlayer {
   }
 
   @override
-  Future<void> pause() async {}
-  @override
-  Future<void> resume() async {
-    resumes++;
+  Future<void> pause() async {
+    _updater?.stop();
   }
 
   @override
-  Future<void> stop() async {}
+  Future<void> resume() async {
+    resumes++;
+    _updater?.start();
+  }
+
+  @override
+  Future<void> stop() async {
+    _updater?.stop();
+  }
+
   @override
   Future<void> dispose() async {
+    await _positionSubscription?.cancel();
+    await _updater?.dispose();
     await positions.close();
     await complete.close();
   }
+}
+
+Future<void> _until(bool Function() condition) async {
+  for (var i = 0; i < 100 && !condition(); i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+  expect(condition(), isTrue, reason: '预期的音源状态没有出现');
 }

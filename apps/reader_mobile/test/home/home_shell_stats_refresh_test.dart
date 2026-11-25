@@ -54,10 +54,11 @@ class _FakeSessionStore implements ReadingSessionStore {
 }
 
 void main() {
-  testWidgets('重复点击当前标签不查询，统计仍可显式刷新', (tester) async {
+  testWidgets('重复点击当前标签不查询，移除刷新按钮后仍可下拉刷新统计', (tester) async {
     final library = _FakeLibrary();
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(useMaterial3: false),
         home: HomeShell(
           library: library,
           progressStore: MemoryReaderProgressStore(),

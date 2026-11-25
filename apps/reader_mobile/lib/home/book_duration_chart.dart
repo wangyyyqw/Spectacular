@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import 'book_duration_summary.dart';
 import 'reading_book_color.dart';
@@ -339,7 +340,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: ReaderUiStyle.cardRadius,
           border: Border.all(color: scheme.outlineVariant),
         ),
         child: Row(
@@ -463,7 +464,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         minimumSize: const Size.fromHeight(48),
         backgroundColor: scheme.surfaceContainerHighest,
         foregroundColor: scheme.onSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: ReaderUiStyle.controlShape,
         textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
       child: Text('更多 · ${summary.totalBookCount} 本'),
@@ -537,7 +538,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         color: selected ? scheme.surfaceContainerHighest : Colors.transparent,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: ReaderUiStyle.controlRadius,
           side: BorderSide(
             color: selected ? scheme.outlineVariant : Colors.transparent,
           ),
@@ -545,7 +546,7 @@ class _BookDurationChartState extends State<BookDurationChart>
         child: InkWell(
           key: ValueKey('stats-book-duration-tag-${slice.key}'),
           onTap: () => _selectSlice(slice),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: ReaderUiStyle.controlRadius,
           child: _legendContent(slice, summary.total),
         ),
       ),

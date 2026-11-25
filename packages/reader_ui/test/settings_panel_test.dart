@@ -81,8 +81,15 @@ void main() {
     expect(changes.last.fontSize, greaterThan(ReaderSettingsDefaults.fontSize));
 
     // 点主题块切换。
-    await tester.ensureVisible(
+    await tester.scrollUntilVisible(
       find.byKey(const ValueKey<String>('settings-theme-sepia')),
+      250,
+      scrollable: find
+          .descendant(
+            of: find.byType(SettingsPanel),
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
     await tester.pumpAndSettle();
     await tester.tap(
@@ -331,6 +338,16 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('settings-back')));
     expect(back, isTrue);
     // 当前主题高亮（pink 选中）。
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('settings-theme-pink')),
+      250,
+      scrollable: find
+          .descendant(
+            of: find.byType(SettingsPanel),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     expect(
       find.byKey(const ValueKey<String>('settings-theme-pink')),
       findsOneWidget,

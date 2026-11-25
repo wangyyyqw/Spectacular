@@ -98,7 +98,7 @@ void main() {
     for (final card in [panel, deletePanel]) {
       final material = tester.widget<Material>(card);
       final shape = material.shape! as RoundedRectangleBorder;
-      expect(shape.borderRadius, BorderRadius.circular(16));
+      expect(shape.borderRadius, BorderRadius.circular(20));
       expect(shape.side.color, scheme.outlineVariant);
       expect(material.color, scheme.surface);
     }

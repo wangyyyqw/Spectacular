@@ -167,6 +167,7 @@
         "apps/reader_mobile/test/reader/duokan_gallery_test.dart",
         "apps/reader_mobile/test/reader/ink_mode_flow_test.dart",
         "apps/reader_mobile/test/reader/menu_overlay_layout_test.dart",
+        "apps/reader_mobile/test/reader/reader_tts_playback_layout_test.dart",
         "apps/reader_mobile/test/reader/rejection_message_test.dart",
         "apps/reader_mobile/test/reader/search_flow_test.dart",
         "apps/reader_mobile/test/reader/selection*_test.dart",

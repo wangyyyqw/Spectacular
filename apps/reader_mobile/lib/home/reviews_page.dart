@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
@@ -672,15 +673,14 @@ class _ReviewsPageState extends State<ReviewsPage>
     final theme = Theme.of(context);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Material(
       color: ReaderDrawerStyle.searchSurfaceOf(theme),
       borderRadius: border.borderRadius,
-      elevation: 3,
+      elevation: 0,
       surfaceTintColor: Colors.transparent,
-      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
       child: TextField(
         key: const ValueKey<String>('reviews-search-field'),
         controller: _searchController,
@@ -701,7 +701,9 @@ class _ReviewsPageState extends State<ReviewsPage>
           contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: border,
           enabledBorder: border,
-          focusedBorder: border,
+          focusedBorder: border.copyWith(
+            borderSide: BorderSide(color: theme.colorScheme.primary),
+          ),
           prefixIconConstraints: const BoxConstraints.tightFor(
             width: 40,
             height: 40,
@@ -843,6 +845,73 @@ class _ReviewsPageState extends State<ReviewsPage>
       ],
     );
   }
+}
+
+/// 切换笔记、书评、书单时沿用书架的轻微横向滑入淡入。
+class _SectionTransition extends StatefulWidget {
+  const _SectionTransition({required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  State<_SectionTransition> createState() => _SectionTransitionState();
+}
+
+class _SectionTransitionState extends State<_SectionTransition> {
+  double _direction = 0;
+
+  @override
+  void didUpdateWidget(_SectionTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index != widget.index) {
+      _direction = (widget.index - oldWidget.index).sign.toDouble();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
+    final key = ValueKey(widget.index);
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        reverseDuration: const Duration(milliseconds: 150),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeOutCubic,
+        layoutBuilder: _layoutLayers,
+        transitionBuilder: (child, animation) {
+          final direction = child.key == key ? _direction : -_direction;
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween(
+                begin: Offset(direction * .1, 0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        child: KeyedSubtree(key: key, child: widget.child),
+      ),
+    );
+  }
+
+  Widget _layoutLayers(Widget? current, List<Widget> previous) => Stack(
+    fit: StackFit.expand,
+    children: [
+      for (final child in previous)
+        ExcludeFocus(
+          child: ExcludeSemantics(
+            child: IgnorePointer(child: HeroMode(enabled: false, child: child)),
+          ),
+        ),
+      ?current,
+    ],
+  );
 }
 
 class _ReviewList extends StatelessWidget {
@@ -1006,9 +1075,6 @@ class _NoReviewMatches extends StatelessWidget {
     final title = query.isNotEmpty ? '没有找到相关书评' : '没有可显示的书评';
     return Card(
       elevation: 0,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(4)),
-      ),
       key: const ValueKey<String>('reviews-no-results'),
       margin: EdgeInsets.zero,
       child: Padding(

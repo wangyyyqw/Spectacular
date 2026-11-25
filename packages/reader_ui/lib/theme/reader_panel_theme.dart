@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'reader_frosted_surface.dart';
 import 'reader_theme.dart';
+import 'reader_ui_style.dart';
 
 const _shape = RoundedRectangleBorder(
   borderRadius: BorderRadius.all(Radius.circular(4)),
@@ -30,7 +31,7 @@ class ReaderPanelColorScope extends InheritedTheme {
       ReaderPanelColorScope(scheme: scheme, child: child);
 }
 
-/// 把正文主题映射为菜单、抽屉和编辑弹层；夜间弹层保持同一背景。
+/// 把正文主题映射为菜单和弹层，保留背景取色与夜间面板亮度。
 class ReaderPanelTheme extends StatelessWidget {
   /// 创建阅读面板主题。
   const ReaderPanelTheme({super.key, required this.theme, required this.child});
@@ -47,13 +48,13 @@ class ReaderPanelTheme extends StatelessWidget {
         ? null
         : ReaderPanelColorScope.maybeOf(context);
     final scheme = override ?? _panelScheme(theme);
-    final panel = override == null
-        ? theme
-        : ReaderTheme.custom(
-            background: scheme.surface,
-            text: scheme.onSurface,
-          );
-    var data = _panelTypography(Theme.of(context), panel, scheme);
+    final panel = ReaderTheme.custom(
+      background: scheme.surface,
+      text: scheme.onSurface,
+    );
+    var data = applyReaderUiStyle(
+      _panelTypography(Theme.of(context), panel, scheme),
+    );
     data = _panelSurfaces(data, panel, scheme);
     data = _panelButtons(data, panel, scheme);
     data = _panelInputs(data, panel, scheme);
@@ -66,40 +67,42 @@ class ReaderPanelTheme extends StatelessWidget {
 
 ColorScheme _panelScheme(ReaderTheme theme) {
   final dark = theme.background.computeLuminance() < 0.35;
-  final fill = Color.alphaBlend(theme.fill, theme.background);
+  // 夜间阅读页可以是纯黑或深色主题，面板提高一个亮度层级，避免菜单和注释
+  // 与正文融为一体；正文本身仍使用 [ReaderTheme.background]。
+  final background = dark && theme.id != 'selection' && theme.id != 'ink'
+      ? Color.alphaBlend(const Color(0x1AFFFFFF), theme.background)
+      : theme.background;
+  final fill = Color.alphaBlend(theme.fill, background);
   return ColorScheme(
     brightness: dark ? Brightness.dark : Brightness.light,
     primary: theme.text,
-    onPrimary: theme.background,
+    onPrimary: background,
     primaryContainer: fill,
     onPrimaryContainer: theme.text,
     secondary: theme.text,
-    onSecondary: theme.background,
+    onSecondary: background,
     secondaryContainer: fill,
     onSecondaryContainer: theme.text,
     tertiary: theme.text,
-    onTertiary: theme.background,
+    onTertiary: background,
     tertiaryContainer: fill,
     onTertiaryContainer: theme.text,
     error: dark ? const Color(0xFFF0AAA0) : const Color(0xFFB34338),
     onError: dark ? Colors.black : Colors.white,
-    surface: theme.background,
+    surface: background,
     onSurface: theme.text,
     inverseSurface: theme.text,
-    onInverseSurface: theme.background,
-    inversePrimary: theme.background,
+    onInverseSurface: background,
+    inversePrimary: background,
     surfaceTint: Colors.transparent,
-    surfaceContainerLowest: theme.background,
+    surfaceContainerLowest: background,
     surfaceContainerLow: fill,
     surfaceContainer: fill,
     surfaceContainerHigh: fill,
     surfaceContainerHighest: fill,
-    onSurfaceVariant: Color.alphaBlend(theme.sub, theme.background),
-    outline: Color.alphaBlend(
-      theme.text.withValues(alpha: 0.38),
-      theme.background,
-    ),
-    outlineVariant: Color.alphaBlend(theme.line, theme.background),
+    onSurfaceVariant: Color.alphaBlend(theme.sub, background),
+    outline: Color.alphaBlend(theme.text.withValues(alpha: 0.38), background),
+    outlineVariant: Color.alphaBlend(theme.line, background),
   );
 }
 
@@ -110,8 +113,8 @@ ThemeData _panelTypography(
 ) => base.copyWith(
   brightness: scheme.brightness,
   colorScheme: scheme,
-  canvasColor: theme.background,
-  scaffoldBackgroundColor: theme.background,
+  canvasColor: scheme.surface,
+  scaffoldBackgroundColor: scheme.surface,
   dividerColor: scheme.outlineVariant,
   iconTheme: base.iconTheme.copyWith(color: theme.text),
   textTheme: base.textTheme
@@ -138,7 +141,7 @@ ThemeData _panelTypography(
     ),
   ),
   appBarTheme: base.appBarTheme.copyWith(
-    backgroundColor: theme.background,
+    backgroundColor: scheme.surface,
     foregroundColor: theme.text,
     surfaceTintColor: Colors.transparent,
   ),

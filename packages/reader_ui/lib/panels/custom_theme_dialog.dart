@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_ui_style.dart';
+
 import 'package:flutter/services.dart';
 
 import '../icons/app_icon.dart';
@@ -96,7 +98,7 @@ class _CustomThemeDialogState extends State<CustomThemeDialog> {
     decoration: BoxDecoration(
       color: _background,
       border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: ReaderUiStyle.cardRadius,
     ),
     child: Text(
       '清风徐来，水波不兴。\n在这里预览正文与背景的颜色。',

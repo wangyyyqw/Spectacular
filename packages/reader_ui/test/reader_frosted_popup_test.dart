@@ -427,7 +427,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(GlassContainer), findsOneWidget);
     final glass = tester.widget<GlassContainer>(find.byType(GlassContainer));
-    expect(glass.color, ReaderTheme.black.background);
+    expect(
+      glass.color!.computeLuminance(),
+      greaterThan(ReaderTheme.black.background.computeLuminance()),
+      reason: '夜间弹窗底板应比阅读页背景更浅',
+    );
     expect(glass.quality, GlassQuality.minimal);
     expect(
       tester.getRect(find.byType(ReaderFrostedSurface)).bottom,

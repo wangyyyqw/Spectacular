@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'reading_insights.dart';
@@ -236,11 +237,7 @@ class _HourlyReadingChartState extends State<HourlyReadingChart> {
     return Container(
       key: const ValueKey<String>('stats-hourly-reading-chart'),
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
+      decoration: ReaderUiStyle.cardDecorationOf(theme),
       child: Column(
         children: [
           Padding(

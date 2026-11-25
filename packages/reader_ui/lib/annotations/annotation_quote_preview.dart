@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_ui_style.dart';
+
 import '../icons/app_icon.dart';
 import 'annotation.dart';
 import 'annotation_style_painter.dart';
@@ -53,7 +55,7 @@ class AnnotationQuotePreview extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: ReaderUiStyle.controlRadius,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,

@@ -12,9 +12,20 @@ export '../book_source/book_cover_url.dart';
 int coverDecodeWidth(double logicalWidth, double devicePixelRatio) =>
     (logicalWidth * devicePixelRatio).ceil().clamp(96, 1200);
 
-/// 封面图像源；首屏预解码与书架显示共用，键一致才能避免再次解码。
-ImageProvider coverImageProvider(String path, int decodeWidth) =>
-    ResizeImage.resizeIfNeeded(decodeWidth, null, FileImage(File(path)));
+/// 与显示尺寸匹配的解码高度，避免只按宽度解码造成长封面占用过多内存。
+int coverDecodeHeight(double logicalHeight, double devicePixelRatio) =>
+    (logicalHeight * devicePixelRatio).ceil().clamp(96, 1200);
+
+/// 首屏预解码与按需显示使用相同尺寸键，共享 Flutter 的内存图像缓存。
+ImageProvider coverImageProvider(
+  String path,
+  int decodeWidth, {
+  int? decodeHeight,
+}) => ResizeImage.resizeIfNeeded(
+  decodeWidth,
+  decodeHeight,
+  FileImage(File(path)),
+);
 
 /// 书架、详情、统计与书评共用封面；等比缩放并居中裁切铺满容器。
 class BookCoverImage extends StatelessWidget {
@@ -91,21 +102,34 @@ class BookCoverImage extends StatelessWidget {
     final logicalWidth = constraints.maxWidth.isFinite
         ? constraints.maxWidth
         : 160.0;
-    final decodeWidth = coverDecodeWidth(
-      logicalWidth,
-      MediaQuery.devicePixelRatioOf(context),
-    );
+    final logicalHeight = constraints.maxHeight.isFinite
+        ? constraints.maxHeight
+        : logicalWidth * 4 / 3;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final decodeWidth = coverDecodeWidth(logicalWidth, devicePixelRatio);
+    final decodeHeight = coverDecodeHeight(logicalHeight, devicePixelRatio);
     if (book.coverPath != null) {
       return Image(
-        image: coverImageProvider(book.coverPath!, decodeWidth),
+        image: coverImageProvider(
+          book.coverPath!,
+          decodeWidth,
+          decodeHeight: decodeHeight,
+        ),
         key: ValueKey('cover-${book.coverPath}'),
         width: double.infinity,
         height: double.infinity,
         fit: BoxFit.cover,
         gaplessPlayback: true,
         excludeFromSemantics: true,
-        frameBuilder: (_, child, frame, loaded) =>
-            loaded || frame != null ? child : placeholder,
+        frameBuilder: (_, child, frame, loaded) => AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: loaded || frame != null
+              ? child
+              : KeyedSubtree(
+                  key: const ValueKey('cover-loading'),
+                  child: placeholder,
+                ),
+        ),
         errorBuilder: (_, _, _) => placeholder,
       );
     }
