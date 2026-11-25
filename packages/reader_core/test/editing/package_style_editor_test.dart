@@ -211,6 +211,29 @@ void main() {
     expect(editor.find('段落', paths: {'OPS/b.xhtml'}), isNotEmpty);
   });
 
+  test('普通查找替换按字面保留美元符号，正则替换仍展开捕获组', () {
+    final editor = PackageEditor(session);
+    final original = session.readText('OPS/a.xhtml');
+    editor.replaceAll(
+      editor.find('段落', paths: {'OPS/a.xhtml'}),
+      r'$0 与 $1',
+    );
+    expect(session.readText('OPS/a.xhtml'), contains(r'$0 与 $1'));
+    session.undo();
+    expect(session.readText('OPS/a.xhtml'), original);
+    editor.replaceAll(
+      editor.find('(段)(落)', regex: true, paths: {'OPS/a.xhtml'}),
+      r'$2$1（$0）',
+    );
+    expect(session.readText('OPS/a.xhtml'), contains('落段（段落）'));
+    session.undo();
+    editor.replaceAll(
+      editor.find('段落', regex: true, paths: {'OPS/a.xhtml'}),
+      r'完整匹配：$0',
+    );
+    expect(session.readText('OPS/a.xhtml'), contains('完整匹配：段落'));
+  });
+
   test('元数据保留唯一标识；目录、分合章、替换为可撤销事务', () {
     final editor = PackageEditor(session);
     editor.setMetadata({'title': '新书名', 'creator': '新作者'});
