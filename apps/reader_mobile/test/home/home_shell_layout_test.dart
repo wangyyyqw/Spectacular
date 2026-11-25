@@ -118,7 +118,7 @@ void main() {
         ? find.byType(NavigationRail)
         : find.byType(BottomNavigationBar);
     await _select(tester, navigation, '统计');
-    await _select(tester, navigation, '书评');
+    await _select(tester, navigation, '笔记');
     await tester.pumpAndSettle();
 
     final rebuilt = <Type>[];
@@ -131,7 +131,7 @@ void main() {
     };
     addTearDown(() => debugOnRebuildDirtyWidget = previous);
     await _select(tester, navigation, '我的');
-    await _select(tester, navigation, '书评');
+    await _select(tester, navigation, '笔记');
     await tester.pumpAndSettle();
     expect(rebuilt, isEmpty);
     expect(tester.takeException(), isNull);
@@ -142,6 +142,7 @@ void main() {
     final progress = MemoryReaderProgressStore();
     final saved = <String>[];
     Widget app(ThemeMode mode, String callback) => MaterialApp(
+      theme: buildAppTheme(),
       home: HomeShell(
         library: library,
         progressStore: progress,
@@ -153,13 +154,21 @@ void main() {
     );
     await tester.pumpWidget(app(ThemeMode.light, '旧'));
     await tester.pumpAndSettle();
-    await _select(tester, find.byType(BottomNavigationBar), '我的');
-    expect(find.text('日间模式'), findsOneWidget);
-    final profile = tester.state(find.byType(ProfilePage));
+    final navigation = find.byType(NavigationRail).evaluate().isNotEmpty
+        ? find.byType(NavigationRail)
+        : find.byType(BottomNavigationBar);
+    await _select(tester, navigation, '我的');
+    expect(
+      tester.widget<ProfilePage>(find.byType(ProfilePage)).themeMode,
+      ThemeMode.light,
+    );
+    final shell = tester.state(find.byType(HomeShell));
 
     await tester.pumpWidget(app(ThemeMode.dark, '新'));
     await tester.pumpAndSettle();
-    expect(tester.state(find.byType(ProfilePage)), same(profile));
+    expect(tester.state(find.byType(HomeShell)), same(shell));
+    await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
+    await tester.pumpAndSettle();
     expect(find.text('夜间模式'), findsOneWidget);
     await tester.tap(find.text('界面主题'));
     await tester.pumpAndSettle();
@@ -281,8 +290,8 @@ void main() {
     final pages = <(String, Type)>[
       ('书架', BookshelfPage),
       ('统计', StatsPage),
-      ('书评', ReviewsPage),
-      if (desktop) ('编辑器', EpubFileEditorPage),
+      ('笔记', ReviewsPage),
+      if (desktop) ('编辑', EpubFileEditorPage),
       ('我的', ProfilePage),
     ];
     final initialState = tester.state(find.byType(HomeShell));
@@ -312,13 +321,35 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant(TargetPlatform.values.toSet()));
 
+  testWidgets('桌面侧栏可在左下角收起并恢复', (tester) async {
+    await _showHome(tester, LibraryStore.memory());
+    final rail = find.byType(NavigationRail);
+    final sidebar = find.byKey(const ValueKey('home-sidebar'));
+    expect(tester.widget<NavigationRail>(rail).extended, isTrue);
+    expect(tester.getSize(sidebar).width, 160);
+    await tester.tap(find.byTooltip('收起侧边栏'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(tester.widget<NavigationRail>(rail).extended, isFalse);
+    expect(tester.getSize(sidebar).width, 84);
+    expect(find.byTooltip('展开侧边栏'), findsOneWidget);
+    await tester.tap(find.byTooltip('展开侧边栏'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(tester.widget<NavigationRail>(rail).extended, isTrue);
+    expect(tester.getSize(sidebar).width, 160);
+    expect(tester.takeException(), isNull);
+  }, variant: _desktopPlatforms);
+
   testWidgets('桌面往返书评页后搜索快捷键仍可聚焦', (tester) async {
     await _showHome(tester, LibraryStore.memory());
     final rail = find.byType(NavigationRail);
-    await _select(tester, rail, '书评');
+    await _select(tester, rail, '笔记');
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await tester.pump();
     final search = find.byKey(const ValueKey('reviews-search-field'));
+    expect(search, findsOneWidget);
+    expect(find.byKey(const ValueKey('reviews-search-button')), findsNothing);
     final modifier =
         Theme.of(tester.element(search)).platform == TargetPlatform.macOS
         ? LogicalKeyboardKey.metaLeft
@@ -329,8 +360,9 @@ void main() {
       await tester.sendKeyUpEvent(modifier);
       await tester.pump();
       expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+      expect(find.byTooltip('关闭搜索'), findsNothing);
       await _select(tester, rail, '统计');
-      await _select(tester, rail, '书评');
+      await _select(tester, rail, '笔记');
     }
     expect(tester.takeException(), isNull);
   }, variant: _desktopPlatforms);
@@ -343,7 +375,7 @@ void main() {
     expect(rail, findsOneWidget);
     expect(bottom, findsNothing);
     expect(
-      find.descendant(of: rail, matching: find.text('编辑器')),
+      find.descendant(of: rail, matching: find.text('编辑')),
       findsOneWidget,
     );
     expect(find.text('书架还是空的'), findsOneWidget);
@@ -353,26 +385,29 @@ void main() {
 
     await _select(tester, rail, '统计');
     expect(find.text('图书时长'), findsOneWidget);
-    await _select(tester, rail, '书评');
+    await _select(tester, rail, '笔记');
     await tester.tap(find.byKey(const ValueKey<String>('reviews-tab')));
     await tester.pump();
     expect(find.byTooltip('刷新书评'), findsNothing);
     await _select(tester, rail, '我的');
-    expect(find.text('书架排序'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('profile-settings-entry')),
+      findsOneWidget,
+    );
 
     tester.view.physicalSize = const Size(390, 844);
     await tester.pump();
     expect(rail, findsOneWidget);
     expect(bottom, findsNothing);
-    expect(tester.widget<NavigationRail>(rail).selectedIndex, 5);
-    await _select(tester, rail, '书评');
+    expect(tester.widget<NavigationRail>(rail).selectedIndex, 4);
+    await _select(tester, rail, '笔记');
     tester.view.physicalSize = _desktop;
     await tester.pump();
-    expect(tester.widget<NavigationRail>(rail).selectedIndex, 3);
+    expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
     expect(find.byKey(const ValueKey('notes-tab')), findsOneWidget);
     await _select(tester, rail, '书架');
     expect(tester.widget<TextField>(search).controller!.text, '山海');
-    await _select(tester, rail, '编辑器');
+    await _select(tester, rail, '编辑');
     expect(find.byKey(const ValueKey('editor-open-file')), findsOneWidget);
     expect(tester.takeException(), isNull);
   }, variant: _desktopPlatforms);
@@ -384,13 +419,13 @@ void main() {
       final bottom = find.byType(BottomNavigationBar);
       expect(find.byType(NavigationRail), findsNothing);
       expect(bottom, findsOneWidget);
-      expect(find.text('编辑器'), findsNothing);
+      expect(find.text('编辑'), findsNothing);
       await _select(tester, bottom, '我的');
 
       tester.view.physicalSize = const Size(390, 844);
       await tester.pump();
       expect(find.byType(NavigationRail), findsNothing);
-      expect(tester.widget<BottomNavigationBar>(bottom).currentIndex, 4);
+      expect(tester.widget<BottomNavigationBar>(bottom).currentIndex, 3);
       await _select(tester, bottom, '书架');
 
       tester.view.physicalSize = _desktop;

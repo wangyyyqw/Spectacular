@@ -66,6 +66,7 @@ class _ReviewsPageState extends State<ReviewsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
   int _section = 0;
+  double _dragDx = 0;
   List<BookEntry>? _books;
   Map<String, BookNoteCounts> _counts = const {};
   Map<String, Duration> _durations = const {};
@@ -165,6 +166,20 @@ class _ReviewsPageState extends State<ReviewsPage>
     if (widget.active && !_bookListsTab) _reload();
   }
 
+  void _endSwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final distance = _dragDx;
+    _dragDx = 0;
+    final next = velocity < -150 || (velocity.abs() <= 150 && distance <= -60);
+    final previous =
+        velocity > 150 || (velocity.abs() <= 150 && distance >= 60);
+    if (next && _section < 2) {
+      _tabs.animateTo(_section + 1);
+    } else if (previous && _section > 0) {
+      _tabs.animateTo(_section - 1);
+    }
+  }
+
   void _onLibraryChanged() {
     if (widget.active) _reload();
   }
@@ -182,7 +197,9 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   void _toggleSearch() {
-    if (usesDesktopLayout(context)) {
+    if (usesDesktopLayout(context) &&
+        MediaQuery.sizeOf(context).width >= 900 &&
+        !_searching) {
       _searchFocus.requestFocus();
       return;
     }
@@ -196,6 +213,21 @@ class _ReviewsPageState extends State<ReviewsPage>
     if (!_searching) {
       FocusScope.of(context).unfocus();
     }
+  }
+
+  void _openSearch() {
+    if (_searching) {
+      _searchFocus.requestFocus();
+      return;
+    }
+    if (usesDesktopLayout(context) && MediaQuery.sizeOf(context).width >= 900) {
+      _searchFocus.requestFocus();
+      return;
+    }
+    setState(() => _searching = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
   }
 
   void _clearSearch() {
@@ -577,7 +609,7 @@ class _ReviewsPageState extends State<ReviewsPage>
             LogicalKeyboardKey.keyF,
             meta: Theme.of(context).platform == TargetPlatform.macOS,
             control: Theme.of(context).platform != TargetPlatform.macOS,
-          ): _toggleSearch,
+          ): _openSearch,
       },
       child: ExcludeFocus(
         excluding: !widget.active,
@@ -598,7 +630,20 @@ class _ReviewsPageState extends State<ReviewsPage>
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _header(desktop),
-                    Expanded(child: _sectionBody()),
+                    Expanded(
+                      child: GestureDetector(
+                        key: const ValueKey('reviews-section-body'),
+                        behavior: HitTestBehavior.opaque,
+                        onHorizontalDragStart: (_) => _dragDx = 0,
+                        onHorizontalDragUpdate: (details) =>
+                            _dragDx += details.delta.dx,
+                        onHorizontalDragEnd: _endSwipe,
+                        child: _SectionTransition(
+                          index: _section,
+                          child: _sectionBody(),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -611,62 +656,156 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Widget _header(bool desktop) {
     final theme = Theme.of(context);
-    if (_searching) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-        child: Row(
-          children: [
-            Expanded(child: _searchField()),
-            IconButton(
-              tooltip: '关闭搜索',
-              onPressed: _toggleSearch,
-              icon: const AppIcon(AppGlyph.close),
-            ),
-          ],
-        ),
-      );
-    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: TabBar(
-              controller: _tabs,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              labelPadding: const EdgeInsets.only(right: 20),
-              indicator: const BoxDecoration(),
-              dividerColor: Colors.transparent,
-              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-              splashFactory: NoSplash.splashFactory,
-              labelColor: theme.colorScheme.onSurface,
-              unselectedLabelColor: theme.colorScheme.onSurface,
-              labelStyle: theme.textTheme.bodyMedium?.copyWith(
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-              ),
-              unselectedLabelStyle: theme.textTheme.bodyMedium?.copyWith(
-                fontSize: 14,
-              ),
-              tabs: const [
-                Tab(key: ValueKey('notes-tab'), text: '笔记'),
-                Tab(key: ValueKey('reviews-tab'), text: '书评'),
-                Tab(key: ValueKey('booklists-tab'), text: '书单'),
+      child: SizedBox(
+        height: 48,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final fullWidth = constraints.maxWidth;
+            final wide = desktop && MediaQuery.sizeOf(context).width >= 900;
+            final inlineSearch = wide && !_searching;
+            return Stack(
+              alignment: Alignment.centerRight,
+              children: [
+                Positioned.fill(
+                  child: ExcludeFocus(
+                    excluding: _searching,
+                    child: ExcludeSemantics(
+                      excluding: _searching,
+                      child: AnimatedOpacity(
+                        opacity: _searching ? 0 : 1,
+                        duration: const Duration(milliseconds: 140),
+                        child: IgnorePointer(
+                          ignoring: _searching,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxWidth: desktop ? 320 : 252,
+                                    ),
+                                    child: TabBar(
+                                      controller: _tabs,
+                                      isScrollable: true,
+                                      tabAlignment: TabAlignment.start,
+                                      labelPadding: const EdgeInsets.only(
+                                        right: 20,
+                                      ),
+                                      indicator: const BoxDecoration(),
+                                      dividerColor: Colors.transparent,
+                                      overlayColor:
+                                          const WidgetStatePropertyAll(
+                                            Colors.transparent,
+                                          ),
+                                      splashFactory: NoSplash.splashFactory,
+                                      labelColor: theme.colorScheme.onSurface,
+                                      unselectedLabelColor:
+                                          theme.colorScheme.onSurface,
+                                      labelStyle: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                      unselectedLabelStyle: theme
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(fontSize: 14),
+                                      tabs: const [
+                                        Tab(
+                                          key: ValueKey('notes-tab'),
+                                          text: '笔记',
+                                        ),
+                                        Tab(
+                                          key: ValueKey('reviews-tab'),
+                                          text: '书评',
+                                        ),
+                                        Tab(
+                                          key: ValueKey('booklists-tab'),
+                                          text: '书单',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (inlineSearch)
+                                SizedBox(width: 300, child: _searchField()),
+                              if (!_bookListsTab &&
+                                  !_notes &&
+                                  _books?.isNotEmpty == true)
+                                IconButton(
+                                  key: const ValueKey('reviews-sort'),
+                                  tooltip: '书评排序',
+                                  onPressed: _chooseSort,
+                                  icon: const AppIcon(AppGlyph.sort),
+                                ),
+                              SizedBox(width: inlineSearch ? 4 : 48),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (!wide || _searching)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    width: _searching ? fullWidth : 44,
+                    height: 44,
+                    alignment: Alignment.centerRight,
+                    child: ClipRect(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 160),
+                        layoutBuilder: (current, previous) => Stack(
+                          alignment: Alignment.centerRight,
+                          children: [...previous, ?current],
+                        ),
+                        child: _searching
+                            ? OverflowBox(
+                                key: const ValueKey('reviews-search-expanded'),
+                                alignment: Alignment.centerRight,
+                                minWidth: fullWidth,
+                                maxWidth: fullWidth,
+                                minHeight: 48,
+                                maxHeight: 48,
+                                child: Row(
+                                  children: [
+                                    Expanded(child: _searchField()),
+                                    Theme(
+                                      data: theme,
+                                      child: IconButton(
+                                        tooltip: '关闭搜索',
+                                        highlightColor: Colors.transparent,
+                                        hoverColor: Colors.transparent,
+                                        focusColor: Colors.transparent,
+                                        onPressed: _toggleSearch,
+                                        icon: const AppIcon(AppGlyph.close),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : IconButton(
+                                key: const ValueKey('reviews-search-button'),
+                                tooltip: _bookListsTab
+                                    ? '搜索书单'
+                                    : _notes
+                                    ? '搜索笔记'
+                                    : '搜索书评',
+                                onPressed: _toggleSearch,
+                                icon: const AppIcon(AppGlyph.search),
+                              ),
+                      ),
+                    ),
+                  ),
               ],
-            ),
-          ),
-          if (desktop)
-            Flexible(
-              flex: 2,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 300),
-                child: _searchField(),
-              ),
-            ),
-          ..._actions(),
-        ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -726,38 +865,6 @@ class _ReviewsPageState extends State<ReviewsPage>
         onChanged: _searchChanged,
       ),
     );
-  }
-
-  List<Widget> _actions() {
-    final bookLists = _bookListsTab;
-    final books = _books;
-    return _searching
-        ? [
-            IconButton(
-              tooltip: '关闭搜索',
-              onPressed: _toggleSearch,
-              icon: const AppIcon(AppGlyph.close),
-            ),
-          ]
-        : [
-            if (!bookLists && !_notes && books != null && books.isNotEmpty)
-              IconButton(
-                key: const ValueKey<String>('reviews-sort'),
-                tooltip: '书评排序',
-                onPressed: _chooseSort,
-                icon: const AppIcon(AppGlyph.sort),
-              ),
-            if (bookLists || books != null)
-              IconButton(
-                tooltip: bookLists
-                    ? '搜索书单'
-                    : _notes
-                    ? '搜索笔记'
-                    : '搜索书评',
-                onPressed: _toggleSearch,
-                icon: const AppIcon(AppGlyph.search),
-              ),
-          ];
   }
 
   Future<List<ReaderAnnotation>> _loadNotes(String bookId) async {

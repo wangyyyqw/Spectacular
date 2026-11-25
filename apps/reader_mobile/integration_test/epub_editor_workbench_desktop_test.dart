@@ -107,6 +107,12 @@ void main() {
           find.byType(PageTurnView).evaluate().isNotEmpty &&
           !editor.previewLoading,
     );
+    expect(find.text('查找替换'), findsOneWidget);
+    expect(find.text('样式检查器'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('editor-find-bottom-bar')),
+      findsOneWidget,
+    );
     final target = session.cfiForSourceOffset(
       _chapter,
       session.readText(_chapter).indexOf('目标段落'),
@@ -124,10 +130,7 @@ void main() {
           find.byType(BookEditorInspector).evaluate().isNotEmpty &&
           find.text('.nvwz').evaluate().isNotEmpty,
     );
-    expect(
-      find.byKey(const ValueKey('editor-find-bottom-bar')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('editor-find-bottom-bar')), findsNothing);
     final field = find.byWidgetPredicate(
       (widget) => widget is TextField && widget.controller?.text == css,
     );

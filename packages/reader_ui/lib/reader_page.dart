@@ -514,6 +514,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool _menuOpen = false;
   int _navigationErrorToken = 0;
 
+  /// 正文注释沿用沉浸状态，不因弹层路由盖住阅读页而显示系统栏。
+  bool _footnoteOpen = false;
+
   /// 底栏区域是否完整露出：菜单展开且没有抽屉盖住底栏。
   bool _menuBarVisible = false;
 
@@ -2398,31 +2401,35 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _clearSelection();
     final style = widget.footnoteStyle;
     final anchor = _footnoteAnchorOnScreen(page, pagePosition);
+    setState(() => _footnoteOpen = true);
+    final Future<void> dismissed;
     if (style == ReaderFootnoteStyle.dialog || anchor == null) {
-      unawaited(
-        showReaderBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          useSafeArea: true,
-          readerTheme: _effectiveTheme ?? ReaderTheme.white,
-          builder: (context) => ReaderFootnoteDialog(
-            footnote: footnote,
-            imageCache: widget.imageCache,
-          ),
+      dismissed = showReaderBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        readerTheme: _effectiveTheme ?? ReaderTheme.white,
+        builder: (context) => ReaderFootnoteDialog(
+          footnote: footnote,
+          imageCache: widget.imageCache,
         ),
       );
     } else {
-      unawaited(
-        showReaderFootnotePopup(
-          context: context,
-          footnote: footnote,
-          style: style,
-          anchor: anchor,
-          imageCache: widget.imageCache,
-          readerTheme: _effectiveTheme ?? ReaderTheme.white,
-        ),
+      dismissed = showReaderFootnotePopup(
+        context: context,
+        footnote: footnote,
+        style: style,
+        anchor: anchor,
+        contentWidth: _paperContentWidth,
+        imageCache: widget.imageCache,
+        readerTheme: _effectiveTheme ?? ReaderTheme.white,
       );
     }
+    unawaited(
+      dismissed.whenComplete(() {
+        if (mounted) setState(() => _footnoteOpen = false);
+      }),
+    );
     return true;
   }
 
@@ -2847,7 +2854,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final normalPage =
         widget.editMode ||
-        ModalRoute.isCurrentOf(context) == false ||
+        (ModalRoute.isCurrentOf(context) == false && !_footnoteOpen) ||
         _editingMargins ||
         _editingTapZones;
     _scheduleSystemBars(normalPage);

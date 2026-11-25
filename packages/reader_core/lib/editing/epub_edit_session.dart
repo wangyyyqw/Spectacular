@@ -662,7 +662,8 @@ String normalizePath(String path) {
 String resolvePath(String href, String basePath) => normalizePath(
   p.posix.join(
     p.posix.dirname(basePath),
-    Uri.decodeComponent(href.split('#').first),
+    // 清单可直接使用中文路径，先规范化为 ASCII URI 再解码已有转义。
+    Uri.decodeComponent(Uri.parse(href.split('#').first).toString()),
   ),
 );
 

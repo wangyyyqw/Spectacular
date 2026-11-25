@@ -881,7 +881,7 @@ void main() {
     );
   }
 
-  testWidgets('顶部总览展示六项真实数据，移除顶栏并保留安全间距与周切换', (tester) async {
+  testWidgets('顶部总览展示六项真实数据，移除顶栏并保留安全间距与日周月年切换', (tester) async {
     final now = DateTime(2026, 11, 24, 20);
     final start = DateTime(now.year, now.month, now.day, 8);
     await tester.pumpWidget(
@@ -950,10 +950,12 @@ void main() {
     final durationTop = tester.getTopLeft(find.text('图书时长'));
     expect(overviewTop.dy, 44);
     expect(durationTop.dy, greaterThan(overviewTop.dy));
-    await _selectPeriod(tester, 'week');
-    expect(find.text('图书时长'), findsOneWidget);
-    expect(_valueOf(tester, 'stats-book-duration-total'), '1 小时 10 分');
-    expect(_valueOf(tester, 'stats-book-duration-value-a'), '1 小时 10 分');
+    for (final period in ['week', 'month', 'year']) {
+      await _selectPeriod(tester, period);
+      expect(find.text('图书时长'), findsOneWidget);
+      expect(_valueOf(tester, 'stats-book-duration-total'), '1 小时 10 分');
+      expect(_valueOf(tester, 'stats-book-duration-value-a'), '1 小时 10 分');
+    }
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('stats-book-duration-tag-a')),

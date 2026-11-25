@@ -148,6 +148,45 @@ void main() {
     }
   });
 
+  for (final (href, path) in [
+    ('Fonts/像素.ttf', 'OPS/Fonts/像素.ttf'),
+    ('Fonts/像素%20常规.ttf', 'OPS/Fonts/像素 常规.ttf'),
+    ('Fonts/%E5%83%8F%E7%B4%A0.ttf', 'OPS/Fonts/像素.ttf'),
+    ('Fonts/像素%2520.ttf', 'OPS/Fonts/像素%20.ttf'),
+  ]) {
+    test('资源树和预览正确解析清单中的多语言路径：$href', () async {
+      final package = session
+          .readText(session.opfPath)
+          .replaceFirst(
+            '</manifest>',
+            '<item id="font" href="$href" media-type="font/ttf"/></manifest>',
+          );
+      session.transaction('添加多语言字体路径', (tx) {
+        tx.writeText(session.opfPath, package);
+        tx.writeBytes(path, Uint8List(12));
+      });
+
+      expect(
+        session.resources
+            .singleWhere((resource) => resource.path == path)
+            .mediaType,
+        'font/ttf',
+      );
+      expect(session.spinePaths, ['OPS/chapter.xhtml']);
+      expect(session.previewPaths, ['OPS/chapter.xhtml']);
+      final preview = await session.createPreviewSource(
+        includeUnlistedHtml: true,
+      );
+      try {
+        expect((await preview.loadAnchorChapter(0)).text, contains('甲&乙😀丙'));
+        expect(session.readText(session.opfPath), package);
+      } finally {
+        preview.close();
+        await preview.preparationsStopped;
+      }
+    });
+  }
+
   test('非 spine HTML 独立加入预览，源码定位与预览顺序一致且不改书籍', () async {
     final package = PackageEditor(session);
     for (final name in ['z', 'a']) {

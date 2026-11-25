@@ -102,6 +102,25 @@ Future<bool> editorConfirm(
     ) ??
     false;
 
+enum _FindScope {
+  all('所有文本文件'),
+  current('当前文件'),
+  allHtml('所有 HTML 文件'),
+  selectedHtml('选定的 HTML 文件'),
+  tabHtml('选项卡中的 HTML 文件'),
+  allCss('所有 CSS 文件'),
+  selectedCss('选定的 CSS 文件'),
+  tabCss('选项卡中的 CSS 文件'),
+  opf('OPF 文件'),
+  ncx('NCX 文件'),
+  selectedSvg('选定的 SVG 文件'),
+  selectedJavascript('选定的 JavaScript 文件'),
+  selectedXml('选定的杂项 XML 文件');
+
+  const _FindScope(this.label);
+  final String label;
+}
+
 /// 工作台与手机段落面板共用的书籍管理命令入口。
 class BookEditorTools {
   BookEditorTools(this.context, this.editor);
@@ -823,19 +842,207 @@ class BookEditorTools {
     return result;
   }
 
+  Set<String>? _scopePaths(_FindScope scope) {
+    final resources = editor.session.resources;
+    final byPath = {for (final resource in resources) resource.path: resource};
+    EpubEditResource resourceOf(String path) =>
+        byPath[path] ?? EpubEditResource(path, '', 0);
+    String extensionOf(String path) => p.posix.extension(path).toLowerCase();
+    bool html(EpubEditResource resource) =>
+        _resourceMediaType(resource) == 'application/xhtml+xml' ||
+        const {'.xhtml', '.html', '.htm'}.contains(extensionOf(resource.path));
+    bool css(EpubEditResource resource) =>
+        _resourceMediaType(resource) == 'text/css' ||
+        extensionOf(resource.path) == '.css';
+    bool svg(EpubEditResource resource) =>
+        _resourceMediaType(resource) == 'image/svg+xml' ||
+        extensionOf(resource.path) == '.svg';
+    bool ncx(EpubEditResource resource) =>
+        _resourceMediaType(resource) == 'application/x-dtbncx+xml' ||
+        extensionOf(resource.path) == '.ncx';
+    bool javascript(EpubEditResource resource) {
+      final extension = extensionOf(resource.path);
+      final mediaType = _resourceMediaType(resource);
+      return const {'.js', '.mjs', '.cjs'}.contains(extension) ||
+          mediaType.contains('javascript') ||
+          mediaType.contains('ecmascript');
+    }
+
+    bool xml(EpubEditResource resource) {
+      final extension = extensionOf(resource.path);
+      final mediaType = _resourceMediaType(resource);
+      return !html(resource) &&
+          !svg(resource) &&
+          !ncx(resource) &&
+          (extension == '.xml' ||
+              mediaType == 'application/xml' ||
+              mediaType == 'text/xml');
+    }
+
+    final active = editor.activePath;
+    final activeResource = active == null ? null : resourceOf(active);
+    bool activeIs(bool Function(EpubEditResource) test) =>
+        activeResource != null && test(activeResource);
+    Set<String> selected(bool Function(EpubEditResource) test) =>
+        activeIs(test) ? {active!} : <String>{};
+    Set<String> all(bool Function(EpubEditResource) test) => {
+      for (final resource in resources)
+        if (test(resource)) resource.path,
+    };
+    Set<String> tabs(bool Function(EpubEditResource) test) {
+      final opened = [
+        for (final path in editor.documents.keys) resourceOf(path),
+      ];
+      return {
+        for (final resource in opened)
+          if (test(resource)) resource.path,
+      };
+    }
+
+    return switch (scope) {
+      _FindScope.all => null,
+      _FindScope.current => active == null ? <String>{} : {active},
+      _FindScope.allHtml => all(html),
+      _FindScope.selectedHtml => selected(html),
+      _FindScope.tabHtml => tabs(html),
+      _FindScope.allCss => all(css),
+      _FindScope.selectedCss => selected(css),
+      _FindScope.tabCss => tabs(css),
+      _FindScope.opf => {editor.session.opfPath},
+      _FindScope.ncx => all(ncx),
+      _FindScope.selectedSvg => selected(svg),
+      _FindScope.selectedJavascript => selected(javascript),
+      _FindScope.selectedXml => selected(
+        (resource) => xml(resource) && resource.path != editor.session.opfPath,
+      ),
+    };
+  }
+
   Future<void> findReplace() async {
     if (!editor.flush()) return;
     final query = TextEditingController();
     final replacement = TextEditingController();
     var regex = false;
     var sensitive = true;
+    var scope = _FindScope.all;
     var matches = <EditSearchMatch>[];
     String? error;
     final theme = Theme.of(context);
+    final sources = <String, String>{};
+    final highlight = theme.brightness == Brightness.dark
+        ? const Color(0x8CFFC107)
+        : const Color(0x99FFB300);
     final searchBorder = OutlineInputBorder(
       borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
+    List<EditSearchMatch> runSearch() {
+      sources.clear();
+      final paths = _scopePaths(scope);
+      if (paths != null && paths.isEmpty) {
+        error = '当前范围没有可搜索的文件';
+        return [];
+      }
+      try {
+        error = null;
+        return package.find(
+          query.text,
+          regex: regex,
+          caseSensitive: sensitive,
+          paths: paths,
+        );
+      } catch (failure) {
+        error = '$failure';
+        return [];
+      }
+    }
+
+    Widget resultTile(EditSearchMatch item, int index) {
+      final source = sources.putIfAbsent(
+        item.path,
+        () => editor.session.readText(item.path),
+      );
+      final contextStart = item.start > 28 ? item.start - 28 : 0;
+      final contextEnd = item.end + 28 < source.length
+          ? item.end + 28
+          : source.length;
+      String clean(String value) => value.replaceAll(RegExp(r'\s+'), ' ');
+      final prefix =
+          '${contextStart > 0 ? '…' : ''}'
+          '${clean(source.substring(contextStart, item.start))}';
+      final suffix =
+          '${clean(source.substring(item.end, contextEnd))}'
+          '${contextEnd < source.length ? '…' : ''}';
+      final line = '\n'.allMatches(source.substring(0, item.start)).length + 1;
+      final lineStart = item.start == 0
+          ? 0
+          : source.lastIndexOf('\n', item.start - 1) + 1;
+      final column = item.start - lineStart + 1;
+      final muted = theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      );
+      return Material(
+        type: MaterialType.transparency,
+        child: ListTile(
+          key: ValueKey('search-result-$index'),
+          dense: true,
+          minVerticalPadding: 4,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          leading: const AppIcon(AppGlyph.code, size: 16),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.path,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('$line:$column', style: theme.textTheme.labelSmall),
+            ],
+          ),
+          subtitle: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: prefix, style: muted),
+                TextSpan(
+                  text: clean(item.text),
+                  style: TextStyle(
+                    backgroundColor: highlight,
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                TextSpan(text: suffix, style: muted),
+              ],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: () {
+            editor.showSource(item.path, offset: item.start);
+            final document = editor.activeDocument;
+            if (document != null) {
+              final find = document.find;
+              find.findInputController.text = query.text;
+              find.findMode();
+              if (find.value != null) {
+                if (find.value!.option.regex != regex) find.toggleRegex();
+                if (find.value!.option.caseSensitive != sensitive) {
+                  find.toggleCaseSensitive();
+                }
+              }
+            }
+            Navigator.pop(context);
+          },
+        ),
+      );
+    }
+
     await _showEditorDrawer<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -857,6 +1064,7 @@ class BookEditorTools {
                       matches = [];
                       error = null;
                     }),
+                    onSubmitted: (_) => setState(() => matches = runSearch()),
                     decoration: InputDecoration(
                       labelText: '查找内容',
                       filled: true,
@@ -878,7 +1086,67 @@ class BookEditorTools {
                   ),
                 ),
                 Wrap(
+                  spacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    PopupMenuButton<_FindScope>(
+                      tooltip: '查找范围',
+                      initialValue: scope,
+                      onSelected: (value) => setState(() {
+                        scope = value;
+                        matches = query.text.isEmpty ? [] : runSearch();
+                      }),
+                      itemBuilder: (_) => [
+                        for (final item in _FindScope.values)
+                          PopupMenuItem(
+                            value: item,
+                            height: 36,
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 24,
+                                  child: item == scope
+                                      ? const AppIcon(AppGlyph.check, size: 16)
+                                      : const SizedBox.shrink(),
+                                ),
+                                Text(item.label),
+                              ],
+                            ),
+                          ),
+                      ],
+                      child: Container(
+                        height: 34,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: ReaderDrawerStyle.searchSurfaceOf(theme),
+                          border: Border.all(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                          borderRadius: ReaderUiStyle.controlRadius,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AppIcon(
+                              AppGlyph.filter,
+                              size: 14,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              scope.label,
+                              style: theme.textTheme.labelMedium,
+                            ),
+                            const SizedBox(width: 4),
+                            AppIcon(
+                              AppGlyph.chevronDown,
+                              size: 14,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     FilterChip(
                       label: const Text('正则'),
                       selected: regex,
@@ -896,40 +1164,29 @@ class BookEditorTools {
                       }),
                     ),
                     TextButton(
-                      onPressed: () => setState(() {
-                        try {
-                          matches = package.find(
-                            query.text,
-                            regex: regex,
-                            caseSensitive: sensitive,
-                          );
-                          error = null;
-                        } catch (failure) {
-                          error = '$failure';
-                          matches = [];
-                        }
-                      }),
+                      onPressed: () => setState(() => matches = runSearch()),
                       child: const Text('查找'),
                     ),
                   ],
                 ),
-                Text(error ?? '${matches.length} 处匹配'),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(error ?? '${matches.length} 处匹配'),
+                ),
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: matches.length,
-                    itemBuilder: (context, index) {
-                      final item = matches[index];
-                      return ListTile(
-                        dense: true,
-                        title: Text(item.path),
-                        subtitle: Text(item.text, maxLines: 1),
-                        onTap: () {
-                          editor.showSource(item.path, offset: item.start);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
+                  child: matches.isEmpty
+                      ? Center(
+                          child: Text(
+                            query.text.isEmpty ? '输入内容后点击查找' : '没有匹配结果',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: matches.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (_, index) =>
+                              resultTile(matches[index], index),
+                        ),
                 ),
               ],
             ),
@@ -946,7 +1203,7 @@ class BookEditorTools {
                       if (!await editorConfirm(
                             context,
                             '替换全部匹配？',
-                            '${matches.length} 处匹配将作为一次可撤销操作修改。',
+                            '${matches.length} 处匹配（${scope.label}）将作为一次可撤销操作修改。',
                           ) ||
                           !context.mounted) {
                         return;

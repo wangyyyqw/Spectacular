@@ -41,55 +41,161 @@ void main() {
     expect(style, ReaderFootnoteStyle.paper);
   });
 
-  testWidgets('气泡与纸条样式显示注释正文并可点遮罩关闭', (tester) async {
+  for (final anchor in [
+    const Offset(12, 100),
+    const Offset(235, 780),
+    const Offset(372, 780),
+  ]) {
+    testWidgets('屏幕 $anchor 处短气泡等宽居中、纸条宽70%，紧贴注号且可关闭', (tester) async {
+      tester.view.physicalSize = const Size(384, 854);
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewPadding = const FakeViewPadding(top: 26, bottom: 24);
+      addTearDown(tester.view.reset);
+      for (final style in [
+        ReaderFootnoteStyle.bubble,
+        ReaderFootnoteStyle.paper,
+      ]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => Center(
+                  child: TextButton(
+                    onPressed: () => showReaderFootnotePopup(
+                      context: context,
+                      footnote: const PageFootnote(
+                        start: 0,
+                        end: 1,
+                        label: '1',
+                        kind: NoteKind.footnote,
+                        text: '这是一条注释正文。',
+                      ),
+                      style: style,
+                      anchor: anchor,
+                      contentWidth: 344,
+                    ),
+                    child: const Text('打开'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('打开'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('这是一条注释正文。'), findsOneWidget);
+        final callout = find.byKey(
+          ValueKey('reader-footnote-callout-${style.name}'),
+        );
+        final rect = tester.getRect(callout);
+        final gap = style == ReaderFootnoteStyle.bubble ? 18.0 : 10.0;
+        if (anchor.dy < 400) {
+          expect(rect.top, closeTo(anchor.dy + gap, .01));
+        } else {
+          expect(rect.bottom, closeTo(anchor.dy - gap, .01));
+        }
+        expect(rect.height, lessThan(120));
+        if (style == ReaderFootnoteStyle.bubble) {
+          expect(rect.width, closeTo(344, .01));
+          expect(rect.left, closeTo(384 - rect.right, .01));
+        } else {
+          expect(rect.width, closeTo(384 * .70, .01));
+          expect(rect.left, 0);
+        }
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byKey(
+            ValueKey(
+              style == ReaderFootnoteStyle.bubble
+                  ? 'reader-footnote-callout-bubble'
+                  : 'reader-footnote-callout-paper',
+            ),
+          ),
+          findsOneWidget,
+        );
+        await tester.tapAt(const Offset(12, 12));
+        await tester.pumpAndSettle();
+        expect(find.text('这是一条注释正文。'), findsNothing);
+      }
+    });
+  }
+
+  for (final screen in [const Size(320, 480), const Size(854, 384)]) {
     for (final style in [
       ReaderFootnoteStyle.bubble,
       ReaderFootnoteStyle.paper,
     ]) {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Center(
-                child: TextButton(
+      testWidgets('$screen 大字号长${style.label}遵守比例上限且可滚动', (tester) async {
+        tester.view.physicalSize = screen;
+        tester.view.devicePixelRatio = 1;
+        tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 20);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(2)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
                   onPressed: () => showReaderFootnotePopup(
                     context: context,
-                    footnote: const PageFootnote(
+                    footnote: PageFootnote(
                       start: 0,
                       end: 1,
                       label: '1',
                       kind: NoteKind.footnote,
-                      text: '这是一条注释正文。',
+                      text: List.generate(
+                        20,
+                        (index) => '第${index + 1}段长注释。',
+                      ).join('\n'),
                     ),
                     style: style,
-                    anchor: const Offset(180, 160),
+                    anchor: Offset(screen.width - 30, screen.height - 50),
+                    contentWidth: screen.width - 48,
                   ),
                   child: const Text('打开'),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.tap(find.text('打开'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('这是一条注释正文。'), findsOneWidget);
-      expect(
-        find.byKey(
-          ValueKey(
-            style == ReaderFootnoteStyle.bubble
-                ? 'reader-footnote-callout-bubble'
-                : 'reader-footnote-callout-paper',
-          ),
-        ),
-        findsOneWidget,
-      );
-      await tester.tapAt(const Offset(12, 12));
-      await tester.pumpAndSettle();
-      expect(find.text('这是一条注释正文。'), findsNothing);
+        );
+        await tester.tap(find.text('打开'));
+        await tester.pumpAndSettle();
+        final callout = find.byKey(
+          ValueKey('reader-footnote-callout-${style.name}'),
+        );
+        final rect = tester.getRect(callout);
+        final bubble = style == ReaderFootnoteStyle.bubble;
+        expect(
+          rect.bottom,
+          closeTo(screen.height - 50 - (bubble ? 18 : 10), .01),
+        );
+        expect(rect.top, greaterThanOrEqualTo(28));
+        expect(
+          rect.width,
+          closeTo(bubble ? screen.width - 48 : screen.width * .70, .01),
+        );
+        expect(
+          rect.height + (bubble ? 8 : 0),
+          closeTo(screen.height * (bubble ? .40 : .20), .01),
+        );
+        if (bubble) expect(rect.left, closeTo(screen.width - rect.right, .01));
+        final scrollable = tester.state<ScrollableState>(
+          find.descendant(of: callout, matching: find.byType(Scrollable)).first,
+        );
+        expect(scrollable.position.maxScrollExtent, greaterThan(0));
+        await tester.drag(callout, const Offset(0, -100));
+        await tester.pumpAndSettle();
+        expect(scrollable.position.pixels, greaterThan(0));
+        expect(tester.getRect(callout), rect);
+        expect(tester.takeException(), isNull);
+      });
     }
-  });
+  }
 
   testWidgets('气泡与纸条样式使用当前面板主题色', (tester) async {
     const scheme = ColorScheme.light(
@@ -177,6 +283,7 @@ void main() {
                 footnote: footnote,
                 style: style,
                 anchor: const Offset(180, 160),
+                contentWidth: 344,
                 readerTheme: ReaderTheme.black,
               ),
               child: const Text('打开'),

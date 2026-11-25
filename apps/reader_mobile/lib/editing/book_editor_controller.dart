@@ -18,7 +18,14 @@ class BookEditorDocument {
   BookEditorDocument(this.path, String text)
     : acceptedText = text,
       _lastInputText = text,
-      code = CodeLineEditingController.fromText(text);
+      code = CodeLineEditingController.fromText(
+        text,
+        CodeLineOptions(
+          lineBreak: text.contains('\r\n')
+              ? TextLineBreak.crlf
+              : TextLineBreak.lf,
+        ),
+      );
 
   final String path;
   final CodeLineEditingController code;

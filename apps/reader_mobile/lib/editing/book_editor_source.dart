@@ -16,6 +16,8 @@ import 'xhtml_chunk_analyzer.dart';
 
 export 'book_editor_find_bar.dart';
 
+enum EditorSourceBottomTab { find, inspector }
+
 class BookEditorSource extends StatefulWidget {
   const BookEditorSource({
     super.key,
@@ -23,11 +25,17 @@ class BookEditorSource extends StatefulWidget {
     this.onLocate,
     this.onCursorChanged,
     this.onFindAll,
+    this.bottomTab = EditorSourceBottomTab.find,
+    this.onBottomTabChanged,
+    this.inspector,
   });
   final BookEditorController controller;
   final VoidCallback? onLocate;
   final VoidCallback? onCursorChanged;
   final VoidCallback? onFindAll;
+  final EditorSourceBottomTab bottomTab;
+  final ValueChanged<EditorSourceBottomTab>? onBottomTabChanged;
+  final Widget? inspector;
 
   @override
   State<BookEditorSource> createState() => _BookEditorSourceState();
@@ -37,6 +45,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
   final _codeFocus = FocusNode();
   Timer? _cursorFollow;
   bool _wrap = true;
+  bool _findWasOpen = false;
 
   @override
   void initState() {
@@ -126,21 +135,47 @@ class _BookEditorSourceState extends State<BookEditorSource> {
               ),
             Expanded(child: _code(doc)),
             const Divider(height: 1),
-            ValueListenableBuilder<CodeFindValue?>(
-              valueListenable: doc.find,
-              builder: (_, value, _) => value == null
-                  ? const SizedBox.shrink()
-                  : EditorFindBar(
-                      controller: doc.find,
-                      editing: doc.code,
-                      readOnly: editor.busy,
-                      onFindAll: widget.onFindAll,
-                      onClose: () {
-                        doc.find.close();
-                        _focusSource();
-                      },
-                    ),
-            ),
+            if (widget.inspector != null) _bottomSwitch(doc),
+            if (widget.inspector == null)
+              ValueListenableBuilder<CodeFindValue?>(
+                valueListenable: doc.find,
+                builder: (_, value, _) =>
+                    value == null ? const SizedBox.shrink() : _findBar(doc),
+              )
+            else
+              ValueListenableBuilder<CodeFindValue?>(
+                valueListenable: doc.find,
+                builder: (_, value, _) {
+                  final open = value != null;
+                  if (open &&
+                      !_findWasOpen &&
+                      widget.bottomTab != EditorSourceBottomTab.find) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted &&
+                          doc.find.value != null &&
+                          widget.bottomTab != EditorSourceBottomTab.find) {
+                        widget.onBottomTabChanged?.call(
+                          EditorSourceBottomTab.find,
+                        );
+                      }
+                    });
+                  }
+                  _findWasOpen = open;
+                  if (widget.bottomTab == EditorSourceBottomTab.inspector) {
+                    return SizedBox(
+                      height: (MediaQuery.sizeOf(context).height * .28).clamp(
+                        200.0,
+                        300.0,
+                      ),
+                      child: Material(
+                        color: Theme.of(context).colorScheme.surface,
+                        child: widget.inspector,
+                      ),
+                    );
+                  }
+                  return value == null ? _findHint(doc) : _findBar(doc);
+                },
+              ),
             _status(doc),
           ],
         ],
@@ -173,6 +208,124 @@ class _BookEditorSourceState extends State<BookEditorSource> {
       },
       child: source,
     );
+  }
+
+  Widget _bottomSwitch(BookEditorDocument doc) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      height: 34,
+      width: double.infinity,
+      color: colors.surfaceContainerLow,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          _bottomTab(doc, EditorSourceBottomTab.find, AppGlyph.search, '查找替换'),
+          _bottomTab(
+            doc,
+            EditorSourceBottomTab.inspector,
+            AppGlyph.tune,
+            '样式检查器',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bottomTab(
+    BookEditorDocument doc,
+    EditorSourceBottomTab tab,
+    AppGlyph icon,
+    String label,
+  ) {
+    final colors = Theme.of(context).colorScheme;
+    final selected = widget.bottomTab == tab;
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: () => tab == EditorSourceBottomTab.find
+              ? _openFind(doc)
+              : widget.onBottomTabChanged?.call(tab),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: selected ? colors.secondaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppIcon(
+                  icon,
+                  size: 14,
+                  color: selected
+                      ? colors.onSecondaryContainer
+                      : colors.onSurfaceVariant,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                    color: selected
+                        ? colors.onSecondaryContainer
+                        : colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _findBar(BookEditorDocument doc) => EditorFindBar(
+    controller: doc.find,
+    editing: doc.code,
+    readOnly: widget.controller.busy,
+    onFindAll: widget.onFindAll,
+    onClose: () {
+      doc.find.close();
+      _focusSource();
+    },
+  );
+
+  Widget _findHint(BookEditorDocument doc) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 36,
+      child: Row(
+        children: [
+          const SizedBox(width: 10),
+          AppIcon(AppGlyph.search, size: 16, color: colors.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '查找或替换当前文档',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          TextButton(
+            onPressed: () => _openFind(doc),
+            child: const Text('开始查找'),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+    );
+  }
+
+  void _openFind(BookEditorDocument doc, {bool replace = false}) {
+    widget.onBottomTabChanged?.call(EditorSourceBottomTab.find);
+    if (replace) {
+      doc.find.replaceMode();
+    } else {
+      doc.find.findMode();
+    }
   }
 
   Widget _tab(BookEditorDocument doc) {
@@ -245,6 +398,20 @@ class _BookEditorSourceState extends State<BookEditorSource> {
         autofocus: false,
         wordWrap: _wrap,
         onChanged: (_) => _followCursor(),
+        shortcutOverrideActions: {
+          CodeShortcutFindIntent: CallbackAction<CodeShortcutFindIntent>(
+            onInvoke: (_) {
+              _openFind(doc);
+              return null;
+            },
+          ),
+          CodeShortcutReplaceIntent: CallbackAction<CodeShortcutReplaceIntent>(
+            onInvoke: (_) {
+              _openFind(doc, replace: true);
+              return null;
+            },
+          ),
+        },
         chunkAnalyzer: css
             ? const DefaultCodeChunkAnalyzer()
             : const XhtmlChunkAnalyzer(),
@@ -252,6 +419,9 @@ class _BookEditorSourceState extends State<BookEditorSource> {
         style: CodeEditorStyle(
           fontSize: 13,
           fontFamily: 'monospace',
+          highlightColor: dark
+              ? const Color(0x8CFFC107)
+              : const Color(0x99FFB300),
           codeTheme: CodeHighlightTheme(
             languages: {
               if (css)
@@ -306,7 +476,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
         IconButton(
           tooltip: '在文档中查找',
           icon: const AppIcon(AppGlyph.search, size: 18),
-          onPressed: doc.find.findMode,
+          onPressed: () => _openFind(doc),
         ),
         TextButton(
           onPressed: () => setState(() => _wrap = !_wrap),

@@ -44,6 +44,7 @@ class HomeShell extends StatefulWidget {
     this.onAppFontFamilyChanged,
     this.showWelcomeAnnouncement = false,
     this.onBookshelfReady,
+    this.windowTopInset = 0,
   });
 
   /// 书架存储。
@@ -82,11 +83,18 @@ class HomeShell extends StatefulWidget {
   /// 书架前 12 本封面就绪后通知开屏退场。
   final VoidCallback? onBookshelfReady;
 
+  /// macOS 标题栏红绿灯区域的顶部高度；侧边栏背景需要补到该区域。
+  final double windowTopInset;
+
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
+  /// 收起宽度需容纳 macOS 红绿灯，并让左右留白接近。
+  static const double _collapsedRailWidth = 84;
+  static const double _expandedRailWidth = 160;
+
   int _index = 0;
   int _bookshelfRefreshToken = 0;
   int _statsRefreshToken = 0;
@@ -228,6 +236,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   bool _desktop = false;
+  bool _railCollapsed = false;
   List<Widget> _pages = [];
   MediaQueryData? _homeMedia;
   bool _restoringSystemPadding = false;
@@ -406,7 +415,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ('发现', AppGlyph.discover),
       ('统计', AppGlyph.stats),
       ('笔记', AppGlyph.review),
-      if (usesDesktopLayout(context)) ('编辑器', AppGlyph.code),
+      if (usesDesktopLayout(context)) ('编辑', AppGlyph.edit),
       ('我的', AppGlyph.profile),
     ];
     return [
@@ -438,32 +447,82 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Widget _buildRail(ThemeData theme, List<BottomNavigationBarItem> items) {
-    return NavigationRail(
-      extended: true,
-      scrollable: true,
-      minWidth: 56,
-      minExtendedWidth: 160,
-      backgroundColor:
-          theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor,
-      useIndicator: theme.useMaterial3,
-      unselectedIconTheme: const IconThemeData(opacity: 1),
-      selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w600,
-      ),
-      unselectedLabelTextStyle: theme.textTheme.bodyMedium?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-      selectedIndex: _visibleIndices.indexOf(_index),
-      onDestinationSelected: (index) =>
-          _selectDestination(_visibleIndices[index]),
-      destinations: [
-        for (final item in items)
-          NavigationRailDestination(
-            icon: item.icon,
-            selectedIcon: item.activeIcon,
-            label: Text(item.label!),
+    final colors = theme.colorScheme;
+    final background =
+        theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor;
+    return AnimatedContainer(
+      key: const ValueKey('home-sidebar'),
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      width: _railCollapsed ? _collapsedRailWidth : _expandedRailWidth,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.only(
+          topRight: Radius.circular(widget.windowTopInset > 0 ? 0 : 14),
+          bottomRight: const Radius.circular(14),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colors.shadow.withValues(alpha: .12),
+            blurRadius: 10,
+            offset: const Offset(2, 0),
           ),
-      ],
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(
+            child: NavigationRail(
+              extended: !_railCollapsed,
+              scrollable: true,
+              minWidth: 56,
+              minExtendedWidth: 160,
+              backgroundColor: Colors.transparent,
+              useIndicator: false,
+              unselectedIconTheme: const IconThemeData(opacity: 1),
+              selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              unselectedLabelTextStyle: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+              selectedIndex: _visibleIndices.indexOf(_index),
+              onDestinationSelected: (index) =>
+                  _selectDestination(_visibleIndices[index]),
+              destinations: [
+                for (final item in items)
+                  NavigationRailDestination(
+                    icon: Tooltip(message: item.label!, child: item.icon),
+                    selectedIcon: Tooltip(
+                      message: item.label!,
+                      child: item.activeIcon,
+                    ),
+                    label: Text(item.label!),
+                  ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: theme.dividerColor),
+          Align(
+            alignment: AlignmentDirectional.bottomStart,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(_railCollapsed ? 8 : 12, 4, 8, 8),
+              child: IconButton(
+                tooltip: _railCollapsed ? '展开侧边栏' : '收起侧边栏',
+                onPressed: () =>
+                    setState(() => _railCollapsed = !_railCollapsed),
+                icon: AnimatedRotation(
+                  turns: _railCollapsed ? .5 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: const AppIcon(AppGlyph.chevronLeft, size: 18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -508,15 +567,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final scaffold = MediaQuery(
       data: _homeLayoutMedia(),
       child: Scaffold(
-        body: Row(
-          children: [
-            if (useRail) ...[
-              _buildRail(theme, items),
-              VerticalDivider(width: 1, color: theme.dividerColor),
-            ],
-            pages,
-          ],
-        ),
+        body: Row(children: [if (useRail) _buildRail(theme, items), pages]),
         bottomNavigationBar: useRail
             ? null
             : theme.useMaterial3
@@ -553,6 +604,41 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ),
     );
     if (!useRail) return scaffold;
+    final railBackground =
+        theme.bottomNavigationBarTheme.backgroundColor ?? theme.canvasColor;
+    final sidebarWidth = _railCollapsed
+        ? _collapsedRailWidth
+        : _expandedRailWidth;
+    final content = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        scaffold,
+        if (widget.windowTopInset > 0)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            left: 0,
+            top: -widget.windowTopInset,
+            width: sidebarWidth,
+            height: widget.windowTopInset,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: railBackground,
+                borderRadius: const BorderRadius.only(
+                  topRight: Radius.circular(14),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.shadow.withValues(alpha: .12),
+                    blurRadius: 10,
+                    offset: const Offset(2, 0),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
     final macOS = theme.platform == TargetPlatform.macOS;
     return CallbackShortcuts(
       bindings: {
@@ -576,7 +662,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             }
           },
       },
-      child: Focus(autofocus: true, child: scaffold),
+      child: Focus(autofocus: true, child: content),
     );
   }
 }

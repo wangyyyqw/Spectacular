@@ -95,10 +95,14 @@ class PagePainter {
     this.galleryPositionOf,
     this.backgroundTileLimit = defaultBackgroundTileLimit,
     this.onBackgroundTileLimit,
+    this.preserveExplicitAuthorColors = false,
   });
 
   /// 页面背景色。
   final Color background;
+
+  /// 书籍自带整页背景时保留作者显式颜色，避免浅色背景页被判成黑底。
+  final bool preserveExplicitAuthorColors;
 
   /// 整页背景纹理（P4-22）：平铺绘制在背景色之上、正文之下。
   ///
@@ -197,6 +201,30 @@ class PagePainter {
   /// 传非零值时画布按整页给尺寸、内容整体偏移 [pageInsets]，页面底色与
   /// 背景图铺满整页，出血块的盒子扩到页边（不再被内缩裁掉）。
   /// [paintPaperBackground] 为假时只省略阅读主题纸底，供接续动画生成
+  /// 书籍自带整页背景时，作者显式颜色优先；仅在无背景页启用深底兜底。
+  PagePainter _withBookBackground() => PagePainter(
+    background: background,
+    pageBackgroundImage: pageBackgroundImage,
+    pageBackgroundImageTint: pageBackgroundImageTint,
+    pageBackgroundImageCover: pageBackgroundImageCover,
+    pageBackgroundImageOpacity: pageBackgroundImageOpacity,
+    imageLookup: imageLookup,
+    listMarkerImageOf: listMarkerImageOf,
+    textColor: textColor,
+    inkMode: inkMode,
+    selection: selection,
+    selectionColor: selectionColor,
+    onPhase: onPhase,
+    paragraphCache: paragraphCache,
+    textOverlays: textOverlays,
+    beforeBlockText: beforeBlockText,
+    galleryFrameOf: galleryFrameOf,
+    galleryPositionOf: galleryPositionOf,
+    backgroundTileLimit: backgroundTileLimit,
+    onBackgroundTileLimit: onBackgroundTileLimit,
+    preserveExplicitAuthorColors: true,
+  );
+
   /// 透明正文快照；作者背景、文字配色及滤镜仍使用真实主题底色。
   void paint(
     Canvas canvas,
@@ -205,6 +233,16 @@ class PagePainter {
     EdgeInsets pageInsets = EdgeInsets.zero,
     bool paintPaperBackground = true,
   }) {
+    if (page.background != null && !preserveExplicitAuthorColors) {
+      _withBookBackground().paint(
+        canvas,
+        page,
+        pageSize: pageSize,
+        pageInsets: pageInsets,
+        paintPaperBackground: paintPaperBackground,
+      );
+      return;
+    }
     final contentSize = Size(
       math.max(0, pageSize.width - pageInsets.horizontal),
       math.max(0, pageSize.height - pageInsets.vertical),
@@ -1179,8 +1217,9 @@ class PagePainter {
 
   /// 主题文字色是否覆盖某个块（P9-02）。
   ///
-  /// 普通主题下书籍显式声明的颜色（含继承）始终照书，日间/夜间都不替换；
-  /// 只有未声明颜色的文字才跟随主题色。[inkMode] 为真时例外，
+  /// 普通主题下书籍显式声明的颜色（含继承）优先照书；只有显式文字与
+  /// 所在背景同色时改用主题可读色，其余颜色不反色。
+  /// 有书籍整页背景的页面保留作者原色。[inkMode] 为真时例外，
   /// 所有非透明文字按背景压成纯黑或纯白。
   Color? _textColorFor(ComputedStyle style) {
     // 透明字是书籍用于封面排版的隐藏文本，不能因为对比度低就画出来。
@@ -1199,14 +1238,19 @@ class PagePainter {
     if (theme == null) {
       return null;
     }
-    if (style.hasExplicitTextColor) {
-      return null;
-    }
     final darkText = style.color.computeLuminance() <= 0.179;
     final darkBackground = blendedBackground.computeLuminance() < 0.35;
     final fallback = darkBackground && theme.computeLuminance() >= 0.35
         ? const Color(0xFFE6E6E6)
         : theme;
+    if (style.hasExplicitTextColor) {
+      if (preserveExplicitAuthorColors) return null;
+      final explicit = Color.alphaBlend(style.color, blendedBackground);
+      if (explicit.toARGB32() != blendedBackground.toARGB32()) {
+        return null;
+      }
+      return fallback;
+    }
     if (darkText) {
       return fallback;
     }

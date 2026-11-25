@@ -25,6 +25,40 @@ void main() {
     expect(controller.highlight.value, isNull);
   });
 
+  test('单字强调合并朗读，暂停续读与字词高亮仍对应原文', () async {
+    const text = '一百多个新配方全！部！学！习！';
+    const spoken = '一百多个新配方全部学习！';
+    system.autoComplete = false;
+    final controller = ReaderTtsController(
+      textSource: MemoryTtsTextSource([text]),
+    );
+    addTearDown(controller.dispose);
+    final task = controller.start(const ReaderTtsSettings(autoTurnPage: false));
+    await _until(() => system.spoken.isNotEmpty);
+    expect(system.spoken, [spoken]);
+    await system.progress(spoken.indexOf('学'), spoken.indexOf('习') + 1);
+    expect(
+      controller.highlight.value!.wordStartCfi,
+      endsWith(':${text.indexOf('学')})'),
+    );
+    expect(
+      controller.highlight.value!.wordEndCfi,
+      endsWith(':${text.indexOf('习') + 1})'),
+    );
+    await controller.pause();
+    await controller.resume();
+    await _until(() => system.spoken.length == 2);
+    expect(system.spoken.last, '学习！');
+    await system.progress(1, 2);
+    expect(
+      controller.highlight.value!.wordStartCfi,
+      endsWith(':${text.indexOf('习')})'),
+    );
+    await system.complete();
+    await task;
+    expect(controller.snapshot.phase, ReaderTtsPhase.completed);
+  });
+
   test('系统拒绝朗读时提示错误且不推进原文', () async {
     system.speakResult = 0;
     final source = MemoryTtsTextSource(['有正文。', '不应朗读。']);

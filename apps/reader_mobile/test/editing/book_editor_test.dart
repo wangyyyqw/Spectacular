@@ -37,6 +37,7 @@ Future<BookEditorController> _open(
   Future<void> Function()? discardDraft,
   bool withImages = false,
   String? firstChapter,
+  String? secondChapter,
 }) async {
   late Directory temporary;
   late EpubEditSession session;
@@ -48,7 +49,7 @@ Future<BookEditorController> _open(
         chapters: [
           firstChapter ??
               '<p id="paragraph" class="body">原始正文与<em>行内强调</em>继续阅读。</p>',
-          '<p>第二章节正文。</p>',
+          secondChapter ?? '<p>第二章节正文。</p>',
         ],
         rawBody: true,
       ),
@@ -134,6 +135,21 @@ Future<void> _show(
 }
 
 void main() {
+  testWidgets('CRLF 源码首次打开保留换行且不触发修改和构建期通知', (tester) async {
+    final editor = await _open(
+      tester,
+      firstChapter: '<p id="paragraph">第一行正文。</p>\r\n<p>第二行正文。</p>',
+    );
+    final original = editor.session.readText(_chapter);
+    await _show(tester, editor, const Size(1360, 900));
+    expect(editor.activeDocument!.code.text, original);
+    expect(editor.dirty, isFalse);
+    expect(editor.hasPendingText, isFalse);
+    expect(editor.session.changedPaths, isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('混合行内段落后半部真实点击与选区编辑均定位到源码元素', (tester) async {
     final editor = await _open(
       tester,
@@ -635,6 +651,91 @@ void main() {
     await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
   });
 
+  testWidgets('源码底部查找替换与样式检查器左右切换，打开查找不回跳', (tester) async {
+    final editor = await _open(
+      tester,
+      firstChapter: '<p id="paragraph" class="body">正文</p>',
+    );
+    await _show(tester, editor, const Size(1360, 900));
+    expect(find.text('查找替换'), findsOneWidget);
+    expect(find.text('样式检查器'), findsOneWidget);
+    expect(find.byType(EditorFindBar), findsOneWidget);
+    expect(find.text('点击预览元素或从源码定位，查看样式。'), findsNothing);
+
+    await tester.tap(find.text('样式检查器'));
+    await tester.pump();
+    expect(find.byType(EditorFindBar), findsNothing);
+    expect(find.byType(BookEditorInspector), findsNothing);
+    expect(find.text('点击预览元素或从源码定位，查看样式。'), findsOneWidget);
+
+    tester.widget<ReaderPage>(find.byType(ReaderPage)).onEditTarget!(
+      _target(editor),
+    );
+    await tester.pump();
+    expect(find.byType(BookEditorInspector), findsOneWidget);
+
+    await tester.tap(find.text('查找替换'));
+    await tester.pump();
+    expect(find.byType(EditorFindBar), findsOneWidget);
+    expect(find.byType(BookEditorInspector), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('全书查找范围限制文件，结果片段高亮命中词', (tester) async {
+    final editor = await _open(
+      tester,
+      firstChapter: '<p id="paragraph">目标词出现两次：目标词。</p>',
+      secondChapter: '<p>第二章也有目标词。</p>',
+    );
+    await _show(tester, editor, const Size(1360, 900));
+    await tester.tap(find.byTooltip('全书查找替换'));
+    await pumpReaderUntil(tester, find.text('全书源码查找替换'));
+    final queryField = find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.decoration?.labelText == '查找内容',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(queryField, '目标词');
+    final findButton = find.widgetWithText(TextButton, '查找');
+    await tester.ensureVisible(findButton);
+    await tester.tap(findButton);
+    await tester.pump();
+    expect(find.text('3 处匹配'), findsOneWidget);
+    bool hasHighlight(InlineSpan span) =>
+        span is TextSpan &&
+        (span.style?.backgroundColor != null ||
+            (span.children?.any(hasHighlight) ?? false));
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is RichText && hasHighlight(widget.text),
+      ),
+      findsWidgets,
+    );
+
+    await tester.tap(find.text('所有文本文件'));
+    for (
+      var index = 0;
+      index < 10 && find.text('当前文件').hitTestable().evaluate().isEmpty;
+      index++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.tap(find.text('当前文件').hitTestable());
+    for (
+      var index = 0;
+      index < 10 && find.text('2 处匹配').evaluate().isEmpty;
+      index++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('2 处匹配'), findsOneWidget);
+    expect(find.byKey(const ValueKey('search-result-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('search-result-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('search-result-2')), findsNothing);
+    await tester.tap(find.text('关闭'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('桌面检查器显示精确元素、多类选择、全书属性入口并可折叠', (tester) async {
     final editor = await _open(
       tester,
@@ -656,10 +757,11 @@ void main() {
     await pumpReaderUntil(tester, find.text('全书 .body'));
     Navigator.of(tester.element(find.text('全书 .body'))).pop();
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.byTooltip('折叠样式检查器'));
+    await tester.tap(find.text('查找替换'));
     await tester.pump();
     expect(find.byType(BookEditorInspector), findsNothing);
-    await tester.tap(find.byTooltip('展开样式检查器'));
+    expect(find.byType(EditorFindBar), findsOneWidget);
+    await tester.tap(find.text('样式检查器'));
     await tester.pump();
     expect(find.byType(BookEditorInspector), findsOneWidget);
     editor.session.insertAfter(

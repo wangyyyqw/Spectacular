@@ -11,13 +11,17 @@ export '../book_source/book_cover_url.dart';
 /// 共用封面的圆角，书目卡片外框沿用同一尺寸。
 const bookCoverRadius = BorderRadius.all(Radius.circular(4));
 
+/// 拖动窗口时按 64 像素档位稳定解码尺寸，避免逐像素重建图像源。
+int _coverDecodeBucket(int value) =>
+    (((value + 63) ~/ 64) * 64).clamp(96, 1200);
+
 /// 封面解码宽度；预解码与显示必须用同一个宽度才会命中同一份缓存。
 int coverDecodeWidth(double logicalWidth, double devicePixelRatio) =>
-    (logicalWidth * devicePixelRatio).ceil().clamp(96, 1200);
+    _coverDecodeBucket((logicalWidth * devicePixelRatio).ceil());
 
 /// 与显示尺寸匹配的解码高度，避免只按宽度解码造成长封面占用过多内存。
 int coverDecodeHeight(double logicalHeight, double devicePixelRatio) =>
-    (logicalHeight * devicePixelRatio).ceil().clamp(96, 1200);
+    _coverDecodeBucket((logicalHeight * devicePixelRatio).ceil());
 
 /// 首屏预解码与按需显示使用相同尺寸键，共享 Flutter 的内存图像缓存。
 ImageProvider coverImageProvider(
@@ -105,35 +109,13 @@ class BookCoverImage extends StatelessWidget {
     final logicalWidth = constraints.maxWidth.isFinite
         ? constraints.maxWidth
         : 160.0;
-    final logicalHeight = constraints.maxHeight.isFinite
-        ? constraints.maxHeight
-        : logicalWidth * 4 / 3;
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     final decodeWidth = coverDecodeWidth(logicalWidth, devicePixelRatio);
-    final decodeHeight = coverDecodeHeight(logicalHeight, devicePixelRatio);
     if (book.coverPath != null) {
-      return Image(
-        image: coverImageProvider(
-          book.coverPath!,
-          decodeWidth,
-          decodeHeight: decodeHeight,
-        ),
-        key: ValueKey('cover-${book.coverPath}'),
-        width: double.infinity,
-        height: double.infinity,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        excludeFromSemantics: true,
-        frameBuilder: (_, child, frame, loaded) => AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          child: loaded || frame != null
-              ? child
-              : KeyedSubtree(
-                  key: const ValueKey('cover-loading'),
-                  child: placeholder,
-                ),
-        ),
-        errorBuilder: (_, _, _) => placeholder,
+      return _CoverImage(
+        book: book,
+        constraints: constraints,
+        placeholder: placeholder,
       );
     }
     final remote = normalizeBookCoverUrl(book.remoteCoverUrl);
@@ -144,6 +126,79 @@ class BookCoverImage extends StatelessWidget {
       headers: httpHeaders,
       decodeWidth: decodeWidth,
       placeholder: placeholder,
+    );
+  }
+}
+
+/// 解码新尺寸期间保留上一帧封面，只在首次加载或失败时露出占位。
+class _CoverImage extends StatefulWidget {
+  const _CoverImage({
+    required this.book,
+    required this.constraints,
+    required this.placeholder,
+  });
+
+  final BookEntry book;
+  final BoxConstraints constraints;
+  final Widget placeholder;
+
+  @override
+  State<_CoverImage> createState() => _CoverImageState();
+}
+
+class _CoverImageState extends State<_CoverImage> {
+  bool _loaded = false;
+
+  @override
+  void didUpdateWidget(covariant _CoverImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.book.coverPath != widget.book.coverPath) _loaded = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final logicalWidth = widget.constraints.maxWidth.isFinite
+        ? widget.constraints.maxWidth
+        : 160.0;
+    final logicalHeight = widget.constraints.maxHeight.isFinite
+        ? widget.constraints.maxHeight
+        : logicalWidth * 4 / 3;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (!_loaded) widget.placeholder,
+        Image(
+          image: coverImageProvider(
+            widget.book.coverPath!,
+            coverDecodeWidth(logicalWidth, devicePixelRatio),
+            decodeHeight: coverDecodeHeight(logicalHeight, devicePixelRatio),
+          ),
+          key: ValueKey('cover-${widget.book.coverPath}'),
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          excludeFromSemantics: true,
+          frameBuilder: (_, child, frame, synchronous) {
+            final ready = synchronous || frame != null;
+            if (ready && !_loaded) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && !_loaded) setState(() => _loaded = true);
+              });
+            }
+            return _loaded || ready ? child : const SizedBox.shrink();
+          },
+          errorBuilder: (_, _, _) {
+            if (_loaded) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _loaded) setState(() => _loaded = false);
+              });
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ],
     );
   }
 }

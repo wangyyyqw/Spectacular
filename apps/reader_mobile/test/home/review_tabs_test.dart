@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/reviews_page.dart';
@@ -49,51 +51,56 @@ BookEntry _book() => BookEntry(
 
 void main() {
   testWidgets('书评页默认进入笔记，切换到书评时才查询书评', (tester) async {
-    final store = _Reviews();
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(),
-        home: ReviewsPage(library: _Library([_book()]), reviewStore: store),
-      ),
-    );
-    await tester.pumpAndSettle();
+    final semantics = tester.ensureSemantics();
+    try {
+      final store = _Reviews();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: ReviewsPage(library: _Library([_book()]), reviewStore: store),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    bool selected(String section) =>
-        tester
-            .widget<Semantics>(find.byKey(ValueKey('$section-tab')))
-            .properties
-            .selected ??
-        false;
-    expect(selected('notes'), isTrue);
-    expect(selected('reviews'), isFalse);
-    expect(selected('booklists'), isFalse);
-    expect(find.text('还没有笔记'), findsOneWidget);
-    expect(find.byTooltip('刷新笔记'), findsNothing);
-    expect(find.byTooltip('刷新书评'), findsNothing);
-    expect(find.byTooltip('搜索笔记'), findsOneWidget);
-    expect(find.byTooltip('搜索书评'), findsNothing);
-    expect(store.snapshots, 0);
+      bool selected(String section) =>
+          tester
+              .getSemantics(find.byKey(ValueKey('$section-tab')))
+              .flagsCollection
+              .isSelected ==
+          Tristate.isTrue;
+      expect(selected('notes'), isTrue);
+      expect(selected('reviews'), isFalse);
+      expect(selected('booklists'), isFalse);
+      expect(find.text('还没有笔记'), findsOneWidget);
+      expect(find.byTooltip('刷新笔记'), findsNothing);
+      expect(find.byTooltip('刷新书评'), findsNothing);
+      expect(find.byTooltip('搜索笔记'), findsOneWidget);
+      expect(find.byTooltip('搜索书评'), findsNothing);
+      expect(store.snapshots, 0);
 
-    await tester.tap(find.byKey(const ValueKey('booklists-tab')));
-    await tester.pumpAndSettle();
-    expect(selected('booklists'), isTrue);
-    expect(find.text('还没有书单'), findsOneWidget);
-    expect(find.byTooltip('搜索书单'), findsOneWidget);
-    expect(store.snapshots, 0);
+      await tester.tap(find.byKey(const ValueKey('booklists-tab')));
+      await tester.pumpAndSettle();
+      expect(selected('booklists'), isTrue);
+      expect(find.text('还没有书单'), findsOneWidget);
+      expect(find.byTooltip('搜索书单'), findsOneWidget);
+      expect(store.snapshots, 0);
 
-    await tester.tap(find.byKey(const ValueKey('reviews-tab')));
-    await tester.pumpAndSettle();
-    expect(selected('reviews'), isTrue);
-    expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
-    expect(find.byTooltip('刷新书评'), findsNothing);
-    expect(find.byTooltip('搜索书评'), findsOneWidget);
-    expect(store.snapshots, 1);
+      await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+      await tester.pumpAndSettle();
+      expect(selected('reviews'), isTrue);
+      expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
+      expect(find.byTooltip('刷新书评'), findsNothing);
+      expect(find.byTooltip('搜索书评'), findsOneWidget);
+      expect(store.snapshots, 1);
 
-    await tester.tap(find.byKey(const ValueKey('notes-tab')));
-    await tester.pumpAndSettle();
-    expect(selected('notes'), isTrue);
-    expect(find.text('还没有笔记'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const ValueKey('notes-tab')));
+      await tester.pumpAndSettle();
+      expect(selected('notes'), isTrue);
+      expect(find.text('还没有笔记'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('左右滑动切换笔记、书评和书单', (tester) async {

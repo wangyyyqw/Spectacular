@@ -83,87 +83,172 @@ class _BookEditorInspectorState extends State<BookEditorInspector> {
   }
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
-    children: [
-      Tooltip(
-        message: widget.element.path,
-        child: SelectableText(
-          '<${widget.element.tag}>${widget.element.attributes['id'] == null ? '' : ' #${widget.element.attributes['id']}'}',
-        ),
-      ),
-      if (widget.element.ancestors.isNotEmpty)
-        Wrap(
-          spacing: 6,
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final element = widget.element;
+    final id = element.attributes['id'];
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      children: [
+        Row(
           children: [
-            for (final parent in widget.element.ancestors)
-              ActionChip(
-                label: Text('<${parent.tag}>'),
-                onPressed: () => widget.onSelect(parent),
+            Expanded(
+              child: Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  _tag('<${element.tag}>', active: true),
+                  if (id != null) _tag('#$id'),
+                ],
               ),
+            ),
+            const SizedBox(width: 8),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                minimumSize: const Size(0, 28),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: widget.onEdit,
+              icon: const AppIcon(AppGlyph.edit, size: 14),
+              label: const Text('编辑元素'),
+            ),
           ],
         ),
-      _classChoices(),
-      FutureBuilder<List<EditableStyleRule>>(
-        future: _rules,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) return Text('作者样式读取失败：${snapshot.error}');
-          final rules = snapshot.data;
-          if (rules == null) return const LinearProgressIndicator();
-          if (rules.isEmpty) {
-            return const Text('没有直接匹配的作者规则，可编辑 HTML 或添加全书 class 样式。');
-          }
-          return Column(
+        if (element.ancestors.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
             children: [
-              for (final rule in rules)
-                BookEditorStyleRule(
-                  key: ValueKey('${rule.path}:${rule.start}'),
-                  editor: widget.editor,
-                  rule: rule,
-                  onApplied: _reselectAfterStyle,
-                ),
+              for (final parent in element.ancestors)
+                _tag('<${parent.tag}>', onTap: () => widget.onSelect(parent)),
             ],
-          );
-        },
-      ),
-      if (_report == null && widget.element.classes.isNotEmpty)
-        const Text('选择一个 class，检查全书生效值与作者声明。'),
-      if (_report != null)
-        FutureBuilder<ClassStyleReport>(
-          future: _report,
+          ),
+        ],
+        const SizedBox(height: 8),
+        _classChoices(),
+        Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 6),
+          child: Row(
+            children: [
+              AppIcon(
+                AppGlyph.formatPaint,
+                size: 14,
+                color: colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '作者样式',
+                style: Theme.of(context).textTheme.labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+        FutureBuilder<List<EditableStyleRule>>(
+          future: _rules,
           builder: (context, snapshot) {
-            if (snapshot.hasError) return Text('检查未完成：${snapshot.error}');
-            if (!snapshot.hasData) return const LinearProgressIndicator();
-            return _details(snapshot.data!);
+            if (snapshot.hasError) return Text('作者样式读取失败：${snapshot.error}');
+            final rules = snapshot.data;
+            if (rules == null) return const LinearProgressIndicator();
+            if (rules.isEmpty) {
+              return const Text('没有直接匹配的作者规则，可编辑 HTML 或添加全书 class 样式。');
+            }
+            return Column(
+              children: [
+                for (final rule in rules)
+                  BookEditorStyleRule(
+                    key: ValueKey('${rule.path}:${rule.start}'),
+                    editor: widget.editor,
+                    rule: rule,
+                    onApplied: _reselectAfterStyle,
+                  ),
+              ],
+            );
           },
         ),
-    ],
-  );
+        if (_report == null && element.classes.isNotEmpty)
+          const Text('选择一个 class，检查全书生效值与作者声明。'),
+        if (_report != null)
+          FutureBuilder<ClassStyleReport>(
+            future: _report,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return Text('检查未完成：${snapshot.error}');
+              if (!snapshot.hasData) return const LinearProgressIndicator();
+              return _details(snapshot.data!);
+            },
+          ),
+      ],
+    );
+  }
 
-  Widget _classChoices() => Wrap(
-    spacing: 6,
-    children: [
-      for (final name in widget.element.classes)
-        ChoiceChip(
-          label: Text('.$name'),
-          selected: name == _class,
-          onSelected: (_) => setState(() => _inspect(name)),
-        ),
-      TextButton(
-        onPressed: widget.onEdit,
-        child: Text(
-          widget.element.classes.isEmpty ? '编辑正文、HTML 或添加 class' : '编辑正文或 HTML',
-        ),
+  Widget _tag(String label, {VoidCallback? onTap, bool active = false}) {
+    final colors = Theme.of(context).colorScheme;
+    final text = Text(
+      label,
+      maxLines: 1,
+      style: TextStyle(
+        fontFamily: 'monospace',
+        fontSize: 11,
+        height: 1.2,
+        color: active ? colors.onPrimary : colors.onSurfaceVariant,
       ),
-    ],
-  );
+    );
+    final tag = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: active ? colors.primary : colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: text,
+    );
+    if (onTap == null) return tag;
+    return InkWell(
+      borderRadius: BorderRadius.circular(4),
+      onTap: onTap,
+      child: tag,
+    );
+  }
+
+  Widget _classChoices() {
+    final classes = widget.element.classes;
+    if (classes.isEmpty) {
+      return Text('未声明 class', style: Theme.of(context).textTheme.labelSmall);
+    }
+    return Wrap(
+      spacing: 6,
+      runSpacing: 2,
+      children: [
+        for (final name in classes)
+          ChoiceChip(
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+            label: Text(
+              '.$name',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+            selected: name == _class,
+            onSelected: (_) => setState(() => _inspect(name)),
+          ),
+      ],
+    );
+  }
 
   Widget _details(ClassStyleReport report) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text('${report.chapterCount} 个章节 · ${report.elementCount} 个元素'),
       TextButton.icon(
-        icon: const AppIcon(AppGlyph.tune),
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 0),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        icon: const AppIcon(AppGlyph.tune, size: 14),
         label: Text('编辑全书 .${report.className} 属性'),
         onPressed: () => BookEditorTools(
           context,

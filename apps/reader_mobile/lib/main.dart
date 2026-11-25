@@ -230,11 +230,40 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     widget.onStartupReady?.call();
   }
 
+  double _windowTopInset = 0;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _themeColors.addListener(_colorsChanged);
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      _window.setMethodCallHandler((call) async {
+        if (call.method != 'windowInsetsChanged') return;
+        final arguments = call.arguments;
+        final top = arguments is Map<Object?, Object?>
+            ? (arguments['top'] as num?)?.toDouble()
+            : null;
+        if (top != null && mounted && top != _windowTopInset) {
+          setState(() => _windowTopInset = top);
+        }
+      });
+      unawaited(_loadWindowInsets());
+    }
+  }
+
+  Future<void> _loadWindowInsets() async {
+    try {
+      final insets = await _window.invokeMethod<Map<Object?, Object?>>(
+        'getWindowInsets',
+      );
+      final top = (insets?['top'] as num?)?.toDouble();
+      if (top != null && mounted && top != _windowTopInset) {
+        setState(() => _windowTopInset = top);
+      }
+    } catch (_) {
+      // 原生窗口未实现时保持无额外顶部内边距。
+    }
   }
 
   @override
@@ -437,21 +466,32 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
       ),
       themeMode: mode,
       themeAnimationDuration: Duration.zero,
-      builder: (context, child) => AppThemeScope(
-        mode: mode,
-        onModeChanged: _setMode,
-        uiStyle: uiStyle,
-        onUiStyleChanged: _setUiStyle,
-        child: ThemeColorScope(
-          settings: _themeColors,
-          child: AnnotatedRegion<SystemUiOverlayStyle>(
-            value: readerSystemBarStyle(
-              Theme.of(context).scaffoldBackgroundColor,
+      builder: (context, child) {
+        final topInset = defaultTargetPlatform == TargetPlatform.macOS
+            ? _windowTopInset
+            : 0.0;
+        return AppThemeScope(
+          mode: mode,
+          onModeChanged: _setMode,
+          uiStyle: uiStyle,
+          onUiStyleChanged: _setUiStyle,
+          child: ThemeColorScope(
+            settings: _themeColors,
+            child: AnnotatedRegion<SystemUiOverlayStyle>(
+              value: readerSystemBarStyle(
+                Theme.of(context).scaffoldBackgroundColor,
+              ),
+              child: ColoredBox(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: Padding(
+                  padding: EdgeInsets.only(top: topInset),
+                  child: child!,
+                ),
+              ),
             ),
-            child: child!,
           ),
-        ),
-      ),
+        );
+      },
       home: HomeShell(
         library: widget.library,
         progressStore: widget.progressStore,
@@ -465,6 +505,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         onUiStyleChanged: _setUiStyle,
         showWelcomeAnnouncement: widget.showWelcomeAnnouncement,
         onBookshelfReady: _onBookshelfReady,
+        windowTopInset: _windowTopInset,
       ),
     );
   }
