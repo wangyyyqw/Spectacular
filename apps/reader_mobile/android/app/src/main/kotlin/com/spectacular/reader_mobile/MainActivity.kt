@@ -1,10 +1,15 @@
 package com.spectacular.reader_mobile
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ObjectAnimator
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
+import android.view.animation.AnticipateInterpolator
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -26,8 +31,19 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         applyEdgeToEdge(window)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Flutter 首帧已显示同一标识，直接交接，避免系统再次淡出造成闪白。
-            splashScreen.setOnExitAnimationListener { it.remove() }
+            // Flutter 开屏开始动画时再淡出系统层，避免首帧交接露出空白。
+            splashScreen.setOnExitAnimationListener { splash ->
+                ObjectAnimator.ofFloat(splash, View.ALPHA, 1f, 0f).apply {
+                    interpolator = AnticipateInterpolator()
+                    duration = 500L
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            splash.remove()
+                        }
+                    })
+                    start()
+                }
+            }
         }
         super.onCreate(savedInstanceState)
     }

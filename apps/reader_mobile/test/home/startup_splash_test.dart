@@ -6,6 +6,11 @@ import 'package:reader_mobile/main.dart';
 import 'package:reader_ui/reader_session.dart';
 
 void main() {
+  testWidgets('开屏图标可以在 Flutter 首帧前预解码', (tester) async {
+    await tester.runAsync(preloadStartupSplashIcon);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('冷启动先显示开屏，约 0.8 秒后露出可操作的书架', (tester) async {
     await tester.pumpWidget(
       ReaderApp(

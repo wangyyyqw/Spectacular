@@ -1,4 +1,31 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+const _startupSplashIconAsset = 'assets/branding/app_icon.png';
+const _startupSplashIconCacheWidth = 264;
+
+/// 在 Flutter 首帧前解码启动图标，避免原生启动画面切换时露出空白。
+Future<void> preloadStartupSplashIcon() {
+  final stream = ResizeImage.resizeIfNeeded(
+    _startupSplashIconCacheWidth,
+    null,
+    const AssetImage(_startupSplashIconAsset),
+  ).resolve(const ImageConfiguration());
+  final ready = Completer<void>();
+  late final ImageStreamListener listener;
+  listener = ImageStreamListener(
+    (image, _) {
+      image.dispose();
+      if (!ready.isCompleted) ready.complete();
+    },
+    onError: (_, _) {
+      if (!ready.isCompleted) ready.complete();
+    },
+  );
+  stream.addListener(listener);
+  return ready.future.whenComplete(() => stream.removeListener(listener));
+}
 
 /// 冷启动开屏：入场期间准备封面，书架就绪后才淡出。
 class StartupSplash extends StatefulWidget {
@@ -83,10 +110,10 @@ class _StartupSplashState extends State<StartupSplash>
                     ClipRRect(
                       borderRadius: BorderRadius.circular(20),
                       child: Image.asset(
-                        'assets/branding/app_icon.png',
+                        _startupSplashIconAsset,
                         width: 88,
                         height: 88,
-                        cacheWidth: 264,
+                        cacheWidth: _startupSplashIconCacheWidth,
                         excludeFromSemantics: true,
                       ),
                     ),

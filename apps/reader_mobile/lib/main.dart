@@ -18,7 +18,7 @@ import 'reader/reader_text_warmup.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   final log = ReaderLog.instance;
   ReaderUiDiagnostics.onEvent = (event, fields) {
@@ -48,6 +48,8 @@ void main() {
   };
   assert(readerCorePackageName == 'reader_core');
   assert(readerUiPackageName == 'reader_ui');
+  // 原生启动画面保持可见，直到 Flutter 开屏图标已解码并能直接绘制。
+  await preloadStartupSplashIcon();
   final storage = StartupStorage(log: log);
   runApp(
     LiquidGlassWidgets.wrap(
