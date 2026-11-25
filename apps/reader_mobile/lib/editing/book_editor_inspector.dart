@@ -132,6 +132,22 @@ class _BookEditorInspectorState extends State<BookEditorInspector> {
         ],
         const SizedBox(height: 8),
         _classChoices(),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            icon: const EditorIcon(EditorGlyph.styleLibrary, size: 16),
+            label: const Text('从样式库应用'),
+            onPressed: widget.editor.busy
+                ? null
+                : () async {
+                    final changed = await BookEditorTools(
+                      context,
+                      widget.editor,
+                    ).styleLibrary(target: widget.element);
+                    if (changed && mounted) _reselectAfterStyle();
+                  },
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.only(top: 10, bottom: 6),
           child: Row(

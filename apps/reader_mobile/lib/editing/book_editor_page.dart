@@ -323,6 +323,8 @@ class _BookEditorPageState extends State<BookEditorPage> {
         await tools.addResource();
       case 'new-html':
         await createBookHtml(context, editor);
+      case 'style-library':
+        await tools.styleLibrary(target: _selectedElement);
       case 'insert-image':
       case 'edit-note':
         await _insertContent(action);
@@ -510,6 +512,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
       PopupMenuItem(value: 'toc', child: Text('目录')),
       PopupMenuItem(value: 'find', child: Text('全书查找替换')),
       PopupMenuItem(value: 'add', child: Text('新增章节或资源')),
+      PopupMenuItem(value: 'style-library', child: Text('样式库')),
       PopupMenuItem(value: 'validate', child: Text('校验书籍')),
       PopupMenuItem(value: 'history', child: Text('编辑历史与恢复')),
       PopupMenuItem(value: 'export', child: Text('导出 EPUB')),
@@ -609,6 +612,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
         child: const Text('在文档中查找'),
       ),
       _toolItem('全书查找替换', 'find'),
+      _toolItem('样式库', 'style-library'),
     ],
     child: const Text('编辑'),
   );
@@ -631,6 +635,14 @@ class _BookEditorPageState extends State<BookEditorPage> {
             ('注释与正文', EditorGlyph.annotations),
           ])
             _categoryButton(label, icon),
+          TextButton.icon(
+            key: const ValueKey('editor-style-library'),
+            onPressed: editor.busy
+                ? null
+                : () => unawaited(_tool('style-library')),
+            icon: const EditorIcon(EditorGlyph.styleLibrary, size: 20),
+            label: const Text('样式库'),
+          ),
         ],
       ),
     ),
@@ -713,6 +725,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
       'new-html' => EditorGlyph.code,
       'insert-image' => EditorGlyph.addImage,
       'edit-note' => EditorGlyph.editNote,
+      'style-library' => EditorGlyph.styleLibrary,
       'validate' => EditorGlyph.checklist,
       _ => EditorGlyph.replace,
     }, size: 18),

@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:reader_core/editing/class_style_editor.dart';
 import 'package:reader_core/editing/class_style_worker.dart';
 import 'package:reader_core/editing/epub_edit_session.dart';
+import 'package:reader_core/editing/editable_document.dart';
 import 'package:reader_core/editing/package_editor.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_ui/icons/app_icon.dart' show AppExpansionTile;
@@ -20,6 +21,8 @@ import 'book_editor_controller.dart';
 import 'book_editor_new_html.dart';
 import 'css_completion.dart';
 import 'css_completion_input.dart';
+import 'book_style_library.dart';
+import 'book_style_presets.dart';
 import '../diagnostics/reader_log.dart';
 
 part 'book_editor_files.dart';
@@ -180,7 +183,43 @@ class BookEditorTools {
     }
   }
 
-  Future<void> classStyle(String name) async {
+  Future<bool> styleLibrary({EditableElementRef? target}) async {
+    if (editor.busy || !editor.flush()) return false;
+    final revision = editor.session.revision;
+    final path = editor.activePath;
+    if (target == null &&
+        path != null &&
+        editor.session.previewPaths.contains(path)) {
+      target = editor.session
+          .editableDocument(path)
+          .elementAtOffset(editor.sourceOffset ?? 0);
+    }
+    if (target != null && !isBookStyleTarget(target)) target = null;
+    final element = target;
+    final choice = await showBookStyleLibrary(
+      context,
+      target: element,
+      onApply: (choice) async {
+        if (choice.className != null) return true;
+        final applied = editor.runCommand(
+          () => applyBookStyleToElement(
+            editor.session,
+            element!,
+            choice.preset,
+            important: choice.important,
+          ),
+        );
+        if (!applied) throw EpubEditException(editor.error ?? '样式未应用，请稍后重试');
+        return true;
+      },
+    );
+    if (choice?.className case final name?) {
+      if (context.mounted) await classStyle(name, preset: choice!.preset);
+    }
+    return editor.session.revision != revision;
+  }
+
+  Future<void> classStyle(String name, {BookStylePreset? preset}) async {
     if (!editor.flush()) return;
     final viewportWidth =
         editor.previewSource?.contentWidth ?? MediaQuery.sizeOf(context).width;
@@ -224,6 +263,14 @@ class BookEditorTools {
     ]) {
       fields.putIfAbsent(key, TextEditingController.new);
     }
+    void fillPreset(BookStylePreset preset) {
+      for (final entry in preset.declarations.entries) {
+        fields.putIfAbsent(entry.key, TextEditingController.new).text =
+            entry.value;
+      }
+    }
+
+    if (preset != null) fillPreset(preset);
     String? failure;
     var working = false;
     await _showEditorDrawer<void>(
@@ -242,6 +289,24 @@ class BookEditorTools {
                   ),
                   if (working) const LinearProgressIndicator(),
                   const SizedBox(height: 12),
+                  TextButton.icon(
+                    icon: const EditorIcon(EditorGlyph.styleLibrary),
+                    label: const Text('从样式库填入'),
+                    onPressed: working
+                        ? null
+                        : () async {
+                            final choice = await showBookStyleLibrary(
+                              context,
+                              pickOnly: true,
+                            );
+                            if (choice != null && context.mounted) {
+                              setState(() {
+                                fillPreset(choice.preset);
+                                failure = null;
+                              });
+                            }
+                          },
+                  ),
                   TextButton.icon(
                     icon: const EditorIcon(EditorGlyph.code),
                     label: const Text('高级：打开 CSS 源码'),
