@@ -708,16 +708,14 @@ class _StaticVoxelChart extends StatelessWidget {
     final count = scene.bars.length;
     final labelWidth = math.min(32.0, width / count * 3);
     return Stack(
+      clipBehavior: Clip.none,
       children: [
         for (final bar in scene.bars)
           if (bar.index == 0 ||
               bar.index == count - 1 ||
               ((bar.index + 1) % 5 == 0 && bar.index < count - 4))
             Positioned(
-              left: (width * (bar.index + .5) / count - labelWidth / 2).clamp(
-                0.0,
-                math.max(0.0, width - labelWidth),
-              ),
+              left: width * (bar.index + .5) / count - labelWidth / 2,
               top: 4,
               width: labelWidth,
               child: FittedBox(

@@ -9,6 +9,43 @@ import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/home/reading_book_list.dart';
 
 void main() {
+  for (final (width, scale) in [(360.0, 1.0), (320.0, 2.0)]) {
+    testWidgets('月图首日和末日刻度居中对齐柱体 $width/$scale', (tester) async {
+      tester.view
+        ..physicalSize = Size(width, 900)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: CloudStatsView(
+              stats: _snapshot(_period(day: 3, total: 3600)),
+              loading: false,
+              linkedCloudBookIds: {},
+              onRefresh: () async {},
+              onOpenBook: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final index in [0, 4, 29]) {
+        final tick = find.byKey(ValueKey('cloud-duration-tick-$index'));
+        final bar = find.byKey(ValueKey('cloud-duration-bar-$index'));
+        expect(
+          tester.getCenter(tick).dx,
+          closeTo(tester.getCenter(bar).dx, .01),
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('阅读记录抽屉隐藏入口先确认，取消保留记录，确认后调用隐藏接口', (tester) async {
     final book = ReaMicroBookRecord.fromJson({
       'bookId': 8,

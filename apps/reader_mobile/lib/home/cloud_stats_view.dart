@@ -664,6 +664,9 @@ class _PeriodBars extends StatelessWidget {
                                   child: Align(
                                     alignment: Alignment.bottomCenter,
                                     child: Container(
+                                      key: ValueKey(
+                                        'cloud-duration-bar-$index',
+                                      ),
                                       width: (slot * .55).clamp(2, 18),
                                       height: durations[index] == 0
                                           ? 2
@@ -717,19 +720,18 @@ class _PeriodBars extends StatelessWidget {
               return SizedBox(
                 height: 24 * scale,
                 child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     for (var index = 0; index < count; index++)
                       if (count <= 12 || index == 0 || (index + 1) % 5 == 0)
                         Positioned(
-                          left: (slot * (index + .5) - labelWidth / 2).clamp(
-                            0,
-                            constraints.maxWidth - labelWidth,
-                          ),
+                          left: slot * (index + .5) - labelWidth / 2,
                           width: labelWidth,
                           child: Text(
                             period == ReaMicroRecordPeriod.week
                                 ? labels[index].replaceFirst('周', '')
                                 : labels[index].replaceAll(RegExp('[日月]'), ''),
+                            key: ValueKey('cloud-duration-tick-$index'),
                             textAlign: TextAlign.center,
                             maxLines: 1,
                             style: theme.textTheme.labelSmall,
