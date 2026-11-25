@@ -36,6 +36,12 @@ class ReaderTtsSegment {
 abstract final class ReaderTtsSegmentation {
   static final _noise = RegExp(r'[※＊*·•●○◆◇■□━─—=~]{2,}');
   static final _space = RegExp(r'\s|\u00a0', unicode: true);
+  // 至少三个汉字逐字强调才合并，避免把普通的两个短句当成拆字写法。
+  static final _emphasis = RegExp(
+    r'\p{Script=Han}(?:[!！?？]+[ \t\u00a0]*\p{Script=Han}){2,}[!！?？]+',
+    unicode: true,
+  );
+  static final _emphasisGap = RegExp(r'[!！?？]+[ \t\u00a0]*');
   static const _ends = '。！？!?；;';
   static const _soft = '，,、：: ';
 
@@ -96,7 +102,7 @@ abstract final class ReaderTtsSegmentation {
     Iterable<int> paragraphStarts = const [],
     Iterable<int> pageEnds = const [],
   }) {
-    final normalized = _normalize(text);
+    final normalized = _normalize(text, paragraphStarts);
     final breaks = _mappedBreaks(normalized, paragraphStarts);
     final pages = _mappedBreaks(normalized, pageEnds);
     final result = <ReaderTtsSegment>[];
@@ -153,14 +159,44 @@ abstract final class ReaderTtsSegmentation {
     yield (start, range.$2);
   }
 
-  static ({String text, List<int> offsets}) _normalize(String text) {
+  /// 只省略强调词内部的停顿，末尾语气标点、段落与对白边界保持原样。
+  static Map<int, int> _emphasisGaps(
+    String text,
+    Iterable<int> paragraphStarts,
+  ) {
+    final gaps = <int, int>{};
+    final boundaries = {0, ...paragraphStarts, text.length}.toList()..sort();
+    for (var i = 1; i < boundaries.length; i++) {
+      final start = boundaries[i - 1];
+      final paragraph = text.substring(start, boundaries[i]);
+      for (final match in _emphasis.allMatches(paragraph)) {
+        final phrase = match[0]!;
+        for (final gap in _emphasisGap.allMatches(phrase)) {
+          if (gap.end == phrase.length) break;
+          gaps[start + match.start + gap.start] = start + match.start + gap.end;
+        }
+      }
+    }
+    return gaps;
+  }
+
+  static ({String text, List<int> offsets}) _normalize(
+    String text,
+    Iterable<int> paragraphStarts,
+  ) {
     final buffer = StringBuffer();
     final offsets = <int>[];
+    final emphasisGaps = _emphasisGaps(text, paragraphStarts);
     final noise = {
       for (final match in _noise.allMatches(text)) match.start: match.end,
     };
     var space = true;
     for (var i = 0; i < text.length; i++) {
+      final emphasisEnd = emphasisGaps[i];
+      if (emphasisEnd != null) {
+        i = emphasisEnd - 1;
+        continue;
+      }
       final noiseEnd = noise[i];
       final whitespace = noiseEnd != null || _space.hasMatch(text[i]);
       if (!whitespace || !space) {

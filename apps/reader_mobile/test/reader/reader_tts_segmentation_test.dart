@@ -2,6 +2,82 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/reader_offline_tts.dart';
 
 void main() {
+  test('连续单字强调连成完整词组，保留末尾语气与每个字的原文坐标', () {
+    const text = '一百多个新配方全！部！学！习！接着制作。';
+    final segments = ReaderTtsSegmentation.split(text);
+    expect(segments.map((segment) => segment.text), ['一百多个新配方全部学习！', '接着制作。']);
+    for (final segment in segments) {
+      for (var i = 0; i < segment.text.length; i++) {
+        expect(text[segment.rawStart(i)], segment.text[i]);
+        expect(segment.rawEnd(i + 1), segment.rawStart(i) + 1);
+      }
+    }
+    expect(
+      segments.first.rawEnd(segments.first.text.length),
+      text.indexOf('接'),
+    );
+  });
+
+  test('强调支持中英文叹问号、连续标点和间隔空格，不切开扩展汉字', () {
+    const text = '“全!! 部！ 学!? 习！！”他说。“怎？么?可？！能？”“𠀀！乙！丙！”';
+    final segments = ReaderTtsSegmentation.split(text);
+    expect(segments.map((segment) => segment.text), [
+      '全部学习！！',
+      '他说。',
+      '怎么可能？',
+      '𠀀乙丙！',
+    ]);
+    expect(segments.map((segment) => segment.isDialogue), [
+      true,
+      false,
+      true,
+      true,
+    ]);
+    expect(segments.last.sourceOffsets.take(2), [
+      text.indexOf('𠀀'),
+      text.indexOf('𠀀') + 1,
+    ]);
+  });
+
+  test('普通短句、列举、引号和段落之间不作为单字强调合并', () {
+    const text = '来！走！甲、乙、丙。好！“是！的！”全！部！学！习！';
+    final segments = ReaderTtsSegmentation.split(
+      text,
+      paragraphStarts: [text.indexOf('学')],
+    );
+    expect(segments.map((segment) => segment.text), [
+      '来！',
+      '走！',
+      '甲、乙、丙。',
+      '好！',
+      '是！',
+      '的！',
+      '全！',
+      '部！',
+      '学！',
+      '习！',
+    ]);
+  });
+
+  test('强调词组跨页仍按原文页末拆分并保留连续播放关系', () {
+    const text = '全！部！学！习！';
+    final segments = ReaderTtsSegmentation.split(
+      text,
+      pageEnds: [text.indexOf('部'), text.indexOf('习')],
+    );
+    expect(segments.map((segment) => segment.text), ['全', '部学', '习！']);
+    expect(segments.map((segment) => segment.sourceOffsets), [
+      [0],
+      [2, 4],
+      [6, 7],
+    ]);
+    expect(segments.map((segment) => segment.continuesOnNextPage), [
+      true,
+      true,
+      false,
+    ]);
+  });
+
   test('短首句保持原分段，长首句在自然停顿拆开且保留对白原文坐标', () {
     final text = '“这是适合首先朗读的自然短语，${'后面的内容' * 16}。”下一句。';
     final original = ReaderTtsSegmentation.split(text);

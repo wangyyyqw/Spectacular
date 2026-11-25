@@ -135,6 +135,39 @@ void main() {
     expect(controller.snapshot.phase, ReaderTtsPhase.completed);
   });
 
+  test('离线模型收到完整强调词组，不再逐字合成且保留对白和高亮范围', () async {
+    const text = '“一百多个新配方全！部！学！习！”接着制作。';
+    final worker = _FakeWorker();
+    final synthesizer = SherpaReaderOfflineTtsSynthesizer(
+      openWorker: () async => worker,
+    );
+    final player = _FakePlayer();
+    final controller = ReaderTtsController(
+      textSource: MemoryTtsTextSource([text]),
+      offlineSynthesizer: synthesizer,
+      player: player,
+      resolveOfflineVoice: _resolveVoice,
+    );
+    final highlights = <String>[];
+    controller.highlight.addListener(() {
+      final range = controller.highlight.value;
+      if (range != null) highlights.add(range.endCfi);
+    });
+    addTearDown(controller.dispose);
+    await controller.start(_settings);
+    expect(worker.inputs.map((input) => input['text']), [
+      '一百多个新配方全部学习！',
+      '接着制作。',
+    ]);
+    expect(worker.inputs.map((input) => input['root']), [
+      '/tmp/dialogue',
+      '/tmp/narrator',
+    ]);
+    expect(highlights.first, endsWith(':${text.indexOf('”')})'));
+    expect(player.clips, hasLength(2));
+    expect(controller.snapshot.phase, ReaderTtsPhase.completed);
+  });
+
   test('对白跟随旁白时只解析一个模型', () async {
     var resolves = 0;
     final synthesizer = _FakeSynthesizer();
@@ -460,6 +493,7 @@ class _FakeWorker extends Fake implements ReaderOfflineTtsWorker {
   int prepares = 0;
   int generations = 0;
   int closes = 0;
+  final inputs = <Map<String, Object?>>[];
   Completer<void>? ready;
 
   @override
@@ -470,6 +504,7 @@ class _FakeWorker extends Fake implements ReaderOfflineTtsWorker {
   @override
   Future<Map<String, Object?>> generate(Map<String, Object?> input) async {
     generations++;
+    inputs.add(input);
     await ready?.future;
     return {'wav': Uint8List(0), 'sampleRate': 22050, 'sampleCount': 22050};
   }
