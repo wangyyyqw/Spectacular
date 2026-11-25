@@ -774,6 +774,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   Widget _bookTile(BookSource source, OnlineBook book, {bool grid = false}) {
     final theme = Theme.of(context);
     final summary = onlineBookCardSummary(book);
+    final showSourceName = _searchMode && !grid;
     final cover = _DiscoverCover(
       controller: widget.controller,
       source: source,
@@ -824,18 +825,20 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  source.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+              if (showSourceName) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    source.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ],

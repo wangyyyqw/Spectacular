@@ -229,6 +229,23 @@ void main() {
       );
     });
     await pumpReaderTask(tester, controller.initialize());
+    final searchSource = controller.sources.singleWhere(
+      (source) => source.name == '测试平台',
+    );
+    final searchBook = (await pumpReaderTask(tester, controller.search('搜索书')))
+        .singleWhere((result) => result.source.id == searchSource.id)
+        .books
+        .single;
+    await pumpReaderTask(
+      tester,
+      controller.addToShelf(searchSource, searchBook, const [
+        OnlineChapter(
+          index: 0,
+          title: '第一章',
+          url: 'https://example.com/chapter/搜索书',
+        ),
+      ]),
+    );
     await tester.pumpWidget(
       MaterialApp(home: DiscoverPage(controller: controller)),
     );
@@ -247,11 +264,10 @@ void main() {
         .first;
     expect(
       find.descendant(of: details, matching: find.byType(Text)),
-      findsNWidgets(5),
+      findsNWidgets(4),
     );
     expect(find.text('10章 · 最新：第十章'), findsOneWidget);
     expect(find.text('25万字 / 玄幻 · 今天'), findsOneWidget);
-    expect(find.text('测试平台'), findsOneWidget);
     final categoryText = tester.widget<Text>(find.text('最近更新'));
     final categoryTheme = Theme.of(tester.element(find.text('最近更新')));
     expect(
@@ -318,6 +334,23 @@ void main() {
     await pumpReaderUntil(tester, find.text('搜索书'));
     await tester.pumpAndSettle();
     expect(find.text('搜索书'), findsWidgets);
+    final searchCard = find.byKey(
+      ValueKey('discover-book-${searchSource.id}-${searchBook.bookUrl}'),
+    );
+    final searchSourceName = find.descendant(
+      of: searchCard,
+      matching: find.text('测试平台'),
+    );
+    final searchShelfBadge = find.descendant(
+      of: searchCard,
+      matching: find.text('已在书架'),
+    );
+    expect(searchSourceName, findsOneWidget);
+    expect(searchShelfBadge, findsOneWidget);
+    expect(
+      tester.getRect(searchSourceName).right,
+      closeTo(tester.getRect(searchShelfBadge).right, 0.5),
+    );
     expect(find.text('人气书'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.tap(find.byTooltip('返回发现'));
@@ -697,6 +730,7 @@ void main() {
       ),
     );
     await pumpReaderTask(tester, controller.initialize());
+    final source = controller.sources.single;
     await tester.pumpWidget(
       MaterialApp(home: DiscoverPage(controller: controller)),
     );
@@ -711,7 +745,7 @@ void main() {
         .first;
     expect(
       find.descendant(of: details, matching: find.byType(Text)),
-      findsNWidgets(5),
+      findsNWidgets(4),
     );
     await tester.tap(find.byTooltip('网格视图'));
     await pumpReaderUntilComplete(
@@ -732,6 +766,15 @@ void main() {
       await pumpReaderUntil(tester, find.text('列表作者'));
       await tester.pumpAndSettle();
       expect(find.textContaining('玄幻 / 修仙'), findsOneWidget);
+      final resultCard = find
+          .ancestor(of: find.text('列表书'), matching: find.byType(Card))
+          .first;
+      final sourceName = find.descendant(
+        of: resultCard,
+        matching: find.text(source.name),
+      );
+      expect(sourceName, findsOneWidget);
+      expect(find.text(source.name), findsNWidgets(2));
       expect(find.text('详情加载中'), findsNothing);
     }
     expect(requested.where((path) => path == '/search'), hasLength(2));
