@@ -13,6 +13,8 @@ import 'editor_icon.dart';
 import 'book_editor_controller.dart';
 import 'book_editor_find_bar.dart';
 import 'book_editor_search.dart';
+import 'css_completion.dart';
+import 'css_completion_input.dart';
 import 'book_editor_tools.dart';
 import 'xhtml_chunk_analyzer.dart';
 
@@ -432,63 +434,61 @@ class _BookEditorSourceState extends State<BookEditorSource> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Listener(
       onPointerUp: (_) => _followCursor(),
-      child: CodeEditor(
-        key: ValueKey(doc.path),
+      child: CssCodeCompletion(
+        key: ValueKey('css-completion-${doc.path}'),
         controller: doc.code,
-        findController: doc.find,
         focusNode: _codeFocus,
         readOnly: widget.controller.busy,
-        autofocus: false,
-        wordWrap: _wrap,
-        onChanged: (_) => _followCursor(),
-        shortcutOverrideActions: {
-          CodeShortcutFindIntent: CallbackAction<CodeShortcutFindIntent>(
-            onInvoke: (_) {
-              _openFind();
-              return null;
-            },
-          ),
-          CodeShortcutReplaceIntent: CallbackAction<CodeShortcutReplaceIntent>(
-            onInvoke: (_) {
-              _openFind(replace: true);
-              return null;
-            },
-          ),
-        },
-        chunkAnalyzer: css
-            ? const DefaultCodeChunkAnalyzer()
-            : const XhtmlChunkAnalyzer(),
-        padding: const EdgeInsets.all(10),
-        style: CodeEditorStyle(
-          fontSize: 13,
-          fontFamily: 'monospace',
-          highlightColor: dark
-              ? const Color(0x8CFFC107)
-              : const Color(0x99FFB300),
-          codeTheme: CodeHighlightTheme(
-            languages: {
-              if (css)
-                'css': CodeHighlightThemeMode(mode: langCss)
-              else
-                'xml': CodeHighlightThemeMode(mode: langXml),
-            },
-            theme: dark ? githubDarkTheme : githubTheme,
-          ),
-        ),
-        indicatorBuilder: (_, editing, chunks, notifier) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DefaultCodeLineNumber(controller: editing, notifier: notifier),
-            DefaultCodeChunkIndicator(
-              width: 16,
-              controller: chunks,
-              notifier: notifier,
+        mode: css ? CssCompletionMode.stylesheet : CssCompletionMode.xhtml,
+        builder: (indicator) => CodeEditor(
+          key: ValueKey(doc.path),
+          controller: doc.code,
+          findController: doc.find,
+          focusNode: _codeFocus,
+          readOnly: widget.controller.busy,
+          autofocus: false,
+          wordWrap: _wrap,
+          onChanged: (_) => _followCursor(),
+          shortcutOverrideActions: {
+            CodeShortcutFindIntent: CallbackAction<CodeShortcutFindIntent>(
+              onInvoke: (_) {
+                _openFind();
+                return null;
+              },
             ),
-          ],
-        ),
-        findBuilder: (_, _, _) => const PreferredSize(
-          preferredSize: Size.zero,
-          child: SizedBox.shrink(),
+            CodeShortcutReplaceIntent:
+                CallbackAction<CodeShortcutReplaceIntent>(
+                  onInvoke: (_) {
+                    _openFind(replace: true);
+                    return null;
+                  },
+                ),
+          },
+          chunkAnalyzer: css
+              ? const DefaultCodeChunkAnalyzer()
+              : const XhtmlChunkAnalyzer(),
+          padding: const EdgeInsets.all(10),
+          style: CodeEditorStyle(
+            fontSize: 13,
+            fontFamily: 'monospace',
+            highlightColor: dark
+                ? const Color(0x8CFFC107)
+                : const Color(0x99FFB300),
+            codeTheme: CodeHighlightTheme(
+              languages: {
+                if (css)
+                  'css': CodeHighlightThemeMode(mode: langCss)
+                else
+                  'xml': CodeHighlightThemeMode(mode: langXml),
+              },
+              theme: dark ? githubDarkTheme : githubTheme,
+            ),
+          ),
+          indicatorBuilder: indicator,
+          findBuilder: (_, _, _) => const PreferredSize(
+            preferredSize: Size.zero,
+            child: SizedBox.shrink(),
+          ),
         ),
       ),
     );

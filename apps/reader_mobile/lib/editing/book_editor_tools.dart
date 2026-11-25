@@ -18,6 +18,8 @@ import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_new_html.dart';
+import 'css_completion.dart';
+import 'css_completion_input.dart';
 import '../diagnostics/reader_log.dart';
 
 part 'book_editor_files.dart';
@@ -278,18 +280,26 @@ class BookEditorTools {
                   for (final entry in fields.entries)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: TextField(
+                      child: CssTextCompletion(
                         controller: entry.value,
-                        decoration: InputDecoration(
-                          labelText: entry.key,
-                          hintText: report.declarations.containsKey(entry.key)
-                              ? '留空移除这项编辑覆盖'
-                              : '留空不修改',
-                          helperText:
-                              report.effectiveValues[entry.key]?.isNotEmpty ==
-                                  true
-                              ? '当前生效：${report.effectiveValues[entry.key]!.join(' / ')}${report.effectiveValues[entry.key]!.length > 1 ? '（元素间有差异）' : ''}'
-                              : null,
+                        mode: CssCompletionMode.value,
+                        property: entry.key,
+                        readOnly: working,
+                        builder: (focus) => TextField(
+                          controller: entry.value,
+                          focusNode: focus,
+                          readOnly: working,
+                          decoration: InputDecoration(
+                            labelText: entry.key,
+                            hintText: report.declarations.containsKey(entry.key)
+                                ? '留空移除这项编辑覆盖'
+                                : '留空不修改',
+                            helperText:
+                                report.effectiveValues[entry.key]?.isNotEmpty ==
+                                    true
+                                ? '当前生效：${report.effectiveValues[entry.key]!.join(' / ')}${report.effectiveValues[entry.key]!.length > 1 ? '（元素间有差异）' : ''}'
+                                : null,
+                          ),
                         ),
                       ),
                     ),
@@ -297,7 +307,7 @@ class BookEditorTools {
                     icon: const EditorIcon(EditorGlyph.add),
                     label: const Text('添加 CSS 属性'),
                     onPressed: () async {
-                      final key = await editorPrompt(context, 'CSS 属性名');
+                      final key = await _cssPropertyPrompt(context);
                       if (key != null &&
                           key.trim().isNotEmpty &&
                           context.mounted) {
@@ -396,6 +406,41 @@ class BookEditorTools {
     for (final field in fields.values) {
       field.dispose();
     }
+  }
+
+  Future<String?> _cssPropertyPrompt(BuildContext context) async {
+    final input = TextEditingController();
+    final result = await _showEditorDrawer<String>(
+      context: context,
+      builder: (context) => ReaderSheetForm(
+        title: const Text('添加 CSS 属性'),
+        content: CssTextCompletion(
+          controller: input,
+          mode: CssCompletionMode.property,
+          builder: (focus) => TextField(
+            controller: input,
+            focusNode: focus,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'CSS 属性名',
+              helperText: '输入筛选建议，Ctrl+Space 显示补全；也可填写自定义属性。',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, input.text.trim()),
+            child: const Text('添加属性'),
+          ),
+        ],
+      ),
+    );
+    input.dispose();
+    return result;
   }
 
   Future<bool?> _conflicts(
