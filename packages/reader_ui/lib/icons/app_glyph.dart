@@ -821,24 +821,26 @@ void _rateReview(AppIconCanvas canvas) {
   canvas.solid(_roundRect(7, 11.5, 13.5, 13, 0.75));
 }
 
-Path _bookmarkPath() => _polygon(const [
-  Offset(6.5, 3.5),
-  Offset(17.5, 3.5),
-  Offset(17.5, 20.5),
-  Offset(12, 16.5),
-  Offset(6.5, 20.5),
-]);
+Path _bookmarkPath() => Path()
+  ..moveTo(7.3, 2.8)
+  ..lineTo(16.7, 2.8)
+  ..arcToPoint(const Offset(18.5, 4.6), radius: const Radius.circular(1.8))
+  ..lineTo(18.5, 21.2)
+  ..lineTo(12, 17.3)
+  ..lineTo(5.5, 21.2)
+  ..lineTo(5.5, 4.6)
+  ..arcToPoint(const Offset(7.3, 2.8), radius: const Radius.circular(1.8))
+  ..close();
 
-void _bookmark(AppIconCanvas canvas) => canvas.outline(_bookmarkPath());
+void _bookmark(AppIconCanvas canvas) {
+  canvas.outline(_bookmarkPath());
+  canvas.solid(_roundRect(9, 6.5, 15, 8, .75));
+}
 
 void _bookmarkAdd(AppIconCanvas canvas) {
-  canvas.line(_bookmarkPath());
-  canvas.line(
-    _polylines(const [
-      [Offset(12, 8.3), Offset(12, 13.7)],
-      [Offset(9.3, 11), Offset(14.7, 11)],
-    ]),
-  );
+  canvas.outline(_bookmarkPath());
+  canvas.solid(_roundRect(11.2, 7.8, 12.8, 14.2, .8));
+  canvas.solid(_roundRect(8.8, 10.2, 15.2, 11.8, .8));
 }
 
 void _star(AppIconCanvas canvas) => canvas.outline(
@@ -1009,13 +1011,16 @@ void _listBulleted(AppIconCanvas canvas) {
 void _headphones(AppIconCanvas canvas) {
   canvas.line(
     Path()
-      ..moveTo(4.5, 14.5)
-      ..lineTo(4.5, 12)
-      ..arcToPoint(const Offset(19.5, 12), radius: const Radius.circular(7.5))
-      ..lineTo(19.5, 14.5),
+      ..moveTo(4, 13.5)
+      ..lineTo(4, 11.5)
+      ..cubicTo(4, 6.3, 7.4, 2.8, 12, 2.8)
+      ..cubicTo(16.6, 2.8, 20, 6.3, 20, 11.5)
+      ..lineTo(20, 13.5),
   );
-  canvas.line(_roundRect(3.5, 13.5, 8, 20.5, 2));
-  canvas.line(_roundRect(16, 13.5, 20.5, 20.5, 2));
+  canvas.outline(_roundRect(2.8, 12.5, 8.5, 21.2, 1.8));
+  canvas.outline(_roundRect(15.5, 12.5, 21.2, 21.2, 1.8));
+  canvas.solid(_roundRect(6, 14.5, 7.4, 19.2, .7));
+  canvas.solid(_roundRect(16.6, 14.5, 18, 19.2, .7));
 }
 
 void _image(AppIconCanvas canvas) {
@@ -1139,32 +1144,38 @@ void _info(AppIconCanvas canvas) {
 }
 
 void _lightMode(AppIconCanvas canvas) {
-  canvas.line(_circle(12, 12, 3.8));
+  canvas.outline(_circle(12, 12, 4.1));
   for (var ray = 0; ray < 8; ray++) {
-    final angle = ray * math.pi / 4;
-    canvas.line(
-      _polylines([
-        [_polar(6.6, angle), _polar(9, angle)],
-      ]),
-    );
+    canvas.rotate(const Offset(12, 12), ray * math.pi / 4, () {
+      canvas.solid(_roundRect(11.2, 1.9, 12.8, 5, .8));
+    });
   }
 }
 
-void _darkMode(AppIconCanvas canvas) => canvas.line(
-  Path()
-    ..moveTo(21, 12.8)
-    ..arcToPoint(
-      const Offset(11.2, 3),
-      radius: const Radius.circular(9),
-      largeArc: true,
-    )
-    ..arcToPoint(
-      const Offset(21, 12.8),
-      radius: const Radius.circular(7),
-      clockwise: false,
-    )
-    ..close(),
-);
+void _darkMode(AppIconCanvas canvas) {
+  canvas.outline(
+    Path()
+      ..moveTo(12.4, 2.8)
+      ..cubicTo(6.6, 2.6, 2.8, 6.6, 2.8, 12)
+      ..cubicTo(2.8, 17.1, 6.9, 21.2, 12, 21.2)
+      ..cubicTo(16.9, 21.2, 20.5, 17.7, 21, 13.2)
+      ..cubicTo(17.4, 14.8, 13.2, 13.4, 11.5, 9.9)
+      ..cubicTo(10.3, 7.4, 10.8, 4.8, 12.4, 2.8)
+      ..close(),
+  );
+  canvas.solid(
+    _polygon(const [
+      Offset(18, 3.3),
+      Offset(18.8, 5.2),
+      Offset(20.7, 6),
+      Offset(18.8, 6.8),
+      Offset(18, 8.7),
+      Offset(17.2, 6.8),
+      Offset(15.3, 6),
+      Offset(17.2, 5.2),
+    ]),
+  );
+}
 
 Path _openBook() => Path()
   ..moveTo(12, 6.6)
