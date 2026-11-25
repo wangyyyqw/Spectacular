@@ -12,7 +12,8 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = ("packages/reader_core", "packages/reader_ui", "apps/reader_mobile")
+PACKAGES = ("packages/reader_core", "packages/reader_ui",
+            "packages/epub_toolkit", "apps/reader_mobile")
 
 
 def matches(path, patterns):

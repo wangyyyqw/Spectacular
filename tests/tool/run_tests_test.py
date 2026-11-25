@@ -90,6 +90,25 @@ class SelectionTest(unittest.TestCase):
         path = "apps/reader_mobile/test/home/stats_page_test.dart"
         self.assertEqual(self.select([path, path]), [path])
 
+    def test_recent_tests_are_selected_by_their_behavior(self):
+        cases = {
+            "apps/reader_mobile/test/editing/epub_file_editor_page_test.dart": "ui",
+            "apps/reader_mobile/test/library/book_list_store_test.dart": "storage",
+            "apps/reader_mobile/test/page_turn_perf_app_test.dart": "perf",
+            "apps/reader_mobile/test/reader/scroll_mode_switch_test.dart": "position",
+        }
+        for path, group in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(runner.test_group(path, self.catalog), group)
+                self.assertEqual(self.select([path]), [path])
+
+    def test_epub_toolkit_changes_select_local_tool_regressions(self):
+        path = "packages/epub_toolkit/lib/src/features/img_to_webp/img_to_webp.dart"
+        selected = self.select([path])
+        self.assertEqual(self.selected_groups([path]), {"resources"})
+        self.assertIn("packages/epub_toolkit/test/media_tools_test.dart", selected)
+        self.assertIn("packages/epub_toolkit/test/structure_tools_test.dart", selected)
+
     def test_deleted_test_selects_remaining_tests_in_its_group(self):
         path = "apps/reader_mobile/test/home/removed_test.dart"
         self.assertEqual(self.selected_groups([path]), {"ui"})
@@ -139,6 +158,14 @@ class CatalogTest(unittest.TestCase):
             catalog["source_rules"] = [{"groups": ["missing"], "paths": ["src/*"]}]
             write(root, "tool/test_groups.json", json.dumps(catalog))
             with self.assertRaisesRegex(ValueError, "源码规则引用了未知分类"):
+                runner.load_catalog(root)
+
+    def test_unclassified_epub_toolkit_test_is_not_silently_omitted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            minimal_catalog(root)
+            write(root, "packages/epub_toolkit/test/new_tool_test.dart")
+            with self.assertRaisesRegex(ValueError, "未分类.*new_tool_test"):
                 runner.load_catalog(root)
 
 
@@ -240,6 +267,18 @@ class ExecutionTest(unittest.TestCase):
         execute.assert_not_called()
         self.assertIn("选择分类：css", output.getvalue())
         self.assertNotIn("执行目录：packages/reader_ui", output.getvalue())
+
+    def test_all_dry_run_includes_epub_toolkit_without_device_tests(self):
+        with patch.object(runner, "execute_commands") as execute, \
+                redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(runner.main(["--all", "--dry-run"]), 0)
+        execute.assert_not_called()
+        preview = output.getvalue()
+        self.assertIn("执行目录：packages/epub_toolkit", preview)
+        self.assertIn("test/media_tools_test.dart", preview)
+        self.assertIn("test/local_dispatch_test.dart", preview)
+        self.assertNotIn("integration_test/", preview)
+        self.assertNotIn("third_party/", preview)
 
     def test_unknown_category_fails_without_execution(self):
         with patch.object(runner, "execute_commands") as execute, redirect_stderr(io.StringIO()):
