@@ -11,6 +11,55 @@ from pathlib import Path
 from release_metadata import ROOT, artifact_name, reserve
 
 
+def _flutter_candidates():
+    """按优先级返回可能的 Flutter SDK 根目录。"""
+    roots = []
+    configured = os.environ.get("FLUTTER_ROOT")
+    if configured:
+        roots.append(Path(configured).expanduser())
+
+    # 允许从仓库所在目录向外推导本地 SDK，例如 E:\\MTool\\SDK\\flutter。
+    for parent in (ROOT, *ROOT.parents):
+        roots.extend((parent / "SDK" / "flutter", parent / "flutter"))
+
+    seen = set()
+    for root in roots:
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        yield resolved
+
+
+def _find_flutter():
+    """返回 Flutter 可执行文件路径和 SDK 根目录；找不到时返回 ``(None, None)``。"""
+    for command in ("flutter", "flutter.bat"):
+        executable = shutil.which(command)
+        if executable:
+            path = Path(executable).resolve()
+            return str(path), path.parent.parent
+
+    for root in _flutter_candidates():
+        executable = root / "bin" / ("flutter.bat" if os.name == "nt" else "flutter")
+        if executable.is_file():
+            return str(executable), root
+    return None, None
+
+
+def _with_flutter_path(environment, sdk_root):
+    """把 Flutter 和其 Dart SDK 加入子进程 PATH，避免依赖调用方的全局 PATH。"""
+    if sdk_root is None:
+        return environment
+    bin_dir = sdk_root / "bin"
+    dart_bin = bin_dir / "cache" / "dart-sdk" / "bin"
+    current = environment.get("PATH", "").split(os.pathsep)
+    additions = [str(bin_dir), str(dart_bin)]
+    environment["PATH"] = os.pathsep.join(
+        [*additions, *(entry for entry in current if entry and entry not in additions)]
+    )
+    return environment
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=["all", "arm64", "winx64"],
@@ -19,7 +68,7 @@ def main():
     args = parser.parse_args()
     if args.platform in ("all", "winx64") and os.name != "nt":
         parser.error("Windows 构建需要在 Windows 上执行")
-    flutter = shutil.which("flutter") or shutil.which("flutter.bat")
+    flutter, flutter_sdk = _find_flutter()
     bash = shutil.which("bash")
     if os.name == "nt":
         git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
@@ -31,6 +80,7 @@ def main():
     version, number = reserve()
     env = dict(os.environ, READER_RELEASE_VERSION=version,
                READER_RELEASE_NUMBER=str(number), PYTHONIOENCODING="utf-8")
+    _with_flutter_path(env, flutter_sdk)
     app = ROOT / "apps/reader_mobile"
     dist = app / "dist"
     dist.mkdir(parents=True, exist_ok=True)

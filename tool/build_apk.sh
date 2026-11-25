@@ -29,6 +29,13 @@ case "$(uname -s)" in
 esac
 symbols="$PWD/$dist/symbols/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$symbols"
+# Git Bash 下 Flutter/Gradle 运行在 Windows 路径语义中；传入 POSIX 路径时
+# AOT 快照器可能无法创建符号文件。保留 shell 路径用于校验和复制，构建参数
+# 在 Windows 上显式转换为驱动器路径。
+flutter_symbols="$symbols"
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*) flutter_symbols="$(cygpath -w "$symbols")" ;;
+esac
 flutter_sdk="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().parent.parent)' "$(command -v flutter)")"
 
 if [ ! -f "$app/.dart_tool/package_config.json" ] || [ -z "$cache_option" ]; then
@@ -42,7 +49,7 @@ fi
   cd "$app"
   flutter build apk --release --no-pub --config-only --target-platform=android-arm64 \
     --build-name="$READER_RELEASE_VERSION" --build-number="$READER_RELEASE_NUMBER" \
-    --split-debug-info="$symbols"
+    --split-debug-info="$flutter_symbols"
   dart --packages="$flutter_sdk/packages/flutter_tools/.dart_tool/package_config.json" \
     ../../tool/generate_release_plugins.dart "$flutter_sdk"
   cd android
@@ -53,7 +60,7 @@ fi
     -Pflutter.versionName="$READER_RELEASE_VERSION" -Pflutter.versionCode="$READER_RELEASE_NUMBER" \
     -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart \
     -Pdisable-abi-filtering=true \
-    -Psplit-debug-info="$symbols" \
+    -Psplit-debug-info="$flutter_symbols" \
     -Pbase-application-name=android.app.Application \
     -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true \
     ${kotlin_incremental:+"$kotlin_incremental"}
