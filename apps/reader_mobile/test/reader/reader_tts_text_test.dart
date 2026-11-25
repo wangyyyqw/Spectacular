@@ -290,6 +290,54 @@ void main() {
     await playback.controller.stop();
     await task;
   });
+
+  test('后台读过多页返回时直接定位最新句，不逐页追赶或增加翻页统计', () async {
+    final playback = await _openBoundaryPlayback();
+    final session = playback.link.session;
+    final chunk = (await playback.link.first(autoTurnPage: true))!;
+    final range = chunk.highlightFor(chunk.segments.last)!;
+    final revision = session.navigationRevision;
+    final turns = session.pageTurns;
+    await playback.link.setScreenActive(false);
+    await playback.link.follow(range);
+    expect(session.page!.pageIndex, 0);
+    await playback.link.setScreenActive(true);
+    expect(session.navigationRevision, revision + 1);
+    expect(session.pageTurns, turns);
+    expect(playback.link.following, isTrue);
+    expect(
+      ReaderTextRangeGeometry.containsPoint(session.page!, range.startCfi),
+      isTrue,
+    );
+  });
+
+  test('手动翻到其他章节后切后台，返回时不抢走用户的阅读位置', () async {
+    final source = await openTestChapterSource(
+      buildMultiChapterEpub(chapters: ['听书原文。', '用户手动浏览的章节。']),
+    );
+    final session = ReaderSession(
+      source: source,
+      store: MemoryReaderProgressStore(),
+      bookId: 'tts-background-detached',
+    );
+    await session.open();
+    final link = ReaderTtsReaderLink(session);
+    addTearDown(() {
+      link.dispose();
+      session.dispose();
+      source.close();
+    });
+    final chunk = (await link.first(autoTurnPage: true))!;
+    final range = chunk.highlightFor(chunk.segments.last)!;
+    await session.jumpToChapter(1);
+    final revision = session.navigationRevision;
+    await link.setScreenActive(false);
+    await link.follow(range);
+    await link.setScreenActive(true);
+    expect(session.page!.spineIndex, 1);
+    expect(session.navigationRevision, revision);
+    expect(link.following, isFalse);
+  });
 }
 
 const _boundarySettings = ReaderTtsSettings(
@@ -353,6 +401,9 @@ Future<ReaderOfflineVoiceInstance?> _boundaryVoice(String id) async =>
     );
 
 class _BoundarySynthesizer implements ReaderOfflineTtsSynthesizer {
+  @override
+  Future<void> prepare(ReaderOfflineVoiceInstance voice) async {}
+
   final segments = <ReaderTtsSegment>[];
 
   @override

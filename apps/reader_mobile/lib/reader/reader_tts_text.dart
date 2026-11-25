@@ -30,6 +30,13 @@ class ReaderTtsTextChunk {
   final List<ReaderTtsSegment> segments;
   final AnchorChapter? chapter;
 
+  ReaderTtsTextChunk withShortLead(int startIndex) => ReaderTtsTextChunk(
+    spineIndex: spineIndex,
+    title: title,
+    chapter: chapter,
+    segments: ReaderTtsSegmentation.shortenLead(segments, startIndex),
+  );
+
   ReaderReadingHighlight? highlightFor(
     ReaderTtsSegment segment, {
     int? wordStart,
@@ -66,6 +73,7 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
   bool _following = true;
   bool _closed = false;
   bool _screenActive = true;
+  bool _catchUp = false;
   Completer<void> _screenSuspended = Completer<void>();
   ReaderReadingHighlight? _target;
   Future<void>? _followingTask;
@@ -211,6 +219,7 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
       return Future.value();
     }
     _screenSuspended = Completer<void>();
+    _catchUp = true;
     final target = _target;
     return target == null ? Future.value() : follow(target);
   }
@@ -221,6 +230,13 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
       final page = session.page;
       if (range == null || page == null || session.loading) return;
       final cfi = range.wordStartCfi ?? range.startCfi;
+      if (_catchUp) {
+        _catchUp = false;
+        if (!ReaderTextRangeGeometry.containsPoint(page, cfi)) {
+          if (!await _jumpTo(range)) return;
+          continue;
+        }
+      }
       final scroll = session.revealViewportRange(
         cfi,
         range.wordEndCfi ?? range.endCfi,
@@ -236,22 +252,34 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
           EpubCfi.parse(cfi)!.compareTo(EpubCfi.parse(origin)!) < 0) {
         return;
       }
-      final revision = session.navigationRevision;
-      final turn = await session.preparePageTurn(true, prefetch: true);
-      if (turn == null) return;
-      if (_closed ||
-          !_screenActive ||
-          !following ||
-          revision != session.navigationRevision) {
-        session.releasePageTurn(turn);
-        return;
-      }
-      _navigationRevision = revision + 1;
-      if (!session.commitPageTurn(turn)) return;
+      if (!await _turnPage()) return;
     }
   }
 
+  Future<bool> _turnPage() async {
+    final revision = session.navigationRevision;
+    final turn = await session.preparePageTurn(true, prefetch: true);
+    if (turn == null) return false;
+    if (_closed ||
+        !_screenActive ||
+        !following ||
+        revision != session.navigationRevision) {
+      session.releasePageTurn(turn);
+      return false;
+    }
+    _navigationRevision = revision + 1;
+    return session.commitPageTurn(turn);
+  }
+
   Future<bool> returnTo(ReaderReadingHighlight range) async {
+    _target = range;
+    final moved = await _jumpTo(range);
+    if (moved) await follow(_target!);
+    return moved;
+  }
+
+  /// 后台续读直接定位已读到的原文，不逐页补翻或增加阅读统计。
+  Future<bool> _jumpTo(ReaderReadingHighlight range) async {
     _following = false;
     final revision = session.navigationRevision + 1;
     _navigationRevision = revision;
@@ -262,7 +290,6 @@ class ReaderTtsReaderLink implements ReaderTtsTextSource {
     );
     if (!_closed && moved && session.navigationRevision == revision) {
       _following = true;
-      await follow(range);
     }
     return moved;
   }

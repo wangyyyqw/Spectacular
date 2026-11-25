@@ -63,8 +63,8 @@ class ReaderOfflineTtsWorker {
   Future<Map<String, Object?>> generate(Map<String, Object?> input) =>
       _request('generate', input);
 
-  Future<void> release() async {
-    await _request('release', const {});
+  Future<void> prepare(Map<String, Object?> input) async {
+    await _request('prepare', input);
   }
 
   Future<Map<String, Object?>> _request(
@@ -102,6 +102,9 @@ Future<void> _ttsWorkerMain(SendPort responses) async {
       try {
         if (operation == 'generate') {
           responses.send((id, _generate(models, input)));
+        } else if (operation == 'prepare') {
+          _modelFor(models, input);
+          responses.send((id, <String, Object?>{}));
         } else {
           for (final model in models.values) {
             model.free();
@@ -126,17 +129,7 @@ Map<String, Object?> _generate(
   Map<String, sherpa.OfflineTts> models,
   Map<String, Object?> input,
 ) {
-  final root = input['root']! as String;
-  final description = input['model']! as Map<String, Object?>;
-  final key = '$root:${jsonEncode(description)}';
-  var tts = models.remove(key);
-  if (tts == null) {
-    if (models.length >= 2) models.remove(models.keys.first)!.free();
-    tts = sherpa.OfflineTts(
-      _ttsConfig(ReaderOfflineVoiceModel.fromJson(description), root),
-    );
-  }
-  models[key] = tts;
+  final tts = _modelFor(models, input);
   final audio = tts.generate(
     text: input['text']! as String,
     sid: (input['speaker']! as int).clamp(0, tts.numSpeakers - 1),
@@ -150,6 +143,24 @@ Map<String, Object?> _generate(
     'sampleRate': audio.sampleRate,
     'sampleCount': audio.samples.length,
   };
+}
+
+sherpa.OfflineTts _modelFor(
+  Map<String, sherpa.OfflineTts> models,
+  Map<String, Object?> input,
+) {
+  final root = input['root']! as String;
+  final description = input['model']! as Map<String, Object?>;
+  final key = '$root:${jsonEncode(description)}';
+  var tts = models.remove(key);
+  if (tts == null) {
+    if (models.length >= 2) models.remove(models.keys.first)!.free();
+    tts = sherpa.OfflineTts(
+      _ttsConfig(ReaderOfflineVoiceModel.fromJson(description), root),
+    );
+  }
+  models[key] = tts;
+  return tts;
 }
 
 // 上游四种模型的字段各异，集中保持配置对应关系，避免分散模型路径规则。

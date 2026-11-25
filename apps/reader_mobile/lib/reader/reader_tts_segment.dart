@@ -39,6 +39,58 @@ abstract final class ReaderTtsSegmentation {
   static const _ends = '。！？!?；;';
   static const _soft = '，,、：: ';
 
+  /// 只缩短启动句段；后续仍按完整句读预合成，跨页关系与原文坐标保留。
+  static List<ReaderTtsSegment> shortenLead(
+    List<ReaderTtsSegment> segments,
+    int startIndex,
+  ) {
+    final text = StringBuffer();
+    for (var i = startIndex; i < segments.length; i++) {
+      text.write(segments[i].text);
+      if (!segments[i].continuesOnNextPage) break;
+    }
+    var boundary = _leadBoundary(text.toString());
+    if (boundary == text.length) return segments;
+    for (var i = startIndex; i < segments.length; i++) {
+      final segment = segments[i];
+      if (boundary > segment.text.length) {
+        boundary -= segment.text.length;
+        continue;
+      }
+      ReaderTtsSegment part(int from, int to, {bool continues = false}) =>
+          ReaderTtsSegment(
+            text: segment.text.substring(from, to),
+            kind: segment.kind,
+            sourceOffsets: segment.sourceOffsets.isEmpty
+                ? const []
+                : segment.sourceOffsets.sublist(from, to),
+            continuesOnNextPage: continues,
+          );
+      return [
+        ...segments.take(i),
+        part(0, boundary),
+        if (boundary < segment.text.length)
+          part(
+            boundary,
+            segment.text.length,
+            continues: segment.continuesOnNextPage,
+          ),
+        ...segments.skip(i + 1),
+      ];
+    }
+    return segments;
+  }
+
+  static int _leadBoundary(String text) {
+    const maximum = 40;
+    if (text.length <= maximum) return text.length;
+    // 优先在 12～40 字间的自然停顿处起播，避免首段过短而来不及预合成。
+    for (var i = 11; i < maximum; i++) {
+      if (_soft.contains(text[i])) return i + 1;
+    }
+    return utf16Boundary(text, maximum);
+  }
+
   static List<ReaderTtsSegment> split(
     String text, {
     Iterable<int> paragraphStarts = const [],

@@ -153,6 +153,7 @@ class ReaderPage extends StatefulWidget {
     this.onSearch,
     this.onSessionReady,
     this.onTts,
+    this.onMenuBarVisibleChanged,
     this.readingHighlight,
     this.onBookEnd,
     this.editMode = false,
@@ -345,6 +346,9 @@ class ReaderPage extends StatefulWidget {
   /// 打开听书控制面板，由宿主管理平台语音。
   final VoidCallback? onTts;
 
+  /// 底部菜单栏可见状态变化（菜单展开且没有抽屉）；宿主据此显示悬浮控件。
+  final ValueChanged<bool>? onMenuBarVisibleChanged;
+
   /// 正在朗读的临时区间；高频更新只重绘高亮层。
   final ValueListenable<ReaderReadingHighlight?>? readingHighlight;
 
@@ -492,6 +496,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 菜单是否展开（设计稿沉浸式菜单）。
   bool _menuOpen = false;
+
+  /// 底栏区域是否完整露出：菜单展开且没有抽屉盖住底栏。
+  bool _menuBarVisible = false;
+
+  void _setMenuOpen(bool open) {
+    if (_menuOpen == open) return;
+    _menuOpen = open;
+    _syncMenuBarVisible();
+  }
+
+  /// 同步底栏可见状态给宿主，底部悬浮控件据此显示或隐藏。
+  void _syncMenuBarVisible() {
+    final visible = _menuOpen && _drawer == null;
+    if (_menuBarVisible == visible) return;
+    _menuBarVisible = visible;
+    widget.onMenuBarVisibleChanged?.call(visible);
+  }
+
   ({bool statusBar, bool navigationBar})? _systemBars;
   Timer? _systemBarRestoreTimer;
   bool _keyboardVisible = false;
@@ -607,9 +629,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _pageTurnKey.currentState?.controller.cancel();
     _clearSelection();
     setState(() {
-      _menuOpen = true;
+      _setMenuOpen(true);
       _drawer = ReaderMenuEntry.toc;
       _drawerTab = _DrawerTab.search;
+      _syncMenuBarVisible();
     });
     _searchFocus.requestFocus();
   }
@@ -1251,7 +1274,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final open = !_menuOpen;
     _log('user_menu', <String, Object?>{'open': open});
     setState(() {
-      _menuOpen = open;
+      _setMenuOpen(open);
       if (!_menuOpen) {
         _drawer = null;
         _drawerTab = _DrawerTab.content;
@@ -1265,6 +1288,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _drawer = entry;
       _drawerTab = _DrawerTab.content;
+      _syncMenuBarVisible();
     });
   }
 
@@ -1273,6 +1297,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
+      _syncMenuBarVisible();
     });
     _keyboardFocus.requestFocus();
   }
@@ -1283,7 +1308,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     setState(() {
-      _menuOpen = false;
+      _setMenuOpen(false);
       _drawer = null;
       _drawerTab = _DrawerTab.content;
     });
@@ -1326,7 +1351,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       _drawer = null;
       _drawerTab = _DrawerTab.content;
-      _menuOpen = false;
+      _setMenuOpen(false);
       _editingTapZones = true;
     });
   }

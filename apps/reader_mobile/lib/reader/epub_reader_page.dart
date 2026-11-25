@@ -21,6 +21,7 @@ import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
 import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
@@ -287,44 +288,37 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       return;
     }
     final controller = _ensureTtsController();
+    if (controller.hasSession) {
+      setState(() {});
+      return;
+    }
     setState(() {});
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => ReaderTtsPlaybackSheet(
-        controller: controller,
-        onStart: () async {
-          final started = await _startTts(controller);
-          if (sheetContext.mounted && started) Navigator.of(sheetContext).pop();
-        },
-        onSettings: () => _editTtsSettings(controller),
-        onReturn: () async {
-          final range = controller.position;
-          if (range == null) return;
-          await _ttsReaderLink?.returnTo(range);
-          if (sheetContext.mounted) Navigator.of(sheetContext).pop();
-        },
-      ),
-    );
+    await _startTts(controller);
   }
 
   Future<bool> _startTts(ReaderTtsController controller) async {
     var settings = _settings.tts;
-    if (settings.mode == ReaderTtsMode.system && settings.hasVoice) {
-      final voices = await controller.loadVoices();
-      if (!voices.any(
-        (voice) =>
-            voice.name == settings.voiceName &&
-            voice.locale == settings.voiceLocale,
-      )) {
+    if (settings.mode == ReaderTtsMode.offline) {
+      if (!settings.hasOfflineVoice) {
+        final selected = await _showTtsSettings();
+        if (selected == null) return false;
+        settings = selected;
+      }
+    } else if (settings.hasVoice) {
+      // 系统音色被卸载时回退到系统默认语音，不阻塞开始。
+      try {
+        final voices = await controller.loadVoices();
+        if (voices.isNotEmpty &&
+            !voices.any(
+              (voice) =>
+                  voice.name == settings.voiceName &&
+                  voice.locale == settings.voiceLocale,
+            )) {
+          settings = settings.copyWith(voiceName: '', voiceLocale: '');
+        }
+      } catch (_) {
         settings = settings.copyWith(voiceName: '', voiceLocale: '');
       }
-    }
-    if (settings.mode == ReaderTtsMode.offline && !settings.hasOfflineVoice) {
-      final selected = await _showTtsSettings();
-      if (selected == null) return false;
-      settings = selected;
     }
     if (!mounted) return false;
     _changeSettings(_settings.copyWithTts(settings));
@@ -343,22 +337,162 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     controller.updateSettings(settings);
   }
 
+  /// 浮条语速按钮的当前值提示，系统 TTS 与离线模型含义不同。
+  String _ttsSpeedLabel(ReaderTtsSettings settings) =>
+      settings.mode == ReaderTtsMode.system
+      ? '语速 · ${settings.rate.toStringAsFixed(1)} · '
+            '音调 ${settings.pitch.toStringAsFixed(1)}'
+      : '语速 · 旁白 ${settings.narratorSpeed.toStringAsFixed(1)}x · '
+            '对白 ${settings.dialogueSpeed.toStringAsFixed(1)}x';
+
+  /// 浮条里的语速快捷入口：按当前引擎调节系统语速/音调或离线旁白/对白语速。
+  Future<void> _editTtsSpeed(ReaderTtsController controller) async {
+    var draft = _settings.tts;
+    final systemMode = draft.mode == ReaderTtsMode.system;
+    final applied = await showModalBottomSheet<ReaderTtsSettings>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('语速', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              if (systemMode) ...[
+                _TtsSlider(
+                  label: '语速',
+                  value: draft.rate,
+                  min: 0.2,
+                  max: 1,
+                  onChanged: (value) =>
+                      setSheetState(() => draft = draft.copyWith(rate: value)),
+                ),
+                _TtsSlider(
+                  label: '音调',
+                  value: draft.pitch,
+                  min: 0.5,
+                  max: 2,
+                  onChanged: (value) =>
+                      setSheetState(() => draft = draft.copyWith(pitch: value)),
+                ),
+              ] else ...[
+                _TtsSlider(
+                  label: '旁白语速',
+                  value: draft.narratorSpeed,
+                  min: 0.5,
+                  max: 2,
+                  onChanged: (value) => setSheetState(
+                    () => draft = draft.copyWith(narratorSpeed: value),
+                  ),
+                ),
+                _TtsSlider(
+                  label: '对白语速',
+                  value: draft.dialogueSpeed,
+                  min: 0.5,
+                  max: 2,
+                  onChanged: (value) => setSheetState(
+                    () => draft = draft.copyWith(dialogueSpeed: value),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              FilledButton(
+                key: const ValueKey<String>('tts-speed-apply'),
+                onPressed: () => Navigator.of(sheetContext).pop(draft),
+                child: const Text('完成'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (applied == null || !mounted) return;
+    _changeSettings(_settings.copyWithTts(applied));
+    controller.updateSettings(applied);
+  }
+
+  Future<void> _editTtsTimer() async {
+    final selected = await showModalBottomSheet<Duration?>(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(title: Text('定时暂停')),
+            for (final minutes in const [15, 30, 45, 60])
+              ListTile(
+                leading: const Icon(Icons.timer_outlined),
+                title: Text('$minutes 分钟后暂停'),
+                onTap: () =>
+                    Navigator.of(context).pop(Duration(minutes: minutes)),
+              ),
+            if (_ttsSleepDuration != null)
+              ListTile(
+                leading: const Icon(Icons.close),
+                title: const Text('取消定时'),
+                onTap: () => Navigator.of(context).pop(Duration.zero),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    _ttsSleepTimer?.cancel();
+    if (selected == Duration.zero) {
+      setState(() {
+        _ttsSleepTimer = null;
+        _ttsSleepDuration = null;
+      });
+      return;
+    }
+    setState(() => _ttsSleepDuration = selected);
+    _ttsSleepTimer = Timer(selected, () {
+      _ttsSleepTimer = null;
+      if (!mounted) return;
+      setState(() => _ttsSleepDuration = null);
+      final controller = _ttsController;
+      if (controller?.speaking ?? false) {
+        unawaited(controller!.pause());
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('定时结束，已暂停朗读')));
+      }
+    });
+  }
+
+  void _onTtsStateChanged() {
+    final phase = _ttsController?.snapshot.phase;
+    if (phase != ReaderTtsPhase.idle &&
+        phase != ReaderTtsPhase.completed &&
+        phase != ReaderTtsPhase.failed) {
+      return;
+    }
+    _ttsSleepTimer?.cancel();
+    _ttsSleepTimer = null;
+    if (_ttsSleepDuration == null) return;
+    _ttsSleepDuration = null;
+    if (mounted) setState(() {});
+  }
+
   Future<ReaderTtsSettings?> _showTtsSettings() async {
+    final store = _ensureTtsVoiceStore();
+    var installedVoices = await store.listInstalled();
+    var availableVoices = await store.availableVoices();
     var systemVoices = <ReaderTtsVoice>[];
     var systemVoicesUnavailable = false;
     try {
       systemVoices = await _ensureTtsController().loadVoices();
     } catch (_) {
-      // 系统服务不可用时，仍允许选择已下载的离线音色。
+      // 系统语音服务不可用时，仍可配置离线模型。
       systemVoicesUnavailable = true;
     }
-    final store = _ensureTtsVoiceStore();
-    var installedVoices = await store.listInstalled();
-    var availableVoices = await store.availableVoices();
     if (!mounted) return null;
     var draft = _settings.tts;
-    if (!systemVoicesUnavailable &&
-        draft.hasVoice &&
+    if (draft.hasVoice &&
+        !systemVoicesUnavailable &&
         !systemVoices.any(
           (voice) =>
               voice.name == draft.voiceName &&
@@ -366,9 +500,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         )) {
       draft = draft.copyWith(voiceName: '', voiceLocale: '');
     }
-    if (installedVoices.isNotEmpty &&
-        !installedVoices.any((voice) => voice.id == draft.narratorVoiceId)) {
-      draft = draft.copyWith(narratorVoiceId: installedVoices.first.id);
+    if (!installedVoices.any((voice) => voice.id == draft.narratorVoiceId)) {
+      draft = draft.copyWith(
+        narratorVoiceId: installedVoices.isEmpty
+            ? ''
+            : installedVoices.first.id,
+      );
     }
     if (draft.dialogueVoiceId.isNotEmpty &&
         !installedVoices.any((voice) => voice.id == draft.dialogueVoiceId)) {
@@ -402,37 +539,38 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Text('听书设置', style: Theme.of(context).textTheme.titleLarge),
-                if (systemVoicesUnavailable) ...[
-                  const SizedBox(height: 8),
-                  const Text('无法读取系统音色，仍可选择离线伴听。'),
-                ],
                 const SizedBox(height: 12),
                 SegmentedButton<ReaderTtsMode>(
+                  key: const ValueKey<String>('tts-mode'),
                   segments: const <ButtonSegment<ReaderTtsMode>>[
                     ButtonSegment<ReaderTtsMode>(
                       value: ReaderTtsMode.system,
-                      label: Text('系统语音'),
+                      label: Text('系统 TTS'),
                       icon: Icon(Icons.record_voice_over_outlined),
                     ),
                     ButtonSegment<ReaderTtsMode>(
                       value: ReaderTtsMode.offline,
-                      label: Text('离线伴听'),
+                      label: Text('离线模型'),
                       icon: Icon(Icons.offline_bolt_outlined),
                     ),
                   ],
                   selected: <ReaderTtsMode>{draft.mode},
-                  onSelectionChanged: (selection) {
-                    setSheetState(
-                      () => draft = draft.copyWith(mode: selection.first),
-                    );
-                  },
+                  onSelectionChanged: (selection) => setSheetState(
+                    () => draft = draft.copyWith(mode: selection.first),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 if (draft.mode == ReaderTtsMode.system) ...<Widget>[
-                  if (systemVoices.isNotEmpty) ...<Widget>[
+                  if (systemVoicesUnavailable)
+                    Text(
+                      '无法读取系统音色，将使用系统默认语音。',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    )
+                  else
                     ReaderDropdownButtonFormField<String>(
                       key: ValueKey<String>(
-                        'tts-voice-${draft.voiceName}-${draft.voiceLocale}',
+                        'tts-system-voice-${draft.voiceName}-'
+                        '${draft.voiceLocale}',
                       ),
                       initialValue: draft.hasVoice
                           ? '${draft.voiceName}|${draft.voiceLocale}'
@@ -476,29 +614,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                         );
                       },
                     ),
-                    const SizedBox(height: 8),
-                  ],
-                  _TtsSlider(
-                    label: '语速',
-                    value: draft.rate,
-                    min: 0.2,
-                    max: 1,
-                    onChanged: (value) => setSheetState(
-                      () => draft = draft.copyWith(rate: value),
-                    ),
-                  ),
-                  _TtsSlider(
-                    label: '音调',
-                    value: draft.pitch,
-                    min: 0.5,
-                    max: 2,
-                    onChanged: (value) => setSheetState(
-                      () => draft = draft.copyWith(pitch: value),
-                    ),
-                  ),
                 ] else if (installedVoices.isEmpty) ...<Widget>[
                   Text(
-                    '尚未下载离线音色。下载后可使用离线伴听，'
+                    '尚未下载离线音色。下载后可使用离线模型，'
                     '模型较大，建议连接 Wi-Fi。',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
@@ -589,24 +707,6 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                         () => draft = draft.copyWith(dialogueVoiceId: value),
                       );
                     },
-                  ),
-                  _TtsSlider(
-                    label: '旁白语速',
-                    value: draft.narratorSpeed,
-                    min: 0.5,
-                    max: 2,
-                    onChanged: (value) => setSheetState(
-                      () => draft = draft.copyWith(narratorSpeed: value),
-                    ),
-                  ),
-                  _TtsSlider(
-                    label: '对白语速',
-                    value: draft.dialogueSpeed,
-                    min: 0.5,
-                    max: 2,
-                    onChanged: (value) => setSheetState(
-                      () => draft = draft.copyWith(dialogueSpeed: value),
-                    ),
                   ),
                   if ((selectedNarrator?.speakerCount ?? 1) > 1) ...[
                     ReaderDropdownButtonFormField<int>(
@@ -749,14 +849,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('听书失败：$error')));
     };
-    controller.onFallback = (message) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-    };
     controller.onPositionChanged = link.follow;
     controller.updateSettings(_settings.tts);
     _ttsController = controller;
+    controller.state.addListener(_onTtsStateChanged);
     return controller;
   }
 
@@ -793,6 +889,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   final ValueNotifier<Duration> _readingDuration = ValueNotifier(Duration.zero);
   Duration _savedReadingDuration = Duration.zero;
   Timer? _readingDurationTimer;
+  Timer? _ttsSleepTimer;
+  Duration? _ttsSleepDuration;
+
+  /// 底栏是否露出；听书浮条只在阅读菜单展开且没有抽屉时显示。
+  bool _ttsBarVisible = false;
 
   Future<void> _loadReadingDuration(ReadingSessionStore store) async {
     try {
@@ -1059,6 +1160,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     unawaited(_readingTracker?.pause() ?? Future<void>.value());
     _openTrace?.stop();
     _readingDurationTimer?.cancel();
+    _ttsSleepTimer?.cancel();
     _readingDuration.dispose();
     final session = _readerSession;
     final onClosed = widget.onClosed;
@@ -1066,6 +1168,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     _readerSession = null;
     _ttsReaderLink?.dispose();
     _ttsReaderLink = null;
+    _ttsController?.state.removeListener(_onTtsStateChanged);
     unawaited(_ttsController?.dispose() ?? Future<void>.value());
     _ttsController = null;
     if (_ownsTtsVoiceStore) _ttsVoiceStore?.close();
@@ -1117,11 +1220,46 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       backgroundColor: _pageTheme.background,
       // 阅读页自行处理安全区，并让正文始终铺满可用区域。
       resizeToAvoidBottomInset: false,
-      body: AnimatedSwitcher(
-        duration: widget.readingActive
-            ? const Duration(milliseconds: 250)
-            : Duration.zero,
-        child: _buildBody(),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          AnimatedSwitcher(
+            duration: widget.readingActive
+                ? const Duration(milliseconds: 250)
+                : Duration.zero,
+            child: _buildBody(),
+          ),
+          if (_ttsController case final controller?)
+            Positioned(
+              left: 16,
+              // 浮条跟随阅读菜单：只在菜单展开时显示，停在菜单栏上方。
+              bottom: readerMenuBarHeight(context) + 8,
+              child: IgnorePointer(
+                ignoring: !_ttsBarVisible,
+                child: ExcludeSemantics(
+                  excluding: !_ttsBarVisible,
+                  child: AnimatedOpacity(
+                    opacity: _ttsBarVisible ? 1 : 0,
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 160),
+                    child: ReaderTtsPlaybackSheet(
+                      controller: controller,
+                      coverPath: widget.book?.coverPath,
+                      speedLabel: _ttsSpeedLabel(_settings.tts),
+                      timerLabel: _ttsSleepDuration == null
+                          ? null
+                          : '${_ttsSleepDuration!.inMinutes} 分钟',
+                      onVoice: () => _editTtsSettings(controller),
+                      onSpeed: () => _editTtsSpeed(controller),
+                      onTimer: _editTtsTimer,
+                      onCancel: controller.stop,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1227,6 +1365,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           _changeSettings(_settings.copyWithVolumeKeyPaging(enabled)),
       onSessionReady: _bindReaderSession,
       onTts: _toggleTts,
+      onMenuBarVisibleChanged: (visible) {
+        if (_ttsBarVisible == visible) return;
+        setState(() => _ttsBarVisible = visible);
+      },
       readingHighlight: _ttsController?.highlight,
       onBookEnd: _openFinishPage,
       onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
@@ -1489,6 +1631,18 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       _openTrace?.stop();
       _syncReadingActivity();
       widget.onReady?.call();
+      if (_readable && _settings.tts.hasOfflineVoice) {
+        unawaited(
+          _ensureTtsController()
+              .prepare(_settings.tts)
+              .then<void>(
+                (_) {},
+                onError: (Object error) {
+                  recordAppError('tts_prepare_failed', error);
+                },
+              ),
+        );
+      }
     });
     WidgetsBinding.instance.ensureVisualUpdate();
   }

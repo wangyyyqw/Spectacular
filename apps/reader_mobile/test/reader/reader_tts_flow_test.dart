@@ -1,274 +1,416 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
+import 'package:reader_mobile/reader/reader_offline_tts.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_mobile/reader/reader_tts_controller.dart';
 import 'package:reader_mobile/reader/reader_tts_playback_sheet.dart';
-import 'package:reader_mobile/reader/reader_tts_text.dart';
 import 'package:reader_mobile/reader/reader_tts_voice_store.dart';
-import 'package:reader_ui/paging/continuous_scroll_view.dart';
-import 'package:reader_ui/paging/page_turn_mode.dart';
-import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
-import 'package:reader_ui/reading_highlight.dart';
-import 'package:reader_ui/selection/text_range_geometry.dart';
 
 import '../support/reader_pump.dart';
 import '../support/reader_tts_fakes.dart';
 import '../support/test_epub.dart';
 
 void main() {
-  testWidgets('Android 后台继续朗读，通知暂停继续与返回前台保留原文顺序', (tester) async {
-    ReaderSettings? saved;
-    final background = FakeTtsBackground();
-    final (controller: controller, system: system) = await _openPlayback(
-      tester,
-      settings: const ReaderSettings(
-        tts: ReaderTtsSettings(
-          voiceName: '已删除音色',
-          voiceLocale: 'zh-CN',
-          autoTurnPage: false,
+  testWidgets('听书设置可切换系统 TTS 与离线模型且不再显示语速滑杆', (tester) async {
+    final root = Directory.systemTemp.createTempSync('reader-tts-offline-');
+    final voices = ReaderTtsVoiceStore(rootDirectory: root);
+    final system = FakeSystemTts()..install();
+    final background = FakeTtsBackground()..install();
+    addTearDown(() {
+      system.close();
+      background.close();
+      voices.close();
+      root.deleteSync(recursive: true);
+    });
+
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EpubReaderPage(
+          bytes: buildTestEpub(paragraphs: const ['听书离线模式测试正文。']),
+          bookId: 'tts-offline-mode',
+          store: MemoryReaderProgressStore(),
+          ttsVoiceStore: voices,
+          settings: const ReaderSettings(
+            tts: ReaderTtsSettings(mode: ReaderTtsMode.offline),
+          ),
         ),
       ),
-      onSettingsChanged: (value) => saved = value,
-      background: background,
-      paragraphs: const ['听书验收正文。接着朗读。'],
     );
-    await tester.tap(find.byKey(const ValueKey('tts-start')));
-    await pumpReaderUntilComplete(tester, () => system.spoken.isNotEmpty);
+    await pumpReaderUntil(tester, find.byType(ReaderView));
     await tester.pumpAndSettle();
-    expect(saved?.tts.hasVoice, isFalse);
-    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
-    expect(find.byType(ReaderReadingHighlightLayer), findsWidgets);
-    final beforePage = tester.widget<ReaderPage>(find.byType(ReaderPage));
-    await system.progress(1, 3);
-    await tester.pump();
-    expect(controller.highlight.value?.wordStartCfi, isNotNull);
-    expect(
-      identical(beforePage, tester.widget<ReaderPage>(find.byType(ReaderPage))),
-      isTrue,
-    );
-    final beforeBackground = controller.highlight.value;
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await tester.pump();
-    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
-    expect(controller.highlight.value, beforeBackground);
-    expect(background.active, isTrue);
-    expect(system.methods.where((call) => call.method == 'pause'), isEmpty);
-    await system.complete();
-    await pumpReaderUntilComplete(tester, () => system.spoken.length == 2);
-    await background.emit('pause');
-    await tester.pump();
-    expect(controller.snapshot.phase, ReaderTtsPhase.paused);
-    await background.emit('play');
-    await pumpReaderUntilComplete(tester, () => system.spoken.length == 3);
-    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pump();
-    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
-    expect(system.spoken, hasLength(3));
-    await controller.stop();
-    expect(controller.highlight.value, isNull);
-    expect(background.active, isFalse);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.tap(find.byType(ReaderView));
     await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('退出阅读页结束朗读并移除后台播放会话', (tester) async {
-    final background = FakeTtsBackground();
-    final (controller: controller, system: system) = await _openPlayback(
-      tester,
-      background: background,
-    );
-    await tester.tap(find.byKey(const ValueKey('tts-start')));
-    await pumpReaderUntilComplete(tester, () => system.spoken.isNotEmpty);
-    expect(controller.supportsBackgroundPlayback, isTrue);
-    expect(background.active, isTrue);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-    expect(background.active, isFalse);
-    expect(
-      background.methods.where((call) => call.method == 'stop'),
-      hasLength(1),
-    );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('未接入后台服务的平台仍在后台暂停，返回不擅自续播', (tester) async {
-    final background = FakeTtsBackground();
-    final (controller: controller, system: system) = await _openPlayback(
-      tester,
-      background: background,
-    );
-    await tester.tap(find.byKey(const ValueKey('tts-start')));
-    await pumpReaderUntilComplete(tester, () => system.spoken.isNotEmpty);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await tester.pump();
-    expect(controller.snapshot.phase, ReaderTtsPhase.paused);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pump();
-    expect(controller.snapshot.phase, ReaderTtsPhase.paused);
-    expect(background.methods, isEmpty);
-    await controller.resume();
-    await pumpReaderUntilComplete(tester, () => system.spoken.length == 2);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
-
-  testWidgets('连续滚动按当前句实际位置跟随，手动滑动解除跟随且正文不重排', (tester) async {
-    final (controller: controller, system: system) = await _openPlayback(
-      tester,
-      settings: const ReaderSettings(pageTurnMode: PageTurnMode.scroll),
-      paragraphs: [
-        for (var i = 1; i <= 40; i++)
-          '第$i段，跟随正文中的真实位置，跨过当前视口后自动显示朗读内容，保留原本的文字排版。',
-      ],
-    );
-    final link = controller.textSource as ReaderTtsReaderLink;
-    await tester.tap(find.byKey(const ValueKey('tts-start')));
-    await pumpReaderUntilComplete(tester, () => system.spoken.isNotEmpty);
-    await tester.pumpAndSettle();
-    final generation = link.session.generation;
-    final revision = link.session.navigationRevision;
-    for (var i = 0; i < 15; i++) {
-      final count = system.spoken.length;
-      await system.complete();
-      await pumpReaderUntilComplete(tester, () => system.spoken.length > count);
-    }
-    final scroll = tester.state<ContinuousScrollViewState>(
-      find.byType(ContinuousScrollView),
-    );
-    final range = controller.highlight.value!;
-    final highlightedPage = tester
-        .widgetList<ReaderReadingHighlightLayer>(
-          find.byType(ReaderReadingHighlightLayer),
-        )
-        .map((layer) => layer.page)
-        .firstWhere(
-          (page) => ReaderTextRangeGeometry.containsPoint(page, range.startCfi),
-        );
-    final line = ReaderTextRangeGeometry.linesFor(
-      highlightedPage,
-      startCfi: range.startCfi,
-      endCfi: range.endCfi,
-    ).first;
-    final top = scroll.pageTopOnScreen(highlightedPage)! + line.line.rect.top;
-    expect(
-      top,
-      inInclusiveRange(
-        0,
-        tester.getSize(find.byType(ContinuousScrollView)).height -
-            line.line.rect.height,
-      ),
-    );
-    expect(link.session.generation, generation);
-    expect(link.session.navigationRevision, revision);
-    expect(link.following, isTrue);
-    await tester.drag(find.byType(ContinuousScrollView), const Offset(0, -220));
-    await tester.pumpAndSettle();
-    expect(link.following, isFalse);
-    await pumpReaderTask(tester, scroll.flushVisiblePosition());
-    final position = link.session.progress;
-    final count = system.spoken.length;
-    await system.complete();
-    await pumpReaderUntilComplete(tester, () => system.spoken.length > count);
-    expect(link.session.progress, position);
-    await controller.stop();
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('系统音色查询失败仍可打开设置并切换离线伴听', (tester) async {
-    final (controller: _, system: system) = await _openPlayback(tester);
-    system.voicesError = StateError('系统服务不可用');
-    await tester.tap(find.byKey(const ValueKey('tts-settings')));
+    await tester.tap(find.byKey(const ValueKey('menu-tts')));
     await pumpReaderUntil(
       tester,
       find.byKey(const ValueKey('tts-apply-settings')),
     );
-    await tester.pumpAndSettle();
-    expect(find.text('无法读取系统音色，仍可选择离线伴听。'), findsOneWidget);
-    await tester.tap(
-      find.widgetWithText(SegmentedButton<ReaderTtsMode>, '离线伴听'),
-    );
-    await tester.pumpAndSettle();
+
+    expect(find.byType(SegmentedButton<ReaderTtsMode>), findsOneWidget);
+    expect(find.text('系统 TTS'), findsOneWidget);
+    expect(find.text('离线模型'), findsOneWidget);
+    expect(find.text('旁白语速'), findsNothing);
+    expect(find.text('对白语速'), findsNothing);
+    expect(find.text('尚未下载离线音色。下载后可使用离线模型，模型较大，建议连接 Wi-Fi。'), findsOneWidget);
     expect(
-      tester
-          .widget<SegmentedButton<ReaderTtsMode>>(
-            find.byType(SegmentedButton<ReaderTtsMode>),
-          )
-          .selected,
-      {ReaderTtsMode.offline},
+      system.methods.where((call) => call.method == 'getVoices'),
+      isNotEmpty,
     );
+
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('系统 TTS'));
+    await tester.pumpAndSettle();
+    expect(find.text('音色'), findsOneWidget);
+    expect(find.text('系统默认音色'), findsOneWidget);
+    expect(find.byType(Slider), findsNothing);
+
+    await tester.tap(find.text('离线模型'));
+    await tester.pumpAndSettle();
+    expect(find.text('尚未下载离线音色。下载后可使用离线模型，模型较大，建议连接 Wi-Fi。'), findsOneWidget);
+
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('悬浮听书条显示封面、音色、语速、定时、暂停与取消', (tester) async {
+    final player = _FlowPlayer();
+    final controller = ReaderTtsController(
+      textSource: MemoryTtsTextSource(['悬浮控制测试正文。']),
+      offlineSynthesizer: _FlowSynthesizer(),
+      player: player,
+      resolveOfflineVoice: _resolveVoice,
+    );
+    const settings = ReaderTtsSettings(
+      mode: ReaderTtsMode.offline,
+      narratorVoiceId: 'offline',
+      autoTurnPage: false,
+    );
+    final running = controller.start(settings);
+    await tester.pump();
+    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
+
+    var voiceTaps = 0;
+    var speedTaps = 0;
+    var timerTaps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: ReaderTtsPlaybackSheet(
+              controller: controller,
+              onVoice: () async {
+                voiceTaps++;
+              },
+              onSpeed: () async {
+                speedTaps++;
+              },
+              onTimer: () async {
+                timerTaps++;
+              },
+              onCancel: controller.stop,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('tts-cover')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tts-voice')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tts-speed')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tts-timer')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tts-pause')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tts-cancel')), findsOneWidget);
+    expect(find.byType(Tooltip), findsNWidgets(5));
+    expect(find.byKey(const ValueKey('tts-start')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('tts-voice')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('tts-speed')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('tts-timer')));
+    await tester.pump();
+    expect(voiceTaps, 1);
+    expect(speedTaps, 1);
+    expect(timerTaps, 1);
+    await tester.tap(find.byKey(const ValueKey('tts-pause')));
+    await tester.pump();
+    expect(controller.paused, isTrue);
+    expect(find.byKey(const ValueKey('tts-resume')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('tts-resume')));
+    await tester.pump();
+    expect(controller.paused, isFalse);
+    expect(player.resumes, 1);
+    await tester.tap(find.byKey(const ValueKey('tts-cancel')));
+    await tester.pump();
+    await running;
+    expect(controller.snapshot.phase, ReaderTtsPhase.idle);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await controller.dispose();
+  });
+
+  testWidgets('定时选项到期后暂停朗读', (tester) async {
+    final root = Directory.systemTemp.createTempSync('reader-tts-timer-');
+    final voices = ReaderTtsVoiceStore(rootDirectory: root);
+    final background = FakeTtsBackground()..install();
+    addTearDown(() {
+      background.close();
+      voices.close();
+      root.deleteSync(recursive: true);
+    });
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EpubReaderPage(
+          bytes: buildTestEpub(paragraphs: const ['定时暂停测试正文。']),
+          bookId: 'tts-timer',
+          store: MemoryReaderProgressStore(),
+          ttsVoiceStore: voices,
+          settings: const ReaderSettings(
+            tts: ReaderTtsSettings(mode: ReaderTtsMode.offline),
+          ),
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-tts')));
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('tts-apply-settings')),
+    );
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('tts-apply-settings'))),
+    ).pop();
+    await tester.pumpAndSettle();
+
+    final controller = tester
+        .widget<ReaderTtsPlaybackSheet>(find.byType(ReaderTtsPlaybackSheet))
+        .controller;
+    controller.state.value = const ReaderTtsSnapshot(
+      phase: ReaderTtsPhase.playing,
+      mode: ReaderTtsMode.offline,
+    );
+    await tester.pump();
+    // 浮条跟随阅读菜单显示，重新展开菜单才能操作。
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('tts-timer')));
+    await pumpReaderUntil(tester, find.text('15 分钟后暂停'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('15 分钟后暂停'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('定时 · 15 分钟'), findsOneWidget);
+
+    await tester.pump(const Duration(minutes: 15));
+    await tester.pumpAndSettle();
+    expect(controller.paused, isTrue);
+    expect(find.byKey(const ValueKey('tts-resume')), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('准备状态可识别且仍可暂停和取消', (tester) async {
+    final ready = Completer<void>();
+    final controller = ReaderTtsController(
+      textSource: MemoryTtsTextSource(['准备状态测试。']),
+      offlineSynthesizer: _FlowSynthesizer()..ready = ready.future,
+      player: _FlowPlayer(),
+      resolveOfflineVoice: _resolveVoice,
+    );
+    final running = controller.start(
+      const ReaderTtsSettings(
+        mode: ReaderTtsMode.offline,
+        narratorVoiceId: 'offline',
+        autoTurnPage: false,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderTtsPlaybackSheet(
+            controller: controller,
+            onVoice: () async {},
+            onSpeed: () async {},
+            onTimer: () async {},
+            onCancel: controller.stop,
+          ),
+        ),
+      ),
+    );
+    expect(find.byTooltip('正在准备语音，可暂停'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('tts-pause')));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byTooltip('继续'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('tts-cancel')));
+    await tester.pump();
+    ready.complete();
+    await running;
+    expect(controller.snapshot.phase, ReaderTtsPhase.idle);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await controller.dispose();
+  });
+
+  testWidgets('失败保留控制条，一键重试当前句且不锁住暂停取消', (tester) async {
+    final synthesizer = _FlowSynthesizer()..failText = '第二句。';
+    final player = _FlowPlayer();
+    final controller = ReaderTtsController(
+      textSource: MemoryTtsTextSource(['第一句。第二句。']),
+      offlineSynthesizer: synthesizer,
+      player: player,
+      resolveOfflineVoice: _resolveVoice,
+    );
+    final running = controller.start(
+      const ReaderTtsSettings(
+        mode: ReaderTtsMode.offline,
+        narratorVoiceId: 'offline',
+        autoTurnPage: false,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ReaderTtsPlaybackSheet(
+            controller: controller,
+            onVoice: () async {},
+            onSpeed: () async {},
+            onTimer: () async {},
+            onCancel: controller.stop,
+          ),
+        ),
+      ),
+    );
+    player.complete();
+    await tester.pump();
+    await running;
+    expect(controller.snapshot.phase, ReaderTtsPhase.failed);
+    expect(find.byTooltip('重试当前段'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tts-voice')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tts-cancel')), findsOneWidget);
+    synthesizer.failText = null;
+    await tester.tap(find.byKey(const ValueKey('tts-retry')));
+    await tester.pump();
+    expect(controller.snapshot.text, '第二句。');
+    expect(controller.snapshot.phase, ReaderTtsPhase.playing);
+    expect(synthesizer.spoken, ['第一句。', '第二句。']);
+    await tester.tap(find.byKey(const ValueKey('tts-pause')));
+    await tester.pump();
+    expect(controller.paused, isTrue);
+    await tester.tap(find.byKey(const ValueKey('tts-cancel')));
+    await tester.pump();
+    expect(controller.snapshot.phase, ReaderTtsPhase.idle);
+    expect(find.byKey(const ValueKey('tts-retry')), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await controller.dispose();
+  });
 }
 
-Future<({ReaderTtsController controller, FakeSystemTts system})> _openPlayback(
-  WidgetTester tester, {
-  ReaderSettings settings = ReaderSettings.defaults,
-  List<String> paragraphs = const ['听书验收正文。'],
-  ValueChanged<ReaderSettings>? onSettingsChanged,
-  FakeTtsBackground? background,
-}) async {
-  tester.view.physicalSize = const Size(360, 800);
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  final root = Directory.systemTemp.createTempSync('reader-tts-flow-');
-  final voices = ReaderTtsVoiceStore(rootDirectory: root);
-  final system = FakeSystemTts()..autoComplete = false;
-  system.install();
-  final playback = background ?? FakeTtsBackground();
-  playback.install();
-  addTearDown(() {
-    system.close();
-    playback.close();
-    voices.close();
-    root.deleteSync(recursive: true);
-  });
-  await tester.pumpWidget(
-    MaterialApp(
-      home: EpubReaderPage(
-        bytes: buildTestEpub(paragraphs: paragraphs),
-        bookId: 'tts-flow',
-        store: MemoryReaderProgressStore(),
-        ttsVoiceStore: voices,
-        settings: settings,
-        onSettingsChanged: onSettingsChanged,
-      ),
-    ),
-  );
-  await pumpReaderUntil(tester, find.byType(ReaderView));
-  if (settings.pageTurnMode == PageTurnMode.scroll) {
-    await pumpReaderUntilComplete(
-      tester,
-      () =>
-          find.byType(ContinuousScrollView).evaluate().isNotEmpty &&
-          find
-              .byKey(const ValueKey('continuous-scroll-loading'))
-              .evaluate()
-              .isEmpty,
-    );
+Future<ReaderOfflineVoiceInstance?> _resolveVoice(String id) async =>
+    id != 'offline'
+    ? null
+    : ReaderOfflineVoiceInstance(
+        id: id,
+        rootPath: '/tmp/offline',
+        model: const ReaderOfflineVoiceModel(
+          kind: ReaderOfflineModelKind.vits,
+          model: 'model.onnx',
+          tokens: 'tokens.txt',
+        ),
+      );
+
+class _FlowSynthesizer implements ReaderOfflineTtsSynthesizer {
+  Future<void>? ready;
+  String? failText;
+  final spoken = <String>[];
+
+  @override
+  Future<void> prepare(ReaderOfflineVoiceInstance voice) async {}
+
+  @override
+  Stream<ReaderTtsClip> synthesize({
+    required List<ReaderTtsSegment> segments,
+    required ReaderOfflineVoiceInstance narrator,
+    required ReaderOfflineVoiceInstance? dialogue,
+    required ReaderTtsSettings settings,
+  }) async* {
+    await ready;
+    for (var index = 0; index < segments.length; index++) {
+      if (segments[index].text == failText) throw StateError('合成暂时失败');
+      spoken.add(segments[index].text);
+      yield ReaderTtsClip(
+        wav: Uint8List(0),
+        sampleRate: 22050,
+        sampleCount: 22050,
+        index: index,
+      );
+    }
   }
-  await tester.pumpAndSettle();
-  await tester.tap(find.byType(ReaderView));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const ValueKey('menu-tts')));
-  await pumpReaderUntil(tester, find.byType(ReaderTtsPlaybackSheet));
-  await tester.pumpAndSettle();
-  return (
-    controller: tester
-        .widget<ReaderTtsPlaybackSheet>(find.byType(ReaderTtsPlaybackSheet))
-        .controller,
-    system: system,
-  );
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {}
+}
+
+class _FlowPlayer implements ReaderTtsPlayer {
+  Completer<void>? _finished;
+  void Function()? _onStarted;
+  int resumes = 0;
+
+  void complete() {
+    if (_finished?.isCompleted == false) _finished!.complete();
+  }
+
+  @override
+  Future<void> play(
+    ReaderTtsClip clip, {
+    double volume = 1,
+    void Function()? onStarted,
+    void Function(Duration position)? onPosition,
+  }) async {
+    _onStarted = onStarted;
+    onStarted?.call();
+    final finished = _finished = Completer<void>();
+    await finished.future;
+  }
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> resume() async {
+    resumes++;
+    _onStarted?.call();
+  }
+
+  @override
+  Future<void> stop() async {
+    final finished = _finished;
+    if (finished != null && !finished.isCompleted) finished.complete();
+    _onStarted = null;
+  }
+
+  @override
+  Future<void> dispose() => stop();
 }

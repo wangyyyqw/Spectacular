@@ -34,11 +34,13 @@ class ReaderTtsBackgroundPlayback {
       ? Future.value()
       : _serialize(() async {
           channel.setMethodCallHandler(_handleCommand);
+          // 前台通知可能先于 start 回调出现，此时暂停和结束也必须生效。
+          _active = true;
           try {
             await channel.invokeMethod<void>('start', {'bookTitle': bookTitle});
-            _active = true;
             _published = null;
           } catch (_) {
+            _active = false;
             channel.setMethodCallHandler(null);
             rethrow;
           }

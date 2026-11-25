@@ -110,6 +110,9 @@ class ReaderTtsClip {
 
 /// 合成按原文顺序逐段交付，调用方负责限制预合成数量。
 abstract interface class ReaderOfflineTtsSynthesizer {
+  /// 只加载模型，不合成正文、不申请音频焦点。
+  Future<void> prepare(ReaderOfflineVoiceInstance voice);
+
   Stream<ReaderTtsClip> synthesize({
     required List<ReaderTtsSegment> segments,
     required ReaderOfflineVoiceInstance narrator,
@@ -121,10 +124,26 @@ abstract interface class ReaderOfflineTtsSynthesizer {
   Future<void> dispose();
 }
 
-/// 常驻工作 isolate 复用模型，取消只等待正在进行的原生合成返回。
+/// 阅读期间复用最多两个模型；停止取消交付，退出阅读页才释放模型。
 class SherpaReaderOfflineTtsSynthesizer implements ReaderOfflineTtsSynthesizer {
+  SherpaReaderOfflineTtsSynthesizer({
+    Future<ReaderOfflineTtsWorker> Function()? openWorker,
+  }) : _createWorker = openWorker ?? ReaderOfflineTtsWorker.open;
+
+  final Future<ReaderOfflineTtsWorker> Function() _createWorker;
   Future<ReaderOfflineTtsWorker>? _worker;
   int _generation = 0;
+  bool _disposed = false;
+
+  @override
+  Future<void> prepare(ReaderOfflineVoiceInstance voice) async {
+    final worker = await _openWorker();
+    if (_disposed) return;
+    await worker.prepare({
+      'root': voice.rootPath,
+      'model': voice.model.toJson(),
+    });
+  }
 
   @override
   Stream<ReaderTtsClip> synthesize({
@@ -161,7 +180,8 @@ class SherpaReaderOfflineTtsSynthesizer implements ReaderOfflineTtsSynthesizer {
   }
 
   Future<ReaderOfflineTtsWorker> _openWorker() async {
-    final opening = _worker ??= ReaderOfflineTtsWorker.open();
+    if (_disposed) throw StateError('离线语音已关闭');
+    final opening = _worker ??= _createWorker();
     try {
       return await opening;
     } catch (_) {
@@ -173,18 +193,11 @@ class SherpaReaderOfflineTtsSynthesizer implements ReaderOfflineTtsSynthesizer {
   @override
   Future<void> stop() async {
     _generation++;
-    final worker = _worker;
-    if (worker != null) {
-      final active = await worker.then<ReaderOfflineTtsWorker?>(
-        (worker) => worker,
-        onError: (Object _) => null,
-      );
-      if (active != null && active.available) await active.release();
-    }
   }
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     _generation++;
     final worker = _worker;
     _worker = null;
@@ -220,7 +233,10 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
 
   final bool externalAudioFocus;
   AudioPlayer? _player;
+  bool _positionConfigured = false;
   Future<void>? _configuration;
+  Future<void> _sourceWork = Future.value();
+  bool _sourceReady = false;
   Completer<void>? _completion;
   Timer? _timeout;
   final _playingTime = Stopwatch();
@@ -236,8 +252,17 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
     void Function(Duration position)? onPosition,
   }) async {
     final player = _player ??= AudioPlayer();
+    if (!_positionConfigured) {
+      // 锁屏后 Flutter 不再调度界面帧；按播放器实测位置更新跨页游标。
+      player.positionUpdater = TimerPositionUpdater(
+        getPosition: player.getCurrentPosition,
+        interval: const Duration(milliseconds: 200),
+      );
+      _positionConfigured = true;
+    }
     final completion = _completion = Completer<void>();
     _paused = false;
+    _sourceReady = false;
     _onStarted = onStarted;
     _budget = clip.duration + const Duration(seconds: 2);
     _playingTime.reset();
@@ -248,6 +273,36 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
     });
     final positions = _observePositions(player, completion, onPosition);
     try {
+      await _prepareSource(player, completion, clip, volume);
+      if (identical(_completion, completion) && !completion.isCompleted) {
+        _sourceReady = true;
+        if (!_paused) await resume();
+      }
+      await completion.future;
+    } finally {
+      await positions?.cancel();
+      await subscription.cancel();
+      if (identical(_completion, completion)) {
+        _timeout?.cancel();
+        _playingTime.stop();
+        _completion = null;
+        _sourceReady = false;
+        _onStarted = null;
+      }
+    }
+  }
+
+  Future<void> _prepareSource(
+    AudioPlayer player,
+    Completer<void> completion,
+    ReaderTtsClip clip,
+    double volume,
+  ) {
+    // 取消可立即返回；后一次设置音源仍等待旧准备结束，避免原生音源互相覆盖。
+    bool current() =>
+        identical(_completion, completion) && !completion.isCompleted;
+    final operation = _sourceWork.then((_) async {
+      if (!current()) return;
       if (externalAudioFocus) {
         await (_configuration ??= player.setAudioContext(
           AudioContext(
@@ -258,24 +313,13 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
           ),
         ));
       }
+      if (!current()) return;
       await player.setVolume(volume.clamp(0, 1));
+      if (!current()) return;
       await player.setSource(BytesSource(clip.wav, mimeType: 'audio/wav'));
-      if (identical(_completion, completion) &&
-          !completion.isCompleted &&
-          !_paused) {
-        await resume();
-      }
-      await completion.future;
-    } finally {
-      await positions?.cancel();
-      await subscription.cancel();
-      if (identical(_completion, completion)) {
-        _timeout?.cancel();
-        _playingTime.stop();
-        _completion = null;
-        _onStarted = null;
-      }
-    }
+    });
+    _sourceWork = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
   }
 
   StreamSubscription<Duration>? _observePositions(
@@ -306,6 +350,7 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
     final completion = _completion;
     if (completion == null || completion.isCompleted) return;
     _paused = false;
+    if (!_sourceReady) return;
     await _player?.resume();
     if (!identical(completion, _completion) ||
         _paused ||
@@ -329,6 +374,7 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
     _playingTime.stop();
     final completion = _completion;
     _completion = null;
+    _sourceReady = false;
     _onStarted = null;
     if (completion != null && !completion.isCompleted) completion.complete();
     await _player?.stop();
@@ -337,8 +383,10 @@ class AudioplayersReaderTtsPlayer implements ReaderTtsPlayer {
   @override
   Future<void> dispose() async {
     await stop();
+    await _sourceWork;
     final player = _player;
     _player = null;
+    _positionConfigured = false;
     _configuration = null;
     await player?.dispose();
   }

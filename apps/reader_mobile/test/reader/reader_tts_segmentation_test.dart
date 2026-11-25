@@ -2,6 +2,54 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/reader/reader_offline_tts.dart';
 
 void main() {
+  test('短首句保持原分段，长首句在自然停顿拆开且保留对白原文坐标', () {
+    final text = '“这是适合首先朗读的自然短语，${'后面的内容' * 16}。”下一句。';
+    final original = ReaderTtsSegmentation.split(text);
+    final split = ReaderTtsSegmentation.shortenLead(original, 0);
+    expect(split.first.text, '这是适合首先朗读的自然短语，');
+    expect(split.take(2).every((segment) => segment.isDialogue), isTrue);
+    expect(
+      split.map((segment) => segment.text).join(),
+      original.map((segment) => segment.text).join(),
+    );
+    for (final segment in split) {
+      expect(
+        text.substring(
+          segment.rawStart(0),
+          segment.rawEnd(segment.text.length),
+        ),
+        segment.text,
+      );
+    }
+    expect(
+      identical(ReaderTtsSegmentation.shortenLead(split, 0), split),
+      isTrue,
+    );
+  });
+
+  test('跨页启动句的短分段保留前后页关系且不切开代理对', () {
+    final text = '${'甲' * 39}😀${'乙' * 50}。';
+    final original = ReaderTtsSegmentation.split(text, pageEnds: [20, 70]);
+    final split = ReaderTtsSegmentation.shortenLead(original, 0);
+    expect(split.map((segment) => segment.text).join(), text);
+    expect(split.map((segment) => segment.continuesOnNextPage), [
+      true,
+      false,
+      true,
+      false,
+    ]);
+    expect(split.take(2).map((segment) => segment.text).join(), '甲' * 39);
+    for (final segment in split) {
+      expect(
+        text.substring(
+          segment.rawStart(0),
+          segment.rawEnd(segment.text.length),
+        ),
+        segment.text,
+      );
+    }
+  });
+
   test('中文弯引号拆出旁白与对白', () {
     final segments = ReaderTtsSegmentation.split('“你好。”他说。“走吧！”');
     expect(segments.map((segment) => segment.text).toList(), <String>[
