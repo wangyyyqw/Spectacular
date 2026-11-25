@@ -199,6 +199,44 @@ Future<void> _tapControl(WidgetTester tester, String key) async {
 }
 
 void main() {
+  for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
+    testWidgets('移除每日平均花瓣区块，保留其他统计内容：$platform', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 2600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: StatsPage(
+            library: _FakeLibrary([_book('a', '保留的阅读记录')], const {}),
+            progressStore: _FakeProgressStore({}),
+            sessionStore: _FakeSessionStore([_todaySession(20)]),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('每日平均'), findsNothing);
+      expect(find.text('按星期'), findsNothing);
+      expect(find.text('仅计有阅读记录的日期'), findsNothing);
+      for (final key in [
+        'stats-weekday-average-chart',
+        'stats-weekday-petal-surface',
+        'stats-weekday-detail-label',
+      ]) {
+        expect(find.byKey(ValueKey(key)), findsNothing);
+      }
+      for (final title in ['图书时长', '阅读日历', '阅读排行', '最近阅读']) {
+        expect(find.text(title), findsOneWidget);
+      }
+      expect(_valueOf(tester, 'stats-book-duration-total'), '20 分钟');
+      expect(
+        find.byKey(const ValueKey('stats-reading-calendar')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('stats-ranking-a')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('统计页从真实封面取色并统一传给图表和日历，更换封面后更新', (tester) async {
     tester.view.physicalSize = const Size(800, 1600);
     tester.view.devicePixelRatio = 1;
@@ -335,7 +373,8 @@ void main() {
 
   testWidgets('切入等待和切出复用统计图表，刷新成功更新且失败保留旧内容', (tester) async {
     tester.view
-      ..physicalSize = const Size(1280, 900)
+      // 移除花瓣区块后页面变短，使用较矮窗口继续覆盖滚动位置保留。
+      ..physicalSize = const Size(1280, 700)
       ..devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final library = _FakeLibrary([_book('a', '第一本')], const {});
@@ -798,20 +837,21 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(_valueOf(tester, 'stats-book-duration-total'), '1 小时');
-    await _scrollTo(
-      tester,
-      find.byKey(const ValueKey('stats-weekday-latest-date')),
-      180,
-    );
+    await _scrollTo(tester, find.text('阅读排行'), 180);
     expect(find.text('阅读热力图'), findsNothing);
     expect(find.text('阅读习惯'), findsNothing);
     expect(find.byKey(const ValueKey('stats-heatmap')), findsNothing);
     expect(find.byKey(const ValueKey('stats-current-streak')), findsNothing);
-    final averageBottom = tester.getBottomLeft(
+    expect(find.text('每日平均'), findsNothing);
+    expect(
       find.byKey(const ValueKey('stats-weekday-average-chart')),
+      findsNothing,
+    );
+    final calendarBottom = tester.getBottomLeft(
+      find.byKey(const ValueKey('stats-reading-calendar')),
     );
     final rankingTop = tester.getTopLeft(find.text('阅读排行'));
-    expect(rankingTop.dy - averageBottom.dy, inExclusiveRange(0, 90));
+    expect(rankingTop.dy - calendarBottom.dy, inExclusiveRange(0, 90));
     await _scrollTo(
       tester,
       find.byKey(const ValueKey('stats-ranking-counts-a')),

@@ -13,12 +13,11 @@ import 'reading_calendar.dart';
 import 'reading_book_color.dart';
 import 'reading_insights.dart';
 import 'book_reading_ranking.dart';
-import 'weekday_average_chart.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
 import '../diagnostics/reader_log.dart';
 
-/// 统计页：图书时长、阅读日历、每日平均与按书排行，保留完整统计数据汇总。
+/// 统计页：图书时长、阅读日历与按书排行，保留完整统计数据汇总。
 ///
 /// 数据来自书架、阅读进度、阅读会话和导入期字符统计。
 class StatsPage extends StatefulWidget {
@@ -436,13 +435,6 @@ class _StatsContent extends StatelessWidget {
         ),
       ),
       _Section(
-        title: '每日平均',
-        detail: '按星期',
-        caption: '仅计有阅读记录的日期',
-        showDivider: !desktop,
-        child: WeekdayAverageChart(insights: stats.insights),
-      ),
-      _Section(
         title: '阅读排行',
         detail: '按累计时长',
         showDivider: !desktop,
@@ -586,19 +578,17 @@ class _AppBarHairline extends StatelessWidget implements PreferredSizeWidget {
       Container(height: 1, color: Theme.of(context).colorScheme.outlineVariant);
 }
 
-/// 细线分区：标题、右侧摘要、可选说明与内容。
+/// 细线分区：标题、右侧摘要与内容。
 class _Section extends StatelessWidget {
   const _Section({
     required this.title,
     this.detail,
-    this.caption,
     this.showDivider = true,
     required this.child,
   });
 
   final String title;
   final String? detail;
-  final String? caption;
   final bool showDivider;
   final Widget child;
 
@@ -638,13 +628,6 @@ class _Section extends StatelessWidget {
             ],
           ),
         ),
-        if (caption != null) ...[
-          const SizedBox(height: 5),
-          Text(
-            caption!,
-            style: TextStyle(fontSize: 12, color: muted, height: 1.4),
-          ),
-        ],
         const SizedBox(height: 12),
         child,
       ],
