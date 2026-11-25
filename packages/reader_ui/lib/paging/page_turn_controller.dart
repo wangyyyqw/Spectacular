@@ -482,12 +482,22 @@ class PageTurnController extends ChangeNotifier {
         fromRight ? delta.dx : -delta.dx,
         horizontal ? 0 : delta.dy,
       );
+      final target = _curlPointer();
+      final moved = point! + movement;
+      if (_lifting) _endPoint = target;
+      // 尚未抬起或补偿会跨过页角时，只更新目标；不能把页内手指变成越界卷曲。
+      if (!horizontal &&
+          ((_lifting && point == grab) ||
+              (top
+                  ? moved.dy <= 0 && target.dy > 0
+                  : moved.dy >= size.height && target.dy < size.height))) {
+        return;
+      }
       if (_lifting) {
         // 平移整段起卷轨迹，保持当前帧连续，不重启动画或积累跟手延迟。
         _startPoint = _startPoint! + movement;
-        _endPoint = _curlPointer();
       }
-      point = point! + movement;
+      point = moved;
       progress = _curlProgress();
     } else if (mode == PageTurnMode.simulationBessel) {
       final moved =
