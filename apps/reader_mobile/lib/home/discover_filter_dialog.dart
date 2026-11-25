@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
@@ -124,7 +125,9 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
                 child: Tooltip(
                   message: '切换书源',
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: ReaderUiStyle.controlRadiusOf(
+                      Theme.of(context),
+                    ),
                     onTap: _pickSource,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),

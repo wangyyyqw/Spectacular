@@ -224,7 +224,7 @@ class _SearchPanelState extends State<SearchPanel> {
     final theme = Theme.of(context);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final border = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Material(

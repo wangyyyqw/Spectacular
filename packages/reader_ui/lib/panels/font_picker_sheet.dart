@@ -211,7 +211,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
     ),
     child: Text(

@@ -8,14 +8,14 @@ class ReaderFrostedSurface extends StatelessWidget {
   const ReaderFrostedSurface({
     super.key,
     required this.child,
-    this.radius = ReaderUiStyle.cardCorner,
+    this.radius,
     this.bottomRadius,
     this.inkMode = false,
     this.inset = EdgeInsets.zero,
   });
 
   final Widget child;
-  final double radius;
+  final double? radius;
   final double? bottomRadius;
   final bool inkMode;
 
@@ -31,6 +31,7 @@ class ReaderFrostedSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final topRadius = radius ?? ReaderUiStyle.panelCornerOf(Theme.of(context));
     return GlassTheme(
       data: GlassThemeData.classic(brightness: scheme.brightness),
       child: Stack(
@@ -43,8 +44,8 @@ class ReaderFrostedSurface extends StatelessWidget {
               child: GlassContainer.card(
                 padding: EdgeInsets.zero,
                 shape: LiquidVerticalRoundedRectangle(
-                  topRadius: radius,
-                  bottomRadius: bottomRadius ?? radius,
+                  topRadius: topRadius,
+                  bottomRadius: bottomRadius ?? topRadius,
                 ),
                 useOwnLayer: true,
                 quality: GlassQuality.minimal,

@@ -90,7 +90,7 @@ class _ReadingCalendarMonthPickerState
         style: TextButton.styleFrom(
           foregroundColor: scheme.onSurface,
           backgroundColor: selected ? scheme.primaryContainer : null,
-          shape: ReaderUiStyle.controlShape,
+          shape: ReaderUiStyle.controlShapeOf(Theme.of(context)),
         ),
         child: Text('$month月'),
       ),

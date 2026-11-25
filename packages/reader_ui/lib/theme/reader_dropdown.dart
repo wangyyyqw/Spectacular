@@ -57,7 +57,11 @@ class ReaderDropdownButton<T> extends StatelessWidget {
           color: theme.popupMenuTheme.color ?? theme.colorScheme.surface,
           surfaceTintColor: Colors.transparent,
           elevation: theme.popupMenuTheme.elevation ?? 2,
-          shape: theme.popupMenuTheme.shape ?? ReaderUiStyle.cardShape,
+          shape:
+              theme.popupMenuTheme.shape ??
+              RoundedRectangleBorder(
+                borderRadius: ReaderUiStyle.popupRadiusOf(theme),
+              ),
           constraints: BoxConstraints(
             minWidth: width,
             maxWidth: width,
@@ -82,7 +86,7 @@ class ReaderDropdownButton<T> extends StatelessWidget {
                       color: item.value == value
                           ? theme.colorScheme.primaryContainer
                           : Colors.transparent,
-                      borderRadius: ReaderUiStyle.controlRadius,
+                      borderRadius: ReaderUiStyle.controlRadiusOf(theme),
                     ),
                     child: Row(
                       children: [
@@ -90,7 +94,9 @@ class ReaderDropdownButton<T> extends StatelessWidget {
                           child: DefaultTextStyle(
                             style: theme.textTheme.bodyMedium!.copyWith(
                               color: item.enabled
-                                  ? theme.colorScheme.onSurface
+                                  ? item.value == value
+                                        ? theme.colorScheme.onPrimaryContainer
+                                        : theme.colorScheme.onSurface
                                   : theme.disabledColor,
                             ),
                             maxLines: 2,
@@ -102,7 +108,11 @@ class ReaderDropdownButton<T> extends StatelessWidget {
                         SizedBox.square(
                           dimension: 20,
                           child: item.value == value
-                              ? const AppIcon(AppGlyph.check, size: 18)
+                              ? AppIcon(
+                                  AppGlyph.check,
+                                  size: 18,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                )
                               : null,
                         ),
                       ],

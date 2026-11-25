@@ -349,14 +349,23 @@ void main() {
       await tester.tap(option);
       expect(selectedMode, PageTurnMode.cover);
       final toggle = find.byKey(const ValueKey('settings-keep-screen-on'));
-      final track = tester.widget<AnimatedContainer>(
-        find.descendant(of: toggle, matching: find.byType(AnimatedContainer)),
-      );
       final material3 = Theme.of(tester.element(settings)).useMaterial3;
-      expect(
-        (track.decoration! as BoxDecoration).color,
-        material3 ? scheme.secondaryContainer : scheme.primary,
-      );
+      if (material3) {
+        final track = tester.widget<Switch>(
+          find.descendant(of: toggle, matching: find.byType(Switch)),
+        );
+        expect(track.value, isTrue);
+        expect(
+          Theme.of(tester.element(toggle)).switchTheme.trackColor!
+              .resolve({WidgetState.selected}),
+          scheme.primary,
+        );
+      } else {
+        final track = tester.widget<AnimatedContainer>(
+          find.descendant(of: toggle, matching: find.byType(AnimatedContainer)),
+        );
+        expect((track.decoration! as BoxDecoration).color, scheme.primary);
+      }
       expect(tester.getSize(toggle), Size(material3 ? 56 : 48, 44));
       await tester.tapAt(tester.getCenter(toggle) + const Offset(0, 16));
       expect(keepScreenOn, isFalse);

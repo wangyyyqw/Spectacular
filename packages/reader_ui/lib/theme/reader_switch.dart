@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// 沿用阅读设置的紧凑胶囊开关，颜色由当前页面主题提供。
+/// 默认主题使用紧凑胶囊，MD3 使用原生开关，均保留完整触控区域。
 class ReaderSwitch extends StatelessWidget {
   const ReaderSwitch({super.key, required this.value, required this.onChanged});
 
@@ -10,8 +10,14 @@ class ReaderSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (theme.useMaterial3) {
+      return SizedBox(
+        width: 56,
+        height: 44,
+        child: Switch(value: value, onChanged: onChanged),
+      );
+    }
     final scheme = theme.colorScheme;
-    final material3 = theme.useMaterial3;
     final enabled = onChanged != null;
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
@@ -22,31 +28,25 @@ class ReaderSwitch extends StatelessWidget {
       child: Opacity(
         opacity: enabled ? 1 : .42,
         child: InkWell(
-          borderRadius: BorderRadius.circular(material3 ? 24 : 22),
+          borderRadius: BorderRadius.circular(22),
           onTap: enabled ? () => onChanged!(!value) : null,
           child: SizedBox(
-            width: material3 ? 56 : 48,
+            width: 48,
             height: 44,
             child: Center(
               child: AnimatedContainer(
                 duration: duration,
-                width: material3 ? 52 : 42,
-                height: material3 ? 32 : 22,
-                padding: EdgeInsets.all(material3 ? 4 : 2),
+                width: 42,
+                height: 22,
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   color: value
-                      ? material3
-                            ? scheme.secondaryContainer
-                            : scheme.primary
+                      ? scheme.primary
                       : scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(material3 ? 16 : 11),
+                  borderRadius: BorderRadius.circular(11),
                   border: value
                       ? null
-                      : Border.all(
-                          color: material3
-                              ? scheme.outline
-                              : scheme.outlineVariant,
-                        ),
+                      : Border.all(color: scheme.outlineVariant),
                 ),
                 child: AnimatedAlign(
                   duration: duration,
@@ -55,26 +55,18 @@ class ReaderSwitch extends StatelessWidget {
                       ? Alignment.centerRight
                       : Alignment.centerLeft,
                   child: Container(
-                    width: material3 ? (value ? 24 : 16) : 18,
-                    height: material3 ? (value ? 24 : 16) : 18,
+                    width: 18,
+                    height: 18,
                     decoration: BoxDecoration(
-                      color: value
-                          ? material3
-                                ? scheme.onSecondaryContainer
-                                : scheme.onPrimary
-                          : material3
-                          ? scheme.onSurfaceVariant
-                          : scheme.onSurfaceVariant,
+                      color: value ? scheme.onPrimary : scheme.onSurfaceVariant,
                       shape: BoxShape.circle,
-                      boxShadow: material3
-                          ? null
-                          : const [
-                              BoxShadow(
-                                color: Color(0x33000000),
-                                blurRadius: 3,
-                                offset: Offset(0, 1),
-                              ),
-                            ],
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x33000000),
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
                     ),
                   ),
                 ),

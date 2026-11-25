@@ -126,7 +126,7 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
       child: Material(
         key: const ValueKey<String>('note-composer-sheet'),
         color: ReaderFrostedSurface.panelColorOf(context),
-        borderRadius: ReaderUiStyle.sheetRadius,
+        borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
         clipBehavior: Clip.antiAlias,
         child: SafeArea(
           top: false,

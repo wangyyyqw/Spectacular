@@ -168,9 +168,6 @@ class _BookListsViewState extends State<BookListsView> {
           child: FloatingActionButton.small(
             key: const ValueKey<String>('booklist-create'),
             tooltip: '新建书单',
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
             onPressed: _create,
             child: const AppIcon(AppGlyph.add),
           ),

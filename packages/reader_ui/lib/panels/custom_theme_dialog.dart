@@ -98,7 +98,7 @@ class _CustomThemeDialogState extends State<CustomThemeDialog> {
     decoration: BoxDecoration(
       color: _background,
       border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      borderRadius: ReaderUiStyle.cardRadius,
+      borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
     ),
     child: Text(
       '清风徐来，水波不兴。\n在这里预览正文与背景的颜色。',

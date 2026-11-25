@@ -833,7 +833,7 @@ class BookEditorTools {
     String? error;
     final theme = Theme.of(context);
     final searchBorder = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     await _showEditorDrawer<void>(

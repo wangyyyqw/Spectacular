@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
@@ -92,7 +93,7 @@ class DiscoverChoiceDialog<T> extends StatelessWidget {
                             key: ValueKey(
                               'discover-choice-${labelFor(option)}',
                             ),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: ReaderUiStyle.controlRadiusOf(theme),
                             onTap: () => Navigator.of(context).pop(option),
                             child: Container(
                               constraints: const BoxConstraints(minHeight: 44),
@@ -101,10 +102,15 @@ class DiscoverChoiceDialog<T> extends StatelessWidget {
                                 vertical: 10,
                               ),
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
+                                color: option == selected
+                                    ? theme.colorScheme.primaryContainer
+                                    : null,
+                                borderRadius: ReaderUiStyle.controlRadiusOf(
+                                  theme,
+                                ),
                                 border: Border.all(
                                   color: option == selected
-                                      ? theme.colorScheme.onSurface
+                                      ? theme.colorScheme.primary
                                       : theme.colorScheme.outlineVariant,
                                 ),
                               ),
@@ -115,6 +121,11 @@ class DiscoverChoiceDialog<T> extends StatelessWidget {
                                       labelFor(option),
                                       style: theme.textTheme.bodyMedium
                                           ?.copyWith(
+                                            color: option == selected
+                                                ? theme
+                                                      .colorScheme
+                                                      .onPrimaryContainer
+                                                : theme.colorScheme.onSurface,
                                             fontWeight: option == selected
                                                 ? FontWeight.w600
                                                 : FontWeight.normal,
@@ -123,7 +134,12 @@ class DiscoverChoiceDialog<T> extends StatelessWidget {
                                   ),
                                   if (option == selected) ...[
                                     const SizedBox(width: 4),
-                                    const AppIcon(AppGlyph.check, size: 16),
+                                    AppIcon(
+                                      AppGlyph.check,
+                                      size: 16,
+                                      color:
+                                          theme.colorScheme.onPrimaryContainer,
+                                    ),
                                   ],
                                 ],
                               ),

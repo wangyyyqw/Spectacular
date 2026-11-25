@@ -302,10 +302,14 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
                     color: (inkMode ? style.inkStyle : style) == item
                         ? scheme.secondaryContainer
                         : scheme.surfaceContainerLow,
-                    borderRadius: ReaderUiStyle.controlRadius,
+                    borderRadius: ReaderUiStyle.controlRadiusOf(
+                      Theme.of(context),
+                    ),
                     child: InkWell(
                       key: ValueKey<String>('annotation-style-${item.name}'),
-                      borderRadius: ReaderUiStyle.controlRadius,
+                      borderRadius: ReaderUiStyle.controlRadiusOf(
+                        Theme.of(context),
+                      ),
                       onTap: () => onStyle(item),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 /// 阅微接口根地址，用于补全野社返回的相对图片路径。
 const String yeSheApiBaseUrl = 'https://api.reamicro.zhendong.ltd/';
@@ -184,32 +185,48 @@ class YeSheTokens {
   }
 
   /// 朱砂色，用于印章、强调数字。
-  static Color vermilion(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0xFFE3A08C)
-      : const Color(0xFFA34A34);
+  static Color vermilion(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.useMaterial3
+        ? theme.colorScheme.primary
+        : theme.brightness == Brightness.dark
+        ? const Color(0xFFE3A08C)
+        : const Color(0xFFA34A34);
+  }
 
   /// 黛青色，用于次一级强调。
-  static Color jade(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0xFF91C0A9)
-      : const Color(0xFF3F6E5A);
+  static Color jade(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.useMaterial3
+        ? theme.colorScheme.secondary
+        : theme.brightness == Brightness.dark
+        ? const Color(0xFF91C0A9)
+        : const Color(0xFF3F6E5A);
+  }
 
   /// 泥金色，用于名帖与榜单。
-  static Color gold(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0xFFD9B574)
-      : const Color(0xFF9A7434);
+  static Color gold(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.useMaterial3
+        ? theme.colorScheme.tertiary
+        : theme.brightness == Brightness.dark
+        ? const Color(0xFFD9B574)
+        : const Color(0xFF9A7434);
+  }
 
   /// 宣纸底色。
   static Color paper(BuildContext context) =>
       Theme.of(context).colorScheme.surface;
 
   /// 淡墨底色。
-  static Color wash(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0xFF24282A)
-      : const Color(0xFFF3F1EB);
+  static Color wash(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.useMaterial3
+        ? theme.colorScheme.surfaceContainerLow
+        : theme.brightness == Brightness.dark
+        ? const Color(0xFF24282A)
+        : const Color(0xFFF3F1EB);
+  }
 
   /// 卡片描边。
   static Color line(BuildContext context) =>
@@ -217,14 +234,19 @@ class YeSheTokens {
 
   /// 页头渐变。
   static LinearGradient headerGradient(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final dark = theme.brightness == Brightness.dark;
     return LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: <Color>[
         scheme.surfaceContainerLow,
-        dark ? const Color(0xFF262A2B) : const Color(0xFFF2EEE3),
+        theme.useMaterial3
+            ? scheme.surfaceContainer
+            : dark
+            ? const Color(0xFF262A2B)
+            : const Color(0xFFF2EEE3),
         scheme.surfaceContainerLow,
       ],
       stops: const <double>[0, 0.55, 1],
@@ -660,7 +682,7 @@ class YeSheTag extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
         color: tint.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: ReaderUiStyle.chipRadiusOf(Theme.of(context)),
       ),
       child: Text(
         text,
@@ -687,7 +709,7 @@ class YeSheEmpty extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
         color: YeSheTokens.wash(context),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: Row(
         children: <Widget>[

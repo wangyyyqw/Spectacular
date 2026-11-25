@@ -68,7 +68,6 @@ const _secondary = Color(0xFF686C71);
 const _canvas = Color(0xFFF6F6F4);
 const _fill = Color(0xFFF0F1EE);
 const _line = Color(0xFFE4E5E2);
-const _radius = BorderRadius.all(Radius.circular(4));
 // 弹层使用同一套圆角和间距，避免设置页在居中弹窗与底部抽屉之间跳变。
 const _dayScheme = ColorScheme.light(
   primary: _ink,
@@ -159,43 +158,6 @@ AppBarTheme _appBar(ColorScheme colors, String fontFamily) => AppBarTheme(
   ),
 );
 
-InputDecorationTheme _input(ColorScheme colors) {
-  final border = OutlineInputBorder(
-    borderRadius: _radius,
-    borderSide: BorderSide(color: colors.outlineVariant),
-  );
-  return InputDecorationTheme(
-    filled: true,
-    fillColor: colors.surface,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    border: border,
-    enabledBorder: border,
-    focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: colors.primary),
-    ),
-  );
-}
-
-InputDecorationTheme _inputForStyle(ColorScheme colors, AppUiStyle uiStyle) {
-  final base = _input(colors);
-  if (uiStyle == AppUiStyle.classic) return base;
-  final shape = OutlineInputBorder(
-    borderRadius: BorderRadius.circular(12),
-    borderSide: BorderSide(color: colors.outlineVariant),
-  );
-  return base.copyWith(
-    border: shape,
-    enabledBorder: shape,
-    focusedBorder: shape.copyWith(
-      borderSide: BorderSide(color: colors.primary, width: 2),
-    ),
-    errorBorder: shape.copyWith(borderSide: BorderSide(color: colors.error)),
-    focusedErrorBorder: shape.copyWith(
-      borderSide: BorderSide(color: colors.error, width: 2),
-    ),
-  );
-}
-
 /// 应用界面的纸白与墨黑主题，阅读正文保留独立主题。
 ThemeData buildAppTheme({
   Brightness brightness = Brightness.light,
@@ -223,7 +185,6 @@ ThemeData buildAppTheme({
       closeButtonIconBuilder: (_) => const AppIcon(AppGlyph.close),
     ),
     iconTheme: IconThemeData(color: colors.onSurface, size: 22),
-    inputDecorationTheme: _inputForStyle(colors, uiStyle),
     bottomNavigationBarTheme: BottomNavigationBarThemeData(
       backgroundColor: colors.surface,
       selectedItemColor: colors.primary,
@@ -243,78 +204,54 @@ ThemeData buildAppTheme({
       type: BottomNavigationBarType.fixed,
     ),
   );
-  return _withControls(
-    _withSurfaces(applyReaderUiStyle(base), colors, uiStyle),
-    colors,
-    uiStyle,
+  // 字体先确定，再生成控件主题，按钮与弹层才能使用相同文字层级。
+  final styled = applyReaderUiStyle(
+    base.copyWith(textTheme: _appTextTheme(base.textTheme, colors)),
   );
-}
-
-ThemeData _withSurfaces(
-  ThemeData base,
-  ColorScheme colors,
-  AppUiStyle uiStyle,
-) {
-  final material3 = uiStyle == AppUiStyle.material3;
-  final modalRadius = material3 ? 28.0 : 24.0;
-  final sheetRadius = material3 ? 28.0 : 24.0;
-  return base.copyWith(
-    textTheme: _appTextTheme(base.textTheme, colors),
-    cardTheme: CardThemeData(
-      color: colors.surface,
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(material3 ? 12 : 4),
-        side: BorderSide(color: colors.outlineVariant),
-      ),
+  return styled.copyWith(
+    listTileTheme: styled.listTileTheme.copyWith(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      minVerticalPadding: 8,
     ),
-    bottomSheetTheme: BottomSheetThemeData(
-      backgroundColor: colors.surface,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      modalBarrierColor: Colors.black54,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(sheetRadius)),
-      ),
-      constraints: const BoxConstraints(maxWidth: 680),
-    ),
-    dialogTheme: DialogThemeData(
-      backgroundColor: colors.surface,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
+    dialogTheme: styled.dialogTheme.copyWith(
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(modalRadius),
-      ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      titleTextStyle: TextStyle(
-        color: colors.onSurface,
-        fontSize: 18,
-        fontWeight: FontWeight.w600,
-      ),
-      contentTextStyle: TextStyle(
+      titleTextStyle: styled.textTheme.titleLarge?.copyWith(fontSize: 18),
+      contentTextStyle: styled.textTheme.bodyMedium?.copyWith(
         color: colors.onSurfaceVariant,
-        fontSize: 14,
         height: 1.5,
       ),
       actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
     ),
-    popupMenuTheme: PopupMenuThemeData(
-      color: colors.surface,
-      surfaceTintColor: Colors.transparent,
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(material3 ? 12 : 16),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: colors.surface,
+      indicatorColor: colors.secondaryContainer,
+      elevation: 0,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => styled.textTheme.labelSmall?.copyWith(
+          color: states.contains(WidgetState.selected)
+              ? colors.onSurface
+              : colors.onSurfaceVariant,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w600
+              : FontWeight.normal,
+        ),
+      ),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (states) => IconThemeData(
+          color: states.contains(WidgetState.selected)
+              ? colors.onSecondaryContainer
+              : colors.onSurfaceVariant,
+        ),
       ),
     ),
-    floatingActionButtonTheme: FloatingActionButtonThemeData(
-      backgroundColor: colors.primary,
-      foregroundColor: colors.onPrimary,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(material3 ? 16 : 4),
-      ),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: colors.surface,
+      indicatorColor: colors.secondaryContainer,
+      selectedIconTheme: IconThemeData(color: colors.onSecondaryContainer),
+      unselectedIconTheme: IconThemeData(color: colors.onSurfaceVariant),
+      useIndicator: uiStyle == AppUiStyle.material3,
     ),
   );
 }
@@ -344,99 +281,3 @@ TextTheme _appTextTheme(TextTheme base, ColorScheme colors) {
         labelSmall: secondary.copyWith(fontSize: 11),
       );
 }
-
-ThemeData _withControls(
-  ThemeData base,
-  ColorScheme colors,
-  AppUiStyle uiStyle,
-) {
-  final buttonShape = RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(
-      uiStyle == AppUiStyle.material3 ? 20 : 4,
-    ),
-  );
-  return base.copyWith(
-    listTileTheme: ListTileThemeData(
-      titleTextStyle: base.textTheme.bodyMedium,
-      subtitleTextStyle: base.textTheme.bodySmall,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      minVerticalPadding: 8,
-      shape: const RoundedRectangleBorder(borderRadius: _radius),
-    ),
-    filledButtonTheme: FilledButtonThemeData(
-      style: _filledStyle(colors, uiStyle),
-    ),
-    elevatedButtonTheme: ElevatedButtonThemeData(
-      style: _filledStyle(colors, uiStyle),
-    ),
-    outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: colors.primary,
-        shape: buttonShape,
-        side: BorderSide(color: colors.outlineVariant),
-        minimumSize: const Size(44, 44),
-      ),
-    ),
-    textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(
-        foregroundColor: colors.primary,
-        shape: buttonShape,
-      ),
-    ),
-    chipTheme: base.chipTheme.copyWith(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(
-          uiStyle == AppUiStyle.material3 ? 8 : 4,
-        ),
-      ),
-      backgroundColor: colors.surface,
-      selectedColor: colors.primaryContainer,
-      side: BorderSide(color: colors.outlineVariant),
-      elevation: 0,
-      showCheckmark: false,
-      labelStyle: base.textTheme.bodySmall?.copyWith(color: colors.onSurface),
-    ),
-    switchTheme: uiStyle == AppUiStyle.material3
-        ? SwitchThemeData(
-            thumbColor: WidgetStateProperty.resolveWith(
-              (states) => states.contains(WidgetState.selected)
-                  ? colors.onPrimary
-                  : null,
-            ),
-            trackColor: WidgetStateProperty.resolveWith(
-              (states) =>
-                  states.contains(WidgetState.selected) ? colors.primary : null,
-            ),
-            trackOutlineColor: WidgetStateProperty.resolveWith(
-              (states) => states.contains(WidgetState.selected)
-                  ? colors.primary
-                  : colors.outline,
-            ),
-          )
-        : base.switchTheme,
-    navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: colors.surface,
-      indicatorColor: colors.secondaryContainer,
-      elevation: 0,
-      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-    ),
-    navigationRailTheme: NavigationRailThemeData(
-      backgroundColor: colors.surface,
-      indicatorColor: colors.secondaryContainer,
-      useIndicator: uiStyle == AppUiStyle.material3,
-    ),
-  );
-}
-
-ButtonStyle _filledStyle(ColorScheme colors, AppUiStyle uiStyle) =>
-    FilledButton.styleFrom(
-      backgroundColor: colors.primary,
-      foregroundColor: colors.onPrimary,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(
-          uiStyle == AppUiStyle.material3 ? 20 : 4,
-        ),
-      ),
-      minimumSize: const Size(44, 44),
-      elevation: 0,
-    );

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
@@ -267,7 +268,7 @@ class _CommunityPageState extends State<CommunityPage> {
       child: Container(
         decoration: BoxDecoration(
           color: theme.colorScheme.errorContainer,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           border: Border.all(
             color: theme.colorScheme.error.withValues(alpha: 0.22),
           ),
@@ -403,7 +404,7 @@ class _CommunityCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
       decoration: BoxDecoration(
         color: YeSheTokens.paper(context),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
         border: Border.all(color: YeSheTokens.line(context)),
         boxShadow: YeSheTokens.cardShadow(context),
       ),
@@ -418,7 +419,9 @@ class _CommunityCard extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: YeSheTokens.vermilion(context).withValues(alpha: 0.09),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: ReaderUiStyle.controlRadiusOf(
+                    Theme.of(context),
+                  ),
                 ),
                 child: AppIcon(
                   icon,
@@ -480,7 +483,7 @@ class _CollectionTile extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(9, 8, 4, 8),
       decoration: BoxDecoration(
         color: YeSheTokens.wash(context),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         border: Border.all(color: YeSheTokens.line(context)),
       ),
       child: Row(
@@ -581,7 +584,7 @@ class _ThoughtTile extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
       decoration: BoxDecoration(
         color: YeSheTokens.wash(context),
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         border: Border.all(color: YeSheTokens.line(context)),
       ),
       child: Column(
@@ -709,7 +712,7 @@ class _CommunitySignedOutView extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
           decoration: BoxDecoration(
             color: YeSheTokens.paper(context),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
             border: Border.all(color: YeSheTokens.line(context)),
             boxShadow: YeSheTokens.cardShadow(context),
           ),

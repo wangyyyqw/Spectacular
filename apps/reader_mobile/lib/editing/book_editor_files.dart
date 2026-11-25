@@ -181,7 +181,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
   Widget _filterField() {
     final theme = Theme.of(context);
     final border = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Padding(

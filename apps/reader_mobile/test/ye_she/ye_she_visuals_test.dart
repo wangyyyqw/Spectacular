@@ -1,8 +1,83 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/ye_she/ye_she_visuals.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 
 void main() {
+  for (final style in AppUiStyle.values) {
+    for (final brightness in Brightness.values) {
+      testWidgets('${style.name}/${brightness.name} 野社配色与空态随主题', (
+        tester,
+      ) async {
+        final theme = buildAppTheme(
+          uiStyle: style,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.teal,
+            brightness: brightness,
+          ),
+        );
+        late BuildContext captured;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: theme,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  captured = context;
+                  return const Column(
+                    children: [
+                      YeSheTag('状态'),
+                      YeSheEmpty('暂无记录'),
+                      YeSheSectionLabel('社群'),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        final md3 = style == AppUiStyle.material3;
+        final color = YeSheTokens.vermilion(captured);
+        expect(
+          color,
+          md3
+              ? theme.colorScheme.primary
+              : brightness == Brightness.dark
+              ? const Color(0xFFE3A08C)
+              : const Color(0xFFA34A34),
+        );
+        final luminance = [
+          color.computeLuminance(),
+          theme.colorScheme.surface.computeLuminance(),
+        ]..sort();
+        expect(
+          (luminance.last + .05) / (luminance.first + .05),
+          greaterThan(4.5),
+        );
+        if (md3) {
+          expect(YeSheTokens.jade(captured), theme.colorScheme.secondary);
+          expect(YeSheTokens.gold(captured), theme.colorScheme.tertiary);
+          expect(
+            YeSheTokens.wash(captured),
+            theme.colorScheme.surfaceContainerLow,
+          );
+        }
+        final empty = tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byType(YeSheEmpty),
+                matching: find.byType(Container),
+              )
+              .first,
+        );
+        expect(
+          (empty.decoration! as BoxDecoration).borderRadius,
+          BorderRadius.circular(md3 ? 12 : 4),
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
   test('野社图片地址补全站内路径与协议', () {
     expect(yeSheImageUrl(''), '');
     expect(

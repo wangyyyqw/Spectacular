@@ -1385,7 +1385,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       opacity: onTap == null ? 0.42 : 1,
       child: InkWell(
         key: ValueKey<String>(key),
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         onTap: onTap,
         child: Container(
           padding: selected
@@ -1393,7 +1393,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
               : const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
             color: surface,
-            borderRadius: ReaderUiStyle.controlRadius,
+            borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
             border: Border.all(
               color: selected
                   ? ReaderDrawerStyle.textOf(theme)
@@ -1433,7 +1433,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       child: InkWell(
         key: ValueKey<String>(key),
         onTap: onTap,
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         child: _ImageTileFrame(
           selected: selected,
           child: DecoratedBox(
@@ -1486,7 +1486,7 @@ class _FontButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         backgroundColor: ReaderDrawerStyle.surfaceOf(theme),
         side: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
-        shape: ReaderUiStyle.controlShape,
+        shape: ReaderUiStyle.controlShapeOf(Theme.of(context)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1526,12 +1526,12 @@ class _WideActionButton extends StatelessWidget {
     return Material(
       color: ReaderDrawerStyle.optionFillOf(theme),
       shape: RoundedRectangleBorder(
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         side: BorderSide(color: ReaderDrawerStyle.dividerOf(theme)),
       ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         child: SizedBox(
           height: 44,
           child: Row(
@@ -1559,10 +1559,10 @@ class _StepButton extends StatelessWidget {
     final theme = Theme.of(context);
     return Material(
       color: ReaderDrawerStyle.optionFillOf(theme),
-      shape: ReaderUiStyle.controlShape,
+      shape: ReaderUiStyle.controlShapeOf(Theme.of(context)),
       child: InkWell(
         onTap: onTap,
-        customBorder: ReaderUiStyle.controlShape,
+        customBorder: ReaderUiStyle.controlShapeOf(Theme.of(context)),
         child: SizedBox.square(
           dimension: 44,
           child: AppIcon(
@@ -1636,14 +1636,14 @@ class _PageTurnOption extends StatelessWidget {
             ? scheme.primaryContainer
             : ReaderDrawerStyle.optionFillOf(theme),
         shape: RoundedRectangleBorder(
-          borderRadius: ReaderUiStyle.controlRadius,
+          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           side: BorderSide(
             color: selected ? scheme.primary : scheme.outlineVariant,
           ),
         ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: ReaderUiStyle.controlRadius,
+          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 44),
             child: Padding(
@@ -1697,7 +1697,7 @@ class _SettingsEntryRow extends StatelessWidget {
     final text = ReaderDrawerStyle.textOf(theme);
     return InkWell(
       onTap: onTap,
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       child: SizedBox(
         height: 44,
         child: Row(
@@ -1738,7 +1738,7 @@ class _ImageTileFrame extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         border: Border.all(
           color: selected ? scheme.primary : scheme.outlineVariant,
           width: 2,
@@ -1769,13 +1769,13 @@ class _AddImageTile extends StatelessWidget {
       opacity: onTap == null ? 0.6 : 1,
       child: InkWell(
         onTap: onTap,
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         child: Container(
           width: 72,
           height: 160,
           decoration: BoxDecoration(
             color: scheme.surface,
-            borderRadius: ReaderUiStyle.controlRadius,
+            borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
             border: Border.all(color: scheme.outlineVariant),
             boxShadow: <BoxShadow>[
               BoxShadow(

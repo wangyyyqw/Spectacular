@@ -58,7 +58,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Material 3 使用更宽的轨道和独立选中颜色', (tester) async {
+  testWidgets('Material 3 使用原生开关，保留禁用状态与触控区域', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(useMaterial3: true),
@@ -67,9 +67,51 @@ void main() {
     );
     final track = find.descendant(
       of: find.byType(ReaderSwitch),
-      matching: find.byType(AnimatedContainer),
+      matching: find.byType(Switch),
     );
-    expect(tester.getSize(track), const Size(52, 32));
+    expect(track, findsOneWidget);
+    expect(tester.widget<Switch>(track).onChanged, isNull);
+    expect(tester.widget<Switch>(track).value, isTrue);
+    expect(tester.getSize(find.byType(ReaderSwitch)), const Size(56, 44));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('MD3 设置行和开关各切换一次，禁用后不触发回调', (tester) async {
+    var value = false;
+    var count = 0;
+    var enabled = true;
+    Widget app() => MaterialApp(
+      theme: ThemeData(useMaterial3: true),
+      home: Scaffold(
+        body: StatefulBuilder(
+          builder: (context, update) => ReaderSwitchListTile(
+            title: const Text('MD3 设置'),
+            value: value,
+            onChanged: enabled
+                ? (next) => update(() {
+                    value = next;
+                    count++;
+                  })
+                : null,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(app());
+    await tester.tap(find.text('MD3 设置'));
+    await tester.pumpAndSettle();
+    expect(value, isTrue);
+    expect(count, 1);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(value, isFalse);
+    expect(count, 2);
+    enabled = false;
+    await tester.pumpWidget(app());
+    await tester.tap(find.text('MD3 设置'));
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(count, 2);
     expect(tester.takeException(), isNull);
   });
 }

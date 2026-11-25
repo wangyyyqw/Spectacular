@@ -55,7 +55,7 @@ class AnnotationQuotePreview extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,

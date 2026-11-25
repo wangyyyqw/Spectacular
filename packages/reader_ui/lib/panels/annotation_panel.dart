@@ -292,7 +292,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final searchBorder = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     final searchStyle = theme.textTheme.bodyMedium!.copyWith(
@@ -691,7 +691,7 @@ class _AnnotationCard extends StatelessWidget {
     final hasNote = note != null && note.isNotEmpty;
     final noteNeedsExpansion =
         hasNote && (note.length > 66 || '\n'.allMatches(note).length >= 2);
-    final borderRadius = ReaderUiStyle.cardRadius;
+    final borderRadius = ReaderUiStyle.cardRadiusOf(Theme.of(context));
     return Material(
       color: selected
           ? theme.colorScheme.primaryContainer
@@ -803,7 +803,9 @@ class _AnnotationCard extends StatelessWidget {
                               ),
                               decoration: BoxDecoration(
                                 color: theme.colorScheme.surfaceContainerLow,
-                                borderRadius: ReaderUiStyle.controlRadius,
+                                borderRadius: ReaderUiStyle.controlRadiusOf(
+                                  Theme.of(context),
+                                ),
                               ),
                               child: Text(
                                 note,

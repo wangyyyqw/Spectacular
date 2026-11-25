@@ -39,7 +39,7 @@ class CornerInfoEditor extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         border: Border.all(color: scheme.outlineVariant),
-        borderRadius: ReaderUiStyle.controlRadius,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: Column(
         children: [

@@ -100,7 +100,7 @@ class _EditorFindBarState extends State<EditorFindBar> {
     final result = value.result;
     final theme = Theme.of(context);
     final border = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     final searchFieldDecoration = InputDecoration(

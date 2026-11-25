@@ -55,9 +55,12 @@ void main() {
       final entering = await _samples(tester, boundary);
       await tester.pump(const Duration(milliseconds: 10));
       final settled = await _samples(tester, boundary);
+      final surface = Theme.of(
+        tester.element(find.byType(ReaderFrostedSurface)),
+      ).colorScheme.surface;
       expect(
         settled,
-        everyElement(closeTo(theme.background.r * 255, 1)),
+        everyElement(closeTo(surface.r * 255, 1)),
         reason: '底板覆盖黑白背景，颜色不得混入背景或遮罩',
       );
       expect(find.byType(BackdropFilter), findsNothing);

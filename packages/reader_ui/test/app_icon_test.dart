@@ -6,6 +6,47 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 void main() {
+  testWidgets('我的选中后头部和身体填充前景色，未选中保持空心', (tester) async {
+    final boundaryKey = GlobalKey();
+    for (final filled in [false, true]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: boundaryKey,
+              child: ColoredBox(
+                color: Colors.white,
+                child: AppIcon(
+                  AppGlyph.profile,
+                  size: 24,
+                  color: Colors.teal,
+                  filled: filled,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.runAsync(() async {
+        final image = await tester
+            .renderObject<RenderRepaintBoundary>(find.byKey(boundaryKey))
+            .toImage(pixelRatio: 4);
+        final bytes = (await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        ))!;
+        for (final y in [7, 18]) {
+          final offset = (y * 4 * image.width + 12 * 4) * 4;
+          expect([
+            bytes.getUint8(offset),
+            bytes.getUint8(offset + 1),
+            bytes.getUint8(offset + 2),
+          ], filled ? [0, 150, 136] : [255, 255, 255]);
+        }
+        image.dispose();
+      });
+    }
+  });
+
   testWidgets('发现恢复单色指南针，选中时填充指针', (tester) async {
     final boundaryKey = GlobalKey();
     List<int>? original;

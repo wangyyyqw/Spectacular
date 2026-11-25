@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'reader_frosted_surface.dart';
 import 'reader_panel_theme.dart';
 import 'reader_theme.dart';
+import 'reader_ui_style.dart';
 
 /// 磨砂对话框只缩放，不使用会隔离背景采样的整体淡入。
 ///
@@ -177,23 +178,28 @@ Widget _drawerPanel({
   bool isDismissible = true,
   bool desktop = false,
 }) {
-  final panel = ReaderFrostedSurface(
-    radius: 24,
-    bottomRadius: desktop ? 24 : 0,
-    child: ClipRRect(
-      borderRadius: desktop
-          ? BorderRadius.circular(24)
-          : const BorderRadius.vertical(top: Radius.circular(24)),
-      child: RepaintBoundary(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (showDragHandle) _DragHandle(dismissible: isDismissible),
-            Flexible(child: Builder(builder: builder)),
-          ],
+  final panel = Builder(
+    builder: (context) {
+      final radius = ReaderUiStyle.panelCornerOf(Theme.of(context));
+      return ReaderFrostedSurface(
+        radius: radius,
+        bottomRadius: desktop ? radius : 0,
+        child: ClipRRect(
+          borderRadius: desktop
+              ? BorderRadius.circular(radius)
+              : BorderRadius.vertical(top: Radius.circular(radius)),
+          child: RepaintBoundary(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showDragHandle) _DragHandle(dismissible: isDismissible),
+                Flexible(child: Builder(builder: builder)),
+              ],
+            ),
+          ),
         ),
-      ),
-    ),
+      );
+    },
   );
   return readerTheme == null
       ? panel
@@ -368,9 +374,9 @@ class ReaderFrostedDialog extends StatelessWidget {
     semanticsRole: semanticsRole,
     clipBehavior: Clip.none,
     child: ReaderFrostedSurface(
-      radius: 24,
+      radius: ReaderUiStyle.panelCornerOf(Theme.of(context)),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: ReaderUiStyle.panelRadiusOf(Theme.of(context)),
         clipBehavior: clipBehavior,
         child: RepaintBoundary(child: child),
       ),

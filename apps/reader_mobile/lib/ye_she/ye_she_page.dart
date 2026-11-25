@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -254,7 +255,7 @@ class _YeShePageState extends State<YeShePage>
         indicatorSize: TabBarIndicatorSize.tab,
         indicator: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           border: Border.all(color: YeSheTokens.line(context)),
         ),
         dividerColor: Colors.transparent,
@@ -436,7 +437,7 @@ class _YeShePageState extends State<YeShePage>
       child: Container(
         decoration: BoxDecoration(
           color: theme.colorScheme.errorContainer,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           border: Border.all(
             color: theme.colorScheme.error.withValues(alpha: 0.22),
           ),
@@ -497,7 +498,7 @@ class _YeShePageState extends State<YeShePage>
           end: Alignment.bottomRight,
           colors: <Color>[scheme.surface, YeSheTokens.wash(context)],
         ),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
         border: Border.all(color: YeSheTokens.line(context)),
         boxShadow: YeSheTokens.cardShadow(context),
       ),
@@ -648,7 +649,9 @@ class _YeShePageState extends State<YeShePage>
                         YeSheTokens.wash(context),
                       ],
                     ),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: ReaderUiStyle.controlRadiusOf(
+                      Theme.of(context),
+                    ),
                     border: Border.all(
                       color: YeSheTokens.gold(context).withValues(alpha: 0.28),
                     ),
@@ -814,7 +817,9 @@ class _YeShePageState extends State<YeShePage>
                 ),
                 decoration: BoxDecoration(
                   color: YeSheTokens.wash(context),
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: ReaderUiStyle.controlRadiusOf(
+                    Theme.of(context),
+                  ),
                 ),
                 child: Row(
                   children: <Widget>[
@@ -1260,7 +1265,7 @@ class _YeShePageState extends State<YeShePage>
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1361,7 +1366,9 @@ class _YeShePageState extends State<YeShePage>
                   padding: const EdgeInsets.fromLTRB(13, 11, 13, 12),
                   decoration: BoxDecoration(
                     color: YeSheTokens.wash(context),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: ReaderUiStyle.controlRadiusOf(
+                      Theme.of(context),
+                    ),
                     border: Border.all(color: YeSheTokens.line(context)),
                   ),
                   child: Text(
@@ -1958,7 +1965,9 @@ class _YeShePageState extends State<YeShePage>
                     ),
                     decoration: BoxDecoration(
                       color: YeSheTokens.gold(context).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(9),
+                      borderRadius: ReaderUiStyle.controlRadiusOf(
+                        Theme.of(context),
+                      ),
                       border: Border.all(
                         color: YeSheTokens.gold(context)
                             .withValues(alpha: 0.24),
@@ -2001,7 +2010,9 @@ class _YeShePageState extends State<YeShePage>
                     ),
                     decoration: BoxDecoration(
                       color: YeSheTokens.jade(context).withValues(alpha: 0.09),
-                      borderRadius: BorderRadius.circular(9),
+                      borderRadius: ReaderUiStyle.controlRadiusOf(
+                        Theme.of(context),
+                      ),
                       border: Border.all(
                         color: YeSheTokens.jade(context)
                             .withValues(alpha: 0.22),
@@ -3208,7 +3219,7 @@ class _YeCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
           border: Border.all(color: YeSheTokens.line(context)),
           boxShadow: YeSheTokens.cardShadow(context),
         ),
@@ -3232,7 +3243,9 @@ class _YeCard extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: YeSheTokens.vermilion(context)
                                 .withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: ReaderUiStyle.controlRadiusOf(
+                              Theme.of(context),
+                            ),
                           ),
                           child: AppIcon(
                             icon,
@@ -3325,7 +3338,7 @@ class _RankRow extends StatelessWidget {
         color: entry.rank <= 3
             ? YeSheTokens.gold(context).withValues(alpha: 0.07)
             : Colors.transparent,
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: Row(
         children: <Widget>[
@@ -3481,7 +3494,7 @@ class _RetainerTile extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
       decoration: BoxDecoration(
         color: YeSheTokens.wash(context),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         border: Border.all(color: YeSheTokens.line(context)),
       ),
       child: Column(
@@ -3539,9 +3552,9 @@ class _MaterialTile extends StatelessWidget {
     };
     return Material(
       color: YeSheTokens.wash(context),
-      borderRadius: BorderRadius.circular(9),
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       child: InkWell(
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         onTap: onPressed,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -3594,7 +3607,7 @@ class _ItemGlyph extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       ),
       child: YeSheItemIcon(
         propId: propId,
@@ -3622,9 +3635,9 @@ class _InventoryButton extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: YeSheTokens.wash(context),
-      borderRadius: BorderRadius.circular(9),
+      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
       child: InkWell(
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         onTap: onPressed,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
@@ -3722,7 +3735,7 @@ class _CostStatusPanel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
       decoration: BoxDecoration(
         color: YeSheTokens.wash(context),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         border: Border.all(color: YeSheTokens.line(context)),
       ),
       child: Column(
@@ -3819,7 +3832,7 @@ class _TitleCostPanel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
       decoration: BoxDecoration(
         color: YeSheTokens.wash(context),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
         border: Border.all(color: YeSheTokens.line(context)),
       ),
       child: Column(
@@ -3910,7 +3923,7 @@ class _SignedOutView extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
           decoration: BoxDecoration(
             color: YeSheTokens.paper(context),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
             border: Border.all(color: YeSheTokens.line(context)),
             boxShadow: YeSheTokens.cardShadow(context),
           ),

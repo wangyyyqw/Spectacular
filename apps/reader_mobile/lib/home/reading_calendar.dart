@@ -149,7 +149,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
   Widget _monthHeader(ReadingCalendarMonth month) => LayoutBuilder(
     builder: (context, constraints) {
       final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
-      final compact = constraints.maxWidth < 110 * scale + 152;
+      final compact = constraints.maxWidth < 110 * scale + 96;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -213,20 +213,6 @@ class _ReadingCalendarState extends State<ReadingCalendar>
         constraints: const BoxConstraints.tightFor(width: 48, height: 48),
         padding: EdgeInsets.zero,
         icon: const AppIcon(AppGlyph.chevronRight),
-      ),
-      const SizedBox(width: 8),
-      TextButton(
-        key: const ValueKey('stats-calendar-today'),
-        onPressed: () => _showMonth(_currentMonth),
-        style: TextButton.styleFrom(
-          minimumSize: const Size(48, 48),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          backgroundColor: Theme.of(context)
-              .colorScheme
-              .surfaceContainerHighest,
-          shape: ReaderUiStyle.controlShape,
-        ),
-        child: const Text('今天', style: TextStyle(fontSize: 13)),
       ),
     ],
   );

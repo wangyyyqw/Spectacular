@@ -507,7 +507,7 @@ void main() {
     expect(find.text('这一天没有阅读记录'), findsOneWidget);
   });
 
-  testWidgets('箭头可浏览空月和跨年月份，今天按钮回到当前月份', (tester) async {
+  testWidgets('箭头可浏览空月和跨年月份，标题不再放置今天按钮', (tester) async {
     await _pump(tester, [
       _session('a', DateTime(2025, 12, 31, 9), 10),
     ], now: DateTime(2026, 2, 15));
@@ -525,8 +525,9 @@ void main() {
     }
     expect(find.text('2026年2月'), findsOneWidget);
     await _tap(tester, 'next');
-    await _tap(tester, 'today');
+    await _tap(tester, 'previous');
     expect(find.text('2026年2月'), findsOneWidget);
+    expect(_key('today'), findsNothing);
     expect(find.text('选择月份'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -571,7 +572,7 @@ void main() {
       find.byKey(const ValueKey('stats-reading-calendar')),
     );
     final shape = frame.shape! as RoundedRectangleBorder;
-    expect(shape.borderRadius, BorderRadius.circular(20));
+    expect(shape.borderRadius, BorderRadius.circular(4));
     expect(shape.side.width, 1);
     expect(frame.clipBehavior, Clip.antiAlias);
     final context = tester.element(_key('day-2026-11-15'));
@@ -597,12 +598,9 @@ void main() {
     final title = tester.getRect(_key('month'));
     final previous = tester.getRect(_key('previous'));
     final next = tester.getRect(_key('next'));
-    final today = tester.getRect(_key('today'));
     expect(title.right, lessThan(previous.left));
     expect(previous.center.dy, next.center.dy);
-    expect(next.center.dy, today.center.dy);
-    expect(next.right, lessThan(today.left));
-    expect(today.width, greaterThanOrEqualTo(44));
+    expect(_key('today'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -674,7 +672,7 @@ void main() {
     });
   }
 
-  testWidgets('月份下拉可跨年选择空月，今天返回本月并保留原统计', (tester) async {
+  testWidgets('月份下拉可跨年选择空月并返回本月，保留原统计', (tester) async {
     await _pump(tester, [_session('a', DateTime(2026, 11, 2, 9), 30)]);
     await _tap(tester, 'pick-month');
     expect(find.text('选择月份'), findsOneWidget);
@@ -683,7 +681,9 @@ void main() {
     expect(find.text('2025年12月'), findsOneWidget);
     expect(_key('month-picker'), findsNothing);
     expect(find.text('本月暂无阅读记录'), findsOneWidget);
-    await _tap(tester, 'today');
+    await _tap(tester, 'pick-month');
+    await _tap(tester, 'next-year');
+    await _tap(tester, 'pick-2026-11');
     expect(find.text('2026年11月'), findsOneWidget);
     expect(find.text('1 天阅读 · 1 本 · 30 分钟'), findsOneWidget);
     await _tap(tester, 'pick-month');

@@ -1090,9 +1090,22 @@ final _reaMicroPaths = <AppGlyph, Path>{
     ..quadraticBezierTo(8.69363, 7.955511, 8.69363, 7.065723)
     ..close(),
 };
+// 人像原路径依次为身体外轮廓、身体镂空、头部外轮廓、头部镂空。
+// 选中时保留两个外轮廓，和其他导航图标一样显示实心态。
+final _reaMicroFilledProfile = _filledProfilePath();
+
+Path _filledProfilePath() {
+  final contours = _reaMicroPaths[AppGlyph.profile]!.computeMetrics().toList();
+  return Path()
+    ..addPath(contours[0].extractPath(0, contours[0].length), Offset.zero)
+    ..addPath(contours[2].extractPath(0, contours[2].length), Offset.zero);
+}
+
 // 发现继续使用本项目的指南针图标及选中态。
 bool _drawReaMicroGlyph(AppGlyph glyph, AppIconCanvas canvas) {
-  final path = _reaMicroPaths[glyph];
+  final path = glyph == AppGlyph.profile && canvas.filled
+      ? _reaMicroFilledProfile
+      : _reaMicroPaths[glyph];
   if (path == null) return false;
   canvas._canvas.drawPath(path, _fillPaint(canvas.color));
   return true;

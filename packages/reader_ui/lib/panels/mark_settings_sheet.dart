@@ -32,7 +32,7 @@ class _ReaderMarkSettingsSheetState extends State<ReaderMarkSettingsSheet> {
   @override
   Widget build(BuildContext context) => Material(
     color: ReaderFrostedSurface.panelColorOf(context),
-    borderRadius: ReaderUiStyle.sheetRadius,
+    borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
     child: SafeArea(
       top: false,
       child: Column(

@@ -5,6 +5,7 @@ import '../theme/reader_ink.dart';
 import '../theme/reader_panel_theme.dart';
 import '../theme/reader_theme.dart';
 import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_ui_style.dart';
 
 const _fallbackTheme = ReaderTheme(
   id: 'fallback',
@@ -272,10 +273,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                         onSeek: onSeek,
                       ),
                     ),
-                    _EntriesRow(
-                      fg: fg,
-                      onEntry: onEntry,
-                    ),
+                    _EntriesRow(fg: fg, onEntry: onEntry),
                   ],
                 ),
               ),
@@ -878,11 +876,11 @@ class _DrawerLayerState extends State<_DrawerLayer>
         theme: widget.theme ?? _fallbackTheme,
         child: ReaderFrostedSurface(
           key: const ValueKey<String>('reader-drawer-surface'),
-          radius: 24,
+          radius: ReaderUiStyle.panelCornerOf(Theme.of(context)),
           bottomRadius: 0,
           inkMode: widget.inkMode,
           child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
             child: _buildRevealContent(content, contentHeight),
           ),
         ),

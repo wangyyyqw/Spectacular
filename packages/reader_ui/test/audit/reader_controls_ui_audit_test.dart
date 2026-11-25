@@ -50,7 +50,7 @@ Future<void> _openSheet(
   await tester.pumpAndSettle();
 }
 
-void _expectSheet(WidgetTester tester, String key, {double radius = 24}) {
+void _expectSheet(WidgetTester tester, String key, {double radius = 28}) {
   final material = tester.widget<Material>(_key(key));
   expect(
     material.borderRadius,
