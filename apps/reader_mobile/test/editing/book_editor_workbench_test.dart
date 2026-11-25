@@ -112,6 +112,13 @@ void main() {
       expect(code.controller, same(document.code));
       expect(view.session, same(current));
       expect(document.code.text, contains('已修订正文'));
+      for (final category in ['转换', '结构', '图片', '字体', '注释与正文']) {
+        expect(
+          find.byKey(ValueKey('editor-category-$category')).hitTestable(),
+          findsOneWidget,
+          reason: '窗宽 $width 的 $category 工具可直接访问',
+        );
+      }
       expect(tester.takeException(), isNull, reason: '窗宽 $width');
     }
     await tester.pumpWidget(const SizedBox());
@@ -152,7 +159,7 @@ void main() {
   testWidgets('桌面工具菜单可访问元数据，文档查找替换保留各自输入', (tester) async {
     final editor = await _open(tester);
     await _show(tester, editor, const Size(960, 760));
-    await tester.tap(find.widgetWithText(SubmenuButton, '工具'));
+    await tester.tap(find.byKey(const ValueKey('editor-category-结构')));
     await pumpReaderUntil(tester, find.text('书籍信息'));
     await tester.tap(find.text('书籍信息'));
     await pumpReaderUntil(tester, find.widgetWithText(TextField, '书名'));
@@ -167,10 +174,13 @@ void main() {
     await tester.tap(find.byTooltip('在文档中查找'));
     await tester.pump();
     final document = editor.activeDocument!;
-    await tester.enterText(find.widgetWithText(TextField, '文档内查找'), '原始正文');
-    await pumpReaderUntilComplete(
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-search-query')),
+      '原始正文',
+    );
+    await pumpReaderUntil(
       tester,
-      () => document.find.allMatchSelections?.length == 1,
+      find.byKey(const ValueKey('search-result-0')),
     );
     expect(
       tester
@@ -178,10 +188,17 @@ void main() {
           .dy,
       greaterThan(tester.getTopLeft(find.byType(CodeEditor)).dy),
     );
-    await tester.enterText(find.widgetWithText(TextField, '替换为'), '替换后的正文');
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-search-replacement')),
+      '替换后的正文',
+    );
     await tester.tap(find.text('全部替换'));
-    await tester.pump(const Duration(milliseconds: 300));
-    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          editor.session.readText(_chapter).contains('替换后的正文') &&
+          !editor.previewLoading,
+    );
     expect(editor.session.readText(_chapter), contains('替换后的正文'));
     editor.showSource('OEBPS/c2.xhtml');
     await tester.pump();
@@ -192,7 +209,7 @@ void main() {
     expect(document.find.replaceInputController.text, '替换后的正文');
     await tester.tap(find.byTooltip('关闭查找'));
     await tester.pump();
-    expect(find.widgetWithText(TextField, '文档内查找'), findsNothing);
+    expect(find.byKey(const ValueKey('editor-search-query')), findsNothing);
     await tester.tap(find.byTooltip('关闭 c1.xhtml'));
     await tester.pump();
     expect(editor.activePath, 'OEBPS/c2.xhtml');
@@ -228,6 +245,22 @@ void main() {
       tester.widget<CodeEditor>(find.byType(CodeEditor)).focusNode!.hasFocus,
       isTrue,
     );
+    await tester.tap(find.byTooltip('暂停预览跟随'));
+    await tester.pump();
+    final pausedLocation = preview.readingCfi;
+    await tester.tapAt(
+      tester.getTopLeft(find.byType(CodeEditor)) + const Offset(90, 24),
+    );
+    editor.openDocument(_chapter, offset: document.code.text.indexOf('第10句'));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(preview.readingCfi, pausedLocation);
+    await tester.tap(find.byTooltip('定位到预览'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => preview.currentText.contains('第10句'),
+    );
+    await tester.tap(find.byTooltip('开启预览跟随'));
+    await tester.pump();
     editor.openDocument(_chapter, offset: document.code.text.indexOf('第210句'));
     editor.showSource('OEBPS/c2.xhtml');
     await tester.pump(const Duration(milliseconds: 250));
@@ -235,6 +268,37 @@ void main() {
     expect(preview.currentText, contains('第二章节正文'));
     expect(editor.activePath, 'OEBPS/c2.xhtml');
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  }, variant: _desktopPlatforms);
+
+  testWidgets('关闭全部源码标签仍可在底栏选文档查找并重新打开结果', (tester) async {
+    final editor = await _open(tester);
+    await _show(tester, editor, const Size(960, 760));
+    await tester.tap(find.byTooltip('关闭 c1.xhtml'));
+    await tester.pump();
+    expect(editor.activeDocument, isNull);
+    expect(find.byType(CodeEditor), findsNothing);
+    await tester.tap(find.byTooltip('查找范围'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('所有 HTML 文件').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-search-query')),
+      '第二章节正文',
+    );
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('search-result-0')),
+    );
+    await tester.tap(find.byKey(const ValueKey('search-result-0')));
+    await tester.pump();
+    expect(editor.activePath, 'OEBPS/c2.xhtml');
+    expect(editor.activeDocument!.code.selectedText, '第二章节正文');
+    expect(find.byType(CodeEditor), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('editor-find-bottom-bar')),
+      findsOneWidget,
+    );
     await tester.pumpWidget(const SizedBox());
   }, variant: _desktopPlatforms);
 
@@ -279,13 +343,10 @@ void main() {
     await pumpReaderUntil(tester, find.byType(ReaderSheetForm));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.descendant(
-        of: find.byType(ReaderSheetForm),
-        matching: find.byType(TextField),
-      ),
+      find.byKey(const ValueKey('new-html-path')),
       'OEBPS/新章.xhtml',
     );
-    await tester.tap(find.text('确定'));
+    await tester.tap(find.text('创建 HTML'));
     await pumpReaderUntilComplete(
       tester,
       () => editor.activePath == 'OEBPS/新章.xhtml' && !editor.previewLoading,
@@ -385,6 +446,12 @@ void main() {
             ),
       ),
     );
+    expect(
+      find.byKey(const ValueKey('editor-find-bottom-bar')),
+      findsOneWidget,
+    );
+    expect(editor.activeDocument!.code.selectedText, contains('目标段落样式'));
+    await tester.tap(find.text('样式检查器'));
     await pumpReaderUntil(tester, find.byType(BookEditorInspector));
     expect(find.widgetWithText(ChoiceChip, '.nvwz'), findsOneWidget);
     final field = find.byWidgetPredicate(

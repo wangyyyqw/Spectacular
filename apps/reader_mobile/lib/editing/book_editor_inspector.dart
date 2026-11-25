@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing/epub_editing.dart';
-import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/icons/app_icon.dart' show AppExpansionTile;
+
+import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_tools.dart';
@@ -112,7 +114,7 @@ class _BookEditorInspectorState extends State<BookEditorInspector> {
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
               onPressed: widget.onEdit,
-              icon: const AppIcon(AppGlyph.edit, size: 14),
+              icon: const EditorIcon(EditorGlyph.edit, size: 14),
               label: const Text('编辑元素'),
             ),
           ],
@@ -134,8 +136,8 @@ class _BookEditorInspectorState extends State<BookEditorInspector> {
           padding: const EdgeInsets.only(top: 10, bottom: 6),
           child: Row(
             children: [
-              AppIcon(
-                AppGlyph.formatPaint,
+              EditorIcon(
+                EditorGlyph.formatPaint,
                 size: 14,
                 color: colors.onSurfaceVariant,
               ),
@@ -248,7 +250,7 @@ class _BookEditorInspectorState extends State<BookEditorInspector> {
           padding: const EdgeInsets.symmetric(horizontal: 0),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
-        icon: const AppIcon(AppGlyph.tune, size: 14),
+        icon: const EditorIcon(EditorGlyph.tune, size: 14),
         label: Text('编辑全书 .${report.className} 属性'),
         onPressed: () => BookEditorTools(
           context,

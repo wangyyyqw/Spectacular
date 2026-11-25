@@ -65,7 +65,7 @@ class BookEditorController extends ChangeNotifier {
     for (final entry in buffers.entries) {
       openDocument(entry.key).code.text = entry.value;
     }
-    _subscription = session.changes.listen((_) => _sessionChanged());
+    _subscription = session.changes.listen(_sessionChanged);
     unawaited(refreshPreview());
   }
 
@@ -80,12 +80,14 @@ class BookEditorController extends ChangeNotifier {
   bool useReadingSettings = false;
   bool sourceRequested = false;
   final Map<String, BookEditorDocument> documents = {};
+  final Map<String, ReaderEditTarget> _previewLocations = {};
   final Set<EpubChapterSource> _retiredSources = {};
   late final StreamSubscription<Object?> _subscription;
   Timer? _debounce;
   Future<void> _draftWrite = Future<void>.value();
   bool _disposed = false;
   bool _syncing = false;
+  BookEditorDocument? _sourceRedo;
   Set<String> _committingDocuments = {};
   int _previewToken = 0;
   int _savedRevision;
@@ -102,6 +104,17 @@ class BookEditorController extends ChangeNotifier {
   int previewNavigation = 0;
 
   BookEditorDocument? get activeDocument => documents[activePath];
+  int? get sourceOffset {
+    final doc = activeDocument;
+    if (doc == null) return null;
+    final selection = doc.code.unfoldLineSelection;
+    return doc.code.text
+            .split('\n')
+            .take(selection.startIndex)
+            .fold<int>(0, (length, line) => length + line.length + 1) +
+        selection.startOffset;
+  }
+
   bool get dirty => session.revision != _savedRevision || hasPendingText;
   bool get hasPendingText => documents.values.any(_documentDirty);
   bool get hasErrors => documents.values.any((doc) => doc.error != null);
@@ -114,18 +127,56 @@ class BookEditorController extends ChangeNotifier {
 
   /// 从浏览器、标签或查找结果打开文件。正文切章，样式等资源保留对照页。
   void showSource(String path, {int? offset}) {
-    _locationRequest++;
+    final request = ++_locationRequest;
     sourceRequested = true;
     final spine = session.previewPaths.indexOf(path);
-    if (spine >= 0) {
+    if (spine >= 0 && offset == null) {
       _previewPath = path;
-      previewTarget = ReaderEditTarget(
-        spineIndex: spine,
-        cfi: CfiBuilder().itemRef((spine + 1) * 2).body(4).build().serialize(),
-      );
+      previewTarget =
+          _previewLocations[path] ??
+          ReaderEditTarget(
+            spineIndex: spine,
+            cfi: CfiBuilder()
+                .itemRef((spine + 1) * 2)
+                .body(4)
+                .build()
+                .serialize(),
+          );
       previewNavigation++;
     }
     openDocument(path, offset: offset);
+    if (spine >= 0 && offset != null) {
+      unawaited(_locateSourceOffset(path, offset, request));
+    }
+  }
+
+  Future<void> _locateSourceOffset(String path, int offset, int request) async {
+    if (busy || hasPendingText) return;
+    try {
+      final revision = session.revision;
+      final cfi = session.cfiForSourceOffset(path, offset, preview: true);
+      if (previewRevision != revision) await refreshPreview();
+      if (_disposed ||
+          request != _locationRequest ||
+          activePath != path ||
+          session.revision != revision ||
+          hasPendingText ||
+          previewRevision != revision) {
+        return;
+      }
+      previewTarget = ReaderEditTarget(
+        spineIndex: session.previewPaths.indexOf(path),
+        cfi: cfi,
+        contentRevision: 'editor-$revision',
+      );
+      _previewPath = path;
+      previewNavigation++;
+      error = null;
+      _notify();
+    } catch (failure) {
+      error = '$failure';
+      _notify();
+    }
   }
 
   void rememberPreviewLocation(ReaderEditTarget target) {
@@ -135,6 +186,7 @@ class BookEditorController extends ChangeNotifier {
     }
     previewTarget = target;
     _previewPath = session.previewPaths.elementAtOrNull(target.spineIndex);
+    if (_previewPath case final path?) _previewLocations[path] = target;
   }
 
   bool _documentDirty(BookEditorDocument doc) {
@@ -176,6 +228,7 @@ class BookEditorController extends ChangeNotifier {
     if (doc == null) return;
     if (_documentDirty(doc) && !flush()) return;
     if (activePath == path) FocusManager.instance.primaryFocus?.unfocus();
+    if (_sourceRedo == doc) _sourceRedo = null;
     documents.remove(path);
     WidgetsBinding.instance.addPostFrameCallback((_) => doc.dispose());
     if (activePath == path) {
@@ -194,6 +247,7 @@ class BookEditorController extends ChangeNotifier {
     if (text == doc._lastInputText) return;
     doc._lastInputText = text;
     if (_syncing) return;
+    _sourceRedo = doc.code.canRedo ? doc : null;
     doc.error = null;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
@@ -231,8 +285,9 @@ class BookEditorController extends ChangeNotifier {
     }
   }
 
-  void _sessionChanged() {
+  void _sessionChanged(EpubEditChange change) {
     if (_disposed) return;
+    _sourceRedo = null;
     _syncing = true;
     final paths = session.resources.map((item) => item.path).toSet();
     for (final path
@@ -255,6 +310,11 @@ class BookEditorController extends ChangeNotifier {
     }
     _syncing = false;
     final pathsForPreview = session.previewPaths;
+    _previewLocations.removeWhere(
+      (path, target) =>
+          change.changedPaths.contains(path) ||
+          pathsForPreview.indexOf(path) != target.spineIndex,
+    );
     if (_previewPath != null &&
         (!pathsForPreview.contains(_previewPath) ||
             pathsForPreview.indexOf(_previewPath!) !=
@@ -459,6 +519,7 @@ class BookEditorController extends ChangeNotifier {
   }
 
   void undo() {
+    if (busy) return;
     final doc = activeDocument;
     if (doc != null && _documentDirty(doc) && doc.code.canUndo) {
       doc.code.undo();
@@ -467,7 +528,15 @@ class BookEditorController extends ChangeNotifier {
     }
   }
 
-  void redo() => runCommand(session.redo);
+  void redo() {
+    if (busy) return;
+    final doc = activeDocument;
+    if (doc != null && doc == _sourceRedo && doc.code.canRedo) {
+      doc.code.redo();
+    } else {
+      runCommand(session.redo);
+    }
+  }
 
   Future<bool> save() => _perform(commit, saved: true);
   Future<bool> exportBook() => _perform(export);

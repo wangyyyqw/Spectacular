@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/editing/epub_editing.dart';
-import 'package:reader_ui/icons/app_icon.dart';
+
+import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
 
@@ -66,7 +67,11 @@ class _BookEditorStyleRuleState extends State<BookEditorStyleRule> {
         children: [
           Row(
             children: [
-              AppIcon(AppGlyph.code, size: 14, color: colors.onSurfaceVariant),
+              EditorIcon(
+                EditorGlyph.code,
+                size: 14,
+                color: colors.onSurfaceVariant,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(

@@ -96,19 +96,19 @@ class _NavigationDialogState extends State<_NavigationDialog> {
         children: [
           IconButton(
             tooltip: '上移 ${entry.title}',
-            icon: const AppIcon(AppGlyph.chevronUp, size: 18),
+            icon: const EditorIcon(EditorGlyph.chevronUp, size: 18),
             onPressed: _busy || index == 0 ? null : () => _move(index, -1),
           ),
           IconButton(
             tooltip: '下移 ${entry.title}',
-            icon: const AppIcon(AppGlyph.chevronDown, size: 18),
+            icon: const EditorIcon(EditorGlyph.chevronDown, size: 18),
             onPressed: _busy || index == _entries.length - 1
                 ? null
                 : () => _move(index, 1),
           ),
           IconButton(
             tooltip: '删除 ${entry.title}',
-            icon: const AppIcon(AppGlyph.close, size: 18),
+            icon: const EditorIcon(EditorGlyph.close, size: 18),
             onPressed: _busy
                 ? null
                 : () => setState(() => _entries.removeAt(index)),

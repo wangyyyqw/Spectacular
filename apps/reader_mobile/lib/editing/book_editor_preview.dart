@@ -2,13 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/editing/epub_edit_session.dart' show resolvePath;
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/css/reader_overrides.dart';
-import 'package:reader_ui/icons/app_icon.dart';
+
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/page_furniture/corner_info.dart';
+
+import 'editor_icon.dart';
 
 import '../reader/reader_settings.dart';
 import '../reader/reader_background_store.dart';
@@ -45,6 +48,8 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
   final _progress = MemoryReaderProgressStore();
   final _backgrounds = ReaderBackgroundStore();
   ReaderSession? _session;
+  ReaderEditTarget? _pendingTarget;
+  bool _turning = false;
   late final _images = DecodedImageCache(
     maxEntries: 12,
     maxBytes: 24 << 20,
@@ -54,19 +59,41 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
   void _ready(ReaderSession session) {
     _session?.removeListener(_rememberLocation);
     _session = session;
+    _pendingTarget = null;
+    if (widget.target case final target?) {
+      unawaited(
+        _progress.save(
+          'editor-preview',
+          ReaderProgress(
+            spineIndex: target.spineIndex,
+            pageIndex: 0,
+            cfi: target.cfi,
+            contentRevision: 'editor-${widget.revision}',
+          ),
+        ),
+      );
+    }
     widget.onSessionReady?.call(session);
     session.addListener(_rememberLocation);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {});
-      if (widget.target case final target?) {
-        unawaited(session.jumpToCfi(target.cfi));
-      }
     });
   }
 
   void _rememberLocation() {
-    final progress = _session?.progress;
+    final session = _session;
+    if (session == null ||
+        session.loading ||
+        session.jumpLoadingTitle != null) {
+      return;
+    }
+    if (_pendingTarget case final target?) {
+      _pendingTarget = null;
+      unawaited(session.jumpToCfi(target.cfi));
+      return;
+    }
+    final progress = session.progress;
     if (progress?.cfi case final cfi?) {
       widget.onLocationChanged?.call(
         ReaderEditTarget(
@@ -81,11 +108,17 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
   @override
   void didUpdateWidget(covariant BookEditorPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.revision != oldWidget.revision) return;
     if (widget.navigation == oldWidget.navigation) return;
     final target = widget.target;
     final session = _session;
     if (target != null && session != null) {
-      unawaited(session.jumpToCfi(target.cfi));
+      if (session.page == null || session.loading) {
+        _pendingTarget = target;
+      } else {
+        _pendingTarget = null;
+        unawaited(session.jumpToCfi(target.cfi));
+      }
     }
   }
 
@@ -143,35 +176,60 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
 
   Widget _pagingRow(ReaderSession session) {
     final page = session.page;
-    final ready = page != null && !session.loading;
+    final ready =
+        page != null &&
+        !session.loading &&
+        session.jumpLoadingTitle == null &&
+        !_turning;
+    final path = page == null
+        ? null
+        : resolvePath(
+            widget.source.document.spine[page.spineIndex].href,
+            widget.source.document.opfPath,
+          );
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton(
           tooltip: '上一页',
           onPressed: ready && (page.spineIndex > 0 || page.pageIndex > 0)
-              ? () => unawaited(session.previous())
+              ? () => unawaited(_turnPage(session, next: false))
               : null,
-          icon: const AppIcon(AppGlyph.chevronLeft, size: 20),
+          icon: const EditorIcon(EditorGlyph.chevronLeft, size: 20),
         ),
         Flexible(
-          child: Text(
-            page == null
-                ? '正在排版…'
-                : '第 ${page.spineIndex + 1} 章 · ${session.pageLabelOf(page)}',
-            key: const ValueKey('editor-preview-page'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall,
+          child: Tooltip(
+            message: path ?? '正在排版…',
+            child: Text(
+              page == null
+                  ? '正在排版…'
+                  : '${path!.split('/').last} · ${session.pageLabelOf(page)}',
+              key: const ValueKey('editor-preview-page'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ),
         IconButton(
           tooltip: '下一页',
-          onPressed: ready ? () => unawaited(session.next()) : null,
-          icon: const AppIcon(AppGlyph.chevronRight, size: 20),
+          onPressed: ready && !session.atBookEnd
+              ? () => unawaited(_turnPage(session, next: true))
+              : null,
+          icon: const EditorIcon(EditorGlyph.chevronRight, size: 20),
         ),
       ],
     );
+  }
+
+  Future<void> _turnPage(ReaderSession session, {required bool next}) async {
+    if (_turning || session.loading || session.jumpLoadingTitle != null) return;
+    setState(() => _turning = true);
+    try {
+      await (next ? session.next() : session.previous());
+    } finally {
+      if (mounted) setState(() => _turning = false);
+    }
   }
 }
 

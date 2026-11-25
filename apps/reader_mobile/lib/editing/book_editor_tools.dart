@@ -7,13 +7,17 @@ import 'package:reader_core/editing/class_style_worker.dart';
 import 'package:reader_core/editing/epub_edit_session.dart';
 import 'package:reader_core/editing/package_editor.dart';
 import 'package:reader_core/epub/opf.dart';
-import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/icons/app_icon.dart' show AppExpansionTile;
+
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
+import 'editor_icon.dart';
+
 import 'book_editor_controller.dart';
+import 'book_editor_new_html.dart';
 import '../diagnostics/reader_log.dart';
 
 part 'book_editor_files.dart';
@@ -101,25 +105,6 @@ Future<bool> editorConfirm(
       ),
     ) ??
     false;
-
-enum _FindScope {
-  all('所有文本文件'),
-  current('当前文件'),
-  allHtml('所有 HTML 文件'),
-  selectedHtml('选定的 HTML 文件'),
-  tabHtml('选项卡中的 HTML 文件'),
-  allCss('所有 CSS 文件'),
-  selectedCss('选定的 CSS 文件'),
-  tabCss('选项卡中的 CSS 文件'),
-  opf('OPF 文件'),
-  ncx('NCX 文件'),
-  selectedSvg('选定的 SVG 文件'),
-  selectedJavascript('选定的 JavaScript 文件'),
-  selectedXml('选定的杂项 XML 文件');
-
-  const _FindScope(this.label);
-  final String label;
-}
 
 /// 工作台与手机段落面板共用的书籍管理命令入口。
 class BookEditorTools {
@@ -256,7 +241,7 @@ class BookEditorTools {
                   if (working) const LinearProgressIndicator(),
                   const SizedBox(height: 12),
                   TextButton.icon(
-                    icon: const AppIcon(AppGlyph.code),
+                    icon: const EditorIcon(EditorGlyph.code),
                     label: const Text('高级：打开 CSS 源码'),
                     onPressed: () async {
                       final paths = editor.session.resources
@@ -309,7 +294,7 @@ class BookEditorTools {
                       ),
                     ),
                   TextButton.icon(
-                    icon: const AppIcon(AppGlyph.add),
+                    icon: const EditorIcon(EditorGlyph.add),
                     label: const Text('添加 CSS 属性'),
                     onPressed: () async {
                       final key = await editorPrompt(context, 'CSS 属性名');
@@ -458,10 +443,12 @@ class BookEditorTools {
           children: [
             ListTile(
               onTap: () => Navigator.pop(context, 'chapter'),
-              title: const Text('空白章节'),
+              leading: const EditorIcon(EditorGlyph.code),
+              title: const Text('新建空白 HTML'),
             ),
             ListTile(
               onTap: () => Navigator.pop(context, 'file'),
+              leading: const EditorIcon(EditorGlyph.folder),
               title: const Text('导入图片、字体或文件'),
             ),
           ],
@@ -474,39 +461,30 @@ class BookEditorTools {
       return;
     }
     if (action != 'chapter') return;
-    final path = await editorPrompt(
-      context,
-      '新章节路径',
-      initial: 'Text/chapter-${editor.session.revision + 1}.xhtml',
-    );
-    if (path == null || !context.mounted) return;
-    final title = await editorPrompt(context, '章节标题', initial: '新章节');
-    if (title != null &&
-        editor.runCommand(() => package.addXhtml(path, title))) {
-      editor.showSource(path);
-    }
+    await createBookHtml(context, editor);
   }
 
-  Future<String?> pickImage() => _pickResource(images: true);
-
-  Future<String?> _pickResource({bool images = false}) async {
-    final files = await FilePicker.pickFiles(
-      type: images ? FileType.custom : FileType.any,
-      allowedExtensions: images
-          ? ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
-          : null,
-    );
+  Future<String?> _pickResource() async {
+    final files = await FilePicker.pickFiles();
     if (files.isEmpty || !context.mounted) return null;
     final file = files.single;
     final bytes = await file.readAsBytes();
     if (!context.mounted) return null;
-    final path = await editorPrompt(
-      context,
-      '书内资源路径',
-      initial: '${images ? 'Images' : 'Resources'}/${file.name}',
-    );
-    if (path == null) return null;
     final type = _mediaType(file.name);
+    final folder = type.startsWith('image/') ? 'Images' : 'Resources';
+    final directory = p.posix.join(
+      p.posix.dirname(editor.session.opfPath),
+      folder,
+    );
+    final extension = p.posix.extension(file.name);
+    final name = p.posix.basenameWithoutExtension(file.name);
+    var candidate = p.posix.join(directory, file.name);
+    var number = 1;
+    while (editor.session.readBytes(candidate) != null) {
+      candidate = p.posix.join(directory, '$name-${number++}$extension');
+    }
+    final path = await editorPrompt(context, '书内资源路径', initial: candidate);
+    if (path == null) return null;
     return editor.runCommand(() => package.addResource(path, bytes, type))
         ? path
         : null;
@@ -537,7 +515,12 @@ class BookEditorTools {
         await Clipboard.setData(ClipboardData(text: path));
       case 'insert-before':
       case 'insert-after':
-        await _insertXhtml(path, after: action == 'insert-after');
+        await createBookHtml(
+          context,
+          editor,
+          anchor: path,
+          after: action == 'insert-after',
+        );
       case 'rename':
         final next = await editorPrompt(context, '重命名资源并更新引用', initial: path);
         if (next != null &&
@@ -553,35 +536,6 @@ class BookEditorTools {
         editor.runCommand(() => package.setCover(path));
       case 'replace-image':
         await replaceImageResource(path);
-    }
-  }
-
-  Future<void> _insertXhtml(String anchor, {required bool after}) async {
-    final directory = p.posix.dirname(anchor);
-    final paths = editor.session.resources.map((file) => file.path).toSet();
-    var number = 1;
-    String candidate;
-    do {
-      candidate = p.posix.join(
-        directory,
-        'Section${(number++).toString().padLeft(4, '0')}.xhtml',
-      );
-    } while (paths.contains(candidate));
-    final path = await editorPrompt(
-      context,
-      after ? '在此处之后插入 HTML' : '在此处之前插入 HTML',
-      initial: candidate,
-    );
-    if (path == null || path.trim().isEmpty) return;
-    final index = editor.session.spinePaths.indexOf(anchor);
-    if (editor.runCommand(
-      () => package.addXhtml(
-        path,
-        p.posix.basenameWithoutExtension(path),
-        index: index < 0 ? null : index + (after ? 1 : 0),
-      ),
-    )) {
-      editor.showSource(path);
     }
   }
 
@@ -677,7 +631,7 @@ class BookEditorTools {
     final doc = editor.activeDocument;
     if (doc == null) return;
     final lines = doc.code.text.split('\n');
-    final selection = doc.code.selection;
+    final selection = doc.code.unfoldLineSelection;
     final offset =
         lines
             .take(selection.baseIndex)
@@ -745,7 +699,7 @@ class BookEditorTools {
                 },
                 trailing: IconButton(
                   tooltip: '删除目录项',
-                  icon: const AppIcon(AppGlyph.removeCircle),
+                  icon: const EditorIcon(EditorGlyph.removeCircle),
                   onPressed: () => setState(() => items.removeAt(index)),
                 ),
               ),
@@ -840,390 +794,6 @@ class BookEditorTools {
     target.dispose();
     depth.dispose();
     return result;
-  }
-
-  Set<String>? _scopePaths(_FindScope scope) {
-    final resources = editor.session.resources;
-    final byPath = {for (final resource in resources) resource.path: resource};
-    EpubEditResource resourceOf(String path) =>
-        byPath[path] ?? EpubEditResource(path, '', 0);
-    String extensionOf(String path) => p.posix.extension(path).toLowerCase();
-    bool html(EpubEditResource resource) =>
-        _resourceMediaType(resource) == 'application/xhtml+xml' ||
-        const {'.xhtml', '.html', '.htm'}.contains(extensionOf(resource.path));
-    bool css(EpubEditResource resource) =>
-        _resourceMediaType(resource) == 'text/css' ||
-        extensionOf(resource.path) == '.css';
-    bool svg(EpubEditResource resource) =>
-        _resourceMediaType(resource) == 'image/svg+xml' ||
-        extensionOf(resource.path) == '.svg';
-    bool ncx(EpubEditResource resource) =>
-        _resourceMediaType(resource) == 'application/x-dtbncx+xml' ||
-        extensionOf(resource.path) == '.ncx';
-    bool javascript(EpubEditResource resource) {
-      final extension = extensionOf(resource.path);
-      final mediaType = _resourceMediaType(resource);
-      return const {'.js', '.mjs', '.cjs'}.contains(extension) ||
-          mediaType.contains('javascript') ||
-          mediaType.contains('ecmascript');
-    }
-
-    bool xml(EpubEditResource resource) {
-      final extension = extensionOf(resource.path);
-      final mediaType = _resourceMediaType(resource);
-      return !html(resource) &&
-          !svg(resource) &&
-          !ncx(resource) &&
-          (extension == '.xml' ||
-              mediaType == 'application/xml' ||
-              mediaType == 'text/xml');
-    }
-
-    final active = editor.activePath;
-    final activeResource = active == null ? null : resourceOf(active);
-    bool activeIs(bool Function(EpubEditResource) test) =>
-        activeResource != null && test(activeResource);
-    Set<String> selected(bool Function(EpubEditResource) test) =>
-        activeIs(test) ? {active!} : <String>{};
-    Set<String> all(bool Function(EpubEditResource) test) => {
-      for (final resource in resources)
-        if (test(resource)) resource.path,
-    };
-    Set<String> tabs(bool Function(EpubEditResource) test) {
-      final opened = [
-        for (final path in editor.documents.keys) resourceOf(path),
-      ];
-      return {
-        for (final resource in opened)
-          if (test(resource)) resource.path,
-      };
-    }
-
-    return switch (scope) {
-      _FindScope.all => null,
-      _FindScope.current => active == null ? <String>{} : {active},
-      _FindScope.allHtml => all(html),
-      _FindScope.selectedHtml => selected(html),
-      _FindScope.tabHtml => tabs(html),
-      _FindScope.allCss => all(css),
-      _FindScope.selectedCss => selected(css),
-      _FindScope.tabCss => tabs(css),
-      _FindScope.opf => {editor.session.opfPath},
-      _FindScope.ncx => all(ncx),
-      _FindScope.selectedSvg => selected(svg),
-      _FindScope.selectedJavascript => selected(javascript),
-      _FindScope.selectedXml => selected(
-        (resource) => xml(resource) && resource.path != editor.session.opfPath,
-      ),
-    };
-  }
-
-  Future<void> findReplace() async {
-    if (!editor.flush()) return;
-    final query = TextEditingController();
-    final replacement = TextEditingController();
-    var regex = false;
-    var sensitive = true;
-    var scope = _FindScope.all;
-    var matches = <EditSearchMatch>[];
-    String? error;
-    final theme = Theme.of(context);
-    final sources = <String, String>{};
-    final highlight = theme.brightness == Brightness.dark
-        ? const Color(0x8CFFC107)
-        : const Color(0x99FFB300);
-    final searchBorder = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
-      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-    );
-    List<EditSearchMatch> runSearch() {
-      sources.clear();
-      final paths = _scopePaths(scope);
-      if (paths != null && paths.isEmpty) {
-        error = '当前范围没有可搜索的文件';
-        return [];
-      }
-      try {
-        error = null;
-        return package.find(
-          query.text,
-          regex: regex,
-          caseSensitive: sensitive,
-          paths: paths,
-        );
-      } catch (failure) {
-        error = '$failure';
-        return [];
-      }
-    }
-
-    Widget resultTile(EditSearchMatch item, int index) {
-      final source = sources.putIfAbsent(
-        item.path,
-        () => editor.session.readText(item.path),
-      );
-      final contextStart = item.start > 28 ? item.start - 28 : 0;
-      final contextEnd = item.end + 28 < source.length
-          ? item.end + 28
-          : source.length;
-      String clean(String value) => value.replaceAll(RegExp(r'\s+'), ' ');
-      final prefix =
-          '${contextStart > 0 ? '…' : ''}'
-          '${clean(source.substring(contextStart, item.start))}';
-      final suffix =
-          '${clean(source.substring(item.end, contextEnd))}'
-          '${contextEnd < source.length ? '…' : ''}';
-      final line = '\n'.allMatches(source.substring(0, item.start)).length + 1;
-      final lineStart = item.start == 0
-          ? 0
-          : source.lastIndexOf('\n', item.start - 1) + 1;
-      final column = item.start - lineStart + 1;
-      final muted = theme.textTheme.bodySmall?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
-      );
-      return Material(
-        type: MaterialType.transparency,
-        child: ListTile(
-          key: ValueKey('search-result-$index'),
-          dense: true,
-          minVerticalPadding: 4,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-          leading: const AppIcon(AppGlyph.code, size: 16),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  item.path,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text('$line:$column', style: theme.textTheme.labelSmall),
-            ],
-          ),
-          subtitle: Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(text: prefix, style: muted),
-                TextSpan(
-                  text: clean(item.text),
-                  style: TextStyle(
-                    backgroundColor: highlight,
-                    color: theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                TextSpan(text: suffix, style: muted),
-              ],
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          onTap: () {
-            editor.showSource(item.path, offset: item.start);
-            final document = editor.activeDocument;
-            if (document != null) {
-              final find = document.find;
-              find.findInputController.text = query.text;
-              find.findMode();
-              if (find.value != null) {
-                if (find.value!.option.regex != regex) find.toggleRegex();
-                if (find.value!.option.caseSensitive != sensitive) {
-                  find.toggleCaseSensitive();
-                }
-              }
-            }
-            Navigator.pop(context);
-          },
-        ),
-      );
-    }
-
-    await _showEditorDrawer<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => ReaderSheetForm(
-          title: const Text('全书源码查找替换'),
-          content: SizedBox(
-            width: 680,
-            height: 420,
-            child: Column(
-              children: [
-                Material(
-                  color: ReaderDrawerStyle.searchSurfaceOf(theme),
-                  borderRadius: searchBorder.borderRadius,
-                  elevation: 0,
-                  surfaceTintColor: Colors.transparent,
-                  child: TextField(
-                    controller: query,
-                    onChanged: (_) => setState(() {
-                      matches = [];
-                      error = null;
-                    }),
-                    onSubmitted: (_) => setState(() => matches = runSearch()),
-                    decoration: InputDecoration(
-                      labelText: '查找内容',
-                      filled: true,
-                      fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-                      border: searchBorder,
-                      enabledBorder: searchBorder,
-                      focusedBorder: searchBorder.copyWith(
-                        borderSide: BorderSide(
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                TextField(
-                  controller: replacement,
-                  decoration: const InputDecoration(
-                    labelText: r'替换为（正则可用 $1 分组）',
-                  ),
-                ),
-                Wrap(
-                  spacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    PopupMenuButton<_FindScope>(
-                      tooltip: '查找范围',
-                      initialValue: scope,
-                      onSelected: (value) => setState(() {
-                        scope = value;
-                        matches = query.text.isEmpty ? [] : runSearch();
-                      }),
-                      itemBuilder: (_) => [
-                        for (final item in _FindScope.values)
-                          PopupMenuItem(
-                            value: item,
-                            height: 36,
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 24,
-                                  child: item == scope
-                                      ? const AppIcon(AppGlyph.check, size: 16)
-                                      : const SizedBox.shrink(),
-                                ),
-                                Text(item.label),
-                              ],
-                            ),
-                          ),
-                      ],
-                      child: Container(
-                        height: 34,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        decoration: BoxDecoration(
-                          color: ReaderDrawerStyle.searchSurfaceOf(theme),
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant,
-                          ),
-                          borderRadius: ReaderUiStyle.controlRadius,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AppIcon(
-                              AppGlyph.filter,
-                              size: 14,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              scope.label,
-                              style: theme.textTheme.labelMedium,
-                            ),
-                            const SizedBox(width: 4),
-                            AppIcon(
-                              AppGlyph.chevronDown,
-                              size: 14,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    FilterChip(
-                      label: const Text('正则'),
-                      selected: regex,
-                      onSelected: (value) => setState(() {
-                        regex = value;
-                        matches = [];
-                      }),
-                    ),
-                    FilterChip(
-                      label: const Text('区分大小写'),
-                      selected: sensitive,
-                      onSelected: (value) => setState(() {
-                        sensitive = value;
-                        matches = [];
-                      }),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(() => matches = runSearch()),
-                      child: const Text('查找'),
-                    ),
-                  ],
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(error ?? '${matches.length} 处匹配'),
-                ),
-                Expanded(
-                  child: matches.isEmpty
-                      ? Center(
-                          child: Text(
-                            query.text.isEmpty ? '输入内容后点击查找' : '没有匹配结果',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        )
-                      : ListView.separated(
-                          itemCount: matches.length,
-                          separatorBuilder: (_, _) => const Divider(height: 1),
-                          itemBuilder: (_, index) =>
-                              resultTile(matches[index], index),
-                        ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
-            ),
-            FilledButton(
-              onPressed: matches.isEmpty
-                  ? null
-                  : () async {
-                      if (!await editorConfirm(
-                            context,
-                            '替换全部匹配？',
-                            '${matches.length} 处匹配（${scope.label}）将作为一次可撤销操作修改。',
-                          ) ||
-                          !context.mounted) {
-                        return;
-                      }
-                      if (editor.runCommand(
-                        () => package.replaceAll(matches, replacement.text),
-                      )) {
-                        Navigator.pop(context);
-                      } else {
-                        setState(() => error = editor.error);
-                      }
-                    },
-              child: const Text('全部替换'),
-            ),
-          ],
-        ),
-      ),
-    );
-    query.dispose();
-    replacement.dispose();
   }
 
   Future<void> history({

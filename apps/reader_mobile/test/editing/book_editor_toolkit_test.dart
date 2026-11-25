@@ -1,13 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing/epub_editing.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_mobile/editing/book_editor_controller.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/editing/book_editor_toolkit.dart';
+import 'package:reader_mobile/editing/book_editor_local_tools.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -66,6 +70,74 @@ Future<BookEditorToolResult> _run(
 }
 
 void main() {
+  testWidgets('分册导出显示取消与失败状态，导出期间阻止系统退出并可重试', (tester) async {
+    final (:editor, :directory) = await _open(tester);
+    const channel = MethodChannel('plugins.flutter.io/file_selector');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final pending = Completer<String?>();
+    var calls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'getDirectoryPath');
+      calls++;
+      if (calls == 1) return pending.future;
+      if (calls == 2) throw PlatformException(code: 'denied', message: '目录不可写');
+      return directory.path;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => BookEditorLocalTools(
+                context,
+                editor,
+                '测试分册',
+              ).open(LocalEpubTool.split),
+              child: const Text('打开分册工具'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开分册工具'));
+    await pumpReaderUntil(tester, find.text('生成分册'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pump();
+    await tester.tap(find.text('生成分册'));
+    await pumpReaderUntil(tester, find.text('导出文件'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导出文件'));
+    await tester.pump();
+    expect(await tester.binding.handleRequestAppExit(), AppExitResponse.cancel);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '关闭'))
+          .onPressed,
+      isNull,
+    );
+    pending.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.text('已取消导出，可重新选择保存位置'), findsOneWidget);
+    await tester.tap(find.text('导出文件'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('导出失败：'), findsOneWidget);
+    await tester.tap(find.text('重试导出'));
+    await pumpReaderUntil(tester, find.text('文件已导出'));
+    expect(await tester.binding.handleRequestAppExit(), AppExitResponse.exit);
+    expect(
+      await tester.runAsync(
+        () => File('${directory.path}/测试分册_1.epub').exists(),
+      ),
+      isTrue,
+    );
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('简繁处理使用未保存缓冲，保留路径与 ID，撤销、草稿、保存及导出正常', (tester) async {
     final (:editor, :directory) = await _open(tester);
     final session = editor.session;
@@ -234,21 +306,12 @@ void main() {
       tester,
       () => session.page != null && !session.loading,
     );
-    await tester.tap(find.widgetWithText(SubmenuButton, '工具'));
-    await tester.pumpAndSettle();
+    expect(find.widgetWithText(SubmenuButton, '工具'), findsNothing);
     expect(find.textContaining('TXT'), findsNothing);
     for (final label in ['转换', '结构', '图片', '字体', '注释与正文']) {
-      expect(
-        find.byWidgetPredicate(
-          (widget) =>
-              widget is SubmenuButton &&
-              widget.child is Text &&
-              (widget.child as Text).data == label,
-        ),
-        findsOneWidget,
-      );
+      expect(find.byKey(ValueKey('editor-category-$label')), findsOneWidget);
     }
-    await tester.tap(find.text('注释与正文'));
+    await tester.tap(find.byKey(const ValueKey('editor-category-注释与正文')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('广告规则清理'));
     await tester.pumpAndSettle();
@@ -332,8 +395,9 @@ void main() {
     final inspected = await _run(tester, editor, LocalEpubTool.readWatermark);
     expect(inspected.result.message, contains('编辑测试水印'));
     expect(editor.error, isNull);
-    final page = await tester.runAsync(
-      () => editor.previewSource!.loadChapter(0),
+    final page = await pumpReaderTask(
+      tester,
+      editor.previewSource!.loadChapter(0),
     );
     expect(page, isNotEmpty);
   });

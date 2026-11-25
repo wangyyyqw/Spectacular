@@ -228,11 +228,21 @@ void main() {
     tester.widget<ReaderPage>(find.byType(ReaderPage)).onEditTarget!(
       _target(editor),
     );
+    await tester.pump();
+    expect(editor.activeDocument!.code.selectedText, contains('原始正文'));
+    await tester.tap(find.text('样式检查器'));
+    await tester.pump();
+    await tester.tap(find.text('编辑元素'));
     await pumpReaderUntil(tester, find.byType(BookEditorElementSheet));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('class 样式'));
     await tester.pump();
-    await tester.tap(find.text('.body'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BookEditorElementSheet),
+        matching: find.text('.body'),
+      ),
+    );
     await pumpReaderUntil(tester, find.text('全书 .body'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('全书 .body'), findsOneWidget);
@@ -281,6 +291,10 @@ void main() {
         cfi: parsed.elementById('picture')!.cfi.serialize(),
       ),
     );
+    await tester.pump();
+    await tester.tap(find.text('样式检查器'));
+    await tester.pump();
+    await tester.tap(find.text('编辑元素'));
     await pumpReaderUntil(tester, find.text('旧图片描述'));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('旧图片描述'));
@@ -372,7 +386,7 @@ void main() {
     await _show(tester, editor, const Size(390, 844));
     expect(find.text('预览'), findsOneWidget);
     expect(find.text('预览 · 点段落编辑'), findsNothing);
-    expect(find.byTooltip('点击段落编辑'), findsOneWidget);
+    expect(find.byTooltip('点击预览段落定位源码；样式检查器查看对应样式'), findsOneWidget);
     var reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
     expect(reader.overrides!.fontSize, isNull);
     editor.setPreviewSettings(true);
@@ -460,6 +474,67 @@ void main() {
     expect(editor.hasPendingText, isFalse);
   });
 
+  testWidgets('防抖提交前撤销输入后可以重做，已提交源码继续使用会话历史', (tester) async {
+    final editor = await _open(tester);
+    final doc = editor.openDocument(_chapter);
+    final original = doc.code.text;
+    final changed = original.replaceFirst('原始正文', '待提交正文');
+    doc.code.text = changed;
+    editor.undo();
+    expect(doc.code.text, original);
+    expect(editor.session.revision, 0);
+    editor.redo();
+    expect(doc.code.text, changed);
+    expect(editor.session.revision, 0);
+    expect(editor.flush(), isTrue);
+    editor.undo();
+    expect(doc.code.text, original);
+    expect(editor.hasPendingText, isFalse);
+    editor.redo();
+    expect(doc.code.text, changed);
+    expect(editor.hasPendingText, isFalse);
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+  });
+
+  testWidgets('工具执行期间撤销与重做不会修改源码缓冲', (tester) async {
+    final editor = await _open(tester);
+    final doc = editor.openDocument(_chapter);
+    final original = doc.code.text;
+    final changed = original.replaceFirst('原始正文', '待提交正文');
+    doc.code.text = changed;
+    editor.busy = true;
+    editor.undo();
+    expect(doc.code.text, changed);
+    editor.busy = false;
+    editor.undo();
+    expect(doc.code.text, original);
+    editor.busy = true;
+    editor.redo();
+    expect(doc.code.text, original);
+    editor.busy = false;
+    await tester.pump(const Duration(milliseconds: 300));
+  });
+
+  testWidgets('源码撤销后修改元数据，重做只恢复最近撤销的书籍信息', (tester) async {
+    final editor = await _open(tester);
+    final doc = editor.openDocument(_chapter);
+    final original = doc.code.text;
+    doc.code.text = original.replaceFirst('原始正文', '已经撤销的旧输入');
+    editor.undo();
+    expect(doc.code.canRedo, isTrue);
+    final package = PackageEditor(editor.session);
+    expect(
+      editor.runCommand(() => package.setMetadata({'title': '新书名'})),
+      isTrue,
+    );
+    editor.undo();
+    editor.redo();
+    expect(editor.session.readText(editor.session.opfPath), contains('新书名'));
+    expect(doc.code.text, original);
+    expect(editor.hasPendingText, isFalse);
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+  });
+
   testWidgets('手机预览段落入口修改正文保留行内结构，预览使用内存进度', (tester) async {
     final editor = await _open(tester);
     await _show(tester, editor, const Size(390, 844));
@@ -467,6 +542,12 @@ void main() {
     expect(reader.store, isA<MemoryReaderProgressStore>());
     expect(reader.editMode, isTrue);
     reader.onEditTarget!(_target(editor));
+    await tester.pump();
+    expect(find.byType(EditorFindBar), findsOneWidget);
+    expect(editor.activeDocument!.code.selectedText, contains('原始正文'));
+    await tester.tap(find.text('样式检查器'));
+    await tester.pump();
+    await tester.tap(find.text('编辑元素'));
     await pumpReaderUntil(tester, find.byType(BookEditorElementSheet));
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(BookEditorElementSheet), findsOneWidget);
@@ -601,6 +682,74 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('正文标签恢复各自预览页，搜索偏移定位不被高亮范围末端改变', (tester) async {
+    final body = List.generate(
+      60,
+      (index) => '<p>第 $index 段正文用于定位并保留预览。</p>',
+    ).join();
+    final editor = await _open(tester, firstChapter: body, secondChapter: body);
+    ReaderSession? reader;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnimatedBuilder(
+          animation: editor,
+          builder: (_, _) => BookEditorPreview(
+            source: editor.previewSource!,
+            revision: editor.previewRevision,
+            target: editor.previewTarget,
+            navigation: editor.previewNavigation,
+            onLocationChanged: editor.rememberPreviewLocation,
+            onEditTarget: (_) {},
+            onSessionReady: (value) => reader = value,
+          ),
+        ),
+      ),
+    );
+    await pumpReaderUntilComplete(tester, () => reader?.page != null);
+    final text = editor.session.readText(_chapter);
+    final offset = text.indexOf('第 40 段');
+    final expected = editor.session.cfiForSourceOffset(
+      _chapter,
+      offset,
+      preview: true,
+    );
+    editor.showSource(_chapter, offset: offset);
+    editor.activeDocument!.code.selection = CodeLineSelection(
+      baseIndex: 0,
+      baseOffset: offset,
+      extentIndex: 0,
+      extentOffset: text.indexOf('第 59 段'),
+    );
+    await pumpReaderUntilComplete(
+      tester,
+      () => reader?.readingCfi == expected && reader!.jumpLoadingTitle == null,
+    );
+    final firstPage = reader!.page!.pageIndex;
+    expect(firstPage, greaterThan(0));
+    editor.showSource('OEBPS/c2.xhtml');
+    await pumpReaderUntilComplete(
+      tester,
+      () => reader?.page?.spineIndex == 1 && reader!.jumpLoadingTitle == null,
+    );
+    await pumpReaderTask(tester, reader!.next());
+    final secondPage = reader!.page!.pageIndex;
+    expect(secondPage, greaterThan(0));
+    editor.showSource(_chapter);
+    await pumpReaderUntilComplete(
+      tester,
+      () => reader?.page?.spineIndex == 0 && reader!.jumpLoadingTitle == null,
+    );
+    expect(reader!.page!.pageIndex, firstPage);
+    editor.showSource('OEBPS/c2.xhtml');
+    await pumpReaderUntilComplete(
+      tester,
+      () => reader?.page?.spineIndex == 1 && reader!.jumpLoadingTitle == null,
+    );
+    expect(reader!.page!.pageIndex, secondPage);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('折叠源码保留 UTF-16 定位，预览反向定位展开嵌套行', (tester) async {
     final editor = await _open(
       tester,
@@ -636,6 +785,53 @@ void main() {
     await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
   });
 
+  testWidgets('折叠前文后从光标拆章保留正确的正文边界', (tester) async {
+    final editor = await _open(
+      tester,
+      firstChapter:
+          '\n<section>\n<p>前章正文</p>\n</section>\n'
+          '<p id="paragraph">下一章正文😀</p>',
+    );
+    await _show(tester, editor, const Size(1360, 900));
+    final doc = editor.activeDocument!;
+    final lines = doc.code.text.split('\n');
+    final section = lines.indexOf('<section>');
+    final target = lines.indexWhere((line) => line.contains('id="paragraph"'));
+    doc.code.collapseChunk(section, target - 1);
+    doc.code.selection = CodeLineSelection.collapsed(
+      index: doc.code.lineIndex2Index(target).index,
+      offset: 0,
+    );
+    expect(doc.code.selection.baseIndex, lessThan(target));
+    await tester.tap(find.byKey(const ValueKey('editor-category-结构')));
+    await pumpReaderUntil(tester, find.text('章节顺序与拆分合并'));
+    await tester.tap(find.text('章节顺序与拆分合并'));
+    await pumpReaderUntil(tester, find.text('光标处拆章'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(doc.code.selection.baseIndex, lessThan(target));
+    await tester.tap(find.text('光标处拆章'));
+    await pumpReaderUntil(tester, find.text('拆分后的新章节路径'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.widgetWithText(FilledButton, '确定'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.text('拆分后的新章节路径').evaluate().isEmpty,
+    );
+    expect(editor.error, isNull);
+    expect(editor.session.spinePaths, [
+      _chapter,
+      'OEBPS/c1-2.xhtml',
+      'OEBPS/c2.xhtml',
+    ]);
+    expect(editor.session.readText(_chapter), contains('前章正文'));
+    expect(editor.session.readText(_chapter), isNot(contains('下一章正文')));
+    expect(editor.session.readText('OEBPS/c1-2.xhtml'), contains('下一章正文😀'));
+    editor.undo();
+    expect(editor.session.readBytes('OEBPS/c1-2.xhtml'), isNull);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('源码底部查找替换与样式检查器左右切换，打开查找不回跳', (tester) async {
     final editor = await _open(
       tester,
@@ -666,7 +862,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('全书查找范围限制文件，结果片段高亮命中词', (tester) async {
+  testWidgets('底栏跨文档查找限制范围，选择结果保留源码和预览', (tester) async {
     final editor = await _open(
       tester,
       firstChapter: '<p id="paragraph">目标词出现两次：目标词。</p>',
@@ -674,50 +870,33 @@ void main() {
     );
     await _show(tester, editor, const Size(1360, 900));
     await tester.tap(find.byTooltip('全书查找替换'));
-    await pumpReaderUntil(tester, find.text('全书源码查找替换'));
-    final queryField = find.byWidgetPredicate(
-      (widget) => widget is TextField && widget.decoration?.labelText == '查找内容',
-    );
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.enterText(queryField, '目标词');
-    final findButton = find.widgetWithText(TextButton, '查找');
-    await tester.ensureVisible(findButton);
-    await tester.tap(findButton);
     await tester.pump();
-    expect(find.text('3 处匹配'), findsOneWidget);
-    bool hasHighlight(InlineSpan span) =>
-        span is TextSpan &&
-        (span.style?.backgroundColor != null ||
-            (span.children?.any(hasHighlight) ?? false));
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is RichText && hasHighlight(widget.text),
-      ),
-      findsWidgets,
+    expect(find.byType(ReaderSheetForm), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-search-query')),
+      '目标词',
     );
-
-    await tester.tap(find.text('所有文本文件'));
-    for (
-      var index = 0;
-      index < 10 && find.text('当前文件').hitTestable().evaluate().isEmpty;
-      index++
-    ) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    await tester.tap(find.text('当前文件').hitTestable());
-    for (
-      var index = 0;
-      index < 10 && find.text('2 处匹配').evaluate().isEmpty;
-      index++
-    ) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    expect(find.text('2 处匹配'), findsOneWidget);
-    expect(find.byKey(const ValueKey('search-result-0')), findsOneWidget);
-    expect(find.byKey(const ValueKey('search-result-1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('search-result-2')), findsNothing);
-    await tester.tap(find.text('关闭'));
-    await tester.pump(const Duration(milliseconds: 300));
+    await pumpReaderUntil(tester, find.text('3 处匹配 · 2 个文档'));
+    await tester.tap(find.byKey(const ValueKey('search-result-2')));
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+    expect(editor.activePath, 'OEBPS/c2.xhtml');
+    expect(editor.activeDocument!.code.selectedText, '目标词');
+    expect(find.byType(EditorFindBar), findsOneWidget);
+    expect(find.byType(ReaderSheetForm), findsNothing);
+    await tester.tap(find.byTooltip('查找范围'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.text('当前文件').last);
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-search-query')),
+      '目标词',
+    );
+    await pumpReaderUntil(tester, find.text('1 处匹配 · 1 个文档'));
+    await tester.tap(find.byTooltip('关闭查找'));
+    await tester.pump();
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump(const Duration(milliseconds: 150));
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -732,6 +911,9 @@ void main() {
     );
     await tester.pump();
     expect(find.byType(BookEditorElementSheet), findsNothing);
+    expect(find.byType(EditorFindBar), findsOneWidget);
+    await tester.tap(find.text('样式检查器'));
+    await tester.pump();
     expect(find.byType(BookEditorInspector), findsOneWidget);
     expect(find.text('.body'), findsOneWidget);
     expect(find.text('.extra'), findsOneWidget);

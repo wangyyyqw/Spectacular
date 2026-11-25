@@ -1,13 +1,15 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:reader_core/editing/editable_document.dart';
-import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:spectacular_epub_tools/local_epub_tools.dart';
+
+import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_local_tools.dart';
@@ -15,6 +17,10 @@ import 'book_editor_element_sheet.dart';
 import 'book_editor_inspector.dart';
 import 'book_editor_preview.dart';
 import 'book_editor_source.dart';
+import 'book_editor_search.dart';
+import 'book_editor_new_html.dart';
+import 'book_editor_image_dialog.dart';
+import 'book_editor_note_dialog.dart';
 import 'book_editor_tools.dart';
 import '../diagnostics/reader_log.dart';
 
@@ -53,16 +59,23 @@ class _BookEditorPageState extends State<BookEditorPage> {
   EditorSourceBottomTab _sourceBottom = EditorSourceBottomTab.find;
   bool _filesPinned = true;
   bool _isDesktop = false;
+  bool _confirmingLeave = false;
+  String? _messageText;
+  late final AppLifecycleListener _lifecycle;
+  late final BookEditorSearch _search;
+  bool _followPreview = true;
 
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(onExitRequested: _requestExit);
     editor.addListener(_changed);
     final paths = editor.session.spinePaths;
     if (paths.isNotEmpty && editor.activePath == null) {
       final spine = editor.initialTarget?.spineIndex ?? 0;
       editor.openDocument(paths.elementAtOrNull(spine) ?? paths.first);
     }
+    _search = BookEditorSearch(editor);
   }
 
   void _changed() {
@@ -89,63 +102,78 @@ class _BookEditorPageState extends State<BookEditorPage> {
 
   @override
   void dispose() {
+    _search.dispose();
+    _lifecycle.dispose();
     editor.removeListener(_changed);
     super.dispose();
   }
 
   Future<void> _leave() async {
-    if (editor.busy) return;
-    if (editor.dirty) {
-      final choice = await showReaderDialog<String>(
-        context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: const Text('如何处理未保存的修改？'),
-          content: Text(
-            editor.saveDraft == null
-                ? '保存可选择 EPUB 的输出位置；放弃会丢失本次未保存的修改，原文件不变。'
-                : '保存会更新书籍；保留草稿可下次继续；放弃会删除本次草稿，不能恢复。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('继续编辑'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, 'discard'),
-              child: const Text('放弃修改并退出'),
-            ),
-            if (editor.saveDraft != null)
-              TextButton(
-                onPressed: () => Navigator.pop(context, 'keep'),
-                child: const Text('保留草稿并退出'),
-              ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, 'save'),
-              child: const Text('保存书籍'),
-            ),
-          ],
-        ),
-      );
-      if (choice == null) return;
+    final saved = await _confirmLeave();
+    if (saved == null || !mounted) return;
+    setState(() => _canPop = true);
+    Navigator.pop(context, saved);
+  }
+
+  Future<AppExitResponse> _requestExit() async => await _confirmLeave() == null
+      ? AppExitResponse.cancel
+      : AppExitResponse.exit;
+
+  /// 返回是否保存；取消、保存失败或正在处理时不允许退出。
+  Future<bool?> _confirmLeave() async {
+    if (editor.busy || _confirmingLeave) return null;
+    _confirmingLeave = true;
+    try {
+      if (!editor.dirty) return false;
+      final choice = await _chooseLeave();
+      if (!mounted || choice == null) return null;
       if (choice == 'save') {
-        await _save();
-        return;
+        FocusManager.instance.primaryFocus?.unfocus();
+        return await editor.save() ? true : null;
       }
       if (choice == 'discard') {
-        if (!await editor.discard()) return;
-      } else {
-        try {
-          await editor.persistDraft();
-        } catch (error) {
-          if (mounted) _message('$error');
-          return;
-        }
+        return await editor.discard() ? false : null;
       }
+      await editor.persistDraft();
+      return false;
+    } catch (error) {
+      if (mounted) _message('$error');
+      return null;
+    } finally {
+      _confirmingLeave = false;
     }
-    if (!mounted) return;
-    setState(() => _canPop = true);
-    Navigator.pop(context, false);
   }
+
+  Future<String?> _chooseLeave() => showReaderDialog<String>(
+    context: context,
+    builder: (context) => ReaderFrostedAlertDialog(
+      title: const Text('如何处理未保存的修改？'),
+      content: Text(
+        editor.saveDraft == null
+            ? '保存可选择 EPUB 的输出位置；放弃会丢失本次未保存的修改，原文件不变。'
+            : '保存会更新书籍；保留草稿可下次继续；放弃会删除本次草稿，不能恢复。',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('继续编辑'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, 'discard'),
+          child: const Text('放弃修改并退出'),
+        ),
+        if (editor.saveDraft != null)
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'keep'),
+            child: const Text('保留草稿并退出'),
+          ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, 'save'),
+          child: const Text('保存书籍'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _save() async {
     FocusManager.instance.primaryFocus?.unfocus();
@@ -160,14 +188,21 @@ class _BookEditorPageState extends State<BookEditorPage> {
     try {
       final element = editor.resolveTarget(target);
       editor.openDocument(element.path, offset: element.sourceStart);
-      if (_isDesktop) {
-        setState(() {
-          _selectedElement = element;
-          _sourceBottom = EditorSourceBottomTab.inspector;
-        });
-        return;
-      }
-      await _editElement(element);
+      final doc = editor.activeDocument!;
+      final start = doc.code.selection;
+      editor.openDocument(element.path, offset: element.sourceEnd);
+      final end = doc.code.selection;
+      doc.code.selection = CodeLineSelection(
+        baseIndex: end.extentIndex,
+        baseOffset: end.extentOffset,
+        extentIndex: start.baseIndex,
+        extentOffset: start.baseOffset,
+      );
+      doc.code.makeCursorVisible();
+      setState(() {
+        _selectedElement = element;
+        if (!_isDesktop) _compactTab = 1;
+      });
     } catch (error) {
       if (mounted) _message('$error');
     }
@@ -192,11 +227,13 @@ class _BookEditorPageState extends State<BookEditorPage> {
     }
   }
 
-  void _openDocumentFind() {
-    final doc = editor.activeDocument;
-    if (doc == null) return;
-    setState(() => _sourceBottom = EditorSourceBottomTab.find);
-    doc.find.findMode();
+  void _openDocumentFind({bool all = false}) {
+    setState(() {
+      _sourceBottom = EditorSourceBottomTab.find;
+      _compactTab = 1;
+    });
+    if (!all) _search.setScope(EditorSearchScope.current);
+    _search.focus(all: all);
   }
 
   Future<void> _locateSource() async {
@@ -204,7 +241,6 @@ class _BookEditorPageState extends State<BookEditorPage> {
     if (element == null || !mounted) return;
     setState(() {
       _selectedElement = element;
-      _sourceBottom = EditorSourceBottomTab.inspector;
       _compactTab = 0;
     });
   }
@@ -227,13 +263,41 @@ class _BookEditorPageState extends State<BookEditorPage> {
     }
   }
 
+  Future<void> _insertContent(String action) async {
+    if (editor.busy || !editor.flush()) return;
+    final path = editor.activePath;
+    final offset = editor.sourceOffset;
+    if (path == null ||
+        offset == null ||
+        !editor.session.previewPaths.contains(path)) {
+      _message('请先打开正文 HTML，将光标放在要插入的位置。');
+      return;
+    }
+    final element = editor.session
+        .editableDocument(path)
+        .elementAtOffset(offset);
+    if (element == null ||
+        (element.tag != 'body' &&
+            !element.ancestors.any((node) => node.tag == 'body'))) {
+      _message('请把光标放到 body 正文或点击预览中的目标段落。');
+      return;
+    }
+    if (action == 'insert-image') {
+      await insertBookImage(context, editor, element);
+    } else {
+      await editBookNote(context, editor, element, sourceOffset: offset);
+    }
+  }
+
   void _selectElement(EditableElementRef element) {
     editor.openDocument(element.path, offset: element.sourceStart);
     setState(() => _selectedElement = element);
   }
 
-  void _message(String text) =>
-      recordAppEvent('editor_message', fields: {'message': text});
+  void _message(String text) {
+    recordAppEvent('editor_message', fields: {'message': text});
+    setState(() => _messageText = text);
+  }
 
   Future<void> _tool(String action) async {
     if (editor.busy) return;
@@ -247,8 +311,6 @@ class _BookEditorPageState extends State<BookEditorPage> {
   Future<void> _performTool(String action) async {
     final tools = BookEditorTools(context, editor);
     switch (action) {
-      case 'local-tools':
-        await BookEditorLocalTools(context, editor, widget.title).open();
       case 'metadata':
         await tools.metadata();
       case 'toc':
@@ -256,9 +318,14 @@ class _BookEditorPageState extends State<BookEditorPage> {
       case 'chapters':
         await tools.chapters();
       case 'find':
-        await tools.findReplace();
+        _openDocumentFind(all: true);
       case 'add':
         await tools.addResource();
+      case 'new-html':
+        await createBookHtml(context, editor);
+      case 'insert-image':
+      case 'edit-note':
+        await _insertContent(action);
       case 'validate':
         await _validate();
       case 'history':
@@ -309,6 +376,10 @@ class _BookEditorPageState extends State<BookEditorPage> {
         },
         child: CallbackShortcuts(
           bindings: {
+            const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+                _openDocumentFind,
+            const SingleActivator(LogicalKeyboardKey.keyF, meta: true):
+                _openDocumentFind,
             const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
                 unawaited(_save()),
             const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
@@ -373,7 +444,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
     leading: IconButton(
       tooltip: '退出编辑',
       onPressed: _leave,
-      icon: const AppIcon(AppGlyph.arrowBack),
+      icon: const EditorIcon(EditorGlyph.arrowBack),
     ),
     title: Tooltip(
       message: widget.title,
@@ -394,17 +465,17 @@ class _BookEditorPageState extends State<BookEditorPage> {
   List<Widget> _desktopActions(bool wide) => [
     IconButton(
       tooltip: wide && _filesPinned ? '收起书籍浏览器' : '打开书籍浏览器',
-      icon: const AppIcon(AppGlyph.folder),
+      icon: const EditorIcon(EditorGlyph.folder),
       onPressed: editor.busy ? null : () => _toggleFiles(wide),
     ),
     IconButton(
       tooltip: '全书查找替换',
-      icon: const AppIcon(AppGlyph.search),
+      icon: const EditorIcon(EditorGlyph.search),
       onPressed: editor.busy ? null : () => _tool('find'),
     ),
     IconButton(
       tooltip: '校验书籍',
-      icon: const AppIcon(AppGlyph.checklist),
+      icon: const EditorIcon(EditorGlyph.checklist),
       onPressed: editor.busy ? null : () => _tool('validate'),
     ),
     const VerticalDivider(indent: 12, endIndent: 12),
@@ -414,27 +485,26 @@ class _BookEditorPageState extends State<BookEditorPage> {
     IconButton(
       tooltip: '撤销',
       onPressed: editor.busy ? null : editor.undo,
-      icon: const AppIcon(AppGlyph.undo),
+      icon: const EditorIcon(EditorGlyph.undo),
     ),
     IconButton(
       tooltip: '重做',
       onPressed: editor.busy ? null : editor.redo,
-      icon: const AppIcon(AppGlyph.redo),
+      icon: const EditorIcon(EditorGlyph.redo),
     ),
     IconButton(
       tooltip: '保存书籍',
       onPressed: editor.busy ? null : _save,
-      icon: const AppIcon(AppGlyph.save),
+      icon: const EditorIcon(EditorGlyph.save),
     ),
   ];
 
   Widget _toolsButton() => PopupMenuButton<String>(
-    icon: const AppIcon(AppGlyph.more),
+    icon: const EditorIcon(EditorGlyph.more),
     tooltip: '书籍工具',
     enabled: !editor.busy,
     onSelected: (value) => unawaited(_tool(value)),
     itemBuilder: (_) => const [
-      PopupMenuItem(value: 'local-tools', child: Text('本地 EPUB 工具')),
       PopupMenuItem(value: 'metadata', child: Text('书籍信息')),
       PopupMenuItem(value: 'chapters', child: Text('章节顺序与拆分合并')),
       PopupMenuItem(value: 'toc', child: Text('目录')),
@@ -449,8 +519,29 @@ class _BookEditorPageState extends State<BookEditorPage> {
   Widget _body(double width, bool docked) => Column(
     children: [
       if (_isDesktop) _menus(width >= _dockWidth),
+      _toolCategories(),
       if (editor.busy || editor.previewLoading)
         const LinearProgressIndicator(minHeight: 2),
+      if (_messageText case final message?)
+        Material(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          child: Row(
+            children: [
+              const SizedBox(width: 12),
+              Expanded(
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(message, maxLines: 3),
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭操作结果',
+                onPressed: () => setState(() => _messageText = null),
+                icon: const EditorIcon(EditorGlyph.close, size: 18),
+              ),
+            ],
+          ),
+        ),
       if (editor.error ?? editor.draftError case final error?)
         MaterialBanner(
           content: Text(error, maxLines: 3),
@@ -481,17 +572,20 @@ class _BookEditorPageState extends State<BookEditorPage> {
         elevation: WidgetStatePropertyAll(0),
         padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 4)),
       ),
-      children: [_fileMenu(), _editMenu(), _toolsMenu(), _viewMenu(wide)],
+      children: [_fileMenu(), _editMenu(), _viewMenu(wide)],
     ),
   );
 
   Widget _fileMenu() => SubmenuButton(
     menuChildren: [
       MenuItemButton(
+        leadingIcon: const EditorIcon(EditorGlyph.save, size: 18),
         onPressed: editor.busy ? null : _save,
         child: const Text('保存书籍并返回'),
       ),
       _toolItem('导出 EPUB', 'export'),
+      _toolItem('新增章节或资源', 'add'),
+      _toolItem('新建空白 HTML', 'new-html'),
       _toolItem('编辑历史与恢复', 'history'),
     ],
     child: const Text('文件'),
@@ -500,56 +594,106 @@ class _BookEditorPageState extends State<BookEditorPage> {
   Widget _editMenu() => SubmenuButton(
     menuChildren: [
       MenuItemButton(
+        leadingIcon: const EditorIcon(EditorGlyph.undo, size: 18),
         onPressed: editor.busy ? null : editor.undo,
         child: const Text('撤销'),
       ),
       MenuItemButton(
+        leadingIcon: const EditorIcon(EditorGlyph.redo, size: 18),
         onPressed: editor.busy ? null : editor.redo,
         child: const Text('重做'),
       ),
-      MenuItemButton(onPressed: _openDocumentFind, child: const Text('在文档中查找')),
+      MenuItemButton(
+        leadingIcon: const EditorIcon(EditorGlyph.search, size: 18),
+        onPressed: _openDocumentFind,
+        child: const Text('在文档中查找'),
+      ),
       _toolItem('全书查找替换', 'find'),
     ],
     child: const Text('编辑'),
   );
 
-  Widget _toolsMenu() => SubmenuButton(
+  Widget _toolCategories() => Material(
+    color: Theme.of(context).colorScheme.surfaceContainerLow,
+    child: Container(
+      key: const ValueKey('editor-tools-toolbar'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 2,
+        children: [
+          for (final (label, icon) in [
+            ('转换', EditorGlyph.convert),
+            ('结构', EditorGlyph.structure),
+            ('图片', EditorGlyph.image),
+            ('字体', EditorGlyph.textFields),
+            ('注释与正文', EditorGlyph.annotations),
+          ])
+            _categoryButton(label, icon),
+        ],
+      ),
+    ),
+  );
+
+  Widget _categoryButton(String label, EditorGlyph icon) => MenuAnchor(
     menuChildren: [
-      for (final category in ['转换', '结构', '图片', '字体', '注释与正文'])
-        SubmenuButton(
-          menuChildren: [
-            for (final tool in LocalEpubTool.visible.where(
-              (tool) => tool.category == category,
-            ))
-              MenuItemButton(
-                onPressed: editor.busy
-                    ? null
-                    : () => unawaited(_localTool(tool)),
-                child: Tooltip(
-                  message: tool.description,
-                  child: Text(tool.label),
-                ),
-              ),
-          ],
-          child: Text(category),
+      if (label == '结构') ...[
+        _toolItem('新建空白 HTML', 'new-html'),
+        _toolItem('书籍信息', 'metadata'),
+        _toolItem('目录', 'toc'),
+        _toolItem('章节顺序与拆分合并', 'chapters'),
+        _toolItem('校验书籍', 'validate'),
+        const Divider(height: 1),
+      ],
+      if (label == '图片') ...[
+        _toolItem('插入图片', 'insert-image'),
+        const Divider(height: 1),
+      ],
+      if (label == '注释与正文') ...[
+        _toolItem('设置 EPUB 注释', 'edit-note'),
+        const Divider(height: 1),
+      ],
+      for (final tool in LocalEpubTool.visible.where(
+        (tool) => tool.category == label,
+      ))
+        MenuItemButton(
+          leadingIcon: EditorIcon(switch (tool) {
+            LocalEpubTool.split => EditorGlyph.split,
+            LocalEpubTool.merge => EditorGlyph.merge,
+            LocalEpubTool.reformat => EditorGlyph.format,
+            _ => icon,
+          }, size: 18),
+          onPressed: editor.busy ? null : () => unawaited(_localTool(tool)),
+          child: Tooltip(message: tool.description, child: Text(tool.label)),
         ),
-      const Divider(height: 1),
-      _toolItem('书籍信息', 'metadata'),
-      _toolItem('目录', 'toc'),
-      _toolItem('章节顺序与拆分合并', 'chapters'),
-      _toolItem('新增章节或资源', 'add'),
-      _toolItem('校验书籍', 'validate'),
     ],
-    child: const Text('工具'),
+    builder: (context, menu, _) => TextButton.icon(
+      key: ValueKey('editor-category-$label'),
+      onPressed: editor.busy
+          ? null
+          : () => menu.isOpen ? menu.close() : menu.open(),
+      icon: EditorIcon(icon, size: 20),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          const SizedBox(width: 6),
+          const EditorIcon(EditorGlyph.chevronDown, size: 12),
+        ],
+      ),
+    ),
   );
 
   Widget _viewMenu(bool wide) => SubmenuButton(
     menuChildren: [
       MenuItemButton(
+        leadingIcon: const EditorIcon(EditorGlyph.folder, size: 18),
         onPressed: () => _toggleFiles(wide),
         child: Text(wide && _filesPinned ? '收起书籍浏览器' : '打开书籍浏览器'),
       ),
       MenuItemButton(
+        leadingIcon: const EditorIcon(EditorGlyph.tune, size: 18),
         onPressed: () =>
             setState(() => _sourceBottom = EditorSourceBottomTab.inspector),
         child: const Text('样式检查器'),
@@ -559,6 +703,19 @@ class _BookEditorPageState extends State<BookEditorPage> {
   );
 
   Widget _toolItem(String label, String action) => MenuItemButton(
+    leadingIcon: EditorIcon(switch (action) {
+      'export' => EditorGlyph.export,
+      'history' => EditorGlyph.history,
+      'metadata' => EditorGlyph.metadata,
+      'toc' => EditorGlyph.toc,
+      'chapters' => EditorGlyph.structure,
+      'add' => EditorGlyph.add,
+      'new-html' => EditorGlyph.code,
+      'insert-image' => EditorGlyph.addImage,
+      'edit-note' => EditorGlyph.editNote,
+      'validate' => EditorGlyph.checklist,
+      _ => EditorGlyph.replace,
+    }, size: 18),
     onPressed: editor.busy ? null : () => unawaited(_tool(action)),
     child: Text(label),
   );
@@ -582,8 +739,8 @@ class _BookEditorPageState extends State<BookEditorPage> {
             children: [
               const SizedBox(width: 12),
               const Tooltip(
-                message: '点击段落编辑',
-                child: AppIcon(AppGlyph.preview, size: 18),
+                message: '点击预览段落定位源码；样式检查器查看对应样式',
+                child: EditorIcon(EditorGlyph.preview, size: 18),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -604,7 +761,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
                 ),
               ),
               DropdownButton<bool>(
-                icon: const AppIcon(AppGlyph.chevronDown),
+                icon: const EditorIcon(EditorGlyph.chevronDown),
                 value: editor.useReadingSettings,
                 underline: const SizedBox(),
                 items: [
@@ -618,6 +775,14 @@ class _BookEditorPageState extends State<BookEditorPage> {
             ],
           ),
         ),
+        if (editor.hasPendingText || editor.hasErrors)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: Text(
+              editor.hasErrors ? '源码校验未通过，显示上次有效预览' : '正在等待源码校验…',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
         const Divider(height: 1),
         Expanded(
           child: source == null
@@ -657,10 +822,12 @@ class _BookEditorPageState extends State<BookEditorPage> {
     controller: editor,
     onLocate: () => unawaited(_locateSource()),
     onCursorChanged: () => unawaited(_followSource()),
-    onFindAll: () => unawaited(_tool('find')),
+    search: _search,
+    followPreview: _followPreview,
+    onFollowPreviewChanged: (follow) => setState(() => _followPreview = follow),
     bottomTab: _sourceBottom,
     onBottomTabChanged: (tab) => setState(() => _sourceBottom = tab),
-    inspector: _isDesktop ? _inspector() : null,
+    inspector: _inspector(),
   );
 
   Widget _inspector() => _selectedElement == null

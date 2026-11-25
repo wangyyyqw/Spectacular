@@ -4,9 +4,11 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reader_core/editing/epub_editing.dart';
+import 'package:reader_core/epub/footnote.dart';
 import 'package:reader_mobile/editing/book_editor_controller.dart';
 import 'package:reader_mobile/editing/book_editor_inspector.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
@@ -14,6 +16,7 @@ import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../test/support/test_epub.dart';
 
@@ -124,6 +127,12 @@ void main() {
         contentRevision: 'editor-${session.revision}',
       ),
     );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('editor-find-bottom-bar')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('样式检查器'));
     await _until(
       tester,
       () =>
@@ -171,6 +180,152 @@ void main() {
       DefaultTextStyle.of(previewLabel).style.color,
       Theme.of(previewLabel).colorScheme.onSurface,
     );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('五类工具栏完成空白 HTML、图片、注释并导出重新打开', (tester) async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'editor-authoring-',
+    );
+    final file = await File('${temporary.path}/book.epub')
+        .writeAsBytes(buildMultiChapterEpub(chapters: ['原书正文', '下一章正文']));
+    final session = await EpubEditSession.open(file);
+    final picture = await rootBundle.load('assets/branding/app_icon.png');
+    PackageEditor(session).addResource(
+      'OEBPS/Images/示例.png',
+      picture.buffer.asUint8List(),
+      'image/png',
+    );
+    final editor = BookEditorController(session: session);
+    addTearDown(() async {
+      editor.dispose();
+      await temporary.delete(recursive: true);
+    });
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(1360, 900));
+    await tester.pumpWidget(_app(editor));
+    await _until(tester, () => !editor.previewLoading);
+
+    await tester.tap(find.byKey(const ValueKey('editor-category-结构')));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.text('新建空白 HTML').hitTestable());
+    await _until(
+      tester,
+      () => find.byKey(const ValueKey('new-html-path')).evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byKey(const ValueKey('new-html-path')));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(
+      find.byKey(const ValueKey('new-html-path')),
+      'OEBPS/新建正文.xhtml',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('new-html-title')),
+      '插图与注释',
+    );
+    await _capture(tester, '新建空白HTML-表单');
+    await tester.tap(find.text('创建 HTML'));
+    await _until(
+      tester,
+      () =>
+          editor.activePath == 'OEBPS/新建正文.xhtml' &&
+          !editor.previewLoading &&
+          find.byType(ReaderSheetForm).evaluate().isEmpty,
+    );
+    expect(editor.session.spinePaths[1], 'OEBPS/新建正文.xhtml');
+    expect(editor.activeDocument!.code.text, isNot(contains('<h1>')));
+    editor.activeDocument!.code.replaceSelection(
+      '<p id="new-text">这是新建章节的正文。</p>',
+    );
+    expect(editor.flush(), isTrue);
+    await _until(tester, () => !editor.previewLoading);
+    final created = editor.activePath!;
+    editor.openDocument(
+      created,
+      offset: editor.activeDocument!.code.text.indexOf('新建章节'),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+
+    await tester.tap(find.byKey(const ValueKey('editor-category-图片')));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.text('插入图片').hitTestable());
+    await _until(
+      tester,
+      () => find.byKey(const ValueKey('image-alt')).evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byKey(const ValueKey('image-alt')));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(find.byKey(const ValueKey('image-alt')), '示例插图');
+    await _capture(tester, '插入图片-预览与位置');
+    await tester.tap(find.widgetWithText(FilledButton, '插入图片'));
+    await _until(
+      tester,
+      () =>
+          session.readText(created).contains('alt="示例插图"') &&
+          !editor.previewLoading &&
+          find.byType(ReaderSheetForm).evaluate().isEmpty,
+    );
+    final beforeNote = session.readText(created);
+    editor.openDocument(created, offset: beforeNote.indexOf('正文。') + 2);
+    await tester.pump(const Duration(milliseconds: 250));
+
+    await tester.tap(find.byKey(const ValueKey('editor-category-注释与正文')));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.text('设置 EPUB 注释').hitTestable());
+    await _until(
+      tester,
+      () => find.byKey(const ValueKey('note-text')).evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byKey(const ValueKey('note-text')));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(
+      find.byKey(const ValueKey('note-text')),
+      '这是一条直接写入 EPUB 的注释。',
+    );
+    await _capture(tester, '设置EPUB注释-表单');
+    await tester.tap(find.byKey(const ValueKey('note-apply')));
+    await _until(
+      tester,
+      () =>
+          session.readText(created).contains('epub:type="noteref"') &&
+          !editor.previewLoading &&
+          find.byType(ReaderSheetForm).evaluate().isEmpty,
+    );
+    final document = FootnoteParser.parse(
+      spineIndex: 1,
+      path: created,
+      xhtml: session.readText(created),
+    );
+    expect(
+      FootnoteParser.resolve(
+        source: document,
+        documents: {created: document},
+      ).single.noteText,
+      '这是一条直接写入 EPUB 的注释。',
+    );
+    final preview = tester
+        .widget<PageTurnView>(find.byType(PageTurnView))
+        .session;
+    await _until(
+      tester,
+      () =>
+          preview.page?.spineIndex == 1 && preview.currentText.contains('新建章节'),
+    );
+    await _capture(tester, '新建正文-图片注释预览');
+    editor.undo();
+    expect(session.readText(created), beforeNote);
+    editor.redo();
+    final output = File('${temporary.path}/edited.epub');
+    await EpubWriter.write(session, output);
+    final reopened = await EpubEditSession.open(output);
+    try {
+      reopened.validate();
+      expect(reopened.spinePaths, session.spinePaths);
+      expect(reopened.readText(created), session.readText(created));
+      expect(reopened.readBytes('OEBPS/Images/示例.png'), isNotNull);
+    } finally {
+      reopened.close();
+    }
     await tester.pumpWidget(const SizedBox());
   });
 }
