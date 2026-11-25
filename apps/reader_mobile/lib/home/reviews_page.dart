@@ -157,6 +157,10 @@ class _ReviewsPageState extends State<ReviewsPage> {
       _searchFocus.requestFocus();
       return;
     }
+    if (usesDesktopLayout(context) && MediaQuery.sizeOf(context).width >= 900) {
+      _searchFocus.requestFocus();
+      return;
+    }
     setState(() => _searching = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _searchFocus.requestFocus();
@@ -359,6 +363,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final fullWidth = constraints.maxWidth;
+            final wide = desktop && MediaQuery.sizeOf(context).width >= 900;
+            final inlineSearch = wide && !_searching;
             return Stack(
               alignment: Alignment.centerRight,
               children: [
@@ -388,11 +394,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
                                   ),
                                 ),
                               ),
-                              if (desktop &&
-                                  !_searching &&
-                                  MediaQuery.sizeOf(context).width >= 900)
+                              if (inlineSearch)
                                 SizedBox(width: 300, child: _searchField()),
-                              const SizedBox(width: 48),
+                              SizedBox(width: inlineSearch ? 4 : 48),
                             ],
                           ),
                         ),
@@ -400,52 +404,53 @@ class _ReviewsPageState extends State<ReviewsPage> {
                     ),
                   ),
                 ),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  width: _searching ? fullWidth : 44,
-                  height: 44,
-                  alignment: Alignment.centerRight,
-                  child: ClipRect(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 160),
-                      layoutBuilder: (current, previous) => Stack(
-                        alignment: Alignment.centerRight,
-                        children: [...previous, ?current],
-                      ),
-                      child: _searching
-                          ? OverflowBox(
-                              key: const ValueKey('reviews-search-expanded'),
-                              alignment: Alignment.centerRight,
-                              minWidth: fullWidth,
-                              maxWidth: fullWidth,
-                              minHeight: 48,
-                              maxHeight: 48,
-                              child: Row(
-                                children: [
-                                  Expanded(child: _searchField()),
-                                  Theme(
-                                    data: _noFeedback(context),
-                                    child: IconButton(
-                                      tooltip: '关闭搜索',
-                                      highlightColor: Colors.transparent,
-                                      hoverColor: Colors.transparent,
-                                      focusColor: Colors.transparent,
-                                      onPressed: _toggleSearch,
-                                      icon: const AppIcon(AppGlyph.close),
+                if (!wide || _searching)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    width: _searching ? fullWidth : 44,
+                    height: 44,
+                    alignment: Alignment.centerRight,
+                    child: ClipRect(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 160),
+                        layoutBuilder: (current, previous) => Stack(
+                          alignment: Alignment.centerRight,
+                          children: [...previous, ?current],
+                        ),
+                        child: _searching
+                            ? OverflowBox(
+                                key: const ValueKey('reviews-search-expanded'),
+                                alignment: Alignment.centerRight,
+                                minWidth: fullWidth,
+                                maxWidth: fullWidth,
+                                minHeight: 48,
+                                maxHeight: 48,
+                                child: Row(
+                                  children: [
+                                    Expanded(child: _searchField()),
+                                    Theme(
+                                      data: _noFeedback(context),
+                                      child: IconButton(
+                                        tooltip: '关闭搜索',
+                                        highlightColor: Colors.transparent,
+                                        hoverColor: Colors.transparent,
+                                        focusColor: Colors.transparent,
+                                        onPressed: _toggleSearch,
+                                        icon: const AppIcon(AppGlyph.close),
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
+                              )
+                            : _SearchButton(
+                                key: const ValueKey('reviews-search-button'),
+                                tooltip: _searchTooltip,
+                                onPressed: _toggleSearch,
                               ),
-                            )
-                          : _SearchButton(
-                              key: const ValueKey('reviews-search-button'),
-                              tooltip: _searchTooltip,
-                              onPressed: _toggleSearch,
-                            ),
+                      ),
                     ),
                   ),
-                ),
               ],
             );
           },
@@ -867,10 +872,7 @@ class _ReviewList extends StatelessWidget {
 }
 
 class _NoReviewMatches extends StatelessWidget {
-  const _NoReviewMatches({
-    required this.query,
-    required this.onReset,
-  });
+  const _NoReviewMatches({required this.query, required this.onReset});
 
   final String query;
   final VoidCallback onReset;

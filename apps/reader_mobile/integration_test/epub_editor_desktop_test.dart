@@ -248,11 +248,12 @@ void main() {
     // 实际窗口宽度足够时验收固定检查器；窄窗口使用同一预览入口。
     if (find.byType(BookEditorInspector).evaluate().isNotEmpty) {
       expect(find.byType(BookEditorInspector), findsOneWidget);
-      await tester.tap(find.byTooltip('折叠样式检查器'));
+      await tester.tap(find.text('查找替换'));
       await tester.pump();
       expect(find.byType(BookEditorInspector), findsNothing);
-      await tester.tap(find.byTooltip('展开样式检查器'));
+      await tester.tap(find.text('样式检查器'));
       await tester.pump();
+      expect(find.byType(BookEditorInspector), findsOneWidget);
     }
     final parsed = session
         .editableDocument('OEBPS/middle.xhtml')

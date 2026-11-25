@@ -282,7 +282,7 @@ void main() {
       ('书架', BookshelfPage),
       ('统计', StatsPage),
       ('笔记', ReviewsPage),
-      if (desktop) ('编辑器', EpubFileEditorPage),
+      if (desktop) ('编辑', EpubFileEditorPage),
       ('我的', ProfilePage),
     ];
     final initialState = tester.state(find.byType(HomeShell));
@@ -312,6 +312,26 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant(TargetPlatform.values.toSet()));
 
+  testWidgets('桌面侧栏可在左下角收起并恢复', (tester) async {
+    await _showHome(tester, LibraryStore.memory());
+    final rail = find.byType(NavigationRail);
+    final sidebar = find.byKey(const ValueKey('home-sidebar'));
+    expect(tester.widget<NavigationRail>(rail).extended, isTrue);
+    expect(tester.getSize(sidebar).width, 160);
+    await tester.tap(find.byTooltip('收起侧边栏'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(tester.widget<NavigationRail>(rail).extended, isFalse);
+    expect(tester.getSize(sidebar).width, 84);
+    expect(find.byTooltip('展开侧边栏'), findsOneWidget);
+    await tester.tap(find.byTooltip('展开侧边栏'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(tester.widget<NavigationRail>(rail).extended, isTrue);
+    expect(tester.getSize(sidebar).width, 160);
+    expect(tester.takeException(), isNull);
+  }, variant: _desktopPlatforms);
+
   testWidgets('桌面往返书评页后搜索快捷键仍可聚焦', (tester) async {
     await _showHome(tester, LibraryStore.memory());
     final rail = find.byType(NavigationRail);
@@ -319,6 +339,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('reviews-tab')));
     await tester.pump();
     final search = find.byKey(const ValueKey('reviews-search-field'));
+    expect(search, findsOneWidget);
+    expect(find.byKey(const ValueKey('reviews-search-button')), findsNothing);
     final modifier =
         Theme.of(tester.element(search)).platform == TargetPlatform.macOS
         ? LogicalKeyboardKey.metaLeft
@@ -329,6 +351,7 @@ void main() {
       await tester.sendKeyUpEvent(modifier);
       await tester.pump();
       expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+      expect(find.byTooltip('关闭搜索'), findsNothing);
       await _select(tester, rail, '统计');
       await _select(tester, rail, '笔记');
     }
@@ -343,7 +366,7 @@ void main() {
     expect(rail, findsOneWidget);
     expect(bottom, findsNothing);
     expect(
-      find.descendant(of: rail, matching: find.text('编辑器')),
+      find.descendant(of: rail, matching: find.text('编辑')),
       findsOneWidget,
     );
     expect(find.text('书架还是空的'), findsOneWidget);
@@ -370,7 +393,7 @@ void main() {
     expect(find.byKey(const ValueKey('notes-tab')), findsOneWidget);
     await _select(tester, rail, '书架');
     expect(tester.widget<TextField>(search).controller!.text, '山海');
-    await _select(tester, rail, '编辑器');
+    await _select(tester, rail, '编辑');
     expect(find.byKey(const ValueKey('editor-open-file')), findsOneWidget);
     expect(tester.takeException(), isNull);
   }, variant: _desktopPlatforms);
@@ -382,7 +405,7 @@ void main() {
       final bottom = find.byType(BottomNavigationBar);
       expect(find.byType(NavigationRail), findsNothing);
       expect(bottom, findsOneWidget);
-      expect(find.text('编辑器'), findsNothing);
+      expect(find.text('编辑'), findsNothing);
       await _select(tester, bottom, '我的');
 
       tester.view.physicalSize = const Size(390, 844);

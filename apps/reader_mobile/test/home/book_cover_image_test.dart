@@ -159,7 +159,6 @@ void main() {
     );
     final expectedWidth = coverDecodeWidth(100, tester.view.devicePixelRatio);
     final expectedHeight = coverDecodeHeight(160, tester.view.devicePixelRatio);
-    expect(expectedWidth, (100 * tester.view.devicePixelRatio).ceil());
     expect(
       tester.widget<Image>(find.byType(Image)).image,
       coverImageProvider(
@@ -171,12 +170,66 @@ void main() {
     );
   });
 
-  test('封面解码尺寸限制在 96～1200', () {
+  testWidgets('窗口尺寸变化保留已加载封面并按档位复用图像源', (tester) async {
+    final directory = Directory.systemTemp.createTempSync('cover-resize');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final file = File('${directory.path}/cover.png');
+    await tester.runAsync(() => _writeWideCover(file));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: SizedBox(key: ValueKey('precache'))),
+      ),
+    );
+    final imageContext = tester.element(find.byKey(const ValueKey('precache')));
+    final dpr = MediaQuery.devicePixelRatioOf(imageContext);
+    await tester.runAsync(
+      () => precacheImage(
+        coverImageProvider(
+          file.path,
+          coverDecodeWidth(100, dpr),
+          decodeHeight: coverDecodeHeight(160, dpr),
+        ),
+        imageContext,
+      ),
+    );
+    final book = BookEntry(
+      id: 'resize',
+      title: '窗口缩放',
+      author: '',
+      filePath: '',
+      addedAt: DateTime(2026),
+      coverPath: file.path,
+    );
+    Widget host(double width, double height) => MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: BookCoverImage(book: book, width: width, height: height),
+        ),
+      ),
+    );
+    final placeholder = find.byKey(const ValueKey('cover-placeholder-resize'));
+    await tester.pumpWidget(host(100, 160));
+    await tester.pumpAndSettle();
+    expect(placeholder, findsNothing);
+    final before = tester.widget<Image>(find.byType(Image)).image;
+
+    await tester.pumpWidget(host(103, 165));
+    await tester.pump();
+    expect(tester.widget<Image>(find.byType(Image)).image, before);
+    expect(placeholder, findsNothing);
+
+    await tester.pumpWidget(host(260, 347));
+    await tester.pump();
+    expect(placeholder, findsNothing);
+  });
+
+  test('封面解码尺寸按 64 像素档位稳定并限制在 96～1200', () {
     expect(coverDecodeWidth(20, 2), 96);
-    expect(coverDecodeWidth(100, 3), 300);
+    expect(coverDecodeWidth(100, 3), 320);
+    expect(coverDecodeWidth(103, 3), 320);
     expect(coverDecodeWidth(1000, 4), 1200);
     expect(coverDecodeHeight(20, 2), 96);
-    expect(coverDecodeHeight(160, 3), 480);
+    expect(coverDecodeHeight(160, 3), 512);
     expect(coverDecodeHeight(1000, 4), 1200);
   });
 

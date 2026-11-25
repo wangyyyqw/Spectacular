@@ -45,13 +45,12 @@ class _BookEditorPageState extends State<BookEditorPage> {
   final _previewKey = GlobalKey();
   double _treeWidth = 208;
   double _sourceRatio = .57;
-  double _inspectorHeight = 240;
   int _compactTab = 0;
   bool _canPop = false;
   bool _elementOpen = false;
   bool _initialTargetHandled = false;
   EditableElementRef? _selectedElement;
-  bool _inspectorExpanded = false;
+  EditorSourceBottomTab _sourceBottom = EditorSourceBottomTab.find;
   bool _filesPinned = true;
   bool _isDesktop = false;
 
@@ -164,7 +163,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
       if (_isDesktop) {
         setState(() {
           _selectedElement = element;
-          _inspectorExpanded = true;
+          _sourceBottom = EditorSourceBottomTab.inspector;
         });
         return;
       }
@@ -193,19 +192,28 @@ class _BookEditorPageState extends State<BookEditorPage> {
     }
   }
 
+  void _openDocumentFind() {
+    final doc = editor.activeDocument;
+    if (doc == null) return;
+    setState(() => _sourceBottom = EditorSourceBottomTab.find);
+    doc.find.findMode();
+  }
+
   Future<void> _locateSource() async {
     final element = await editor.locateSource();
     if (element == null || !mounted) return;
     setState(() {
       _selectedElement = element;
-      _inspectorExpanded = true;
+      _sourceBottom = EditorSourceBottomTab.inspector;
       _compactTab = 0;
     });
   }
 
   Future<void> _followSource() async {
     final element = await editor.locateSource(reportErrors: false);
-    if (element != null && mounted && _inspectorExpanded) {
+    if (element != null &&
+        mounted &&
+        _sourceBottom == EditorSourceBottomTab.inspector) {
       setState(() => _selectedElement = element);
     }
   }
@@ -499,10 +507,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
         onPressed: editor.busy ? null : editor.redo,
         child: const Text('重做'),
       ),
-      MenuItemButton(
-        onPressed: editor.activeDocument?.find.findMode,
-        child: const Text('在文档中查找'),
-      ),
+      MenuItemButton(onPressed: _openDocumentFind, child: const Text('在文档中查找')),
       _toolItem('全书查找替换', 'find'),
     ],
     child: const Text('编辑'),
@@ -546,8 +551,8 @@ class _BookEditorPageState extends State<BookEditorPage> {
       ),
       MenuItemButton(
         onPressed: () =>
-            setState(() => _inspectorExpanded = !_inspectorExpanded),
-        child: Text(_inspectorExpanded ? '折叠样式检查器' : '展开样式检查器'),
+            setState(() => _sourceBottom = EditorSourceBottomTab.inspector),
+        child: const Text('样式检查器'),
       ),
     ],
     child: const Text('视图'),
@@ -653,7 +658,19 @@ class _BookEditorPageState extends State<BookEditorPage> {
     onLocate: () => unawaited(_locateSource()),
     onCursorChanged: () => unawaited(_followSource()),
     onFindAll: () => unawaited(_tool('find')),
+    bottomTab: _sourceBottom,
+    onBottomTabChanged: (tab) => setState(() => _sourceBottom = tab),
+    inspector: _isDesktop ? _inspector() : null,
   );
+
+  Widget _inspector() => _selectedElement == null
+      ? const Center(child: Text('点击预览元素或从源码定位，查看样式。'))
+      : BookEditorInspector(
+          editor: editor,
+          element: _selectedElement!,
+          onSelect: _selectElement,
+          onEdit: () => unawaited(_editElement(_selectedElement!)),
+        );
 
   Widget _compact() => Column(
     children: [
@@ -711,71 +728,10 @@ class _BookEditorPageState extends State<BookEditorPage> {
                 (sourceWidth + delta).clamp(332.0, remaining - 272) / remaining,
           ),
         ),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (_, bounds) => Column(
-              children: [
-                Expanded(child: _preview()),
-                const Divider(height: 1),
-                _inspectorToggle(),
-                if (_inspectorExpanded)
-                  MouseRegion(
-                    cursor: SystemMouseCursors.resizeUpDown,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onVerticalDragUpdate: (details) => setState(
-                        () => _inspectorHeight =
-                            (_inspectorHeight - details.delta.dy).clamp(
-                              0,
-                              bounds.maxHeight * .65,
-                            ),
-                      ),
-                      child: const SizedBox(height: 4, width: double.infinity),
-                    ),
-                  ),
-                if (_inspectorExpanded)
-                  SizedBox(
-                    height: _inspectorHeight.clamp(0.0, bounds.maxHeight * .65),
-                    child: _selectedElement == null
-                        ? const Center(child: Text('点击预览元素或从源码定位，查看样式。'))
-                        : BookEditorInspector(
-                            editor: editor,
-                            element: _selectedElement!,
-                            onSelect: _selectElement,
-                            onEdit: () =>
-                                unawaited(_editElement(_selectedElement!)),
-                          ),
-                  ),
-              ],
-            ),
-          ),
-        ),
+        Expanded(child: _preview()),
       ],
     );
   }
-
-  Widget _inspectorToggle() => Tooltip(
-    message: _inspectorExpanded ? '折叠样式检查器' : '展开样式检查器',
-    child: InkWell(
-      onTap: () => setState(() => _inspectorExpanded = !_inspectorExpanded),
-      child: SizedBox(
-        height: 28,
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-            const AppIcon(AppGlyph.tune, size: 16),
-            const SizedBox(width: 8),
-            const Expanded(child: Text('样式检查器')),
-            AppIcon(
-              _inspectorExpanded ? AppGlyph.chevronDown : AppGlyph.chevronUp,
-              size: 18,
-            ),
-            const SizedBox(width: 12),
-          ],
-        ),
-      ),
-    ),
-  );
 
   Widget _divider(ValueChanged<double> drag) => Semantics(
     label: '调整分栏宽度',

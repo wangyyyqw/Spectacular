@@ -197,6 +197,20 @@ void main() {
     expect(session.readBytes('OPS/image.png'), isNotNull);
   });
 
+  test('查找可限定文件范围，替换只修改范围内匹配', () {
+    final editor = PackageEditor(session);
+    final all = editor.find('段落');
+    final scoped = editor.find('段落', paths: {'OPS/a.xhtml'});
+    expect(scoped, isNotEmpty);
+    expect(scoped.length, lessThan(all.length));
+    expect(scoped.every((match) => match.path == 'OPS/a.xhtml'), isTrue);
+    expect(editor.find('段落', paths: <String>{}), isEmpty);
+
+    editor.replaceAll(scoped, '正文');
+    expect(editor.find('段落', paths: {'OPS/a.xhtml'}), isEmpty);
+    expect(editor.find('段落', paths: {'OPS/b.xhtml'}), isNotEmpty);
+  });
+
   test('元数据保留唯一标识；目录、分合章、替换为可撤销事务', () {
     final editor = PackageEditor(session);
     editor.setMetadata({'title': '新书名', 'creator': '新作者'});

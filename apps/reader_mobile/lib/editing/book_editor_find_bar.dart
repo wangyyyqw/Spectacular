@@ -214,11 +214,21 @@ class _EditorFindBarState extends State<EditorFindBar> {
                   selected: _wrap,
                   onSelected: (enabled) => setState(() => _wrap = enabled),
                 ),
-                Text(
-                  result == null || result.matches.isEmpty
-                      ? '0 处'
-                      : '${result.index + 1} / ${result.matches.length}',
-                  style: Theme.of(context).textTheme.labelSmall,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    result == null || result.matches.isEmpty
+                        ? '0 处'
+                        : '${result.index + 1} / ${result.matches.length}',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
                 ),
                 if (widget.onFindAll != null)
                   TextButton(

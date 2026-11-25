@@ -337,9 +337,10 @@ void Win32Window::UpdateTitleBar(HWND const window) {
   constexpr DWORD kTextColorAttribute = 36;
   constexpr COLORREF kSystemColor = 0xFFFFFFFFu;
   const COLORREF caption = enable_dark_mode ? RGB(27, 29, 31) : RGB(246, 246, 244);
-  const COLORREF text = enable_dark_mode ? RGB(231, 232, 228) : RGB(34, 36, 39);
   const COLORREF caption_color = use_system_colors ? kSystemColor : caption;
-  const COLORREF text_color = use_system_colors ? kSystemColor : text;
+  // 标题栏融入内容：标题文字与底色同色，最小化/最大化/关闭按钮仍由系统绘制。
+  // 高对比度模式保留系统文字色，避免影响可访问性。
+  const COLORREF text_color = use_system_colors ? kSystemColor : caption;
   DwmSetWindowAttribute(window, kCaptionColorAttribute, &caption_color,
                         sizeof(caption_color));
   DwmSetWindowAttribute(window, kTextColorAttribute, &text_color,

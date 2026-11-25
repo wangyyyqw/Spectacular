@@ -18,10 +18,12 @@ class EditSearchMatch {
 }
 
 extension PackageSearchCommands on PackageEditor {
+  /// [paths] 限定搜索文件；为空集合表示当前范围没有可搜索文件。
   List<EditSearchMatch> find(
     String query, {
     bool caseSensitive = true,
     bool regex = false,
+    Set<String>? paths,
   }) {
     if (query.isEmpty) return [];
     final pattern = RegExp(
@@ -30,7 +32,11 @@ extension PackageSearchCommands on PackageEditor {
       multiLine: true,
     );
     return [
-      for (final resource in session.resources.where(_textResource))
+      for (final resource in session.resources.where(
+        (resource) =>
+            _textResource(resource) &&
+            (paths == null || paths.contains(resource.path)),
+      ))
         for (final match in pattern.allMatches(session.readText(resource.path)))
           EditSearchMatch(
             path: resource.path,

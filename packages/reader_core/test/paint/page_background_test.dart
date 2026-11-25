@@ -165,10 +165,31 @@ void main() {
     expect(_redishPixels(data), 0, reason: '显式灰色应保留，不变成主题红');
   });
 
-  test('浅色页：显式浅字保持作者颜色，不换成主题色', () async {
+  test('浅色页：显式白字与背景同色时改用主题可读色', () async {
     final page = _page(_style(color: '#ffffff', explicitColor: true));
     final data = await _render(page, textColor: _red);
-    expect(_redishPixels(data), 0, reason: '作者显式白色不应被主题色替换');
+    expect(_redishPixels(data), greaterThan(0), reason: '白字白底必须换成可读主题色');
+  });
+
+  test('浅色整页背景页保留显式黑字，不被夜间主题刷成浅色', () async {
+    final page = _page(
+      _style(color: '#000000', explicitColor: true),
+      background: const PageBackground(backgroundColor: Color(0xFFFFFFFF)),
+    );
+    final data = await _render(
+      page,
+      background: const Color(0xFF101010),
+      textColor: _white,
+    );
+    var darkInk = 0;
+    for (var i = 0; i < data.lengthInBytes; i += 4) {
+      if (data.getUint8(i) < 40 &&
+          data.getUint8(i + 1) < 40 &&
+          data.getUint8(i + 2) < 40) {
+        darkInk += 1;
+      }
+    }
+    expect(darkInk, greaterThan(0), reason: '浅色整页背景上的显式黑字必须保留');
   });
 
   test('透明显式文字保持透明', () async {
@@ -218,11 +239,11 @@ void main() {
     expect(_redishPixels(data), greaterThan(0), reason: '默认黑字应取主题色');
   });
 
-  test('深色页：显式深色与浅色文字都保持作者颜色', () async {
+  test('深色页：显式黑字与背景同色时改用主题色，显式浅色文字保留', () async {
     final darkPage = _page(_style(color: '#000000', explicitColor: true));
     final darkData = await _render(
       darkPage,
-      background: const Color(0xFF101010),
+      background: const Color(0xFF000000),
       textColor: _white,
     );
     var whiteInk = 0;
@@ -233,7 +254,7 @@ void main() {
         whiteInk += 1;
       }
     }
-    expect(whiteInk, 0, reason: '作者显式黑色不应被主题色替换');
+    expect(whiteInk, greaterThan(0), reason: '黑字黑底必须换成可读主题色');
 
     final lightPage = _page(_style(color: '#ffe08a', explicitColor: true));
     final lightData = await _render(
@@ -248,5 +269,23 @@ void main() {
       }
     }
     expect(yellowInk, greaterThan(0), reason: '浅色字在黑底上应保留原色');
+  });
+
+  test('显式颜色与背景不同则保持作者色，即使对比度低', () async {
+    final page = _page(_style(color: '#000000', explicitColor: true));
+    final data = await _render(
+      page,
+      background: const Color(0xFF101010),
+      textColor: _white,
+    );
+    var whiteInk = 0;
+    for (var i = 0; i < data.lengthInBytes; i += 4) {
+      if (data.getUint8(i) > 200 &&
+          data.getUint8(i + 1) > 200 &&
+          data.getUint8(i + 2) > 200) {
+        whiteInk += 1;
+      }
+    }
+    expect(whiteInk, 0, reason: '只有显式色与背景同色时才反色');
   });
 }

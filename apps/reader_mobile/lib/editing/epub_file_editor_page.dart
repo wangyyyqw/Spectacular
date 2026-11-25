@@ -124,7 +124,7 @@ class _EpubFileEditorPageState extends State<EpubFileEditorPage> {
         focusNode: _keyboardFocus,
         autofocus: widget.active,
         child: Scaffold(
-          appBar: AppBar(title: const Text('编辑器')),
+          appBar: AppBar(title: const Text('编辑')),
           body: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(32),
@@ -134,7 +134,7 @@ class _EpubFileEditorPageState extends State<EpubFileEditorPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     AppIcon(
-                      AppGlyph.code,
+                      AppGlyph.editNote,
                       size: 48,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
