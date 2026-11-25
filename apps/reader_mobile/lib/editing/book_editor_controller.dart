@@ -411,7 +411,10 @@ class BookEditorController extends ChangeNotifier {
         });
       }
     } catch (failure) {
-      if (!_disposed && token == _previewToken) error = '预览未更新：$failure';
+      // 保存与导出的失败优先展示，后台预览不能覆盖版本冲突等操作结果。
+      if (!_disposed && token == _previewToken && !busy) {
+        error ??= '预览未更新：$failure';
+      }
     } finally {
       if (!_disposed && token == _previewToken) {
         previewLoading = false;

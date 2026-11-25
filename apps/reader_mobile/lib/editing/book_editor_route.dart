@@ -43,6 +43,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
   String? _error;
   Set<String> _versions = {};
   bool _opening = false;
+  late String _contentRevision = widget.contentRevision;
 
   @override
   void initState() {
@@ -57,7 +58,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
     if (mounted) setState(() => _error = null);
     try {
       final draft = await widget.repository.openDraft(widget.bookId);
-      if (draft != null && draft.baseRevision != widget.contentRevision) {
+      if (draft != null && draft.baseRevision != _contentRevision) {
         throw StateError('草稿属于旧版书籍；请保留备份后丢弃旧草稿再编辑');
       }
       final session = await EpubEditSession.open(
@@ -90,7 +91,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
         buffers: buffers,
         saveDraft: (session, buffers) => widget.repository.saveDraft(
           widget.bookId,
-          widget.contentRevision,
+          _contentRevision,
           (storeBlob) => {
             ...session.toDraft(storeBlob: storeBlob),
             'uiBuffers': buffers,
@@ -161,17 +162,15 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
   }
 
   Future<void> _write(EpubEditSession session, {bool commit = false}) async {
+    if (commit) {
+      await widget.repository.verifyRevision(widget.bookId, _contentRevision);
+    }
     final directory = await EpubExport.createTemporaryDirectory();
     final file = File('${directory.path}/edited.epub');
     try {
       await EpubWriter.write(session, file);
       if (commit) {
-        await widget.repository.commitEditedFile(
-          widget.bookId,
-          widget.contentRevision,
-          file,
-          session.summary,
-        );
+        await _commitFile(session, file);
       } else {
         final title = widget.title.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_');
         if (!await EpubExport.save(file, fileName: '$title.epub')) {
@@ -180,6 +179,22 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
       }
     } finally {
       await directory.delete(recursive: true);
+    }
+  }
+
+  Future<void> _commitFile(EpubEditSession session, File file) async {
+    final saved = await widget.repository.commitEditedFile(
+      widget.bookId,
+      _contentRevision,
+      file,
+      session.summary,
+    );
+    _contentRevision = saved.contentRevision!;
+    await session.acceptSavedFile(File(saved.filePath));
+    await widget.repository.discardDraft(widget.bookId);
+    final versions = await widget.repository.versions(widget.bookId);
+    if (mounted) {
+      setState(() => _versions = versions.map((item) => item.kind).toSet());
     }
   }
 
@@ -200,7 +215,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
             ? () async {
                 await widget.repository.restoreOriginal(
                   widget.bookId,
-                  widget.contentRevision,
+                  _contentRevision,
                 );
               }
             : null,
@@ -208,7 +223,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
             ? () async {
                 await widget.repository.restorePrevious(
                   widget.bookId,
-                  widget.contentRevision,
+                  _contentRevision,
                 );
               }
             : null,

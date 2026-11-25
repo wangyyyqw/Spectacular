@@ -53,6 +53,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
   double _sourceRatio = .57;
   int _compactTab = 0;
   bool _canPop = false;
+  bool _savedInSession = false;
   bool _elementOpen = false;
   bool _initialTargetHandled = false;
   EditableElementRef? _selectedElement;
@@ -112,7 +113,7 @@ class _BookEditorPageState extends State<BookEditorPage> {
     final saved = await _confirmLeave();
     if (saved == null || !mounted) return;
     setState(() => _canPop = true);
-    Navigator.pop(context, saved);
+    Navigator.pop(context, saved || _savedInSession);
   }
 
   Future<AppExitResponse> _requestExit() async => await _confirmLeave() == null
@@ -175,12 +176,21 @@ class _BookEditorPageState extends State<BookEditorPage> {
     ),
   );
 
-  Future<void> _save() async {
-    FocusManager.instance.primaryFocus?.unfocus();
+  Future<void> _save({bool close = false}) async {
+    if (editor.busy) return;
+    final focus = FocusManager.instance.primaryFocus;
     _scaffold.currentState?.closeDrawer();
     if (!await editor.save() || !mounted) return;
-    setState(() => _canPop = true);
-    Navigator.pop(context, true);
+    _savedInSession = true;
+    if (close) {
+      setState(() => _canPop = true);
+      Navigator.pop(context, true);
+    } else {
+      _message('书籍已保存');
+      if (focus?.context != null && focus!.canRequestFocus) {
+        focus.requestFocus();
+      }
+    }
   }
 
   Future<void> _editTarget(ReaderEditTarget target) async {
@@ -584,7 +594,16 @@ class _BookEditorPageState extends State<BookEditorPage> {
       MenuItemButton(
         leadingIcon: const EditorIcon(EditorGlyph.save, size: 18),
         onPressed: editor.busy ? null : _save,
-        child: const Text('保存书籍并返回'),
+        shortcut: SingleActivator(
+          LogicalKeyboardKey.keyS,
+          meta: Theme.of(context).platform == TargetPlatform.macOS,
+          control: Theme.of(context).platform != TargetPlatform.macOS,
+        ),
+        child: const Text('保存书籍'),
+      ),
+      MenuItemButton(
+        onPressed: editor.busy ? null : () => _save(close: true),
+        child: const Text('保存并退出编辑'),
       ),
       _toolItem('导出 EPUB', 'export'),
       _toolItem('新增章节或资源', 'add'),

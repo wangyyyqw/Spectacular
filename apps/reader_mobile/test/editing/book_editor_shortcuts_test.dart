@@ -285,12 +285,22 @@ void main() {
         await _shortcut(tester);
         expect(attempts, 2);
       }
-      await pumpReaderUntilComplete(
-        tester,
-        () => find.byType(BookEditorPage).evaluate().isEmpty,
-      );
+      await pumpReaderUntilComplete(tester, () => !editor.busy);
       expect(savedText, contains('快捷键修订正文'));
       expect(editor.dirty, isFalse);
+      expect(find.byType(BookEditorPage), findsOneWidget);
+      expect(find.text('书籍已保存'), findsOneWidget);
+      expect(
+        tester.widget<CodeEditor>(find.byType(CodeEditor)).focusNode!.hasFocus,
+        isTrue,
+      );
+      document.code.text = document.code.text.replaceFirst('快捷键修订正文', '连续保存正文');
+      await _shortcut(tester);
+      await pumpReaderUntilComplete(tester, () => !editor.busy);
+      expect(savedText, contains('连续保存正文'));
+      expect(editor.dirty, isFalse);
+      await tester.tap(find.byTooltip('退出编辑'));
+      await tester.pumpAndSettle();
       expect(result, isTrue);
       await tester.pumpWidget(const SizedBox());
       expect(tester.takeException(), isNull);

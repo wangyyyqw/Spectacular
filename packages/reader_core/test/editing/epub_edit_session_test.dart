@@ -23,6 +23,64 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  test('连续保存切换基线后可撤销重做、恢复草稿并再次导出', () async {
+    const path = 'OPS/chapter.xhtml';
+    final first = editingXhtml.replaceFirst('甲&amp;', '第一次&amp;');
+    session.transaction('第一次修改', (tx) => tx.writeText(path, first));
+    final saved = File('${directory.path}/第一次.epub');
+    await EpubWriter.write(session, saved);
+    await session.acceptSavedFile(saved);
+    expect(session.changedPaths, isEmpty);
+    expect(session.baseFile.path, saved.absolute.path);
+    session.undo();
+    expect(session.readText(path), editingXhtml);
+    session.redo();
+    expect(session.readText(path), first);
+    expect(session.changedPaths, isEmpty);
+
+    final second = first.replaceFirst('第一次', '第二次');
+    session.transaction('第二次修改', (tx) => tx.writeText(path, second));
+    final recovered = await EpubEditSession.open(
+      saved,
+      draft: session.toDraft(),
+    );
+    expect(recovered.readText(path), second);
+    recovered.close();
+    final output = File('${directory.path}/第二次.epub');
+    await EpubWriter.write(session, output);
+    await session.acceptSavedFile(output);
+    session.undo();
+    expect(session.readText(path), first);
+    session.undo();
+    expect(session.readText(path), editingXhtml);
+    session.redo();
+    session.redo();
+    expect(session.readText(path), second);
+    expect(session.changedPaths, isEmpty);
+  });
+
+  test('保存新增和删除资源后保留撤销与重做分支', () async {
+    const resource = 'OPS/extra.txt';
+    session.transaction('新增资源', (tx) => tx.writeText(resource, '保留的资源'));
+    final added = File('${directory.path}/新增.epub');
+    await EpubWriter.write(session, added);
+    await session.acceptSavedFile(added);
+    session.undo();
+    expect(session.readBytes(resource), isNull);
+    final removed = File('${directory.path}/移除.epub');
+    await EpubWriter.write(session, removed);
+    await session.acceptSavedFile(removed);
+    expect(session.canRedo, isTrue);
+    session.redo();
+    expect(session.readText(resource), '保留的资源');
+    final reopened = await EpubEditSession.open(
+      removed,
+      draft: session.toDraft(),
+    );
+    expect(reopened.readText(resource), '保留的资源');
+    reopened.close();
+  });
+
   test('精确源码索引保留开始标签、结束标签、属性及 CFI 身份', () {
     final doc = session.editableDocument('OPS/chapter.xhtml');
     final node = doc.elements.singleWhere((e) => e.attributes['id'] == 'p');

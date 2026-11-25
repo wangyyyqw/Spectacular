@@ -234,6 +234,10 @@ void main() {
       () => tester.widget<IconButton>(saveButton).onPressed != null,
     );
     await tester.tap(saveButton);
+    await _until(tester, () => !editor.busy);
+    expect(editor.dirty, isFalse);
+    expect(find.byType(BookEditorPage), findsOneWidget);
+    await tester.tap(find.byTooltip('退出编辑'));
     await _until(tester, () => returned || editor.error != null);
     expect(editor.error, isNull);
     expect(returned, isTrue);

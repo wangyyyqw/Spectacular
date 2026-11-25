@@ -13,6 +13,17 @@ class BookEditRepository {
 
   final LibraryStore library;
 
+  /// 打包前识别已换版或删除的书籍，避免失效基线只显示底层文件错误。
+  Future<void> verifyRevision(String bookId, String expectedRevision) async {
+    final current = await library.bookById(bookId);
+    if (current == null || current.contentRevision != expectedRevision) {
+      throw const LibraryImportException(
+        '书籍版本已变化，请保留当前输入并重新打开书籍',
+        errorCode: 'E_STALE_REVISION',
+      );
+    }
+  }
+
   Future<BookEditDraft?> openDraft(String bookId) =>
       library.loadEditDraft(bookId);
 

@@ -128,6 +128,10 @@ void main() {
     expect(editor.error, isNull);
     cancel = false;
     await tester.tap(find.byTooltip('保存书籍'));
+    await pumpReaderUntilComplete(tester, () => saveCalls == 2 && !editor.busy);
+    expect(find.byType(BookEditorPage), findsOneWidget);
+    expect(editor.dirty, isFalse);
+    await tester.tap(find.byTooltip('退出编辑'));
     await pumpReaderUntil(
       tester,
       find.byKey(const ValueKey('editor-open-file')),

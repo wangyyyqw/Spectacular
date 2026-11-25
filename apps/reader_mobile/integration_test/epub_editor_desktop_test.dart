@@ -276,6 +276,9 @@ void main() {
     await tester.sendKeyDownEvent(modifier);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
     await tester.sendKeyUpEvent(modifier);
+    await _until(tester, () => savedBook != null && !controller.busy);
+    expect(find.byType(BookEditorPage), findsOneWidget);
+    await tester.tap(find.byTooltip('退出编辑'));
     await _until(tester, () => saved);
     expect(savedBook!.id, book.id);
     expect(savedBook!.contentRevision, isNot(book.contentRevision));
