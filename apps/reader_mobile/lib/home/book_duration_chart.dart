@@ -24,7 +24,12 @@ final _countingHint =
     '单书单日超过 ${minimumDisplayedBookDayDuration.inMinutes} 分钟进入榜单，更多可查看同期全部书籍。';
 
 /// 图书时长：按自然周期查看各书投入和占比，保留已移出书架的记录。
-const _selectablePeriods = [BookDurationPeriod.day, BookDurationPeriod.week];
+const _selectablePeriods = [
+  BookDurationPeriod.day,
+  BookDurationPeriod.week,
+  BookDurationPeriod.month,
+  BookDurationPeriod.year,
+];
 
 class BookDurationChart extends StatefulWidget {
   const BookDurationChart({
@@ -96,7 +101,7 @@ class _BookDurationChartState extends State<BookDurationChart>
     final selectedIndex = _selectablePeriods.indexOf(_period);
     final index = selectedIndex < 0 ? 0 : selectedIndex;
     return Container(
-      height: 48,
+      height: 40,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
@@ -446,7 +451,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       top: _periodSlider(context),
       controls: navigation,
       footer: legend,
-      weekMode: _period == BookDurationPeriod.week,
+      period: _period,
       startWithTimeOfDay: widget.startWithTimeOfDay,
     );
     return Padding(
@@ -475,8 +480,8 @@ class _BookDurationChartState extends State<BookDurationChart>
     BookDurationSummary summary,
     List<DurationBarData> slices,
   ) {
-    if (_period == BookDurationPeriod.week) {
-      return _weekTimeBars(summary, slices);
+    if (_period != BookDurationPeriod.day) {
+      return _calendarTimeBars(summary, slices);
     }
     final buckets = List.generate(12, (_) => <String, Duration>{});
     final bookIds = slices.map((slice) => slice.key).toSet();
@@ -497,12 +502,12 @@ class _BookDurationChartState extends State<BookDurationChart>
     ];
   }
 
-  List<TimeOfDayBarData> _weekTimeBars(
+  List<TimeOfDayBarData> _calendarTimeBars(
     BookDurationSummary summary,
     List<DurationBarData> slices,
   ) {
-    const labels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-    final buckets = List.generate(7, (_) => <String, Duration>{});
+    final labels = _calendarLabels(summary.start);
+    final buckets = List.generate(labels.length, (_) => <String, Duration>{});
     final bookIds = slices.map((slice) => slice.key).toSet();
     final end = _period.shift(summary.start, 1);
     for (final portion in widget.insights.portions) {
@@ -512,17 +517,32 @@ class _BookDurationChartState extends State<BookDurationChart>
           portion.duration <= Duration.zero) {
         continue;
       }
-      final weekday = portion.date.weekday - 1;
-      if (weekday < 0 || weekday >= buckets.length) continue;
-      buckets[weekday][portion.bookId] =
-          (buckets[weekday][portion.bookId] ?? Duration.zero) +
-          portion.duration;
+      final index = switch (_period) {
+        BookDurationPeriod.week => portion.date.weekday - 1,
+        BookDurationPeriod.month => portion.date.day - 1,
+        _ => portion.date.month - summary.start.month,
+      };
+      final bucket = buckets[index];
+      bucket[portion.bookId] =
+          (bucket[portion.bookId] ?? Duration.zero) + portion.duration;
     }
     return [
       for (var index = 0; index < buckets.length; index++)
         _timeBarData(buckets[index], slices, labels[index]),
     ];
   }
+
+  List<String> _calendarLabels(DateTime start) => switch (_period) {
+    BookDurationPeriod.week => ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+    BookDurationPeriod.month => List.generate(
+      DateTime(start.year, start.month + 1, 0).day,
+      (index) => '${index + 1}日',
+    ),
+    _ => List.generate(
+      _period == BookDurationPeriod.year ? 12 : 3,
+      (index) => '${start.month + index}月',
+    ),
+  };
 
   Widget _legendRow(BookDurationSummary summary, DurationBarData slice) {
     final selected = slice.id != null && _selectedBookId == slice.id;

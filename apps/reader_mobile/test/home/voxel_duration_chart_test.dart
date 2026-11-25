@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/home/book_duration_summary.dart';
 import 'package:reader_mobile/home/voxel_duration_chart.dart';
 
 const _boundaryKey = ValueKey('voxel-test-boundary');
@@ -103,7 +104,7 @@ Future<void> _pumpChart(
                 selectedBookId: selectedBookId,
                 onSelected: (_) {},
                 showRooftops: rooftops,
-                weekMode: week,
+                period: week ? BookDurationPeriod.week : BookDurationPeriod.day,
               ),
             ),
           ),
@@ -116,6 +117,37 @@ Future<void> _pumpChart(
 
 Finder _key(String suffix) =>
     find.byKey(ValueKey('stats-book-duration-$suffix'));
+
+({
+  List<({double height, double baseY, List<double> segments})> bars,
+  double scaleHeight,
+  List<double> ticks,
+})
+_chartGeometry(WidgetTester tester) {
+  final scene =
+      (tester.widget<CustomPaint>(_key('plot')).painter! as dynamic).scene
+          as Object;
+  final bars = (scene as dynamic).bars as List<Object>;
+  final scale = (scene as dynamic).scale as Object;
+  return (
+    bars: [
+      for (final bar in bars)
+        (
+          height: (bar as dynamic).height as double,
+          baseY: (bar as dynamic).baseY as double,
+          segments: [
+            for (final segment in (bar as dynamic).segments as List<Object>)
+              (segment as dynamic).height as double,
+          ],
+        ),
+    ],
+    scaleHeight: (scale as dynamic).height as double,
+    ticks: [
+      for (var index = 0; index <= 3; index++)
+        (scene as dynamic).tickY(index) as double,
+    ],
+  );
+}
 
 Finder _plotFinder() {
   final paints = find.byType(CustomPaint);
@@ -231,7 +263,8 @@ class _PixelSnapshot {
         ? 2
         : 1;
     return [
-      for (var floor = 0; floor < 11; floor++)
+      // 10 小时落在 12 小时刻度内，柱高 110 像素，前九层为完整窗格。
+      for (var floor = 0; floor < 9; floor++)
         for (var side = 0; side < 2; side++)
           for (var column = 0; column < columns; column++)
             isWarm(
@@ -254,7 +287,7 @@ class _PixelSnapshot {
     final slot = plot.width / count;
     final center = plot.left + slot * (index + .5);
     final halfWidth = (slot * .32).clamp(0.0, 24.0);
-    final roofY = _plotHeight - halfWidth * .5 - 6 - 132;
+    final roofY = _plotHeight - halfWidth * .5 - 6 - 110;
     final mask = StringBuffer();
     for (var y = plot.top.ceil(); y < (plot.top + roofY - 8).floor(); y++) {
       for (var x = -14; x <= 14; x++) {
@@ -289,6 +322,94 @@ class _PixelSnapshot {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final (duration, labels) in [
+    (Duration.zero, ['0', '1\n秒', '2\n秒', '3\n秒']),
+    (const Duration(milliseconds: 450), ['0', '1\n秒', '2\n秒', '3\n秒']),
+    (const Duration(seconds: 50), ['0', '17\n秒', '34\n秒', '51\n秒']),
+    (const Duration(minutes: 70), ['0', '24\n分', '48\n分', '72\n分']),
+    (const Duration(hours: 2, minutes: 58), ['0', '60\n分', '120\n分', '180\n分']),
+    (const Duration(hours: 291), ['0', '97\n时', '194\n时', '291\n时']),
+  ]) {
+    testWidgets('纵轴按 $duration 数字单位换行、左对齐总时长并保留等间距刻度', (tester) async {
+      final bar = _defaultBars.single;
+      await _pumpChart(
+        tester,
+        bars: [
+          (
+            key: bar.key,
+            id: bar.id,
+            title: bar.title,
+            shortTitle: bar.shortTitle,
+            share: bar.share,
+            color: bar.color,
+            duration: duration,
+          ),
+        ],
+      );
+      final plot = tester.getRect(_plotFinder());
+      final axis = tester.getRect(_key('y-axis'));
+      expect(axis.right, closeTo(plot.left, .01));
+      final centers = <double>[];
+      for (var index = 0; index <= 3; index++) {
+        expect(tester.widget<Text>(_key('y-tick-$index')).data, labels[index]);
+        final labelRect = tester.getRect(
+          find.ancestor(
+            of: _key('y-tick-$index'),
+            matching: find.byType(FittedBox),
+          ),
+        );
+        expect(labelRect.right, lessThan(plot.left));
+        expect(
+          tester.getTopLeft(_key('y-tick-$index')).dx,
+          closeTo(tester.getTopLeft(_key('total')).dx, .01),
+        );
+        centers.add(labelRect.center.dy);
+      }
+      expect(centers[0] - centers[1], closeTo(centers[1] - centers[2], .01));
+      expect(centers[1] - centers[2], closeTo(centers[2] - centers[3], .01));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('时长刻度和柱高共用线性比例，点选书籍不抬高零基线', (tester) async {
+    await _pumpChart(tester, bars: _mixedBars);
+    final scene = _chartGeometry(tester);
+    expect(scene.bars[0].height / scene.bars[1].height, closeTo(1.5, .001));
+    expect(scene.bars[0].baseY, scene.bars[1].baseY);
+    final plot = tester.getRect(_plotFinder());
+    for (var index = 0; index <= 3; index++) {
+      final tick = tester.getRect(
+        find.ancestor(
+          of: _key('y-tick-$index'),
+          matching: find.byType(FittedBox),
+        ),
+      );
+      expect(tick.center.dy - plot.top, closeTo(scene.ticks[index], .01));
+    }
+    expect(
+      scene.bars[0].baseY - scene.bars[0].height,
+      closeTo(scene.ticks[3], .01),
+    );
+    await _pumpChart(tester, bars: _mixedBars, selectedBookId: 'a');
+    final selected = _chartGeometry(tester);
+    expect(selected.bars[0].baseY, scene.bars[0].baseY);
+    expect(selected.bars[0].height, scene.bars[0].height);
+  });
+
+  testWidgets('切换时段后纵轴按堆叠总时长缩放，色段与阅读时长等比例', (tester) async {
+    await _pumpChart(tester, bars: _mixedBars, timeBars: _timeBuckets());
+    expect(tester.widget<Text>(_key('y-tick-3')).data, '6\n时');
+    await tester.tap(_key('chart-mode'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(_key('y-tick-3')).data, '12\n时');
+    final scene = _chartGeometry(tester);
+    final bar = scene.bars[0];
+    expect(bar.height / scene.scaleHeight, closeTo(10 / 12, .001));
+    expect(bar.segments[0] / bar.segments[1], closeTo(1.5, .001));
+    expect(scene.bars[1].height, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('柱状图顶面完整绘制为菱形，不在显示高度处被裁掉一半', (tester) async {
     await _pumpChart(tester);
@@ -558,7 +679,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('短柱按一层格块拆解，不再强制生成一大批最低数量的颗粒', (tester) async {
+  testWidgets('短柱保留不足一层的真实高度，重组不膨胀颗粒数量', (tester) async {
     const short = (
       key: 'short',
       id: 'short',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_duration_chart.dart';
+import 'package:reader_mobile/home/book_duration_summary.dart';
 import 'package:reader_mobile/home/reading_insights.dart';
 import 'package:reader_mobile/home/voxel_duration_chart.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
@@ -26,7 +27,9 @@ Future<void> _pump(
   Map<String, Color> bookColors = const {},
   bool applyThreshold = false,
   bool initialTimeOfDay = false,
+  DateTime? now,
 }) async {
+  final current = now ?? _now;
   tester.view.physicalSize = Size(width, 1100);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -44,12 +47,12 @@ Future<void> _pump(
           child: BookDurationChart(
             insights: ReadingInsights(
               sessions,
-              now: _now,
+              now: current,
               minimumBookDayDuration: applyThreshold
                   ? minimumDisplayedBookDayDuration
                   : Duration.zero,
             ),
-            now: _now,
+            now: current,
             bookTitles: titles,
             bookColors: bookColors,
             startWithTimeOfDay: initialTimeOfDay,
@@ -169,7 +172,7 @@ void main() {
     );
   });
 
-  testWidgets('日和周展示对应图书、合计和占比，并阻止浏览未来', (tester) async {
+  testWidgets('日周月年展示对应图书、合计和占比，并阻止浏览未来', (tester) async {
     await _pump(tester, [
       _session('today', DateTime(2026, 11, 15, 8), 10),
       _session('week', DateTime(2026, 11, 9, 8), 20),
@@ -180,6 +183,8 @@ void main() {
     for (final (period, total, count) in [
       ('day', '10 分钟', 1),
       ('week', '30 分钟', 2),
+      ('month', '1 小时', 3),
+      ('year', '2 小时 30 分', 5),
     ]) {
       await _selectPeriod(tester, period);
       expect(_text(tester, 'total'), total);
@@ -192,6 +197,7 @@ void main() {
     expect(_key('tag-year'), findsNothing);
     await _selectPeriod(tester, 'day');
     expect(_text(tester, 'value-today'), '10 分钟');
+    expect(_key('period-quarter'), findsNothing);
   });
 
   testWidgets('历史周期可往返、返回当前，刷新保留所选周期且只累计一次', (tester) async {
@@ -366,14 +372,10 @@ void main() {
   });
 
   testWidgets('柱图默认显示时段分布，点击切换为按书统计', (tester) async {
-    await _pump(
-      tester,
-      [
-        _session('a', DateTime(2026, 11, 15, 1), 90),
-        _session('b', DateTime(2026, 11, 15, 3, 30), 40),
-      ],
-      initialTimeOfDay: true,
-    );
+    await _pump(tester, [
+      _session('a', DateTime(2026, 11, 15, 1), 90),
+      _session('b', DateTime(2026, 11, 15, 3, 30), 40),
+    ], initialTimeOfDay: true);
 
     expect(_key('time-bar-0-2'), findsOneWidget);
     expect(_key('bar-a'), findsNothing);
@@ -408,6 +410,226 @@ void main() {
       semantics.dispose();
     }
   });
+
+  for (final (date, days) in [
+    (DateTime(2025, 2, 28), 28),
+    (DateTime(2024, 2, 29), 29),
+    (DateTime(2026, 11, 30), 30),
+    (DateTime(2026, 12, 31), 31),
+  ]) {
+    testWidgets('月视图按自然月显示 $days 天并按午夜拆分阅读时长', (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await _pump(
+          tester,
+          [
+            _session('a', DateTime(date.year, date.month, 0, 23, 30), 60),
+            _session('b', DateTime(date.year, date.month, days, 23, 30), 60),
+          ],
+          now: date,
+          initialTimeOfDay: true,
+          bookColors: const {'a': Colors.red, 'b': Colors.blue},
+        );
+        await _selectPeriod(tester, 'month');
+        final chart = tester.widget<VoxelDurationChart>(
+          find.byType(VoxelDurationChart),
+        );
+        expect(chart.period, BookDurationPeriod.month);
+        expect(chart.timeBars, hasLength(days));
+        expect(chart.timeBars.first.duration, const Duration(minutes: 30));
+        expect(chart.timeBars.last.duration, const Duration(minutes: 30));
+        expect(chart.timeBars.first.segments.single.color, Colors.red);
+        expect(chart.timeBars.last.segments.single.color, Colors.blue);
+        expect(_text(tester, 'total'), '1 小时');
+        expect(_text(tester, 'chart-value'), '2 天');
+        expect(find.text('月内分布'), findsOneWidget);
+        expect(find.bySemanticsLabel('1日，共 30 分钟，书籍 a 30 分钟'), findsOneWidget);
+        expect(find.bySemanticsLabel('2日，没有阅读记录'), findsOneWidget);
+        expect(_key('time-bar-$days日'), findsOneWidget);
+        expect(_key('time-bar-${days + 1}日'), findsNothing);
+        expect(_key('time-bar-0-2'), findsNothing);
+        await _tap(tester, 'chart-mode');
+        expect(find.byTooltip('切换为按日期分布'), findsOneWidget);
+        expect(_key('bar-a'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    });
+  }
+
+  testWidgets('年视图按十二个月聚合，跨年记录分别计入对应年份', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await _pump(
+        tester,
+        [
+          _session('a', DateTime(2025, 12, 31, 23, 30), 60),
+          _session('a', DateTime(2026, 1, 20, 10), 20),
+          _session('b', DateTime(2026, 6, 15, 8), 40),
+          _session('b', DateTime(2026, 12, 31, 23, 30), 60),
+        ],
+        now: DateTime(2026, 12, 31),
+        initialTimeOfDay: true,
+      );
+      await _selectPeriod(tester, 'year');
+      final chart = tester.widget<VoxelDurationChart>(
+        find.byType(VoxelDurationChart),
+      );
+      expect(chart.period, BookDurationPeriod.year);
+      expect(chart.timeBars, hasLength(12));
+      expect(chart.timeBars.first.duration, const Duration(minutes: 50));
+      expect(chart.timeBars[5].duration, const Duration(minutes: 40));
+      expect(chart.timeBars.last.duration, const Duration(minutes: 30));
+      expect(_text(tester, 'total'), '2 小时');
+      expect(_text(tester, 'chart-value'), '3 个月');
+      expect(find.text('全年分布'), findsOneWidget);
+      expect(find.bySemanticsLabel('1月，共 50 分钟，书籍 a 50 分钟'), findsOneWidget);
+      expect(find.bySemanticsLabel('2月，没有阅读记录'), findsOneWidget);
+      await _tap(tester, 'previous');
+      expect(_text(tester, 'range'), '2025年');
+      expect(_text(tester, 'total'), '30 分钟');
+      expect(tester.widget<IconButton>(_key('previous')).onPressed, isNull);
+      await _tap(tester, 'next');
+      expect(_text(tester, 'range'), '今年 · 2026年');
+      expect(tester.widget<IconButton>(_key('next')).onPressed, isNull);
+      await _tap(tester, 'chart-mode');
+      expect(find.byTooltip('切换为按月份分布'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('月视图可跨年往返、刷新保留月份并展示同期全部书籍', (tester) async {
+    final sessions = [
+      _session('a', DateTime(2025, 12, 31, 23, 30), 60),
+      _session('b', DateTime(2026, 1, 15, 8), 20),
+      _session('short', DateTime(2026, 1, 15, 9), 1),
+    ];
+    final now = DateTime(2026, 1, 31);
+    await _pump(tester, sessions, now: now, applyThreshold: true);
+    await _selectPeriod(tester, 'month');
+    expect(_text(tester, 'range'), '本月 · 2026年1月');
+    expect(_text(tester, 'total'), '51 分钟');
+    expect(_key('tag-short'), findsNothing);
+    await _tap(tester, 'all');
+    expect(_text(tester, 'list-range'), '2026年1月');
+    expect(_text(tester, 'list-summary'), '3 本书 · 合计 51 分钟');
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    await _tap(tester, 'previous');
+    expect(_text(tester, 'range'), '2025年12月');
+    expect(_text(tester, 'total'), '30 分钟');
+    sessions.add(_session('a', DateTime(2025, 12, 30, 8), 10));
+    await _pump(tester, sessions, now: now, applyThreshold: true);
+    expect(_text(tester, 'range'), '2025年12月');
+    expect(_text(tester, 'total'), '40 分钟');
+    expect(tester.widget<IconButton>(_key('previous')).onPressed, isNull);
+    await _tap(tester, 'next');
+    expect(_text(tester, 'range'), '本月 · 2026年1月');
+    expect(tester.widget<IconButton>(_key('next')).onPressed, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('月和年无记录时显示空状态，空月份仍可浏览到已有记录', (tester) async {
+    await _pump(tester, [
+      _session('a', DateTime(2025, 12, 15, 8), 30),
+    ], now: DateTime(2026, 2, 15));
+    await _selectPeriod(tester, 'year');
+    expect(_key('empty'), findsOneWidget);
+    await _selectPeriod(tester, 'month');
+    expect(_key('empty'), findsOneWidget);
+    await _tap(tester, 'previous');
+    expect(_text(tester, 'range'), '2026年1月');
+    expect(_key('empty'), findsOneWidget);
+    await _tap(tester, 'previous');
+    expect(_text(tester, 'range'), '2025年12月');
+    expect(_text(tester, 'total'), '30 分钟');
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final period in ['day', 'week', 'month', 'year']) {
+    testWidgets('320 宽、2 倍字号下 $period 柱图刻度不重叠且周期可读屏', (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await _pump(
+          tester,
+          [
+            for (var day = 1; day <= 31; day++)
+              _session('a', DateTime(2026, 10, day, 8), day),
+          ],
+          now: DateTime(2026, 10, 31),
+          width: 320,
+          scale: 2,
+          initialTimeOfDay: true,
+        );
+        await _selectPeriod(tester, period);
+        final label = {
+          'day': '日',
+          'week': '周',
+          'month': '月',
+          'year': '年',
+        }[period]!;
+        expect(
+          tester.getSemantics(find.bySemanticsLabel(label)),
+          matchesSemantics(
+            label: label,
+            isButton: true,
+            isSelected: true,
+            hasSelectedState: true,
+            hasTapAction: true,
+          ),
+        );
+        final ticks = switch (period) {
+          'day' => [
+            for (var hour = 0; hour < 24; hour += 2) '$hour-${hour + 2}',
+          ],
+          'week' => ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+          'month' => ['1日', '5日', '10日', '15日', '20日', '25日', '31日'],
+          _ => [for (var month = 1; month <= 12; month++) '$month月'],
+        };
+        Rect? previous;
+        for (final tick in ticks) {
+          final rect = tester.getRect(
+            find.ancestor(
+              of: find.text(tick),
+              matching: find.byType(FittedBox),
+            ),
+          );
+          if (previous != null) {
+            expect(previous.right, lessThanOrEqualTo(rect.left + .001));
+          }
+          previous = rect;
+        }
+        expect(_key('time-bar-${ticks.last}'), findsOneWidget);
+        final plot = tester.getRect(_key('plot'));
+        expect(tester.getRect(_key('y-axis')).right, closeTo(plot.left, .01));
+        Rect? previousYTick;
+        for (var index = 0; index <= 3; index++) {
+          final tick = tester.getRect(
+            find.ancestor(
+              of: _key('y-tick-$index'),
+              matching: find.byType(FittedBox),
+            ),
+          );
+          expect(tick.right, lessThan(plot.left));
+          expect(tick.top, greaterThanOrEqualTo(plot.top));
+          expect(
+            tester.getTopLeft(_key('y-tick-$index')).dx,
+            closeTo(tester.getTopLeft(_key('total')).dx, .01),
+          );
+          if (previousYTick != null) {
+            expect(tick.overlaps(previousYTick), isFalse);
+          }
+          previousYTick = tick;
+        }
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    });
+  }
 
   testWidgets('320 宽、2 倍字号下一天时段柱图不溢出', (tester) async {
     await _pump(

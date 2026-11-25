@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
+import 'book_duration_summary.dart';
 import 'reading_insights.dart';
 
 typedef DurationBarData = ({
@@ -30,7 +31,7 @@ typedef TimeOfDayBarData = ({
   List<DurationBarSegment> segments,
 });
 
-/// 图书时长的 2.5D 像素柱；可切换为小时或星期分布。
+/// 图书时长的 2.5D 像素柱；可切换为时段、星期、日期或月份分布。
 class VoxelDurationChart extends StatefulWidget {
   const VoxelDurationChart({
     super.key,
@@ -44,7 +45,7 @@ class VoxelDurationChart extends StatefulWidget {
     this.controls,
     this.footer,
     this.top,
-    this.weekMode = false,
+    this.period = BookDurationPeriod.day,
     this.startWithTimeOfDay = false,
   });
 
@@ -64,11 +65,11 @@ class VoxelDurationChart extends StatefulWidget {
   /// 图表下方的书目列表，与图表共用同一张卡片。
   final Widget? footer;
 
-  /// 卡片最顶部的日/周滑块。
+  /// 卡片最顶部的统计周期滑块。
   final Widget? top;
 
-  /// 周视图的“时段”按周一至周日分段，而不是一天内的小时。
-  final bool weekMode;
+  /// 决定时间分布的标题、计数单位和读屏标签。
+  final BookDurationPeriod period;
 
   /// 首次显示时段分布，点击后切换到按书统计。
   final bool startWithTimeOfDay;
@@ -91,10 +92,32 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
   late final AnimationController _lightController;
   late final Animation<double> _morphLights;
   late _VoxelChartMode _mode;
-  _VoxelChartMode? _fromMode;  bool _morphing = false;
+  _VoxelChartMode? _fromMode;
+  bool _morphing = false;
   bool _started = false;
   bool _reduceMotion = false;
   bool _morphLightsActive = false;
+
+  String get _timeTitle => switch (widget.period) {
+    BookDurationPeriod.day => '一天时段',
+    BookDurationPeriod.week => '一周分布',
+    BookDurationPeriod.month => '月内分布',
+    BookDurationPeriod.quarter => '季度分布',
+    BookDurationPeriod.year => '全年分布',
+  };
+
+  String get _timeUnit => switch (widget.period) {
+    BookDurationPeriod.day => '个时段',
+    BookDurationPeriod.week || BookDurationPeriod.month => '天',
+    BookDurationPeriod.quarter || BookDurationPeriod.year => '个月',
+  };
+
+  String get _timeModeTooltip => switch (widget.period) {
+    BookDurationPeriod.day => '切换为一天时段分布',
+    BookDurationPeriod.week => '切换为按星期分布',
+    BookDurationPeriod.month => '切换为按日期分布',
+    BookDurationPeriod.quarter || BookDurationPeriod.year => '切换为按月份分布',
+  };
 
   @override
   void initState() {
@@ -309,7 +332,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
         ? widget.bookCount > widget.bars.length
               ? '前 ${widget.bars.length} 本 · 共 ${widget.bookCount} 本'
               : '${widget.bookCount} 本书'
-        : '$activeBuckets ${widget.weekMode ? '天' : '个时段'}'
+        : '$activeBuckets $_timeUnit'
               '${widget.bookCount > widget.bars.length ? ' · 前 ${widget.bars.length} 本' : ''}';
     return Wrap(
       alignment: WrapAlignment.spaceBetween,
@@ -321,11 +344,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _mode == _VoxelChartMode.books
-                  ? '总阅读时长'
-                  : widget.weekMode
-                  ? '一周分布'
-                  : '一天时段',
+              _mode == _VoxelChartMode.books ? '总阅读时长' : _timeTitle,
               style: TextStyle(
                 fontSize: 11,
                 height: 1.2,
@@ -363,9 +382,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
   Widget _modeButton(BuildContext context, {required bool switchingToTime}) {
     final scheme = Theme.of(context).colorScheme;
     return Tooltip(
-      message: switchingToTime
-          ? (widget.weekMode ? '切换为按星期分布' : '切换为一天时段分布')
-          : '切换为按书统计',
+      message: switchingToTime ? _timeModeTooltip : '切换为按书统计',
       child: IconButton(
         key: const ValueKey('stats-book-duration-chart-mode'),
         onPressed: _morphing ? null : _toggleMode,
@@ -391,10 +408,13 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
     required bool showRooftops,
   }) {
     final scheme = Theme.of(context).colorScheme;
-    final targetScene = _sceneFor(_mode, width);
+    final textScale = MediaQuery.textScalerOf(context).scale(10) / 10;
+    final axisWidth = math.min(width * .18, (14 * textScale).clamp(14.0, 28.0));
+    final plotWidth = width - axisWidth;
+    final targetScene = _sceneFor(_mode, plotWidth);
     final lights = _morphLightsActive ? _morphLights : _lightController;
     final fromScene = _morphing
-        ? _sceneFor(_fromMode ?? _VoxelChartMode.books, width)
+        ? _sceneFor(_fromMode ?? _VoxelChartMode.books, plotWidth)
         : null;
     final painter = fromScene == null
         ? _ScenePainter(
@@ -405,6 +425,7 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
             selectedBookId: widget.selectedBookId,
             shadowColor: scheme.shadow,
             baseColor: scheme.surfaceContainerHighest,
+            gridColor: scheme.outlineVariant.withValues(alpha: .6),
           )
         : _MorphPainter(
             fromScene: fromScene,
@@ -416,10 +437,11 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
             selectedBookId: widget.selectedBookId,
             shadowColor: scheme.shadow,
             baseColor: scheme.surfaceContainerHighest,
+            gridColor: scheme.outlineVariant.withValues(alpha: .6),
           );
-    return _StaticVoxelChart(
+    final chart = _StaticVoxelChart(
       scene: targetScene,
-      width: width,
+      width: plotWidth,
       plotHeight: _plotHeight,
       labelHeight: labelHeight,
       selectedBookId: widget.selectedBookId,
@@ -436,22 +458,84 @@ class _VoxelDurationChartState extends State<VoxelDurationChart>
       onBookSelected: widget.onSelected,
       books: widget.bars,
     );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _DurationAxis(
+          scene: targetScene,
+          width: axisWidth,
+          height: _plotHeight,
+        ),
+        Expanded(child: chart),
+      ],
+    );
   }
 
   _VoxelScene _sceneFor(_VoxelChartMode mode, double width) =>
       mode == _VoxelChartMode.books
-      ? _bookScene(
-          width: width,
-          plotHeight: _plotHeight,
-          bars: widget.bars,
-          selectedBookId: widget.selectedBookId,
-        )
+      ? _bookScene(width: width, plotHeight: _plotHeight, bars: widget.bars)
       : _timeScene(
           width: width,
           plotHeight: _plotHeight,
           bars: widget.timeBars,
-          labelSuffix: widget.weekMode ? '' : ' 时',
+          labelSuffix: widget.period == BookDurationPeriod.day ? ' 时' : '',
         );
+}
+
+class _DurationAxis extends StatelessWidget {
+  const _DurationAxis({
+    required this.scene,
+    required this.width,
+    required this.height,
+  });
+
+  final _VoxelScene scene;
+  final double width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final lineHeight = math.min(
+      MediaQuery.textScalerOf(context).scale(10) * 1.3,
+      scene.scale.height / 6 - 2,
+    );
+    return Semantics(
+      container: true,
+      label: '阅读时长纵轴',
+      child: SizedBox(
+        key: const ValueKey('stats-book-duration-y-axis'),
+        width: width,
+        height: height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            for (var index = 0; index <= 3; index++)
+              Positioned(
+                left: 0,
+                right: 2,
+                top: scene.tickY(index) - lineHeight * (index == 0 ? .5 : 1),
+                height: lineHeight * (index == 0 ? 1 : 2),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    scene.scale.label(index),
+                    key: ValueKey('stats-book-duration-y-tick-$index'),
+                    textAlign: TextAlign.left,
+                    style: TextStyle(
+                      fontSize: 10,
+                      height: 1.3,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _StaticVoxelChart extends StatelessWidget {
@@ -562,6 +646,9 @@ class _StaticVoxelChart extends StatelessWidget {
 
   Widget _labels(BuildContext context) {
     if (scene.bars.isEmpty) return const SizedBox.shrink();
+    if (scene.isTime && scene.bars.length > 12) {
+      return _dailyLabels(context);
+    }
     final scheme = Theme.of(context).colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -612,16 +699,87 @@ class _StaticVoxelChart extends StatelessWidget {
       ],
     );
   }
+
+  /// 月内每天保留柱体与读屏信息，刻度每五天显示一次并保留首尾日期。
+  Widget _dailyLabels(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final count = scene.bars.length;
+    final labelWidth = math.min(32.0, width / count * 3);
+    return Stack(
+      children: [
+        for (final bar in scene.bars)
+          if (bar.index == 0 ||
+              bar.index == count - 1 ||
+              ((bar.index + 1) % 5 == 0 && bar.index < count - 4))
+            Positioned(
+              left: (width * (bar.index + .5) / count - labelWidth / 2).clamp(
+                0.0,
+                math.max(0.0, width - labelWidth),
+              ),
+              top: 4,
+              width: labelWidth,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  bar.label,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 8.5,
+                    height: 1.2,
+                    color: scheme.onSurfaceVariant,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ),
+      ],
+    );
+  }
 }
 
 class _VoxelScene {
-  const _VoxelScene({required this.bars, required this.isTime});
+  const _VoxelScene({
+    required this.bars,
+    required this.isTime,
+    required this.scale,
+  });
 
   final List<_VoxelSceneBar> bars;
   final bool isTime;
+  final _DurationScale scale;
+
+  double tickY(int index) =>
+      (bars.firstOrNull?.baseY ?? 188) - scale.height * index / 3;
 
   double get maximumHeight =>
       bars.fold(0.0, (height, bar) => math.max(height, bar.height));
+}
+
+/// 柱高与纵轴共用线性比例，三个等间隔刻度使用同一种时长单位。
+class _DurationScale {
+  _DurationScale(Duration maximum, {required this.height}) {
+    final (unit, label) = maximum >= const Duration(hours: 3)
+        ? (const Duration(hours: 1), '时')
+        : maximum >= const Duration(minutes: 3)
+        ? (const Duration(minutes: 1), '分')
+        : (const Duration(seconds: 1), '秒');
+    unitLabel = label;
+    step = math.max(
+      1,
+      (maximum.inMicroseconds / unit.inMicroseconds / 3).ceil(),
+    );
+    limit = unit * (step * 3);
+  }
+
+  final double height;
+  late final int step;
+  late final String unitLabel;
+  late final Duration limit;
+
+  String label(int index) => index == 0 ? '0' : '${step * index}\n$unitLabel';
+
+  double heightFor(Duration duration) =>
+      height * duration.inMicroseconds / limit.inMicroseconds;
 }
 
 class _VoxelSceneBar {
@@ -706,13 +864,16 @@ _VoxelScene _bookScene({
   required double width,
   required double plotHeight,
   required List<DurationBarData> bars,
-  required String? selectedBookId,
 }) {
   const blockHeight = 12.0;
-  final maximum = _maximumDuration(bars.map((bar) => bar.duration));
+  final scale = _DurationScale(
+    _maximumDuration(bars.map((bar) => bar.duration)),
+    height: blockHeight * 11,
+  );
   final slotWidth = bars.isEmpty ? width : width / bars.length;
   return _VoxelScene(
     isTime: false,
+    scale: scale,
     bars: [
       for (var index = 0; index < bars.length; index++)
         _bookSceneBar(
@@ -720,9 +881,8 @@ _VoxelScene _bookScene({
           index,
           slotWidth,
           plotHeight,
-          maximum,
+          scale,
           blockHeight,
-          selectedBookId,
         ),
     ],
   );
@@ -733,15 +893,12 @@ _VoxelSceneBar _bookSceneBar(
   int index,
   double slotWidth,
   double plotHeight,
-  Duration maximum,
+  _DurationScale scale,
   double blockHeight,
-  String? selectedBookId,
 ) {
   final halfWidth = math.min(slotWidth * .32, 24.0);
   final depth = halfWidth * .5;
-  final level = _levelsFor(bar.duration, maximum, maximumLevels: 10);
-  final height = level * blockHeight;
-  final selected = bar.id != null && bar.id == selectedBookId;
+  final height = scale.heightFor(bar.duration);
   final segments = [
     _VoxelSceneSegment(
       key: bar.key,
@@ -752,7 +909,7 @@ _VoxelSceneBar _bookSceneBar(
     ),
   ];
   final centerX = slotWidth * (index + .5);
-  final baseY = plotHeight - depth - 6 - (selected ? 4 : 0);
+  final baseY = plotHeight - depth - 6;
   return _VoxelSceneBar(
     index: index,
     key: bar.key,
@@ -789,10 +946,14 @@ _VoxelScene _timeScene({
   required String labelSuffix,
 }) {
   const blockHeight = 8.0;
-  final maximum = _maximumDuration(bars.map((bar) => bar.duration));
+  final scale = _DurationScale(
+    _maximumDuration(bars.map((bar) => bar.duration)),
+    height: blockHeight * 19,
+  );
   final slotWidth = bars.isEmpty ? width : width / bars.length;
   return _VoxelScene(
     isTime: true,
+    scale: scale,
     bars: [
       for (var index = 0; index < bars.length; index++)
         _timeSceneBar(
@@ -800,7 +961,7 @@ _VoxelScene _timeScene({
           index,
           slotWidth,
           plotHeight,
-          maximum,
+          scale,
           blockHeight,
           labelSuffix,
         ),
@@ -813,14 +974,13 @@ _VoxelSceneBar _timeSceneBar(
   int index,
   double slotWidth,
   double plotHeight,
-  Duration maximum,
+  _DurationScale scale,
   double blockHeight,
   String labelSuffix,
 ) {
   final halfWidth = math.min(slotWidth * .38, 13.0);
   final depth = halfWidth * .5;
-  final level = _levelsFor(bar.duration, maximum, maximumLevels: 18);
-  final height = level * blockHeight;
+  final height = scale.heightFor(bar.duration);
   final segments = _timeSegments(bar, height);
   final centerX = slotWidth * (index + .5);
   final baseY = plotHeight - depth - 6;
@@ -875,7 +1035,7 @@ List<_VoxelCell> _buildVoxelCells({
       final bandTop = bandBottom - blockHeight;
       final cellBottom = math.min(cursor, bandBottom);
       final cellTop = math.max(segmentTop, bandTop);
-      if (cellBottom - cellTop > .3) {
+      if (cellBottom > cellTop) {
         cells.add(
           _VoxelCell(
             key: segment.key,
@@ -902,14 +1062,6 @@ List<_VoxelSceneSegment> _timeSegments(TimeOfDayBarData bar, double height) {
   if (height <= 0 || bar.duration <= Duration.zero || bar.segments.isEmpty) {
     return const [];
   }
-  final raw = [
-    for (final segment in bar.segments)
-      height * segment.duration.inMicroseconds / bar.duration.inMicroseconds,
-  ];
-  final minimum = math.min(1.4, height / bar.segments.length);
-  final floors = [for (final value in raw) math.max(value, minimum)];
-  final sum = floors.fold(0.0, (total, value) => total + value);
-  final scale = sum > 0 ? height / sum : 0.0;
   return [
     for (var index = 0; index < bar.segments.length; index++)
       _VoxelSceneSegment(
@@ -917,7 +1069,10 @@ List<_VoxelSceneSegment> _timeSegments(TimeOfDayBarData bar, double height) {
         title: bar.segments[index].title,
         color: bar.segments[index].color,
         duration: bar.segments[index].duration,
-        height: floors[index] * scale,
+        height:
+            height *
+            bar.segments[index].duration.inMicroseconds /
+            bar.duration.inMicroseconds,
       ),
   ];
 }
@@ -945,6 +1100,7 @@ class _ScenePainter extends CustomPainter {
     required this.selectedBookId,
     required this.shadowColor,
     required this.baseColor,
+    required this.gridColor,
   }) : super(repaint: Listenable.merge([reveal, lights]));
 
   final _VoxelScene scene;
@@ -954,9 +1110,11 @@ class _ScenePainter extends CustomPainter {
   final String? selectedBookId;
   final Color shadowColor;
   final Color baseColor;
+  final Color gridColor;
 
   @override
   void paint(Canvas canvas, Size size) {
+    _paintDurationGrid(canvas, size, scene, gridColor);
     if (scene.bars.isEmpty) return;
     _paintScene(
       canvas,
@@ -981,7 +1139,8 @@ class _ScenePainter extends CustomPainter {
       oldDelegate.rooftops != rooftops ||
       oldDelegate.selectedBookId != selectedBookId ||
       oldDelegate.shadowColor != shadowColor ||
-      oldDelegate.baseColor != baseColor;
+      oldDelegate.baseColor != baseColor ||
+      oldDelegate.gridColor != gridColor;
 }
 
 class _MorphPainter extends CustomPainter {
@@ -995,6 +1154,7 @@ class _MorphPainter extends CustomPainter {
     required this.selectedBookId,
     required this.shadowColor,
     required this.baseColor,
+    required this.gridColor,
   }) : super(repaint: Listenable.merge([animation, lights]));
 
   final _VoxelScene fromScene;
@@ -1006,9 +1166,11 @@ class _MorphPainter extends CustomPainter {
   final String? selectedBookId;
   final Color shadowColor;
   final Color baseColor;
+  final Color gridColor;
 
   @override
   void paint(Canvas canvas, Size size) {
+    _paintDurationGrid(canvas, size, targetScene, gridColor);
     final progress = animation.value;
     canvas.save();
     canvas.clipRect(Offset.zero & size);
@@ -1086,7 +1248,29 @@ class _MorphPainter extends CustomPainter {
       oldDelegate.rooftops != rooftops ||
       oldDelegate.selectedBookId != selectedBookId ||
       oldDelegate.shadowColor != shadowColor ||
-      oldDelegate.baseColor != baseColor;
+      oldDelegate.baseColor != baseColor ||
+      oldDelegate.gridColor != gridColor;
+}
+
+void _paintDurationGrid(
+  Canvas canvas,
+  Size size,
+  _VoxelScene scene,
+  Color color,
+) {
+  final paint = Paint()
+    ..color = color
+    ..strokeWidth = .7;
+  for (var index = 0; index <= 3; index++) {
+    final y = scene.tickY(index);
+    for (var x = 0.0; x < size.width; x += 7) {
+      canvas.drawLine(
+        Offset(x, y),
+        Offset(math.min(x + 3, size.width), y),
+        paint,
+      );
+    }
+  }
 }
 
 class _MorphParticle {
@@ -1287,7 +1471,10 @@ void _paintBar(
       color: capCell.color,
       dimmed: selectedBookId != null && capCell.key != selectedBookId,
     );
-    if (rooftops && visibleHeight >= bar.height - .01 && roofReveal > 0) {
+    if (rooftops &&
+        bar.height >= bar.blockHeight &&
+        visibleHeight >= bar.height - .01 &&
+        roofReveal > 0) {
       canvas.save();
       canvas.translate(bar.centerX, clipTop);
       canvas.scale(roofReveal * roofScale);
@@ -2305,19 +2492,6 @@ Path _diamond(double x, double y, double halfWidth, double depth) => Path()
   ..lineTo(x, y + depth)
   ..lineTo(x - halfWidth, y)
   ..close();
-
-int _levelsFor(
-  Duration duration,
-  Duration maximum, {
-  required int maximumLevels,
-}) {
-  if (duration <= Duration.zero || maximum <= Duration.zero) return 0;
-  final ratio = (duration.inMicroseconds / maximum.inMicroseconds).clamp(
-    0.0,
-    1.0,
-  );
-  return 1 + (ratio * maximumLevels).round();
-}
 
 Duration _maximumDuration(Iterable<Duration> durations) => durations.fold(
   Duration.zero,
