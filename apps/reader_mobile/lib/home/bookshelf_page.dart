@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
@@ -1161,9 +1162,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final colors = Theme.of(context).colorScheme;
     return Material(
       color: colors.surface,
-      borderRadius: BorderRadius.circular(20),
-      elevation: 2,
-      shadowColor: colors.shadow.withValues(alpha: .12),
+      shape: ReaderUiStyle.controlShape.copyWith(
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      elevation: 0,
       child: Theme(
         data: Theme.of(context).copyWith(
           splashFactory: NoSplash.splashFactory,
@@ -1175,7 +1177,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         child: IconButton(
           key: const ValueKey<String>('bookshelf-import'),
           tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           onPressed: busy || !widget.allowImport ? null : _import,
           icon: busy
               ? const SizedBox(
@@ -1192,16 +1194,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildSearchField() {
     final theme = Theme.of(context);
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Material(
       key: const ValueKey('bookshelf-search-surface'),
       color: ReaderDrawerStyle.searchSurfaceOf(theme),
       borderRadius: border.borderRadius,
-      elevation: 3,
+      elevation: 0,
       surfaceTintColor: Colors.transparent,
-      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
       child: TextField(
         key: const ValueKey<String>('bookshelf-search-field'),
         controller: _searchController,
@@ -1216,7 +1217,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
           contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: border,
           enabledBorder: border,
-          focusedBorder: border,
+          focusedBorder: border.copyWith(
+            borderSide: BorderSide(color: theme.colorScheme.primary),
+          ),
           prefixIconConstraints: const BoxConstraints.tightFor(
             width: 40,
             height: 40,

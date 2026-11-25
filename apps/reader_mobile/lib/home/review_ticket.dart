@@ -2,13 +2,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 
 /// 票纸外圆角与封面内缩、圆角。
-const _cardRadius = 12.0;
+const _cardRadius = ReaderUiStyle.cardCorner;
 const _coverInset = 6.0;
 const _coverRadius = 6.0;
 
@@ -140,7 +141,7 @@ class ReviewTicket extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(_cardRadius),
-        border: Border.all(color: scheme.outlineVariant, width: .5),
+        border: Border.all(color: scheme.outlineVariant),
         boxShadow: [
           BoxShadow(
             color: scheme.shadow.withValues(alpha: .05),

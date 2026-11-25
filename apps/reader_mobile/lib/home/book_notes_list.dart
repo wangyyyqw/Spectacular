@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -131,7 +132,7 @@ class _BookNotesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: Theme.of(context).colorScheme.surface,
-    borderRadius: BorderRadius.circular(4),
+    shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
     clipBehavior: Clip.antiAlias,
     child: Semantics(
       button: true,

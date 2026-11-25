@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../diagnostics/reader_log.dart';
 import '../dictionary/dictionary_store.dart';
@@ -438,7 +439,7 @@ class _ProfilePageState extends State<ProfilePage> {
         const SizedBox(height: 10),
         Material(
           color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(4),
+          shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
           clipBehavior: Clip.antiAlias,
           child: Column(
             children: [

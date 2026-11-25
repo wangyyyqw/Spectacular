@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -164,7 +165,8 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: ReaderUiStyle.controlRadius,
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
     ),
     child: Text(
       '山水之间，字里行间。\nAa Bb 0123456789',

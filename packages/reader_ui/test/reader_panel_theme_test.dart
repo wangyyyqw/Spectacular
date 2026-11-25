@@ -138,4 +138,57 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
+    testWidgets('翻页选项与开关适配${theme.id}主题，控件边缘仍可点击', (tester) async {
+      tester.view
+        ..physicalSize = const Size(360, 900)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      bool? keepScreenOn;
+      PageTurnMode? selectedMode;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReaderPanelTheme(
+            theme: theme,
+            child: Scaffold(
+              body: SettingsPanel(
+                section: SettingsSection.settings,
+                overrides: ReaderSettingsDefaults.overrides,
+                themeId: theme.id,
+                onOverridesChanged: (_) {},
+                onThemeChanged: (_) {},
+                pageTurnMode: PageTurnMode.cover,
+                onPageTurnModeChanged: (mode) => selectedMode = mode,
+                keepScreenOn: true,
+                onKeepScreenOnChanged: (value) => keepScreenOn = value,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final settings = find.byType(SettingsPanel);
+      final scheme = Theme.of(tester.element(settings)).colorScheme;
+      final option = find.byKey(
+        ValueKey('settings-page-turn-${PageTurnMode.cover.id}'),
+      );
+      final optionSurface = tester.widget<Material>(
+        find.descendant(of: option, matching: find.byType(Material)),
+      );
+      expect(optionSurface.color, scheme.primaryContainer);
+      expect(tester.getSize(option).height, greaterThanOrEqualTo(44));
+      await tester.tap(option);
+      expect(selectedMode, PageTurnMode.cover);
+      final toggle = find.byKey(const ValueKey('settings-keep-screen-on'));
+      final track = tester.widget<AnimatedContainer>(
+        find.descendant(of: toggle, matching: find.byType(AnimatedContainer)),
+      );
+      expect((track.decoration! as BoxDecoration).color, scheme.primary);
+      expect(tester.getSize(toggle), const Size(44, 44));
+      await tester.tapAt(tester.getCenter(toggle) + const Offset(0, 16));
+      expect(keepScreenOn, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

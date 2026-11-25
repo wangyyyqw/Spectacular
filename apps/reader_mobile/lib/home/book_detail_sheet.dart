@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -210,10 +211,7 @@ class _DetailMenuState extends State<_DetailMenu> {
     return Material(
       key: key,
       color: scheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: scheme.outlineVariant, width: .5),
-      ),
+      shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),
     );

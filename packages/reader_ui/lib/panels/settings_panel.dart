@@ -17,6 +17,7 @@ import '../page_furniture/corner_info.dart';
 import '../tap_zones.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_ui_style.dart';
 import '../theme/reader_theme.dart';
 import 'custom_theme_dialog.dart';
 import 'corner_info_editor.dart';
@@ -1325,7 +1326,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       opacity: onTap == null ? 0.42 : 1,
       child: InkWell(
         key: ValueKey<String>(key),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: ReaderUiStyle.controlRadius,
         onTap: onTap,
         child: Container(
           padding: selected
@@ -1333,7 +1334,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
               : const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
             color: surface,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: ReaderUiStyle.controlRadius,
             border: Border.all(
               color: selected
                   ? ReaderDrawerStyle.textOf(theme)
@@ -1373,7 +1374,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       child: InkWell(
         key: ValueKey<String>(key),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.controlRadius,
         child: _ImageTileFrame(
           selected: selected,
           child: DecoratedBox(
@@ -1422,11 +1423,11 @@ class _FontButton extends StatelessWidget {
       style: TextButton.styleFrom(
         foregroundColor: ReaderDrawerStyle.textOf(theme),
         disabledForegroundColor: ReaderDrawerStyle.faintOf(theme),
-        minimumSize: const Size(0, 40),
+        minimumSize: ReaderUiStyle.controlSize,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         backgroundColor: ReaderDrawerStyle.surfaceOf(theme),
         side: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: ReaderUiStyle.controlShape,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1466,12 +1467,12 @@ class _WideActionButton extends StatelessWidget {
     return Material(
       color: ReaderDrawerStyle.optionFillOf(theme),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.controlRadius,
         side: BorderSide(color: ReaderDrawerStyle.dividerOf(theme)),
       ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.controlRadius,
         child: SizedBox(
           height: 44,
           child: Row(
@@ -1499,12 +1500,12 @@ class _StepButton extends StatelessWidget {
     final theme = Theme.of(context);
     return Material(
       color: ReaderDrawerStyle.optionFillOf(theme),
-      shape: const CircleBorder(),
+      shape: ReaderUiStyle.controlShape,
       child: InkWell(
         onTap: onTap,
-        customBorder: const CircleBorder(),
+        customBorder: ReaderUiStyle.controlShape,
         child: SizedBox.square(
-          dimension: 32,
+          dimension: 44,
           child: AppIcon(
             icon,
             size: 18,
@@ -1566,6 +1567,7 @@ class _CompactSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onChanged != null;
+    final scheme = Theme.of(context).colorScheme;
     return Semantics(
       button: true,
       toggled: value,
@@ -1575,32 +1577,42 @@ class _CompactSwitch extends StatelessWidget {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: enabled ? () => onChanged!(!value) : null,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 42,
-            height: 22,
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: value ? const Color(0xFF5EC27D) : const Color(0xFFE5E5E5),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: AnimatedAlign(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 18,
-                height: 18,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      blurRadius: 3,
-                      offset: Offset(0, 1),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 42,
+                height: 22,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: value
+                      ? scheme.primary
+                      : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: AnimatedAlign(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  alignment: value
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: value ? scheme.onPrimary : scheme.onSurfaceVariant,
+                      shape: BoxShape.circle,
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: scheme.shadow.withValues(alpha: .08),
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1626,31 +1638,39 @@ class _PageTurnOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Opacity(
       opacity: onTap == null ? 0.42 : 1,
       child: Material(
         color: selected
-            ? const Color(0xFFE8F5E9)
+            ? scheme.primaryContainer
             : ReaderDrawerStyle.optionFillOf(theme),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: ReaderUiStyle.controlRadius,
           side: BorderSide(
-            color: selected ? const Color(0xFFA5D6A7) : Colors.transparent,
+            color: selected ? scheme.primary : scheme.outlineVariant,
           ),
         ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-                color: selected
-                    ? const Color(0xFF2E7D32)
-                    : ReaderDrawerStyle.textOf(theme),
+          borderRadius: ReaderUiStyle.controlRadius,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Center(
+                widthFactor: 1,
+                heightFactor: 1,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                    color: selected
+                        ? scheme.onPrimaryContainer
+                        : ReaderDrawerStyle.textOf(theme),
+                  ),
+                ),
               ),
             ),
           ),
@@ -1687,7 +1707,7 @@ class _SettingsEntryRow extends StatelessWidget {
     final text = ReaderDrawerStyle.textOf(theme);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: ReaderUiStyle.controlRadius,
       child: SizedBox(
         height: 44,
         child: Row(
@@ -1721,26 +1741,27 @@ class _ImageTileFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       width: 72,
       height: 160,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        color: scheme.surface,
+        borderRadius: ReaderUiStyle.controlRadius,
         border: Border.all(
-          color: selected ? const Color(0xFF5EC27D) : Colors.transparent,
+          color: selected ? scheme.primary : scheme.outlineVariant,
           width: 2,
         ),
-        boxShadow: const <BoxShadow>[
+        boxShadow: <BoxShadow>[
           BoxShadow(
-            color: Color(0x0D000000),
+            color: scheme.shadow.withValues(alpha: .05),
             blurRadius: 3,
             offset: Offset(0, 1),
           ),
         ],
       ),
-      child: ClipRRect(borderRadius: BorderRadius.circular(6), child: child),
+      child: ClipRRect(borderRadius: BorderRadius.circular(10), child: child),
     );
   }
 }
@@ -1753,21 +1774,22 @@ class _AddImageTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Opacity(
       opacity: onTap == null ? 0.6 : 1,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.controlRadius,
         child: Container(
           width: 72,
           height: 160,
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFF0F0F0)),
-            boxShadow: const <BoxShadow>[
+            color: scheme.surface,
+            borderRadius: ReaderUiStyle.controlRadius,
+            border: Border.all(color: scheme.outlineVariant),
+            boxShadow: <BoxShadow>[
               BoxShadow(
-                color: Color(0x08000000),
+                color: scheme.shadow.withValues(alpha: .03),
                 blurRadius: 8,
                 offset: Offset(0, 2),
               ),
@@ -1782,13 +1804,11 @@ class _AddImageTile extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : CustomPaint(
-                    painter: const _DashedCirclePainter(
-                      color: Color(0xFFCCCCCC),
-                    ),
-                    child: const AppIcon(
+                    painter: _DashedCirclePainter(color: scheme.outline),
+                    child: AppIcon(
                       AppGlyph.add,
                       size: 22,
-                      color: Color(0xFF666666),
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
           ),
@@ -1828,6 +1848,7 @@ class _UserBackgroundThumbnailState extends State<_UserBackgroundThumbnail> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return _ImageTileFrame(
       selected: widget.selected,
       child: FutureBuilder<Uint8List>(
@@ -1835,19 +1856,13 @@ class _UserBackgroundThumbnailState extends State<_UserBackgroundThumbnail> {
         builder: (context, snapshot) {
           final bytes = snapshot.data;
           if (bytes == null) {
-            return const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: <Color>[Color(0xFFE7E7E7), Color(0xFFBDBDBD)],
-                ),
-              ),
+            return ColoredBox(
+              color: scheme.surfaceContainerHighest,
               child: Center(
                 child: AppIcon(
                   AppGlyph.image,
                   size: 24,
-                  color: Color(0xFF777777),
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             );
@@ -1856,13 +1871,13 @@ class _UserBackgroundThumbnailState extends State<_UserBackgroundThumbnail> {
             bytes,
             fit: BoxFit.cover,
             gaplessPlayback: true,
-            errorBuilder: (_, _, _) => const ColoredBox(
-              color: Color(0xFFEEEEEE),
+            errorBuilder: (_, _, _) => ColoredBox(
+              color: scheme.surfaceContainerHighest,
               child: Center(
                 child: AppIcon(
                   AppGlyph.brokenImage,
                   size: 24,
-                  color: Color(0xFF999999),
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
             ),

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
@@ -469,15 +470,14 @@ class _ReviewsPageState extends State<ReviewsPage> {
     final theme = Theme.of(context);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     return Material(
       color: ReaderDrawerStyle.searchSurfaceOf(theme),
       borderRadius: border.borderRadius,
-      elevation: 3,
+      elevation: 0,
       surfaceTintColor: Colors.transparent,
-      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
       child: TextField(
         key: const ValueKey<String>('reviews-search-field'),
         controller: _searchController,
@@ -494,7 +494,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
           contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: border,
           enabledBorder: border,
-          focusedBorder: border,
+          focusedBorder: border.copyWith(
+            borderSide: BorderSide(color: theme.colorScheme.primary),
+          ),
           prefixIconConstraints: const BoxConstraints.tightFor(
             width: 40,
             height: 40,
@@ -588,14 +590,15 @@ class _SearchButton extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface,
-      borderRadius: BorderRadius.circular(20),
-      elevation: 2,
-      shadowColor: scheme.shadow.withValues(alpha: .12),
+      shape: ReaderUiStyle.controlShape.copyWith(
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      elevation: 0,
       child: Theme(
         data: _noFeedback(context),
         child: IconButton(
           tooltip: tooltip,
-          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
           padding: EdgeInsets.zero,
           highlightColor: Colors.transparent,
           hoverColor: Colors.transparent,
@@ -878,9 +881,6 @@ class _NoReviewMatches extends StatelessWidget {
     final title = query.isNotEmpty ? '没有找到相关书评' : '没有可显示的书评';
     return Card(
       elevation: 0,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(4)),
-      ),
       key: const ValueKey<String>('reviews-no-results'),
       margin: EdgeInsets.zero,
       child: Padding(

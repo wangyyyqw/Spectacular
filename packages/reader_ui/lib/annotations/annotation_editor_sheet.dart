@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../theme/reader_ui_style.dart';
+
 import '../icons/app_icon.dart';
 import 'annotation.dart';
 import 'annotation_appearance_editor.dart';
@@ -274,7 +276,7 @@ class _ReaderAnnotationEditorSheetState
       child: Material(
         key: const ValueKey<String>('annotation-editor-sheet'),
         color: ReaderFrostedSurface.panelColorOf(context),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+        borderRadius: ReaderUiStyle.sheetRadius,
         clipBehavior: Clip.antiAlias,
         child: SafeArea(
           top: false,
@@ -348,10 +350,7 @@ class _ReaderAnnotationEditorSheetState
           maxLines: 6,
           onChanged: (_) => setState(() {}),
           textInputAction: TextInputAction.newline,
-          decoration: const InputDecoration(
-            hintText: '写下此刻的想法…',
-            border: OutlineInputBorder(),
-          ),
+          decoration: const InputDecoration(hintText: '写下此刻的想法…'),
         ),
       ],
       const SizedBox(height: 16),

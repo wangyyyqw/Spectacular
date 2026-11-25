@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../storage/reading_session_store.dart';
 import 'reading_insights.dart';
@@ -41,7 +42,7 @@ class BookReadingChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final lineColor = dark ? const Color(0xFF7AB9EA) : const Color(0xFF176DB3);
+    final lineColor = theme.colorScheme.primary;
     final end = endDate ?? DateTime.now();
     final lastDate = DateTime(end.year, end.month, end.day);
     final dates = <DateTime>[
@@ -69,11 +70,7 @@ class BookReadingChart extends StatelessWidget {
           key: const ValueKey<String>('book-detail-reading-chart'),
           height: 166,
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(10),
-          ),
+          decoration: ReaderUiStyle.cardDecorationOf(theme),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_ui_style.dart';
+
 import '../annotations/annotation_appearance_editor.dart';
 import '../annotations/annotation_quote_preview.dart';
 import '../annotations/mark_settings.dart';
@@ -30,7 +32,7 @@ class _ReaderMarkSettingsSheetState extends State<ReaderMarkSettingsSheet> {
   @override
   Widget build(BuildContext context) => Material(
     color: ReaderFrostedSurface.panelColorOf(context),
-    borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+    borderRadius: ReaderUiStyle.sheetRadius,
     child: SafeArea(
       top: false,
       child: Column(

@@ -2,10 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'reader_frosted_surface.dart';
 import 'reader_theme.dart';
-
-const _shape = RoundedRectangleBorder(
-  borderRadius: BorderRadius.all(Radius.circular(4)),
-);
+import 'reader_ui_style.dart';
 
 /// 把正文主题映射为菜单、抽屉和编辑弹层；夜间弹层保持同一背景。
 class ReaderPanelTheme extends StatelessWidget {
@@ -21,10 +18,9 @@ class ReaderPanelTheme extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = _panelScheme(theme);
-    var data = _panelTypography(Theme.of(context), theme, scheme);
-    data = _panelSurfaces(data, theme, scheme);
-    data = _panelButtons(data, theme);
-    data = _panelInputs(data, theme, scheme);
+    final data = applyReaderUiStyle(
+      _panelTypography(Theme.of(context), theme, scheme),
+    );
     return ReaderFrostedScope(
       inkMode: theme.id == 'ink',
       child: Theme(data: data, child: child),
@@ -111,76 +107,3 @@ ThemeData _panelTypography(
     surfaceTintColor: Colors.transparent,
   ),
 );
-
-ThemeData _panelSurfaces(
-  ThemeData base,
-  ReaderTheme theme,
-  ColorScheme scheme,
-) => base.copyWith(
-  cardTheme: base.cardTheme.copyWith(
-    color: theme.background,
-    elevation: 0,
-    shape: _shape.copyWith(side: BorderSide(color: scheme.outlineVariant)),
-  ),
-  dialogTheme: base.dialogTheme.copyWith(
-    backgroundColor: theme.background,
-    surfaceTintColor: Colors.transparent,
-    shape: _shape,
-  ),
-  bottomSheetTheme: base.bottomSheetTheme.copyWith(
-    backgroundColor: theme.background,
-    surfaceTintColor: Colors.transparent,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
-  ),
-  popupMenuTheme: base.popupMenuTheme.copyWith(
-    color: theme.background,
-    surfaceTintColor: Colors.transparent,
-    shape: _shape,
-  ),
-);
-
-ThemeData _panelButtons(ThemeData base, ReaderTheme theme) {
-  final style = FilledButton.styleFrom(
-    backgroundColor: theme.text,
-    foregroundColor: theme.background,
-    elevation: 0,
-    shape: _shape,
-  );
-  return base.copyWith(
-    filledButtonTheme: FilledButtonThemeData(style: style),
-    elevatedButtonTheme: ElevatedButtonThemeData(style: style),
-    outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: theme.text,
-        side: BorderSide(color: theme.line),
-        shape: _shape,
-      ),
-    ),
-    textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(foregroundColor: theme.text, shape: _shape),
-    ),
-  );
-}
-
-ThemeData _panelInputs(ThemeData base, ReaderTheme theme, ColorScheme scheme) =>
-    base.copyWith(
-      inputDecorationTheme: base.inputDecorationTheme.copyWith(
-        filled: true,
-        fillColor: scheme.surfaceContainerLow,
-        hintStyle: TextStyle(color: scheme.onSurfaceVariant),
-        labelStyle: TextStyle(color: theme.text),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(4)),
-          borderSide: BorderSide(color: theme.text),
-        ),
-      ),
-      chipTheme: base.chipTheme.copyWith(
-        selectedColor: scheme.surfaceContainerLow,
-        backgroundColor: theme.background,
-        labelStyle: TextStyle(color: theme.text),
-        shape: _shape,
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-    );

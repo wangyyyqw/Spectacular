@@ -9,6 +9,7 @@ import 'package:reader_core/editing/package_editor.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
@@ -832,8 +833,8 @@ class BookEditorTools {
     String? error;
     final theme = Theme.of(context);
     final searchBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     await _showEditorDrawer<void>(
       context: context,
@@ -848,9 +849,8 @@ class BookEditorTools {
                 Material(
                   color: ReaderDrawerStyle.searchSurfaceOf(theme),
                   borderRadius: searchBorder.borderRadius,
-                  elevation: 3,
+                  elevation: 0,
                   surfaceTintColor: Colors.transparent,
-                  shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
                   child: TextField(
                     controller: query,
                     onChanged: (_) => setState(() {
@@ -863,7 +863,11 @@ class BookEditorTools {
                       fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
                       border: searchBorder,
                       enabledBorder: searchBorder,
-                      focusedBorder: searchBorder,
+                      focusedBorder: searchBorder.copyWith(
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
                     ),
                   ),
                 ),

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
@@ -113,10 +114,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
     return Material(
       key: const ValueKey('stats-reading-calendar'),
       color: scheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
+      shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -226,7 +224,7 @@ class _ReadingCalendarState extends State<ReadingCalendar>
           backgroundColor: Theme.of(context)
               .colorScheme
               .surfaceContainerHighest,
-          shape: const StadiumBorder(),
+          shape: ReaderUiStyle.controlShape,
         ),
         child: const Text('今天', style: TextStyle(fontSize: 13)),
       ),

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 class ReadingCalendarMonthPicker extends StatefulWidget {
@@ -89,7 +90,7 @@ class _ReadingCalendarMonthPickerState
         style: TextButton.styleFrom(
           foregroundColor: scheme.onSurface,
           backgroundColor: selected ? scheme.primaryContainer : null,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          shape: ReaderUiStyle.controlShape,
         ),
         child: Text('$month月'),
       ),

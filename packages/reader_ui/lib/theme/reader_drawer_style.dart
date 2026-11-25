@@ -2,16 +2,9 @@ import 'package:flutter/material.dart';
 
 /// 阅读菜单抽屉的视觉常量，对齐参考稿的白色面板与灰色分隔。
 abstract final class ReaderDrawerStyle {
-  /// 搜索框使用较高的暗色表面，配合阴影保持夜间层次。
+  /// 搜索框与普通输入框共用内嵌底色。
   static Color searchSurfaceOf(ThemeData theme) =>
-      theme.brightness == Brightness.dark
-      ? theme.colorScheme.surfaceContainerHighest
-      : theme.colorScheme.surface;
-
-  /// 搜索框投影。
-  static Color searchShadowOf(ThemeData theme) =>
-      (theme.brightness == Brightness.dark ? Colors.white : Colors.black)
-          .withValues(alpha: theme.brightness == Brightness.dark ? .24 : .28);
+      theme.colorScheme.surfaceContainerLow;
 
   /// 面板底色。
   static Color surfaceOf(ThemeData theme) => theme.colorScheme.surface;

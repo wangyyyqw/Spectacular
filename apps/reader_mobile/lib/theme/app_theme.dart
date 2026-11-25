@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/system_ui.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 /// 应用界面的字体约定，不作用于书籍正文。
 abstract final class AppFonts {
@@ -44,8 +45,6 @@ const _secondary = Color(0xFF686C71);
 const _canvas = Color(0xFFF6F6F4);
 const _fill = Color(0xFFF0F1EE);
 const _line = Color(0xFFE4E5E2);
-const _radius = BorderRadius.all(Radius.circular(4));
-const _shape = RoundedRectangleBorder(borderRadius: _radius);
 const _dayScheme = ColorScheme.light(
   primary: _ink,
   onPrimary: Colors.white,
@@ -135,23 +134,6 @@ AppBarTheme _appBar(ColorScheme colors, String fontFamily) => AppBarTheme(
   ),
 );
 
-InputDecorationTheme _input(ColorScheme colors) {
-  final border = OutlineInputBorder(
-    borderRadius: _radius,
-    borderSide: BorderSide(color: colors.outlineVariant),
-  );
-  return InputDecorationTheme(
-    filled: true,
-    fillColor: colors.surface,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    border: border,
-    enabledBorder: border,
-    focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: colors.primary),
-    ),
-  );
-}
-
 /// 应用界面的纸白与墨黑主题，阅读正文保留独立主题。
 ThemeData buildAppTheme({
   Brightness brightness = Brightness.light,
@@ -175,7 +157,6 @@ ThemeData buildAppTheme({
       closeButtonIconBuilder: (_) => const AppIcon(AppGlyph.close),
     ),
     iconTheme: IconThemeData(color: colors.onSurface, size: 22),
-    inputDecorationTheme: _input(colors),
     bottomNavigationBarTheme: BottomNavigationBarThemeData(
       backgroundColor: colors.surface,
       selectedItemColor: colors.onSurface,
@@ -195,44 +176,10 @@ ThemeData buildAppTheme({
       type: BottomNavigationBarType.fixed,
     ),
   );
-  return _withControls(_withSurfaces(base, colors), colors);
+  return applyReaderUiStyle(
+    base.copyWith(textTheme: _appTextTheme(base.textTheme, colors)),
+  );
 }
-
-ThemeData _withSurfaces(ThemeData base, ColorScheme colors) => base.copyWith(
-  textTheme: _appTextTheme(base.textTheme, colors),
-  cardTheme: CardThemeData(
-    color: colors.surface,
-    elevation: 0,
-    margin: EdgeInsets.zero,
-    shape: _shape.copyWith(side: BorderSide(color: colors.outlineVariant)),
-  ),
-  bottomSheetTheme: BottomSheetThemeData(
-    backgroundColor: colors.surface,
-    surfaceTintColor: Colors.transparent,
-    elevation: 0,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
-    ),
-  ),
-  dialogTheme: DialogThemeData(
-    backgroundColor: colors.surface,
-    surfaceTintColor: Colors.transparent,
-    elevation: 0,
-    shape: _shape,
-  ),
-  popupMenuTheme: PopupMenuThemeData(
-    color: colors.surface,
-    surfaceTintColor: Colors.transparent,
-    elevation: 2,
-    shape: _shape,
-  ),
-  floatingActionButtonTheme: FloatingActionButtonThemeData(
-    backgroundColor: colors.primary,
-    foregroundColor: colors.onPrimary,
-    elevation: 0,
-    shape: _shape,
-  ),
-);
 
 TextTheme _appTextTheme(TextTheme base, ColorScheme colors) {
   // 以书架书名和作者为基准，所有界面共用 14 / 12 号文字层级。
@@ -259,40 +206,3 @@ TextTheme _appTextTheme(TextTheme base, ColorScheme colors) {
         labelSmall: secondary.copyWith(fontSize: 11),
       );
 }
-
-ThemeData _withControls(ThemeData base, ColorScheme colors) => base.copyWith(
-  listTileTheme: ListTileThemeData(
-    titleTextStyle: base.textTheme.bodyMedium,
-    subtitleTextStyle: base.textTheme.bodySmall,
-  ),
-  filledButtonTheme: FilledButtonThemeData(style: _filledStyle(colors)),
-  elevatedButtonTheme: ElevatedButtonThemeData(style: _filledStyle(colors)),
-  outlinedButtonTheme: OutlinedButtonThemeData(
-    style: OutlinedButton.styleFrom(
-      foregroundColor: colors.primary,
-      shape: _shape,
-      side: BorderSide(color: colors.outlineVariant),
-      minimumSize: const Size(44, 44),
-    ),
-  ),
-  textButtonTheme: TextButtonThemeData(
-    style: TextButton.styleFrom(foregroundColor: colors.primary, shape: _shape),
-  ),
-  chipTheme: base.chipTheme.copyWith(
-    shape: _shape,
-    backgroundColor: colors.surface,
-    selectedColor: colors.primaryContainer,
-    side: BorderSide(color: colors.outlineVariant),
-    elevation: 0,
-    showCheckmark: false,
-    labelStyle: base.textTheme.bodySmall?.copyWith(color: colors.onSurface),
-  ),
-);
-
-ButtonStyle _filledStyle(ColorScheme colors) => FilledButton.styleFrom(
-  backgroundColor: colors.primary,
-  foregroundColor: colors.onPrimary,
-  shape: _shape,
-  minimumSize: const Size(44, 44),
-  elevation: 0,
-);

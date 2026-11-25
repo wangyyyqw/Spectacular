@@ -9,6 +9,7 @@ import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
 import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_ui_style.dart';
 import '../theme/reader_ink.dart';
 import '../theme/reader_frosted_popup.dart';
 import '../theme/reader_frosted_surface.dart';
@@ -291,8 +292,8 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final searchBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
+      borderRadius: ReaderUiStyle.controlRadius,
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
     );
     final searchStyle = theme.textTheme.bodyMedium!.copyWith(
       fontSize: 14,
@@ -396,9 +397,8 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       key: const ValueKey('annotation-search-surface'),
                       color: ReaderDrawerStyle.searchSurfaceOf(theme),
                       borderRadius: searchBorder.borderRadius,
-                      elevation: 3,
+                      elevation: 0,
                       surfaceTintColor: Colors.transparent,
-                      shadowColor: ReaderDrawerStyle.searchShadowOf(theme),
                       child: TextField(
                         key: const ValueKey<String>('annotation-search-input'),
                         controller: _searchController,
@@ -443,7 +443,11 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                           fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
                           border: searchBorder,
                           enabledBorder: searchBorder,
-                          focusedBorder: searchBorder,
+                          focusedBorder: searchBorder.copyWith(
+                            borderSide: BorderSide(
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -687,10 +691,10 @@ class _AnnotationCard extends StatelessWidget {
     final hasNote = note != null && note.isNotEmpty;
     final noteNeedsExpansion =
         hasNote && (note.length > 66 || '\n'.allMatches(note).length >= 2);
-    final borderRadius = BorderRadius.circular(4);
+    final borderRadius = ReaderUiStyle.cardRadius;
     return Material(
       color: selected
-          ? theme.colorScheme.onSurface.withValues(alpha: 0.06)
+          ? theme.colorScheme.primaryContainer
           : theme.colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: borderRadius,
@@ -798,8 +802,8 @@ class _AnnotationCard extends StatelessWidget {
                                 vertical: 8,
                               ),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.surface,
-                                borderRadius: BorderRadius.circular(4),
+                                color: theme.colorScheme.surfaceContainerLow,
+                                borderRadius: ReaderUiStyle.controlRadius,
                               ),
                               child: Text(
                                 note,

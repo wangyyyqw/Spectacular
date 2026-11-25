@@ -31,7 +31,7 @@ Future<void> _savePreview(WidgetTester tester, String name) async {
     final image = await boundary.toImage(pixelRatio: 2);
     try {
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      final directory = Directory('/tmp/spectacular-ui-preview')
+      final directory = Directory('dist/ui-unification-20261124/预览/修改后')
         ..createSync(recursive: true);
       File('${directory.path}/$name.png')
           .writeAsBytesSync(bytes!.buffer.asUint8List());
@@ -44,7 +44,7 @@ Future<void> _savePreview(WidgetTester tester, String name) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('窄屏四页导航与排序保留，界面采用中性小圆角并可生成预览', (tester) async {
+  testWidgets('窄屏四页导航与排序保留，卡片使用统一圆角并可生成预览', (tester) async {
     tester.view.physicalSize = const Size(720, 1600);
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.resetPhysicalSize);
@@ -99,10 +99,7 @@ void main() {
     expect(theme.useMaterial3, isFalse);
     expect(theme.colorScheme.surfaceTint, Colors.transparent);
     final shape = theme.cardTheme.shape! as RoundedRectangleBorder;
-    expect(
-      shape.borderRadius.resolve(TextDirection.ltr).topLeft.x,
-      lessThanOrEqualTo(4),
-    );
+    expect(shape.borderRadius.resolve(TextDirection.ltr).topLeft.x, 20);
   });
 
   testWidgets('日夜阅读面板的按钮文字与表面跟随正文主题', (tester) async {
