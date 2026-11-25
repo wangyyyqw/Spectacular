@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -10,6 +11,64 @@ import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
+  for (final mode in [PageTurnMode.simulation3d, PageTurnMode.scroll]) {
+    testWidgets('$mode 拖动菜单进度在松手后定位 EPUB 并保存位置', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 800);
+      addTearDown(tester.view.reset);
+      final source = await openTestChapterSource(
+        buildMultiChapterEpub(
+          chapters: List.generate(3, (index) => '第${index + 1}章的进度测试。' * 200),
+        ),
+      );
+      addTearDown(source.close);
+      final store = MemoryReaderProgressStore();
+      late ReaderSession session;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReaderPage(
+            source: source,
+            store: store,
+            bookId: 'progress-drag',
+            contentRevision: '进度拖动回归版本',
+            pageTurnMode: mode,
+            onSessionReady: (value) => session = value,
+          ),
+        ),
+      );
+      await pumpReaderUntilComplete(
+        tester,
+        () => !session.loading && session.hasContent,
+      );
+      await tester.tapAt(tester.getCenter(find.byType(ReaderView).first));
+      await tester.pumpAndSettle();
+      final before = session.currentCfi;
+      final bounds = tester.getRect(
+        find.byKey(const ValueKey('menu-progress-slider')),
+      );
+      final gesture = await tester.startGesture(bounds.center);
+      await tester.pump(const Duration(milliseconds: 300));
+      await gesture.moveTo(
+        Offset(bounds.left + bounds.width * .75, bounds.center.dy + 12),
+      );
+      await tester.pump();
+      expect(session.currentCfi, before);
+      expect(session.jumpLoadingTitle, isNull);
+      await gesture.up();
+      await pumpReaderUntilComplete(
+        tester,
+        () => session.jumpLoadingTitle == null && session.currentCfi != before,
+        description: '进度拖动跳转完成',
+      );
+      expect(session.progress?.spineIndex, 2);
+      expect(session.readingPercent, closeTo(.75, .04));
+      await pumpReaderTask(tester, session.flushProgress());
+      expect((await store.load('progress-drag'))?.cfi, session.readingCfi);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
+
   testWidgets('菜单与抽屉开关是浮层：排版指纹不变（不重排）', (tester) async {
     final bars = <Object?>[];
     const channel = MethodChannel('com.spectacular.reader_mobile/reader');

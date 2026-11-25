@@ -3135,10 +3135,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       _closeDrawer();
                       unawaited(_session.jumpToChapter(page.spineIndex + 1));
                     },
-              onSeek: (value) {
-                _closeDrawer();
-                unawaited(_seekToProgress(value));
-              },
+              onSeek: (value) => unawaited(_seekToProgress(value)),
               onEntry: _openDrawer,
               onShowShortcuts: _desktop ? _showDesktopHelp : null,
               drawerTitle: _drawerTitleOf(_drawer, _drawerTab),
