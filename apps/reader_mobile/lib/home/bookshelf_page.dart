@@ -673,7 +673,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  /// 前 12 本并发准备完成才允许开屏淡出，其余封面继续分批预加载。
+  /// 首屏前 12 本并发准备完成才允许开屏淡出；其他封面随列表按需加载。
   Future<void> _preloadCovers() async {
     final items = _items;
     if (items == null || !mounted) return;
@@ -684,35 +684,30 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final cardWidth = _grid
         ? _shelfGridMetrics(width, media.textScaler).cardWidth
         : 66.0;
+    final cardHeight = _grid ? cardWidth / _shelfCoverAspectRatio : 88.0;
     final decodeWidth = coverDecodeWidth(cardWidth, media.devicePixelRatio);
+    final decodeHeight = coverDecodeHeight(cardHeight, media.devicePixelRatio);
     await Future.wait([
       for (final item in ordered.take(12))
         if (item.entry.coverPath case final path?)
-          _precacheCover(path, decodeWidth),
+          _precacheCover(path, decodeWidth, decodeHeight),
     ]);
     // 图像解码成功后还需让占位组件完成替换，不能只在 Future 完成时揭开书架。
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || generation != _coverPreloadGeneration) return;
     widget.onInitialCoversReady?.call();
-    for (var offset = 12; offset < ordered.length; offset += 4) {
-      if (!mounted || generation != _coverPreloadGeneration) return;
-      await Future.wait([
-        for (final item in ordered.skip(offset).take(4))
-          if (item.entry.coverPath case final path?)
-            _precacheCover(path, decodeWidth),
-      ]);
-    }
   }
 
-  Future<void> _precacheCover(String path, int decodeWidth) => precacheImage(
-    coverImageProvider(path, decodeWidth),
-    context,
-    onError: (error, stackTrace) => recordAppError(
-      'bookshelf_cover_preload_failed',
-      error,
-      stackTrace: stackTrace,
-    ),
-  );
+  Future<void> _precacheCover(String path, int decodeWidth, int decodeHeight) =>
+      precacheImage(
+        coverImageProvider(path, decodeWidth, decodeHeight: decodeHeight),
+        context,
+        onError: (error, stackTrace) => recordAppError(
+          'bookshelf_cover_preload_failed',
+          error,
+          stackTrace: stackTrace,
+        ),
+      );
 
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
   Future<void> _import() async {

@@ -58,6 +58,7 @@ Future<List<_DeferredCover>> _deferCovers(
   WidgetTester tester,
   List<BookEntry> books,
   int decodeWidth,
+  int decodeHeight,
 ) async {
   final image = (await tester.runAsync(createTestImage))!;
   final covers = <_DeferredCover>[];
@@ -66,6 +67,7 @@ Future<List<_DeferredCover>> _deferCovers(
     final key = await coverImageProvider(
       book.coverPath!,
       decodeWidth,
+      decodeHeight: decodeHeight,
     ).obtainKey(const ImageConfiguration());
     final cover = _DeferredCover(image);
     covers.add(cover);
@@ -107,10 +109,12 @@ void main() {
       await library.setSetting('bookshelf.grid', '$grid');
       await library.setSetting('bookshelf.pinned', jsonEncode(['book-13']));
       final width = grid ? (390 - 64) / 3 : 66.0;
+      final height = grid ? width / (3 / 4) : 88.0;
       final covers = await _deferCovers(
         tester,
         books,
         coverDecodeWidth(width, 3),
+        coverDecodeHeight(height, 3),
       );
       await tester.pumpWidget(
         ReaderApp(library: library, progressStore: MemoryReaderProgressStore()),
@@ -177,9 +181,12 @@ void main() {
     ];
     final library = _CoverLibrary(books);
     await library.setSetting('bookshelf.grid', 'false');
-    final covers = await _deferCovers(tester, [
-      tail,
-    ], coverDecodeWidth(66, tester.view.devicePixelRatio));
+    final covers = await _deferCovers(
+      tester,
+      [tail],
+      coverDecodeWidth(66, tester.view.devicePixelRatio),
+      coverDecodeHeight(88, tester.view.devicePixelRatio),
+    );
     await tester.pumpWidget(
       ReaderApp(library: library, progressStore: MemoryReaderProgressStore()),
     );
@@ -201,6 +208,7 @@ void main() {
       tester,
       books,
       coverDecodeWidth(66, tester.view.devicePixelRatio),
+      coverDecodeHeight(88, tester.view.devicePixelRatio),
     );
     await tester.pumpWidget(
       ReaderApp(library: library, progressStore: MemoryReaderProgressStore()),

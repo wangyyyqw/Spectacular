@@ -42,12 +42,12 @@ void main() {
       ),
     );
     final imageContext = tester.element(find.byKey(const ValueKey('precache')));
-    final decodeWidth = (100 * MediaQuery.devicePixelRatioOf(imageContext))
-        .ceil()
-        .clamp(96, 1200);
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(imageContext);
+    final decodeWidth = coverDecodeWidth(100, devicePixelRatio);
+    final decodeHeight = coverDecodeHeight(160, devicePixelRatio);
     await tester.runAsync(
       () => precacheImage(
-        ResizeImage.resizeIfNeeded(decodeWidth, null, FileImage(file)),
+        coverImageProvider(file.path, decodeWidth, decodeHeight: decodeHeight),
         imageContext,
       ),
     );
@@ -158,18 +158,26 @@ void main() {
       ),
     );
     final expectedWidth = coverDecodeWidth(100, tester.view.devicePixelRatio);
+    final expectedHeight = coverDecodeHeight(160, tester.view.devicePixelRatio);
     expect(expectedWidth, (100 * tester.view.devicePixelRatio).ceil());
     expect(
       tester.widget<Image>(find.byType(Image)).image,
-      coverImageProvider(book.coverPath!, expectedWidth),
+      coverImageProvider(
+        book.coverPath!,
+        expectedWidth,
+        decodeHeight: expectedHeight,
+      ),
       reason: '首屏预解码与显示必须命中同一份缓存，否则仍会重新解码',
     );
   });
 
-  test('封面解码宽度限制在 96～1200', () {
+  test('封面解码尺寸限制在 96～1200', () {
     expect(coverDecodeWidth(20, 2), 96);
     expect(coverDecodeWidth(100, 3), 300);
     expect(coverDecodeWidth(1000, 4), 1200);
+    expect(coverDecodeHeight(20, 2), 96);
+    expect(coverDecodeHeight(160, 3), 480);
+    expect(coverDecodeHeight(1000, 4), 1200);
   });
 
   testWidgets('封面文件缺失时显示书名占位和结构异常提示', (tester) async {
