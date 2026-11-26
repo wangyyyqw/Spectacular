@@ -395,36 +395,102 @@ void main() {
   }
 
   for (final rtl in [false, true]) {
-    for (final next in [false, true]) {
-      testWidgets('${rtl ? 'RTL' : 'LTR'} ${next ? '下一页' : '上一页'}'
-          '堆叠覆盖保持页面大小并从侧边慢速跟随', (tester) async {
-        final controller = _controller(tester)
-          ..mode = PageTurnMode.coverStack
-          ..rtl = rtl
-          ..next = next
-          ..progress = 0.5;
-        final data = await tester.runAsync(() => _render(controller));
-        final exit = (next ? -1.0 : 1.0) * (rtl ? -1.0 : 1.0);
-        final targetDx = -exit * 0.08 * (1 - controller.progress) * _size.width;
-        final boundary = _size.width / 2 + targetDx;
-        final red = _pixel(data!, (boundary - 2).round(), 10);
-        final blue = _pixel(data, (boundary + 2).round(), 10);
+    testWidgets('${rtl ? 'RTL' : 'LTR'} 下一页堆叠覆盖保持页面大小并从侧边慢速跟随', (tester) async {
+      final controller = _controller(tester)
+        ..mode = PageTurnMode.coverStack
+        ..rtl = rtl
+        ..next = true
+        ..progress = 0.5;
+      final data = await tester.runAsync(() => _render(controller));
+      final exit = -1.0 * (rtl ? -1.0 : 1.0);
+      final targetDx = -exit * 0.08 * (1 - controller.progress) * _size.width;
+      final boundary = _size.width / 2 + targetDx;
+      final red = _pixel(data!, (boundary - 2).round(), 10);
+      final blue = _pixel(data, (boundary + 2).round(), 10);
 
-        expect(red[0], greaterThan(red[2] + 80), reason: '目标页应整体平移，不能缩放');
-        expect(blue[2], greaterThan(blue[0] + 80), reason: '目标页应整体平移，不能缩放');
+      expect(red[0], greaterThan(red[2] + 80), reason: '目标页应整体平移，不能缩放');
+      expect(blue[2], greaterThan(blue[0] + 80), reason: '目标页应整体平移，不能缩放');
 
-        final masked = _pixel(data, exit < 0 ? 170 : 30, 10);
-        expect(masked[1], greaterThan(0), reason: '下一页应叠加半透明灰色遮罩');
-        expect(masked[3], 255, reason: '遮罩不能改变页面透明度');
+      final masked = _pixel(data, exit < 0 ? 170 : 30, 10);
+      expect(masked[1], greaterThan(0), reason: '下一页应叠加半透明灰色遮罩');
+      expect(masked[3], 255, reason: '遮罩不能改变页面透明度');
 
-        final originX = exit < 0 ? 50 : 150;
-        expect(
-          _pixel(data, originX, 10),
-          exit < 0 ? const [0, 255, 0, 255] : const [255, 255, 0, 255],
-          reason: '当前页应覆盖在目标页上方并先滑出',
-        );
-      });
-    }
+      final originX = exit < 0 ? 50 : 150;
+      expect(
+        _pixel(data, originX, 10),
+        exit < 0 ? const [0, 255, 0, 255] : const [255, 255, 0, 255],
+        reason: '当前页应覆盖在目标页上方并先滑出',
+      );
+    });
+
+    testWidgets('${rtl ? 'RTL' : 'LTR'} 上一页堆叠推入且当前页慢速跟随并承接阴影', (tester) async {
+      final controller = _controller(tester)
+        ..mode = PageTurnMode.coverStack
+        ..rtl = rtl
+        ..next = false
+        ..progress = 0.25;
+      final data = (await tester.runAsync(() => _render(controller)))!;
+      final originDx =
+          (rtl ? -1 : 1) * 0.08 * controller.progress * _size.width;
+      final currentSplit = 100 + originDx;
+      final yellow = _pixel(data, (currentSplit - 2).round(), 10);
+      final green = _pixel(data, (currentSplit + 2).round(), 10);
+
+      expect(yellow[0], greaterThan(yellow[2] + 80));
+      expect(
+        green[1],
+        greaterThan(green[0] + 80),
+        reason: '当前页按页宽 8% 慢速跟随，不缩放',
+      );
+      expect(
+        _pixel(data, rtl ? 175 : 25, 10),
+        rtl ? const [255, 0, 0, 255] : const [0, 0, 255, 255],
+        reason: '上一页从进入侧推入并覆盖当前页',
+      );
+
+      final targetEdge = rtl ? 150 : 50;
+      final darkShadow = _pixel(
+        data,
+        rtl ? targetEdge - 2 : targetEdge + 2,
+        10,
+      );
+      final lightShadow = _pixel(
+        data,
+        rtl ? targetEdge - 22 : targetEdge + 22,
+        10,
+      );
+      expect(
+        darkShadow.take(3).reduce((a, b) => a + b),
+        lessThan(lightShadow.take(3).reduce((a, b) => a + b)),
+        reason: '渐变阴影应落在当前页靠近上一页进入边缘的位置',
+      );
+    });
+
+    testWidgets('${rtl ? 'RTL' : 'LTR'} 上一页堆叠当前页阴影随覆盖加深且落页无残留', (tester) async {
+      final controller = _controller(tester)
+        ..mode = PageTurnMode.coverStack
+        ..rtl = rtl
+        ..next = false;
+      var previousShadow = -1;
+      for (final progress in [0.0, 0.1, 0.5, 0.8]) {
+        controller.progress = progress;
+        final data = (await tester.runAsync(() => _render(controller)))!;
+        final current = _pixel(data, rtl ? 10 : 190, 10);
+        final shadow = 255 - current[rtl ? 0 : 1];
+        expect(shadow, greaterThan(previousShadow), reason: '当前页被覆盖时阴影应逐渐加深');
+        expect(current[3], 255);
+        previousShadow = shadow;
+      }
+      controller.progress = 1;
+      final done = (await tester.runAsync(() => _render(controller)))!;
+      expect(_pixel(done, 10, 10), const [255, 0, 0, 255]);
+      expect(_pixel(done, 190, 10), const [
+        0,
+        0,
+        255,
+        255,
+      ], reason: '上一页完全进入后不应有阴影残留');
+    });
   }
 
   testWidgets('堆叠覆盖灰色遮罩随当前页滑出逐渐变淡', (tester) async {

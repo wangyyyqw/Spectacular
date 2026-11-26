@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -118,6 +117,12 @@ void main() {
 
     expect(find.byType(ReaderFootnoteDialog), findsOneWidget);
     expect(
+      tester.getTopLeft(find.text('第一段注释')).dy -
+          tester.getTopLeft(find.byType(ReaderFootnoteDialog)).dy,
+      lessThan(25),
+      reason: '注释弹窗不再重复绘制手柄，内容直接开始',
+    );
+    expect(
       tester
           .widget<Material>(
             find.byKey(const ValueKey<String>('reader-footnote-dialog')),
@@ -154,6 +159,137 @@ void main() {
     expect(session.progress?.pageIndex, 1);
   });
 
+  testWidgets('气泡长注释滚动后文字仍与边缘保持距离', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              ReaderFootnoteDialog(
+                style: ReaderFootnoteStyle.bubble,
+                anchor: const Offset(180, 300),
+                contentWidth: 360,
+                footnote: PageFootnote(
+                  start: 0,
+                  end: 1,
+                  label: '1',
+                  kind: NoteKind.footnote,
+                  text: List.generate(
+                    30,
+                    (index) => '第 ${index + 1} 段气泡长注释内容。',
+                  ).join('\n'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final callout = find.byKey(
+      const ValueKey<String>('reader-footnote-callout-bubble'),
+    );
+    final scroll = find
+        .descendant(of: callout, matching: find.byType(SingleChildScrollView))
+        .first;
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: callout, matching: find.byType(Scrollable)),
+    );
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+    await tester.drag(scroll, const Offset(0, -200));
+    await tester.pumpAndSettle();
+
+    final rect = tester.getRect(callout);
+    final scrollRect = tester.getRect(scroll);
+    expect(scrollRect.top - rect.top, greaterThanOrEqualTo(16));
+    expect(rect.bottom - scrollRect.bottom, greaterThanOrEqualTo(16));
+  });
+
+  testWidgets('注释正文两端对齐', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const ReaderFootnoteDialog(
+                footnote: PageFootnote(
+                  start: 0,
+                  end: 1,
+                  label: '1',
+                  kind: NoteKind.footnote,
+                  text: '第一段注释\n第二段注释',
+                ),
+              ),
+              ReaderFootnoteDialog(
+                style: ReaderFootnoteStyle.bubble,
+                anchor: const Offset(100, 100),
+                contentWidth: 300,
+                footnote: const PageFootnote(
+                  start: 0,
+                  end: 1,
+                  label: '2',
+                  kind: NoteKind.footnote,
+                  text: '气泡注释正文。',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<Text>(find.text('第一段注释')).textAlign,
+      TextAlign.justify,
+    );
+    expect(
+      tester.widget<Text>(find.text('气泡注释正文。')).textAlign,
+      TextAlign.justify,
+    );
+  });
+
+  testWidgets('纸条长注释高度上限为屏幕 15% 且可滚动', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              ReaderFootnoteDialog(
+                style: ReaderFootnoteStyle.paper,
+                anchor: const Offset(180, 560),
+                contentWidth: 360,
+                footnote: PageFootnote(
+                  start: 0,
+                  end: 1,
+                  label: '1',
+                  kind: NoteKind.footnote,
+                  text: List.generate(
+                    40,
+                    (index) => '第 ${index + 1} 段纸条长注释内容。',
+                  ).join('\n'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final callout = find.byKey(
+      const ValueKey<String>('reader-footnote-callout-paper'),
+    );
+    final rect = tester.getRect(callout);
+    expect(rect.width, closeTo(800 * .85, .01));
+    expect(rect.height, closeTo(600 * .15, .01));
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: callout, matching: find.byType(Scrollable)),
+    );
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+  });
+
   testWidgets('空注释显示空态卡片', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
@@ -184,55 +320,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('可复制整条多段注释并显示复制反馈', (tester) async {
-    MethodCall? clipboardCall;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-          if (call.method == 'Clipboard.setData') {
-            clipboardCall = call;
-          }
-          return null;
-        });
-    addTearDown(
-      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null),
-    );
-
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: Align(
-            alignment: Alignment.bottomCenter,
-            child: ReaderFootnoteDialog(
-              footnote: PageFootnote(
-                start: 0,
-                end: 1,
-                label: '1',
-                kind: NoteKind.footnote,
-                text: '第一段注释\n第二段注释',
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('reader-footnote-copy')),
-    );
-    await tester.pump();
-
-    expect(clipboardCall?.method, 'Clipboard.setData');
-    expect(clipboardCall?.arguments, const <String, Object?>{
-      'text': '第一段注释\n第二段注释',
-    });
-    expect(find.text('已复制'), findsOneWidget);
-
-    await tester.pump(const Duration(seconds: 2));
-    expect(find.text('复制注释'), findsOneWidget);
-  });
-
-  testWidgets('小屏长注释固定标题和复制入口且正文可滚动', (tester) async {
+  testWidgets('小屏长注释限制高度且正文可滚动', (tester) async {
     tester.view.physicalSize = const Size(320, 360);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -268,14 +356,9 @@ void main() {
       findsOneWidget,
     );
     expect(
-      tester.getRect(
-        find.byKey(const ValueKey<String>('reader-footnote-copy')),
-      ),
-      isA<Rect>().having(
-        (rect) => rect.bottom,
-        '复制按钮底部',
-        lessThanOrEqualTo(360),
-      ),
+      tester.getSize(find.byType(ReaderFootnoteDialog)).height,
+      lessThanOrEqualTo(360 * 0.40 + 0.01),
+      reason: '弹窗最高为屏幕高度的 40%',
     );
 
     final scrollable = tester.state<ScrollableState>(
@@ -298,7 +381,7 @@ void main() {
     );
   });
 
-  testWidgets('横屏长注释保持操作入口可达且正文可滚动', (tester) async {
+  testWidgets('横屏长注释限制高度且正文可滚动', (tester) async {
     tester.view.physicalSize = const Size(640, 284);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -328,10 +411,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    final copyRect = tester.getRect(
-      find.byKey(const ValueKey<String>('reader-footnote-copy')),
+    expect(
+      tester.getSize(find.byType(ReaderFootnoteDialog)).height,
+      lessThanOrEqualTo(284 * 0.40 + 0.01),
+      reason: '横屏同样只占屏幕高度的 40%',
     );
-    expect(copyRect.bottom, lessThanOrEqualTo(284));
 
     final scrollable = tester.state<ScrollableState>(
       find.descendant(
@@ -342,7 +426,7 @@ void main() {
     expect(scrollable.position.maxScrollExtent, greaterThan(0));
   });
 
-  testWidgets('大字体下注释弹窗不溢出且操作仍可点击', (tester) async {
+  testWidgets('大字体下注释弹窗不溢出且限制高度', (tester) async {
     tester.view.physicalSize = const Size(320, 480);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -378,14 +462,9 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(
-      tester.getRect(
-        find.byKey(const ValueKey<String>('reader-footnote-copy')),
-      ),
-      isA<Rect>().having(
-        (rect) => rect.bottom,
-        '复制按钮底部',
-        lessThanOrEqualTo(480),
-      ),
+      tester.getSize(find.byType(ReaderFootnoteDialog)).height,
+      lessThanOrEqualTo(480 * 0.40 + 0.01),
+      reason: '大字体下仍不超过屏幕高度的 40%',
     );
   });
 }

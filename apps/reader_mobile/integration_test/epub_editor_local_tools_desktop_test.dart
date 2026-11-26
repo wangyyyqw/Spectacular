@@ -32,6 +32,7 @@ Future<void> _until(WidgetTester tester, bool Function() ready) async {
     await tester.pump(const Duration(milliseconds: 50));
   }
   await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 Future<void> _capture(WidgetTester tester, String fileName) async {
@@ -128,9 +129,7 @@ void main() {
     await tester.tap(find.text('打开编辑器'));
     await _until(tester, () => find.byType(PageTurnView).evaluate().isNotEmpty);
     await _until(tester, () => !editor.previewLoading);
-    await tester.tap(find.widgetWithText(SubmenuButton, '工具'));
-    await _until(tester, () => find.text('本地 EPUB 工具').evaluate().isNotEmpty);
-    await tester.tap(find.text('本地 EPUB 工具'));
+    await tester.tap(find.byKey(const ValueKey('editor-category-转换')));
     await _until(tester, () => find.text('简体转繁体').evaluate().isNotEmpty);
     expect(find.textContaining('TXT'), findsNothing);
     await _capture(tester, 'EPUB本地工具');
@@ -235,6 +234,10 @@ void main() {
       () => tester.widget<IconButton>(saveButton).onPressed != null,
     );
     await tester.tap(saveButton);
+    await _until(tester, () => !editor.busy);
+    expect(editor.dirty, isFalse);
+    expect(find.byType(BookEditorPage), findsOneWidget);
+    await tester.tap(find.byTooltip('退出编辑'));
     await _until(tester, () => returned || editor.error != null);
     expect(editor.error, isNull);
     expect(returned, isTrue);

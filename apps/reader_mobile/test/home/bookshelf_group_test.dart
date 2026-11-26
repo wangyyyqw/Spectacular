@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
+import 'package:reader_mobile/home/book_cover_image.dart';
 import 'package:reader_mobile/library/library_store.dart';
 
 import '../support/test_epub.dart';
@@ -94,7 +95,21 @@ void main() {
     expect(tester.getTopLeft(grids.first).dx, lessThan(0));
     expect(tester.getTopLeft(grids.last).dx, greaterThan(0));
     expect(grids.first.hitTestable(), findsNothing);
-    await tester.pump(const Duration(milliseconds: 125));
+    final rebuiltCovers = <Element>[];
+    final previousRebuild = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtBefore) {
+      previousRebuild?.call(element, builtBefore);
+      if (element.widget is BookCoverImage) rebuiltCovers.add(element);
+    };
+    try {
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(rebuiltCovers, isEmpty, reason: '分组动画只改变位置，不重复构建封面和书目');
+    } finally {
+      debugOnRebuildDirtyWidget = previousRebuild;
+    }
+    await tester.pump(const Duration(milliseconds: 61));
     expect(grids, findsOneWidget, reason: '分组过渡应在 200ms 内完成');
     await _settle(tester, frames: 3);
     expect(find.text('滑动甲'), findsWidgets);
@@ -118,7 +133,7 @@ void main() {
       await dragPages(const Offset(-180, 0));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<Text>(find.text('${group.name} 0')).style?.fontWeight,
+        tester.widget<Text>(find.text(group.name)).style?.fontWeight,
         FontWeight.w600,
       );
       final tab = tester.getRect(
@@ -131,7 +146,7 @@ void main() {
     await dragPages(const Offset(-180, 0));
     await _settle(tester, frames: 3);
     expect(
-      tester.widget<Text>(find.text('${groups.last.name} 0')).style?.fontWeight,
+      tester.widget<Text>(find.text(groups.last.name)).style?.fontWeight,
       FontWeight.w600,
     );
 
@@ -206,7 +221,8 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('全部 3'), findsOneWidget);
+    expect(find.text('全部'), findsOneWidget);
+    expect(find.textContaining('全部 '), findsNothing);
     expect(find.text('未读 3'), findsNothing);
     expect(find.text('在读 0'), findsNothing);
     expect(find.text('已读完 0'), findsNothing);
@@ -234,13 +250,14 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('小说 1'), findsOneWidget);
+    expect(find.text('小说'), findsOneWidget);
+    expect(find.textContaining('小说 '), findsNothing);
     final allTab = tester.getRect(
       find.byKey(const ValueKey('bookshelf-group-all')),
     );
     expect(allTab.left, 16);
     expect(
-      tester.getTopLeft(find.text('小说 1')).dx,
+      tester.getTopLeft(find.text('小说')).dx,
       greaterThanOrEqualTo(allTab.right),
     );
     expect(find.text('分组甲'), findsWidgets);
@@ -286,7 +303,7 @@ void main() {
       find.byKey(ValueKey<String>('bookshelf-group-${group.id}')),
     );
     await _settle(tester, frames: 4);
-    expect(find.text('小说 2'), findsOneWidget);
+    expect(find.text('小说'), findsOneWidget);
     expect(find.text('分组甲'), findsWidgets);
     expect(find.text('分组乙'), findsNothing);
     expect(find.text('分组丙'), findsWidgets);
@@ -307,7 +324,7 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-group-name-confirm')),
     );
     await _settle(tester);
-    expect(find.text('文学 2'), findsOneWidget);
+    expect(find.text('文学'), findsOneWidget);
   });
 
   testWidgets('多选底栏新建分组直接使用已选书籍', (tester) async {
@@ -353,7 +370,7 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('待读 1'), findsOneWidget);
+    expect(find.text('待读'), findsOneWidget);
     final groups = await library.listGroups();
     expect(groups, hasLength(1));
     expect(await library.groupAssignments(), <String, String>{

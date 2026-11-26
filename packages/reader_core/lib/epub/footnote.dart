@@ -806,7 +806,9 @@ abstract final class FootnoteParser {
     final tag = element.name.local.toLowerCase();
     final alt = element.getAttribute('alt')?.trim() ?? '';
     return _hasAncestor(element, 'sup') ||
-        RegExp(r'^[\[\(（]?\d+[\]\)）]?$').hasMatch(label) ||
+        RegExp(
+          r'^(?:[*＊†‡]|[\[\(（〔［【]?\d+[\]\)）〕］】]?)$',
+        ).hasMatch(label) ||
         (tag == 'img' && RegExp(r'^\d+$').hasMatch(alt));
   }
 

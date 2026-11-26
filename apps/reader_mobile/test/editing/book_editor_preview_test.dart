@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/paint/hit_test.dart';
+import 'package:reader_core/parser/document_parser.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_mobile/editing/book_editor_preview.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
@@ -210,5 +211,91 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(230, 700));
     await tester.pumpAndSettle();
     expect(session.readingCfi, nextCfi);
+  });
+
+  testWidgets('预览翻页按钮合并重复点击，章首页与书尾禁用对应方向', (tester) async {
+    final (:session, source: _) = await _openPreview(tester);
+    IconButton button(String label) => tester.widget<IconButton>(
+      find.byWidgetPredicate(
+        (widget) => widget is IconButton && widget.tooltip == label,
+      ),
+    );
+    expect(button('上一页').onPressed, isNull);
+    final next = button('下一页').onPressed!;
+    next();
+    next();
+    await pumpReaderUntilComplete(tester, () => session.page!.pageIndex == 1);
+    expect(session.pageTurns, 1);
+    final pages = await pumpReaderTask(tester, session.chapterPages());
+    for (var index = 2; index < pages.length; index++) {
+      await pumpReaderTask(tester, session.next());
+    }
+    await tester.pump();
+    expect(session.atBookEnd, isTrue);
+    expect(button('下一页').onPressed, isNull);
+    expect(button('上一页').onPressed, isNotNull);
+  });
+
+  testWidgets('初始正文目标保留到正式预览就绪，初始化不回写章首页', (tester) async {
+    final bytes = buildMultiChapterEpub(
+      chapters: [
+        '<p>第一章正文</p>',
+        '${List.generate(45, (index) => '<p>第二章第 $index 段预览内容。</p>').join()}'
+            '<p id="target">第二章末尾目标正文</p>',
+      ],
+      rawBody: true,
+    );
+    final source = (await tester.runAsync(
+      () => EpubChapterSource.open(bytes),
+    ))!;
+    addTearDown(source.close);
+    final parsed = DocumentParser.parse(
+      xhtml: source.document.chapterXhtml(1)!,
+      spineIndex: 1,
+    );
+    final target = ReaderEditTarget(
+      spineIndex: 1,
+      cfi: parsed.elementById('target')!.cfi.serialize(),
+      contentRevision: 'editor-1',
+    );
+    final reported = <ReaderEditTarget>[];
+    ReaderSession? session;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookEditorPreview(
+          source: source,
+          revision: 1,
+          target: target,
+          onEditTarget: (_) {},
+          onLocationChanged: reported.add,
+          onSessionReady: (value) => session = value,
+        ),
+      ),
+    );
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          session?.page?.spineIndex == 1 &&
+          !session!.loading &&
+          session!.jumpLoadingTitle == null,
+    );
+    expect(session!.page!.pageIndex, greaterThan(0));
+    expect(
+      TextHitTester.lineBoxes(session!.page!).map((line) => line.text),
+      contains('第二章末尾目标正文'),
+    );
+    expect(reported, isNotEmpty);
+    expect(reported.every((location) => location.spineIndex == 1), isTrue);
+    expect(find.byTooltip('OEBPS/c2.xhtml'), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byWidgetPredicate(
+              (widget) => widget is IconButton && widget.tooltip == '下一页',
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
   });
 }

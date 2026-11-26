@@ -53,9 +53,9 @@ class EpubEditChange extends EpubEditHistoryEntry {
 /// 原归档只读，事务只保留修改条目；宿主负责草稿文件与书架替换。
 class EpubEditSession {
   EpubEditSession._(
-    this.baseFile,
+    this._baseFile,
     this._document,
-    this.baseDigest,
+    this._baseDigest,
     this._baseWarnings,
   );
   static const maxHistoryEntries = 100;
@@ -94,10 +94,12 @@ class EpubEditSession {
     }
   }
 
-  final File baseFile;
-  final String baseDigest;
-  final EpubDocumentImpl _document;
-  final List<String> _baseWarnings;
+  File _baseFile;
+  File get baseFile => _baseFile;
+  String _baseDigest;
+  String get baseDigest => _baseDigest;
+  EpubDocumentImpl _document;
+  List<String> _baseWarnings;
   final _events = StreamController<EpubEditChange>.broadcast(sync: true);
   Map<String, Uint8List?> _overrides = {};
   Map<String, dynamic> _metadata = {};
@@ -540,6 +542,59 @@ class EpubEditSession {
             : {'blob': storeBlob(entry.key, Uint8List.fromList(entry.value!))},
     },
   };
+
+  /// 宿主保存成功后切换归档基线，继续编辑时保留撤销历史与资源状态。
+  Future<void> acceptSavedFile(File file) async {
+    _checkOpen();
+    final saved = await EpubEditSession.open(file);
+    try {
+      _rebaseHistory(saved);
+      _document.archive.close();
+      _document = saved._document;
+      _baseFile = saved.baseFile;
+      _baseDigest = saved.baseDigest;
+      _baseWarnings = saved._baseWarnings;
+      _lastPackage = _document.package;
+      _lastOpfPath = _document.opfPath;
+      _summaryRevision = -1;
+      _pruneHistory();
+    } catch (_) {
+      saved.close();
+      rethrow;
+    }
+    // 归档所有权已交给当前会话，只结束临时会话的事件流。
+    unawaited(saved._events.close());
+  }
+
+  void _rebaseHistory(EpubEditSession saved) {
+    final paths = {
+      ..._overrides.keys,
+      for (final state in [..._undo, ..._redo]) ...state.overrides.keys,
+    };
+    final original = {
+      for (final path in paths) path: _document.archive.readBytes(path),
+    };
+    final baseline = {for (final path in paths) path: saved.readBytes(path)};
+    Map<String, Uint8List?> rebase(Map<String, Uint8List?> values) => {
+      for (final path in paths)
+        if (!listEquals(
+          values.containsKey(path) ? values[path] : original[path],
+          baseline[path],
+        ))
+          path: values.containsKey(path) ? values[path] : original[path],
+    };
+    for (final history in [_undo, _redo]) {
+      for (var index = 0; index < history.length; index++) {
+        final state = history[index];
+        history[index] = _EditState(
+          rebase(state.overrides),
+          state.metadata,
+          state.entry,
+        );
+      }
+    }
+    _overrides = rebase(_overrides);
+  }
 
   void _restoreDraft(
     Map<String, dynamic> draft,

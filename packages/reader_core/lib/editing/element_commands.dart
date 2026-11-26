@@ -1,8 +1,11 @@
-import 'package:path/path.dart' as p;
+import 'dart:typed_data';
+
+import 'package:xml/xml.dart';
 import 'package:xml/xml_events.dart';
 
 import 'editable_document.dart';
 import 'epub_edit_session.dart';
+import 'package_editor.dart';
 
 /// 原文命令只改目标源码区间，事务统一处理验证、历史与预览版本。
 extension EpubElementCommands on EpubEditSession {
@@ -56,53 +59,95 @@ extension EpubElementCommands on EpubEditSession {
     _splice(this, element, (element.start, element.end), split, '拆分段落');
   }
 
-  /// 图片资源由资源事务导入；这里只插入相对引用，不隐式更改 OPF。
+  /// 导入时将图片、清单和正文放入同一事务，已有资源只新增引用。
   void insertImage(
     EditableElementRef element, {
     required String resourcePath,
     String alt = '',
     bool after = true,
+    Uint8List? imageBytes,
+    String? mediaType,
   }) {
-    if (readBytes(resourcePath) == null) {
-      throw const EpubEditException('图片资源不存在');
-    }
-    final relative = p.posix.relative(
-      normalizePath(resourcePath),
-      from: p.posix.dirname(element.path),
-    );
-    final href = relative.split('/').map(Uri.encodeComponent).join('/');
+    if (element.tag != 'body') _requireBodyChild(element);
+    checkElement(element);
+    final path = normalizePath(resourcePath);
+    final href = relativeEditReference(element.path, path);
+    final parent = element.tag == 'body' ? element : element.parent!;
+    final prefix = parent.qualifiedName.contains(':')
+        ? '${parent.qualifiedName.split(':').first}:'
+        : '';
     final html =
-        '<img src="${escapeXmlAttribute(href)}" alt="${escapeXmlAttribute(alt)}"/>';
-    if (after) {
-      insertAfter(element, html);
-    } else {
-      insertBefore(element, html);
-    }
+        '<${prefix}img src="${escapeXmlAttribute(href)}" alt="${escapeXmlAttribute(alt)}"/>';
+    final offset = after ? element.end : element.start;
+    final source = element.tag == 'body'
+        ? element.replaceInner(
+            after ? '${element.innerXml}$html' : '$html${element.innerXml}',
+          )
+        : readText(element.path).replaceRange(offset, offset, html);
+    transaction('插入图片', (tx) {
+      _imageResource(tx, path, (bytes: imageBytes, type: mediaType), opfPath);
+      tx.writeText(element.path, source);
+    });
   }
 
   void replaceImage(
     EditableElementRef element,
     String resourcePath, {
     String? alt,
+    Uint8List? imageBytes,
+    String? mediaType,
   }) {
     if (element.tag != 'img') throw const EpubEditException('目标不是 XHTML 图片');
     checkElement(element);
-    if (readBytes(resourcePath) == null) {
-      throw const EpubEditException('图片资源不存在');
-    }
-    final relative = p.posix.relative(
-      normalizePath(resourcePath),
-      from: p.posix.dirname(element.path),
-    );
-    final href = relative.split('/').map(Uri.encodeComponent).join('/');
+    final path = normalizePath(resourcePath);
+    final href = relativeEditReference(element.path, path);
     var source = element.replaceAttribute('src', href);
     if (alt != null) {
       final current = EditableDocument.parse(source)
           .elementAtOffset(element.start)!;
       source = current.replaceAttribute('alt', alt);
     }
-    transaction('替换图片', (tx) => tx.writeText(element.path, source));
+    transaction('替换图片', (tx) {
+      _imageResource(tx, path, (bytes: imageBytes, type: mediaType), opfPath);
+      tx.writeText(element.path, source);
+    });
   }
+}
+
+void _imageResource(
+  EpubEditTransaction tx,
+  String path,
+  ({Uint8List? bytes, String? type}) imported,
+  String opfPath,
+) {
+  if (imported.bytes == null) {
+    if (tx.readBytes(path) == null) throw const EpubEditException('图片资源不存在');
+    return;
+  }
+  if (tx.readBytes(path) != null) throw EpubEditException('图片资源已存在：$path');
+  if (imported.bytes!.isEmpty || imported.type?.startsWith('image/') != true) {
+    throw const EpubEditException('请选择有效的图片文件');
+  }
+  final opf = XmlDocument.parse(tx.readText(opfPath));
+  final manifest = opf.descendants.whereType<XmlElement>().firstWhere(
+    (node) => node.name.local == 'manifest',
+  );
+  final ids = manifest.childElements
+      .map((node) => node.getAttribute('id'))
+      .toSet();
+  var number = 1;
+  while (ids.contains('image-$number')) {
+    number++;
+  }
+  manifest.children.add(
+    XmlElement(XmlName.parts('item', prefix: manifest.name.prefix), [
+      XmlAttribute(XmlName.parts('id'), 'image-$number'),
+      XmlAttribute(XmlName.parts('href'), relativeEditReference(opfPath, path)),
+      XmlAttribute(XmlName.parts('media-type'), imported.type!),
+    ]),
+  );
+  tx.writeBytes(path, imported.bytes!);
+  tx.writeText(opfPath, opf.toXmlString());
 }
 
 void _requireBodyChild(EditableElementRef element) {

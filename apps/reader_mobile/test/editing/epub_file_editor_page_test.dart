@@ -128,6 +128,10 @@ void main() {
     expect(editor.error, isNull);
     cancel = false;
     await tester.tap(find.byTooltip('保存书籍'));
+    await pumpReaderUntilComplete(tester, () => saveCalls == 2 && !editor.busy);
+    expect(find.byType(BookEditorPage), findsOneWidget);
+    expect(editor.dirty, isFalse);
+    await tester.tap(find.byTooltip('退出编辑'));
     await pumpReaderUntil(
       tester,
       find.byKey(const ValueKey('editor-open-file')),
@@ -181,6 +185,7 @@ void main() {
     await pumpReaderUntil(tester, find.text('放弃修改并退出'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('保留草稿并退出'), findsNothing);
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
     await tester.tap(find.text('放弃修改并退出'));
     await pumpReaderUntil(
       tester,

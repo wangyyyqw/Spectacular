@@ -4,6 +4,7 @@ import '../icons/app_icon.dart';
 import '../theme/reader_ink.dart';
 import '../theme/reader_environment.dart';
 import '../theme/reader_panel_theme.dart';
+import '../theme/reader_panel_reveal.dart';
 import '../theme/reader_theme.dart';
 import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_ui_style.dart';
@@ -18,7 +19,7 @@ const _fallbackTheme = ReaderTheme(
 const double _topRowHeight = 48;
 const double _dividerHeight = .5;
 const double _progressTopPadding = 6;
-const double _progressRowHeight = 34;
+const double _progressRowHeight = 48;
 
 /// 底部菜单栏的实际高度（含安全区），供宿主把底部悬浮控件摆在菜单栏上方。
 double readerMenuBarHeight(BuildContext context, {double safeBottom = 0}) {
@@ -93,7 +94,7 @@ class ReaderMenuOverlay extends StatelessWidget {
   /// 全书进度 0..1（滑杆位置）。
   final double progress;
 
-  /// 滑杆气泡文案（如「第 7 章 · 3/12 页」）。
+  /// 当前章节与页码，供进度滑杆的辅助提示使用。
   final String chapterLabel;
 
   /// 返回书架。
@@ -332,7 +333,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                   final drawer = child as _DrawerLayer;
                   return _DrawerLayer(
                     title: drawer.title,
-                    theme: drawer.theme,
                     onClose: drawer.onClose,
                     inkMode: drawer.inkMode,
                     entry: drawer.entry,
@@ -346,7 +346,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                     : _DrawerLayer(
                         key: const ValueKey('reader-drawer'),
                         title: drawerTitle,
-                        theme: theme,
                         onClose: onCloseDrawer,
                         inkMode: inkMode,
                         entry: drawerEntry,
@@ -430,7 +429,7 @@ class _IconButton extends StatelessWidget {
   }
 }
 
-/// 进度滑杆行（设计稿 `.slider-row` + `.track` + `.thumb` + `.bubble`）。
+/// 进度滑杆：拖动仅预览百分比，松手后才加载目标正文。
 class _ProgressRow extends StatefulWidget {
   const _ProgressRow({
     required this.fg,
@@ -455,13 +454,10 @@ class _ProgressRow extends StatefulWidget {
 }
 
 class _ProgressRowState extends State<_ProgressRow> {
-  bool _dragging = false;
-  double _dragValue = 0;
+  double? _preview;
 
   @override
   Widget build(BuildContext context) {
-    final value = _dragging ? _dragValue : widget.progress.clamp(0.0, 1.0);
-    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       height: _progressRowHeight,
       child: Row(
@@ -473,106 +469,7 @@ class _ProgressRowState extends State<_ProgressRow> {
             onTap: widget.onPrevious,
             buttonKey: const ValueKey<String>('menu-prev-chapter'),
           ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                return GestureDetector(
-                  key: const ValueKey<String>('menu-progress-slider'),
-                  behavior: HitTestBehavior.opaque,
-                  onTapDown: (details) {
-                    _seekTo(details.localPosition.dx / width);
-                  },
-                  onHorizontalDragStart: (details) {
-                    setState(() {
-                      _dragging = true;
-                      _dragValue = (details.localPosition.dx / width).clamp(
-                        0.0,
-                        1.0,
-                      );
-                    });
-                  },
-                  onHorizontalDragUpdate: (details) {
-                    setState(() {
-                      _dragValue = (details.localPosition.dx / width).clamp(
-                        0.0,
-                        1.0,
-                      );
-                    });
-                  },
-                  onHorizontalDragEnd: (_) {
-                    final target = _dragValue;
-                    setState(() => _dragging = false);
-                    widget.onSeek(target);
-                  },
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    alignment: Alignment.centerLeft,
-                    children: <Widget>[
-                      // 轨道
-                      Container(
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: widget.fill,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      // 已读填充
-                      FractionallySizedBox(
-                        widthFactor: value,
-                        child: Container(
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: scheme.primary,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      // 滑块
-                      Positioned(
-                        left: (width * value - 7).clamp(0.0, width - 14),
-                        child: Container(
-                          width: 14,
-                          height: 14,
-                          decoration: BoxDecoration(
-                            color: scheme.primary,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                      // 气泡
-                      if (_dragging)
-                        Positioned(
-                          left: (width * value - 80).clamp(0.0, width - 160),
-                          bottom: 26,
-                          child: Container(
-                            width: 160,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: scheme.inverseSurface,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              widget.label,
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: scheme.onInverseSurface,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
+          Expanded(child: _slider(context)),
           _NavButton(
             icon: AppGlyph.skipNext,
             label: '下一章',
@@ -585,8 +482,45 @@ class _ProgressRowState extends State<_ProgressRow> {
     );
   }
 
-  void _seekTo(double value) {
-    widget.onSeek(value.clamp(0.0, 1.0));
+  Widget _slider(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final value = _preview ?? widget.progress.clamp(0.0, 1.0);
+    return MergeSemantics(
+      child: Semantics(
+        label: '阅读进度',
+        hint: '当前${widget.label}',
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            activeTrackColor: colors.primary,
+            inactiveTrackColor: widget.fill,
+            thumbColor: colors.primary,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
+            overlayColor: colors.primary.withValues(alpha: .12),
+            showValueIndicator: ShowValueIndicator.onDrag,
+            valueIndicatorShape: const RectangularSliderValueIndicatorShape(),
+            valueIndicatorColor: colors.inverseSurface,
+            valueIndicatorTextStyle: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colors.onInverseSurface),
+          ),
+          child: Slider(
+            key: const ValueKey<String>('menu-progress-slider'),
+            padding: const EdgeInsets.symmetric(horizontal: 7),
+            value: value,
+            label: '${(value * 100).toStringAsFixed(1)}%',
+            semanticFormatterCallback: (value) =>
+                '${(value * 100).toStringAsFixed(1)}%',
+            onChangeStart: (value) => setState(() => _preview = value),
+            onChanged: (value) => setState(() => _preview = value),
+            onChangeEnd: (value) {
+              setState(() => _preview = null);
+              widget.onSeek(value);
+            },
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -757,7 +691,6 @@ class _DrawerLayer extends StatefulWidget {
   const _DrawerLayer({
     super.key,
     required this.title,
-    required this.theme,
     required this.child,
     required this.onClose,
     required this.inkMode,
@@ -767,7 +700,6 @@ class _DrawerLayer extends StatefulWidget {
   });
 
   final String title;
-  final ReaderTheme? theme;
   final Widget child;
   final VoidCallback onClose;
   final bool inkMode;
@@ -870,7 +802,13 @@ class _DrawerLayerState extends State<_DrawerLayer>
           Column(
             children: [
               _buildHandle(),
-              Expanded(child: _buildScrollableContent()),
+              Expanded(
+                child: ReaderPanelReveal(
+                  animation: widget.animation,
+                  extent: contentHeight,
+                  child: _buildScrollableContent(),
+                ),
+              ),
             ],
           ),
           contentHeight,
@@ -920,17 +858,15 @@ class _DrawerLayerState extends State<_DrawerLayer>
       onVerticalDragUpdate: (details) => _move(details.primaryDelta ?? 0),
       onVerticalDragEnd: (details) => _release(details.primaryVelocity ?? 0),
       onVerticalDragCancel: () => _release(0),
-      child: ReaderPanelTheme(
-        theme: widget.theme ?? _fallbackTheme,
-        child: ReaderFrostedSurface(
-          key: const ValueKey<String>('reader-drawer-surface'),
-          radius: ReaderUiStyle.panelCornerOf(Theme.of(context)),
-          bottomRadius: 0,
-          inkMode: widget.inkMode,
-          child: ClipRRect(
-            borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
-            child: _buildRevealContent(content, contentHeight),
-          ),
+      // 菜单已经提供面板主题，抽屉直接继承，避免首次布局时再派生一整套主题。
+      child: ReaderFrostedSurface(
+        key: const ValueKey<String>('reader-drawer-surface'),
+        radius: ReaderUiStyle.panelCornerOf(Theme.of(context)),
+        bottomRadius: 0,
+        inkMode: widget.inkMode,
+        child: ClipRRect(
+          borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
+          child: _buildRevealContent(content, contentHeight),
         ),
       ),
     ),

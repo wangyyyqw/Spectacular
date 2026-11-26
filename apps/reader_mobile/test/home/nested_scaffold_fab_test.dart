@@ -71,6 +71,11 @@ void main() {
     expect(importButton, findsOneWidget);
     await tester.tap(importButton, warnIfMissed: true);
     await tester.pumpAndSettle();
-    expect(pickCalls, 1, reason: '点导入按钮应触发选文件');
+    expect(find.text('从本机导入'), findsOneWidget);
+    expect(find.text('从网盘导入'), findsOneWidget);
+    expect(pickCalls, 0, reason: '选择导入来源前不应调用文件选择器');
+    await tester.tap(find.text('从本机导入'), warnIfMissed: true);
+    await tester.pumpAndSettle();
+    expect(pickCalls, 1, reason: '选择本机导入后应触发选文件');
   });
 }

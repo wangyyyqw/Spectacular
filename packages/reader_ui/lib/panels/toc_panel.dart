@@ -248,11 +248,147 @@ class _TocPanelState extends State<TocPanel> {
     return cfi != null && readingCfi != null && cfi.compareTo(readingCfi) < 0;
   }
 
+  TocEntry? _currentVolume(TocEntry? active) {
+    if (active == null) {
+      return null;
+    }
+    final path = _pathToEntry(widget.entries, active);
+    if (path.isEmpty || path.first.children.isEmpty) {
+      return null;
+    }
+    return path.first;
+  }
+
+  Widget _buildEntryTile(
+    BuildContext context,
+    TocRow row, {
+    required TocEntry? active,
+    required EpubCfi? readingCfi,
+  }) {
+    final theme = Theme.of(context);
+    final text = ReaderDrawerStyle.textOf(theme);
+    final muted = ReaderDrawerStyle.mutedOf(theme);
+    final faint = ReaderDrawerStyle.faintOf(theme);
+    final current = identical(row.entry, active);
+    final missing = row.entry.missing;
+    final read = !current && _isRead(row.entry, readingCfi);
+    final expanded = _expanded.contains(row.entry);
+    final hasChildren = row.entry.children.isNotEmpty;
+    final rowColor = missing || read
+        ? muted
+        : current
+        ? theme.colorScheme.primary
+        : text;
+    final baseLeft = row.depth == 1 ? 22.0 : 58.0 + (row.depth - 2) * 18.0;
+    return ListTile(
+      key: ValueKey<String>(
+        'toc-row-${row.entry.spineIndex}-${row.entry.title}',
+      ),
+      dense: true,
+      minTileHeight: _rowExtent,
+      selected: current && !missing,
+      selectedColor: theme.colorScheme.primary,
+      tileColor: Colors.transparent,
+      focusColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      selectedTileColor: Colors.transparent,
+      contentPadding: EdgeInsets.only(left: baseLeft, right: 24),
+      title: Row(
+        children: [
+          if (row.depth == 1 && hasChildren) ...[
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: ReaderDrawerStyle.optionFillOf(theme),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    missing ? '${row.entry.title}（章节缺失）' : row.entry.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium!.copyWith(
+                      fontSize: 14,
+                      color: rowColor,
+                      fontWeight: current && !missing
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ),
+                  ),
+                ),
+                if (current && !missing) ...[
+                  const SizedBox(width: 6),
+                  AppIcon(
+                    AppGlyph.pushPin,
+                    key: const ValueKey<String>('toc-current-pin'),
+                    size: 18,
+                    color: text,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+      trailing: hasChildren
+          ? SizedBox.square(
+              dimension: 24,
+              child: InkWell(
+                key: ValueKey<String>(
+                  'toc-toggle-${row.entry.spineIndex}-${row.entry.title}',
+                ),
+                customBorder: const CircleBorder(),
+                onTap: () => _toggleEntry(row.entry),
+                child: AppIcon(
+                  expanded ? AppGlyph.chevronDown : AppGlyph.chevronUp,
+                  size: 14,
+                  color: faint,
+                ),
+              ),
+            )
+          : widget.isChapterCached == null || row.entry.spineIndex < 0
+          ? null
+          : FutureBuilder<bool>(
+              future: widget.isChapterCached!(row.entry.spineIndex),
+              builder: (context, snapshot) => snapshot.data == false
+                  ? const Tooltip(
+                      message: '未下载',
+                      child: Icon(Icons.cloud_outlined, size: 18),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+      onTap: missing ? null : () => widget.onSelect(row.entry),
+    );
+  }
+
+  Widget _tocRowsSliver(
+    List<TocRow> rows, {
+    required TocEntry? active,
+    required EpubCfi? readingCfi,
+  }) => SliverFixedExtentList(
+    itemExtent: _rowExtent,
+    delegate: SliverChildBuilderDelegate(
+      (context, index) => _buildEntryTile(
+        context,
+        rows[index],
+        active: active,
+        readingCfi: readingCfi,
+      ),
+      childCount: rows.length,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final surface = ReaderDrawerStyle.surfaceOf(theme);
-    final text = ReaderDrawerStyle.textOf(theme);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final faint = ReaderDrawerStyle.faintOf(theme);
     final metaStyle = theme.textTheme.bodySmall!.copyWith(
@@ -260,11 +396,15 @@ class _TocPanelState extends State<TocPanel> {
       color: muted,
     );
     final allRows = flattenToc(widget.entries);
-    final rows = _visibleRows();
     final active = _activeEntry(allRows);
+    final currentVolume = _currentVolume(active);
+    final rows = _visibleRows();
     final readingCfi = widget.currentCfi == null
         ? null
         : EpubCfi.parse(widget.currentCfi!);
+    final currentVolumeIndex = currentVolume == null
+        ? -1
+        : rows.indexWhere((row) => identical(row.entry, currentVolume));
     return Material(
       color: surface,
       child: Column(
@@ -336,137 +476,47 @@ class _TocPanelState extends State<TocPanel> {
                     thumbColor: faint,
                     thickness: 4,
                     radius: const Radius.circular(2),
-                    child: ListView.builder(
+                    child: CustomScrollView(
                       controller: _scrollController,
-                      padding: const EdgeInsets.only(
-                        bottom: _listBottomPadding,
-                      ),
-                      itemExtent: _rowExtent,
-                      itemCount: rows.length,
-                      itemBuilder: (context, index) {
-                        final row = rows[index];
-                        final current = identical(row.entry, active);
-                        final missing = row.entry.missing;
-                        final read = !current && _isRead(row.entry, readingCfi);
-                        final expanded = _expanded.contains(row.entry);
-                        final hasChildren = row.entry.children.isNotEmpty;
-                        final rowColor = missing || read
-                            ? muted
-                            : current
-                            ? theme.colorScheme.primary
-                            : text;
-                        final baseLeft = row.depth == 1
-                            ? 22.0
-                            : 58.0 + (row.depth - 2) * 18.0;
-                        return ListTile(
-                          key: ValueKey<String>(
-                            'toc-row-${row.entry.spineIndex}-${row.entry.title}',
+                      slivers: [
+                        if (currentVolumeIndex >= 0) ...[
+                          _tocRowsSliver(
+                            rows.take(currentVolumeIndex).toList(),
+                            active: active,
+                            readingCfi: readingCfi,
                           ),
-                          dense: true,
-                          minTileHeight: _rowExtent,
-                          selected: current && !missing,
-                          selectedColor: theme.colorScheme.primary,
-                          tileColor: Colors.transparent,
-                          focusColor: Colors.transparent,
-                          hoverColor: Colors.transparent,
-                          selectedTileColor: Colors.transparent,
-                          contentPadding: EdgeInsets.only(
-                            left: baseLeft,
-                            right: 24,
-                          ),
-                          title: Row(
-                            children: [
-                              if (row.depth == 1 && hasChildren) ...[
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: ReaderDrawerStyle.optionFillOf(
-                                      theme,
-                                    ),
-                                    shape: BoxShape.circle,
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: _TocPinnedHeaderDelegate(
+                              child: Material(
+                                color: surface,
+                                child: _buildEntryTile(
+                                  context,
+                                  (
+                                    entry: currentVolume!,
+                                    depth: rows[currentVolumeIndex].depth,
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                              ],
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        missing
-                                            ? '${row.entry.title}（章节缺失）'
-                                            : row.entry.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.bodyMedium!
-                                            .copyWith(
-                                              fontSize: 14,
-                                              color: rowColor,
-                                              fontWeight: current && !missing
-                                                  ? FontWeight.w600
-                                                  : FontWeight.w400,
-                                            ),
-                                      ),
-                                    ),
-                                    if (current && !missing) ...[
-                                      const SizedBox(width: 6),
-                                      AppIcon(
-                                        AppGlyph.pushPin,
-                                        key: const ValueKey<String>(
-                                          'toc-current-pin',
-                                        ),
-                                        size: 18,
-                                        color: text,
-                                      ),
-                                    ],
-                                  ],
+                                  active: active,
+                                  readingCfi: readingCfi,
                                 ),
                               ),
-                            ],
+                            ),
                           ),
-                          trailing: hasChildren
-                              ? SizedBox.square(
-                                  dimension: 24,
-                                  child: InkWell(
-                                    key: ValueKey<String>(
-                                      'toc-toggle-${row.entry.spineIndex}-'
-                                      '${row.entry.title}',
-                                    ),
-                                    customBorder: const CircleBorder(),
-                                    onTap: () => _toggleEntry(row.entry),
-                                    child: AppIcon(
-                                      expanded
-                                          ? AppGlyph.chevronDown
-                                          : AppGlyph.chevronUp,
-                                      size: 14,
-                                      color: faint,
-                                    ),
-                                  ),
-                                )
-                              : widget.isChapterCached == null ||
-                                    row.entry.spineIndex < 0
-                              ? null
-                              : FutureBuilder<bool>(
-                                  future: widget.isChapterCached!(
-                                    row.entry.spineIndex,
-                                  ),
-                                  builder: (context, snapshot) =>
-                                      snapshot.data == false
-                                      ? const Tooltip(
-                                          message: '未下载',
-                                          child: Icon(
-                                            Icons.cloud_outlined,
-                                            size: 18,
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(),
-                                ),
-                          onTap: missing
-                              ? null
-                              : () => widget.onSelect(row.entry),
-                        );
-                      },
+                          _tocRowsSliver(
+                            rows.skip(currentVolumeIndex + 1).toList(),
+                            active: active,
+                            readingCfi: readingCfi,
+                          ),
+                        ] else
+                          _tocRowsSliver(
+                            rows,
+                            active: active,
+                            readingCfi: readingCfi,
+                          ),
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: _listBottomPadding),
+                        ),
+                      ],
                     ),
                   ),
           ),
@@ -474,6 +524,29 @@ class _TocPanelState extends State<TocPanel> {
       ),
     );
   }
+}
+
+class _TocPinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _TocPinnedHeaderDelegate({required this.child});
+
+  final Widget child;
+
+  @override
+  double get minExtent => 40;
+
+  @override
+  double get maxExtent => 40;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => child;
+
+  @override
+  bool shouldRebuild(_TocPinnedHeaderDelegate oldDelegate) =>
+      child != oldDelegate.child;
 }
 
 class _TocToolButton extends StatelessWidget {

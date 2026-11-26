@@ -66,7 +66,9 @@ void main() {
   testWidgets('更新事件立即刷新书架，按最新章节时间上浮且保留最近阅读优先级', (tester) async {
     final library = LibraryStore.memory();
     final books = (await tester.runAsync(
-      () async => [for (final file in files) await library.importFile(file.path)],
+      () async => [
+        for (final file in files) await library.importFile(file.path),
+      ],
     ))!;
     final online = _UpdateController(library);
     await library.setSetting('bookshelf.grid', 'false');
@@ -125,7 +127,7 @@ void main() {
     );
     await tester.pumpWidget(page(0));
     await _settle(tester);
-    await tester.tap(find.text('测试分组 1'));
+    await tester.tap(find.text('测试分组'));
     await tester.pump(const Duration(milliseconds: 30));
     await library.setSetting(bookshelfAllAsGroupKey, 'true');
     await tester.pumpWidget(page(1));
@@ -135,7 +137,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(ValueKey('book-card-title-${book.id}')), findsOneWidget);
-    expect(find.text('测试分组 1'), findsOneWidget);
+    expect(find.text('测试分组'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('bookshelf-group-all')));
     await _settle(tester);
     expect(find.byKey(ValueKey('book-card-title-${book.id}')), findsNothing);
@@ -148,7 +150,7 @@ void main() {
     await library.setSetting(bookshelfAllAsGroupKey, 'false');
     await tester.pumpWidget(page(2));
     await _settle(tester);
-    expect(find.text('测试分组 1'), findsOneWidget);
+    expect(find.text('测试分组'), findsOneWidget);
     expect(find.byKey(ValueKey('book-card-title-${book.id}')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
@@ -201,10 +203,25 @@ void main() {
       );
       final grid = find.byKey(const ValueKey('bookshelf-grid'));
       final list = find.byKey(const ValueKey('bookshelf-list'));
-      final toolbar = tester.getRect(
-        find.byKey(const ValueKey('bookshelf-group-toolbar')),
+      final toolbarFinder = find.byKey(
+        const ValueKey('bookshelf-group-toolbar'),
       );
-      final groupCenter = tester.getCenter(find.text('全部 1')).dy;
+      final toolbar = tester.getRect(toolbarFinder);
+      final groupCenter = tester.getCenter(find.text('全部')).dy;
+      expect(find.textContaining('全部 '), findsNothing);
+      final toolbarIcons = tester.widgetList<AppIcon>(
+        find.descendant(of: toolbarFinder, matching: find.byType(AppIcon)),
+      );
+      expect(toolbarIcons.map((icon) => icon.strokeWidth), <double>[1.3, 1.3]);
+      final toolbarButtons = tester.widgetList<IconButton>(
+        find.descendant(of: toolbarFinder, matching: find.byType(IconButton)),
+      );
+      final theme = Theme.of(tester.element(find.byType(BookshelfPage)));
+      expect(toolbarButtons, hasLength(2));
+      for (final button in toolbarButtons) {
+        expect(button.color, theme.colorScheme.onSurfaceVariant);
+        expect(button.disabledColor, theme.disabledColor);
+      }
       for (final button in [
         find.byTooltip('列表视图'),
         find.byKey(const ValueKey('bookshelf-multi-select')),
@@ -298,6 +315,8 @@ void main() {
     );
     await _settle(tester);
     await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('从本机导入'));
     await _settle(tester, frames: 12);
     expect(
       find.byKey(const ValueKey<String>('bookshelf-grid')),
@@ -427,6 +446,8 @@ void main() {
         );
         await _settle(tester);
         await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('从本机导入'));
         await _settle(tester, frames: 12);
         final entry = (await library.list()).single;
         if (publisherId != null) {

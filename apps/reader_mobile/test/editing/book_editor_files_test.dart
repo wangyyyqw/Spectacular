@@ -29,15 +29,29 @@ Future<BookEditorController> _openBook(WidgetTester tester) async {
     session = await EpubEditSession.open(file);
     final package = PackageEditor(session);
     package.reorderChapters([_second, _first]);
-    package.addResource(_extra, session.readBytes(_first)!, 'application/xhtml+xml');
+    package.addResource(
+      _extra,
+      session.readBytes(_first)!,
+      'application/xhtml+xml',
+    );
     for (final path in [_left, _right]) {
       package.addResource(path, utf8.encode('p { color: red; }'), 'text/css');
     }
-    package.addResource('OEBPS/typeface', utf8.encode('12345'), 'application/font-sfnt');
-    package.addResource('OEBPS/vector.svg', utf8.encode('<svg/>'), 'image/svg+xml');
+    package.addResource(
+      'OEBPS/typeface',
+      utf8.encode('12345'),
+      'application/font-sfnt',
+    );
+    package.addResource(
+      'OEBPS/vector.svg',
+      utf8.encode('<svg/>'),
+      'image/svg+xml',
+    );
     package.addResource(
       'OEBPS/picture',
-      base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='),
+      base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      ),
       'image/png',
     );
   });
@@ -57,13 +71,17 @@ Future<void> _mount(
   BookEditorController editor, {
   double width = 200,
   VoidCallback? onOpen,
-}) => tester.pumpWidget(MaterialApp(
-  theme: buildAppTheme(),
-  home: Scaffold(body: SizedBox(
-    width: width,
-    child: BookEditorFiles(editor: editor, onOpen: onOpen ?? () {}),
-  )),
-));
+}) => tester.pumpWidget(
+  MaterialApp(
+    theme: buildAppTheme(),
+    home: Scaffold(
+      body: SizedBox(
+        width: width,
+        child: BookEditorFiles(editor: editor, onOpen: onOpen ?? () {}),
+      ),
+    ),
+  ),
+);
 
 Finder _row(String path) => find.byKey(ValueKey(path));
 
@@ -73,7 +91,9 @@ Future<void> _search(WidgetTester tester, String query) async {
 }
 
 Future<void> _menu(WidgetTester tester, String path) async {
-  await tester.tap(find.descendant(of: _row(path), matching: find.byTooltip('文件操作')));
+  await tester.tap(
+    find.descendant(of: _row(path), matching: find.byTooltip('文件操作')),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -85,8 +105,14 @@ void main() {
     for (final label in ['正文', '样式', '图片', '字体', '其他资源']) {
       expect(find.text(label), findsOneWidget);
     }
-    expect(tester.getTopLeft(_row(_second)).dy, lessThan(tester.getTopLeft(_row(_first)).dy));
-    expect(tester.getTopLeft(_row(_first)).dy, lessThan(tester.getTopLeft(_row(_extra)).dy));
+    expect(
+      tester.getTopLeft(_row(_second)).dy,
+      lessThan(tester.getTopLeft(_row(_first)).dy),
+    );
+    expect(
+      tester.getTopLeft(_row(_first)).dy,
+      lessThan(tester.getTopLeft(_row(_extra)).dy),
+    );
     await tester.tap(find.text('正文'));
     await tester.pump();
     expect(_row(_extra), findsNothing);
@@ -135,7 +161,10 @@ void main() {
     expect(find.text('替换图片资源（全书）'), findsOneWidget);
     await tester.tap(find.text('设为封面'));
     await tester.pumpAndSettle();
-    expect(editor.session.readText(editor.session.opfPath), contains('cover-image'));
+    expect(
+      editor.session.readText(editor.session.opfPath),
+      contains('cover-image'),
+    );
     await tester.tap(_row('OEBPS/picture'));
     await tester.pumpAndSettle();
     expect(find.byType(InteractiveViewer), findsOneWidget);
@@ -155,12 +184,13 @@ void main() {
     await _mount(tester, editor);
     await tester.tap(find.byTooltip('新增文件'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('空白章节'));
+    await tester.tap(find.text('新建空白 HTML'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'OEBPS/new.xhtml');
-    await tester.tap(find.text('确定'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('确定'));
+    await tester.enterText(
+      find.byKey(const ValueKey('new-html-path')),
+      'OEBPS/new.xhtml',
+    );
+    await tester.tap(find.text('创建 HTML'));
     await tester.pumpAndSettle();
     expect(editor.activePath, 'OEBPS/new.xhtml');
     expect(_row('OEBPS/new.xhtml'), findsOneWidget);
@@ -185,26 +215,11 @@ void main() {
     await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
   });
 
-  testWidgets('全书命中携带光标位置、章节工具显式请求切回源码', (tester) async {
+  testWidgets('章节工具显式请求切回源码', (tester) async {
     final editor = await _openBook(tester);
     await _mount(tester, editor);
     final context = tester.element(find.byType(BookEditorFiles));
     final tools = BookEditorTools(context, editor);
-    final search = tools.findReplace();
-    await tester.pumpAndSettle();
-    expect(find.byType(ReaderSheetForm), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    await tester.enterText(find.widgetWithText(TextField, '查找内容'), '命中正文');
-    await tester.tap(find.text('查找'));
-    await tester.pump();
-    await tester.tap(find.text(_second));
-    await tester.pumpAndSettle();
-    await search;
-    expect(find.byType(ReaderSheetForm), findsNothing);
-    expect(editor.activePath, _second);
-    expect(editor.sourceRequested, isTrue);
-    expect(editor.activeDocument!.code.selection.extentOffset, editor.session.readText(_second).indexOf('命中正文'));
-    editor.sourceRequested = false;
     final chapters = tools.chapters();
     await tester.pumpAndSettle();
     expect(find.byType(ReaderSheetForm), findsOneWidget);
@@ -273,7 +288,9 @@ class _CountingSession extends Fake implements EpubEditSession {
   }
 }
 
-class _CountingEditor extends Fake with ChangeNotifier implements BookEditorController {
+class _CountingEditor extends Fake
+    with ChangeNotifier
+    implements BookEditorController {
   _CountingEditor(this.session);
   @override
   final EpubEditSession session;

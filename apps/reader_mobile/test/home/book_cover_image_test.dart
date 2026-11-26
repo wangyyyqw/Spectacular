@@ -11,6 +11,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_cover_image.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 Future<void> _writeWideCover(File file) async {
   final recorder = ui.PictureRecorder();
@@ -109,6 +110,51 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('宽高缓存档位只限制尺寸，解码保持原封面比例', (tester) async {
+    final directory = Directory.systemTemp.createTempSync('cover-aspect');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final file = File('${directory.path}/wide.png');
+    await tester.runAsync(() async {
+      await _writeWideCover(file);
+      for (final size in [
+        const Size(92, 123),
+        const Size(153, 204),
+        const Size(66, 88),
+      ]) {
+        final result = Completer<ImageInfo>();
+        final stream = coverImageProvider(
+          file.path,
+          coverDecodeWidth(size.width, 1),
+          decodeHeight: coverDecodeHeight(size.height, 1),
+        ).resolve(const ImageConfiguration());
+        final listener = ImageStreamListener(
+          (image, _) => result.complete(image),
+          onError: result.completeError,
+        );
+        stream.addListener(listener);
+        final image = await result.future;
+        try {
+          expect(
+            image.image.width / image.image.height,
+            closeTo(4, .15),
+            reason: '原图为4:1，解码不能被两个缓存档位拉成其他比例',
+          );
+          expect(
+            image.image.width,
+            lessThanOrEqualTo(coverDecodeWidth(size.width, 1)),
+          );
+          expect(
+            image.image.height,
+            lessThanOrEqualTo(coverDecodeHeight(size.height, 1)),
+          );
+        } finally {
+          stream.removeListener(listener);
+          image.dispose();
+        }
+      }
+    });
+  });
+
   testWidgets('封面居中等比裁切并铺满三比四边框', (tester) async {
     final directory = Directory.systemTemp.createTempSync('cover-visible');
     addTearDown(() => directory.deleteSync(recursive: true));
@@ -145,12 +191,7 @@ void main() {
           body: Center(
             child: RepaintBoundary(
               key: boundary,
-              child: BookCoverImage(
-                book: book,
-                width: 100,
-                height: 160,
-                showReadabilityBadge: true,
-              ),
+              child: BookCoverImage(book: book, width: 100, height: 160),
             ),
           ),
         ),
@@ -179,7 +220,8 @@ void main() {
     expect(bytes[right + 1], 0);
     expect(bytes[right + 2], 255, reason: '裁切后应显示居中内容');
     expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.cover);
-    expect(find.byKey(const ValueKey('book-damaged-badge')), findsOneWidget);
+    expect(find.byType(AppIcon), findsNothing);
+    expect(find.byType(Tooltip), findsNothing);
   });
 
   testWidgets('可按需应用与搜索栏一致的轻阴影', (tester) async {
@@ -311,7 +353,7 @@ void main() {
     expect(coverDecodeHeight(1000, 4), 1200);
   });
 
-  testWidgets('封面文件缺失时显示书名占位和结构异常提示', (tester) async {
+  testWidgets('封面文件缺失时显示书名占位，不叠加警告标识', (tester) async {
     final book = BookEntry(
       id: 'missing',
       title: '测试书',
@@ -319,18 +361,13 @@ void main() {
       filePath: '',
       addedAt: DateTime(2026),
       coverPath: '/不存在的封面.png',
-      readabilityLevel: 2,
+      readabilityLevel: 3,
     );
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Center(
-            child: BookCoverImage(
-              book: book,
-              width: 100,
-              height: 160,
-              showReadabilityBadge: true,
-            ),
+            child: BookCoverImage(book: book, width: 100, height: 160),
           ),
         ),
       ),
@@ -362,7 +399,8 @@ void main() {
       find.byKey(const ValueKey('cover-placeholder-missing')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('book-damaged-badge')), findsOneWidget);
+    expect(find.byType(AppIcon), findsNothing);
+    expect(find.byType(Tooltip), findsNothing);
     expect(find.text('测试书'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -425,6 +463,36 @@ void main() {
       isA<FileImage>().having((value) => value.file.path, 'path', file.path),
     );
   });
+
+  for (final level in [2, 3, 4]) {
+    testWidgets('可读性等级 $level 的无封面书籍仅显示书名占位', (tester) async {
+      final book = BookEntry(
+        id: 'placeholder-$level',
+        title: '朕',
+        author: '',
+        filePath: '',
+        addedAt: DateTime(2026),
+        readabilityLevel: level,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: BookCoverImage(book: book, width: 120, height: 160),
+            ),
+          ),
+        ),
+      );
+      expect(
+        find.byKey(ValueKey('cover-placeholder-${book.id}')),
+        findsOneWidget,
+      );
+      expect(find.text('朕'), findsOneWidget);
+      expect(find.byType(AppIcon), findsNothing);
+      expect(find.byType(Tooltip), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
 
 class _CoverClient implements HttpClient {

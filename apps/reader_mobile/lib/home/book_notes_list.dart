@@ -310,7 +310,7 @@ class _BookNotesPageState extends State<_BookNotesPage> {
       }
       final notes = snapshot.requireData;
       if (notes.isEmpty) return const _NotesMessage('这本书还没有笔记');
-      return ListView.separated(
+      final list = ListView.separated(
         padding: _listInsets,
         itemCount: notes.length,
         itemBuilder: (_, index) => _NoteCard(
@@ -323,6 +323,7 @@ class _BookNotesPageState extends State<_BookNotesPage> {
         ),
         separatorBuilder: (_, _) => const SizedBox(height: 10),
       );
+      return usesDesktopLayout(context) ? SelectionArea(child: list) : list;
     },
   );
 }

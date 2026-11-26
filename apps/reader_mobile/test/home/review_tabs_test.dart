@@ -1,4 +1,5 @@
 import 'dart:ui' show Tristate;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,9 +12,13 @@ class _Library extends LibraryStore {
   _Library(this.books) : super.memory();
 
   final List<BookEntry> books;
+  Completer<void>? pendingList;
 
   @override
-  Future<List<BookEntry>> list() async => books;
+  Future<List<BookEntry>> list() async {
+    await pendingList?.future;
+    return books;
+  }
 
   @override
   Future<Set<String>> finishedBookIds() async => {
@@ -50,6 +55,38 @@ BookEntry _book() => BookEntry(
 );
 
 void main() {
+  testWidgets('切回已加载的笔记和书评时保留内容，后台完成刷新', (tester) async {
+    final library = _Library([_book()]);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ReviewsPage(library: library, reviewStore: _Reviews()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
+
+    library.pendingList = Completer<void>();
+    await tester.tap(find.byKey(const ValueKey('notes-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('还没有笔记'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    library.books[0] = _book().copyWith(title: '刷新后的书名');
+    library.pendingList!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('刷新后的书名'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('书评页默认进入笔记，切换到书评时才查询书评', (tester) async {
     final semantics = tester.ensureSemantics();
     try {

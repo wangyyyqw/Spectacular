@@ -25,9 +25,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('导入 EPUB / TXT'));
-    await pumpReaderUntil(tester, find.text('导入同名图书'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('从本机导入'));
+    await pumpReaderUntil(tester, find.text('导入重复图书'));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('导入同名图书'), findsOneWidget);
+    expect(find.text('导入重复图书'), findsOneWidget);
     expect(find.text('独立导入'), findsOneWidget);
     expect(find.text('取消导入'), findsOneWidget);
     await tester.tap(find.text('覆盖导入'));
@@ -37,7 +39,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await library.list(), hasLength(1));
-    expect(find.text('导入同名图书'), findsNothing);
+    expect(find.text('导入重复图书'), findsNothing);
     expect(
       find.byKey(ValueKey<String>('book-card-${book.id}')),
       findsOneWidget,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../theme/reader_switch.dart';
 
@@ -27,6 +28,7 @@ import 'corner_info_editor.dart';
 import 'font_picker_sheet.dart';
 import '../theme/reader_frosted_popup.dart';
 import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_panel_reveal.dart';
 
 export 'font_picker_sheet.dart' show ReaderFontOption;
 
@@ -121,6 +123,7 @@ class SettingsPanel extends StatefulWidget {
     this.bookmarkStyle = const ReaderBookmarkStyle(),
     this.footnoteStyle = ReaderFootnoteStyle.dialog,
     this.onFootnoteStyleChanged,
+    this.onPopupMenuVisibilityChanged,
     this.marginsActive = false,
     this.pageTurnMode = PageTurnMode.cover,
     this.onPageTurnModeChanged,
@@ -221,6 +224,9 @@ class SettingsPanel extends StatefulWidget {
   /// 阅读页注释的展示样式。
   final ReaderFootnoteStyle footnoteStyle;
   final ValueChanged<ReaderFootnoteStyle>? onFootnoteStyleChanged;
+
+  /// 通知宿主锚定菜单显示状态，避免弹出路由引起阅读系统栏切换。
+  final ValueChanged<bool>? onPopupMenuVisibilityChanged;
 
   /// 已用边距调节器接管页边距时隐藏旧的统一页边距滑块。
   final bool marginsActive;
@@ -507,40 +513,55 @@ class _SettingsPanelState extends State<SettingsPanel> {
               ),
             ),
           Expanded(
-            child: ListView(
-              padding: switch (widget.section) {
-                SettingsSection.all => const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                SettingsSection.type => const EdgeInsets.fromLTRB(
-                  20,
-                  16,
-                  20,
-                  20,
+            child: CustomScrollView(
+              // 面板首次打开只创建可见项，屏外开关和字体预览随滚动再布局。
+              scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+              slivers: [
+                SliverPadding(
+                  padding: switch (widget.section) {
+                    SettingsSection.all => const EdgeInsets.fromLTRB(
+                      20,
+                      8,
+                      20,
+                      16,
+                    ),
+                    SettingsSection.type => const EdgeInsets.fromLTRB(
+                      20,
+                      16,
+                      20,
+                      20,
+                    ),
+                    SettingsSection.theme => const EdgeInsets.fromLTRB(
+                      16,
+                      12,
+                      16,
+                      20,
+                    ),
+                    SettingsSection.settings => const EdgeInsets.fromLTRB(
+                      16,
+                      10,
+                      16,
+                      16,
+                    ),
+                  },
+                  sliver: ReaderPanelSliver(
+                    sliver: SliverList.list(
+                      children: switch (widget.section) {
+                        SettingsSection.all => <Widget>[
+                          ..._typeChildren(theme, legacyPadding: true),
+                          const SizedBox(height: 24),
+                          ..._themeChildren(theme),
+                          const SizedBox(height: 24),
+                          ..._settingsChildren(theme, includeReset: false),
+                        ],
+                        SettingsSection.type => _typeChildren(theme),
+                        SettingsSection.theme => _themeChildren(theme),
+                        SettingsSection.settings => _settingsChildren(theme),
+                      },
+                    ),
+                  ),
                 ),
-                SettingsSection.theme => const EdgeInsets.fromLTRB(
-                  16,
-                  12,
-                  16,
-                  20,
-                ),
-                SettingsSection.settings => const EdgeInsets.fromLTRB(
-                  16,
-                  10,
-                  16,
-                  16,
-                ),
-              },
-              children: switch (widget.section) {
-                SettingsSection.all => <Widget>[
-                  ..._typeChildren(theme, legacyPadding: true),
-                  const SizedBox(height: 24),
-                  ..._themeChildren(theme),
-                  const SizedBox(height: 24),
-                  ..._settingsChildren(theme, includeReset: false),
-                ],
-                SettingsSection.type => _typeChildren(theme),
-                SettingsSection.theme => _themeChildren(theme),
-                SettingsSection.settings => _settingsChildren(theme),
-              },
+              ],
             ),
           ),
         ],
@@ -1056,46 +1077,52 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   List<Widget> _settingsChildren(ThemeData theme, {bool includeReset = true}) {
     return <Widget>[
-      if (widget.onFootnoteStyleChanged != null) ...[
-        Text(
-          '注释样式',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: ReaderDrawerStyle.textOf(theme),
-          ),
-        ),
-        const SizedBox(height: 8),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(bottom: 2),
-          child: Row(
-            children: [
-              for (
-                var index = 0;
-                index < ReaderFootnoteStyle.values.length;
-                index++
-              ) ...[
-                if (index > 0) const SizedBox(width: 6),
-                _PageTurnOption(
-                  key: ValueKey<String>(
-                    'settings-footnote-style-${ReaderFootnoteStyle.values[index].name}',
+      Row(
+        children: [
+          if (widget.onFootnoteStyleChanged != null) ...[
+            Expanded(
+              child: _SettingsChoiceRow<ReaderFootnoteStyle>(
+                key: const ValueKey<String>('settings-footnote-style'),
+                label: '注释样式',
+                value: widget.footnoteStyle,
+                items: [
+                  for (final style in ReaderFootnoteStyle.values)
+                    DropdownMenuItem(
+                      key: ValueKey<String>(
+                        'settings-footnote-style-${style.name}',
+                      ),
+                      value: style,
+                      child: Text(style.label),
+                    ),
+                ],
+                onChanged: widget.onFootnoteStyleChanged,
+                onMenuVisibilityChanged: widget.onPopupMenuVisibilityChanged,
+              ),
+            ),
+            const SizedBox(width: 16),
+          ],
+          Expanded(
+            child: _SettingsChoiceRow<PageTurnMode>(
+              key: const ValueKey<String>('settings-page-turn'),
+              label: '翻页方式',
+              value: widget.pageTurnMode,
+              items: [
+                for (final mode in _pageTurnOrder)
+                  DropdownMenuItem(
+                    key: ValueKey<String>('settings-page-turn-${mode.id}'),
+                    value: mode,
+                    child: Text(_shortPageTurnLabel(mode)),
                   ),
-                  label: ReaderFootnoteStyle.values[index].label,
-                  selected:
-                      widget.footnoteStyle == ReaderFootnoteStyle.values[index],
-                  onTap: () => widget.onFootnoteStyleChanged!(
-                    ReaderFootnoteStyle.values[index],
-                  ),
-                ),
               ],
-            ],
+              onChanged: widget.onPageTurnModeChanged,
+              onMenuVisibilityChanged: widget.onPopupMenuVisibilityChanged,
+            ),
           ),
-        ),
-        const SizedBox(height: 10),
-        _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
-        const SizedBox(height: 10),
-      ],
+        ],
+      ),
+      const SizedBox(height: 10),
+      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
+      const SizedBox(height: 10),
       if (widget.onOpenBookmarkStyle != null) ...[
         Text(
           '书签样式',
@@ -1154,44 +1181,6 @@ class _SettingsPanelState extends State<SettingsPanel> {
         _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
         const SizedBox(height: 12),
       ],
-      Text(
-        '翻页方式',
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: ReaderDrawerStyle.textOf(theme),
-        ),
-      ),
-      const SizedBox(height: 8),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.only(bottom: 2),
-        child: Row(
-          children: <Widget>[
-            for (
-              var index = 0;
-              index < _pageTurnOrder.length;
-              index++
-            ) ...<Widget>[
-              if (index > 0) const SizedBox(width: 6),
-              _PageTurnOption(
-                key: ValueKey<String>(
-                  'settings-page-turn-${_pageTurnOrder[index].id}',
-                ),
-                label: _shortPageTurnLabel(_pageTurnOrder[index]),
-                selected: widget.pageTurnMode == _pageTurnOrder[index],
-                onTap: widget.onPageTurnModeChanged == null
-                    ? null
-                    : () =>
-                          widget.onPageTurnModeChanged!(_pageTurnOrder[index]),
-              ),
-            ],
-          ],
-        ),
-      ),
-      const SizedBox(height: 10),
-      _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
-      const SizedBox(height: 10),
       Text(
         '边角信息',
         style: TextStyle(
@@ -1618,61 +1607,139 @@ class _OutlinedThumbShape extends SliderComponentShape {
   }
 }
 
-class _PageTurnOption extends StatelessWidget {
-  const _PageTurnOption({
+class _SettingsChoiceRow<T> extends StatelessWidget {
+  static const _menuWidth = 144.0;
+
+  const _SettingsChoiceRow({
     super.key,
     required this.label,
-    required this.selected,
-    required this.onTap,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.onMenuVisibilityChanged,
   });
 
   final String label;
-  final bool selected;
-  final VoidCallback? onTap;
+  final T value;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T>? onChanged;
+  final ValueChanged<bool>? onMenuVisibilityChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Opacity(
-      opacity: onTap == null ? 0.42 : 1,
-      child: Material(
-        color: selected
-            ? scheme.primaryContainer
-            : ReaderDrawerStyle.optionFillOf(theme),
-        shape: RoundedRectangleBorder(
-          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
-          side: BorderSide(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-          ),
-        ),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 44),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Center(
-                widthFactor: 1,
-                heightFactor: 1,
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-                    color: selected
-                        ? scheme.onPrimaryContainer
-                        : ReaderDrawerStyle.textOf(theme),
-                  ),
-                ),
-              ),
-            ),
-          ),
+    final selected = items.firstWhere((item) => item.value == value);
+    final textStyle = theme.textTheme.bodyMedium!.copyWith(
+      fontSize: 14,
+      color: onChanged == null
+          ? theme.disabledColor
+          : theme.colorScheme.onSurface,
+    );
+    return InkWell(
+      onTap: onChanged == null ? null : () => _showMenu(context),
+      borderRadius: ReaderUiStyle.controlRadiusOf(theme),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 52),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: _content(theme, textStyle, selected.child),
         ),
       ),
     );
   }
+
+  Widget _content(ThemeData theme, TextStyle textStyle, Widget current) => Wrap(
+    alignment: WrapAlignment.spaceBetween,
+    runAlignment: WrapAlignment.center,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    spacing: 12,
+    runSpacing: 4,
+    children: [
+      Text(label, style: textStyle.copyWith(fontWeight: FontWeight.w600)),
+      Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DefaultTextStyle(
+            style: textStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            child: current,
+          ),
+          const SizedBox(width: 8),
+          AppIcon(
+            AppGlyph.chevronRight,
+            size: 18,
+            color: ReaderDrawerStyle.faintOf(theme),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Future<void> _showMenu(BuildContext context) async {
+    final theme = Theme.of(context);
+    final button = context.findRenderObject()! as RenderBox;
+    final overlay =
+        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
+    final anchor = button.localToGlobal(
+      button.size.topRight(Offset.zero),
+      ancestor: overlay,
+    );
+    onMenuVisibilityChanged?.call(true);
+    try {
+      final result = await showMenu<T>(
+        context: context,
+        position: RelativeRect.fromRect(
+          anchor.translate(-_menuWidth, 0) &
+              Size(_menuWidth, button.size.height),
+          Offset.zero & overlay.size,
+        ),
+        items: _menuItems(theme),
+        constraints: BoxConstraints(
+          minWidth: _menuWidth,
+          maxWidth: _menuWidth,
+          maxHeight: MediaQuery.sizeOf(context).height * .6,
+        ),
+        color: theme.colorScheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shape:
+            theme.popupMenuTheme.shape ?? ReaderUiStyle.controlShapeOf(theme),
+        clipBehavior: Clip.antiAlias,
+        popUpAnimationStyle:
+            ReaderFrostedScope.inkModeOf(context) ||
+                MediaQuery.disableAnimationsOf(context)
+            ? AnimationStyle.noAnimation
+            : null,
+      );
+      if (context.mounted && result != null) onChanged!(result);
+    } finally {
+      onMenuVisibilityChanged?.call(false);
+    }
+  }
+
+  List<PopupMenuEntry<T>> _menuItems(ThemeData theme) => [
+    for (final item in items)
+      PopupMenuItem<T>(
+        key: item.key,
+        value: item.value,
+        height: 52,
+        child: Semantics(
+          selected: item.value == value,
+          child: Center(
+            child: DefaultTextStyle(
+              style: theme.textTheme.bodyMedium!.copyWith(
+                fontSize: 14,
+                color: item.value == value
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurface,
+              ),
+              child: item.child,
+            ),
+          ),
+        ),
+      ),
+  ];
 }
 
 class _SettingsDivider extends StatelessWidget {

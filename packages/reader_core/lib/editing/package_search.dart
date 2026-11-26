@@ -7,6 +7,7 @@ class EditSearchMatch {
     required this.end,
     required this.text,
     required this.revision,
+    this.regex = false,
     this.groups = const [],
   });
   final String path;
@@ -14,6 +15,7 @@ class EditSearchMatch {
   final int end;
   final String text;
   final int revision;
+  final bool regex;
   final List<String?> groups;
 }
 
@@ -44,6 +46,7 @@ extension PackageSearchCommands on PackageEditor {
             end: match.end,
             text: match[0]!,
             revision: session.revision,
+            regex: regex,
             groups: [for (var i = 1; i <= match.groupCount; i++) match[i]],
           ),
     ];
@@ -65,16 +68,16 @@ extension PackageSearchCommands on PackageEditor {
               source.substring(match.start, match.end) != match.text) {
             throw StateError('匹配范围冲突，请重新查找');
           }
-          final value = replacement.replaceAllMapped(RegExp(r'\$(\d+)'), (
-            group,
-          ) {
-            final index = int.parse(group[1]!);
-            return index == 0
-                ? match.text
-                : index <= match.groups.length
-                ? match.groups[index - 1] ?? ''
-                : group[0]!;
-          });
+          final value = match.regex
+              ? replacement.replaceAllMapped(RegExp(r'\$(\d+)'), (group) {
+                  final index = int.parse(group[1]!);
+                  return index == 0
+                      ? match.text
+                      : index <= match.groups.length
+                      ? match.groups[index - 1] ?? ''
+                      : group[0]!;
+                })
+              : replacement;
           source = source.replaceRange(match.start, match.end, value);
           limit = match.start;
         }

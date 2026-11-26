@@ -1,15 +1,15 @@
 part of 'book_editor_tools.dart';
 
 enum _FileGroup {
-  text('正文', AppGlyph.article),
-  styles('样式', AppGlyph.formatPaint),
-  images('图片', AppGlyph.image),
-  fonts('字体', AppGlyph.textFields),
-  other('其他资源', AppGlyph.folder);
+  text('正文', EditorGlyph.article),
+  styles('样式', EditorGlyph.formatPaint),
+  images('图片', EditorGlyph.image),
+  fonts('字体', EditorGlyph.textFields),
+  other('其他资源', EditorGlyph.folder);
 
   const _FileGroup(this.label, this.icon);
   final String label;
-  final AppGlyph icon;
+  final EditorGlyph icon;
 }
 
 const _rasterExtensions = {
@@ -116,6 +116,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
   late Map<_FileGroup, List<_BrowserFile>> _index;
   late Map<_FileGroup, List<_BrowserFile>> _visible;
   String _query = '';
+  String? _resourceInfo;
 
   @override
   void dispose() {
@@ -165,7 +166,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
             title: Text('书籍浏览器', style: Theme.of(context).textTheme.titleSmall),
             trailing: IconButton(
               tooltip: '新增文件',
-              icon: const AppIcon(AppGlyph.add),
+              icon: const EditorIcon(EditorGlyph.add),
               onPressed: () =>
                   BookEditorTools(context, widget.editor).addResource(),
             ),
@@ -173,6 +174,11 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
           _filterField(),
           const Divider(height: 1),
           Expanded(child: _fileList()),
+          if (_resourceInfo case final info?)
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Semantics(liveRegion: true, child: SelectableText(info)),
+            ),
         ],
       );
     },
@@ -214,8 +220,8 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
               width: 40,
               height: 40,
             ),
-            prefixIcon: AppIcon(
-              AppGlyph.search,
+            prefixIcon: EditorIcon(
+              EditorGlyph.search,
               size: 20,
               color: ReaderDrawerStyle.mutedOf(theme),
             ),
@@ -223,7 +229,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
                 ? null
                 : IconButton(
                     tooltip: '清除筛选',
-                    icon: const AppIcon(AppGlyph.close, size: 16),
+                    icon: const EditorIcon(EditorGlyph.close, size: 16),
                     onPressed: () {
                       _filter.clear();
                       _filterChanged();
@@ -266,7 +272,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
         minLeadingWidth: 18,
         horizontalTitleGap: 8,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-        leading: AppIcon(group.icon, size: 18),
+        leading: EditorIcon(group.icon, size: 18),
         title: Text(group.label, style: Theme.of(context).textTheme.labelLarge),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -274,8 +280,8 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
             Text('$count', style: Theme.of(context).textTheme.bodySmall),
             if (canToggle) ...[
               const SizedBox(width: 4),
-              AppIcon(
-                expanded ? AppGlyph.chevronDown : AppGlyph.chevronRight,
+              EditorIcon(
+                expanded ? EditorGlyph.chevronDown : EditorGlyph.chevronRight,
                 size: 16,
               ),
             ],
@@ -324,7 +330,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
   Widget _fileMenu(_BrowserFile file) => PopupMenuButton<String>(
     tooltip: '文件操作',
     enabled: !widget.editor.busy,
-    icon: const AppIcon(AppGlyph.more, size: 18),
+    icon: const EditorIcon(EditorGlyph.more, size: 18),
     onSelected: (action) =>
         BookEditorTools(context, widget.editor).fileAction(file.path, action),
     itemBuilder: (context) =>
@@ -332,6 +338,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
   );
 
   void _open(_BrowserFile file) {
+    setState(() => _resourceInfo = null);
     if (file.raster) {
       _showImage(file.path);
     } else if (file.source) {
@@ -339,6 +346,7 @@ class _BookEditorFilesState extends State<BookEditorFiles> {
       widget.onOpen();
     } else {
       recordAppEvent('editor_file_info_opened');
+      setState(() => _resourceInfo = '${file.path} · ${file.resource.size} 字节');
     }
   }
 

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_ui/theme/reader_environment.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
@@ -53,6 +52,7 @@ void main() {
                       builder: (context) {
                         drawerContext = context;
                         return ReaderSheetForm(
+                          showCloseButton: true,
                           title: const Text('编辑名称'),
                           content: TextField(
                             controller: input,
@@ -91,7 +91,7 @@ void main() {
       );
       expect(
         Theme.of(drawerContext!).colorScheme.surface,
-        ReaderTheme.sepia.background,
+        Theme.of(tester.element(find.text('打开抽屉'))).colorScheme.surface,
       );
       expect(focus.hasFocus, isTrue);
       expect(find.byType(BottomSheet), desktop ? findsNothing : findsOneWidget);
@@ -143,7 +143,10 @@ void main() {
               builder: (context) => TextButton(
                 onPressed: () => showReaderDrawer<void>(
                   context: context,
-                  builder: (_) => const ReaderSheetForm(title: Text('选项')),
+                  builder: (_) => const ReaderSheetForm(
+                    title: Text('选项'),
+                    showCloseButton: true,
+                  ),
                 ),
                 child: const Text('打开抽屉'),
               ),
@@ -325,7 +328,7 @@ void main() {
     );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
-    expect(find.byType(GlassContainer), findsOneWidget);
+    expect(find.byType(ReaderFrostedSurface), findsOneWidget);
     expect(
       tester.getSize(find.byType(ReaderFrostedSurface)).height,
       lessThan(150),
@@ -425,14 +428,27 @@ void main() {
     );
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
-    expect(find.byType(GlassContainer), findsOneWidget);
-    final glass = tester.widget<GlassContainer>(find.byType(GlassContainer));
+    expect(find.byType(ReaderFrostedSurface), findsOneWidget);
+    final surface =
+        tester
+                .widget<DecoratedBox>(
+                  find
+                      .descendant(
+                        of: find.byType(ReaderFrostedSurface),
+                        matching: find.byType(DecoratedBox),
+                      )
+                      .first,
+                )
+                .decoration
+            as BoxDecoration;
     expect(
-      glass.color!.computeLuminance(),
-      greaterThan(ReaderTheme.black.background.computeLuminance()),
-      reason: '夜间弹窗底板应比阅读页背景更浅',
+      surface.color,
+      Theme.of(tester.element(find.byType(ReaderFrostedDialog)))
+          .colorScheme
+          .surface,
+      reason: '弹窗使用软件主题底色，独立于正文颜色',
     );
-    expect(glass.quality, GlassQuality.minimal);
+    expect(surface.color!.a, 1);
     expect(
       tester.getRect(find.byType(ReaderFrostedSurface)).bottom,
       lessThan(660),
@@ -484,7 +500,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('二级弹窗'));
       await tester.pumpAndSettle();
-      expect(find.byType(GlassContainer), findsNWidgets(2));
+      expect(find.byType(ReaderFrostedSurface), findsNWidgets(2));
       expect(find.byType(BackdropFilter), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     }

@@ -92,26 +92,75 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.byKey(const ValueKey('settings-page-turn')));
+    await tester.pumpAndSettle();
     final option = find.byKey(
       const ValueKey('settings-page-turn-simulation3d'),
     );
-    final material = tester.widget<Material>(
-      find.descendant(of: option, matching: find.byType(Material)).first,
-    );
-    expect(material.color, scheme.primaryContainer);
+    final label = find.descendant(of: option, matching: find.byType(Text));
     expect(
-      (material.shape as RoundedRectangleBorder).side.color,
+      DefaultTextStyle.of(tester.element(label)).style.color,
       scheme.primary,
     );
-    expect(
-      tester
-          .widget<Text>(
-            find.descendant(of: option, matching: find.byType(Text)),
-          )
-          .style!
-          .color,
-      scheme.onPrimaryContainer,
+    final menu = find
+        .ancestor(of: option, matching: find.byType(Material))
+        .first;
+    expect(tester.widget<Material>(menu).color, scheme.surface);
+  });
+
+  testWidgets('菜单状态变化复用派生主题，软件主题与墨水屏变化立即更新', (tester) async {
+    var host = ThemeData.light();
+    ColorScheme? sampled;
+    var reading = ReaderTheme.white;
+    late StateSetter update;
+    final values = <ThemeData>[];
+    final content = Builder(
+      builder: (context) {
+        values.add(Theme.of(context));
+        return const SizedBox.shrink();
+      },
     );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            update = setState;
+            return Theme(
+              data: host,
+              child: ReaderPanelColorScope(
+                scheme: sampled,
+                child: ReaderPanelTheme(theme: reading, child: content),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    final initial = values.single;
+    update(() => reading = ReaderTheme.sepia);
+    await tester.pump();
+    expect(values, [initial], reason: '只改阅读状态不应通知主题依赖者重建');
+    update(
+      () => host = ThemeData.dark().copyWith(
+        textTheme: ThemeData.dark().textTheme.apply(fontFamily: '应用字体'),
+      ),
+    );
+    await tester.pump();
+    expect(values.last.brightness, Brightness.dark);
+    expect(values.last.textTheme.bodyMedium!.fontFamily, '应用字体');
+    update(() => sampled = ColorScheme.fromSeed(seedColor: Colors.purple));
+    await tester.pump();
+    expect(values.last.colorScheme, sampled);
+    update(() => reading = ReaderEnvironment.inkTheme);
+    await tester.pump();
+    expect(values.last.colorScheme.surface, Colors.white);
+    expect(values.last.colorScheme.onSurface, Colors.black);
+    update(() => reading = ReaderTheme.white);
+    await tester.pump();
+    expect(values.last.colorScheme, sampled);
+    update(() => sampled = null);
+    await tester.pump();
+    expect(values.last.colorScheme, host.colorScheme);
   });
 
   for (final brightness in Brightness.values) {
@@ -285,7 +334,7 @@ void main() {
   });
 
   for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
-    testWidgets('翻页选项与开关适配${theme.id}主题，控件边缘仍可点击', (tester) async {
+    testWidgets('翻页浮层与开关适配${theme.id}主题，整行入口可点击', (tester) async {
       tester.view
         ..physicalSize = const Size(360, 900)
         ..devicePixelRatio = 1;
@@ -308,6 +357,7 @@ void main() {
                 onOverridesChanged: (_) {},
                 onThemeChanged: (_) {},
                 pageTurnMode: PageTurnMode.cover,
+                onFootnoteStyleChanged: (_) {},
                 onPageTurnModeChanged: (mode) => selectedMode = mode,
                 keepScreenOn: true,
                 onKeepScreenOnChanged: (value) => keepScreenOn = value,
@@ -319,15 +369,36 @@ void main() {
       await tester.pumpAndSettle();
       final settings = find.byType(SettingsPanel);
       final scheme = Theme.of(tester.element(settings)).colorScheme;
+      final entry = find.byKey(const ValueKey('settings-page-turn'));
+      final entryRect = tester.getRect(entry);
+      expect(entryRect.height, greaterThanOrEqualTo(44));
+      expect(
+        tester
+            .getRect(find.descendant(of: entry, matching: find.text('覆盖')))
+            .right,
+        closeTo(entryRect.right - 26, .01),
+      );
+      await tester.tapAt(Offset(entryRect.left + 2, entryRect.center.dy));
+      await tester.pumpAndSettle();
       final option = find.byKey(
         ValueKey('settings-page-turn-${PageTurnMode.cover.id}'),
       );
-      final optionSurface = tester.widget<Material>(
-        find.descendant(of: option, matching: find.byType(Material)),
+      final menu = find
+          .ancestor(of: option, matching: find.byType(Material))
+          .first;
+      final menuRect = tester.getRect(menu);
+      expect(menuRect.width, 144);
+      expect(menuRect.right, closeTo(entryRect.right, .01));
+      expect(menuRect.top, closeTo(entryRect.top, .01));
+      expect(tester.widget<Material>(menu).color, scheme.surface);
+      final text = find.descendant(of: option, matching: find.text('覆盖'));
+      expect(
+        DefaultTextStyle.of(tester.element(text)).style.color,
+        scheme.primary,
       );
-      expect(optionSurface.color, scheme.primaryContainer);
       expect(tester.getSize(option).height, greaterThanOrEqualTo(44));
       await tester.tap(option);
+      await tester.pumpAndSettle();
       expect(selectedMode, PageTurnMode.cover);
       final toggle = find.byKey(const ValueKey('settings-keep-screen-on'));
       final track = tester.widget<AnimatedContainer>(

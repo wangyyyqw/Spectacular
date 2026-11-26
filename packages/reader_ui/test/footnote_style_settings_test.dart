@@ -5,10 +5,12 @@ import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/footnote_dialog.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+import 'package:reader_ui/theme/reader_panel_theme.dart';
 
 void main() {
-  testWidgets('注释样式设置可切换气泡与纸条', (tester) async {
+  testWidgets('注释样式菜单显示当前项，切换后收起且取消不改设置', (tester) async {
     var style = ReaderFootnoteStyle.dialog;
+    final changes = <ReaderFootnoteStyle>[];
     await tester.pumpWidget(
       MaterialApp(
         home: StatefulBuilder(
@@ -18,7 +20,10 @@ void main() {
               overrides: ReaderSettingsDefaults.overrides,
               themeId: 'white',
               footnoteStyle: style,
-              onFootnoteStyleChanged: (value) => setState(() => style = value),
+              onFootnoteStyleChanged: (value) {
+                changes.add(value);
+                setState(() => style = value);
+              },
               onOverridesChanged: (_) {},
               onThemeChanged: (_) {},
             ),
@@ -27,18 +32,57 @@ void main() {
       ),
     );
 
+    final entry = find.byKey(const ValueKey('settings-footnote-style'));
     expect(find.text('注释样式'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('settings-footnote-style-bubble')),
+    expect(
+      find.descendant(of: entry, matching: find.text('弹窗')),
+      findsOneWidget,
     );
-    await tester.pumpAndSettle();
-    expect(style, ReaderFootnoteStyle.bubble);
+    expect(
+      tester
+          .getRect(find.descendant(of: entry, matching: find.text('弹窗')))
+          .right,
+      closeTo(tester.getRect(entry).right - 26, .01),
+    );
+    expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNothing);
+    for (final next in [
+      ReaderFootnoteStyle.bubble,
+      ReaderFootnoteStyle.paper,
+    ]) {
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNWidgets(3));
+      final selected = find.byKey(
+        ValueKey('settings-footnote-style-${style.name}'),
+      );
+      final text = find.descendant(
+        of: selected,
+        matching: find.text(style.label),
+      );
+      expect(
+        DefaultTextStyle.of(tester.element(text)).style.color,
+        Theme.of(tester.element(entry)).colorScheme.primary,
+      );
+      await tester.tap(
+        find.byKey(ValueKey('settings-footnote-style-${next.name}')),
+      );
+      await tester.pumpAndSettle();
+      expect(style, next);
+      expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNothing);
+      expect(
+        find.descendant(of: entry, matching: find.text(next.label)),
+        findsOneWidget,
+      );
+    }
 
-    await tester.tap(
-      find.byKey(const ValueKey('settings-footnote-style-paper')),
-    );
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(8, 8));
     await tester.pumpAndSettle();
     expect(style, ReaderFootnoteStyle.paper);
+    expect(changes, [ReaderFootnoteStyle.bubble, ReaderFootnoteStyle.paper]);
+    expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   for (final anchor in [
@@ -46,7 +90,7 @@ void main() {
     const Offset(235, 780),
     const Offset(372, 780),
   ]) {
-    testWidgets('屏幕 $anchor 处短气泡等宽居中、纸条宽70%，紧贴注号且可关闭', (tester) async {
+    testWidgets('屏幕 $anchor 处短气泡等宽居中、纸条宽85%，紧贴注号且可关闭', (tester) async {
       tester.view.physicalSize = const Size(384, 854);
       tester.view.devicePixelRatio = 1;
       tester.view.viewPadding = const FakeViewPadding(top: 26, bottom: 24);
@@ -100,7 +144,7 @@ void main() {
           expect(rect.width, closeTo(344, .01));
           expect(rect.left, closeTo(384 - rect.right, .01));
         } else {
-          expect(rect.width, closeTo(384 * .70, .01));
+          expect(rect.width, closeTo(384 * .85, .01));
           expect(rect.left, 0);
         }
         expect(tester.takeException(), isNull);
@@ -177,11 +221,11 @@ void main() {
         expect(rect.top, greaterThanOrEqualTo(28));
         expect(
           rect.width,
-          closeTo(bubble ? screen.width - 48 : screen.width * .70, .01),
+          closeTo(bubble ? screen.width - 48 : screen.width * .85, .01),
         );
         expect(
           rect.height + (bubble ? 8 : 0),
-          closeTo(screen.height * (bubble ? .40 : .20), .01),
+          closeTo(screen.height * (bubble ? .40 : .15), .01),
         );
         if (bubble) expect(rect.left, closeTo(screen.width - rect.right, .01));
         final scrollable = tester.state<ScrollableState>(
@@ -196,6 +240,64 @@ void main() {
       });
     }
   }
+
+  testWidgets('纸条注释从左侧滑入，关闭时反向滑出', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showReaderFootnotePopup(
+              context: context,
+              footnote: const PageFootnote(
+                start: 0,
+                end: 1,
+                label: '1',
+                kind: NoteKind.footnote,
+                text: '这是一条注释正文。',
+              ),
+              style: ReaderFootnoteStyle.paper,
+              anchor: const Offset(180, 160),
+              contentWidth: 360,
+            ),
+            child: const Text('打开'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pump();
+    final callout = find.byKey(
+      const ValueKey<String>('reader-footnote-callout-paper'),
+    );
+    final initial = tester.getRect(callout);
+    expect(
+      find.ancestor(of: callout, matching: find.byType(SlideTransition)),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 110));
+    final middle = tester.getRect(callout);
+    expect(middle.left, greaterThan(initial.left));
+
+    await tester.pumpAndSettle();
+    final settled = tester.getRect(callout);
+    expect(settled.left, closeTo(0, .01));
+
+    Navigator.of(tester.element(callout)).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 110));
+    expect(
+      find.byKey(const ValueKey<String>('reader-footnote-callout-paper')),
+      findsOneWidget,
+    );
+    expect(tester.getRect(callout).left, lessThan(settled.left));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderFootnoteDialog), findsNothing);
+  });
 
   testWidgets('气泡与纸条样式使用当前面板主题色', (tester) async {
     const scheme = ColorScheme.light(
@@ -261,7 +363,11 @@ void main() {
     );
   });
 
-  testWidgets('夜间气泡与纸条底色比阅读页背景更浅', (tester) async {
+  testWidgets('气泡与纸条跨路由保留阅读面板取色', (tester) async {
+    final sampled = ColorScheme.fromSeed(
+      seedColor: const Color(0xff925577),
+      brightness: Brightness.dark,
+    );
     const footnote = PageFootnote(
       start: 0,
       end: 1,
@@ -276,17 +382,20 @@ void main() {
     ]) {
       await tester.pumpWidget(
         MaterialApp(
-          home: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showReaderFootnotePopup(
-                context: context,
-                footnote: footnote,
-                style: style,
-                anchor: const Offset(180, 160),
-                contentWidth: 344,
-                readerTheme: ReaderTheme.black,
+          home: ReaderPanelColorScope(
+            scheme: sampled,
+            child: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showReaderFootnotePopup(
+                  context: context,
+                  footnote: footnote,
+                  style: style,
+                  anchor: const Offset(180, 160),
+                  contentWidth: 344,
+                  readerTheme: ReaderTheme.black,
+                ),
+                child: const Text('打开'),
               ),
-              child: const Text('打开'),
             ),
           ),
         ),
@@ -309,10 +418,7 @@ void main() {
                   ),
                 )
                 .color;
-      expect(
-        background.computeLuminance(),
-        greaterThan(ReaderTheme.black.background.computeLuminance()),
-      );
+      expect(background, sampled.surfaceContainerLow);
       await tester.tapAt(const Offset(12, 12));
       await tester.pumpAndSettle();
     }

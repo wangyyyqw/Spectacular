@@ -136,7 +136,7 @@ class BookEntry {
   /// 章节数（打开结果携带，书架展示用）。
   final int? spineCount;
 
-  /// 可读性分级（P3-26，0~4）：L2/L3 书架显示「结构异常」角标。
+  /// 可读性分级（P3-26，0~4）。
   final int readabilityLevel;
 
   /// 封面缓存文件路径（§37.3 三级提取成功后落盘）；null 用占位。

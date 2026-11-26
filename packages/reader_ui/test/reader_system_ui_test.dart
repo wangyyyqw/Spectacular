@@ -31,15 +31,20 @@ class _Source implements ReaderChapterSource {
   ];
 }
 
-ReaderPage _reader({bool editMode = false, bool showSystemBars = false}) =>
-    ReaderPage(
-      source: _Source(),
-      store: MemoryReaderProgressStore(),
-      bookId: 'system-bars',
-      theme: ReaderTheme.white,
-      editMode: editMode,
-      showSystemBars: showSystemBars,
-    );
+ReaderPage _reader({
+  bool editMode = false,
+  bool showSystemBars = false,
+  bool settingsEnabled = false,
+}) => ReaderPage(
+  source: _Source(),
+  store: MemoryReaderProgressStore(),
+  bookId: 'system-bars',
+  theme: ReaderTheme.white,
+  editMode: editMode,
+  showSystemBars: showSystemBars,
+  onFootnoteStyleChanged: settingsEnabled ? (_) {} : null,
+  onPageTurnModeChanged: settingsEnabled ? (_) {} : null,
+);
 
 Widget _app({Widget? home, GlobalKey<NavigatorState>? navigator}) =>
     MaterialApp(navigatorKey: navigator, home: home ?? _reader());
@@ -124,6 +129,42 @@ void main() {
       ),
       isEmpty,
     );
+  });
+
+  testWidgets('抽屉选项弹出菜单不显示系统导航栏，也不抬高固定底栏', (tester) async {
+    await tester.pumpWidget(_app(home: _reader(settingsEnabled: true)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ReaderView));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-entry-settings')));
+    await tester.pumpAndSettle();
+
+    final navigation = find.byKey(const ValueKey('reader-drawer-navigation'));
+    final originalRect = tester.getRect(navigation);
+    expect(requests.last, {'statusBar': true, 'navigationBar': false});
+    await tester.tap(find.byKey(const ValueKey('settings-page-turn')));
+    await tester.pumpAndSettle();
+
+    expect(requests.last, {'statusBar': true, 'navigationBar': false});
+    expect(tester.getRect(navigation), originalRect);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': true, 'navigationBar': false});
+    expect(tester.getRect(navigation), originalRect);
+
+    unawaited(
+      showDialog<void>(
+        context: tester.element(find.byType(ReaderPage)),
+        builder: (_) => const AlertDialog(content: Text('设置弹层')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': true, 'navigationBar': true});
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(requests.last, {'statusBar': true, 'navigationBar': false});
+    expect(tester.getRect(navigation), originalRect);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('其他路由显示两栏，返回菜单及退出阅读恢复各自状态', (tester) async {

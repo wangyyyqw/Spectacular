@@ -76,6 +76,7 @@ Future<T?> showReaderBottomSheet<T>({
   bool isDismissible = true,
   bool enableDrag = true,
   bool showDragHandle = true,
+  double dragHandleHeight = 48,
   bool waitForDismissal = false,
   ReaderTheme? readerTheme,
   BoxConstraints? constraints,
@@ -111,6 +112,7 @@ Future<T?> showReaderBottomSheet<T>({
       readerTheme: readerTheme,
       showDragHandle: showDragHandle && enableDrag,
       isDismissible: isDismissible,
+      dragHandleHeight: dragHandleHeight,
     ),
   );
   final result = await navigator.push(route);
@@ -127,6 +129,7 @@ Future<T?> showReaderDrawer<T>({
   bool isDismissible = true,
   bool enableDrag = true,
   bool showDragHandle = true,
+  double dragHandleHeight = 48,
   bool waitForDismissal = false,
   ReaderTheme? readerTheme,
   double maxWidth = 680,
@@ -145,6 +148,7 @@ Future<T?> showReaderDrawer<T>({
       isDismissible: isDismissible,
       enableDrag: enableDrag,
       showDragHandle: showDragHandle,
+      dragHandleHeight: dragHandleHeight,
       waitForDismissal: waitForDismissal,
       readerTheme: readerTheme,
       constraints: BoxConstraints(maxWidth: maxWidth),
@@ -177,6 +181,7 @@ Widget _drawerPanel({
   bool showDragHandle = false,
   bool isDismissible = true,
   bool desktop = false,
+  double dragHandleHeight = 48,
 }) {
   final panel = Builder(
     builder: (context) {
@@ -192,7 +197,11 @@ Widget _drawerPanel({
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (showDragHandle) _DragHandle(dismissible: isDismissible),
+                if (showDragHandle)
+                  _DragHandle(
+                    dismissible: isDismissible,
+                    height: dragHandleHeight,
+                  ),
                 Flexible(child: Builder(builder: builder)),
               ],
             ),
@@ -317,9 +326,10 @@ class _ReaderDrawerRoute<T> extends PopupRoute<T> {
 }
 
 class _DragHandle extends StatelessWidget {
-  const _DragHandle({required this.dismissible});
+  const _DragHandle({required this.dismissible, this.height = 48});
 
   final bool dismissible;
+  final double height;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -328,7 +338,7 @@ class _DragHandle extends StatelessWidget {
     onTap: dismissible ? () => Navigator.maybePop(context) : null,
     child: SizedBox(
       key: const ValueKey<String>('reader-drawer-drag-handle'),
-      height: 48,
+      height: height,
       child: Center(
         child: Container(
           width: 32,

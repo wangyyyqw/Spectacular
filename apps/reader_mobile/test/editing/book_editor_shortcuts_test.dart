@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -43,6 +44,7 @@ Future<BookEditorController> _open(
     editor.dispose();
     await root.delete(recursive: true);
   });
+  await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
   return editor;
 }
 
@@ -112,7 +114,125 @@ Future<void> _shortcut(
   await tester.pump();
 }
 
+Future<void> _advanceDialog(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 20)),
+  );
+  await tester.pump();
+}
+
 void main() {
+  testWidgets('系统退出先确认未保存修改，取消保存与处理期间均阻止退出', (tester) async {
+    var cancelSave = true;
+    var saves = 0;
+    final exporting = Completer<void>();
+    final editor = await _open(tester, (_) async {
+      saves++;
+      if (cancelSave) throw const EditorExportCancelled();
+    }, export: (_) => exporting.future);
+    await _show(tester, editor);
+    final doc = editor.activeDocument!;
+    doc.code.text = doc.code.text.replaceFirst('原始正文', '退出前未保存');
+    editor.flush();
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+    var exit = tester.binding.handleRequestAppExit();
+    await _advanceDialog(tester);
+    expect(find.text('如何处理未保存的修改？'), findsOneWidget);
+    expect(await tester.binding.handleRequestAppExit(), AppExitResponse.cancel);
+    await tester.tap(find.text('继续编辑'));
+    await _advanceDialog(tester);
+    expect(await exit, AppExitResponse.cancel);
+    expect(doc.code.text, contains('退出前未保存'));
+
+    exit = tester.binding.handleRequestAppExit();
+    await _advanceDialog(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '保存书籍'));
+    await _advanceDialog(tester);
+    expect(await exit, AppExitResponse.cancel);
+    expect(saves, 1);
+    expect(editor.dirty, isTrue);
+
+    final output = editor.exportBook();
+    await tester.pump();
+    expect(await tester.binding.handleRequestAppExit(), AppExitResponse.cancel);
+    exporting.complete();
+    await output;
+    cancelSave = false;
+    exit = tester.binding.handleRequestAppExit();
+    await _advanceDialog(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '保存书籍'));
+    await _advanceDialog(tester);
+    expect(await exit, AppExitResponse.exit);
+    expect(saves, 2);
+    expect(editor.dirty, isFalse);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 400));
+  }, variant: _platforms);
+
+  testWidgets('焦点位于资源筛选框时快捷键仍打开当前文档查找', (tester) async {
+    final editor = await _open(tester, (_) async {});
+    await _show(tester, editor);
+    await tester.tap(find.widgetWithText(TextField, '文件名或路径'));
+    await _shortcut(tester, key: LogicalKeyboardKey.keyF);
+    await tester.pump();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('editor-search-query')))
+          .focusNode!
+          .hasFocus,
+      isTrue,
+    );
+    await tester.pumpWidget(const SizedBox());
+  }, variant: _platforms);
+
+  testWidgets('跳转行支持行列输入与错误提示，快捷键切换自动换行', (tester) async {
+    final editor = await _open(tester, (_) async {});
+    await _show(tester, editor);
+    final document = editor.activeDocument!;
+    document.code.text = document.code.text.replaceFirst(
+      '</body>',
+      '\n<p>第二行正文</p>\n<p>第三行正文</p></body>',
+    );
+    editor.flush();
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+    await _focusSource(tester);
+    await _shortcut(tester, key: LogicalKeyboardKey.keyG);
+    await _advanceDialog(tester);
+    final field = find.descendant(
+      of: find.byType(ReaderSheetForm),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(field, '2:4');
+    await tester.tap(find.widgetWithText(FilledButton, '确定'));
+    await _advanceDialog(tester);
+    expect(document.code.unfoldLineSelection.extentIndex, 1);
+    expect(document.code.unfoldLineSelection.extentOffset, 3);
+    expect(
+      FocusManager.instance.primaryFocus!.context!
+          .findAncestorWidgetOfExactType<CodeEditor>(),
+      isNotNull,
+    );
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.pump();
+    expect(
+      tester.widget<CodeEditor>(find.byType(CodeEditor)).wordWrap,
+      isFalse,
+    );
+    await tester.tap(find.byTooltip('跳转到行'));
+    await _advanceDialog(tester);
+    await tester.enterText(field, '0');
+    await tester.tap(find.widgetWithText(FilledButton, '确定'));
+    await _advanceDialog(tester);
+    await pumpReaderUntil(tester, find.text('请输入有效的行号，或“行号:列号”。'));
+    expect(find.text('请输入有效的行号，或“行号:列号”。'), findsOneWidget);
+    expect(document.code.unfoldLineSelection.extentIndex, 1);
+    await tester.pumpWidget(const SizedBox());
+  }, variant: _platforms);
+
   testWidgets('脏源码移动光标不重复发送内容通知，恢复原文会清除未保存状态', (tester) async {
     final editor = await _open(tester, (_) async {});
     final document = editor.openDocument(_chapter);
@@ -166,12 +286,23 @@ void main() {
         await _shortcut(tester);
         expect(attempts, 2);
       }
-      await pumpReaderUntilComplete(
-        tester,
-        () => find.byType(BookEditorPage).evaluate().isEmpty,
-      );
+      await pumpReaderUntilComplete(tester, () => !editor.busy);
       expect(savedText, contains('快捷键修订正文'));
       expect(editor.dirty, isFalse);
+      expect(find.byType(BookEditorPage), findsOneWidget);
+      expect(find.text('书籍已保存'), findsOneWidget);
+      expect(
+        tester.widget<CodeEditor>(find.byType(CodeEditor)).focusNode!.hasFocus,
+        isTrue,
+      );
+      document.code.text = document.code.text.replaceFirst('快捷键修订正文', '连续保存正文');
+      await _shortcut(tester);
+      await pumpReaderUntilComplete(tester, () => !editor.busy);
+      expect(savedText, contains('连续保存正文'));
+      expect(editor.dirty, isFalse);
+      await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
+      await tester.tap(find.byTooltip('退出编辑'));
+      await tester.pumpAndSettle();
       expect(result, isTrue);
       await tester.pumpWidget(const SizedBox());
       expect(tester.takeException(), isNull);
@@ -225,39 +356,34 @@ void main() {
     expect(editor.dirty, isTrue);
     expect(find.byType(BookEditorPage), findsOneWidget);
     expect(find.text('导出完成'), findsWidgets);
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
     await tester.pumpWidget(const SizedBox());
   }, variant: _platforms);
 
-  testWidgets('源码快捷键打开全书查找抽屉，输入时不误保存或关闭文档', (tester) async {
-    var saves = 0;
-    final editor = await _open(tester, (_) async => saves++);
+  testWidgets('全书查找快捷键聚焦源码底栏，关闭后继续输入', (tester) async {
+    final editor = await _open(tester, (_) async {});
     await _show(tester, editor);
     await _focusSource(tester);
     await _shortcut(tester, key: LogicalKeyboardKey.keyF, shift: true);
-    await pumpReaderUntil(tester, find.text('全书源码查找替换'));
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byType(ReaderSheetForm), findsOneWidget);
+    await tester.pump();
+    expect(find.text('所有文本文件'), findsOneWidget);
+    expect(find.byType(ReaderSheetForm), findsNothing);
     expect(find.byType(AlertDialog), findsNothing);
-    await tester.tap(find.widgetWithText(TextField, '查找内容'));
-    await _shortcut(tester);
-    await _shortcut(tester, key: LogicalKeyboardKey.keyW);
-    expect(saves, 0);
-    expect(editor.documents, hasLength(1));
-    expect(find.text('全书源码查找替换'), findsOneWidget);
+    final query = find.byKey(const ValueKey('editor-search-query'));
+    expect(tester.widget<TextField>(query).focusNode!.hasFocus, isTrue);
+    await tester.enterText(query, '正文');
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('search-result-0')),
+    );
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await pumpReaderUntilComplete(
-      tester,
-      () => find.byType(ReaderSheetForm).evaluate().isEmpty,
+    await tester.pump();
+    expect(query, findsNothing);
+    expect(
+      tester.widget<CodeEditor>(find.byType(CodeEditor)).focusNode!.hasFocus,
+      isTrue,
     );
-    await _focusSource(tester);
-    await _shortcut(tester);
-    await pumpReaderUntilComplete(
-      tester,
-      () => find.byType(BookEditorPage).evaluate().isEmpty,
-    );
-    expect(saves, 1);
     await tester.pumpWidget(const SizedBox());
-    expect(tester.takeException(), isNull);
   }, variant: _platforms);
 
   testWidgets('源码标签快捷键双向循环并保留焦点、源码和查找输入', (tester) async {
@@ -265,7 +391,10 @@ void main() {
     await _show(tester, editor);
     final document = editor.activeDocument!;
     document.code.text = document.code.text.replaceFirst('原始正文', '未提交的正文');
-    document.find.findInputController.text = '未提交';
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-search-query')),
+      '未提交',
+    );
     editor.showSource('OEBPS/c2.xhtml');
     editor.showSource('OEBPS/content.opf');
     editor.showSource(_chapter);
@@ -296,6 +425,7 @@ void main() {
     expect(document.code.text, contains('未提交的正文'));
     expect(document.find.findInputController.text, '未提交');
     await tester.pump(const Duration(milliseconds: 350));
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
     expect(tester.takeException(), isNull);
@@ -323,6 +453,7 @@ void main() {
     await tester.pump();
     await _focusSource(tester);
     expect(editor.activeDocument!.code.text, contains('关闭前的修改'));
+    await pumpReaderUntilComplete(tester, () => !editor.previewLoading);
     await tester.pumpWidget(const SizedBox());
     expect(tester.takeException(), isNull);
   }, variant: _platforms);

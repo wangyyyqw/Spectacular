@@ -517,6 +517,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 正文注释沿用沉浸状态，不因弹层路由盖住阅读页而显示系统栏。
   bool _footnoteOpen = false;
 
+  /// 阅读设置中的锚定选择菜单不应触发系统导航栏显示。
+  bool _settingsPopupOpen = false;
+
   /// 底栏区域是否完整露出：菜单展开且没有抽屉盖住底栏。
   bool _menuBarVisible = false;
 
@@ -2408,6 +2411,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
+        dragHandleHeight: 20,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.40,
+        ),
         readerTheme: _effectiveTheme ?? ReaderTheme.white,
         builder: (context) => ReaderFootnoteDialog(
           footnote: footnote,
@@ -2854,7 +2861,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final normalPage =
         widget.editMode ||
-        (ModalRoute.isCurrentOf(context) == false && !_footnoteOpen) ||
+        (ModalRoute.isCurrentOf(context) == false &&
+            !_footnoteOpen &&
+            !_settingsPopupOpen) ||
         _editingMargins ||
         _editingTapZones;
     _scheduleSystemBars(normalPage);
@@ -3211,10 +3220,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       _closeDrawer();
                       unawaited(_jumpToChapter(page.spineIndex + 1));
                     },
-              onSeek: (value) {
-                _closeDrawer();
-                unawaited(_seekToProgress(value));
-              },
+              onSeek: (value) => unawaited(_seekToProgress(value)),
               onEntry: _openDrawer,
               onShowShortcuts: _desktop ? _showDesktopHelp : null,
               drawerTitle: _drawerTitleOf(_drawer, _drawerTab),
@@ -3222,6 +3228,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               drawerChild: _drawer == null
                   ? null
                   : _ReaderDrawerContent(
+                      onSettingsPopupOpenChanged: (open) {
+                        if (!mounted) return;
+                        if (_settingsPopupOpen == open) return;
+                        setState(() => _settingsPopupOpen = open);
+                      },
                       readingDuration: widget.readingDuration,
                       isChapterCached: widget.isChapterCached,
                       entry: _drawer!,
@@ -3866,6 +3877,7 @@ enum _DrawerTab {
 /// 参数较多是因为它同时是四类面板的适配层（各面板回调不同），拆分收益不大。
 class _ReaderDrawerContent extends StatefulWidget {
   const _ReaderDrawerContent({
+    required this.onSettingsPopupOpenChanged,
     this.readingDuration,
     this.isChapterCached,
     required this.entry,
@@ -3940,6 +3952,7 @@ class _ReaderDrawerContent extends StatefulWidget {
     required this.onOpenTapZoneEditor,
   });
 
+  final ValueChanged<bool> onSettingsPopupOpenChanged;
   final ReaderMenuEntry entry;
   final ValueListenable<Duration>? readingDuration;
   final Future<bool> Function(int)? isChapterCached;
@@ -4118,6 +4131,7 @@ class _ReaderDrawerContentState extends State<_ReaderDrawerContent> {
       case ReaderMenuEntry.settings:
         return SettingsPanel(
           section: SettingsSection.settings,
+          onPopupMenuVisibilityChanged: widget.onSettingsPopupOpenChanged,
           overrides: widget.overrides,
           themeId: widget.themeId,
           inkMode: widget.inkMode,

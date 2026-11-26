@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 
 part 'rea_micro_glyph.dart';
 
-const double _strokeWidth = 1.7;
+/// 图标默认线宽。
+const double kAppIconStrokeWidth = 1.7;
 
 /// 界面图标字形。底栏四图标与其余图标共用 24 格坐标、1.7 线宽与圆角拐角，
 /// 细节以实心小片表示；实心态把轮廓改为实心，细节镂空为底色。
@@ -116,6 +117,7 @@ class AppIconCanvas {
     required this.color,
     required this.filled,
     required this.cutoutColor,
+    this.strokeWidth = kAppIconStrokeWidth,
   });
 
   final Canvas _canvas;
@@ -123,12 +125,18 @@ class AppIconCanvas {
   final bool filled;
   final Color cutoutColor;
 
+  /// 24 格坐标系下的线宽。
+  final double strokeWidth;
+
   /// 线段与开放折线，始终描边。
-  void line(Path path) => _canvas.drawPath(path, _strokePaint(color));
+  void line(Path path) =>
+      _canvas.drawPath(path, _strokePaint(color, strokeWidth));
 
   /// 轮廓：线框态描边，实心态填充。
-  void outline(Path path) =>
-      _canvas.drawPath(path, filled ? _fillPaint(color) : _strokePaint(color));
+  void outline(Path path) => _canvas.drawPath(
+    path,
+    filled ? _fillPaint(color) : _strokePaint(color, strokeWidth),
+  );
 
   /// 实心细节：线框态使用前景色，实心态镂空为底色。
   void solid(Path path) =>
@@ -175,10 +183,10 @@ class AppIconCanvas {
   }
 }
 
-Paint _strokePaint(Color color) => Paint()
+Paint _strokePaint(Color color, double strokeWidth) => Paint()
   ..color = color
   ..style = PaintingStyle.stroke
-  ..strokeWidth = _strokeWidth
+  ..strokeWidth = strokeWidth
   ..strokeCap = StrokeCap.round
   ..strokeJoin = StrokeJoin.round;
 

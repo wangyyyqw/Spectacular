@@ -610,12 +610,7 @@ void main() {
       120,
       scrollable: find
           .descendant(
-            of: find
-                .descendant(
-                  of: find.byType(SettingsPanel),
-                  matching: find.byType(ListView),
-                )
-                .first,
+            of: find.byType(SettingsPanel),
             matching: find.byType(Scrollable),
           )
           .first,

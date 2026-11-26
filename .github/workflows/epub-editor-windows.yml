@@ -23,6 +23,12 @@ jobs:
       - name: 准备依赖
         working-directory: apps/reader_mobile
         run: flutter pub get
+      - name: 运行 Windows 桌面交互回归
+        working-directory: apps/reader_mobile
+        run: flutter test --no-pub --concurrency=1 test/home/bookshelf_desktop_input_test.dart test/home/bookshelf_responsive_test.dart test/editing/book_editor_shortcuts_test.dart test/editing/book_editor_save_test.dart
+      - name: 运行 Windows 首页实际窗口测试
+        working-directory: apps/reader_mobile
+        run: flutter test --no-pub -d windows integration_test/desktop_home_features_test.dart
       - name: 运行 Windows 编辑器实际窗口测试
         working-directory: apps/reader_mobile
         run: flutter test --no-pub -d windows integration_test/epub_editor_desktop_test.dart

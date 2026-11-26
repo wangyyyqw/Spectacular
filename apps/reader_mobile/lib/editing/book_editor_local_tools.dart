@@ -1,15 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-import 'package:reader_ui/icons/app_icon.dart';
+
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:spectacular_epub_tools/local_epub_tools.dart';
+
+import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_toolkit.dart';
@@ -33,11 +36,7 @@ class BookEditorLocalTools {
   final BookEditorController editor;
   final String title;
 
-  Future<void> open([LocalEpubTool? selected]) async {
-    final tool =
-        selected ??
-        await _localDrawer<LocalEpubTool>(context, (_) => const _ToolPicker());
-    if (tool == null || !context.mounted) return;
+  Future<void> open(LocalEpubTool tool) async {
     switch (tool) {
       case LocalEpubTool.health:
         await _health();
@@ -184,66 +183,7 @@ class BookEditorLocalTools {
   }
 }
 
-class _ToolPicker extends StatelessWidget {
-  const _ToolPicker();
-
-  @override
-  Widget build(BuildContext context) => DefaultTabController(
-    length: 5,
-    child: ReaderSheetForm(
-      title: const Text('本地 EPUB 工具'),
-      content: SizedBox(
-        width: 760,
-        height: 500,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('使用当前有效工作副本。修改可撤销，导出不会覆盖原书。'),
-            const SizedBox(height: 12),
-            const TabBar(
-              isScrollable: true,
-              tabs: [
-                Tab(text: '转换'),
-                Tab(text: '结构'),
-                Tab(text: '图片'),
-                Tab(text: '字体'),
-                Tab(text: '注释与正文'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  for (final category in ['转换', '结构', '图片', '字体', '注释与正文'])
-                    ListView(
-                      children: [
-                        for (final tool in LocalEpubTool.visible.where(
-                          (tool) => tool.category == category,
-                        ))
-                          ListTile(
-                            title: Text(tool.label),
-                            subtitle: Text(tool.description),
-                            trailing: const AppIcon(AppGlyph.chevronRight),
-                            onTap: () => Navigator.pop(context, tool),
-                          ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _ToolResultDialog extends StatelessWidget {
+class _ToolResultDialog extends StatefulWidget {
   const _ToolResultDialog({
     required this.output,
     required this.tool,
@@ -254,48 +194,120 @@ class _ToolResultDialog extends StatelessWidget {
   final String fileName;
 
   @override
-  Widget build(BuildContext context) => ReaderSheetForm(
-    title: Text(output.applied ? '${tool.label}已应用' : '${tool.label}完成'),
-    content: SizedBox(
-      width: 680,
-      height: 380,
-      child: SingleChildScrollView(
-        child: SelectableText(
-          '${output.applied ? '已应用到工作副本，可撤销；保存按钮提交到书库。\n\n' : ''}${output.result.message}',
+  State<_ToolResultDialog> createState() => _ToolResultDialogState();
+}
+
+class _ToolResultDialogState extends State<_ToolResultDialog> {
+  bool _exporting = false;
+  bool _exportFailed = false;
+  String? _exportMessage;
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(
+      onExitRequested: () async =>
+          _exporting ? AppExitResponse.cancel : AppExitResponse.exit,
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  Future<void> _export() async {
+    if (_exporting) return;
+    setState(() {
+      _exporting = true;
+      _exportFailed = false;
+      _exportMessage = '正在导出文件…';
+    });
+    try {
+      final saved = await _saveToolOutput(
+        widget.output.result.files,
+        widget.fileName,
+      );
+      recordAppEvent(
+        saved ? 'editor_file_exported' : 'editor_file_export_cancelled',
+      );
+      if (mounted) {
+        setState(() => _exportMessage = saved ? '文件已导出' : '已取消导出，可重新选择保存位置');
+      }
+    } catch (error, stackTrace) {
+      recordAppError(
+        'editor_file_export_failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        setState(() {
+          _exportFailed = true;
+          final reason = error is FileSystemException
+              ? error.message
+              : '$error';
+          _exportMessage = '导出失败：$reason。请检查保存位置后重试。';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_exporting,
+    child: ReaderSheetForm(
+      title: Text(
+        widget.output.applied
+            ? '${widget.tool.label}已应用'
+            : '${widget.tool.label}完成',
+      ),
+      showCloseButton: !_exporting,
+      content: SizedBox(
+        width: 680,
+        height: 380,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  '${widget.output.applied ? '已应用到工作副本，可撤销；保存按钮提交到书库。\n\n' : ''}${widget.output.result.message}',
+                ),
+              ),
+            ),
+            if (_exporting) const LinearProgressIndicator(),
+            if (_exportMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _exportMessage!,
+                    style: _exportFailed
+                        ? TextStyle(color: Theme.of(context).colorScheme.error)
+                        : null,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
-    ),
-    actions: [
-      if (tool.output == LocalToolOutput.export)
+      actions: [
+        if (widget.tool.output == LocalToolOutput.export)
+          TextButton(
+            onPressed: _exporting ? null : _export,
+            child: Text(_exportFailed ? '重试导出' : '导出文件'),
+          ),
         TextButton(
-          onPressed: () async {
-            try {
-              final saved = await _saveToolOutput(
-                output.result.files,
-                fileName,
-              );
-              if (context.mounted) {
-                recordAppEvent(
-                  saved
-                      ? 'editor_file_exported'
-                      : 'editor_file_export_cancelled',
-                );
-              }
-            } on FileSystemException catch (error, stackTrace) {
-              recordAppError(
-                'editor_file_export_failed',
-                error,
-                stackTrace: stackTrace,
-              );
-            }
-          },
-          child: const Text('导出文件'),
+          onPressed: _exporting ? null : () => Navigator.pop(context),
+          child: const Text('关闭'),
         ),
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('关闭'),
-      ),
-    ],
+      ],
+    ),
   );
 }
 

@@ -18,6 +18,7 @@ class AppIcon extends StatelessWidget {
     this.color,
     this.filled = false,
     this.cutoutColor,
+    this.strokeWidth,
   });
 
   /// 图标字形。
@@ -35,6 +36,9 @@ class AppIcon extends StatelessWidget {
   /// 实心态的镂空颜色，应与图标所在底色一致，缺省为白色。
   final Color? cutoutColor;
 
+  /// 24 格坐标系下的线宽，缺省为 [kAppIconStrokeWidth]。
+  final double? strokeWidth;
+
   @override
   Widget build(BuildContext context) {
     final iconTheme = IconTheme.of(context);
@@ -51,6 +55,7 @@ class AppIcon extends StatelessWidget {
             color: iconColor.withValues(alpha: iconColor.a * opacity),
             filled: filled,
             cutoutColor: cutoutColor ?? const Color(0xFFFFFFFF),
+            strokeWidth: strokeWidth ?? kAppIconStrokeWidth,
           ),
         ),
       ),
@@ -64,12 +69,14 @@ class _AppIconPainter extends CustomPainter {
     required this.color,
     required this.filled,
     required this.cutoutColor,
+    required this.strokeWidth,
   });
 
   final AppGlyph glyph;
   final Color color;
   final bool filled;
   final Color cutoutColor;
+  final double strokeWidth;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -81,6 +88,7 @@ class _AppIconPainter extends CustomPainter {
         color: color,
         filled: filled,
         cutoutColor: cutoutColor,
+        strokeWidth: strokeWidth,
       ),
     );
     canvas.restore();
@@ -91,7 +99,8 @@ class _AppIconPainter extends CustomPainter {
       glyph != oldDelegate.glyph ||
       color != oldDelegate.color ||
       filled != oldDelegate.filled ||
-      cutoutColor != oldDelegate.cutoutColor;
+      cutoutColor != oldDelegate.cutoutColor ||
+      strokeWidth != oldDelegate.strokeWidth;
 }
 
 /// 展开箭头改用 [AppGlyph.chevronDown] 并随展开状态旋转的 [ExpansionTile]。

@@ -21,6 +21,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           navigatorKey: navigator,
+          theme: ThemeData(
+            brightness: theme == ReaderTheme.black
+                ? Brightness.dark
+                : Brightness.light,
+          ),
           builder: (context, child) =>
               RepaintBoundary(key: boundary, child: child),
           home: ReaderPanelTheme(
@@ -71,6 +76,74 @@ void main() {
       _expectContinuous(await _samples(tester, boundary), settled, '退场首帧');
       await tester.pumpAndSettle();
       expect(find.byType(ReaderFrostedDialog), findsNothing);
+    });
+  }
+
+  for (final sheet in [false, true]) {
+    testWidgets('${sheet ? '底部抽屉' : '居中弹窗'}开合动画复用整块底板和内容的绘制结果', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(384, 2560 / 3));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () {
+                  if (sheet) {
+                    showReaderBottomSheet<void>(
+                      context: context,
+                      builder: (_) => const SizedBox(height: 300),
+                    );
+                  } else {
+                    showReaderDialog<void>(
+                      context: context,
+                      builder: (_) => const ReaderFrostedDialog(
+                        child: SizedBox(width: 280, height: 240),
+                      ),
+                    );
+                  }
+                },
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开'));
+      await tester.pump();
+      final surface = tester.renderObject(
+        find
+            .descendant(
+              of: find.byType(ReaderFrostedSurface),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      var paints = 0;
+      final previous = debugOnProfilePaint;
+      debugOnProfilePaint = (object) {
+        previous?.call(object);
+        if (identical(object, surface)) paints++;
+      };
+      try {
+        for (final closing in [false, true]) {
+          if (closing) navigator.currentState!.pop();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 32));
+          final painted = paints;
+          for (var frame = 0; frame < 5; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          expect(paints, painted, reason: '位移和缩放不应逐帧重绘底板、阴影和内容');
+          await tester.pumpAndSettle();
+        }
+      } finally {
+        debugOnProfilePaint = previous;
+      }
+      expect(find.byType(ReaderFrostedSurface), findsNothing);
+      expect(tester.takeException(), isNull);
     });
   }
 }

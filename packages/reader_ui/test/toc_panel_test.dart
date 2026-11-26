@@ -328,7 +328,7 @@ void main() {
       expect(find.textContaining('共 '), findsNothing);
       expect(
         find.descendant(
-          of: find.byType(ListView),
+          of: find.byKey(const ValueKey<String>('toc-row-0-第一章')),
           matching: find.byWidgetPredicate(
             (widget) =>
                 widget is AppIcon && widget.glyph == AppGlyph.chevronDown,
@@ -368,6 +368,91 @@ void main() {
       expect(find.textContaining('共 '), findsNothing);
     });
 
+    testWidgets('当前卷目录行在原顺序中吸顶且可收起', (tester) async {
+      final controller = ScrollController();
+      final selected = <TocEntry>[];
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TocPanel(
+              entries: [
+                _entry('第一卷', 0, children: [_entry('第一卷正文', 0)]),
+                _entry(
+                  '第二卷',
+                  1,
+                  children: [
+                    _entry('当前章', 2),
+                    for (var index = 3; index < 22; index++)
+                      _entry('第二卷第$index篇', index),
+                  ],
+                ),
+                _entry('第三卷', 30, children: [_entry('第三卷正文', 30)]),
+              ],
+              currentSpineIndex: 2,
+              scrollController: controller,
+              onSelect: selected.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final firstVolume = find.byKey(const ValueKey<String>('toc-row-0-第一卷'));
+      final currentVolume = find.byKey(const ValueKey<String>('toc-row-1-第二卷'));
+      final thirdVolume = find.byKey(const ValueKey<String>('toc-row-30-第三卷'));
+      final collapseCurrent = find.byKey(
+        const ValueKey<String>('toc-toggle-1-第二卷'),
+      );
+      expect(firstVolume, findsOneWidget);
+      expect(currentVolume, findsOneWidget);
+      expect(collapseCurrent, findsOneWidget);
+      expect(
+        find.ancestor(
+          of: currentVolume,
+          matching: find.byType(CustomScrollView),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('当前章'), findsOneWidget);
+      controller.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(firstVolume).top,
+        lessThan(tester.getRect(currentVolume).top),
+      );
+
+      controller.jumpTo(controller.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final viewport = tester.getRect(find.byType(CustomScrollView));
+      expect(tester.getRect(currentVolume).top, closeTo(viewport.top, 0.5));
+      await tester.tap(collapseCurrent);
+      await tester.pumpAndSettle();
+      controller.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(currentVolume, findsOneWidget);
+      expect(find.text('当前章'), findsNothing);
+      expect(
+        tester.getRect(firstVolume).top,
+        lessThan(tester.getRect(currentVolume).top),
+      );
+      expect(
+        tester.getRect(currentVolume).top,
+        lessThan(tester.getRect(thirdVolume).top),
+      );
+      final collapsedIcon = tester.widget<AppIcon>(
+        find.descendant(
+          of: currentVolume,
+          matching: find.byWidgetPredicate(
+            (widget) => widget is AppIcon && widget.glyph == AppGlyph.chevronUp,
+          ),
+        ),
+      );
+      expect(collapsedIcon.glyph, AppGlyph.chevronUp);
+      expect(selected, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('打开时把当前章移到目录中间', (tester) async {
       final controller = ScrollController();
       final entries = <TocEntry>[
@@ -395,7 +480,7 @@ void main() {
       final row = tester.getRect(
         find.byKey(const ValueKey<String>('toc-row-20-第21章')),
       );
-      final viewport = tester.getRect(find.byType(ListView));
+      final viewport = tester.getRect(find.byType(CustomScrollView));
       expect(row.center.dy, closeTo(viewport.center.dy, 0.5));
 
       controller.jumpTo(0);

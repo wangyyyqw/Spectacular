@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import 'package:flutter/services.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/image_cache.dart';
 
@@ -75,7 +73,6 @@ class ReaderFootnoteDialog extends StatelessWidget {
     final theme = Theme.of(context);
     final text = footnote.text;
     final images = footnote.imageUrls;
-    final copyText = text?.trim();
     final paragraphs = <String>[
       for (final paragraph in (text ?? '').split(RegExp(r'\n+')))
         if (paragraph.trim().isNotEmpty) paragraph.trim(),
@@ -89,20 +86,11 @@ class ReaderFootnoteDialog extends StatelessWidget {
         top: false,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.40,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: 10),
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
               Flexible(
                 child: Scrollbar(
                   key: const ValueKey('reader-footnote-scrollbar'),
@@ -112,7 +100,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 720),
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                          padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -135,6 +123,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
                                           key: ValueKey(
                                             'reader-footnote-paragraph-$index',
                                           ),
+                                          textAlign: TextAlign.justify,
                                           style: theme.textTheme.bodyLarge
                                               ?.copyWith(height: 1.75),
                                         ),
@@ -167,10 +156,6 @@ class ReaderFootnoteDialog extends StatelessWidget {
                   ),
                 ),
               ),
-              if (copyText != null && copyText.isNotEmpty) ...[
-                const Divider(height: 1),
-                _CopyFootnoteAction(text: copyText),
-              ],
             ],
           ),
         ),
@@ -185,13 +170,13 @@ class ReaderFootnoteDialog extends StatelessWidget {
     final bubble = style == ReaderFootnoteStyle.bubble;
     final width = bubble
         ? (contentWidth ?? screen.width - 24).clamp(0.0, screen.width)
-        : screen.width * 0.70;
+        : screen.width * 0.85;
     final belowSpace = screen.height - point.dy - safe.bottom - 18;
     final aboveSpace = point.dy - safe.top - 18;
     final below = belowSpace >= 150 || belowSpace >= aboveSpace;
     final availableHeight = math
         .min(
-          screen.height * (bubble ? 0.40 : 0.20),
+          screen.height * (bubble ? 0.40 : 0.15),
           math.max(0.0, below ? belowSpace : aboveSpace),
         )
         .toDouble();
@@ -258,12 +243,40 @@ Future<void> showReaderFootnotePopup({
   DecodedImageCache? imageCache,
   ReaderTheme? readerTheme,
 }) async {
+  final reduceMotion =
+      ReaderFrostedScope.inkModeOf(context) ||
+      readerTheme?.id == 'ink' ||
+      MediaQuery.disableAnimationsOf(context);
+  final themes = InheritedTheme.capture(
+    from: context,
+    to: Navigator.of(context, rootNavigator: true).context,
+  );
   await showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierLabel: '关闭注释',
-    barrierColor: Colors.transparent,
-    pageBuilder: (context, _, _) {
+    // 与底部弹窗注释一致：使用底部弹层遮罩色压暗阅读页。
+    barrierColor:
+        Theme.of(context).bottomSheetTheme.modalBarrierColor ?? Colors.black54,
+    pageBuilder: (context, animation, _) {
+      Widget dialog = ReaderFootnoteDialog(
+        footnote: footnote,
+        style: style,
+        anchor: anchor,
+        contentWidth: contentWidth,
+        imageCache: imageCache,
+      );
+      if (style == ReaderFootnoteStyle.paper && !reduceMotion) {
+        dialog = SlideTransition(
+          position: animation.drive(
+            Tween<Offset>(
+              begin: const Offset(-1, 0),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: Curves.easeOutCubic)),
+          ),
+          child: dialog,
+        );
+      }
       Widget child = Stack(
         fit: StackFit.expand,
         children: [
@@ -273,25 +286,23 @@ Future<void> showReaderFootnotePopup({
               onTap: () => Navigator.of(context).pop(),
             ),
           ),
-          Positioned.fill(
-            child: ReaderFootnoteDialog(
-              footnote: footnote,
-              style: style,
-              anchor: anchor,
-              contentWidth: contentWidth,
-              imageCache: imageCache,
-            ),
-          ),
+          Positioned.fill(child: dialog),
         ],
       );
       if (readerTheme != null) {
         child = ReaderPanelTheme(theme: readerTheme, child: child);
       }
-      return child;
+      return themes.wrap(child);
     },
-    transitionDuration: const Duration(milliseconds: 150),
-    transitionBuilder: (context, animation, _, child) =>
-        FadeTransition(opacity: animation, child: child),
+    transitionDuration: reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 220),
+    transitionBuilder: (context, animation, _, child) {
+      if (style == ReaderFootnoteStyle.paper || reduceMotion) {
+        return child;
+      }
+      return FadeTransition(opacity: animation, child: child);
+    },
   );
 }
 
@@ -318,42 +329,51 @@ class _FootnoteCallout extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final background = colors.surfaceContainerLow;
-    final content = SingleChildScrollView(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, bubble ? 14 : 16, 16, 14),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (paragraphs.isNotEmpty)
-              SelectionArea(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (var index = 0; index < paragraphs.length; index++) ...[
-                      if (index > 0) const SizedBox(height: 8),
-                      Text(
-                        paragraphs[index],
-                        style: Theme.of(context).textTheme.bodyLarge
-                            ?.copyWith(color: colors.onSurface, height: 1.5),
-                      ),
+    final content = Padding(
+      // 上下留白放在滚动视口外，滚动时文字也不会贴到气泡/纸条边缘。
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (paragraphs.isNotEmpty)
+                SelectionArea(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (
+                        var index = 0;
+                        index < paragraphs.length;
+                        index++
+                      ) ...[
+                        if (index > 0) const SizedBox(height: 8),
+                        Text(
+                          paragraphs[index],
+                          textAlign: TextAlign.justify,
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: colors.onSurface, height: 1.5),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
+                )
+              else if (images.isEmpty)
+                Text(
+                  '这条注释暂无内容',
+                  style: TextStyle(color: colors.onSurfaceVariant),
                 ),
-              )
-            else if (images.isEmpty)
-              Text(
-                '这条注释暂无内容',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              ),
-            for (final image in images) ...[
-              if (paragraphs.isNotEmpty) const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: _FootnoteImage(url: image, imageCache: imageCache),
-              ),
+              for (final image in images) ...[
+                if (paragraphs.isNotEmpty) const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: _FootnoteImage(url: image, imageCache: imageCache),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -456,71 +476,6 @@ class _TornPaperClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(_TornPaperClipper oldClipper) => false;
-}
-
-class _CopyFootnoteAction extends StatefulWidget {
-  const _CopyFootnoteAction({required this.text});
-
-  final String text;
-
-  @override
-  State<_CopyFootnoteAction> createState() => _CopyFootnoteActionState();
-}
-
-class _CopyFootnoteActionState extends State<_CopyFootnoteAction> {
-  Timer? _resetTimer;
-  bool _copied = false;
-
-  Future<void> _copy() async {
-    await Clipboard.setData(ClipboardData(text: widget.text));
-    if (!mounted) {
-      return;
-    }
-    setState(() => _copied = true);
-    _resetTimer?.cancel();
-    _resetTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() => _copied = false);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _resetTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-      child: Align(
-        alignment: Alignment.centerRight,
-        child: TextButton.icon(
-          key: const ValueKey('reader-footnote-copy'),
-          onPressed: _copy,
-          icon: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 160),
-            child: AppIcon(
-              _copied ? AppGlyph.check : AppGlyph.copy,
-              key: ValueKey(_copied),
-              size: 18,
-            ),
-          ),
-          label: Text(_copied ? '已复制' : '复制注释'),
-          style: TextButton.styleFrom(
-            foregroundColor: _copied
-                ? theme.colorScheme.primary
-                : theme.colorScheme.onSurfaceVariant,
-            minimumSize: const Size(0, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _EmptyFootnote extends StatelessWidget {

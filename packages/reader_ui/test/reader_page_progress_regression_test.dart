@@ -12,6 +12,7 @@ import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_page.dart';
+import 'package:reader_ui/reader_ui_diagnostics.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_core/source/chapter_source.dart';
@@ -233,7 +234,20 @@ Future<void> _jumpScroll(WidgetTester tester, double offset) async {
 }
 
 void main() {
-  testWidgets('自动进度保存延迟被拒绝时提示旧位置保留，重试成功后清错', (tester) async {
+  List<String> captureMessages() {
+    final previous = ReaderUiDiagnostics.onEvent;
+    final messages = <String>[];
+    ReaderUiDiagnostics.onEvent = (event, fields) {
+      if (event == 'reader_ui_message') {
+        messages.add(fields['message'] as String);
+      }
+    };
+    addTearDown(() => ReaderUiDiagnostics.onEvent = previous);
+    return messages;
+  }
+
+  testWidgets('自动进度保存延迟被拒绝时记录旧位置保留，重试成功后清错', (tester) async {
+    final messages = captureMessages();
     const bookId = 'reader-save-rejected';
     const saved = ReaderProgress(
       spineIndex: 0,
@@ -265,7 +279,7 @@ void main() {
     store.gate!.complete();
     await tester.pumpAndSettle();
 
-    expect(find.text(rejection.message), findsOneWidget);
+    expect(messages, contains(rejection.message));
     expect(await store.load(bookId), saved);
     expect(session.persistWriteCount, 0);
     expect(session.progressSaveError, isA<ReaderProgressSaveException>());
@@ -282,6 +296,7 @@ void main() {
   });
 
   testWidgets('生命周期落盘拒绝已由会话提示，不再成为未处理异步异常', (tester) async {
+    final messages = captureMessages();
     const bookId = 'lifecycle-save-rejected';
     const rejection = ReaderProgressSaveException(
       ReaderProgressSaveResult.bookMissing,
@@ -309,7 +324,7 @@ void main() {
     store.gate!.complete();
     await tester.pumpAndSettle();
 
-    expect(find.text(rejection.message), findsOneWidget);
+    expect(messages, contains(rejection.message));
     expect(await store.load(bookId), saved);
     expect(session.progressSaveError, isA<ReaderProgressSaveException>());
     expect(tester.takeException(), isNull);
@@ -731,6 +746,8 @@ void main() {
     await tester.tapAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('settings-page-turn')));
     await tester.pumpAndSettle();
     final target = find.byKey(
       const ValueKey<String>('settings-page-turn-cover'),

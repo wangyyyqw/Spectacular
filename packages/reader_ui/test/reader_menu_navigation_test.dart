@@ -1,4 +1,7 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_core/layout/paginator.dart';
@@ -153,6 +156,41 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.getRect(surface), before);
+  });
+
+  testWidgets('阅读菜单慢拖进度时保留正文，松手后跳到最终目标', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final session = await _open(tester, 10);
+    final before = session.progress;
+    final bounds = tester.getRect(
+      find.byKey(const ValueKey('menu-progress-slider')),
+    );
+    final gesture = await tester.startGesture(bounds.center);
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(session.progress, before, reason: '手指按住不能先跳到中点');
+    expect(find.byKey(const ValueKey('reader-jump-loading')), findsNothing);
+    await gesture.moveTo(bounds.centerRight + const Offset(30, 0));
+    await tester.pump();
+    expect(session.progress, before, reason: '拖动预览期间正文不变');
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(session.progress?.spineIndex, 9);
+    expect(
+      tester.widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay)).open,
+      isTrue,
+    );
+    final node = tester.getSemantics(
+      find.byKey(const ValueKey('menu-progress-slider')),
+    );
+    node.owner!.performAction(node.id, SemanticsAction.focus);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    final afterFirstKey = session.progress?.spineIndex;
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(session.progress?.spineIndex, lessThan(afterFirstKey!));
+    semantics.dispose();
   });
 
   testWidgets('听书入口调用宿主回调且保留阅读位置', (tester) async {

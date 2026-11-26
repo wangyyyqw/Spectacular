@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'reader_ui_style.dart';
 
@@ -28,12 +27,20 @@ class ReaderFrostedSurface extends StatelessWidget {
       ? Colors.transparent
       : fallback ?? Theme.of(context).colorScheme.surface;
 
+  // 底板和内容的声明式层级保持内联，避免仅为拆行增加无复用的构建方法。
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final flat =
+        inkMode ||
+        ReaderFrostedScope.inkModeOf(context) ||
+        MediaQuery.highContrastOf(context);
     final topRadius = radius ?? ReaderUiStyle.panelCornerOf(Theme.of(context));
-    return GlassTheme(
-      data: GlassThemeData.classic(brightness: scheme.brightness),
+    final lowerRadius = bottomRadius ?? topRadius;
+    final rounded = topRadius > 0 || lowerRadius > 0;
+    // 底板完全不透明，用原生圆角直接覆盖阴影，无需玻璃混合高光及反向裁剪。
+    // 将底板与内容一起缓存，弹窗位移或缩放时仅合成已有图层。
+    return RepaintBoundary(
       child: Stack(
         fit: StackFit.passthrough,
         clipBehavior: Clip.none,
@@ -41,43 +48,35 @@ class ReaderFrostedSurface extends StatelessWidget {
           Positioned.fill(
             child: Padding(
               padding: inset,
-              child: GlassContainer.card(
-                padding: EdgeInsets.zero,
-                shape: LiquidVerticalRoundedRectangle(
-                  topRadius: topRadius,
-                  bottomRadius: bottomRadius ?? topRadius,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.surface.withValues(alpha: 1),
+                  borderRadius: BorderRadius.vertical(
+                    top: Radius.circular(topRadius),
+                    bottom: Radius.circular(lowerRadius),
+                  ),
+                  border: flat || !rounded
+                      ? null
+                      : Border.all(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          width: 0.5,
+                        ),
+                  boxShadow:
+                      flat || !rounded || scheme.brightness == Brightness.dark
+                      ? null
+                      : const [
+                          BoxShadow(
+                            color: Color(0x24000000),
+                            blurRadius: 16,
+                            offset: Offset(0, 6),
+                          ),
+                          BoxShadow(
+                            color: Color(0x1F000000),
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
                 ),
-                useOwnLayer: true,
-                quality: GlassQuality.minimal,
-                surfaceStyle:
-                    inkMode ||
-                        ReaderFrostedScope.inkModeOf(context) ||
-                        MediaQuery.highContrastOf(context)
-                    ? GlassSurfaceStyle.solid
-                    : GlassSurfaceStyle.glass,
-                color: scheme.surface.withValues(alpha: 1),
-                settings: LiquidGlassSettings(
-                  glassColor: scheme.surface.withValues(alpha: 1),
-                  blur: 0,
-                  thickness: 6,
-                  refractiveIndex: 1,
-                  chromaticAberration: 0,
-                  lightIntensity: 0.12,
-                  saturation: 1,
-                  shadow: const [
-                    BoxShadow(
-                      color: Color(0x24000000),
-                      blurRadius: 16,
-                      offset: Offset(0, 6),
-                    ),
-                    BoxShadow(
-                      color: Color(0x1F000000),
-                      blurRadius: 4,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
               ),
             ),
           ),

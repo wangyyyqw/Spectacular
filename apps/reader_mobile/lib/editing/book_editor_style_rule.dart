@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_core/editing/epub_editing.dart';
-import 'package:reader_ui/icons/app_icon.dart';
+
+import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
+import 'css_completion_input.dart';
 
 class BookEditorStyleRule extends StatefulWidget {
   const BookEditorStyleRule({
@@ -50,7 +53,7 @@ class _BookEditorStyleRuleState extends State<BookEditorStyleRule> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: ReaderUiStyle.controlRadiusOf(theme),
       borderSide: BorderSide(color: colors.outlineVariant),
     );
     return Container(
@@ -58,7 +61,7 @@ class _BookEditorStyleRuleState extends State<BookEditorStyleRule> {
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
         color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: ReaderUiStyle.cardRadiusOf(theme),
         border: Border.all(color: colors.outlineVariant),
       ),
       child: Column(
@@ -66,7 +69,11 @@ class _BookEditorStyleRuleState extends State<BookEditorStyleRule> {
         children: [
           Row(
             children: [
-              AppIcon(AppGlyph.code, size: 14, color: colors.onSurfaceVariant),
+              EditorIcon(
+                EditorGlyph.code,
+                size: 14,
+                color: colors.onSurfaceVariant,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -107,31 +114,39 @@ class _BookEditorStyleRuleState extends State<BookEditorStyleRule> {
               style: theme.textTheme.labelSmall,
             ),
           const SizedBox(height: 8),
-          TextField(
-            key: ValueKey('style-css-${widget.rule.path}-${widget.rule.start}'),
+          CssTextCompletion(
             controller: _input,
             readOnly: widget.editor.busy,
-            minLines: 3,
-            maxLines: 8,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              height: 1.4,
-            ),
-            decoration: InputDecoration(
-              isDense: true,
-              filled: true,
-              fillColor: colors.surface,
-              contentPadding: const EdgeInsets.all(8),
-              border: border,
-              enabledBorder: border,
-              focusedBorder: border.copyWith(
-                borderSide: BorderSide(color: colors.primary),
+            onAccepted: () => setState(() => _error = null),
+            builder: (focus) => TextField(
+              key: ValueKey(
+                'style-css-${widget.rule.path}-${widget.rule.start}',
               ),
-              errorText: _error,
-              errorMaxLines: 3,
+              controller: _input,
+              focusNode: focus,
+              readOnly: widget.editor.busy,
+              minLines: 3,
+              maxLines: 8,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                height: 1.4,
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                filled: true,
+                fillColor: colors.surface,
+                contentPadding: const EdgeInsets.all(8),
+                border: border,
+                enabledBorder: border,
+                focusedBorder: border.copyWith(
+                  borderSide: BorderSide(color: colors.primary),
+                ),
+                errorText: _error,
+                errorMaxLines: 3,
+              ),
+              onChanged: (_) => setState(() => _error = null),
             ),
-            onChanged: (_) => setState(() => _error = null),
           ),
         ],
       ),

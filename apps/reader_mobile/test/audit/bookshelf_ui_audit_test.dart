@@ -7,6 +7,7 @@ import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../support/test_epub.dart';
 
@@ -123,7 +124,8 @@ void main() {
       greaterThan(tester.getBottomLeft(cover).dy),
     );
     expect(_key('book-card-meta-${second.id}'), findsNothing);
-    expect(find.text('全部 4'), findsOneWidget);
+    expect(find.text('全部'), findsOneWidget);
+    expect(find.textContaining('全部 '), findsNothing);
 
     await _tap(tester, _key('bookshelf-group-${group.id}'));
     expect(_key('book-card-${third.id}'), findsNothing);
@@ -157,8 +159,11 @@ void main() {
         readFile: (_) async => bytes,
       ),
     );
+    await tester.tap(_key('bookshelf-import'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('从本机导入'));
+    await tester.pumpAndSettle();
     await tester.runAsync(() async {
-      await tester.tap(_key('bookshelf-import'));
       for (var attempt = 0; attempt < 100; attempt++) {
         if ((await library.list()).isNotEmpty) {
           await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -184,14 +189,13 @@ void main() {
     await tester.enterText(_key('bookshelf-group-create-name'), '待读');
     await tester.pump();
     await _tap(tester, _key('bookshelf-group-create-confirm'));
-    expect(find.text('待读 1'), findsOneWidget);
+    expect(find.text('待读'), findsOneWidget);
     expect(
       (await library.groupAssignments())[book.id],
       (await library.listGroups()).single.id,
     );
-    await tester.longPress(_key('book-card-${book.id}'));
-    await tester.pumpAndSettle();
-    await _tap(tester, _key('book-detail-multi-select'));
+    await _tap(tester, find.byTooltip('多选'));
+    await _tap(tester, _key('book-card-${book.id}'));
     expect(find.text('已选 1 本'), findsOneWidget);
     await _tap(tester, find.byTooltip('退出多选'));
     await tester.longPress(_key('book-card-${book.id}'));
@@ -269,7 +273,9 @@ void main() {
     expect(sheet.color, Colors.transparent);
     expect(
       sheet.borderRadius,
-      const BorderRadius.vertical(top: Radius.circular(8)),
+      ReaderUiStyle.sheetRadiusOf(
+        Theme.of(tester.element(_key('book-detail-finish-sheet'))),
+      ),
     );
     await _tap(tester, _key('book-detail-finish-rating-4'));
     await tester.enterText(_key('book-detail-finish-review'), '读完后的简短感想');

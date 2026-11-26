@@ -85,6 +85,13 @@ void main() {
       await tester.pumpAndSettle();
       final popup = find.byType(ReaderFootnoteDialog);
       expect(popup, findsOneWidget);
+      expect(
+        tester
+            .widgetList<ModalBarrier>(find.byType(ModalBarrier))
+            .any((barrier) => (barrier.color?.a ?? 0) > 0),
+        isTrue,
+        reason: '${style.label}注释打开时压暗阅读页',
+      );
       expect(bars, everyElement({'statusBar': false, 'navigationBar': false}));
       if (style != ReaderFootnoteStyle.dialog) {
         final callout = find.byKey(
@@ -92,12 +99,41 @@ void main() {
         );
         final gap = style == ReaderFootnoteStyle.bubble ? 18.0 : 10.0;
         final rect = tester.getRect(callout);
+        final scrollRect = tester.getRect(
+          find
+              .descendant(
+                of: callout,
+                matching: find.byType(SingleChildScrollView),
+              )
+              .first,
+        );
+        expect(
+          scrollRect.top - rect.top,
+          greaterThanOrEqualTo(16),
+          reason: '滚动视口与上边缘保持内边距，滚动时文字也不贴边',
+        );
+        expect(
+          rect.bottom - scrollRect.bottom,
+          greaterThanOrEqualTo(16),
+          reason: '滚动视口与下边缘保持内边距，滚动时文字也不贴边',
+        );
+        final textRect = tester.getRect(find.text('治安：谓政治清明，社会安定。'));
+        expect(
+          textRect.top - rect.top,
+          greaterThanOrEqualTo(16),
+          reason: '文字与上边缘留出内边距',
+        );
+        expect(
+          rect.bottom - textRect.bottom,
+          greaterThanOrEqualTo(16),
+          reason: '文字与下边缘留出内边距',
+        );
         expect(rect.bottom, closeTo(tap.dy - gap, .01));
         if (style == ReaderFootnoteStyle.bubble) {
           expect(rect.width, closeTo(384 - padding.horizontal, .01));
           expect(rect.left, closeTo(384 - rect.right, .01));
         } else {
-          expect(rect.width, closeTo(384 * .70, .01));
+          expect(rect.width, closeTo(384 * .85, .01));
         }
       }
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);

@@ -92,7 +92,7 @@ void main() {
 
       await showShelf();
       expect(_titles(tester), ['A书', 'B书', 'C书']);
-      await tester.tap(find.text('置顶分组 2'));
+      await tester.tap(find.text('置顶分组'));
       await tester.pumpAndSettle();
       expect(_titles(tester), ['A书', 'B书']);
       await tester.tap(find.byTooltip('网格视图'));
@@ -115,7 +115,7 @@ void main() {
       await tester.pumpAndSettle();
       await togglePin(books[1], '取消置顶');
       expect(_titles(tester), ['B书', 'A书']);
-      await tester.tap(find.text('全部 3'));
+      await tester.tap(find.text('全部'));
       await tester.pumpAndSettle();
       expect(_titles(tester), ['B书', ...original.where((t) => t != 'B书')]);
       await togglePin(books[0], '取消置顶');

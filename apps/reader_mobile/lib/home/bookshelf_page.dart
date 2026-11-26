@@ -4,8 +4,8 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -32,6 +32,7 @@ import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import '../txt/txt_encoding_dialog.dart';
 import 'desktop_layout.dart';
+import 'desktop_book_interaction.dart';
 import 'book_import_conflict_dialog.dart';
 import 'book_detail_page.dart';
 import 'book_detail_sheet.dart';
@@ -42,6 +43,7 @@ import 'reading_insights.dart';
 import '../storage/import_queue.dart';
 import '../storage/reading_session_store.dart';
 import '../diagnostics/reader_log.dart';
+import '../cloud/cloud_import_page.dart';
 
 /// 书架条目及列表显示的阅读记录。
 typedef _ShelfItem = ({
@@ -67,14 +69,26 @@ typedef _OnlineStoredProgress = ({
 
 const _shelfMinColumns = 3;
 const _shelfTargetCardWidth = 192.0;
+const _desktopShelfMaxWidth = 1440.0;
+const _desktopShelfCoverWidth = 160.0;
+const _desktopShelfListWidth = 920.0;
 const _shelfGridPadding = 16.0;
 const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
 const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
+const _shelfToolbarIconStroke = 1.3;
 const _pinnedCoverShadowOpacity = .42;
 final _bookPressOverlay = WidgetStateProperty.resolveWith<Color?>(
   (states) => states.contains(WidgetState.pressed) ? Colors.transparent : null,
+);
+
+ThemeData _noFeedback(BuildContext context) => Theme.of(context).copyWith(
+  splashFactory: NoSplash.splashFactory,
+  splashColor: Colors.transparent,
+  highlightColor: Colors.transparent,
+  hoverColor: usesDesktopLayout(context) ? null : Colors.transparent,
+  focusColor: usesDesktopLayout(context) ? null : Colors.transparent,
 );
 
 /// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
@@ -180,6 +194,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   bool _exportingBook = false;
   String _query = '';
   final Set<String> _selectedIds = <String>{};
+  String? _selectionAnchor;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode(debugLabel: 'bookshelf-search');
   final FocusNode _keyboardFocus = FocusNode(debugLabel: 'bookshelf-keyboard');
@@ -256,7 +271,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return KeyEventResult.ignored;
     }
     final command = Theme.of(context).platform == TargetPlatform.macOS;
+    final editingText =
+        FocusManager.instance.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<EditableText>() !=
+        null;
     final bindings = <ShortcutActivator, VoidCallback>{
+      if (usesDesktopLayout(context) && !editingText) ...{
+        SingleActivator(
+          LogicalKeyboardKey.keyA,
+          meta: command,
+          control: !command,
+          includeRepeats: false,
+        ): _selectVisibleBooks,
+        if (_selectionMode && _selectedIds.isNotEmpty)
+          SingleActivator(
+            command ? LogicalKeyboardKey.backspace : LogicalKeyboardKey.delete,
+            meta: command,
+            includeRepeats: false,
+          ): () =>
+              unawaited(_confirmBatchRemove()),
+      },
       if (!_selectionMode) ...{
         SingleActivator(
           LogicalKeyboardKey.keyF,
@@ -313,19 +347,35 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (!mounted) {
       return;
     }
+    final nextGrid = grid != 'false';
+    final nextShowTitles = (gridShowTitles ?? showTitles) != 'false';
+    final nextDividers = listDividers != 'false';
+    final nextNewest = newestFirst == 'true';
+    final nextAutoUpdate = autoUpdateFirst == 'true';
+    final nextAllAsGroup = allAsGroup == 'true';
+    final nextDefaultName = defaultGroupName ?? '全部';
+    final nextPinned = pinned == null
+        ? const <String>[]
+        : (jsonDecode(pinned) as List).cast<String>();
+    if (_grid == nextGrid &&
+        _gridShowTitles == nextShowTitles &&
+        _listDividers == nextDividers &&
+        _newestFirst == nextNewest &&
+        _autoUpdateFirst == nextAutoUpdate &&
+        _allAsGroup == nextAllAsGroup &&
+        _defaultGroupName == nextDefaultName &&
+        listEquals(_pinnedIds, nextPinned)) {
+      return;
+    }
     setState(() {
-      _grid = grid != 'false';
-      _gridShowTitles = gridShowTitles == null
-          ? showTitles != 'false'
-          : gridShowTitles != 'false';
-      _listDividers = listDividers != 'false';
-      _newestFirst = newestFirst == 'true';
-      _autoUpdateFirst = autoUpdateFirst == 'true';
-      _allAsGroup = allAsGroup == 'true';
-      _defaultGroupName = defaultGroupName ?? '全部';
-      _pinnedIds = pinned == null
-          ? const <String>[]
-          : (jsonDecode(pinned) as List).cast<String>();
+      _grid = nextGrid;
+      _gridShowTitles = nextShowTitles;
+      _listDividers = nextDividers;
+      _newestFirst = nextNewest;
+      _autoUpdateFirst = nextAutoUpdate;
+      _allAsGroup = nextAllAsGroup;
+      _defaultGroupName = nextDefaultName;
+      _pinnedIds = nextPinned;
     });
   }
 
@@ -535,6 +585,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     setState(() {
       _selectionMode = true;
       _selectedIds.clear();
+      _selectionAnchor = entry?.id;
       if (entry != null) _selectedIds.add(entry.id);
     });
   }
@@ -546,6 +597,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     setState(() {
       _selectionMode = false;
       _selectedIds.clear();
+      _selectionAnchor = null;
     });
     _keyboardFocus.requestFocus();
   }
@@ -555,11 +607,77 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     setState(() {
+      _selectionAnchor = id;
       if (!_selectedIds.add(id)) {
         _selectedIds.remove(id);
       }
     });
   }
+
+  void _selectVisibleBooks() {
+    if (_removing || _items == null) return;
+    final visible = _visible(_items!, groupId: _activeGroupId);
+    if (visible.isEmpty) return;
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..addAll(visible.map((item) => item.entry.id));
+      _selectionAnchor = visible.first.entry.id;
+    });
+  }
+
+  void _selectDesktopBook(BookEntry entry, List<_ShelfItem> books) {
+    if (_removing) return;
+    final keyboard = HardwareKeyboard.instance;
+    final anchor = books.indexWhere(
+      (item) => item.entry.id == _selectionAnchor,
+    );
+    final target = books.indexWhere((item) => item.entry.id == entry.id);
+    if (keyboard.isShiftPressed && anchor >= 0 && target >= 0) {
+      final additive = Theme.of(context).platform == TargetPlatform.macOS
+          ? keyboard.isMetaPressed
+          : keyboard.isControlPressed;
+      setState(() {
+        _selectionMode = true;
+        if (!additive) _selectedIds.clear();
+        _selectedIds.addAll(
+          books
+              .sublist(math.min(anchor, target), math.max(anchor, target) + 1)
+              .map((item) => item.entry.id),
+        );
+      });
+    } else {
+      _selectionMode = true;
+      _toggleSelected(entry.id);
+    }
+  }
+
+  Future<void> _activateBook(BookEntry entry, List<_ShelfItem> books) async {
+    final keyboard = HardwareKeyboard.instance;
+    final command = Theme.of(context).platform == TargetPlatform.macOS
+        ? keyboard.isMetaPressed
+        : keyboard.isControlPressed;
+    if (usesDesktopLayout(context) &&
+        (_selectionMode || command || keyboard.isShiftPressed)) {
+      _selectDesktopBook(entry, books);
+    } else if (_selectionMode) {
+      _toggleSelected(entry.id);
+    } else {
+      await _open(entry);
+    }
+  }
+
+  Widget _desktopBook(Widget child, BookEntry entry, List<_ShelfItem> books) =>
+      usesDesktopLayout(context)
+      ? DesktopBookInteraction(
+          key: ValueKey('desktop-book-${entry.id}'),
+          onActivate: () => unawaited(_activateBook(entry, books)),
+          onSelect: () => _selectDesktopBook(entry, books),
+          onMenu: (position) => unawaited(_openBookMenu(entry, position)),
+          child: child,
+        )
+      : child;
 
   bool _allSelected(List<_ShelfItem>? items) {
     final entries = items ?? const <_ShelfItem>[];
@@ -992,6 +1110,41 @@ class _BookshelfPageState extends State<BookshelfPage> {
       );
 
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
+  Future<void> _chooseImport() async {
+    if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
+    final choice = await showReaderDrawer<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const AppIcon(AppGlyph.folder),
+              title: const Text('从本机导入'),
+              subtitle: const Text('选择 EPUB 或 TXT 文件'),
+              onTap: () => Navigator.pop(context, 'local'),
+            ),
+            ListTile(
+              leading: const AppIcon(AppGlyph.link),
+              title: const Text('从网盘导入'),
+              subtitle: const Text('登录网盘，选择书籍下载到书架'),
+              onTap: () => Navigator.pop(context, 'cloud'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || !widget.allowImport) return;
+    if (choice == 'local') await _import();
+    if (choice == 'cloud' && mounted) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => CloudImportPage(library: widget.library),
+        ),
+      );
+    }
+  }
+
   Future<void> _import() async {
     if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
     setState(() => _pickingFiles = true);
@@ -1566,51 +1719,119 @@ class _BookshelfPageState extends State<BookshelfPage> {
         focusNode: _keyboardFocus,
         autofocus: widget.active,
         onKeyEvent: _handleShelfKey,
-        child: Scaffold(
-          appBar: _buildAppBar(items, busy || _pickingFiles),
-          bottomNavigationBar: _selectionMode ? _buildSelectionBar() : null,
-          body: _buildBody(items, visible, busy),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: usesDesktopLayout(context)
+                  ? _desktopShelfMaxWidth
+                  : double.infinity,
+            ),
+            child: LayoutBuilder(
+              builder: (_, bounds) => Scaffold(
+                appBar: _buildAppBar(
+                  visible,
+                  busy || _pickingFiles,
+                  bounds.maxWidth,
+                ),
+                bottomNavigationBar: _selectionMode
+                    ? _buildSelectionBar()
+                    : null,
+                body: _buildBody(items, visible, busy),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(List<_ShelfItem>? items, bool busy) {
+  PreferredSizeWidget _buildAppBar(
+    List<_ShelfItem>? items,
+    bool busy,
+    double width,
+  ) {
+    final desktop = usesDesktopLayout(context);
+    final roomy = desktop && width >= 640;
     return AppBar(
       automaticallyImplyLeading: false,
-      toolbarHeight: 56,
+      toolbarHeight: desktop ? 64 : 56,
       titleSpacing: 16,
-      title: _buildSearchField(),
+      title: desktop
+          ? Row(
+              children: [
+                if (roomy) ...[
+                  Text('书架', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(width: 24),
+                ],
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      child: _buildSearchField(),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : _buildSearchField(),
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 16),
-          child: Center(child: _buildImportButton(busy)),
+          child: Center(child: _buildImportButton(busy, extended: roomy)),
         ),
       ],
     );
   }
 
-  Widget _buildImportButton(bool busy) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
+  Widget _buildImportButton(bool busy, {bool extended = false}) {
+    final colors = Theme.of(context).colorScheme;
+    if (extended) {
+      return FilledButton.tonalIcon(
+        key: const ValueKey('bookshelf-import'),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 44),
+          visualDensity: VisualDensity.standard,
+        ),
+        onPressed: busy || !widget.allowImport ? null : _chooseImport,
+        icon: busy
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const AppIcon(AppGlyph.add, size: 18),
+        label: Text(busy ? '导入中…' : '导入书籍'),
+      );
+    }
     return Material(
-      color: ReaderDrawerStyle.searchSurfaceOf(theme),
+      color: ReaderDrawerStyle.searchSurfaceOf(Theme.of(context)),
       borderRadius: BorderRadius.circular(20),
       elevation: 2,
       surfaceTintColor: Colors.transparent,
       shadowColor: colors.shadow.withValues(alpha: .12),
-      child: IconButton(
-        key: const ValueKey<String>('bookshelf-import'),
-        tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-        onPressed: busy || !widget.allowImport ? null : _import,
-        icon: busy
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const AppIcon(AppGlyph.add),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          splashFactory: NoSplash.splashFactory,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          hoverColor: usesDesktopLayout(context) ? null : Colors.transparent,
+          focusColor: usesDesktopLayout(context) ? null : Colors.transparent,
+        ),
+        child: IconButton(
+          key: const ValueKey<String>('bookshelf-import'),
+          color: colors.primary,
+          tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+          onPressed: busy || !widget.allowImport ? null : _chooseImport,
+          icon: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const AppIcon(AppGlyph.add),
+        ),
       ),
     );
   }
@@ -1669,54 +1890,76 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  Widget _buildShelfControls(List<_ShelfItem> items) => Row(
-    key: const ValueKey('bookshelf-group-toolbar'),
-    children: [
-      Expanded(
-        child: _ShelfGroupBar(
-          items: items,
-          groups: _groups,
-          assignments: _bookGroups,
-          activeGroupId: _activeGroupId,
-          onToggle: _toggleGroup,
-          onShowAll: () => setState(() => _activeGroupId = null),
-          onManage: _manageGroup,
-          allAsGroup: _allAsGroup,
-          defaultGroupName: _defaultGroupName,
-          onManageDefault: _renameDefaultGroup,
-        ),
-      ),
-      if (_selectionMode)
-        IconButton(
-          key: const ValueKey('bookshelf-select-all'),
-          tooltip: _allSelected(items) ? '取消全选' : '全选',
-          onPressed: _removing ? null : () => _toggleSelectAll(items),
-          icon: AppIcon(
-            _allSelected(items) ? AppGlyph.check : AppGlyph.multiSelect,
+  Widget _buildShelfControls(List<_ShelfItem> items) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      key: const ValueKey('bookshelf-group-toolbar'),
+      children: [
+        Expanded(
+          child: _ShelfGroupBar(
+            groups: _groups,
+            activeGroupId: _activeGroupId,
+            onToggle: _toggleGroup,
+            onShowAll: () => setState(() => _activeGroupId = null),
+            onManage: _manageGroup,
+            allAsGroup: _allAsGroup,
+            defaultGroupName: _defaultGroupName,
+            onManageDefault: _renameDefaultGroup,
           ),
         ),
-      IconButton(
-        key: const ValueKey('bookshelf-multi-select'),
-        tooltip: _selectionMode ? '退出多选' : '多选',
-        onPressed: _removing
-            ? null
-            : _selectionMode
-            ? _exitSelectionMode
-            : items.isEmpty
-            ? null
-            : _startSelection,
-        icon: AppIcon(_selectionMode ? AppGlyph.close : AppGlyph.multiSelect),
-      ),
-      if (!_selectionMode)
-        IconButton(
-          key: const ValueKey('bookshelf-view-style'),
-          tooltip: _grid ? '列表视图' : '网格视图',
-          onPressed: _toggleView,
-          icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
+        if (_selectionMode)
+          IconButton(
+            key: const ValueKey('bookshelf-select-all'),
+            tooltip: _allSelected(items) ? '取消全选' : '全选',
+            onPressed: _removing ? null : () => _toggleSelectAll(items),
+            icon: AppIcon(
+              _allSelected(items) ? AppGlyph.check : AppGlyph.multiSelect,
+              strokeWidth: _shelfToolbarIconStroke,
+            ),
+          ),
+        if (!_selectionMode)
+          Theme(
+            data: _noFeedback(context),
+            child: IconButton(
+              key: const ValueKey('bookshelf-view-style'),
+              tooltip: _grid ? '列表视图' : '网格视图',
+              color: colors.onSurfaceVariant,
+              disabledColor: Theme.of(context).disabledColor,
+              constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+              padding: EdgeInsets.zero,
+              onPressed: _toggleView,
+              icon: AppIcon(
+                _grid ? AppGlyph.listView : AppGlyph.gridView,
+                strokeWidth: _shelfToolbarIconStroke,
+              ),
+            ),
+          ),
+        Theme(
+          data: _noFeedback(context),
+          child: IconButton(
+            key: const ValueKey('bookshelf-multi-select'),
+            tooltip: _selectionMode ? '退出多选' : '多选',
+            color: colors.onSurfaceVariant,
+            disabledColor: Theme.of(context).disabledColor,
+            constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+            padding: EdgeInsets.zero,
+            onPressed: _removing
+                ? null
+                : _selectionMode
+                ? _exitSelectionMode
+                : items.isEmpty
+                ? null
+                : _startSelection,
+            icon: AppIcon(
+              _selectionMode ? AppGlyph.close : AppGlyph.multiSelect,
+              strokeWidth: _shelfToolbarIconStroke,
+            ),
+          ),
         ),
-      const SizedBox(width: 8),
-    ],
-  );
+        const SizedBox(width: 8),
+      ],
+    );
+  }
 
   Widget _buildBody(
     List<_ShelfItem>? items,
@@ -1740,7 +1983,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
               }
             },
           ),
-        if (_error == null && items != null) _buildShelfControls(items),
+        if (_error == null && visible != null) _buildShelfControls(visible),
         Expanded(
           child: _ShelfGroupPages(
             groupIds: [null, for (final group in _groups) group.id],
@@ -1831,17 +2074,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
           itemBuilder: (context, index) {
             final item = books[index];
             final pinned = _pinnedIds.contains(item.entry.id);
-            return _BookCard(
-              entry: item.entry,
-              isOnline: item.isOnline,
-              pinned: pinned,
-              showTitle: _gridShowTitles,
-              selectionMode: _selectionMode,
-              selected: _selectedIds.contains(item.entry.id),
-              onSelect: () => _toggleSelected(item.entry.id),
-              onOpen: _open,
-              onLongPress: _openBookDetail,
-              onSecondaryTap: (position) => _openBookMenu(item.entry, position),
+            return _desktopBook(
+              _BookCard(
+                entry: item.entry,
+                pinned: pinned,
+                isOnline: item.isOnline,
+                showTitle: _gridShowTitles,
+                selectionMode: _selectionMode,
+                selected: _selectedIds.contains(item.entry.id),
+                onSelect: () => _activateBook(item.entry, books),
+                onOpen: (entry) => _activateBook(entry, books),
+                onLongPress: _openBookDetail,
+                onSecondaryTap: (position) =>
+                    _openBookMenu(item.entry, position),
+              ),
+              item.entry,
+              books,
             );
           },
         );
@@ -1851,12 +2099,22 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   ({SliverGridDelegateWithFixedCrossAxisCount delegate, double cardWidth})
   _shelfGridMetrics(double width, TextScaler textScaler) {
+    final desktop = usesDesktopLayout(context);
+    if (desktop) width = math.min(width, _desktopShelfMaxWidth);
     final available = width - _shelfGridPadding * 2;
-    final columns = math.max(
-      _shelfMinColumns,
-      (available + _shelfGridSpacing) ~/
-          (_shelfTargetCardWidth + _shelfGridSpacing),
-    );
+    // 桌面以封面上限增列，避免向下取整后把多余空间重新放大到封面。
+    final columns = desktop
+        ? math.max(
+            1,
+            ((available + _shelfGridSpacing) /
+                    (_desktopShelfCoverWidth + _shelfGridSpacing))
+                .ceil(),
+          )
+        : math.max(
+            _shelfMinColumns,
+            (available + _shelfGridSpacing) ~/
+                (_shelfTargetCardWidth + _shelfGridSpacing),
+          );
     final cardWidth = (available - _shelfGridSpacing * (columns - 1)) / columns;
     return (
       delegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1874,27 +2132,45 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildBookList(List<_ShelfItem> books) {
-    return ListView.separated(
-      key: const ValueKey<String>('bookshelf-list'),
-      padding: EdgeInsets.fromLTRB(16, 8, 16, _selectionMode ? 160 : 96),
-      itemCount: books.length,
-      separatorBuilder: (_, _) =>
-          _listDividers ? const Divider(height: 1) : const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final item = books[index];
-        return _BookRow(
-          item: item,
-          pinned: _pinnedIds.contains(item.entry.id),
-          showTitle: true,
-          selectionMode: _selectionMode,
-          selected: _selectedIds.contains(item.entry.id),
-          onSelect: () => _toggleSelected(item.entry.id),
-          onOpen: _open,
-          onLongPress: _openBookDetail,
-          onlineUpdate: _onlineUpdates[item.entry.id],
-          isOnline: item.isOnline,
-          finished: _finishedBooks.contains(item.entry.id),
-          onSecondaryTap: (position) => _openBookMenu(item.entry, position),
+    return LayoutBuilder(
+      builder: (_, bounds) {
+        final inset = usesDesktopLayout(context)
+            ? math.max(16.0, (bounds.maxWidth - _desktopShelfListWidth) / 2)
+            : 16.0;
+        return ListView.separated(
+          key: const ValueKey<String>('bookshelf-list'),
+          padding: EdgeInsets.fromLTRB(
+            inset,
+            8,
+            inset,
+            _selectionMode ? 160 : 96,
+          ),
+          itemCount: books.length,
+          separatorBuilder: (_, _) => _listDividers
+              ? const Divider(height: 1)
+              : const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final item = books[index];
+            return _desktopBook(
+              _BookRow(
+                item: item,
+                pinned: _pinnedIds.contains(item.entry.id),
+                showTitle: true,
+                isOnline: item.isOnline,
+                finished: _finishedBooks.contains(item.entry.id),
+                onlineUpdate: _onlineUpdates[item.entry.id],
+                selectionMode: _selectionMode,
+                selected: _selectedIds.contains(item.entry.id),
+                onSelect: () => _activateBook(item.entry, books),
+                onOpen: (entry) => _activateBook(entry, books),
+                onLongPress: _openBookDetail,
+                onSecondaryTap: (position) =>
+                    _openBookMenu(item.entry, position),
+              ),
+              item.entry,
+              books,
+            );
+          },
         );
       },
     );
@@ -1903,86 +2179,94 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Widget _buildSelectionBar() {
     final theme = Theme.of(context);
     final count = _selectedIds.length;
+    final buttons = [
+      OutlinedButton.icon(
+        key: const ValueKey('bookshelf-batch-create-group'),
+        onPressed: count == 0 || _removing
+            ? null
+            : () => _createGroup(initialBookIds: Set<String>.of(_selectedIds)),
+        icon: const AppIcon(AppGlyph.folderAdd, size: 18),
+        label: const Text('新建分组'),
+      ),
+      OutlinedButton.icon(
+        key: const ValueKey('bookshelf-batch-group'),
+        onPressed: count == 0 || _removing ? null : _moveSelectedToGroup,
+        icon: const AppIcon(AppGlyph.folderMove, size: 18),
+        label: const Text('分组'),
+      ),
+      OutlinedButton.icon(
+        key: const ValueKey('bookshelf-batch-delete'),
+        onPressed: count == 0 || _removing ? null : _confirmBatchRemove,
+        icon: _removing
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const AppIcon(AppGlyph.delete, size: 18),
+        label: Text(_removing ? '删除中' : '删除'),
+      ),
+    ];
     return Material(
       color: theme.colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 16, 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                count == 0 ? '请选择书籍' : '已选 $count 本',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          child: OutlinedButtonTheme(
+            data: OutlinedButtonThemeData(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.onSurface,
+                minimumSize: const Size(0, 44),
+                visualDensity: VisualDensity.standard,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
             ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>(
-                        'bookshelf-batch-create-group',
-                      ),
-                      onPressed: count == 0 || _removing
-                          ? null
-                          : () => _createGroup(
-                              initialBookIds: Set<String>.of(_selectedIds),
-                            ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      icon: const AppIcon(AppGlyph.folderAdd, size: 18),
-                      label: const Text('新建分组'),
-                    ),
+            child: LayoutBuilder(
+              builder: (_, bounds) {
+                final desktop = usesDesktopLayout(context);
+                final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+                final wide = desktop && bounds.maxWidth >= 640 * scale;
+                final countLabel = Text(
+                  count == 0 ? '请选择书籍' : '已选 $count 本',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>('bookshelf-batch-group'),
-                      onPressed: count == 0 || _removing
-                          ? null
-                          : _moveSelectedToGroup,
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      icon: const AppIcon(AppGlyph.folderMove, size: 18),
-                      label: const Text('分组'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>('bookshelf-batch-delete'),
-                      onPressed: count == 0 || _removing
-                          ? null
-                          : _confirmBatchRemove,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: theme.colorScheme.onSurface,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                      ),
-                      icon: _removing
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: theme.colorScheme.onSurface,
-                              ),
-                            )
-                          : const AppIcon(AppGlyph.delete, size: 18),
-                      label: Text(_removing ? '删除中' : '删除'),
-                    ),
-                  ),
-                ],
-              ),
+                );
+                if (wide) {
+                  return Row(
+                    children: [
+                      countLabel,
+                      const Spacer(),
+                      for (final button in buttons)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: button,
+                        ),
+                    ],
+                  );
+                }
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    countLabel,
+                    const SizedBox(height: 8),
+                    if (bounds.maxWidth >= 300 * scale)
+                      Row(
+                        children: [
+                          for (final (index, button) in buttons.indexed) ...[
+                            if (index > 0) const SizedBox(width: 8),
+                            Expanded(child: button),
+                          ],
+                        ],
+                      )
+                    else
+                      Wrap(spacing: 8, runSpacing: 8, children: buttons),
+                  ],
+                );
+              },
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -2013,7 +2297,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late String? _displayId;
-  double _offset = 0;
+  final _offset = ValueNotifier<double>(0);
   double _from = 0;
   double _to = 0;
   double _distance = 0;
@@ -2030,10 +2314,8 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
           vsync: this,
           duration: const Duration(milliseconds: 200),
         )..addListener(() {
-          setState(() {
-            final t = Curves.easeOutCubic.transform(_controller.value);
-            _offset = _from + (_to - _from) * t;
-          });
+          final t = Curves.easeOutCubic.transform(_controller.value);
+          _offset.value = _from + (_to - _from) * t;
         });
   }
 
@@ -2045,7 +2327,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
         !widget.groupIds.contains(_displayId)) {
       _controller.stop();
       _displayId = widget.groupId;
-      _offset = 0;
+      _offset.value = 0;
       _direction = 0;
       _targetIndex = null;
     } else if (oldWidget.groupId != widget.groupId &&
@@ -2054,7 +2336,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
       final previous = widget.groupIds.indexOf(_displayId);
       final next = widget.groupIds.indexOf(widget.groupId);
       _direction = (next - previous).sign;
-      _offset = 0;
+      _offset.value = 0;
       _settle(true, targetIndex: next);
     }
   }
@@ -2066,10 +2348,13 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     _distance += details.primaryDelta ?? 0;
     final direction = _distance < 0 ? 1 : -1;
     final next = widget.groupIds.indexOf(_displayId) + direction;
-    setState(() {
-      _direction = next >= 0 && next < widget.groupIds.length ? direction : 0;
-      _offset = _direction == 0 ? 0 : (_distance / _width).clamp(-1.0, 1.0);
-    });
+    final nextDirection = next >= 0 && next < widget.groupIds.length
+        ? direction
+        : 0;
+    if (_direction != nextDirection) {
+      setState(() => _direction = nextDirection);
+    }
+    _offset.value = _direction == 0 ? 0 : (_distance / _width).clamp(-1.0, 1.0);
   }
 
   void _dragEnd(DragEndDetails details) {
@@ -2087,7 +2372,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     final target = commit
         ? widget.groupIds[targetIndex ?? _neighborIndex]
         : _displayId;
-    _from = _offset;
+    _from = _offset.value;
     _to = commit ? -_direction.toDouble() : 0;
     if (!MediaQuery.disableAnimationsOf(context) && _from != _to) {
       try {
@@ -2099,7 +2384,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     if (!mounted) return;
     setState(() {
       _displayId = target;
-      _offset = 0;
+      _offset.value = 0;
       _direction = 0;
     });
     if (commit && widget.groupId != target) widget.onChanged(target);
@@ -2108,6 +2393,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
   @override
   void dispose() {
     _controller.dispose();
+    _offset.dispose();
     super.dispose();
   }
 
@@ -2116,8 +2402,14 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     builder: (context, constraints) {
       _width = constraints.maxWidth;
       Widget page(String? id, double offset, {required bool active}) =>
-          FractionalTranslation(
-            translation: Offset(offset, 0),
+          AnimatedBuilder(
+            key: ValueKey(('bookshelf-group-page', id)),
+            animation: _offset,
+            builder: (_, child) => FractionalTranslation(
+              translation: Offset(_offset.value + offset, 0),
+              child: child,
+            ),
+            // 手势和补间只更新平移；筛选、封面构建与绘制复用本次页面。
             child: ExcludeFocus(
               excluding: !active,
               child: ExcludeSemantics(
@@ -2126,10 +2418,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
                   ignoring: !active,
                   child: HeroMode(
                     enabled: active,
-                    child: KeyedSubtree(
-                      key: ValueKey(('bookshelf-group-page', id)),
-                      child: widget.builder(id),
-                    ),
+                    child: RepaintBoundary(child: widget.builder(id)),
                   ),
                 ),
               ),
@@ -2157,11 +2446,11 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              page(_displayId, _offset, active: _direction == 0),
+              page(_displayId, 0, active: _direction == 0),
               if (_direction != 0)
                 page(
                   widget.groupIds[_targetIndex ?? _neighborIndex],
-                  _offset + _direction,
+                  _direction.toDouble(),
                   active: false,
                 ),
             ],
@@ -2212,17 +2501,17 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.animate || MediaQuery.disableAnimationsOf(context)) {
-      return widget.child;
-    }
+    final animate = widget.animate && !MediaQuery.disableAnimationsOf(context);
     final key = ValueKey((widget.groupId, widget.grid));
     return ClipRect(
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
+        duration: animate ? const Duration(milliseconds: 200) : Duration.zero,
+        // 旧条目创建于加载期也保留退出时长，减少动态效果时不展示旧层。
         reverseDuration: const Duration(milliseconds: 150),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeOutCubic,
-        layoutBuilder: _layoutLayers,
+        layoutBuilder: (current, previous) =>
+            _layoutLayers(current, animate ? previous : const []),
         transitionBuilder: (child, animation) =>
             _transitionContent(child, animation, key),
         child: KeyedSubtree(key: key, child: widget.child),
@@ -2235,6 +2524,7 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     Animation<double> animation,
     Key currentKey,
   ) {
+    final page = RepaintBoundary(child: child);
     final direction = child.key == currentKey
         ? _groupDirection
         : -_groupDirection;
@@ -2248,14 +2538,14 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
               offset: Offset(0, viewDirection * 12 * (1 - animation.value)),
               child: child,
             ),
-            child: child,
+            child: page,
           )
         : SlideTransition(
             position: Tween(
               begin: Offset(direction * .1, 0),
               end: Offset.zero,
             ).animate(animation),
-            child: child,
+            child: page,
           );
     return FadeTransition(opacity: animation, child: content);
   }
@@ -2472,9 +2762,7 @@ class _BookGroupSheetState extends State<_BookGroupSheet> {
 
 class _ShelfGroupBar extends StatelessWidget {
   const _ShelfGroupBar({
-    required this.items,
     required this.groups,
-    required this.assignments,
     required this.activeGroupId,
     required this.onToggle,
     required this.onShowAll,
@@ -2484,9 +2772,7 @@ class _ShelfGroupBar extends StatelessWidget {
     required this.onManageDefault,
   });
 
-  final List<_ShelfItem> items;
   final List<ShelfGroup> groups;
-  final Map<String, String> assignments;
   final String? activeGroupId;
   final ValueChanged<String> onToggle;
   final VoidCallback onShowAll;
@@ -2497,13 +2783,6 @@ class _ShelfGroupBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final counts = <String, int>{};
-    for (final item in items) {
-      final groupId = assignments[item.entry.id];
-      if (groupId != null) {
-        counts[groupId] = (counts[groupId] ?? 0) + 1;
-      }
-    }
     return SizedBox(
       width: double.infinity,
       child: SingleChildScrollView(
@@ -2513,8 +2792,7 @@ class _ShelfGroupBar extends StatelessWidget {
           children: <Widget>[
             _ShelfGroupTab(
               key: const ValueKey<String>('bookshelf-group-all'),
-              label:
-                  '${allAsGroup ? defaultGroupName : '全部'} ${allAsGroup ? items.where((item) => assignments[item.entry.id] == null).length : items.length}',
+              label: allAsGroup ? defaultGroupName : '全部',
               selected: activeGroupId == null,
               onTap: onShowAll,
               onLongPress: allAsGroup ? onManageDefault : null,
@@ -2522,7 +2800,7 @@ class _ShelfGroupBar extends StatelessWidget {
             for (final group in groups)
               _ShelfGroupTab(
                 key: ValueKey<String>('bookshelf-group-${group.id}'),
-                label: '${group.name} ${counts[group.id] ?? 0}',
+                label: group.name,
                 selected: group.id == activeGroupId,
                 onTap: () => onToggle(group.id),
                 onLongPress: () => onManage(group),
@@ -2718,6 +2996,7 @@ class _BookRow extends StatelessWidget {
       selected: selectionMode && selected,
       child: InkWell(
         key: ValueKey<String>('book-row-${entry.id}'),
+        canRequestFocus: !usesDesktopLayout(context),
         overlayColor: _bookPressOverlay,
         onTap: () {
           if (selectionMode) {
@@ -3008,7 +3287,6 @@ class _BookCard extends StatelessWidget {
         children: [
           BookCoverImage(
             book: entry,
-            showReadabilityBadge: !isOnline,
             showShadow: true,
             shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
           ),
@@ -3036,6 +3314,7 @@ class _BookCard extends StatelessWidget {
     );
     return InkWell(
       key: ValueKey<String>('book-card-${entry.id}'),
+      canRequestFocus: !usesDesktopLayout(context),
       borderRadius: BorderRadius.circular(4),
       overlayColor: _bookPressOverlay,
       onTap: () {

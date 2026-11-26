@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
+import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 Widget _menu({
   required bool open,
@@ -50,6 +51,42 @@ Widget _menu({
 );
 
 void main() {
+  testWidgets('设置抽屉首帧只创建即将露出的条目，展开后内容完整且保留拖动关闭', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(384, 853));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final settings = SettingsPanel(
+      section: SettingsSection.settings,
+      overrides: ReaderSettingsDefaults.overrides,
+      themeId: 'white',
+      onOverridesChanged: (_) {},
+      onThemeChanged: (_) {},
+      onOpenBookmarkStyle: () {},
+      onOpenMarkSettings: () {},
+    );
+    await tester.pumpWidget(_menu(open: true));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(_menu(open: true, drawer: true, content: settings));
+    expect(find.byKey(const ValueKey('settings-page-turn')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-corner-top-left')),
+      findsNothing,
+    );
+    final list = find.byType(CustomScrollView);
+    final size = tester.getSize(list);
+    await tester.pump(const Duration(milliseconds: 70));
+    expect(tester.getSize(list), size);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('settings-corner-top-left')),
+      findsOneWidget,
+    );
+    expect(tester.getSize(list), size);
+    await tester.pumpWidget(_menu(open: false));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('reader-drawer-surface')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('菜单入场末帧的磨砂背景保持连续，正文不会突然由清晰变模糊', (tester) async {
     // 真机 1080×2400、450 dpi 对应的逻辑视口。
     const size = Size(384, 2560 / 3);
@@ -128,21 +165,42 @@ void main() {
     await tester.pumpWidget(_menu(open: true));
     await tester.pumpAndSettle();
     // 书名栏已并入底部浮层，菜单只剩一块底板。
-    final bar = tester.widget<GlassContainer>(find.byType(GlassContainer));
-    final settings = bar.settings!;
-    expect(settings.glassColor.a, 1);
-    expect(settings.blur, 0);
-    expect(bar.quality, GlassQuality.minimal);
+    final bar =
+        tester
+                .widget<DecoratedBox>(
+                  find
+                      .descendant(
+                        of: find.byType(ReaderFrostedSurface),
+                        matching: find.byType(DecoratedBox),
+                      )
+                      .first,
+                )
+                .decoration
+            as BoxDecoration;
+    expect(bar.color!.a, 1);
     await tester.pumpWidget(_menu(open: true, drawer: true));
     await tester.pumpAndSettle();
-    final drawer = tester.widget<GlassContainer>(
-      find.descendant(
-        of: find.byKey(const ValueKey('reader-drawer-surface')),
-        matching: find.byType(GlassContainer),
+    final drawer =
+        tester
+                .widget<DecoratedBox>(
+                  find
+                      .descendant(
+                        of: find.byKey(const ValueKey('reader-drawer-surface')),
+                        matching: find.byType(DecoratedBox),
+                      )
+                      .first,
+                )
+                .decoration
+            as BoxDecoration;
+    expect(drawer.color, bar.color);
+    expect(
+      drawer.borderRadius,
+      ReaderUiStyle.sheetRadiusOf(
+        Theme.of(
+          tester.element(find.byKey(const ValueKey('reader-drawer-surface'))),
+        ),
       ),
     );
-    expect(drawer.quality, GlassQuality.minimal);
-    expect(drawer.settings, settings);
     expect(find.byType(BackdropFilter), findsNothing);
   });
 

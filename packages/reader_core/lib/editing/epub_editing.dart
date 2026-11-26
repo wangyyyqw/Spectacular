@@ -1,5 +1,6 @@
 export 'editable_document.dart';
 export 'epub_edit_session.dart';
+export 'epub_note_editor.dart';
 export 'element_commands.dart';
 export 'epub_writer.dart';
 export 'class_style_editor.dart';

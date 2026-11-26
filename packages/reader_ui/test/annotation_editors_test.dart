@@ -119,12 +119,16 @@ void main() {
       find.byKey(const ValueKey<String>('annotation-opacity')),
       findsNothing,
     );
+    await tester.tap(find.byKey(const ValueKey<String>('line-tab')));
+    await tester.pumpAndSettle();
     final style = find.byKey(
       const ValueKey<String>('annotation-style-dottedUnderline'),
     );
     await tester.ensureVisible(style);
     await tester.tap(style);
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('width-tab')));
+    await tester.pumpAndSettle();
     final width = find.byKey(const ValueKey<String>('annotation-width-2.6'));
     await tester.ensureVisible(width);
     await tester.tap(width);
@@ -163,14 +167,17 @@ void main() {
       const ReaderMarkSettingsSheet(settings: ReaderMarkSettings()),
       (result) => settings = result,
     );
+    await tester.tap(find.byKey(const ValueKey<String>('line-tab')));
+    await tester.pumpAndSettle();
     final style = find.byKey(
       const ValueKey<String>('annotation-style-wavyUnderline'),
     );
     await tester.ensureVisible(style);
     await tester.tap(style);
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('color-tab')));
+    await tester.pumpAndSettle();
     final addColor = find.byKey(const ValueKey<String>('annotation-add-color'));
-    await tester.ensureVisible(addColor);
     await tester.tap(addColor);
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -184,6 +191,74 @@ void main() {
     expect(settings?.lastStyle, ReaderAnnotationStyle.wavyUnderline);
     expect(settings?.lastColor, 0xFF112233);
     expect(settings?.customColors, [0xFF112233]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('划线设置以分段按钮切换分区，预览紧邻按钮组上方', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await _openSheet<ReaderMarkSettings>(
+      tester,
+      const ReaderMarkSettingsSheet(settings: ReaderMarkSettings()),
+      (_) {},
+    );
+    final navigation = find.byKey(
+      const ValueKey<String>('mark-settings-section-tabs'),
+    );
+    final preview = find.byKey(const ValueKey<String>('mark-settings-preview'));
+    final fixedHeight = find.byKey(
+      const ValueKey<String>('mark-settings-fixed-height'),
+    );
+    final initialHeight = tester.getSize(fixedHeight).height;
+    expect(
+      tester.getTopLeft(navigation).dy - tester.getBottomLeft(preview).dy,
+      closeTo(8, 0.1),
+    );
+    for (final section in ['color', 'background', 'line', 'width']) {
+      expect(find.byKey(ValueKey<String>('$section-tab')), findsOneWidget);
+    }
+    expect(find.text('颜色'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('annotation-add-color')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('background-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('背景'), findsNWidgets(2));
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-halfBackground')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-underline')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('line-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('线条'), findsNWidgets(2));
+    expect(
+      find.byKey(const ValueKey<String>('annotation-width-1.8')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('width-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('线宽'), findsNWidgets(2));
+    expect(
+      find.byKey(const ValueKey<String>('annotation-width-1.8')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-join-lines')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('background-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('背景'), findsNWidgets(2));
+    expect(tester.getSize(fixedHeight).height, initialHeight);
     expect(tester.takeException(), isNull);
   });
 }

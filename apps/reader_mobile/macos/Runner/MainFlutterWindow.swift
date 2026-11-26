@@ -1,7 +1,7 @@
 import Cocoa
 import FlutterMacOS
 
-class MainFlutterWindow: NSWindow {
+class MainFlutterWindow: NSWindow, NSWindowDelegate {
   private static let darkBackground = NSColor(
     srgbRed: 34.0 / 255.0,
     green: 36.0 / 255.0,
@@ -75,6 +75,13 @@ class MainFlutterWindow: NSWindow {
     )
 
     super.awakeFromNib()
+    self.delegate = self
+  }
+
+  func windowShouldClose(_ sender: NSWindow) -> Bool {
+    // 先协商退出，让编辑器完成未保存确认，取消时窗口继续可见。
+    NSApp.terminate(sender)
+    return false
   }
 
   deinit {

@@ -68,6 +68,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   int _section = 0;
   double _dragDx = 0;
   List<BookEntry>? _books;
+  final _loadedSections = <int>{};
   Map<String, BookNoteCounts> _counts = const {};
   Map<String, Duration> _durations = const {};
   Map<String, int> _readDays = const {};
@@ -84,6 +85,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   final FocusNode _keyboardFocus = FocusNode();
   _ReviewSort _sort = _ReviewSort.updated;
   bool _searching = false;
+  bool _inlineSearchAvailable = false;
   String _query = '';
   int _reloadToken = 0;
   int _editToken = 0;
@@ -129,6 +131,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       oldWidget.library.removeListener(_onLibraryChanged);
       widget.library.addListener(_onLibraryChanged);
       _books = null;
+      _loadedSections.clear();
     }
     if (controllerChanged) {
       oldWidget.reaMicro?.removeListener(_onReaMicroChanged);
@@ -156,7 +159,6 @@ class _ReviewsPageState extends State<ReviewsPage>
     setState(() {
       _section = _tabs.index;
       _editToken++;
-      _books = null;
       _error = null;
       _searching = false;
       _query = '';
@@ -197,9 +199,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   }
 
   void _toggleSearch() {
-    if (usesDesktopLayout(context) &&
-        MediaQuery.sizeOf(context).width >= 900 &&
-        !_searching) {
+    if (_inlineSearchAvailable && !_searching) {
       _searchFocus.requestFocus();
       return;
     }
@@ -220,7 +220,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       _searchFocus.requestFocus();
       return;
     }
-    if (usesDesktopLayout(context) && MediaQuery.sizeOf(context).width >= 900) {
+    if (_inlineSearchAvailable) {
       _searchFocus.requestFocus();
       return;
     }
@@ -311,7 +311,9 @@ class _ReviewsPageState extends State<ReviewsPage>
 
   Future<void> _reload() async {
     final token = ++_reloadToken;
+    if (_bookListsTab) return;
     final library = widget.library;
+    final section = _section;
     final notes = _notes;
     try {
       final books = <BookEntry>[
@@ -427,8 +429,12 @@ class _ReviewsPageState extends State<ReviewsPage>
           cloudError = notes ? '阅微笔记读取失败，已显示本地笔记' : '阅微书评读取失败，已显示本地书评';
         }
       }
-      if (mounted && widget.active && token == _reloadToken) {
+      if (mounted &&
+          widget.active &&
+          token == _reloadToken &&
+          section == _section) {
         setState(() {
+          _loadedSections.add(section);
           _books = visibleBooks;
           _finishedBooks = finished;
           _counts = notes ? visibleCounts : _counts;
@@ -444,9 +450,14 @@ class _ReviewsPageState extends State<ReviewsPage>
         });
       }
     } catch (error, stackTrace) {
-      if (!mounted || !widget.active || token != _reloadToken) return;
+      if (!mounted ||
+          !widget.active ||
+          token != _reloadToken ||
+          section != _section) {
+        return;
+      }
       final label = notes ? '笔记' : '书评';
-      if (_books == null) {
+      if (!_loadedSections.contains(section)) {
         setState(() => _error = '$label加载失败，请重试');
       } else {
         recordAppError('reviews_reload_failed', error, stackTrace: stackTrace);
@@ -604,6 +615,16 @@ class _ReviewsPageState extends State<ReviewsPage>
     final desktop = usesDesktopLayout(context);
     return CallbackShortcuts(
       bindings: {
+        if (desktop && widget.active)
+          const SingleActivator(
+            LogicalKeyboardKey.escape,
+            includeRepeats: false,
+          ): () {
+            if (_searching || _query.isNotEmpty || _searchFocus.hasFocus) {
+              _resetSearch();
+              _keyboardFocus.requestFocus();
+            }
+          },
         if (desktop && widget.active && !_bookListsTab)
           SingleActivator(
             LogicalKeyboardKey.keyF,
@@ -663,21 +684,23 @@ class _ReviewsPageState extends State<ReviewsPage>
         child: LayoutBuilder(
           builder: (context, constraints) {
             final fullWidth = constraints.maxWidth;
-            final wide = desktop && MediaQuery.sizeOf(context).width >= 900;
-            final inlineSearch = wide && !_searching;
+            final wide = desktop && fullWidth >= 680;
+            _inlineSearchAvailable = wide;
+            final expandedSearch = _searching || (!wide && _query.isNotEmpty);
+            final inlineSearch = wide && !expandedSearch;
             return Stack(
               alignment: Alignment.centerRight,
               children: [
                 Positioned.fill(
                   child: ExcludeFocus(
-                    excluding: _searching,
+                    excluding: expandedSearch,
                     child: ExcludeSemantics(
-                      excluding: _searching,
+                      excluding: expandedSearch,
                       child: AnimatedOpacity(
-                        opacity: _searching ? 0 : 1,
+                        opacity: expandedSearch ? 0 : 1,
                         duration: const Duration(milliseconds: 140),
                         child: IgnorePointer(
-                          ignoring: _searching,
+                          ignoring: expandedSearch,
                           child: Row(
                             children: [
                               Expanded(
@@ -750,11 +773,11 @@ class _ReviewsPageState extends State<ReviewsPage>
                     ),
                   ),
                 ),
-                if (!wide || _searching)
+                if (!wide || expandedSearch)
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 220),
                     curve: Curves.easeOutCubic,
-                    width: _searching ? fullWidth : 44,
+                    width: expandedSearch ? fullWidth : 44,
                     height: 44,
                     alignment: Alignment.centerRight,
                     child: ClipRect(
@@ -764,7 +787,7 @@ class _ReviewsPageState extends State<ReviewsPage>
                           alignment: Alignment.centerRight,
                           children: [...previous, ?current],
                         ),
-                        child: _searching
+                        child: expandedSearch
                             ? OverflowBox(
                                 key: const ValueKey('reviews-search-expanded'),
                                 alignment: Alignment.centerRight,
@@ -782,7 +805,7 @@ class _ReviewsPageState extends State<ReviewsPage>
                                         highlightColor: Colors.transparent,
                                         hoverColor: Colors.transparent,
                                         focusColor: Colors.transparent,
-                                        onPressed: _toggleSearch,
+                                        onPressed: _resetSearch,
                                         icon: const AppIcon(AppGlyph.close),
                                       ),
                                     ),
@@ -909,7 +932,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       );
     }
     final books = _books;
-    if (books == null) {
+    if (books == null || !_loadedSections.contains(_section)) {
       return _error == null
           ? const Center(child: CircularProgressIndicator())
           : _ReviewLoadError(message: _error!, onRetry: _reload);
@@ -1000,7 +1023,7 @@ class _SectionTransitionState extends State<_SectionTransition> {
                 begin: Offset(direction * .1, 0),
                 end: Offset.zero,
               ).animate(animation),
-              child: child,
+              child: RepaintBoundary(child: child),
             ),
           );
         },

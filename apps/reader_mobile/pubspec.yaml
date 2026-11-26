@@ -60,15 +60,16 @@ dependencies:
   re_highlight: 0.0.3
   file_selector: 1.1.0
   http: ^1.6.0
-  html: ^0.15.7
   multicast_dns: ^0.3.3+1
-  pointycastle: ^4.0.0
   flutter_js: 0.8.7
   enough_convert: ^1.7.1
   url_launcher: ^6.3.2
   xml: 7.1.0
   cryptography: 2.9.0
   flutter_secure_storage: 11.2.0
+  flutter_inappwebview: 6.1.5
+  pointycastle: 4.0.0
+  html: 0.15.7
 
 dev_dependencies:
   flutter_test:
@@ -89,6 +90,9 @@ dev_dependencies:
 # 2.2.23 是最后一个不使用 JNI 的稳定版本。
 dependency_overrides:
   path_provider_android: 2.2.23
+  # 上游 1.1.3 的旧 ProGuard 配置不兼容 AGP 9，源码补丁随仓库保留。
+  flutter_inappwebview_android:
+    path: ../../third_party/flutter_inappwebview_android
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

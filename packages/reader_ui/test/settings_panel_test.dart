@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_ui/footnote_dialog.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/tap_zones.dart';
@@ -380,11 +381,13 @@ void main() {
     );
   });
 
-  testWidgets('设置段标题统一，窄屏可滚动选择 3D、接续与滚动', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(320, 720);
+  testWidgets('注释与翻页入口等宽并排，分别选择不会修改另一项', (tester) async {
+    tester.view
+      ..devicePixelRatio = 1
+      ..physicalSize = const Size(320, 720);
     addTearDown(tester.view.reset);
-    final changes = <PageTurnMode>[];
+    ReaderFootnoteStyle? footnote;
+    PageTurnMode? mode;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -392,11 +395,67 @@ void main() {
             section: SettingsSection.settings,
             overrides: ReaderSettingsDefaults.overrides,
             themeId: 'white',
-            pageTurnMode: PageTurnMode.cover,
-            onPageTurnModeChanged: changes.add,
-            onOpenMarkSettings: () {},
+            onFootnoteStyleChanged: (value) => footnote = value,
+            onPageTurnModeChanged: (value) => mode = value,
             onOverridesChanged: (_) {},
             onThemeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    final noteEntry = find.byKey(const ValueKey('settings-footnote-style'));
+    final modeEntry = find.byKey(const ValueKey('settings-page-turn'));
+    final noteRect = tester.getRect(noteEntry);
+    final modeRect = tester.getRect(modeEntry);
+    expect(noteRect.top, modeRect.top);
+    expect(noteRect.size, modeRect.size);
+    expect(noteRect.height, 52);
+    expect(noteRect.right, lessThan(modeRect.left));
+    await tester.tap(noteEntry);
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<PageTurnMode>), findsNothing);
+    final paper = find.byKey(const ValueKey('settings-footnote-style-paper'));
+    final noteMenu = find
+        .ancestor(of: paper, matching: find.byType(Material))
+        .first;
+    expect(tester.getRect(noteMenu).right, closeTo(noteRect.right, .01));
+    await tester.tap(paper);
+    await tester.pumpAndSettle();
+    expect(footnote, ReaderFootnoteStyle.paper);
+    expect(mode, isNull);
+    await tester.tap(modeEntry);
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('settings-page-turn-none')));
+    await tester.pumpAndSettle();
+    expect(mode, PageTurnMode.none);
+    expect(footnote, ReaderFootnoteStyle.paper);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('设置段使用单行翻页入口，窄屏菜单可选择全部模式', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 720);
+    addTearDown(tester.view.reset);
+    final changes = <PageTurnMode>[];
+    var mode = PageTurnMode.cover;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) => Scaffold(
+            body: SettingsPanel(
+              section: SettingsSection.settings,
+              overrides: ReaderSettingsDefaults.overrides,
+              themeId: 'white',
+              pageTurnMode: mode,
+              onPageTurnModeChanged: (value) {
+                changes.add(value);
+                setState(() => mode = value);
+              },
+              onOpenMarkSettings: () {},
+              onOverridesChanged: (_) {},
+              onThemeChanged: (_) {},
+            ),
           ),
         ),
       ),
@@ -405,18 +464,33 @@ void main() {
     for (final title in ['划线设置', '翻页方式', '边角信息']) {
       expect(find.text(title), findsOneWidget);
     }
-    final titleStyles = [
-      for (final title in ['划线设置', '翻页方式', '边角信息'])
-        tester.widget<Text>(find.text(title)).style,
-    ];
-    expect(titleStyles[1], titleStyles[0]);
-    expect(titleStyles[2], titleStyles[0]);
+    final entry = find.byKey(const ValueKey('settings-page-turn'));
+    expect(
+      find.descendant(of: entry, matching: find.text('覆盖')),
+      findsOneWidget,
+    );
+    expect(find.byType(PopupMenuItem<PageTurnMode>), findsNothing);
     const choices = {
+      '堆叠': PageTurnMode.coverStack,
+      '覆盖': PageTurnMode.cover,
+      '仿真': PageTurnMode.simulationBessel,
       '3D': PageTurnMode.simulation3d,
       '接续': PageTurnMode.continuation,
       '滚动': PageTurnMode.scroll,
+      '滑动': PageTurnMode.slideHorizontal,
+      '无': PageTurnMode.none,
     };
     for (final choice in choices.entries) {
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widgetList<PopupMenuItem<PageTurnMode>>(
+              find.byType(PopupMenuItem<PageTurnMode>),
+            )
+            .map((item) => item.value),
+        orderedEquals(choices.values),
+      );
       final option = find.byKey(
         ValueKey<String>('settings-page-turn-${choice.value.id}'),
       );
@@ -426,10 +500,124 @@ void main() {
         findsOneWidget,
       );
       await tester.tap(option);
+      await tester.pumpAndSettle();
+      expect(find.byType(PopupMenuItem<PageTurnMode>), findsNothing);
+      expect(
+        find.descendant(of: entry, matching: find.text(choice.key)),
+        findsOneWidget,
+      );
     }
     expect(changes, orderedEquals(choices.values));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('翻页菜单点击空白或系统返回关闭，未提供回调时入口禁用', (tester) async {
+    final changes = <PageTurnMode>[];
+    Widget panel({bool enabled = true}) => MaterialApp(
+      home: Scaffold(
+        body: SettingsPanel(
+          section: SettingsSection.settings,
+          overrides: ReaderSettingsDefaults.overrides,
+          themeId: 'white',
+          onPageTurnModeChanged: enabled ? changes.add : null,
+          onOverridesChanged: (_) {},
+          onThemeChanged: (_) {},
+        ),
+      ),
+    );
+    final entry = find.byKey(const ValueKey('settings-page-turn'));
+    await tester.pumpWidget(panel());
+    for (final back in [false, true]) {
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      if (back) {
+        await tester.binding.handlePopRoute();
+      } else {
+        await tester.tapAt(const Offset(8, 8));
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(PopupMenuItem<PageTurnMode>), findsNothing);
+      expect(
+        find.descendant(of: entry, matching: find.text('覆盖')),
+        findsOneWidget,
+      );
+      expect(changes, isEmpty);
+    }
+    await tester.pumpWidget(panel(enabled: false));
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<PageTurnMode>), findsNothing);
+    expect(changes, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final screen in [const Size(320, 480), const Size(854, 384)]) {
+    testWidgets('$screen 大字号翻页菜单避开安全区并可滚动选择末项', (tester) async {
+      tester.view
+        ..devicePixelRatio = 1
+        ..physicalSize = screen
+        ..padding = const FakeViewPadding(top: 24, bottom: 20)
+        ..viewPadding = const FakeViewPadding(top: 24, bottom: 20);
+      addTearDown(tester.view.reset);
+      PageTurnMode? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                height: 180,
+                child: SettingsPanel(
+                  section: SettingsSection.settings,
+                  overrides: ReaderSettingsDefaults.overrides,
+                  themeId: 'white',
+                  onFootnoteStyleChanged: (_) {},
+                  onPageTurnModeChanged: (value) => selected = value,
+                  onOverridesChanged: (_) {},
+                  onThemeChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final entry = find.byKey(const ValueKey('settings-page-turn'));
+      final noteEntry = find.byKey(const ValueKey('settings-footnote-style'));
+      expect(tester.getRect(entry).top, tester.getRect(noteEntry).top);
+      expect(tester.getRect(entry).bottom, lessThanOrEqualTo(screen.height));
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      final option = find.byKey(const ValueKey('settings-page-turn-none'));
+      final menu = find
+          .ancestor(of: option, matching: find.byType(Material))
+          .first;
+      final rect = tester.getRect(menu);
+      expect(rect.right, closeTo(tester.getRect(entry).right, .01));
+      expect(rect.top, greaterThanOrEqualTo(32));
+      expect(rect.bottom, lessThanOrEqualTo(screen.height - 28));
+      expect(
+        find.descendant(
+          of: menu,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Semantics && widget.properties.selected == true,
+          ),
+        ),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(option);
+      await tester.tap(option);
+      await tester.pumpAndSettle();
+      expect(selected, PageTurnMode.none);
+      expect(find.byType(PopupMenuItem<PageTurnMode>), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('设置段可切换全屏点击、屏幕常亮和音量键翻页', (tester) async {
     ReaderTapZones? zones;

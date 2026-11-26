@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 import 'package:reader_core/editing/epub_editing.dart';
-import 'package:reader_ui/icons/app_icon.dart';
+
+import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_page.dart';
@@ -133,8 +134,8 @@ class _EpubFileEditorPageState extends State<EpubFileEditorPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    AppIcon(
-                      AppGlyph.editNote,
+                    EditorIcon(
+                      EditorGlyph.editNote,
                       size: 48,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -152,7 +153,7 @@ class _EpubFileEditorPageState extends State<EpubFileEditorPage> {
                     FilledButton.icon(
                       key: const ValueKey('editor-open-file'),
                       onPressed: _opening ? null : _open,
-                      icon: const AppIcon(AppGlyph.folder),
+                      icon: const EditorIcon(EditorGlyph.folder),
                       label: Text(_opening ? '正在打开 EPUB…' : '打开 EPUB 文件'),
                     ),
                     if (_error != null) ...[

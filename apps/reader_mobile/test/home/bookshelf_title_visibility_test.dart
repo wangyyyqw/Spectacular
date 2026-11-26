@@ -1,6 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
@@ -17,7 +18,53 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
   }
 }
 
+class _PreferencesLibrary extends LibraryStore {
+  _PreferencesLibrary() : super.memory();
+
+  Completer<void>? pending;
+
+  @override
+  Future<String?> getSetting(String key) async {
+    await pending?.future;
+    return super.getSetting(key);
+  }
+}
+
 void main() {
+  testWidgets('返回书架读取相同偏好时不再次重建，偏好变化仍立即生效', (tester) async {
+    final library = _PreferencesLibrary();
+    final progress = MemoryReaderProgressStore();
+    Widget app(int refresh) => MaterialApp(
+      home: BookshelfPage(
+        library: library,
+        progressStore: progress,
+        refreshToken: refresh,
+      ),
+    );
+    await tester.pumpWidget(app(0));
+    await tester.pumpAndSettle();
+    library.pending = Completer<void>();
+    await tester.pumpWidget(app(1));
+    var rebuilds = 0;
+    final previous = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtBefore) {
+      previous?.call(element, builtBefore);
+      if (element.widget is BookshelfPage) rebuilds++;
+    };
+    try {
+      library.pending!.complete();
+      await tester.pumpAndSettle();
+      expect(rebuilds, 0);
+      await library.setSetting('bookshelf.grid', 'false');
+      await tester.pumpWidget(app(2));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('网格视图'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugOnRebuildDirtyWidget = previous;
+    }
+  });
+
   testWidgets('书架管理关闭宫格书名后仅宫格隐藏书名，列表书名保留', (tester) async {
     final library = LibraryStore.memory();
     final ids = <String>[];
@@ -58,7 +105,9 @@ void main() {
     expect(tester.widget<ReaderSwitchListTile>(switchTile).value, isFalse);
     expect(await library.getSetting(bookshelfGridShowTitlesKey), 'false');
 
-    await tester.drag(find.byType(ReaderSheetForm), const Offset(0, 700));
+    await tester.binding.handlePopRoute();
+    await _settle(tester);
+    await tester.binding.handlePopRoute();
     await _settle(tester);
     await tester.tap(find.text('书架'));
     await _settle(tester);

@@ -1,16 +1,21 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:re_highlight/languages/css.dart';
 import 'package:re_highlight/languages/xml.dart';
 import 'package:re_highlight/styles/github-dark.dart';
 import 'package:re_highlight/styles/github.dart';
-import 'package:reader_ui/icons/app_icon.dart';
+
+import 'editor_icon.dart';
 
 import 'book_editor_controller.dart';
 import 'book_editor_find_bar.dart';
+import 'book_editor_search.dart';
+import 'css_completion.dart';
+import 'css_completion_input.dart';
 import 'book_editor_tools.dart';
 import 'xhtml_chunk_analyzer.dart';
 
@@ -24,7 +29,9 @@ class BookEditorSource extends StatefulWidget {
     required this.controller,
     this.onLocate,
     this.onCursorChanged,
-    this.onFindAll,
+    required this.search,
+    this.followPreview = true,
+    this.onFollowPreviewChanged,
     this.bottomTab = EditorSourceBottomTab.find,
     this.onBottomTabChanged,
     this.inspector,
@@ -32,7 +39,9 @@ class BookEditorSource extends StatefulWidget {
   final BookEditorController controller;
   final VoidCallback? onLocate;
   final VoidCallback? onCursorChanged;
-  final VoidCallback? onFindAll;
+  final BookEditorSearch search;
+  final bool followPreview;
+  final ValueChanged<bool>? onFollowPreviewChanged;
   final EditorSourceBottomTab bottomTab;
   final ValueChanged<EditorSourceBottomTab>? onBottomTabChanged;
   final Widget? inspector;
@@ -44,8 +53,8 @@ class BookEditorSource extends StatefulWidget {
 class _BookEditorSourceState extends State<BookEditorSource> {
   final _codeFocus = FocusNode();
   Timer? _cursorFollow;
+  BookEditorDocument? _displayedDocument;
   bool _wrap = true;
-  bool _findWasOpen = false;
 
   @override
   void initState() {
@@ -57,6 +66,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
     _cursorFollow?.cancel();
     if (widget.onCursorChanged == null ||
         !_codeFocus.hasFocus ||
+        !widget.followPreview ||
         widget.controller.busy ||
         !widget.controller.session.previewPaths.contains(
           widget.controller.activePath,
@@ -64,7 +74,9 @@ class _BookEditorSourceState extends State<BookEditorSource> {
       return;
     }
     _cursorFollow = Timer(const Duration(milliseconds: 160), () {
-      if (mounted && _codeFocus.hasFocus) widget.onCursorChanged?.call();
+      if (mounted && _codeFocus.hasFocus && widget.followPreview) {
+        widget.onCursorChanged?.call();
+      }
     });
   }
 
@@ -104,86 +116,131 @@ class _BookEditorSourceState extends State<BookEditorSource> {
     _focusSource();
   }
 
+  Future<void> _goToLine() async {
+    final editor = widget.controller;
+    final doc = editor.activeDocument;
+    if (editor.busy || doc == null) return;
+    final position = doc.code.unfoldLineSelection;
+    final input = await editorPrompt(
+      context,
+      '跳转到行（1–${doc.code.lineCount}）',
+      initial: '${position.extentIndex + 1}:${position.extentOffset + 1}',
+    );
+    if (input == null || !mounted || editor.activeDocument != doc) return;
+    final match = RegExp(r'^\s*(\d+)(?::(\d+))?\s*$').firstMatch(input);
+    final line = match == null ? null : int.tryParse(match[1]!);
+    final column = match?[2] == null ? 1 : int.tryParse(match![2]!);
+    if (line == null ||
+        line < 1 ||
+        line > doc.code.lineCount ||
+        column == null ||
+        column < 1) {
+      setState(() => _navigationError = '请输入有效的行号，或“行号:列号”。');
+      return;
+    }
+    final lines = doc.code.text.split('\n');
+    final offset =
+        lines
+            .take(line - 1)
+            .fold<int>(0, (total, text) => total + text.length + 1) +
+        (column - 1).clamp(0, lines[line - 1].replaceAll('\r', '').length);
+    editor.openDocument(doc.path, offset: offset);
+    setState(() => _navigationError = null);
+    _focusSource();
+  }
+
+  String? _navigationError;
+
   @override
   Widget build(BuildContext context) {
     final editor = widget.controller;
     final doc = editor.activeDocument;
-    final source = ColoredBox(
+    if (_displayedDocument != doc) {
+      _displayedDocument = doc;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.controller.activeDocument == doc) {
+          doc?.code.makeCursorVisible();
+        }
+      });
+    }
+    final source = Material(
       color: Theme.of(context).colorScheme.surface,
-      child: Column(
-        children: [
-          SizedBox(
-            height: 32,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                for (final file in editor.documents.values) _tab(file),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          if (doc == null)
-            const Expanded(child: Center(child: Text('从书籍浏览器打开正文、样式或包文件')))
-          else ...[
-            if (doc.error != null)
-              Padding(
-                padding: const EdgeInsets.all(6),
-                child: Text(
-                  '校验未通过，预览保留上次有效内容。',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+      child: LayoutBuilder(
+        builder: (_, bounds) => Column(
+          children: [
+            SizedBox(
+              height: 32,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final file in editor.documents.values) _tab(file),
+                ],
               ),
-            Expanded(child: _code(doc)),
+            ),
             const Divider(height: 1),
-            if (widget.inspector != null) _bottomSwitch(doc),
-            if (widget.inspector == null)
-              ValueListenableBuilder<CodeFindValue?>(
-                valueListenable: doc.find,
-                builder: (_, value, _) =>
-                    value == null ? const SizedBox.shrink() : _findBar(doc),
+            if (doc == null)
+              const Expanded(child: Center(child: Text('从书籍浏览器打开正文、样式或包文件')))
+            else ...[
+              if (_navigationError case final message?)
+                Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              if (doc.error != null)
+                Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Text(
+                    '校验未通过，预览保留上次有效内容。',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              Expanded(child: _code(doc)),
+            ],
+            const Divider(height: 1),
+            if (doc != null && widget.inspector != null) _bottomSwitch(),
+            if (doc != null &&
+                widget.inspector != null &&
+                widget.bottomTab == EditorSourceBottomTab.inspector)
+              SizedBox(
+                height: (bounds.maxHeight * .42).clamp(0.0, 280.0),
+                child: widget.inspector,
               )
             else
-              ValueListenableBuilder<CodeFindValue?>(
-                valueListenable: doc.find,
-                builder: (_, value, _) {
-                  final open = value != null;
-                  if (open &&
-                      !_findWasOpen &&
-                      widget.bottomTab != EditorSourceBottomTab.find) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted &&
-                          doc.find.value != null &&
-                          widget.bottomTab != EditorSourceBottomTab.find) {
-                        widget.onBottomTabChanged?.call(
-                          EditorSourceBottomTab.find,
-                        );
-                      }
-                    });
-                  }
-                  _findWasOpen = open;
-                  if (widget.bottomTab == EditorSourceBottomTab.inspector) {
-                    return SizedBox(
-                      height: (MediaQuery.sizeOf(context).height * .28).clamp(
-                        200.0,
-                        300.0,
-                      ),
-                      child: Material(
-                        color: Theme.of(context).colorScheme.surface,
-                        child: widget.inspector,
-                      ),
-                    );
-                  }
-                  return value == null ? _findHint(doc) : _findBar(doc);
-                },
+              ListenableBuilder(
+                listenable: widget.search,
+                builder: (_, _) => widget.search.opened
+                    ? ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: (bounds.maxHeight * .48).clamp(0.0, 380.0),
+                        ),
+                        child: _findBar(),
+                      )
+                    : _findHint(),
               ),
-            _status(doc),
+            if (doc != null) _status(doc),
           ],
-        ],
+        ),
       ),
     );
     final macOS = Theme.of(context).platform == TargetPlatform.macOS;
     return CallbackShortcuts(
       bindings: {
+        SingleActivator(
+          LogicalKeyboardKey.keyG,
+          meta: macOS,
+          control: !macOS,
+          includeRepeats: false,
+        ): () =>
+            unawaited(_goToLine()),
+        const SingleActivator(LogicalKeyboardKey.keyZ, alt: true): () =>
+            setState(() => _wrap = !_wrap),
         const SingleActivator(
           LogicalKeyboardKey.tab,
           control: true,
@@ -210,7 +267,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
     );
   }
 
-  Widget _bottomSwitch(BookEditorDocument doc) {
+  Widget _bottomSwitch() {
     final colors = Theme.of(context).colorScheme;
     return Container(
       height: 34,
@@ -219,11 +276,10 @@ class _BookEditorSourceState extends State<BookEditorSource> {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: [
-          _bottomTab(doc, EditorSourceBottomTab.find, AppGlyph.search, '查找替换'),
+          _bottomTab(EditorSourceBottomTab.find, EditorGlyph.search, '查找替换'),
           _bottomTab(
-            doc,
             EditorSourceBottomTab.inspector,
-            AppGlyph.tune,
+            EditorGlyph.tune,
             '样式检查器',
           ),
         ],
@@ -231,13 +287,9 @@ class _BookEditorSourceState extends State<BookEditorSource> {
     );
   }
 
-  Widget _bottomTab(
-    BookEditorDocument doc,
-    EditorSourceBottomTab tab,
-    AppGlyph icon,
-    String label,
-  ) {
+  Widget _bottomTab(EditorSourceBottomTab tab, EditorGlyph icon, String label) {
     final colors = Theme.of(context).colorScheme;
+    final radius = ReaderUiStyle.chipRadiusOf(Theme.of(context));
     final selected = widget.bottomTab == tab;
     return Padding(
       padding: const EdgeInsets.only(right: 4),
@@ -245,20 +297,20 @@ class _BookEditorSourceState extends State<BookEditorSource> {
         button: true,
         selected: selected,
         child: InkWell(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: radius,
           onTap: () => tab == EditorSourceBottomTab.find
-              ? _openFind(doc)
+              ? _openFind()
               : widget.onBottomTabChanged?.call(tab),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: selected ? colors.secondaryContainer : Colors.transparent,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: radius,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppIcon(
+                EditorIcon(
                   icon,
                   size: 14,
                   color: selected
@@ -283,49 +335,44 @@ class _BookEditorSourceState extends State<BookEditorSource> {
     );
   }
 
-  Widget _findBar(BookEditorDocument doc) => EditorFindBar(
-    controller: doc.find,
-    editing: doc.code,
-    readOnly: widget.controller.busy,
-    onFindAll: widget.onFindAll,
+  Widget _findBar() => EditorFindBar(
+    search: widget.search,
     onClose: () {
-      doc.find.close();
+      widget.search.close();
       _focusSource();
     },
   );
 
-  Widget _findHint(BookEditorDocument doc) {
+  Widget _findHint() {
     final colors = Theme.of(context).colorScheme;
     return SizedBox(
       height: 36,
       child: Row(
         children: [
           const SizedBox(width: 10),
-          AppIcon(AppGlyph.search, size: 16, color: colors.onSurfaceVariant),
+          EditorIcon(
+            EditorGlyph.search,
+            size: 16,
+            color: colors.onSurfaceVariant,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              '查找或替换当前文档',
+              '查找或替换正文与资源',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
-          TextButton(
-            onPressed: () => _openFind(doc),
-            child: const Text('开始查找'),
-          ),
+          TextButton(onPressed: _openFind, child: const Text('开始查找')),
           const SizedBox(width: 6),
         ],
       ),
     );
   }
 
-  void _openFind(BookEditorDocument doc, {bool replace = false}) {
+  void _openFind({bool replace = false}) {
     widget.onBottomTabChanged?.call(EditorSourceBottomTab.find);
-    if (replace) {
-      doc.find.replaceMode();
-    } else {
-      doc.find.findMode();
-    }
+    widget.search.focus();
+    if (replace) widget.search.replaceFocus.requestFocus();
   }
 
   Widget _tab(BookEditorDocument doc) {
@@ -374,7 +421,7 @@ class _BookEditorSourceState extends State<BookEditorSource> {
               tooltip: '关闭 ${doc.path.split('/').last}',
               constraints: const BoxConstraints.tightFor(width: 28, height: 32),
               padding: EdgeInsets.zero,
-              icon: const AppIcon(AppGlyph.close, size: 14),
+              icon: const EditorIcon(EditorGlyph.close, size: 14),
               onPressed: () => _closeDocument(doc.path),
             ),
             const VerticalDivider(width: 1),
@@ -389,63 +436,60 @@ class _BookEditorSourceState extends State<BookEditorSource> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Listener(
       onPointerUp: (_) => _followCursor(),
-      child: CodeEditor(
-        key: ValueKey(doc.path),
+      child: CssCodeCompletion(
+        key: ValueKey('css-completion-${doc.path}'),
         controller: doc.code,
-        findController: doc.find,
         focusNode: _codeFocus,
         readOnly: widget.controller.busy,
-        autofocus: false,
-        wordWrap: _wrap,
-        onChanged: (_) => _followCursor(),
-        shortcutOverrideActions: {
-          CodeShortcutFindIntent: CallbackAction<CodeShortcutFindIntent>(
-            onInvoke: (_) {
-              _openFind(doc);
-              return null;
-            },
-          ),
-          CodeShortcutReplaceIntent: CallbackAction<CodeShortcutReplaceIntent>(
-            onInvoke: (_) {
-              _openFind(doc, replace: true);
-              return null;
-            },
-          ),
-        },
-        chunkAnalyzer: css
-            ? const DefaultCodeChunkAnalyzer()
-            : const XhtmlChunkAnalyzer(),
-        padding: const EdgeInsets.all(10),
-        style: CodeEditorStyle(
-          fontSize: 13,
-          fontFamily: 'monospace',
-          highlightColor: dark
-              ? const Color(0x8CFFC107)
-              : const Color(0x99FFB300),
-          codeTheme: CodeHighlightTheme(
-            languages: {
-              if (css)
-                'css': CodeHighlightThemeMode(mode: langCss)
-              else
-                'xml': CodeHighlightThemeMode(mode: langXml),
-            },
-            theme: dark ? githubDarkTheme : githubTheme,
-          ),
-        ),
-        indicatorBuilder: (_, editing, chunks, notifier) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DefaultCodeLineNumber(controller: editing, notifier: notifier),
-            DefaultCodeChunkIndicator(
-              width: 16,
-              controller: chunks,
-              notifier: notifier,
+        mode: css ? CssCompletionMode.stylesheet : CssCompletionMode.xhtml,
+        builder: (indicator) => CodeEditor(
+          key: ValueKey(doc.path),
+          controller: doc.code,
+          findController: doc.find,
+          focusNode: _codeFocus,
+          readOnly: widget.controller.busy,
+          autofocus: false,
+          wordWrap: _wrap,
+          onChanged: (_) => _followCursor(),
+          shortcutOverrideActions: {
+            CodeShortcutFindIntent: CallbackAction<CodeShortcutFindIntent>(
+              onInvoke: (_) {
+                _openFind();
+                return null;
+              },
             ),
-          ],
-        ),
-        findBuilder: (_, _, _) => const PreferredSize(
-          preferredSize: Size.zero,
-          child: SizedBox.shrink(),
+            CodeShortcutReplaceIntent:
+                CallbackAction<CodeShortcutReplaceIntent>(
+                  onInvoke: (_) {
+                    _openFind(replace: true);
+                    return null;
+                  },
+                ),
+          },
+          chunkAnalyzer: css
+              ? const DefaultCodeChunkAnalyzer()
+              : const XhtmlChunkAnalyzer(),
+          padding: const EdgeInsets.all(10),
+          style: CodeEditorStyle(
+            fontSize: 13,
+            fontFamily: 'monospace',
+            highlightColor: Theme.of(context).colorScheme.primary
+                .withValues(alpha: dark ? .4 : .28),
+            codeTheme: CodeHighlightTheme(
+              languages: {
+                if (css)
+                  'css': CodeHighlightThemeMode(mode: langCss)
+                else
+                  'xml': CodeHighlightThemeMode(mode: langXml),
+              },
+              theme: dark ? githubDarkTheme : githubTheme,
+            ),
+          ),
+          indicatorBuilder: indicator,
+          findBuilder: (_, _, _) => const PreferredSize(
+            preferredSize: Size.zero,
+            child: SizedBox.shrink(),
+          ),
         ),
       ),
     );
@@ -474,17 +518,31 @@ class _BookEditorSourceState extends State<BookEditorSource> {
           ),
         ),
         IconButton(
-          tooltip: '在文档中查找',
-          icon: const AppIcon(AppGlyph.search, size: 18),
-          onPressed: () => _openFind(doc),
+          tooltip: '跳转到行',
+          icon: const EditorIcon(EditorGlyph.gotoLine, size: 18),
+          onPressed: widget.controller.busy ? null : _goToLine,
         ),
-        TextButton(
+        IconButton(
+          tooltip: '在文档中查找',
+          icon: const EditorIcon(EditorGlyph.search, size: 18),
+          onPressed: _openFind,
+        ),
+        TextButton.icon(
           onPressed: () => setState(() => _wrap = !_wrap),
-          child: Text(_wrap ? '关闭换行' : '自动换行'),
+          icon: const EditorIcon(EditorGlyph.wrap, size: 16),
+          label: Text(_wrap ? '关闭换行' : '自动换行'),
+        ),
+        IconButton(
+          tooltip: widget.followPreview ? '暂停预览跟随' : '开启预览跟随',
+          isSelected: widget.followPreview,
+          onPressed: widget.onFollowPreviewChanged == null
+              ? null
+              : () => widget.onFollowPreviewChanged!(!widget.followPreview),
+          icon: const EditorIcon(EditorGlyph.preview, size: 18),
         ),
         IconButton(
           tooltip: '定位到预览',
-          icon: const AppIcon(AppGlyph.locate, size: 18),
+          icon: const EditorIcon(EditorGlyph.locate, size: 18),
           onPressed: widget.controller.busy ? null : widget.onLocate,
         ),
       ],

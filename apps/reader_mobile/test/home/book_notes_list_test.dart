@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_cover_image.dart';
@@ -247,6 +249,7 @@ void main() {
     expect(tester.getTopLeft(body).dy, lessThan(tester.getTopLeft(quote).dy));
     expect(tester.getTopLeft(quote).dy, lessThan(tester.getTopLeft(mark).dy));
     expect(find.byType(EditableText), findsNothing);
+    expect(find.byType(SelectionArea), findsNothing);
     await tester.drag(
       find.byKey(const ValueKey('reader-drawer-drag-handle')),
       const Offset(0, 600),
@@ -260,6 +263,78 @@ void main() {
     expect(find.text('另一册的原文'), findsOneWidget);
     expect(body, findsNothing);
   });
+
+  testWidgets(
+    '桌面笔记的想法、引用与划线可用鼠标选择并复制',
+    (tester) async {
+      tester.view
+        ..physicalSize = const Size(1280, 800)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      String? copied;
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      await tester.pumpWidget(
+        _app(
+          books: [_book('one', '桌面笔记')],
+          counts: {'one': _counts(1, 1)},
+          loadNotes: (_) async => [
+            _annotation('选中的引用', note: '写下的想法'),
+            _annotation('独立的划线', day: 17),
+          ],
+        ),
+      );
+      await tester.tap(find.text('桌面笔记'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SelectionArea), findsOneWidget);
+      final platform = Theme.of(tester.element(find.byType(SelectionArea)))
+          .platform;
+      final modifier = platform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      for (final text in ['写下的想法', '选中的引用', '独立的划线']) {
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: find.text(text), matching: find.byType(RichText)),
+        );
+        final start = paragraph.localToGlobal(
+          Offset(0, paragraph.size.height / 2),
+        );
+        final end = paragraph.localToGlobal(
+          paragraph.getOffsetForCaret(
+                TextPosition(offset: text.length),
+                Rect.zero,
+              ) +
+              Offset(1, paragraph.size.height / 2),
+        );
+        final mouse = await tester.startGesture(
+          start,
+          kind: PointerDeviceKind.mouse,
+        );
+        await mouse.moveTo(end);
+        await mouse.up();
+        await mouse.removePointer();
+        await tester.pump();
+        await tester.sendKeyDownEvent(modifier);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+        await tester.sendKeyUpEvent(modifier);
+        await tester.pump();
+        expect(copied, text);
+      }
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
 
   testWidgets('详情读取失败可重试，重读后没有记录显示本书空态', (tester) async {
     final attempts = <String>[];

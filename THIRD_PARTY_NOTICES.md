@@ -23,6 +23,14 @@
 
 ReaMicro 分支的应用图标使用用户指定的本地 `reamicro` 项目墨白素材（`ic_launcher_02`）；Android 直接复用原尺寸与单色层，其他平台仅适配图标尺寸。素材来源和权利仍归原项目。
 
+## 网盘导入组件
+
+网页登录使用 [flutter_inappwebview 6.1.5](https://pub.dev/packages/flutter_inappwebview/versions/6.1.5)（Apache-2.0）。Android 实现 1.1.3 的源码与 [原始许可证](third_party/flutter_inappwebview_android/LICENSE) 保存在 `third_party/flutter_inappwebview_android/`；为适配 AGP 9.1.0，仅将 Android 构建脚本中的默认 ProGuard 配置改为 `proguard-android-optimize.txt`。运行时逻辑未改。
+
+标准密码算法使用 [pointycastle 4.0.0](https://pub.dev/packages/pointycastle/versions/4.0.0)（MIT），网页解析使用 [html 0.15.7](https://pub.dev/packages/html/versions/0.15.7)（MIT）。对应许可随依赖保留，并由 Flutter 许可清单收集。
+
+七个网盘连接器根据官方网页接口与协议字段独立实现。未纳入 wenxi 的 AGPL 源码或 Gopeed 下载内核；网盘名称归各服务提供方所有，不表示官方合作或授权。协议核对来源包括 [阿里官方网页](https://www.alipan.com/drive)、[123 官方网页](https://yun.123pan.cn/)、[PikPak 官方网页](https://mypikpak.com/drive/all)，网页及接口可能随服务更新而变化。
+
 ## 内置思源宋体
 
 正文与应用界面只内置基于 Adobe [Source Han Serif 2.003R](https://github.com/adobe-fonts/source-han-serif/releases/tag/2.003R) 制作的中文精简版，固定上游快照为 `7889f11bf31170b5d092a083b357c8c8130f89e0`。派生字体的内部名称和文件名改为 `Moyu Serif` / `MoyuSerif`，保留 Adobe 原始版权及 OFL 声明。
