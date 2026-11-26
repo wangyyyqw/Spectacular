@@ -2339,6 +2339,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
+        dragHandleHeight: 20,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.40,
+        ),
         readerTheme: _effectiveTheme ?? ReaderTheme.white,
         builder: (context) => ReaderFootnoteDialog(
           footnote: footnote,

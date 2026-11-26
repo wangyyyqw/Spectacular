@@ -39,6 +39,8 @@ String _document(String body) =>
     '<html xmlns="http://www.w3.org/1999/xhtml"><head><style>'
     'body {margin:0; font-family:Ahem;} p {margin:1em 0; text-indent:2em;}'
     '.super {vertical-align:super;} .super a {color:#0000ff;}'
+    '.zy {color:#0000ff; font-size:0.6em; vertical-align:super;}'
+    '.zs {font-size:0.8em;}'
     'img {width:100%; height:216px;} h1 {font-size:1.5em;}'
     '</style></head><body>$body</body></html>';
 
@@ -268,6 +270,46 @@ void main() {
         .toList();
     expect(notes, hasLength(2));
     expect(notes.every((note) => note.text!.contains('有效双向回链注文。')), isTrue);
+  });
+
+  test('中文方括号注号与同章双向回链可点击，注文取同段正文', () async {
+    final source = await _open(
+      _book(
+        body:
+            '<p class="a">正文<a class="zy" href="#id1a" id="id1">〔1〕</a>继续正文。</p>'
+            '<p class="zs"><a class="hl" href="#id1" id="id1a">〔1〕</a>注释正文第一段。</p>',
+        definitions: '<p>无关页。</p>',
+      ),
+    );
+    final page = (await source.loadChapter(0)).first;
+    final notes = page.slices.expand((slice) => slice.block.footnotes).toList();
+    expect(notes.map((note) => note.label), ['〔1〕']);
+    expect(notes.single.text, '注释正文第一段。');
+    expect(
+      TextHitTester.footnoteAt(page, await _paintedReference(page)),
+      same(notes.single),
+    );
+  });
+
+  test('标题星号注号与同章回链可点击，注文取同段正文', () async {
+    final source = await _open(
+      _book(
+        body:
+            '<h3>正文标题<a class="zy" href="#id0a" id="id0">*</a></h3>'
+            '<p class="a">正文第一段。</p>'
+            '<p class="zs"><a class="hl" style="color:#000000" '
+            'href="#id0" id="id0a"> * </a>标题注释正文。</p>',
+        definitions: '<p>无关页。</p>',
+      ),
+    );
+    final page = (await source.loadChapter(0)).first;
+    final notes = page.slices.expand((slice) => slice.block.footnotes).toList();
+    expect(notes.map((note) => note.label), ['*']);
+    expect(notes.single.text, '标题注释正文。');
+    expect(
+      TextHitTester.footnoteAt(page, await _paintedReference(page)),
+      same(notes.single),
+    );
   });
 
   test('不越过紧随章节去扫描同号定义', () async {
