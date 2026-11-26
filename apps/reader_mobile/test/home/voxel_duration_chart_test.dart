@@ -331,7 +331,7 @@ void main() {
     (const Duration(hours: 2, minutes: 58), ['0', '60\n分', '120\n分', '180\n分']),
     (const Duration(hours: 291), ['0', '97\n时', '194\n时', '291\n时']),
   ]) {
-    testWidgets('纵轴按 $duration 数字单位换行、左对齐总时长并保留等间距刻度', (tester) async {
+    testWidgets('纵轴按 $duration 数字单位居中对齐并保留等间距刻度', (tester) async {
       final bar = _defaultBars.single;
       await _pumpChart(
         tester,
@@ -353,17 +353,28 @@ void main() {
       final centers = <double>[];
       for (var index = 0; index <= 3; index++) {
         expect(tester.widget<Text>(_key('y-tick-$index')).data, labels[index]);
+        expect(
+          tester.widget<Text>(_key('y-tick-$index')).textAlign,
+          TextAlign.center,
+        );
         final labelRect = tester.getRect(
           find.ancestor(
             of: _key('y-tick-$index'),
             matching: find.byType(FittedBox),
           ),
         );
-        expect(labelRect.right, lessThan(plot.left));
         expect(
-          tester.getTopLeft(_key('y-tick-$index')).dx,
-          closeTo(tester.getTopLeft(_key('total')).dx, .01),
+          tester
+              .widget<FittedBox>(
+                find.ancestor(
+                  of: _key('y-tick-$index'),
+                  matching: find.byType(FittedBox),
+                ),
+              )
+              .alignment,
+          Alignment.center,
         );
+        expect(labelRect.right, lessThan(plot.left));
         centers.add(labelRect.center.dy);
       }
       expect(centers[0] - centers[1], closeTo(centers[1] - centers[2], .01));

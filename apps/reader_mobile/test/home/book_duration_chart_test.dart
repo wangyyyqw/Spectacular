@@ -616,8 +616,19 @@ void main() {
           expect(tick.right, lessThan(plot.left));
           expect(tick.top, greaterThanOrEqualTo(plot.top));
           expect(
-            tester.getTopLeft(_key('y-tick-$index')).dx,
-            closeTo(tester.getTopLeft(_key('total')).dx, .01),
+            tester.widget<Text>(_key('y-tick-$index')).textAlign,
+            TextAlign.center,
+          );
+          expect(
+            tester
+                .widget<FittedBox>(
+                  find.ancestor(
+                    of: _key('y-tick-$index'),
+                    matching: find.byType(FittedBox),
+                  ),
+                )
+                .alignment,
+            Alignment.center,
           );
           if (previousYTick != null) {
             expect(tick.overlaps(previousYTick), isFalse);

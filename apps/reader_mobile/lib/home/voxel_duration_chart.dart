@@ -517,11 +517,11 @@ class _DurationAxis extends StatelessWidget {
                 height: lineHeight * (index == 0 ? 1 : 2),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
+                  alignment: Alignment.center,
                   child: Text(
                     scene.scale.label(index),
                     key: ValueKey('stats-book-duration-y-tick-$index'),
-                    textAlign: TextAlign.left,
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 10,
                       height: 1.3,
