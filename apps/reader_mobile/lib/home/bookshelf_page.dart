@@ -2738,7 +2738,6 @@ class _BookCard extends StatelessWidget {
         children: [
           BookCoverImage(
             book: entry,
-            showReadabilityBadge: true,
             showShadow: true,
             shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
           ),

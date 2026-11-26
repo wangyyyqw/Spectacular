@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:reader_ui/icons/app_icon.dart';
 
 import '../library/library_store.dart';
 
@@ -36,7 +35,6 @@ class BookCoverImage extends StatelessWidget {
     required this.book,
     this.width,
     this.height,
-    this.showReadabilityBadge = false,
     this.showShadow = false,
     this.shadowOpacity = .12,
   });
@@ -44,7 +42,6 @@ class BookCoverImage extends StatelessWidget {
   final BookEntry book;
   final double? width;
   final double? height;
-  final bool showReadabilityBadge;
   final bool showShadow;
   final double shadowOpacity;
 
@@ -77,20 +74,14 @@ class BookCoverImage extends StatelessWidget {
                 border: Border.all(color: scheme.outlineVariant),
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (book.coverPath == null)
-                    placeholder
-                  else
-                    _CoverImage(
-                      book: book,
-                      constraints: constraints,
-                      placeholder: placeholder,
-                    ),
-                  if (showReadabilityBadge && book.readabilityLevel >= 2)
-                    _ReadabilityBadge(book: book),
-                ],
+              child: SizedBox.expand(
+                child: book.coverPath == null
+                    ? placeholder
+                    : _CoverImage(
+                        book: book,
+                        constraints: constraints,
+                        placeholder: placeholder,
+                      ),
               ),
             ),
           ),
@@ -204,39 +195,6 @@ class _CoverPlaceholder extends StatelessWidget {
             fontSize: compact ? 18 : 16,
             fontWeight: FontWeight.w600,
             height: 1.5,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReadabilityBadge extends StatelessWidget {
-  const _ReadabilityBadge({required this.book});
-
-  final BookEntry book;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Positioned(
-      top: 6,
-      right: 6,
-      child: Tooltip(
-        message: book.readabilityLevel >= 3
-            ? '结构异常：进度与目录可能不可靠'
-            : '部分内容降级：目录或资源缺失',
-        child: Container(
-          key: const ValueKey('book-damaged-badge'),
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: scheme.errorContainer,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: AppIcon(
-            AppGlyph.info,
-            size: 16,
-            color: scheme.onErrorContainer,
           ),
         ),
       ),
