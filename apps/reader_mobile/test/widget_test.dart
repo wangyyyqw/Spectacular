@@ -54,7 +54,12 @@ void main() {
     expect(find.text('书架还是空的'), findsOneWidget);
     expect(find.byTooltip('导入 EPUB'), findsOneWidget);
 
-    await tester.tap(find.text('统计'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('统计'),
+      ),
+    );
     await _settle(tester);
     expect(find.text('图书时长'), findsOneWidget);
 

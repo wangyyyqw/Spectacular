@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_common_widgets.dart';
 import '../theme/reader_drawer_style.dart';
-import '../theme/reader_ui_style.dart';
 
 /// 一条搜索结果的展示模型（P4-26，§29.4）。
 class SearchPanelResult {
@@ -223,17 +223,13 @@ class _SearchPanelState extends State<SearchPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = ReaderDrawerStyle.mutedOf(theme);
-    final border = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
-      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-    );
     return Material(
       color: ReaderDrawerStyle.surfaceOf(theme),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 10, 24, 12),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
             child: Row(
               children: [
                 if (widget.onBack != null)
@@ -244,64 +240,28 @@ class _SearchPanelState extends State<SearchPanel> {
                     tooltip: '返回',
                   ),
                 Expanded(
-                  child: Material(
-                    key: const ValueKey('search-input-surface'),
-                    color: ReaderDrawerStyle.searchSurfaceOf(theme),
-                    borderRadius: border.borderRadius,
-                    elevation: 0,
-                    surfaceTintColor: Colors.transparent,
-                    child: TextField(
-                      key: const ValueKey<String>('search-input'),
-                      controller: _controller,
-                      focusNode: widget.focusNode,
-                      autofocus: true,
-                      onChanged: _onChanged,
-                      textInputAction: TextInputAction.search,
-                      style: _textStyle(theme),
-                      cursorColor: theme.colorScheme.primary,
-                      decoration: InputDecoration(
-                        hintText: '搜索本书内容',
-                        hintStyle: _textStyle(theme).copyWith(color: muted),
-                        isDense: true,
-                        filled: true,
-                        fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                        border: border,
-                        enabledBorder: border,
-                        focusedBorder: border.copyWith(
-                          borderSide: BorderSide(
-                            color: theme.colorScheme.primary,
+                  child: ReaderSearchField(
+                    surfaceKey: const ValueKey('search-input-surface'),
+                    fieldKey: const ValueKey<String>('search-input'),
+                    controller: _controller,
+                    focusNode: widget.focusNode,
+                    autofocus: true,
+                    hintText: '搜索本书内容',
+                    onChanged: _onChanged,
+                    suffixIcon: _controller.text.isEmpty
+                        ? null
+                        : IconButton(
+                            key: const ValueKey<String>('search-clear'),
+                            icon: AppIcon(
+                              AppGlyph.close,
+                              size: 18,
+                              color: muted,
+                            ),
+                            onPressed: () {
+                              _controller.clear();
+                              _onChanged('');
+                            },
                           ),
-                        ),
-                        prefixIconConstraints: const BoxConstraints.tightFor(
-                          width: 40,
-                          height: 40,
-                        ),
-                        suffixIconConstraints: const BoxConstraints.tightFor(
-                          width: 40,
-                          height: 40,
-                        ),
-                        prefixIcon: AppIcon(
-                          AppGlyph.search,
-                          size: 20,
-                          color: muted,
-                        ),
-                        suffixIcon: _controller.text.isEmpty
-                            ? null
-                            : IconButton(
-                                key: const ValueKey<String>('search-clear'),
-                                icon: AppIcon(
-                                  AppGlyph.close,
-                                  size: 18,
-                                  color: muted,
-                                ),
-                                onPressed: () {
-                                  _controller.clear();
-                                  _onChanged('');
-                                },
-                              ),
-                      ),
-                    ),
                   ),
                 ),
               ],

@@ -6,8 +6,10 @@ import '../annotations/annotation_appearance_editor.dart';
 import '../bookmarks/bookmark_ribbon.dart';
 import '../bookmarks/bookmark_style.dart';
 import '../icons/app_icon.dart';
-import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_common_widgets.dart';
 import '../theme/reader_section_slider.dart';
+import '../theme/reader_ui_style.dart';
+import 'reader_settings_sheet.dart';
 
 /// 编辑全局书签样式与下拉开关，保存前只更新预览。
 class ReaderBookmarkStyleSheet extends StatefulWidget {
@@ -60,55 +62,61 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
     onSelected: (index) => setState(() => _sectionIndex = index),
   );
 
-  Widget _header(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-    child: Column(
+  Widget _header(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('应用于所有书籍，显示在有书签的阅读页右上角。'),
-        const SizedBox(height: 16),
+        Text(
+          '应用于所有书籍，显示在有书签的阅读页右上角。',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
         SizedBox(
           height: 112,
-          child: ColoredBox(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLow,
+              borderRadius: ReaderUiStyle.controlRadius,
+              border: Border.all(color: scheme.outlineVariant),
+            ),
             child: LayoutBuilder(
-              builder: (context, constraints) {
-                var scale = 96 / _style.length;
-                final widthScale =
-                    constraints.maxWidth / (_style.rightInset + _style.width);
-                if (widthScale < scale) scale = widthScale;
-                if (scale > 1) scale = 1;
-                return Stack(
-                  clipBehavior: Clip.hardEdge,
-                  children: [
-                    Positioned(
-                      top: 8,
-                      right: _style.rightInset * scale,
-                      child: Transform.scale(
-                        scale: scale,
-                        alignment: Alignment.topRight,
-                        child: ReaderBookmarkRibbon(
-                          style: _style,
-                          color: Color(
-                            _style.color ??
-                                Theme.of(context).colorScheme.primary
-                                    .toARGB32(),
-                          ),
-                          imageLoader: widget.imageLoader,
+            builder: (context, constraints) {
+              var scale = 96 / _style.length;
+              final widthScale =
+                  constraints.maxWidth / (_style.rightInset + _style.width);
+              if (widthScale < scale) scale = widthScale;
+              if (scale > 1) scale = 1;
+              return Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  Positioned(
+                    top: 8,
+                    right: _style.rightInset * scale,
+                    child: Transform.scale(
+                      scale: scale,
+                      alignment: Alignment.topRight,
+                      child: ReaderBookmarkRibbon(
+                        style: _style,
+                        color: Color(
+                          _style.color ?? scheme.primary.toARGB32(),
                         ),
+                        imageLoader: widget.imageLoader,
                       ),
                     ),
-                  ],
-                );
-              },
-            ),
+                  ),
+                ],
+              );
+            },
           ),
+        ),
         ),
         const SizedBox(height: 8),
         _sectionTabs(),
       ],
-    ),
-  );
+    );
+  }
 
   List<Widget> _sectionFields() => switch (_sectionIndex) {
     0 => _imageFields(),
@@ -133,13 +141,15 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
         ),
       ],
     ),
-    if (_error != null)
-      Text(
-        _error!,
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
-      ),
+    if (_error != null) ...[
+      const SizedBox(height: 10),
+      ReaderNoticeBanner(message: _error!),
+    ],
     const SizedBox(height: 8),
-    const Text('图片随宽度和长度缩放；透明 PNG 可保留镂空效果。'),
+    Text(
+      '图片随宽度和长度缩放；透明 PNG 可保留镂空效果。',
+      style: Theme.of(context).textTheme.bodySmall,
+    ),
   ];
 
   List<Widget> _sizeFields() => [
@@ -299,43 +309,23 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
     ],
   );
 
-  Widget _sectionContent() => SingleChildScrollView(
+  Widget _sectionContent() => KeyedSubtree(
     key: PageStorageKey<String>('bookmark-style-section-$_sectionIndex'),
-    padding: const EdgeInsets.symmetric(horizontal: 20),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: _sectionFields(),
     ),
   );
 
-  Widget _saveButton(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-    child: SizedBox(
-      width: double.infinity,
-      child: FilledButton(
-        key: const ValueKey('bookmark-style-save'),
-        onPressed: _picking ? null : () => Navigator.of(context).pop(_style),
-        child: const Text('保存书签样式'),
-      ),
-    ),
-  );
-
   @override
-  Widget build(BuildContext context) => SizedBox(
+  Widget build(BuildContext context) => ReaderSettingsSheet(
     key: const ValueKey('bookmark-style-fixed-height'),
-    height: MediaQuery.sizeOf(context).height * .64,
-    child: Material(
-      color: ReaderFrostedSurface.panelColorOf(context),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            _header(context),
-            Expanded(child: _sectionContent()),
-            _saveButton(context),
-          ],
-        ),
-      ),
+    header: _header(context),
+    footer: FilledButton(
+      key: const ValueKey('bookmark-style-save'),
+      onPressed: _picking ? null : () => Navigator.of(context).pop(_style),
+      child: const Text('保存书签样式'),
     ),
+    child: _sectionContent(),
   );
 }

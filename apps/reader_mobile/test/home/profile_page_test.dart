@@ -79,7 +79,9 @@ void main() {
       await tester.tap(find.text('界面主题'));
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);
-      expect(find.byType(RadioListTile<ThemeMode>), findsNWidgets(3));
+      expect(find.text('跟随系统'), findsOneWidget);
+      expect(find.text('日间模式'), findsAtLeastNWidgets(1));
+      expect(find.text('夜间模式'), findsOneWidget);
       await tester.tap(find.byTooltip('关闭'));
       await tester.pumpAndSettle();
       expect(saved, isEmpty);
@@ -250,7 +252,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const ValueKey('logs-clear')));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('logs-clear')),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('logs-clear')));
     await tester.pumpAndSettle();
     final confirmation = find.byWidgetPredicate(
@@ -264,4 +271,56 @@ void main() {
     expect(confirmation, findsNothing);
     expect(find.byKey(const ValueKey('logs-clear')), findsOneWidget);
   });
+
+  testWidgets(
+    '配色方案抽屉展示全部预设，取消保留原设置，选择后触发真实保存回调',
+    (tester) async {
+      final saved = <AppThemePreset>[];
+      final pending = Completer<void>();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: ProfilePage(
+            library: LibraryStore.memory(),
+            themePreset: AppThemePreset.clearBlue,
+            onThemePresetChanged: (preset) async {
+              saved.add(preset);
+              await pending.future;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final entry = find.byKey(const ValueKey('theme-preset-setting'));
+      expect(entry, findsOneWidget);
+      expect((tester.widget<ListTile>(entry).subtitle! as Text).data, '清蓝');
+
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      for (final preset in AppThemePreset.presets) {
+        expect(
+          find.byKey(ValueKey('theme-preset-${preset.id}')),
+          findsOneWidget,
+        );
+      }
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
+      expect(saved, isEmpty);
+
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('theme-preset-bamboo_green')));
+      await tester.pumpAndSettle();
+      expect(saved, [AppThemePreset.bambooGreen]);
+      expect(tester.widget<ListTile>(entry).onTap, isNull);
+      pending.complete();
+      await tester.pumpAndSettle();
+      expect(tester.widget<ListTile>(entry).onTap, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.windows,
+    }),
+  );
 }

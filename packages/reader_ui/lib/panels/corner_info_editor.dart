@@ -44,41 +44,49 @@ class _CornerInfoEditorState extends State<CornerInfoEditor> {
     );
   }
 
-  Widget _header() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      const Text('分别设置阅读页四个边角的显示内容；选择“隐藏”可关闭对应位置。'),
-      const SizedBox(height: 16),
-      Container(
-        key: const ValueKey('corner-settings-preview'),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerLow,
-          borderRadius: ReaderUiStyle.controlRadius,
+  Widget _header() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '分别设置阅读页四个边角的显示内容；选择“隐藏”可关闭对应位置。',
+          style: theme.textTheme.bodySmall,
         ),
-        child: Column(
-          children: [
-            _previewRow(ReaderCornerSlot.topLeft, ReaderCornerSlot.topRight),
-            const SizedBox(height: 16),
-            _previewRow(
-              ReaderCornerSlot.bottomLeft,
-              ReaderCornerSlot.bottomRight,
-            ),
+        const SizedBox(height: 12),
+        Container(
+          key: const ValueKey('corner-settings-preview'),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerLow,
+            borderRadius: ReaderUiStyle.controlRadius,
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              _previewRow(ReaderCornerSlot.topLeft, ReaderCornerSlot.topRight),
+              const SizedBox(height: 16),
+              _previewRow(
+                ReaderCornerSlot.bottomLeft,
+                ReaderCornerSlot.bottomRight,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        ReaderSectionSlider(
+          key: const ValueKey('corner-settings-section-tabs'),
+          sections: [
+            for (final slot in ReaderCornerSlot.values)
+              (key: 'corner-${slot.name}', label: slot.label),
           ],
+          index: _slotIndex,
+          onSelected: (index) => setState(() => _slotIndex = index),
         ),
-      ),
-      const SizedBox(height: 8),
-      ReaderSectionSlider(
-        key: const ValueKey('corner-settings-section-tabs'),
-        sections: [
-          for (final slot in ReaderCornerSlot.values)
-            (key: 'corner-${slot.name}', label: slot.label),
-        ],
-        index: _slotIndex,
-        onSelected: (index) => setState(() => _slotIndex = index),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 
   Widget _choices() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,

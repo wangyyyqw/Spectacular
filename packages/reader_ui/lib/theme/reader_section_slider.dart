@@ -3,22 +3,27 @@ import 'package:flutter/material.dart';
 /// 带有动画选中状态的胶囊分区切换控件。
 typedef ReaderSectionSliderItem = ({String key, String label});
 
-/// 笔记页与阅读器弹层共用的分区切换样式。
+/// 笔记页、统计页与阅读器弹层共用的胶囊分段滑块。
 class ReaderSectionSlider extends StatelessWidget {
   const ReaderSectionSlider({
     super.key,
     required this.sections,
     required this.index,
     required this.onSelected,
+    this.itemKeyBuilder,
   });
 
   final List<ReaderSectionSliderItem> sections;
   final int index;
   final ValueChanged<int> onSelected;
 
+  /// 可选自定义每项按钮 Key；缺省使用 `<item.key>-tab`。
+  final Key Function(ReaderSectionSliderItem item)? itemKeyBuilder;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final disableAnimations = MediaQuery.disableAnimationsOf(context);
     return Container(
       height: 40,
       padding: const EdgeInsets.all(3),
@@ -32,7 +37,9 @@ class ReaderSectionSlider extends StatelessWidget {
           return Stack(
             children: [
               AnimatedPositioned(
-                duration: const Duration(milliseconds: 180),
+                duration: disableAnimations
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
                 left: index * segment,
                 top: 0,
@@ -57,13 +64,15 @@ class ReaderSectionSlider extends StatelessWidget {
                   for (var i = 0; i < sections.length; i++)
                     Expanded(
                       child: Semantics(
-                        key: ValueKey('${sections[i].key}-tab'),
                         label: sections[i].label,
                         button: true,
                         selected: index == i,
                         onTap: () => onSelected(i),
                         excludeSemantics: true,
                         child: InkWell(
+                          key:
+                              itemKeyBuilder?.call(sections[i]) ??
+                              ValueKey('${sections[i].key}-tab'),
                           borderRadius: BorderRadius.circular(999),
                           onTap: () => onSelected(i),
                           child: Center(

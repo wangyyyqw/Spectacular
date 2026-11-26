@@ -97,14 +97,14 @@ class _ReaderTtsPlaybackSheetState extends State<ReaderTtsPlaybackSheet> {
                       _button(
                         key: const ValueKey('tts-voice'),
                         tooltip: '音色',
-                        icon: const Icon(Icons.record_voice_over_outlined),
+                        icon: const AppIcon(AppGlyph.voice),
                         onPressed: () => _act(widget.onVoice),
                       ),
                       const SizedBox(width: 12),
                       _button(
                         key: const ValueKey('tts-speed'),
                         tooltip: widget.speedLabel ?? '语速',
-                        icon: const Icon(Icons.speed),
+                        icon: const AppIcon(AppGlyph.speed),
                         onPressed: failed ? null : () => _act(widget.onSpeed),
                       ),
                       const SizedBox(width: 12),
@@ -113,10 +113,9 @@ class _ReaderTtsPlaybackSheetState extends State<ReaderTtsPlaybackSheet> {
                         tooltip: widget.timerLabel == null
                             ? '定时'
                             : '定时 · ${widget.timerLabel}',
-                        icon: Icon(
-                          widget.timerLabel == null
-                              ? Icons.timer_outlined
-                              : Icons.timer,
+                        icon: AppIcon(
+                          AppGlyph.timer,
+                          filled: widget.timerLabel != null,
                         ),
                         onPressed: failed ? null : () => _act(widget.onTimer),
                       ),
@@ -137,7 +136,7 @@ class _ReaderTtsPlaybackSheetState extends State<ReaderTtsPlaybackSheet> {
                             ? '正在准备语音，可暂停'
                             : '暂停',
                         icon: failed
-                            ? const Icon(Icons.refresh)
+                            ? const AppIcon(AppGlyph.refresh)
                             : loading
                             ? SizedBox.square(
                                 dimension: 22,
@@ -203,10 +202,12 @@ class _ReaderTtsPlaybackSheetState extends State<ReaderTtsPlaybackSheet> {
 
   Widget _coverPlaceholder(ColorScheme colors) => ColoredBox(
     color: colors.surfaceContainerHighest,
-    child: Icon(
-      Icons.menu_book_outlined,
-      size: 18,
-      color: colors.onSurface.withValues(alpha: 0.7),
+    child: Center(
+      child: AppIcon(
+        AppGlyph.menuBook,
+        size: 18,
+        color: colors.onSurface.withValues(alpha: 0.7),
+      ),
     ),
   );
 

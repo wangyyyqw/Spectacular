@@ -4,7 +4,9 @@ import 'package:reader_core/api.dart';
 import 'package:reader_core/position/cfi.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_common_widgets.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_ink.dart';
 
 /// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。
 ///
@@ -262,8 +264,10 @@ class _TocPanelState extends State<TocPanel> {
     TocRow row, {
     required TocEntry? active,
     required EpubCfi? readingCfi,
+    bool pinnedHeader = false,
   }) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final text = ReaderDrawerStyle.textOf(theme);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final faint = ReaderDrawerStyle.faintOf(theme);
@@ -272,10 +276,15 @@ class _TocPanelState extends State<TocPanel> {
     final read = !current && _isRead(row.entry, readingCfi);
     final expanded = _expanded.contains(row.entry);
     final hasChildren = row.entry.children.isNotEmpty;
-    final rowColor = missing || read
+    final isVolume = row.depth == 1 && hasChildren;
+    final rowColor = missing
         ? muted
         : current
-        ? theme.colorScheme.primary
+        ? colors.primary
+        : isVolume
+        ? text
+        : read
+        ? muted
         : text;
     final baseLeft = row.depth == 1 ? 22.0 : 58.0 + (row.depth - 2) * 18.0;
     return ListTile(
@@ -285,20 +294,22 @@ class _TocPanelState extends State<TocPanel> {
       dense: true,
       minTileHeight: _rowExtent,
       selected: current && !missing,
-      selectedColor: theme.colorScheme.primary,
+      selectedColor: colors.primary,
       tileColor: Colors.transparent,
       focusColor: Colors.transparent,
       hoverColor: Colors.transparent,
       selectedTileColor: Colors.transparent,
-      contentPadding: EdgeInsets.only(left: baseLeft, right: 24),
+      contentPadding: EdgeInsets.only(left: baseLeft, right: 20),
       title: Row(
         children: [
-          if (row.depth == 1 && hasChildren) ...[
+          if (isVolume) ...[
             Container(
-              width: 8,
-              height: 8,
+              width: 7,
+              height: 7,
               decoration: BoxDecoration(
-                color: ReaderDrawerStyle.optionFillOf(theme),
+                color: pinnedHeader || current
+                    ? colors.primary
+                    : colors.outline.withValues(alpha: .65),
                 shape: BoxShape.circle,
               ),
             ),
@@ -315,7 +326,7 @@ class _TocPanelState extends State<TocPanel> {
                     style: theme.textTheme.bodyMedium!.copyWith(
                       fontSize: 14,
                       color: rowColor,
-                      fontWeight: current && !missing
+                      fontWeight: (current || isVolume) && !missing
                           ? FontWeight.w600
                           : FontWeight.w400,
                     ),
@@ -327,7 +338,7 @@ class _TocPanelState extends State<TocPanel> {
                     AppGlyph.pushPin,
                     key: const ValueKey<String>('toc-current-pin'),
                     size: 18,
-                    color: text,
+                    color: colors.primary,
                   ),
                 ],
               ],
@@ -336,18 +347,23 @@ class _TocPanelState extends State<TocPanel> {
         ],
       ),
       trailing: hasChildren
-          ? SizedBox.square(
-              dimension: 24,
-              child: InkWell(
-                key: ValueKey<String>(
-                  'toc-toggle-${row.entry.spineIndex}-${row.entry.title}',
-                ),
-                customBorder: const CircleBorder(),
-                onTap: () => _toggleEntry(row.entry),
-                child: AppIcon(
-                  expanded ? AppGlyph.chevronDown : AppGlyph.chevronUp,
-                  size: 14,
-                  color: faint,
+          ? Theme(
+              data: quietInk(theme),
+              child: SizedBox.square(
+                dimension: 32,
+                child: InkWell(
+                  key: ValueKey<String>(
+                    'toc-toggle-${row.entry.spineIndex}-${row.entry.title}',
+                  ),
+                  customBorder: const CircleBorder(),
+                  onTap: () => _toggleEntry(row.entry),
+                  child: Center(
+                    child: AppIcon(
+                      expanded ? AppGlyph.chevronDown : AppGlyph.chevronUp,
+                      size: 15,
+                      color: faint,
+                    ),
+                  ),
                 ),
               ),
             )
@@ -376,12 +392,15 @@ class _TocPanelState extends State<TocPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final surface = ReaderDrawerStyle.surfaceOf(theme);
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final faint = ReaderDrawerStyle.faintOf(theme);
+    final divider = ReaderDrawerStyle.dividerOf(theme);
     final metaStyle = theme.textTheme.bodySmall!.copyWith(
       fontSize: 12,
       color: muted,
+      fontFeatures: const [FontFeature.tabularFigures()],
     );
     final allRows = flattenToc(widget.entries);
     final active = _activeEntry(allRows);
@@ -398,8 +417,13 @@ class _TocPanelState extends State<TocPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: divider.withValues(alpha: .65)),
+              ),
+            ),
             child: Wrap(
               alignment: WrapAlignment.spaceBetween,
               crossAxisAlignment: WrapCrossAlignment.center,
@@ -416,10 +440,20 @@ class _TocPanelState extends State<TocPanel> {
                     final label = hours > 0
                         ? '累计阅读 $hours 小时 ${minutes % 60} 分钟'
                         : '累计阅读 $minutes 分钟';
-                    return Text(
-                      label,
-                      key: const ValueKey<String>('toc-reading-duration'),
-                      style: metaStyle,
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: ShapeDecoration(
+                        color: colors.surfaceContainerLow,
+                        shape: const StadiumBorder(),
+                      ),
+                      child: Text(
+                        label,
+                        key: const ValueKey<String>('toc-reading-duration'),
+                        style: metaStyle,
+                      ),
                     );
                   },
                 ),
@@ -452,18 +486,16 @@ class _TocPanelState extends State<TocPanel> {
             ),
           Expanded(
             child: rows.isEmpty
-                ? Center(
-                    child: Text(
-                      widget.emptyHint,
-                      style: TextStyle(fontSize: 14, color: muted),
-                    ),
+                ? ReaderEmptyState(
+                    icon: AppGlyph.listBulleted,
+                    title: widget.emptyHint,
                   )
                 : RawScrollbar(
                     controller: _scrollController,
                     thumbVisibility: true,
-                    thumbColor: faint,
-                    thickness: 4,
-                    radius: const Radius.circular(2),
+                    thumbColor: faint.withValues(alpha: .55),
+                    thickness: 3.5,
+                    radius: const Radius.circular(999),
                     child: CustomScrollView(
                       controller: _scrollController,
                       slivers: [
@@ -476,16 +508,30 @@ class _TocPanelState extends State<TocPanel> {
                           SliverPersistentHeader(
                             pinned: true,
                             delegate: _TocPinnedHeaderDelegate(
-                              child: Material(
-                                color: surface,
-                                child: _buildEntryTile(
-                                  context,
-                                  (
-                                    entry: currentVolume!,
-                                    depth: rows[currentVolumeIndex].depth,
+                              builder: (context, overlapsContent) => Material(
+                                color: overlapsContent
+                                    ? colors.surfaceContainerLow
+                                    : surface,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: BorderSide(
+                                        color: overlapsContent
+                                            ? divider
+                                            : Colors.transparent,
+                                      ),
+                                    ),
                                   ),
-                                  active: active,
-                                  readingCfi: readingCfi,
+                                  child: _buildEntryTile(
+                                    context,
+                                    (
+                                      entry: currentVolume!,
+                                      depth: rows[currentVolumeIndex].depth,
+                                    ),
+                                    active: active,
+                                    readingCfi: readingCfi,
+                                    pinnedHeader: true,
+                                  ),
                                 ),
                               ),
                             ),
@@ -515,9 +561,9 @@ class _TocPanelState extends State<TocPanel> {
 }
 
 class _TocPinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
-  const _TocPinnedHeaderDelegate({required this.child});
+  const _TocPinnedHeaderDelegate({required this.builder});
 
-  final Widget child;
+  final Widget Function(BuildContext context, bool overlapsContent) builder;
 
   @override
   double get minExtent => 40;
@@ -530,11 +576,10 @@ class _TocPinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
     BuildContext context,
     double shrinkOffset,
     bool overlapsContent,
-  ) => child;
+  ) => builder(context, overlapsContent || shrinkOffset > 0);
 
   @override
-  bool shouldRebuild(_TocPinnedHeaderDelegate oldDelegate) =>
-      child != oldDelegate.child;
+  bool shouldRebuild(_TocPinnedHeaderDelegate oldDelegate) => true;
 }
 
 class _TocToolButton extends StatelessWidget {
@@ -555,19 +600,31 @@ class _TocToolButton extends StatelessWidget {
     final theme = Theme.of(context);
     return Tooltip(
       message: tooltip,
-      child: InkWell(
-        key: buttonKey,
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: SizedBox.square(
-          dimension: 44,
-          child: Center(
-            child: AppIcon(
-              icon,
-              size: 16,
-              color: onTap == null
-                  ? ReaderDrawerStyle.faintOf(theme)
-                  : ReaderDrawerStyle.mutedOf(theme),
+      child: Theme(
+        data: quietInk(theme),
+        child: InkWell(
+          key: buttonKey,
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox.square(
+            dimension: 44,
+            child: Center(
+              child: Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerLow,
+                  shape: BoxShape.circle,
+                ),
+                child: AppIcon(
+                  icon,
+                  size: 16,
+                  color: onTap == null
+                      ? ReaderDrawerStyle.faintOf(theme)
+                      : ReaderDrawerStyle.mutedOf(theme),
+                ),
+              ),
             ),
           ),
         ),

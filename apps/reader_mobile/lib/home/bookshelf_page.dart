@@ -9,9 +9,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
-import 'package:reader_ui/theme/reader_drawer_style.dart';
-import 'package:reader_ui/theme/reader_ui_style.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
+import 'package:reader_ui/theme/reader_ink.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import 'package:reader_core/epub/importer.dart';
 
@@ -56,13 +57,16 @@ final _bookPressOverlay = WidgetStateProperty.resolveWith<Color?>(
   (states) => states.contains(WidgetState.pressed) ? Colors.transparent : null,
 );
 
-ThemeData _noFeedback(BuildContext context) => Theme.of(context).copyWith(
-  splashFactory: NoSplash.splashFactory,
-  splashColor: Colors.transparent,
-  highlightColor: Colors.transparent,
-  hoverColor: usesDesktopLayout(context) ? null : Colors.transparent,
-  focusColor: usesDesktopLayout(context) ? null : Colors.transparent,
-);
+ThemeData _noFeedback(BuildContext context) {
+  final theme = Theme.of(context);
+  return usesDesktopLayout(context)
+      ? theme.copyWith(
+          splashFactory: NoSplash.splashFactory,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+        )
+      : quietInk(theme);
+}
 
 /// 书架页：书籍网格/列表、EPUB 与 TXT 导入、点击进入阅读、长按看详情。
 class BookshelfPage extends StatefulWidget {
@@ -367,33 +371,36 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _manageGroup(ShelfGroup group) async {
-    final action = await showReaderBottomSheet<String>(
+    final action = await showReaderDrawer<String>(
       context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
+      builder: (context) => ReaderSheetForm(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(group.name),
+            const SizedBox(height: 2),
+            Text(
+              '${_groupBookCount(group)} 本书',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            ListTile(
-              title: Text(group.name),
-              subtitle: Text('${_groupBookCount(group)} 本书'),
-            ),
-            const Divider(height: 1),
-            ListTile(
+            ReaderOptionTile(
               leading: const AppIcon(AppGlyph.edit),
-              title: const Text('重命名分组'),
+              title: '重命名分组',
+              trailing: const AppIcon(AppGlyph.chevronRight, size: 18),
               onTap: () => Navigator.of(context).pop('rename'),
             ),
-            ListTile(
-              leading: AppIcon(
-                AppGlyph.delete,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              title: Text(
-                '删除分组',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-              subtitle: const Text('书籍会保留在书架中'),
+            const SizedBox(height: 4),
+            ReaderOptionTile(
+              leading: const AppIcon(AppGlyph.delete),
+              title: '删除分组',
+              subtitle: '书籍会保留在书架中',
+              destructive: true,
               onTap: () => Navigator.of(context).pop('delete'),
             ),
           ],
@@ -416,24 +423,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     if (action == 'delete') {
-      final confirmed = await showReaderDialog<bool>(
+      final confirmed = await showReaderConfirmDialog(
         context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: Text('删除分组「${group.name}」？'),
-          content: const Text('书籍会保留在书架中，只删除分组。'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('删除'),
-            ),
-          ],
-        ),
+        title: '删除分组「${group.name}」？',
+        message: '书籍会保留在书架中，只删除分组。',
+        confirmLabel: '删除',
+        destructive: true,
       );
-      if (confirmed == true) {
+      if (confirmed) {
         await widget.library.deleteGroup(group.id);
         if (mounted && _activeGroupId == group.id) {
           setState(() => _activeGroupId = null);
@@ -817,22 +814,27 @@ class _BookshelfPageState extends State<BookshelfPage> {
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
   Future<void> _chooseImport() async {
     if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
-    final choice = await showModalBottomSheet<String>(
+    final choice = await showReaderDrawer<String>(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
+      builder: (context) => ReaderSheetForm(
+        title: const Text('导入书籍'),
+        contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
+            ReaderOptionTile(
               leading: const AppIcon(AppGlyph.folder),
-              title: const Text('从本机导入'),
-              subtitle: const Text('选择 EPUB 或 TXT 文件'),
+              title: '从本机导入',
+              subtitle: '选择 EPUB 或 TXT 文件',
+              trailing: const AppIcon(AppGlyph.chevronRight, size: 18),
               onTap: () => Navigator.pop(context, 'local'),
             ),
-            ListTile(
+            const SizedBox(height: 4),
+            ReaderOptionTile(
               leading: const AppIcon(AppGlyph.link),
-              title: const Text('从网盘导入'),
-              subtitle: const Text('登录网盘，选择书籍下载到书架'),
+              title: '从网盘导入',
+              subtitle: '登录网盘，选择书籍下载到书架',
+              trailing: const AppIcon(AppGlyph.chevronRight, size: 18),
               onTap: () => Navigator.pop(context, 'cloud'),
             ),
           ],
@@ -1101,31 +1103,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _confirmRemove(BookEntry entry) async {
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text('删除《${entry.title}》'),
-        content: const Text(
+      title: '删除《${entry.title}》',
+      message:
           '将删除书籍文件，保留笔记、书评、书单和阅读记录。'
           '已配置同步时会传播到所有设备；仅清理本机副本请使用多设备同步页。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (confirmed == true) {
+    if (confirmed) {
       await widget.library.remove(entry.id);
     }
   }
@@ -1140,31 +1127,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (entries.isEmpty || _removing) {
       return;
     }
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text('删除选中的 ${entries.length} 本书？'),
-        content: const Text(
+      title: '删除选中的 ${entries.length} 本书？',
+      message:
           '将删除书籍文件，保留笔记、书评、书单和阅读记录。'
           '已配置同步时会传播到所有设备；仅清理本机副本请使用多设备同步页。',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (confirmed == true) {
+    if (confirmed) {
       await _removeSelected(entries);
     }
   }
@@ -1303,6 +1275,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   ) {
     final desktop = usesDesktopLayout(context);
     final roomy = desktop && width >= 640;
+    final integratedImport = !roomy;
     return AppBar(
       automaticallyImplyLeading: false,
       toolbarHeight: desktop ? 64 : 56,
@@ -1319,25 +1292,57 @@ class _BookshelfPageState extends State<BookshelfPage> {
                     alignment: Alignment.centerLeft,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 440),
-                      child: _buildSearchField(),
+                      child: _buildSearchField(
+                        trailingAction: integratedImport
+                            ? _buildInlineImportButton(busy)
+                            : null,
+                      ),
                     ),
                   ),
                 ),
               ],
             )
-          : _buildSearchField(),
+          : _buildSearchField(
+              trailingAction: _buildInlineImportButton(busy),
+            ),
       actions: [
         if (_selectionMode)
-          TextButton(
-            key: const ValueKey<String>('bookshelf-select-all'),
-            onPressed: _removing ? null : () => _toggleSelectAll(items),
-            child: Text(_allSelected(items) ? '取消全选' : '全选'),
+          Padding(
+            padding: EdgeInsets.only(right: integratedImport ? 12 : 4),
+            child: TextButton(
+              key: const ValueKey<String>('bookshelf-select-all'),
+              onPressed: _removing ? null : () => _toggleSelectAll(items),
+              child: Text(_allSelected(items) ? '取消全选' : '全选'),
+            ),
           ),
-        Padding(
-          padding: const EdgeInsets.only(right: 16),
-          child: Center(child: _buildImportButton(busy, extended: roomy)),
-        ),
+        if (!integratedImport)
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(child: _buildImportButton(busy, extended: roomy)),
+          ),
       ],
+    );
+  }
+
+  Widget _buildInlineImportButton(bool busy) {
+    final colors = Theme.of(context).colorScheme;
+    return Theme(
+      data: _noFeedback(context),
+      child: IconButton(
+        key: const ValueKey<String>('bookshelf-import'),
+        color: colors.onSurfaceVariant,
+        tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
+        constraints: const BoxConstraints.tightFor(width: 48, height: 44),
+        padding: EdgeInsets.zero,
+        onPressed: busy || !widget.allowImport ? null : _chooseImport,
+        icon: busy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const AppIcon(AppGlyph.add, size: 22),
+      ),
     );
   }
 
@@ -1360,92 +1365,53 @@ class _BookshelfPageState extends State<BookshelfPage> {
         label: Text(busy ? '导入中…' : '导入书籍'),
       );
     }
-    return Material(
-      color: colors.surface,
-      shape: ReaderUiStyle.controlShape.copyWith(
-        side: BorderSide(color: colors.outlineVariant),
-      ),
-      elevation: 0,
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          splashFactory: NoSplash.splashFactory,
-          splashColor: Colors.transparent,
-          highlightColor: Colors.transparent,
-          hoverColor: usesDesktopLayout(context) ? null : Colors.transparent,
-          focusColor: usesDesktopLayout(context) ? null : Colors.transparent,
-        ),
-        child: IconButton(
-          key: const ValueKey<String>('bookshelf-import'),
-          color: colors.primary,
-          tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-          onPressed: busy || !widget.allowImport ? null : _chooseImport,
-          icon: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const AppIcon(AppGlyph.add),
-        ),
-      ),
+    return ReaderSurfaceIconButton(
+      buttonKey: const ValueKey<String>('bookshelf-import'),
+      tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
+      color: colors.primary,
+      circular: true,
+      keepDesktopHover: usesDesktopLayout(context),
+      onPressed: busy || !widget.allowImport ? null : _chooseImport,
+      icon: busy
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const AppIcon(AppGlyph.add),
     );
   }
 
-  Widget _buildSearchField() {
-    final theme = Theme.of(context);
-    final border = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
-      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-    );
-    return Material(
-      key: const ValueKey('bookshelf-search-surface'),
-      color: ReaderDrawerStyle.searchSurfaceOf(theme),
-      borderRadius: border.borderRadius,
-      elevation: 0,
-      surfaceTintColor: Colors.transparent,
-      child: TextField(
-        key: const ValueKey<String>('bookshelf-search-field'),
-        controller: _searchController,
-        focusNode: _searchFocus,
-        textInputAction: TextInputAction.search,
-        onTap: _focusSearch,
-        decoration: InputDecoration(
-          hintText: '搜索书名或作者',
-          filled: true,
-          isDense: true,
-          fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-          contentPadding: const EdgeInsets.symmetric(vertical: 8),
-          border: border,
-          enabledBorder: border,
-          focusedBorder: border.copyWith(
-            borderSide: BorderSide(color: theme.colorScheme.primary),
-          ),
-          prefixIconConstraints: const BoxConstraints.tightFor(
-            width: 40,
-            height: 40,
-          ),
-          suffixIconConstraints: const BoxConstraints.tightFor(
-            width: 40,
-            height: 40,
-          ),
-          prefixIcon: IconButton(
-            tooltip: '搜索书架',
-            onPressed: _focusSearch,
-            icon: const AppIcon(AppGlyph.search),
-          ),
-          suffixIcon: !_searching
-              ? null
-              : IconButton(
-                  tooltip: '关闭搜索',
-                  onPressed: _toggleSearch,
-                  icon: const AppIcon(AppGlyph.close),
-                ),
-        ),
-        onChanged: (value) => setState(() => _query = value),
+  Widget _buildSearchField({Widget? trailingAction}) => ReaderSearchField(
+    surfaceKey: const ValueKey('bookshelf-search-surface'),
+    fieldKey: const ValueKey<String>('bookshelf-search-field'),
+    controller: _searchController,
+    focusNode: _searchFocus,
+    hintText: '搜索书名或作者',
+    onTap: _focusSearch,
+    onChanged: (value) => setState(() => _query = value),
+    prefixIcon: IconButton(
+      tooltip: '搜索书架',
+      onPressed: _focusSearch,
+      icon: AppIcon(
+        AppGlyph.search,
+        size: 20,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
-    );
-  }
+    ),
+    suffixIcon: !_searching
+        ? null
+        : IconButton(
+            tooltip: '关闭搜索',
+            onPressed: _toggleSearch,
+            icon: AppIcon(
+              AppGlyph.close,
+              size: 18,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+    trailingAction: trailingAction,
+  );
 
   Widget _buildShelfControls(List<_ShelfItem> items) {
     final colors = Theme.of(context).colorScheme;
@@ -1681,7 +1647,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             _selectionMode ? 160 : 96,
           ),
           itemCount: books.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final item = books[index];
             return _desktopBook(
@@ -1726,6 +1692,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       ),
       OutlinedButton.icon(
         key: const ValueKey('bookshelf-batch-delete'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: theme.colorScheme.error,
+          side: BorderSide(
+            color: count == 0 || _removing
+                ? theme.colorScheme.outlineVariant
+                : theme.colorScheme.error.withValues(alpha: .45),
+          ),
+        ),
         onPressed: count == 0 || _removing ? null : _confirmBatchRemove,
         icon: _removing
             ? const SizedBox.square(
@@ -1736,8 +1710,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         label: Text(_removing ? '删除中' : '删除'),
       ),
     ];
-    return Material(
-      color: theme.colorScheme.surface,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+      ),
       child: SafeArea(
         top: false,
         child: Padding(
@@ -2373,23 +2350,29 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     return Semantics(
       selected: widget.selected,
       button: true,
-      child: InkWell(
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        child: Container(
-          margin: const EdgeInsets.only(right: 20),
-          height: 44,
-          alignment: Alignment.center,
-          child: Text(
-            widget.label,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: widget.selected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-              fontWeight: widget.selected ? FontWeight.w600 : FontWeight.normal,
+      child: Theme(
+        data: _noFeedback(context),
+        child: InkWell(
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          child: Container(
+            margin: const EdgeInsets.only(right: 20),
+            height: 44,
+            alignment: Alignment.center,
+            child: Text(
+              widget.label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: widget.selected
+                    ? colors.primary
+                    : colors.onSurfaceVariant,
+                fontWeight: widget.selected
+                    ? FontWeight.w600
+                    : FontWeight.normal,
+              ),
             ),
           ),
         ),
@@ -2499,75 +2482,89 @@ class _BookRow extends StatelessWidget {
     ];
     return Semantics(
       selected: selectionMode && selected,
-      child: InkWell(
-        key: ValueKey<String>('book-row-${entry.id}'),
-        canRequestFocus: !usesDesktopLayout(context),
-        overlayColor: _bookPressOverlay,
-        splashFactory: NoSplash.splashFactory,
-        highlightColor: Colors.transparent,
-        hoverColor: Colors.transparent,
-        focusColor: Colors.transparent,
-        onTap: () {
-          if (selectionMode) {
-            onSelect();
-          } else {
-            onOpen(entry);
-          }
-        },
-        onLongPress: () {
-          if (selectionMode) {
-            onSelect();
-          } else {
-            onLongPress(entry);
-          }
-        },
-        onSecondaryTapUp: selectionMode
-            ? null
-            : (details) => onSecondaryTap(details.globalPosition),
-        child: Ink(
-          color: selectionMode && selected
-              ? theme.colorScheme.surfaceContainerLow
-              : Colors.transparent,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            children: <Widget>[
-              cover,
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    if (showTitle) ...[
-                      Text(
-                        entry.title,
-                        key: ValueKey<String>('book-row-title-${entry.id}'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+      child: Material(
+        color: selectionMode && selected
+            ? theme.colorScheme.primaryContainer.withValues(alpha: .42)
+            : theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: selectionMode && selected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outlineVariant,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey<String>('book-row-${entry.id}'),
+          canRequestFocus: !usesDesktopLayout(context),
+          overlayColor: _bookPressOverlay,
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: Colors.transparent,
+          hoverColor: Colors.transparent,
+          focusColor: Colors.transparent,
+          onTap: () {
+            if (selectionMode) {
+              onSelect();
+            } else {
+              onOpen(entry);
+            }
+          },
+          onLongPress: () {
+            if (selectionMode) {
+              onSelect();
+            } else {
+              onLongPress(entry);
+            }
+          },
+          onSecondaryTapUp: selectionMode
+              ? null
+              : (details) => onSecondaryTap(details.globalPosition),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: <Widget>[
+                cover,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      if (showTitle) ...[
+                        Text(
+                          entry.title,
+                          key: ValueKey<String>('book-row-title-${entry.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
+                        const SizedBox(height: 4),
+                      ],
+                      for (final label in [
+                        author.isEmpty ? '未知作者' : author,
+                        '已读 ${formatReadingDuration(item.duration)}',
+                        formatReadingChapters(item.spineIndex, entry.spineCount),
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: metadataStyle,
+                          ),
+                        ),
                     ],
-                    for (final label in [
-                      author.isEmpty ? '未知作者' : author,
-                      '已读 ${formatReadingDuration(item.duration)}',
-                      formatReadingChapters(item.spineIndex, entry.spineCount),
-                    ])
-                      Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: metadataStyle,
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-              if (trailing.isNotEmpty) ...<Widget>[
-                const SizedBox(width: 8),
-                ...trailing,
+                if (trailing.isNotEmpty) ...<Widget>[
+                  const SizedBox(width: 8),
+                  ...trailing,
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -2581,30 +2578,11 @@ class _EmptyPane extends StatelessWidget {
   final bool allowImport;
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AppIcon(
-            AppGlyph.bookshelf,
-            size: 64,
-            color: Theme.of(context).colorScheme.outline,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            allowImport ? '书架还是空的' : '书库暂时不可用',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            allowImport ? '点击右上角导入按钮添加第一本书' : '请先重试本地数据库，恢复后再导入书籍',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ReaderEmptyState(
+    icon: AppGlyph.bookshelf,
+    title: allowImport ? '书架还是空的' : '书库暂时不可用',
+    subtitle: allowImport ? '点击右上角导入按钮添加第一本书' : '请先重试本地数据库，恢复后再导入书籍',
+  );
 }
 
 class _NoMatchesPane extends StatelessWidget {
@@ -2619,54 +2597,24 @@ class _NoMatchesPane extends StatelessWidget {
   final String? groupName;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AppIcon(
-              AppGlyph.searchOff,
-              size: 48,
-              color: theme.colorScheme.outline,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              query.isNotEmpty
-                  ? '没有找到相关书籍'
-                  : groupName == null
-                  ? '没有符合筛选条件的书'
-                  : '这个分组还没有书',
-              style: theme.textTheme.titleMedium,
-            ),
-            if (query.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                '没有书名或作者包含“$query”',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-            ] else if (groupName != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                '点击顶部多选，再移入「$groupName」',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: onReset,
-              icon: const AppIcon(AppGlyph.filterOff),
-              label: Text(groupName == null ? '清除筛选' : '查看全部书籍'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ReaderEmptyState(
+    icon: AppGlyph.searchOff,
+    title: query.isNotEmpty
+        ? '没有找到相关书籍'
+        : groupName == null
+        ? '没有符合筛选条件的书'
+        : '这个分组还没有书',
+    subtitle: query.isNotEmpty
+        ? '没有书名或作者包含“$query”'
+        : groupName != null
+        ? '点击顶部多选，再移入「$groupName」'
+        : null,
+    action: OutlinedButton.icon(
+      onPressed: onReset,
+      icon: const AppIcon(AppGlyph.filterOff, size: 18),
+      label: Text(groupName == null ? '清除筛选' : '查看全部书籍'),
+    ),
+  );
 }
 
 class _ErrorPane extends StatelessWidget {
@@ -2682,24 +2630,13 @@ class _ErrorPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AppIcon(
-              AppGlyph.error,
-              size: 48,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            FilledButton.tonal(onPressed: onRetry, child: Text(retryLabel)),
-          ],
-        ),
-      ),
+    final colors = Theme.of(context).colorScheme;
+    return ReaderEmptyState(
+      icon: AppGlyph.error,
+      iconColor: colors.error,
+      iconContainerColor: colors.errorContainer,
+      title: message,
+      action: FilledButton.tonal(onPressed: onRetry, child: Text(retryLabel)),
     );
   }
 }

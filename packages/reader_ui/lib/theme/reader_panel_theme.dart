@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_semantic_colors.dart';
 import 'reader_frosted_surface.dart';
 import 'reader_theme.dart';
 import 'reader_ui_style.dart';
@@ -34,7 +35,18 @@ class _ReaderPanelThemeState extends State<ReaderPanelTheme> {
       _base = base;
       _inkMode = inkMode;
       final scheme = inkMode ? _inkScheme : base.colorScheme;
-      _data = applyReaderUiStyle(_panelTypography(base, scheme));
+      final semantic = inkMode
+          ? AppSemanticColors.ink
+          : base.extension<AppSemanticColors>() ??
+                (scheme.brightness == Brightness.dark
+                    ? AppSemanticColors.darkDefault
+                    : AppSemanticColors.lightDefault);
+      final extensions = List<ThemeExtension<dynamic>>.of(
+        base.extensions.values.where((ext) => ext is! AppSemanticColors),
+      )..add(semantic);
+      _data = applyReaderUiStyle(
+        _panelTypography(base, scheme).copyWith(extensions: extensions),
+      );
     }
     return ReaderFrostedScope(
       inkMode: inkMode,

@@ -422,7 +422,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      dragHandleHeight: 32,
+      dragHandleHeight: ReaderUiStyle.sheetDragHandleHeight,
       builder: (_) => CornerInfoEditor(info: _cornerInfo),
     );
     if (!mounted || info == null) return;
@@ -524,27 +524,27 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   padding: switch (widget.section) {
                     SettingsSection.all => const EdgeInsets.fromLTRB(
                       20,
-                      8,
+                      12,
                       20,
-                      16,
+                      20,
                     ),
                     SettingsSection.type => const EdgeInsets.fromLTRB(
                       20,
-                      16,
+                      14,
                       20,
                       20,
                     ),
                     SettingsSection.theme => const EdgeInsets.fromLTRB(
-                      16,
-                      12,
-                      16,
+                      20,
+                      14,
+                      20,
                       20,
                     ),
                     SettingsSection.settings => const EdgeInsets.fromLTRB(
-                      16,
+                      20,
                       10,
-                      16,
-                      16,
+                      20,
+                      20,
                     ),
                   },
                   sliver: ReaderPanelSliver(
@@ -1381,7 +1381,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     required VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
-    final surface = ReaderDrawerStyle.surfaceOf(theme);
+    final scheme = theme.colorScheme;
     return Opacity(
       opacity: onTap == null ? 0.42 : 1,
       child: InkWell(
@@ -1390,16 +1390,18 @@ class _SettingsPanelState extends State<SettingsPanel> {
         onTap: onTap,
         child: Container(
           padding: selected
-              ? const EdgeInsets.symmetric(horizontal: 13, vertical: 5)
-              : const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              ? const EdgeInsets.symmetric(horizontal: 13, vertical: 7)
+              : const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: surface,
+            color: selected
+                ? scheme.primaryContainer
+                : ReaderDrawerStyle.optionFillOf(theme),
             borderRadius: ReaderUiStyle.controlRadius,
             border: Border.all(
               color: selected
-                  ? theme.colorScheme.primary
+                  ? scheme.primary
                   : ReaderDrawerStyle.optionBorderOf(theme),
-              width: selected ? 2 : 1,
+              width: selected ? 1.5 : 1,
             ),
           ),
           child: Text(
@@ -1408,8 +1410,10 @@ class _SettingsPanelState extends State<SettingsPanel> {
             style: TextStyle(
               fontSize: 13,
               height: 18 / 13,
-              fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-              color: ReaderDrawerStyle.textOf(theme),
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              color: selected
+                  ? scheme.onPrimaryContainer
+                  : ReaderDrawerStyle.textOf(theme),
             ),
           ),
         ),
@@ -1560,7 +1564,9 @@ class _StepButton extends StatelessWidget {
     final theme = Theme.of(context);
     return Material(
       color: ReaderDrawerStyle.optionFillOf(theme),
-      shape: ReaderUiStyle.controlShape,
+      shape: ReaderUiStyle.controlShape.copyWith(
+        side: BorderSide(color: ReaderDrawerStyle.optionBorderOf(theme)),
+      ),
       child: InkWell(
         onTap: onTap,
         customBorder: ReaderUiStyle.controlShape,
@@ -1779,7 +1785,9 @@ class _SettingsChoiceRow<T> extends StatelessWidget {
         color: theme.colorScheme.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 3,
-        shape: ReaderUiStyle.controlShape,
+        shape: ReaderUiStyle.controlShape.copyWith(
+          side: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
         clipBehavior: Clip.antiAlias,
         popUpAnimationStyle:
             ReaderFrostedScope.inkModeOf(context) ||
@@ -1798,18 +1806,32 @@ class _SettingsChoiceRow<T> extends StatelessWidget {
       PopupMenuItem<T>(
         key: item.key,
         value: item.value,
-        height: 52,
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         child: Semantics(
           selected: item.value == value,
-          child: Center(
-            child: DefaultTextStyle(
-              style: theme.textTheme.bodyMedium!.copyWith(
-                fontSize: 14,
-                color: item.value == value
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              color: item.value == value
+                  ? theme.colorScheme.primaryContainer
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: DefaultTextStyle(
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  fontSize: 14,
+                  fontWeight: item.value == value
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                  color: item.value == value
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface,
+                ),
+                child: item.child,
               ),
-              child: item.child,
             ),
           ),
         ),

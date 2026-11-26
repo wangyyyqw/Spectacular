@@ -15,7 +15,7 @@ extension _ReaderDecorationActions on _ReaderPageState {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      dragHandleHeight: 32,
+      dragHandleHeight: ReaderUiStyle.sheetDragHandleHeight,
       readerTheme: _effectiveTheme ?? ReaderTheme.white,
       builder: (context) =>
           ReaderMarkSettingsSheet(settings: _markSettings, inkMode: _inkMode),

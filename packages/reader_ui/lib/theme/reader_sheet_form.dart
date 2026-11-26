@@ -77,32 +77,44 @@ class _ReaderSheetFormState extends State<ReaderSheetForm> {
     ),
   );
 
-  Widget _header(BuildContext context) => Padding(
-    key: _headerKey,
-    padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: DefaultTextStyle(
-            style: Theme.of(context).textTheme.titleMedium!
-                .copyWith(fontSize: 14, fontWeight: FontWeight.w600),
-            child: widget.title,
+  Widget _header(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      key: _headerKey,
+      padding: EdgeInsets.fromLTRB(
+        20,
+        6,
+        widget.showCloseButton ? 8 : 20,
+        8,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: DefaultTextStyle(
+              style: theme.textTheme.titleMedium!.copyWith(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+              child: widget.title,
+            ),
           ),
-        ),
-        if (widget.showCloseButton)
-          IconButton(
-            tooltip: '关闭',
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            onPressed: widget.onClose ?? () => Navigator.maybePop(context),
-            icon: const AppIcon(AppGlyph.close),
-          ),
-      ],
-    ),
-  );
+          if (widget.showCloseButton)
+            IconButton(
+              tooltip: '关闭',
+              color: theme.colorScheme.onSurfaceVariant,
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              onPressed: widget.onClose ?? () => Navigator.maybePop(context),
+              icon: const AppIcon(AppGlyph.close, size: 20),
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _actions() => Padding(
     key: _actionsKey,
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
     child: OverflowBar(
       alignment: MainAxisAlignment.end,
       overflowAlignment: OverflowBarAlignment.end,

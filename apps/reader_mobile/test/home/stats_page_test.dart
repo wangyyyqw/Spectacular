@@ -915,8 +915,8 @@ void main() {
     expect(_valueOf(tester, 'stats-overview-finished'), '1 本');
     expect(_valueOf(tester, 'stats-overview-annotations'), '0 条');
     expect(_valueOf(tester, 'stats-overview-reading-days'), '2 天');
-    expect(find.byType(AppBar), findsNothing);
-    expect(find.text('统计'), findsNothing);
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.text('统计'), findsOneWidget);
     expect(find.byTooltip('刷新统计'), findsNothing);
     expect(find.byKey(const ValueKey('stats-refresh')), findsNothing);
     expect(find.text('近 7 天阅读时长'), findsNothing);
@@ -926,7 +926,7 @@ void main() {
       find.byKey(const ValueKey('stats-overview-card')),
     );
     final durationTop = tester.getTopLeft(find.text('图书时长'));
-    expect(overviewTop.dy, 44);
+    expect(overviewTop.dy, greaterThan(44));
     expect(durationTop.dy, greaterThan(overviewTop.dy));
     for (final period in ['week', 'month', 'year']) {
       await _selectPeriod(tester, period);

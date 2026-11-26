@@ -54,22 +54,31 @@ class ReaderFrostedSurface extends StatelessWidget {
                     bottom: Radius.circular(bottomRadius ?? radius),
                   ),
                   border: flat || !rounded
-                      ? null
+                      ? (flat && rounded
+                            ? Border.all(
+                                color: scheme.outlineVariant,
+                                width: 1,
+                              )
+                            : null)
                       : Border.all(
-                          color: Colors.white.withValues(alpha: 0.12),
-                          width: 0.5,
+                          color: scheme.outlineVariant.withValues(
+                            alpha: scheme.brightness == Brightness.dark
+                                ? 0.85
+                                : 0.72,
+                          ),
+                          width: 1,
                         ),
                   boxShadow:
                       flat || !rounded || scheme.brightness == Brightness.dark
                       ? null
                       : const [
                           BoxShadow(
-                            color: Color(0x24000000),
-                            blurRadius: 16,
-                            offset: Offset(0, 6),
+                            color: Color(0x18000000),
+                            blurRadius: 20,
+                            offset: Offset(0, 8),
                           ),
                           BoxShadow(
-                            color: Color(0x1F000000),
+                            color: Color(0x10000000),
                             blurRadius: 4,
                             offset: Offset(0, 2),
                           ),

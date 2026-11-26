@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../theme/reader_ui_style.dart';
-
 import 'package:reader_core/css/font_face.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_common_widgets.dart';
 import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_sheet_form.dart';
+import '../theme/reader_ui_style.dart';
 
 /// 宿主保存的字体标识与名称，UI 不读取字体文件。
 class ReaderFontOption {
@@ -113,43 +114,32 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     }
   }
 
-  Future<bool> _confirmRemove(ReaderFontOption font) async =>
-      await showReaderDialog<bool>(
-        context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: Text('移除“${font.label}”？'),
-          content: Text(
-            _selected == font.family
-                ? '当前字体移除后将使用书籍字体。可随时重新导入。'
-                : '从应用中移除字体文件，可随时重新导入。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const ValueKey('font-remove-confirm'),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('移除字体'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+  Future<bool> _confirmRemove(ReaderFontOption font) => showReaderConfirmDialog(
+    context: context,
+    title: '移除“${font.label}”？',
+    message: _selected == font.family
+        ? '当前字体移除后将使用书籍字体。可随时重新导入。'
+        : '从应用中移除字体文件，可随时重新导入。',
+    confirmLabel: '移除字体',
+    confirmKey: const ValueKey('font-remove-confirm'),
+    destructive: true,
+  );
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    child: ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .78,
-      ),
-      child: Column(
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.sizeOf(context).height * .78,
+    ),
+    child: ReaderSheetForm(
+      title: const Text('选择字体'),
+      onClose: _busy ? null : () => Navigator.of(context).pop(),
+      contentPadding: EdgeInsets.zero,
+      scrollContent: false,
+      content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _heading(context),
+          const SizedBox(height: 12),
           _previewBox(context),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null) _errorBanner(context),
@@ -159,36 +149,20 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     ),
   );
 
-  Widget _heading(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text('选择字体', style: Theme.of(context).textTheme.titleMedium),
-        ),
-        IconButton(
-          tooltip: '关闭字体选择',
-          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          icon: const AppIcon(AppGlyph.close),
-        ),
-      ],
-    ),
-  );
-
   Widget _errorBanner(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
     child: Semantics(
       liveRegion: true,
-      child: Text(
-        _error!,
+      child: KeyedSubtree(
         key: const ValueKey('font-picker-error'),
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
+        child: ReaderNoticeBanner(message: _error!),
       ),
     ),
   );
 
   Widget _fontList() => ListView(
     shrinkWrap: true,
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
     children: [
       _tile(key: 'settings-font-book', label: '书籍字体', family: null),
       _tile(
@@ -232,28 +206,26 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     required String label,
     required String? family,
     ReaderFontOption? font,
-  }) => ListTile(
-    key: ValueKey(key),
-    enabled: !_busy,
-    selected: _selected == family,
-    title: Text(
-      label,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        fontSize: 14,
-        color: _selected == family
-            ? Theme.of(context).colorScheme.onPrimaryContainer
-            : Theme.of(context).colorScheme.onSurface,
+  }) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: ReaderOptionTile(
+      tileKey: ValueKey(key),
+      enabled: !_busy,
+      selected: _selected == family,
+      title: label,
+      onTap: () => _choose(family),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_selected == family)
+            AppIcon(
+              AppGlyph.check,
+              size: 18,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
+          if (font != null) _fontMenu(font),
+        ],
       ),
-    ),
-    onTap: () => _choose(family),
-    trailing: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_selected == family) const AppIcon(AppGlyph.check, size: 20),
-        if (font != null) _fontMenu(font),
-      ],
     ),
   );
 

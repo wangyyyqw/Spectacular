@@ -31,6 +31,8 @@ class HomeShell extends StatefulWidget {
     this.storageRecovery,
     this.themeMode = ThemeMode.system,
     this.onThemeModeChanged,
+    this.themePreset = AppThemePreset.clearBlue,
+    this.onThemePresetChanged,
     this.appFontFamily = AppFonts.defaultFamily,
     this.appFontStore,
     this.onAppFontFamilyChanged,
@@ -53,6 +55,12 @@ class HomeShell extends StatefulWidget {
 
   /// 切换并保存应用界面主题。
   final Future<void> Function(ThemeMode)? onThemeModeChanged;
+
+  /// 已保存的软件配色方案。
+  final AppThemePreset themePreset;
+
+  /// 切换并保存软件配色方案。
+  final Future<void> Function(AppThemePreset)? onThemePresetChanged;
 
   /// 当前应用字体。
   final String appFontFamily;
@@ -147,6 +155,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         oldWidget.storageRecovery != widget.storageRecovery ||
         oldWidget.themeMode != widget.themeMode ||
         oldWidget.onThemeModeChanged != widget.onThemeModeChanged ||
+        oldWidget.themePreset.id != widget.themePreset.id ||
+        oldWidget.onThemePresetChanged != widget.onThemePresetChanged ||
         oldWidget.appFontFamily != widget.appFontFamily ||
         oldWidget.appFontStore != widget.appFontStore ||
         oldWidget.onAppFontFamilyChanged != widget.onAppFontFamilyChanged ||
@@ -207,6 +217,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       library: widget.library,
       themeMode: widget.themeMode,
       onThemeModeChanged: widget.onThemeModeChanged,
+      themePreset: widget.themePreset,
+      onThemePresetChanged: widget.onThemePresetChanged,
       appFontFamily: widget.appFontFamily,
       appFontStore: widget.appFontStore,
       onAppFontFamilyChanged: widget.onAppFontFamilyChanged,
@@ -472,10 +484,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ),
         bottomNavigationBar: useRail
             ? null
-            : Material(
-                color: theme.colorScheme.surface,
-                elevation: 2,
-                shadowColor: theme.colorScheme.shadow.withValues(alpha: .12),
+            : DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  border: Border(
+                    top: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
+                ),
                 child: Theme(
                   // 底栏四个入口不显示点击高亮与水波。
                   data: quietInk(theme),

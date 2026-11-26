@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../library/library_store.dart';
@@ -157,19 +159,11 @@ class _CloudImportPageState extends State<CloudImportPage> {
                       action: '重试',
                       onAction: _load,
                     ),
-                  Material(
-                    color: Theme.of(context).colorScheme.surface,
-                    shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: [
-                        for (final drive in CloudDrive.values) ...[
-                          if (drive.index > 0)
-                            const Divider(height: 1, indent: 64, endIndent: 16),
-                          _row(drive),
-                        ],
-                      ],
-                    ),
+                  ReaderSectionCard(
+                    dividerIndent: 64,
+                    children: [
+                      for (final drive in CloudDrive.values) _row(drive),
+                    ],
                   ),
                   const SizedBox(height: 20),
                   Row(
@@ -387,9 +381,9 @@ class _CloudFilesPageState extends State<CloudFilesPage> {
   Future<void> _leave({bool relogin = false}) async {
     if (_leaving) return;
     if (_imports.busy) {
-      final leave = await showDialog<bool>(
+      final leave = await showReaderDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => ReaderFrostedAlertDialog(
           title: const Text('停止导入并返回？'),
           content: const Text('已导入的书籍会保留，未完成的下载将取消。'),
           actions: [
@@ -508,23 +502,21 @@ class _CloudFilesPageState extends State<CloudFilesPage> {
     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
     child: Column(
       children: [
-        TextField(
+        ReaderSearchField(
           controller: _search,
+          hintText: '筛选当前目录已加载的文件',
           onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            hintText: '筛选当前目录已加载的文件',
-            prefixIcon: const Padding(
-              padding: EdgeInsets.all(12),
-              child: AppIcon(AppGlyph.search),
-            ),
-            suffixIcon: _search.text.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: '清除筛选',
-                    onPressed: () => setState(_search.clear),
-                    icon: const AppIcon(AppGlyph.close),
+          suffixIcon: _search.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: '清除筛选',
+                  onPressed: () => setState(_search.clear),
+                  icon: AppIcon(
+                    AppGlyph.close,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-          ),
+                ),
         ),
         const SizedBox(height: 8),
         Row(

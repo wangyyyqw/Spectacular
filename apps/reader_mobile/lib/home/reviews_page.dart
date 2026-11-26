@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
-import 'package:reader_ui/theme/reader_ui_style.dart';
+import 'package:reader_ui/theme/reader_ink.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_section_slider.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -380,7 +382,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
 
   Widget _header(bool desktop) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: SizedBox(
         height: 48,
         child: LayoutBuilder(
@@ -502,61 +504,27 @@ class _ReviewsPageState extends State<ReviewsPage> {
   };
 
   Widget _searchField() {
-    final theme = Theme.of(context);
-    final muted = ReaderDrawerStyle.mutedOf(theme);
-    final border = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
-      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-    );
-    return Material(
-      color: ReaderDrawerStyle.searchSurfaceOf(theme),
-      borderRadius: border.borderRadius,
-      elevation: 0,
-      surfaceTintColor: Colors.transparent,
-      child: TextField(
-        key: const ValueKey<String>('reviews-search-field'),
-        controller: _searchController,
-        focusNode: _searchFocus,
-        autofocus: !usesDesktopLayout(context),
-        textInputAction: TextInputAction.search,
-        cursorColor: ReaderDrawerStyle.textOf(theme),
-        decoration: InputDecoration(
-          hintText: _searchHint,
-          hintStyle: TextStyle(color: muted),
-          filled: true,
-          isDense: true,
-          fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-          contentPadding: const EdgeInsets.symmetric(vertical: 8),
-          border: border,
-          enabledBorder: border,
-          focusedBorder: border.copyWith(
-            borderSide: BorderSide(color: theme.colorScheme.primary),
-          ),
-          prefixIconConstraints: const BoxConstraints.tightFor(
-            width: 40,
-            height: 40,
-          ),
-          suffixIconConstraints: const BoxConstraints.tightFor(
-            width: 40,
-            height: 40,
-          ),
-          prefixIcon: AppIcon(AppGlyph.search, size: 20, color: muted),
-          suffixIcon: _query.isEmpty
-              ? null
-              : Theme(
-                  data: _noFeedback(context),
-                  child: IconButton(
-                    tooltip: '清除搜索',
-                    highlightColor: Colors.transparent,
-                    hoverColor: Colors.transparent,
-                    focusColor: Colors.transparent,
-                    onPressed: _clearSearch,
-                    icon: AppIcon(AppGlyph.close, color: muted),
-                  ),
-                ),
-        ),
-        onChanged: (value) => setState(() => _query = value),
-      ),
+    final muted = ReaderDrawerStyle.mutedOf(Theme.of(context));
+    return ReaderSearchField(
+      fieldKey: const ValueKey<String>('reviews-search-field'),
+      controller: _searchController,
+      focusNode: _searchFocus,
+      autofocus: !usesDesktopLayout(context),
+      hintText: _searchHint,
+      onChanged: (value) => setState(() => _query = value),
+      suffixIcon: _query.isEmpty
+          ? null
+          : Theme(
+              data: _noFeedback(context),
+              child: IconButton(
+                tooltip: '清除搜索',
+                highlightColor: Colors.transparent,
+                hoverColor: Colors.transparent,
+                focusColor: Colors.transparent,
+                onPressed: _clearSearch,
+                icon: AppIcon(AppGlyph.close, color: muted),
+              ),
+            ),
     );
   }
 
@@ -602,13 +570,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 }
 
-ThemeData _noFeedback(BuildContext context) => Theme.of(context).copyWith(
-  splashFactory: NoSplash.splashFactory,
-  splashColor: Colors.transparent,
-  highlightColor: Colors.transparent,
-  hoverColor: Colors.transparent,
-  focusColor: Colors.transparent,
-);
+ThemeData _noFeedback(BuildContext context) => quietInk(Theme.of(context));
 
 class _SearchButton extends StatelessWidget {
   const _SearchButton({
@@ -621,29 +583,12 @@ class _SearchButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      shape: ReaderUiStyle.controlShape.copyWith(
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-      elevation: 0,
-      child: Theme(
-        data: _noFeedback(context),
-        child: IconButton(
-          tooltip: tooltip,
-          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-          padding: EdgeInsets.zero,
-          highlightColor: Colors.transparent,
-          hoverColor: Colors.transparent,
-          focusColor: Colors.transparent,
-          onPressed: onPressed,
-          icon: const AppIcon(AppGlyph.search),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ReaderSurfaceIconButton(
+    tooltip: tooltip,
+    circular: true,
+    onPressed: onPressed,
+    icon: const AppIcon(AppGlyph.search, size: 20),
+  );
 }
 
 /// 切换笔记、书评、书单时沿用书架的轻微横向滑入淡入。
@@ -818,45 +763,21 @@ class _NoReviewMatches extends StatelessWidget {
   final VoidCallback onReset;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final title = query.isNotEmpty ? '没有找到相关书评' : '没有可显示的书评';
-    return Card(
-      elevation: 0,
-      key: const ValueKey<String>('reviews-no-results'),
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            AppIcon(
-              query.isNotEmpty ? AppGlyph.searchOff : AppGlyph.rateReview,
-              color: theme.colorScheme.outline,
-              size: 36,
+  Widget build(BuildContext context) => KeyedSubtree(
+    key: const ValueKey<String>('reviews-no-results'),
+    child: ReaderEmptyState(
+      icon: query.isNotEmpty ? AppGlyph.searchOff : AppGlyph.rateReview,
+      title: query.isNotEmpty ? '没有找到相关书评' : '没有可显示的书评',
+      subtitle: query.isNotEmpty ? '没有书名、作者或书评正文包含“$query”' : null,
+      action: query.isEmpty
+          ? null
+          : OutlinedButton.icon(
+              onPressed: onReset,
+              icon: const AppIcon(AppGlyph.filterOff, size: 18),
+              label: const Text('清除搜索'),
             ),
-            const SizedBox(height: 10),
-            Text(title, style: theme.textTheme.titleMedium),
-            if (query.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                '没有书名、作者或书评正文包含“$query”',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextButton.icon(
-                onPressed: onReset,
-                icon: const AppIcon(AppGlyph.filterOff),
-                label: const Text('清除搜索'),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }
 
 class _ReviewDetailSheet extends StatelessWidget {
@@ -991,6 +912,7 @@ class _StarRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = rating ?? 0;
+    final semantics = AppSemanticColors.of(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -999,7 +921,7 @@ class _StarRow extends StatelessWidget {
             AppGlyph.star,
             filled: star <= value,
             size: size,
-            color: Theme.of(context).colorScheme.onSurface,
+            color: star <= value ? semantics.starFilled : semantics.starEmpty,
           ),
         if (rating == null) ...[
           const SizedBox(width: 4),
@@ -1019,18 +941,11 @@ class _EmptyReviews extends StatelessWidget {
   const _EmptyReviews();
 
   @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AppIcon(AppGlyph.rateReview, size: 64),
-          SizedBox(height: 12),
-          Text('标记读完后，可以在这里评分和写书评'),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const ReaderEmptyState(
+    icon: AppGlyph.rateReview,
+    title: '还没有书评',
+    subtitle: '标记读完后，可以在这里评分和写书评',
+  );
 }
 
 class _ReviewLoadError extends StatelessWidget {
@@ -1040,30 +955,21 @@ class _ReviewLoadError extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppIcon(
-            AppGlyph.warning,
-            size: 40,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 12),
-          Text(message),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            key: const ValueKey('reviews-load-retry'),
-            onPressed: onRetry,
-            icon: const AppIcon(AppGlyph.refresh),
-            label: const Text('重新加载'),
-          ),
-        ],
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ReaderEmptyState(
+      icon: AppGlyph.warning,
+      iconColor: colors.error,
+      iconContainerColor: colors.errorContainer,
+      title: message,
+      action: FilledButton.icon(
+        key: const ValueKey('reviews-load-retry'),
+        onPressed: onRetry,
+        icon: const AppIcon(AppGlyph.refresh, size: 18),
+        label: const Text('重新加载'),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _ReviewEditorSheet extends StatefulWidget {

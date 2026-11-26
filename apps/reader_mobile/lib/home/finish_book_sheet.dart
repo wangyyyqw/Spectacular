@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -79,25 +80,16 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
   Future<bool> _confirmDiscard() async {
     if (_confirming) return false;
     _confirming = true;
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('放弃未保存的书评？'),
-        content: const Text('离开后本次尚未保存的修改会丢失。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('继续编辑'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放弃修改'),
-          ),
-        ],
-      ),
+      title: '放弃未保存的书评？',
+      message: '离开后本次尚未保存的修改会丢失。',
+      cancelLabel: '继续编辑',
+      confirmLabel: '放弃修改',
+      destructive: true,
     );
     _confirming = false;
-    return confirmed == true;
+    return confirmed;
   }
 
   Future<void> _close() async {
@@ -141,12 +133,21 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
       if (!widget.fullScreen)
         Row(
           children: [
-            Expanded(child: Text('读完信息', style: theme.textTheme.titleLarge)),
+            Expanded(
+              child: Text(
+                '读完信息',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
             IconButton(
               key: const ValueKey('book-detail-finish-close'),
               tooltip: '关闭读完信息',
+              color: theme.colorScheme.onSurfaceVariant,
               onPressed: _saving ? null : _close,
-              icon: const AppIcon(AppGlyph.close),
+              icon: const AppIcon(AppGlyph.close, size: 20),
             ),
           ],
         ),
@@ -253,10 +254,9 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
             padding: const EdgeInsets.only(bottom: 10),
             child: Semantics(
               liveRegion: true,
-              child: Text(
-                _error!,
+              child: KeyedSubtree(
                 key: const ValueKey('book-detail-finish-error'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                child: ReaderNoticeBanner(message: _error!),
               ),
             ),
           ),

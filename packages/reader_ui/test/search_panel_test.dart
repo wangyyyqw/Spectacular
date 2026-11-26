@@ -187,7 +187,7 @@ void main() {
       expect(field.style?.fontSize, 14);
       expect(field.style?.color, theme.colorScheme.onSurface);
       final border = field.decoration!.enabledBorder! as OutlineInputBorder;
-      expect(border.borderRadius, BorderRadius.circular(12));
+      expect(border.borderRadius, BorderRadius.circular(999));
       expect(border.borderSide.color, theme.colorScheme.outlineVariant);
       final focused = field.decoration!.focusedBorder! as OutlineInputBorder;
       expect(focused.borderRadius, border.borderRadius);
@@ -206,7 +206,7 @@ void main() {
       );
       expect(inputSurface.elevation, 0);
       expect(inputSurface.surfaceTintColor, Colors.transparent);
-      expect(inputSurface.borderRadius, BorderRadius.circular(12));
+      expect(inputSurface.borderRadius, BorderRadius.circular(999));
       await tester.enterText(input, '沈河');
       await tester.pumpAndSettle();
       final title = tester.widget<Text>(find.text('第一章 简单正文 · 2 处'));

@@ -16,8 +16,10 @@ import 'decoration_style.dart';
 import 'decoration_style_preview.dart';
 import 'decoration_typography_editor.dart';
 import 'style_controls.dart';
+import '../theme/reader_common_widgets.dart';
 import '../theme/reader_frosted_popup.dart';
 import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_ui_style.dart';
 
 /// 手工装饰预设与高级属性编辑面板。
 class ReaderDecorationEditorSheet extends StatefulWidget {
@@ -208,7 +210,7 @@ class _ReaderDecorationEditorSheetState
       child: Material(
         key: const ValueKey<String>('decoration-editor-sheet'),
         color: ReaderFrostedSurface.panelColorOf(context),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+        borderRadius: ReaderUiStyle.sheetRadius,
         clipBehavior: Clip.antiAlias,
         child: SafeArea(
           top: false,
@@ -216,23 +218,37 @@ class _ReaderDecorationEditorSheetState
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                padding: const EdgeInsets.fromLTRB(20, 6, 8, 8),
                 child: Row(
                   children: [
-                    const AppIcon(AppGlyph.formatPaint),
+                    const AppIcon(AppGlyph.formatPaint, size: 20),
                     const SizedBox(width: 8),
-                    Text('装饰', style: Theme.of(context).textTheme.titleLarge),
-                    const Spacer(),
+                    Expanded(
+                      child: Text(
+                        '装饰',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
                     IconButton(
                       onPressed: _close,
                       tooltip: '关闭',
-                      icon: const AppIcon(AppGlyph.close),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      constraints: const BoxConstraints(
+                        minWidth: 44,
+                        minHeight: 44,
+                      ),
+                      icon: const AppIcon(AppGlyph.close, size: 20),
                     ),
                   ],
                 ),
               ),
+              const Divider(height: 1),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
                 child: ReaderDecorationStylePreview(
                   text: widget.quote,
                   style: _loadingFont || _fontError != null
@@ -245,12 +261,13 @@ class _ReaderDecorationEditorSheetState
               ),
               Flexible(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
                   child: _content(context),
                 ),
               ),
+              const Divider(height: 1),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
@@ -288,10 +305,9 @@ class _ReaderDecorationEditorSheetState
       if (_fontError != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Text(
-            _fontError!,
+          child: KeyedSubtree(
             key: const ValueKey<String>('decoration-font-error'),
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+            child: ReaderNoticeBanner(message: _fontError!),
           ),
         ),
       const SizedBox(height: 16),

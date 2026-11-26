@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'reader_frosted_surface.dart';
 import 'reader_panel_theme.dart';
 import 'reader_theme.dart';
+import 'reader_ui_style.dart';
 
 /// 磨砂对话框只缩放，不使用会隔离背景采样的整体淡入。
 ///
@@ -75,7 +76,7 @@ Future<T?> showReaderBottomSheet<T>({
   bool isDismissible = true,
   bool enableDrag = true,
   bool showDragHandle = true,
-  double dragHandleHeight = 48,
+  double dragHandleHeight = 28,
   bool waitForDismissal = false,
   ReaderTheme? readerTheme,
   BoxConstraints? constraints,
@@ -178,7 +179,7 @@ Widget _drawerPanel({
   bool showDragHandle = false,
   bool isDismissible = true,
   bool desktop = false,
-  double dragHandleHeight = 48,
+  double dragHandleHeight = 28,
 }) {
   final panel = ReaderFrostedSurface(
     radius: 24,
@@ -318,7 +319,7 @@ class _ReaderDrawerRoute<T> extends PopupRoute<T> {
 }
 
 class _DragHandle extends StatelessWidget {
-  const _DragHandle({required this.dismissible, this.height = 48});
+  const _DragHandle({required this.dismissible, this.height = 28});
 
   final bool dismissible;
   final double height;
@@ -333,11 +334,11 @@ class _DragHandle extends StatelessWidget {
       height: height,
       child: Center(
         child: Container(
-          width: 32,
+          width: 36,
           height: 4,
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.onSurfaceVariant
-                .withValues(alpha: 0.4),
+                .withValues(alpha: 0.36),
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -386,17 +387,58 @@ class ReaderFrostedDialog extends StatelessWidget {
   );
 }
 
+/// 统一的确认弹窗入口：共享磨砂底板、标题/正文字号与操作按钮排版；
+/// 当 [destructive] 为真时，确认按钮自动采用语义错误主色。
+Future<bool> showReaderConfirmDialog({
+  required BuildContext context,
+  required String title,
+  required String message,
+  String cancelLabel = '取消',
+  required String confirmLabel,
+  bool destructive = false,
+  Key? cancelKey,
+  Key? confirmKey,
+  bool barrierDismissible = true,
+}) async =>
+    await showReaderDialog<bool>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return ReaderFrostedAlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              key: cancelKey,
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(cancelLabel),
+            ),
+            FilledButton(
+              key: confirmKey,
+              style: destructive
+                  ? ReaderUiStyle.destructiveFilledButtonOf(theme)
+                  : null,
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(confirmLabel),
+            ),
+          ],
+        );
+      },
+    ) ??
+    false;
+
 /// 沿用 AlertDialog 的内容布局、滚动和无障碍语义。
 class ReaderFrostedAlertDialog extends AlertDialog {
   const ReaderFrostedAlertDialog({
     super.key,
     super.icon,
     super.title,
-    super.titlePadding,
+    super.titlePadding = const EdgeInsets.fromLTRB(24, 22, 24, 8),
     super.content,
-    super.contentPadding,
+    super.contentPadding = const EdgeInsets.fromLTRB(24, 6, 24, 18),
     super.actions,
-    super.actionsPadding,
+    super.actionsPadding = const EdgeInsets.fromLTRB(20, 0, 20, 16),
     super.actionsAlignment,
     super.actionsOverflowAlignment,
     super.actionsOverflowDirection,

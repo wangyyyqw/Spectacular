@@ -1,3 +1,4 @@
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -78,25 +79,13 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
     }
   }
 
-  Future<bool> _confirm(String name) async =>
-      await showReaderDialog<bool>(
-        context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: Text('删除“$name”？'),
-          content: const Text('删除后会回到可用的默认配置。'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('删除'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+  Future<bool> _confirm(String name) => showReaderConfirmDialog(
+    context: context,
+    title: '删除“$name”？',
+    message: '删除后会回到可用的默认配置。',
+    confirmLabel: '删除',
+    destructive: true,
+  );
   @override
   Widget build(BuildContext context) {
     final state = _state;
@@ -108,183 +97,204 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
                   ? const CircularProgressIndicator()
                   : TextButton(onPressed: _load, child: Text(_error!)),
             )
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (_busy) const LinearProgressIndicator(),
-                if (_error != null)
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                Text('释义服务', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                ReaderDropdownButtonFormField<String>(
-                  key: const ValueKey('dictionary-api-select'),
-                  initialValue:
-                      state.apis.any((a) => a.id == state.settings.apiId)
-                      ? state.settings.apiId
-                      : '',
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: '当前服务'),
-                  items: [
-                    const DropdownMenuItem(value: '', child: Text('自动选择已启用服务')),
-                    for (final api in state.apis)
-                      DropdownMenuItem(value: api.id, child: Text(api.label)),
-                  ],
-                  onChanged: _busy
-                      ? null
-                      : (id) => _operate(
-                          () => widget.store.changeSettings(
-                            (s) => s.copyWith(apiId: id),
-                          ),
-                        ),
-                ),
-                for (final api in state.apis)
-                  Card(
-                    child: ListTile(
-                      title: Text(api.label),
-                      subtitle: Text('${api.model}\n${api.baseUrl}'),
-                      isThreeLine: true,
-                      onTap: _busy ? null : () => _editApi(api),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Switch(
-                            value: api.enabled,
+          : Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  children: [
+                    if (_busy) ...[
+                      const LinearProgressIndicator(),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_error != null) ...[
+                      ReaderNoticeBanner(message: _error!),
+                      const SizedBox(height: 16),
+                    ],
+                    ReaderSectionCard(
+                      title: '释义服务',
+                      trailing: TextButton.icon(
+                        key: const ValueKey('dictionary-api-add'),
+                        onPressed: _busy ? null : _editApi,
+                        icon: const AppIcon(AppGlyph.add, size: 18),
+                        label: const Text('添加释义服务'),
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: ReaderDropdownButtonFormField<String>(
+                            key: const ValueKey('dictionary-api-select'),
+                            initialValue:
+                                state.apis.any((a) => a.id == state.settings.apiId)
+                                ? state.settings.apiId
+                                : '',
+                            isExpanded: true,
+                            decoration: const InputDecoration(labelText: '当前服务'),
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('自动选择已启用服务'),
+                              ),
+                              for (final api in state.apis)
+                                DropdownMenuItem(
+                                  value: api.id,
+                                  child: Text(api.label),
+                                ),
+                            ],
                             onChanged: _busy
                                 ? null
-                                : (value) => _operate(
-                                    () => widget.store.saveApi(
-                                      DictionaryApi(
-                                        id: api.id,
-                                        name: api.name,
-                                        baseUrl: api.baseUrl,
-                                        apiKey: api.apiKey,
-                                        model: api.model,
-                                        enabled: value,
-                                      ),
+                                : (id) => _operate(
+                                    () => widget.store.changeSettings(
+                                      (s) => s.copyWith(apiId: id),
                                     ),
                                   ),
                           ),
-                          IconButton(
-                            tooltip: '删除服务',
-                            icon: const AppIcon(AppGlyph.delete),
-                            onPressed: _busy
-                                ? null
-                                : () async {
-                                    if (await _confirm(api.label) && mounted) {
-                                      await _operate(
-                                        () => widget.store.removeApi(api.id),
-                                      );
-                                    }
-                                  },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                TextButton.icon(
-                  key: const ValueKey('dictionary-api-add'),
-                  onPressed: _busy ? null : _editApi,
-                  icon: const AppIcon(AppGlyph.add),
-                  label: const Text('添加释义服务'),
-                ),
-                const Divider(height: 32),
-                Text('释义预设', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                ReaderDropdownButtonFormField<String>(
-                  key: ValueKey('dictionary-default-preset-${state.preset.id}'),
-                  initialValue: state.preset.id,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: '默认预设'),
-                  items: [
-                    for (final p in state.presets)
-                      DropdownMenuItem(value: p.id, child: Text(p.name)),
-                  ],
-                  onChanged: _busy
-                      ? null
-                      : (id) => _operate(
-                          () => widget.store.changeSettings(
-                            (s) => s.copyWith(presetId: id),
-                          ),
                         ),
-                ),
-                SwitchListTile(
-                  key: const ValueKey('dictionary-disable-thinking'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('关闭思考'),
-                  subtitle: const Text('请求服务直接返回释义'),
-                  value: state.settings.disableThinking,
-                  onChanged: _busy
-                      ? null
-                      : (value) => _operate(
-                          () => widget.store.changeSettings(
-                            (s) => s.copyWith(disableThinking: value),
-                          ),
-                        ),
-                ),
-                SwitchListTile(
-                  key: const ValueKey('dictionary-single-use'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('切换预设仅用于本次查询'),
-                  subtitle: const Text('关闭后，查询时切换的预设会成为下次默认值'),
-                  value: state.settings.singleUsePreset,
-                  onChanged: _busy
-                      ? null
-                      : (value) => _operate(
-                          () => widget.store.changeSettings(
-                            (s) => s.copyWith(singleUsePreset: value),
-                          ),
-                        ),
-                ),
-                for (final p in state.presets)
-                  Card(
-                    child: ListTile(
-                      title: Text(p.name),
-                      subtitle: Text(
-                        p.prompt,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: p.builtIn || _busy ? null : () => _editPreset(p),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: '复制预设',
-                            icon: const AppIcon(AppGlyph.copy),
-                            onPressed: _busy
-                                ? null
-                                : () => _editPreset(p, copy: true),
-                          ),
-                          if (!p.builtIn)
-                            IconButton(
-                              tooltip: '删除预设',
-                              icon: const AppIcon(AppGlyph.delete),
-                              onPressed: _busy
-                                  ? null
-                                  : () async {
-                                      if (await _confirm(p.name) && mounted) {
-                                        await _operate(
-                                          () => widget.store.removePreset(p.id),
-                                        );
-                                      }
-                                    },
+                        for (final api in state.apis)
+                          ListTile(
+                            title: Text(api.label),
+                            subtitle: Text('${api.model}\n${api.baseUrl}'),
+                            isThreeLine: true,
+                            onTap: _busy ? null : () => _editApi(api),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Switch(
+                                  value: api.enabled,
+                                  onChanged: _busy
+                                      ? null
+                                      : (value) => _operate(
+                                          () => widget.store.saveApi(
+                                            DictionaryApi(
+                                              id: api.id,
+                                              name: api.name,
+                                              baseUrl: api.baseUrl,
+                                              apiKey: api.apiKey,
+                                              model: api.model,
+                                              enabled: value,
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                                IconButton(
+                                  tooltip: '删除服务',
+                                  icon: const AppIcon(AppGlyph.delete),
+                                  onPressed: _busy
+                                      ? null
+                                      : () async {
+                                          if (await _confirm(api.label) && mounted) {
+                                            await _operate(
+                                              () => widget.store.removeApi(api.id),
+                                            );
+                                          }
+                                        },
+                                ),
+                              ],
                             ),
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
-                  ),
-                TextButton.icon(
-                  key: const ValueKey('dictionary-preset-add'),
-                  onPressed: _busy ? null : () => _editPreset(null),
-                  icon: const AppIcon(AppGlyph.add),
-                  label: const Text('添加自定义预设'),
+                    const SizedBox(height: 20),
+                    ReaderSectionCard(
+                      title: '释义预设',
+                      trailing: TextButton.icon(
+                        key: const ValueKey('dictionary-preset-add'),
+                        onPressed: _busy ? null : () => _editPreset(null),
+                        icon: const AppIcon(AppGlyph.add, size: 18),
+                        label: const Text('添加自定义预设'),
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: ReaderDropdownButtonFormField<String>(
+                            key: ValueKey(
+                              'dictionary-default-preset-${state.preset.id}',
+                            ),
+                            initialValue: state.preset.id,
+                            isExpanded: true,
+                            decoration: const InputDecoration(labelText: '默认预设'),
+                            items: [
+                              for (final p in state.presets)
+                                DropdownMenuItem(value: p.id, child: Text(p.name)),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (id) => _operate(
+                                    () => widget.store.changeSettings(
+                                      (s) => s.copyWith(presetId: id),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        SwitchListTile(
+                          key: const ValueKey('dictionary-disable-thinking'),
+                          title: const Text('关闭思考'),
+                          subtitle: const Text('请求服务直接返回释义'),
+                          value: state.settings.disableThinking,
+                          onChanged: _busy
+                              ? null
+                              : (value) => _operate(
+                                  () => widget.store.changeSettings(
+                                    (s) => s.copyWith(disableThinking: value),
+                                  ),
+                                ),
+                        ),
+                        SwitchListTile(
+                          key: const ValueKey('dictionary-single-use'),
+                          title: const Text('切换预设仅用于本次查询'),
+                          subtitle: const Text('关闭后，查询时切换的预设会成为下次默认值'),
+                          value: state.settings.singleUsePreset,
+                          onChanged: _busy
+                              ? null
+                              : (value) => _operate(
+                                  () => widget.store.changeSettings(
+                                    (s) => s.copyWith(singleUsePreset: value),
+                                  ),
+                                ),
+                        ),
+                        for (final p in state.presets)
+                          ListTile(
+                            title: Text(p.name),
+                            subtitle: Text(
+                              p.prompt,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: p.builtIn || _busy ? null : () => _editPreset(p),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: '复制预设',
+                                  icon: const AppIcon(AppGlyph.copy),
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _editPreset(p, copy: true),
+                                ),
+                                if (!p.builtIn)
+                                  IconButton(
+                                    tooltip: '删除预设',
+                                    icon: const AppIcon(AppGlyph.delete),
+                                    onPressed: _busy
+                                        ? null
+                                        : () async {
+                                            if (await _confirm(p.name) && mounted) {
+                                              await _operate(
+                                                () => widget.store.removePreset(
+                                                  p.id,
+                                                ),
+                                              );
+                                            }
+                                          },
+                                  ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
     );
   }

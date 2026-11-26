@@ -95,7 +95,15 @@ enum AppGlyph {
   lightMode(_lightMode),
   darkMode(_darkMode),
   menuBook(_menuBook),
-  autoStories(_autoStories);
+  autoStories(_autoStories),
+  cloudSync(_cloudSync),
+  sync(_sync),
+  wifiFind(_wifiFind),
+  voice(_voice),
+  speed(_speed),
+  timer(_timer),
+  download(_download),
+  offlineBolt(_offlineBolt);
 
   const AppGlyph(this.draw);
 
@@ -1215,4 +1223,121 @@ void _autoStories(AppIconCanvas canvas) {
   canvas.solid(_roundRect(6, 13, 9.5, 14.5, 0.75));
   canvas.solid(_roundRect(14.5, 9.5, 18, 11, 0.75));
   canvas.solid(_roundRect(14.5, 13, 18, 14.5, 0.75));
+}
+
+void _cloudSync(AppIconCanvas canvas) {
+  canvas.line(
+    Path()
+      ..moveTo(7.2, 18.2)
+      ..lineTo(17.2, 18.2)
+      ..cubicTo(19.6, 18.2, 21, 16.6, 21, 14.5)
+      ..cubicTo(21, 12.6, 19.7, 11.1, 17.9, 10.9)
+      ..cubicTo(17.4, 7.8, 14.8, 5.8, 11.8, 5.8)
+      ..cubicTo(8.9, 5.8, 6.5, 7.9, 6.2, 10.7)
+      ..cubicTo(4.3, 11, 3, 12.5, 3, 14.4)
+      ..cubicTo(3, 16.6, 4.8, 18.2, 7.2, 18.2)
+      ..close(),
+  );
+  canvas.line(
+    _polylines(const [
+      [Offset(9.6, 13.4), Offset(12, 11.2), Offset(14.4, 13.4)],
+      [Offset(12, 11.2), Offset(12, 15.8)],
+    ]),
+  );
+}
+
+void _sync(AppIconCanvas canvas) {
+  final upper = Path()
+    ..addArc(const Rect.fromLTRB(4.5, 4.5, 19.5, 19.5), -math.pi * 0.85, math.pi * 0.8);
+  final lower = Path()
+    ..addArc(const Rect.fromLTRB(4.5, 4.5, 19.5, 19.5), math.pi * 0.15, math.pi * 0.8);
+  canvas.line(upper);
+  canvas.line(lower);
+  canvas.line(
+    _polylines(const [
+      [Offset(16.6, 6.5), Offset(19.2, 9.2), Offset(15.8, 9.8)],
+      [Offset(7.4, 17.5), Offset(4.8, 14.8), Offset(8.2, 14.2)],
+    ]),
+  );
+}
+
+void _wifiFind(AppIconCanvas canvas) {
+  canvas.line(
+    Path()
+      ..addArc(const Rect.fromLTRB(2.5, 5.5, 21.5, 24.5), -math.pi * 0.78, math.pi * 0.56),
+  );
+  canvas.line(
+    Path()
+      ..addArc(const Rect.fromLTRB(6.2, 9.2, 17.8, 20.8), -math.pi * 0.78, math.pi * 0.56),
+  );
+  canvas.line(
+    Path()
+      ..addArc(const Rect.fromLTRB(9.6, 12.6, 14.4, 17.4), -math.pi * 0.78, math.pi * 0.56),
+  );
+  canvas.solid(_circle(12, 18.4, 1.35));
+}
+
+void _voice(AppIconCanvas canvas) {
+  canvas.line(_circle(8.8, 8.2, 3.1));
+  canvas.line(
+    Path()
+      ..moveTo(3.4, 19.4)
+      ..cubicTo(3.8, 15.8, 6, 14.2, 8.8, 14.2)
+      ..cubicTo(11.6, 14.2, 13.8, 15.8, 14.2, 19.4),
+  );
+  canvas.line(
+    Path()
+      ..addArc(const Rect.fromLTRB(12.2, 5.6, 18.4, 13.2), -math.pi * 0.34, math.pi * 0.68),
+  );
+  canvas.line(
+    Path()
+      ..addArc(const Rect.fromLTRB(13.6, 3.6, 21.4, 15.2), -math.pi * 0.34, math.pi * 0.68),
+  );
+}
+
+void _speed(AppIconCanvas canvas) {
+  canvas.line(
+    Path()
+      ..addArc(const Rect.fromLTRB(3.2, 5.2, 20.8, 22.8), math.pi, math.pi),
+  );
+  canvas.line(
+    _polylines(const [
+      [Offset(12, 14.5), Offset(16.6, 9.9)],
+    ]),
+  );
+  canvas.solid(_circle(12, 14.5, 1.55));
+}
+
+void _timer(AppIconCanvas canvas) {
+  canvas.line(
+    _polylines(const [
+      [Offset(9.2, 3.2), Offset(14.8, 3.2)],
+      [Offset(12, 3.2), Offset(12, 5.6)],
+      [Offset(12, 13.4), Offset(12, 9.2)],
+      [Offset(12, 13.4), Offset(15.2, 13.4)],
+    ]),
+  );
+  canvas.line(_circle(12, 13.4, 7.4));
+  if (canvas.filled) {
+    canvas.solid(_circle(12, 13.4, 1.8));
+  }
+}
+
+void _download(AppIconCanvas canvas) {
+  canvas.line(
+    _polylines(const [
+      [Offset(12, 4), Offset(12, 15.4)],
+      [Offset(7.8, 11.4), Offset(12, 15.6), Offset(16.2, 11.4)],
+      [Offset(4.5, 19.5), Offset(19.5, 19.5)],
+    ]),
+  );
+}
+
+void _offlineBolt(AppIconCanvas canvas) {
+  canvas.line(_circle(12, 12, 9));
+  canvas.line(
+    _polylines(const [
+      [Offset(13, 6.4), Offset(8.6, 12.6), Offset(12.2, 12.6), Offset(11, 17.6), Offset(15.4, 11.4), Offset(11.8, 11.4)],
+    ]),
+  );
 }

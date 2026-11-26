@@ -29,7 +29,11 @@ void main() {
     );
 
     // 开屏期间拦截点击，避免误触书架。
-    await tester.tap(find.text('统计'), warnIfMissed: false);
+    final statsTab = find.descendant(
+      of: find.byType(BottomNavigationBar),
+      matching: find.text('统计'),
+    );
+    await tester.tap(statsTab, warnIfMissed: false);
     await tester.pump(const Duration(milliseconds: 200));
     expect(
       tester
@@ -42,7 +46,7 @@ void main() {
     await tester.pump();
     expect(find.byType(StartupSplash), findsNothing);
 
-    await tester.tap(find.text('统计'));
+    await tester.tap(statsTab);
     await tester.pump();
     expect(
       tester

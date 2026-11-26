@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 
 import 'reader_tts_voice_store.dart';
 
@@ -94,50 +96,65 @@ class _ReaderTtsVoiceLibraryPageState extends State<ReaderTtsVoiceLibraryPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('离线音色')),
-      body: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        itemCount: _voices.length,
-        separatorBuilder: (_, _) => const Divider(height: 1),
-        itemBuilder: (context, index) {
-          final voice = _voices[index];
-          final busy = _busyId == voice.id;
-          return ListTile(
-            contentPadding: const EdgeInsets.symmetric(vertical: 6),
-            title: Text(voice.displayName),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                if (voice.detail.isNotEmpty) Text(voice.detail),
-                if (busy && _progress > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: LinearProgressIndicator(
-                      value: _progress.clamp(0, 1),
-                    ),
-                  ),
-              ],
-            ),
-            trailing: busy
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : voice.installed
-                ? IconButton(
-                    tooltip: '删除',
-                    onPressed: () => _delete(voice),
-                    icon: const Icon(Icons.delete_outline),
-                  )
-                : FilledButton(
-                    onPressed: voice.downloadUrl.trim().isEmpty
-                        ? null
-                        : () => _download(voice),
-                    child: const Text('下载'),
-                  ),
-          );
-        },
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: <Widget>[
+              if (_voices.isEmpty)
+                const ReaderEmptyState(
+                  icon: AppGlyph.voice,
+                  title: '暂无可用离线音色',
+                  subtitle: '当前没有可下载的离线语音包，可稍后再试。',
+                )
+              else
+                ReaderSectionCard(
+                  children: <Widget>[
+                    for (final voice in _voices) _voiceTile(context, voice),
+                  ],
+                ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _voiceTile(BuildContext context, ReaderOfflineVoice voice) {
+    final busy = _busyId == voice.id;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      title: Text(voice.displayName),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          if (voice.detail.isNotEmpty) Text(voice.detail),
+          if (busy && _progress > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: LinearProgressIndicator(value: _progress.clamp(0, 1)),
+            ),
+        ],
+      ),
+      trailing: busy
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : voice.installed
+          ? IconButton(
+              tooltip: '删除',
+              onPressed: () => _delete(voice),
+              icon: const AppIcon(AppGlyph.delete),
+            )
+          : FilledButton(
+              onPressed: voice.downloadUrl.trim().isEmpty
+                  ? null
+                  : () => _download(voice),
+              child: const Text('下载'),
+            ),
     );
   }
 }

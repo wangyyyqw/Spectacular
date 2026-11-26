@@ -22,6 +22,14 @@ abstract final class ReaderUiStyle {
     vertical: 10,
   );
 
+  /// 页面内容统一水平内边距与标准表单间距。
+  static const pagePadding = EdgeInsets.fromLTRB(16, 12, 16, 24);
+  static const sheetContentPadding = EdgeInsets.fromLTRB(20, 14, 20, 16);
+  static const dialogContentPadding = EdgeInsets.fromLTRB(24, 12, 24, 16);
+  static const dialogActionsPadding = EdgeInsets.fromLTRB(20, 4, 20, 16);
+  static const double sheetDragHandleHeight = 28;
+  static const double settingsSheetHeightFraction = 0.64;
+
   static ShapeBorder cardShapeOf(ThemeData theme) =>
       theme.cardTheme.shape ??
       cardShape.copyWith(
@@ -33,6 +41,20 @@ abstract final class ReaderUiStyle {
     borderRadius: cardRadius,
     border: Border.all(color: theme.colorScheme.outlineVariant),
   );
+
+  /// 危险操作主按钮样式，供所有删除/清空确认框统一复用。
+  static ButtonStyle destructiveFilledButtonOf(ThemeData theme) {
+    final colors = theme.colorScheme;
+    return FilledButton.styleFrom(
+      backgroundColor: colors.error,
+      foregroundColor: colors.onError,
+      textStyle: theme.textTheme.labelLarge,
+      shape: controlShape,
+      padding: controlPadding,
+      minimumSize: controlSize,
+      elevation: 0,
+    );
+  }
 }
 
 /// 使用当前软件主题的语义色与字体统一界面外观。
@@ -49,6 +71,11 @@ ThemeData _surfaces(ThemeData base) {
     side: BorderSide(color: colors.outlineVariant),
   );
   return base.copyWith(
+    dividerTheme: base.dividerTheme.copyWith(
+      color: colors.outlineVariant,
+      thickness: 1,
+      space: 1,
+    ),
     cardTheme: base.cardTheme.copyWith(
       color: colors.surface,
       elevation: 0,
@@ -58,9 +85,17 @@ ThemeData _surfaces(ThemeData base) {
     popupMenuTheme: base.popupMenuTheme.copyWith(
       color: colors.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 2,
-      shape: card,
+      elevation: 3,
+      shape: ReaderUiStyle.controlShape.copyWith(
+        side: BorderSide(color: colors.outlineVariant),
+      ),
       textStyle: base.textTheme.bodyMedium,
+    ),
+    progressIndicatorTheme: base.progressIndicatorTheme.copyWith(
+      color: colors.primary,
+      linearTrackColor: colors.surfaceContainerHighest,
+      circularTrackColor: colors.surfaceContainerHighest,
+      linearMinHeight: 3,
     ),
   );
 }
@@ -72,9 +107,19 @@ ThemeData _overlays(ThemeData base) {
       backgroundColor: colors.surface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
+      titleTextStyle: base.textTheme.titleLarge?.copyWith(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: colors.onSurface,
+      ),
+      contentTextStyle: base.textTheme.bodyMedium?.copyWith(
+        height: 1.5,
+        color: colors.onSurfaceVariant,
+      ),
       shape: ReaderUiStyle.panelShape.copyWith(
         side: BorderSide(color: colors.outlineVariant),
       ),
+      actionsPadding: ReaderUiStyle.dialogActionsPadding,
     ),
     bottomSheetTheme: base.bottomSheetTheme.copyWith(
       backgroundColor: colors.surface,
@@ -286,7 +331,10 @@ ThemeData _feedback(ThemeData base) {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     ),
     snackBarTheme: base.snackBarTheme.copyWith(
+      behavior: SnackBarBehavior.floating,
+      elevation: 0,
       backgroundColor: colors.inverseSurface,
+      actionTextColor: colors.inversePrimary,
       contentTextStyle: base.textTheme.bodyMedium?.copyWith(
         color: colors.onInverseSurface,
       ),
@@ -300,6 +348,13 @@ ThemeData _feedback(ThemeData base) {
       indicator: UnderlineTabIndicator(
         borderSide: BorderSide(color: colors.primary, width: 2),
       ),
+    ),
+    scrollbarTheme: base.scrollbarTheme.copyWith(
+      thumbColor: WidgetStatePropertyAll(
+        colors.outline.withValues(alpha: .48),
+      ),
+      radius: const Radius.circular(999),
+      thickness: const WidgetStatePropertyAll(3.5),
     ),
   );
 }

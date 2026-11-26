@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/txt.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
@@ -384,12 +386,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
                 ],
                 if (_error != null) ...[
                   const SizedBox(height: 16),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
+                  ReaderNoticeBanner(message: _error!),
                 ],
                 if (preview != null) ..._buildPreview(preview),
               ],
@@ -398,14 +395,11 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
   }
 
   List<Widget> _buildRuleFields() => [
-    DropdownButtonFormField<String>(
+    ReaderDropdownButtonFormField<String>(
       key: ValueKey('txt-rule-selector-$_selection'),
       initialValue: _selection,
       isExpanded: true,
-      decoration: const InputDecoration(
-        labelText: '分章方式',
-        border: OutlineInputBorder(),
-      ),
+      decoration: const InputDecoration(labelText: '分章方式'),
       items: [
         const DropdownMenuItem(value: 'auto', child: Text('自动识别')),
         const DropdownMenuItem(value: 'custom', child: Text('自定义正则')),
@@ -436,7 +430,6 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
         decoration: const InputDecoration(
           labelText: '章节正则',
           helperText: '匹配完整的一行；标题使用该行原文，无需捕获组。',
-          border: OutlineInputBorder(),
         ),
         onChanged: (_) => _invalidate(custom: true),
       ),
@@ -449,10 +442,7 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
         maxLines: 3,
         autocorrect: false,
         enableSuggestions: false,
-        decoration: const InputDecoration(
-          labelText: '分卷正则（可选）',
-          border: OutlineInputBorder(),
-        ),
+        decoration: const InputDecoration(labelText: '分卷正则（可选）'),
         onChanged: (_) => _invalidate(custom: true),
       ),
       CheckboxListTile(

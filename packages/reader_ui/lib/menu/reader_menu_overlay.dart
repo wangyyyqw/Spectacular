@@ -956,7 +956,7 @@ class _DrawerLayerState extends State<_DrawerLayer>
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: scheme.onSurface.withValues(alpha: 0.22),
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.36),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),

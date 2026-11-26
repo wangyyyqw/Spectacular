@@ -12,6 +12,7 @@ import 'package:reader_mobile/txt/txt_chapter_rule_page.dart';
 import 'package:reader_mobile/txt/txt_encoding_dialog.dart';
 import 'package:reader_mobile/txt/txt_rule_store.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/reader_pump.dart';
@@ -34,7 +35,7 @@ Future<void> _finishWork(WidgetTester tester) async {
 }
 
 Future<void> _selectMode(WidgetTester tester, String mode) async {
-  await tester.tap(find.byType(DropdownButtonFormField<String>));
+  await tester.tap(find.byType(ReaderDropdownButtonFormField<String>));
   await tester.pumpAndSettle();
   await tester.tap(find.text(mode).last);
   await tester.pumpAndSettle();
@@ -260,7 +261,7 @@ void main() {
     expect(find.byType(ReaderSheetForm), findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('简体正文样例'), findsOneWidget);
-    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.tap(find.byType(ReaderDropdownButtonFormField<int>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Big5').last);
     await tester.pumpAndSettle();

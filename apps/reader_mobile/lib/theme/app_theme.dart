@@ -6,6 +6,7 @@ import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import 'app_theme_preset.dart';
 
+export 'package:reader_ui/theme/app_semantic_colors.dart';
 export 'app_theme_preset.dart';
 
 /// 应用界面的字体约定，不作用于书籍正文。
@@ -20,13 +21,15 @@ abstract final class AppFonts {
   static const List<String> fallback = <String>[defaultFamily];
 }
 
-/// 让导航栈中的阅读页也能切换并保存全局界面主题。
+/// 让导航栈中的阅读页也能切换并保存全局界面主题与配色方案。
 class AppThemeScope extends InheritedWidget {
   /// 创建全局主题入口。
   const AppThemeScope({
     super.key,
     required this.mode,
     required this.onModeChanged,
+    this.preset = AppThemePreset.clearBlue,
+    this.onPresetChanged,
     required super.child,
   });
 
@@ -36,12 +39,19 @@ class AppThemeScope extends InheritedWidget {
   /// 统一保存并应用主题。
   final Future<void> Function(ThemeMode) onModeChanged;
 
+  /// 全局配色预设。
+  final AppThemePreset preset;
+
+  /// 统一保存并应用配色预设。
+  final Future<void> Function(AppThemePreset)? onPresetChanged;
+
   /// 读取宿主提供的全局主题入口。
   static AppThemeScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppThemeScope>();
 
   @override
-  bool updateShouldNotify(AppThemeScope oldWidget) => mode != oldWidget.mode;
+  bool updateShouldNotify(AppThemeScope oldWidget) =>
+      mode != oldWidget.mode || preset.id != oldWidget.preset.id;
 }
 
 AppBarTheme _appBar(ColorScheme colors, String fontFamily) => AppBarTheme(
@@ -70,12 +80,14 @@ ThemeData buildAppTheme({
   String fontFamily = AppFonts.defaultFamily,
 }) {
   final colors = preset.colorsFor(brightness);
+  final semantics = preset.semanticsFor(brightness);
   final fallback = fontFamily == AppFonts.defaultFamily
       ? null
       : AppFonts.fallback;
   final base = ThemeData(
     useMaterial3: false,
     colorScheme: colors,
+    extensions: <ThemeExtension<dynamic>>[semantics],
     scaffoldBackgroundColor: colors.surfaceContainerLowest,
     canvasColor: colors.surface,
     dividerColor: colors.outlineVariant,

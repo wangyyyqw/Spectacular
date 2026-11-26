@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -129,86 +131,229 @@ class _BookNotesCard extends StatelessWidget {
   final BookNoteCounts counts;
   final VoidCallback onTap;
 
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Theme.of(context).colorScheme.surface,
-    shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
-    clipBehavior: Clip.antiAlias,
-    child: Semantics(
-      button: true,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ExcludeSemantics(
-                child: BookCoverImage(book: book, width: 58, height: 82),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: _details(context)),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-
-  Widget _details(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        book.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.bodyMedium
-            ?.copyWith(height: 1.35, fontWeight: FontWeight.w600),
-      ),
-      const SizedBox(height: 4),
-      Text(
-        book.author.trim().isEmpty ? '未知作者' : book.author,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
-      const SizedBox(height: 10),
-      Wrap(
-        spacing: 10,
-        runSpacing: 6,
-        children: [
-          if (counts.thoughts > 0)
-            _CountBadge(AppGlyph.note, '想法 ${counts.thoughts}'),
-          if (counts.marks > 0)
-            _CountBadge(AppGlyph.formatUnderlined, '划线 ${counts.marks}'),
-        ],
-      ),
-    ],
-  );
-}
-
-class _CountBadge extends StatelessWidget {
-  const _CountBadge(this.glyph, this.label);
-
-  final AppGlyph glyph;
-  final String label;
+  /// 与书评卡片保持一致的 3:4 封面尺寸与 6dp 贴边内缩。
+  static const double _coverInset = 6;
+  static const double _coverWidth = 84;
+  static const double _coverHeight = _coverWidth * 4 / 3;
+  static const double _coverRadius = ReaderUiStyle.cardCorner - _coverInset;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final semantics = AppSemanticColors.of(context);
+    final isLight = theme.brightness == Brightness.light;
+    return Material(
+      color: scheme.surface,
+      shape: ReaderUiStyle.cardShapeOf(theme),
+      clipBehavior: Clip.antiAlias,
+      child: Semantics(
+        button: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: CustomPaint(
+            painter: _NotebookCardPainter(
+              lineColor: scheme.outlineVariant.withValues(
+                alpha: isLight ? .42 : .30,
+              ),
+              contentStartX: _coverInset * 2 + _coverWidth + 12,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(_coverInset),
+                  child: ExcludeSemantics(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(_coverRadius),
+                        border: Border.all(color: semantics.bookCoverBorder),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(_coverRadius - 1),
+                        child: SizedBox(
+                          width: _coverWidth,
+                          height: _coverHeight,
+                          child: BookCoverImage(book: book),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+                    child: _details(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _details(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final author = book.author.trim().isEmpty ? '未知作者' : book.author.trim();
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: _coverHeight - 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      book.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Text(
+                      _formatNoteDate(counts.updatedAt),
+                      maxLines: 1,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant.withValues(alpha: .82),
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                author,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              if (counts.thoughts > 0)
+                _CountBadge(
+                  AppGlyph.note,
+                  '想法 ${counts.thoughts}',
+                  accent: true,
+                ),
+              if (counts.marks > 0)
+                _CountBadge(
+                  AppGlyph.formatUnderlined,
+                  '划线 ${counts.marks}',
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatNoteDate(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final now = DateTime.now();
+    if (local.year == now.year) {
+      return '${local.month}月${local.day}日';
+    }
+    return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
+  }
+}
+
+/// 笔记卡片右侧的极淡横格笔记线，保持轻盈留白质感。
+class _NotebookCardPainter extends CustomPainter {
+  const _NotebookCardPainter({
+    required this.lineColor,
+    required this.contentStartX,
+  });
+
+  final Color lineColor;
+  final double contentStartX;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 0.8;
+    final startX = contentStartX;
+    final endX = size.width - 14.0;
+    if (endX > startX + 24) {
+      final y1 = size.height - 46.0;
+      final y2 = size.height - 12.0;
+      if (y1 > 48) {
+        canvas.drawLine(Offset(startX, y1), Offset(endX, y1), linePaint);
+      }
+      if (y2 > y1 + 14) {
+        canvas.drawLine(Offset(startX, y2), Offset(endX, y2), linePaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_NotebookCardPainter oldDelegate) =>
+      oldDelegate.lineColor != lineColor ||
+      oldDelegate.contentStartX != contentStartX;
+}
+
+class _CountBadge extends StatelessWidget {
+  const _CountBadge(this.glyph, this.label, {this.accent = false});
+
+  final AppGlyph glyph;
+  final String label;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final background = accent
+        ? scheme.primaryContainer
+        : scheme.surfaceContainerLow;
+    final iconColor = accent ? scheme.primary : scheme.onSurfaceVariant;
+    final textColor = accent ? scheme.onPrimaryContainer : scheme.onSurface;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-      decoration: ShapeDecoration(
-        shape: StadiumBorder(side: BorderSide(color: scheme.outlineVariant)),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AppIcon(glyph, size: 14, color: scheme.onSurfaceVariant),
+          AppIcon(glyph, size: 12.5, color: iconColor),
           const SizedBox(width: 5),
           Flexible(
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: textColor,
+                fontWeight: accent ? FontWeight.w500 : FontWeight.w400,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
           ),
         ],
       ),
@@ -290,7 +435,8 @@ class _NoteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final thought = annotation.type == ReaderAnnotationType.thought;
     final note = annotation.note;
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -299,36 +445,42 @@ class _NoteCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _heading(context, thought),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             if (thought && note != null && note.trim().isNotEmpty) ...[
               Text(
                 note,
-                style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(height: 1.55),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  height: 1.6,
+                  color: scheme.onSurface,
+                ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
             ],
             Container(
-              padding: thought
-                  ? const EdgeInsetsDirectional.only(start: 10)
-                  : null,
-              decoration: thought
-                  ? BoxDecoration(
-                      border: BorderDirectional(
-                        start: BorderSide(
-                          color: scheme.outlineVariant,
-                          width: 2,
-                        ),
-                      ),
-                    )
-                  : null,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(10),
+                border: BorderDirectional(
+                  start: BorderSide(
+                    color: thought ? scheme.primary : scheme.outline,
+                    width: 3,
+                  ),
+                ),
+              ),
               child: Text(
                 annotation.quote,
                 style:
                     (thought
-                            ? Theme.of(context).textTheme.bodySmall
-                            : Theme.of(context).textTheme.bodyMedium)
-                        ?.copyWith(fontFamily: _song, height: 1.6),
+                            ? theme.textTheme.bodySmall
+                            : theme.textTheme.bodyMedium)
+                        ?.copyWith(
+                          fontFamily: _song,
+                          height: 1.65,
+                          color: thought
+                              ? scheme.onSurfaceVariant
+                              : scheme.onSurface,
+                        ),
               ),
             ),
           ],
@@ -339,30 +491,51 @@ class _NoteCard extends StatelessWidget {
 
   Widget _heading(BuildContext context, bool thought) {
     final date = annotation.updatedAt.toLocal();
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    return DefaultTextStyle.merge(
-      style: Theme.of(context).textTheme.bodySmall!,
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 12,
-        runSpacing: 4,
-        children: [
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 5,
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 4,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: thought
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               AppIcon(
                 thought ? AppGlyph.note : AppGlyph.formatUnderlined,
-                size: 16,
-                color: muted,
+                size: 13,
+                color: thought ? scheme.primary : scheme.onSurfaceVariant,
               ),
-              Text(thought ? '想法' : '划线'),
+              const SizedBox(width: 4),
+              Text(
+                thought ? '想法' : '划线',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: thought
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ],
           ),
-          Text('${date.year}年${date.month}月${date.day}日'),
-        ],
-      ),
+        ),
+        Text(
+          '${date.year}年${date.month}月${date.day}日',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -376,38 +549,18 @@ class _NotesMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppIcon(
-              onRetry == null ? AppGlyph.note : AppGlyph.error,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium,
-            ),
-            if (hint != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                hint!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-            if (onRetry != null) ...[
-              const SizedBox(height: 10),
-              OutlinedButton(onPressed: onRetry, child: const Text('重试')),
-            ],
-          ],
-        ),
-      ),
+    final colors = Theme.of(context).colorScheme;
+    return ReaderEmptyState(
+      icon: onRetry == null ? AppGlyph.note : AppGlyph.error,
+      iconColor: onRetry == null ? colors.onSurfaceVariant : colors.error,
+      iconContainerColor: onRetry == null
+          ? colors.surfaceContainerHigh
+          : colors.errorContainer,
+      title: title,
+      subtitle: hint,
+      action: onRetry == null
+          ? null
+          : OutlinedButton(onPressed: onRetry, child: const Text('重试')),
     );
   }
 }

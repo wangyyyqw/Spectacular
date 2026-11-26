@@ -237,6 +237,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   late Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
+  AppThemePreset? _selectedPreset;
   String? _selectedFontFamily;
   double _windowTopInset = 0;
 
@@ -244,6 +245,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     if (!mounted) return;
     setState(() {
       _selectedMode = null;
+      _selectedPreset = null;
       _selectedFontFamily = null;
       _savedPreferences = _loadPreferences();
     });
@@ -296,8 +298,28 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
 
   Future<_AppPreferences> _loadPreferences() async {
     final mode = _loadMode();
+    final preset = _loadThemePreset();
     final fontFamily = _loadFontFamily();
-    return _AppPreferences(mode: await mode, fontFamily: await fontFamily);
+    return _AppPreferences(
+      mode: await mode,
+      preset: await preset,
+      fontFamily: await fontFamily,
+    );
+  }
+
+  Future<AppThemePreset> _loadThemePreset() async {
+    try {
+      final value = await widget.library.getSetting(AppThemePreset.settingKey);
+      return AppThemePreset.byId(value);
+    } catch (error) {
+      unawaited(
+        ReaderLog.instance.log(
+          'app_theme_preset_load_failed',
+          fields: {'error': error},
+        ),
+      );
+      return AppThemePreset.clearBlue;
+    }
   }
 
   Future<ThemeMode> _loadMode() async {
@@ -367,6 +389,12 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     await _syncWindow(mode);
   }
 
+  Future<void> _setPreset(AppThemePreset preset) async {
+    await widget.library.setSetting(AppThemePreset.settingKey, preset.id);
+    if (!mounted) return;
+    setState(() => _selectedPreset = preset);
+  }
+
   Future<void> _setFontFamily(String family) async {
     if (family != AppFonts.defaultFamily) await _fontStore.load(family);
     await _saveFontFamily(family);
@@ -405,13 +433,15 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
 
   Widget _buildApp(_AppPreferences preferences) {
     final mode = _selectedMode ?? preferences.mode;
+    final preset = _selectedPreset ?? preferences.preset;
     final fontFamily = _selectedFontFamily ?? preferences.fontFamily;
     return MaterialApp(
       title: '墨屿',
       debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(fontFamily: fontFamily),
+      theme: buildAppTheme(preset: preset, fontFamily: fontFamily),
       darkTheme: buildAppTheme(
         brightness: Brightness.dark,
+        preset: preset,
         fontFamily: fontFamily,
       ),
       themeMode: mode,
@@ -423,6 +453,8 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         return AppThemeScope(
           mode: mode,
           onModeChanged: _setMode,
+          preset: preset,
+          onPresetChanged: _setPreset,
           child: AnnotatedRegion<SystemUiOverlayStyle>(
             value: readerSystemBarStyle(
               Theme.of(context).scaffoldBackgroundColor,
@@ -443,6 +475,8 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
         storageRecovery: widget.recovery,
         themeMode: mode,
         onThemeModeChanged: _setMode,
+        themePreset: preset,
+        onThemePresetChanged: _setPreset,
         appFontFamily: fontFamily,
         appFontStore: _fontStore,
         onAppFontFamilyChanged: _setFontFamily,
@@ -455,8 +489,13 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
 }
 
 class _AppPreferences {
-  const _AppPreferences({required this.mode, required this.fontFamily});
+  const _AppPreferences({
+    required this.mode,
+    required this.preset,
+    required this.fontFamily,
+  });
 
   final ThemeMode mode;
+  final AppThemePreset preset;
   final String fontFamily;
 }

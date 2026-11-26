@@ -400,7 +400,6 @@ class _ReaderDecorationRuleEditorState
                   : '按原文匹配输入的文字。',
               helperMaxLines: 3,
               errorText: _error,
-              border: const OutlineInputBorder(),
             ),
           ),
         if (_type.supportsCrossParagraph)

@@ -8,6 +8,7 @@ import '../annotations/annotation.dart';
 import '../annotations/annotation_editor_sheet.dart'
     show ReaderAnnotationEditorSheet;
 import '../icons/app_icon.dart';
+import '../theme/reader_common_widgets.dart';
 import '../theme/reader_drawer_style.dart';
 import '../theme/reader_ui_style.dart';
 import '../theme/reader_ink.dart';
@@ -209,24 +210,14 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
       for (final annotation in widget.annotations)
         if (_selectedIds.contains(annotation.id)) annotation,
     ];
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text('删除 ${selected.length} 条标注？'),
-        content: const Text('选中的想法和划线都会删除，且不可恢复。'),
-        actions: [
-          TextButton(
-            key: const ValueKey<String>('annotation-batch-confirm-cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('annotation-batch-confirm-delete'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除 ${selected.length} 条标注？',
+      message: '选中的想法和划线都会删除，且不可恢复。',
+      cancelKey: const ValueKey<String>('annotation-batch-confirm-cancel'),
+      confirmKey: const ValueKey<String>('annotation-batch-confirm-delete'),
+      confirmLabel: '删除',
+      destructive: true,
     );
     if (confirmed != true || !mounted) {
       return;
@@ -291,16 +282,6 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final searchBorder = OutlineInputBorder(
-      borderRadius: ReaderUiStyle.controlRadius,
-      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
-    );
-    final searchStyle = theme.textTheme.bodyMedium!.copyWith(
-      fontSize: 14,
-      height: 1.5,
-      fontWeight: FontWeight.w400,
-      color: ReaderDrawerStyle.textOf(theme),
-    );
     final muted = ReaderDrawerStyle.mutedOf(theme);
     final busy = _deleting || _recoloring;
     final searched = _searched;
@@ -383,7 +364,7 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
             ),
           ...<Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(22, 10, 12, 12),
+              padding: const EdgeInsets.fromLTRB(16, 10, 12, 12),
               child: Row(
                 children: [
                   if (!_selecting && widget.onBack != null)
@@ -393,63 +374,27 @@ class _AnnotationPanelState extends State<AnnotationPanel> {
                       tooltip: '返回',
                     ),
                   Expanded(
-                    child: Material(
-                      key: const ValueKey('annotation-search-surface'),
-                      color: ReaderDrawerStyle.searchSurfaceOf(theme),
-                      borderRadius: searchBorder.borderRadius,
-                      elevation: 0,
-                      surfaceTintColor: Colors.transparent,
-                      child: TextField(
-                        key: const ValueKey<String>('annotation-search-input'),
-                        controller: _searchController,
-                        onChanged: _setQuery,
-                        textInputAction: TextInputAction.search,
-                        style: searchStyle,
-                        cursorColor: theme.colorScheme.primary,
-                        decoration: InputDecoration(
-                          hintStyle: searchStyle.copyWith(color: muted),
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 8,
-                          ),
-                          prefixIconConstraints: const BoxConstraints.tightFor(
-                            width: 40,
-                            height: 40,
-                          ),
-                          suffixIconConstraints: const BoxConstraints.tightFor(
-                            width: 40,
-                            height: 40,
-                          ),
-                          hintText: '搜索原文、想法或章节',
-                          prefixIcon: AppIcon(
-                            AppGlyph.search,
-                            size: 20,
-                            color: muted,
-                          ),
-                          suffixIcon: _query.isEmpty
-                              ? null
-                              : IconButton(
-                                  key: const ValueKey<String>(
-                                    'annotation-search-clear',
-                                  ),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    _setQuery('');
-                                  },
-                                  tooltip: '清除搜索',
-                                  icon: const AppIcon(AppGlyph.close, size: 18),
-                                ),
-                          isDense: true,
-                          filled: true,
-                          fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-                          border: searchBorder,
-                          enabledBorder: searchBorder,
-                          focusedBorder: searchBorder.copyWith(
-                            borderSide: BorderSide(
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-                        ),
+                    child: ReaderSearchField(
+                      surfaceKey: const ValueKey('annotation-search-surface'),
+                      fieldKey: const ValueKey<String>(
+                        'annotation-search-input',
                       ),
+                      controller: _searchController,
+                      hintText: '搜索原文、想法或章节',
+                      onChanged: _setQuery,
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              key: const ValueKey<String>(
+                                'annotation-search-clear',
+                              ),
+                              onPressed: () {
+                                _searchController.clear();
+                                _setQuery('');
+                              },
+                              tooltip: '清除搜索',
+                              icon: const AppIcon(AppGlyph.close, size: 18),
+                            ),
                     ),
                   ),
                   if (!_selecting &&

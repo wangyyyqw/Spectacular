@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -95,46 +97,35 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
     }
   }
 
-  Future<bool> _confirmRemove(ReaderFontEntry font) async =>
-      await showReaderDialog<bool>(
-        context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: Text('移除“${font.displayName}”？'),
-          content: Text(
-            _selected == font.family
-                ? '移除后应用字体将恢复为思源宋体，可随时重新导入。'
-                : '从本机移除该字体文件，可随时重新导入。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const ValueKey('app-font-remove-confirm'),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('移除字体'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+  Future<bool> _confirmRemove(ReaderFontEntry font) => showReaderConfirmDialog(
+    context: context,
+    title: '移除“${font.displayName}”？',
+    message: _selected == font.family
+        ? '移除后应用字体将恢复为思源宋体，可随时重新导入。'
+        : '从本机移除该字体文件，可随时重新导入。',
+    confirmLabel: '移除字体',
+    confirmKey: const ValueKey('app-font-remove-confirm'),
+    destructive: true,
+  );
 
   static String _messageOf(Object error) =>
       error is FormatException ? error.message : '字体操作失败，请重试';
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    child: ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .78,
-      ),
-      child: Column(
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.sizeOf(context).height * .78,
+    ),
+    child: ReaderSheetForm(
+      title: const Text('应用字体'),
+      onClose: _busy ? null : () => Navigator.of(context).pop(),
+      contentPadding: EdgeInsets.zero,
+      scrollContent: false,
+      content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _heading(context),
+          const SizedBox(height: 12),
           _preview(context),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null) _errorBanner(context),
@@ -144,24 +135,8 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
     ),
   );
 
-  Widget _heading(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text('应用字体', style: Theme.of(context).textTheme.titleMedium),
-        ),
-        IconButton(
-          tooltip: '关闭应用字体',
-          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          icon: const AppIcon(AppGlyph.close),
-        ),
-      ],
-    ),
-  );
-
   Widget _preview(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+    margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -183,65 +158,77 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
   );
 
   Widget _errorBanner(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
     child: Semantics(
       liveRegion: true,
-      child: Text(
-        _error!,
+      child: KeyedSubtree(
         key: const ValueKey('app-font-error'),
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
+        child: ReaderNoticeBanner(message: _error!),
       ),
     ),
   );
 
   Widget _fontList(BuildContext context) => ListView(
     shrinkWrap: true,
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
     children: [
-      ListTile(
-        key: const ValueKey('app-font-default'),
-        enabled: !_busy,
-        selected: _selected == AppFonts.defaultFamily,
-        title: const Text('思源宋体'),
-        subtitle: const Text('内置应用字体'),
-        trailing: _selected == AppFonts.defaultFamily
-            ? const AppIcon(AppGlyph.check, size: 20)
-            : null,
-        onTap: () => _select(AppFonts.defaultFamily),
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: ReaderOptionTile(
+          tileKey: const ValueKey('app-font-default'),
+          enabled: !_busy,
+          selected: _selected == AppFonts.defaultFamily,
+          title: '思源宋体',
+          subtitle: '内置应用字体',
+          onTap: () => _select(AppFonts.defaultFamily),
+        ),
       ),
       for (final font in _fonts) _fontTile(font),
-      const Divider(height: 1),
-      ListTile(
-        key: const ValueKey('app-font-import'),
+      const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Divider(height: 1),
+      ),
+      ReaderOptionTile(
+        tileKey: const ValueKey('app-font-import'),
         enabled: !_busy,
         leading: const AppIcon(AppGlyph.upload),
-        title: Text(_busy ? '正在处理字体…' : '导入本地字体'),
-        subtitle: const Text('支持 TTF、OTF，最大 50MB'),
+        title: _busy ? '正在处理字体…' : '导入本地字体',
+        subtitle: '支持 TTF、OTF，最大 50MB',
+        trailing: const AppIcon(AppGlyph.chevronRight, size: 18),
         onTap: _busy ? null : _import,
       ),
     ],
   );
 
-  Widget _fontTile(ReaderFontEntry font) => ListTile(
-    key: ValueKey('app-font-${font.family}'),
-    enabled: !_busy,
-    selected: _selected == font.family,
-    title: Text(font.displayName),
-    trailing: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_selected == font.family) const AppIcon(AppGlyph.check, size: 20),
-        PopupMenuButton<String>(
-          key: ValueKey('app-font-actions-${font.family}'),
-          tooltip: '管理${font.displayName}',
-          enabled: !_busy,
-          icon: const AppIcon(AppGlyph.more),
-          onSelected: (_) => _remove(font),
-          itemBuilder: (_) => const [
-            PopupMenuItem<String>(value: 'remove', child: Text('移除字体')),
-          ],
-        ),
-      ],
+  Widget _fontTile(ReaderFontEntry font) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: ReaderOptionTile(
+      tileKey: ValueKey('app-font-${font.family}'),
+      enabled: !_busy,
+      selected: _selected == font.family,
+      title: font.displayName,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_selected == font.family)
+            AppIcon(
+              AppGlyph.check,
+              size: 18,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
+          PopupMenuButton<String>(
+            key: ValueKey('app-font-actions-${font.family}'),
+            tooltip: '管理${font.displayName}',
+            enabled: !_busy,
+            icon: const AppIcon(AppGlyph.more),
+            onSelected: (_) => _remove(font),
+            itemBuilder: (_) => const [
+              PopupMenuItem<String>(value: 'remove', child: Text('移除字体')),
+            ],
+          ),
+        ],
+      ),
+      onTap: () => _select(font.family),
     ),
-    onTap: () => _select(font.family),
   );
 }

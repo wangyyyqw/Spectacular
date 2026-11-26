@@ -7,6 +7,7 @@ import 'package:reader_core/position/cfi.dart';
 
 import '../decorations/decoration.dart';
 import '../icons/app_icon.dart';
+import '../theme/reader_common_widgets.dart';
 import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_ink.dart';
 
@@ -99,7 +100,10 @@ class _ReaderDecorationPanelState extends State<ReaderDecorationPanel> {
               // 装饰列表行不显示点击高亮与水波。
               data: quietInk(Theme.of(context)),
               child: items.isEmpty
-                  ? const Center(child: Text('还没有手工装饰'))
+                  ? const ReaderEmptyState(
+                      icon: AppGlyph.formatPaint,
+                      title: '还没有手工装饰',
+                    )
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: items.length,

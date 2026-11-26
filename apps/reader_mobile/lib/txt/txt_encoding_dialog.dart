@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:reader_core/txt.dart';
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 /// 候选样例由实际导入字节解码得到，选定后使用同一任务重试。
 Future<String?> chooseTxtEncoding(
@@ -34,12 +36,9 @@ class _EncodingDialogState extends State<_EncodingDialog> {
         children: [
           const Text('请选择正文显示正确的编码，然后继续导入。'),
           const SizedBox(height: 16),
-          DropdownButtonFormField<int>(
+          ReaderDropdownButtonFormField<int>(
             initialValue: _selected,
-            decoration: const InputDecoration(
-              labelText: '编码',
-              border: OutlineInputBorder(),
-            ),
+            decoration: const InputDecoration(labelText: '编码'),
             items: [
               for (final (index, candidate) in widget.candidates.indexed)
                 DropdownMenuItem(value: index, child: Text(candidate.name)),
@@ -47,8 +46,16 @@ class _EncodingDialogState extends State<_EncodingDialog> {
             onChanged: (value) => setState(() => _selected = value!),
           ),
           const SizedBox(height: 16),
-          SizedBox(
+          Container(
             height: 220,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: ReaderUiStyle.controlRadius,
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
             child: SingleChildScrollView(
               child: SelectableText(widget.candidates[_selected].sample),
             ),

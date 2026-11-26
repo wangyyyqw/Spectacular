@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'cloud_import_controller.dart';
 
@@ -101,10 +102,11 @@ class CloudTransferPanel extends StatelessWidget {
     ].join(' · ');
   }
 
-  void _showTasks(BuildContext context) => showModalBottomSheet<void>(
+  void _showTasks(BuildContext context) => showReaderDrawer<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    showDragHandle: true,
     builder: (context) => FractionallySizedBox(
       heightFactor: .72,
       child: ListenableBuilder(

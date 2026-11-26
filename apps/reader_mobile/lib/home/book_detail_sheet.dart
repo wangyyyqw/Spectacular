@@ -89,8 +89,8 @@ class BookDetailSheet extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleMedium?.copyWith(
-                            fontSize: 17,
-                            height: 1.2,
+                            fontSize: 16,
+                            height: 1.25,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -99,8 +99,8 @@ class BookDetailSheet extends StatelessWidget {
                           entry.author.isEmpty ? '未知作者' : entry.author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            height: 1.25,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            height: 1.3,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
@@ -109,8 +109,8 @@ class BookDetailSheet extends StatelessWidget {
                           '已读 ${formatReadingDuration(readingDuration)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            height: 1.25,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            height: 1.3,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
@@ -300,7 +300,8 @@ class _MenuDivider extends StatelessWidget {
   Widget build(BuildContext context) => Divider(
     height: 1,
     thickness: 1,
-    indent: 48,
+    indent: 16,
+    endIndent: 16,
     color: Theme.of(context).colorScheme.outlineVariant,
   );
 }
@@ -349,16 +350,16 @@ class _DetailAction extends StatelessWidget {
     final color = destructive ? scheme.error : scheme.onSurface;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-      minLeadingWidth: 22,
-      horizontalTitleGap: 12,
-      leading: AppIcon(icon, size: 22, color: color),
+      minLeadingWidth: 20,
+      horizontalTitleGap: 10,
+      leading: AppIcon(icon, size: 20, color: color),
       title: Text(
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15, color: color),
+        style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14, color: color),
       ),
-      trailing: AppIcon(AppGlyph.chevronRight, size: 20, color: scheme.outline),
+      trailing: AppIcon(AppGlyph.chevronRight, size: 18, color: scheme.outline),
       onTap: onTap,
     );
   }

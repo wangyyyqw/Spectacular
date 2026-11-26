@@ -517,7 +517,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     labelText: '简介',
                     hintText: '写下这本书的简介',
                     alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -560,7 +559,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   decoration: InputDecoration(
                     labelText: '新建标签',
                     hintText: '例如：科幻、待读',
-                    border: const OutlineInputBorder(),
                     suffixIcon: IconButton(
                       key: const ValueKey<String>('book-detail-add-tag'),
                       tooltip: '创建并添加标签',
@@ -743,7 +741,6 @@ class _CoverEditor extends StatelessWidget {
                 maxLines: 2,
                 decoration: const InputDecoration(
                   labelText: '书名',
-                  border: OutlineInputBorder(),
                   isDense: true,
                 ),
               ),
@@ -755,7 +752,6 @@ class _CoverEditor extends StatelessWidget {
                 decoration: const InputDecoration(
                   labelText: '作者',
                   hintText: '未填写',
-                  border: OutlineInputBorder(),
                   isDense: true,
                 ),
               ),

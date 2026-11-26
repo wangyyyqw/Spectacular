@@ -121,13 +121,23 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('统计'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('统计'),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(library.sessionStore.listCalls, 1);
     expect(find.text('该时段暂无符合展示条件的书目'), findsOneWidget);
-    await tester.tap(find.text('书架').last);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('书架'),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     library.sessions.add(
@@ -138,7 +148,12 @@ void main() {
         duration: const Duration(minutes: 4),
       ),
     );
-    await tester.tap(find.text('统计'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('统计'),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(library.sessionStore.listCalls, 2);

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../library/library_store.dart';
@@ -335,14 +337,12 @@ class _StatsPageState extends State<StatsPage> {
   Widget build(BuildContext context) {
     final content = _content;
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: content == null
-            ? _error == null
-                  ? const _StatsSkeleton()
-                  : _StatsError(onRetry: _reload)
-            : RefreshIndicator(onRefresh: _reload, child: content),
-      ),
+      appBar: AppBar(title: const Text('统计')),
+      body: content == null
+          ? _error == null
+                ? const _StatsSkeleton()
+                : _StatsError(onRetry: _reload)
+          : RefreshIndicator(onRefresh: _reload, child: content),
     );
   }
 }
@@ -372,7 +372,7 @@ class _StatsContent extends StatelessWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
             desktop ? 28 : 16,
-            20,
+            12,
             desktop ? 28 : 16,
             36,
           ),
@@ -406,6 +406,7 @@ class _StatsContent extends StatelessWidget {
   }
 
   List<Widget> _sections(bool desktop) {
+    final books = {for (final row in stats.rows) row.book.id: row.book};
     final titles = {for (final row in stats.rows) row.book.id: row.book.title};
     return [
       _Section(
@@ -413,6 +414,7 @@ class _StatsContent extends StatelessWidget {
         showDivider: false,
         child: BookDurationChart(
           insights: stats.insights,
+          books: books,
           bookTitles: titles,
           bookColors: bookColors,
           now: now,
@@ -790,35 +792,37 @@ class _StatsSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fill = Theme.of(context).colorScheme.surfaceContainerHighest;
-    Widget block(double height, {double? width}) => Container(
-      height: height,
-      width: width,
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: BorderRadius.circular(3),
-      ),
-    );
+    Widget block(double height, {double? width, double radius = 12}) =>
+        Container(
+          height: height,
+          width: width,
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(radius),
+          ),
+        );
     return Center(
       child: SizedBox(
         width: 680,
         child: ListView(
           physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 36),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
           children: [
-            block(250),
+            block(220, radius: ReaderUiStyle.cardCorner),
             const SizedBox(height: 24),
-            Align(alignment: Alignment.centerLeft, child: block(20, width: 64)),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: block(18, width: 72, radius: 6),
+            ),
             const SizedBox(height: 12),
-            block(48),
+            block(260, radius: ReaderUiStyle.cardCorner),
+            const SizedBox(height: 24),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: block(18, width: 72, radius: 6),
+            ),
             const SizedBox(height: 12),
-            block(48),
-            const SizedBox(height: 12),
-            Center(child: block(160, width: 160)),
-            const SizedBox(height: 12),
-            for (var index = 0; index < 5; index++) ...[
-              block(44),
-              const SizedBox(height: 8),
-            ],
+            block(220, radius: ReaderUiStyle.cardCorner),
           ],
         ),
       ),
@@ -834,27 +838,17 @@ class _StatsError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppIcon(AppGlyph.error, size: 32, color: muted),
-            const SizedBox(height: 12),
-            Text('统计加载失败', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text('请稍后重试', style: TextStyle(fontSize: 13, color: muted)),
-            const SizedBox(height: 16),
-            OutlinedButton(
-              key: const ValueKey<String>('stats-retry'),
-              onPressed: onRetry,
-              child: const Text('重试'),
-            ),
-          ],
-        ),
+    final colors = Theme.of(context).colorScheme;
+    return ReaderEmptyState(
+      icon: AppGlyph.error,
+      iconColor: colors.error,
+      iconContainerColor: colors.errorContainer,
+      title: '统计加载失败',
+      subtitle: '请稍后重试',
+      action: OutlinedButton(
+        key: const ValueKey<String>('stats-retry'),
+        onPressed: onRetry,
+        child: const Text('重试'),
       ),
     );
   }
@@ -868,22 +862,38 @@ class _RecentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final rows = stats.rows.where((row) => row.recentReadAt != null).toList();
     return _Section(
       title: '最近阅读',
       detail: rows.isEmpty ? null : '按最后阅读排序',
       child: rows.isEmpty
           ? const _NoReadingCard()
-          : Column(
-              children: [
-                for (var index = 0; index < rows.length; index++) ...[
-                  if (index > 0) const Divider(height: 1),
-                  _RecentBookRow(
-                    stat: rows[index],
-                    onOpen: () => onOpenBook(rows[index].book),
-                  ),
+          : Material(
+              color: scheme.surface,
+              shape: ReaderUiStyle.cardShapeOf(theme),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  for (var index = 0; index < rows.length; index++) ...[
+                    if (index > 0)
+                      Divider(
+                        height: 1,
+                        indent: 14 + _RecentBookRow._coverWidth + 14,
+                        endIndent: 14,
+                        color: scheme.outlineVariant,
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: _RecentBookRow(
+                        stat: rows[index],
+                        onOpen: () => onOpenBook(rows[index].book),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
     );
   }
@@ -892,106 +902,174 @@ class _RecentSection extends StatelessWidget {
 class _RecentBookRow extends StatelessWidget {
   const _RecentBookRow({required this.stat, required this.onOpen});
 
+  static const double _coverWidth = 66;
+  static const double _coverHeight = 88;
+
   final _BookReadingStat stat;
   final VoidCallback onOpen;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    key: ValueKey<String>('stats-open-${stat.book.id}'),
-    onTap: onOpen,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Hero(
-            tag: bookCoverHeroTag(stat.book.id),
-            transitionOnUserGestures: true,
-            child: BookCoverImage(book: stat.book, width: 40, height: 54),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: _details(context)),
-        ],
+  Widget build(BuildContext context) {
+    final semantics = AppSemanticColors.of(context);
+    return InkWell(
+      key: ValueKey<String>('stats-open-${stat.book.id}'),
+      splashFactory: NoSplash.splashFactory,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      onTap: onOpen,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Hero(
+              tag: bookCoverHeroTag(stat.book.id),
+              transitionOnUserGestures: true,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: semantics.bookCoverBorder),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(7),
+                  child: BookCoverImage(
+                    book: stat.book,
+                    width: _coverWidth,
+                    height: _coverHeight,
+                    showShadow: false,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: _details(context)),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _details(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _headline(),
-        if (stat.book.author.isNotEmpty) ...[
-          const SizedBox(height: 3),
-          Text(
-            stat.book.author,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: muted),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = scheme.onSurfaceVariant;
+    final author = stat.book.author.trim();
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: _coverHeight),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _headline(context),
+              if (author.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                ),
+              ],
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
+              Text(
+                _positionLabel(stat.book, stat.progress),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.4,
+                  color: muted,
+                  fontFeatures: _tabularFigures,
+                ),
+              ),
+              const SizedBox(height: 6),
+              _footer(context),
+            ],
           ),
         ],
-        const SizedBox(height: 6),
-        Text(
-          _positionLabel(stat.book, stat.progress),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 11, height: 1.4, color: muted),
+      ),
+    );
+  }
+
+  Widget _headline(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final hasProgress = stat.percent != null && stat.percent! > 0;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(
+            stat.book.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+              color: scheme.onSurface,
+            ),
+          ),
         ),
-        const SizedBox(height: 8),
-        _footer(context),
+        const SizedBox(width: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: hasProgress
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            stat.percent == null ? '--' : '${stat.percent}%',
+            key: ValueKey<String>('stats-book-${stat.book.id}'),
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.3,
+              fontWeight: FontWeight.w600,
+              color: hasProgress
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
+              fontFeatures: _tabularFigures,
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _headline() => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Expanded(
-        child: Text(
-          stat.book.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            height: 1.35,
+  Widget _footer(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(child: _ProgressLine(percent: stat.percent)),
+        const SizedBox(width: 10),
+        Text(
+          _relativeTime(stat.recentReadAt),
+          style: TextStyle(
+            fontSize: 11,
+            color: scheme.onSurfaceVariant,
+            fontFeatures: _tabularFigures,
           ),
         ),
-      ),
-      const SizedBox(width: 12),
-      Text(
-        stat.percent == null ? '--' : '${stat.percent}%',
-        key: ValueKey<String>('stats-book-${stat.book.id}'),
-        style: const TextStyle(
-          fontSize: 13,
-          height: 1.4,
-          fontWeight: FontWeight.w600,
-          fontFeatures: _tabularFigures,
+        const SizedBox(width: 2),
+        AppIcon(
+          AppGlyph.chevronRight,
+          size: 14,
+          color: scheme.outline,
         ),
-      ),
-    ],
-  );
-
-  Widget _footer(BuildContext context) => Row(
-    children: [
-      Expanded(child: _ProgressLine(percent: stat.percent)),
-      const SizedBox(width: 12),
-      Text(
-        _relativeTime(stat.recentReadAt),
-        style: TextStyle(
-          fontSize: 11,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ),
-      const SizedBox(width: 2),
-      AppIcon(
-        AppGlyph.chevronRight,
-        size: 14,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 /// 进度条：零值不留填充，极小进度保留 2% 可见宽度。
@@ -1015,12 +1093,12 @@ class _ProgressLine extends StatelessWidget {
         builder: (context, constraints) => Stack(
           children: [
             Container(
-              height: 3,
+              height: 4,
               width: double.infinity,
               color: theme.colorScheme.surfaceContainerHighest,
             ),
             Container(
-              height: 3,
+              height: 4,
               width: constraints.maxWidth * visible,
               color: theme.colorScheme.primary,
             ),

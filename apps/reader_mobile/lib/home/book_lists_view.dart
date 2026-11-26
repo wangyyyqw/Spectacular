@@ -1,6 +1,6 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
@@ -168,9 +168,7 @@ class _BookListsViewState extends State<BookListsView> {
           child: FloatingActionButton.small(
             key: const ValueKey<String>('booklist-create'),
             tooltip: '新建书单',
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            shape: ReaderUiStyle.controlShape,
             onPressed: _create,
             child: const AppIcon(AppGlyph.add),
           ),
@@ -184,7 +182,7 @@ class _BookListsViewState extends State<BookListsView> {
   ];
 }
 
-/// 书单卡片：大标题、简介、右侧堆叠封面与书籍数量。
+/// 书单卡片：左侧标题/简介与底栏元信息，右侧柔和展台与立体扇形书封堆叠。
 class _BookListCard extends StatelessWidget {
   const _BookListCard({
     required this.bookList,
@@ -206,81 +204,198 @@ class _BookListCard extends StatelessWidget {
       color: scheme.surface,
       shape: ReaderUiStyle.cardShapeOf(theme),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: ValueKey<String>('booklist-card-${bookList.id}'),
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 148),
-          child: Stack(
-            children: [
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  18,
-                  18,
-                  covers.isEmpty ? 18 : 128,
-                  44,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      bookList.name,
-                      key: ValueKey<String>('booklist-card-name-${bookList.id}'),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        height: 1.25,
+      child: Semantics(
+        button: true,
+        child: GestureDetector(
+          key: ValueKey<String>('booklist-card-${bookList.id}'),
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 146),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 16, 12, 16),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 3,
+                                    height: 16,
+                                    margin: const EdgeInsets.only(
+                                      top: 3,
+                                      right: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: scheme.primary,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      bookList.name,
+                                      key: ValueKey<String>(
+                                        'booklist-card-name-${bookList.id}',
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.3,
+                                            color: scheme.onSurface,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (description.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 11),
+                                  child: Text(
+                                    description,
+                                    key: ValueKey<String>(
+                                      'booklist-card-description-${bookList.id}',
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontSize: 12.5,
+                                      color: scheme.onSurfaceVariant,
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 9,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: scheme.surfaceContainerLow,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: scheme.outlineVariant,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    AppIcon(
+                                      AppGlyph.bookshelf,
+                                      size: 13,
+                                      color: scheme.primary,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      '${books.length} 本书',
+                                      key: ValueKey<String>(
+                                        'booklist-card-count-${bookList.id}',
+                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: scheme.onSurface,
+                                            fontWeight: FontWeight.w500,
+                                            fontFeatures: const [
+                                              FontFeature.tabularFigures(),
+                                            ],
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                _formatCreatedDate(bookList.createdAt),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontSize: 11,
+                                  color: scheme.onSurfaceVariant.withValues(
+                                    alpha: .8,
+                                  ),
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    if (description.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        description,
-                        key: ValueKey<String>(
-                          'booklist-card-description-${bookList.id}',
+                  ),
+                  if (covers.isNotEmpty)
+                    Container(
+                      width: 138,
+                      padding: const EdgeInsets.fromLTRB(8, 14, 14, 14),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerLow.withValues(
+                          alpha: .65,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          height: 1.4,
+                        border: Border(
+                          left: BorderSide(
+                            color: scheme.outlineVariant.withValues(alpha: .7),
+                          ),
                         ),
                       ),
-                    ],
-                  ],
-                ),
+                      child: Align(
+                        alignment: Alignment.center,
+                        child: _CoverStack(
+                          books: covers,
+                          keyPrefix: bookList.id,
+                        ),
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.only(right: 14),
+                      child: Center(
+                        child: AppIcon(
+                          AppGlyph.chevronRight,
+                          size: 18,
+                          color: scheme.outline,
+                        ),
+                      ),
+                    ),
+                ],
               ),
-              Positioned(
-                left: 18,
-                bottom: 14,
-                child: Text(
-                  '${books.length} 本书',
-                  key: ValueKey<String>('booklist-card-count-${bookList.id}'),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    letterSpacing: .3,
-                  ),
-                ),
-              ),
-              if (covers.isNotEmpty)
-                Positioned(
-                  right: 10,
-                  bottom: 10,
-                  child: _CoverStack(
-                    books: covers,
-                    keyPrefix: bookList.id,
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  static String _formatCreatedDate(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final now = DateTime.now();
+    if (local.year == now.year) {
+      return '${local.month}月${local.day}日';
+    }
+    return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
+  }
 }
 
-/// 右侧书封：最多三本，轻微旋转并相互叠压。
+/// 右侧书封展台：最多三本，居中对称扇形叠压，前后错落且带书框描边与轻阴影。
 class _CoverStack extends StatelessWidget {
   const _CoverStack({required this.books, required this.keyPrefix});
 
@@ -289,31 +404,101 @@ class _CoverStack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const slot = 30.0;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final semantics = AppSemanticColors.of(context);
+    const coverWidth = 58.0;
+    const coverHeight = 78.0;
+    final count = books.length;
+    final step = count == 1 ? 0.0 : (count == 2 ? 28.0 : 25.0);
+    final totalWidth = coverWidth + step * (count - 1);
     return SizedBox(
-      width: slot * (books.length - 1) + 62,
-      height: 90,
+      width: totalWidth,
+      height: coverHeight + 14,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          for (final (index, book) in books.indexed)
-            Positioned(
-              left: slot * index,
-              top: index.isOdd ? 2 : 6,
-              child: Transform.rotate(
-                angle: index == 0 ? -math.pi / 48 : math.pi / 72,
-                alignment: Alignment.bottomCenter,
-                child: BookCoverImage(
-                  key: ValueKey<String>('booklist-cover-$keyPrefix-${book.id}'),
-                  book: book,
-                  width: 62,
-                  height: 82,
-                  showShadow: true,
-                  shadowOpacity: .18,
-                ),
-              ),
+          for (var index = count - 1; index >= 0; index--)
+            _coverItem(
+              context,
+              book: books[index],
+              index: index,
+              count: count,
+              step: step,
+              coverWidth: coverWidth,
+              coverHeight: coverHeight,
+              borderColor: semantics.bookCoverBorder,
+              shadowColor: scheme.shadow,
+              isLight: theme.brightness == Brightness.light,
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _coverItem(
+    BuildContext context, {
+    required BookEntry book,
+    required int index,
+    required int count,
+    required double step,
+    required double coverWidth,
+    required double coverHeight,
+    required Color borderColor,
+    required Color shadowColor,
+    required bool isLight,
+  }) {
+    final double angle;
+    final double topOffset;
+    if (count == 1) {
+      angle = 0;
+      topOffset = 7;
+    } else if (count == 2) {
+      angle = index == 0 ? -0.05 : 0.06;
+      topOffset = index == 0 ? 5 : 9;
+    } else {
+      angle = switch (index) {
+        0 => -0.06,
+        1 => 0.0,
+        _ => 0.07,
+      };
+      topOffset = switch (index) {
+        0 => 4,
+        1 => 7,
+        _ => 11,
+      };
+    }
+    return Positioned(
+      left: step * index,
+      top: topOffset,
+      child: Transform.rotate(
+        angle: angle,
+        alignment: Alignment.bottomCenter,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: borderColor),
+            boxShadow: isLight
+                ? [
+                    BoxShadow(
+                      color: shadowColor.withValues(alpha: .12),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: BookCoverImage(
+              key: ValueKey<String>('booklist-cover-$keyPrefix-${book.id}'),
+              book: book,
+              width: coverWidth,
+              height: coverHeight,
+              showShadow: false,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -325,30 +510,11 @@ class _NoBookListMatches extends StatelessWidget {
   final String query;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
-      children: [
-        AppIcon(AppGlyph.searchOff, size: 48, color: theme.colorScheme.outline),
-        const SizedBox(height: 12),
-        Text(
-          '没有找到相关书单',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.titleMedium,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '没有名称、简介或书名包含“$query”',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => ReaderEmptyState(
+    icon: AppGlyph.searchOff,
+    title: '没有找到相关书单',
+    subtitle: '没有名称、简介或书名包含“$query”',
+  );
 }
 
 class _EmptyBookLists extends StatelessWidget {
@@ -357,41 +523,17 @@ class _EmptyBookLists extends StatelessWidget {
   final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AppIcon(
-              AppGlyph.bookmarkAdd,
-              size: 56,
-              color: theme.colorScheme.outline,
-            ),
-            const SizedBox(height: 12),
-            Text('还没有书单', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              '把想一起读的书收进书单，写下名称和简介',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              key: const ValueKey<String>('booklist-create-empty'),
-              onPressed: onCreate,
-              icon: const AppIcon(AppGlyph.add),
-              label: const Text('新建书单'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ReaderEmptyState(
+    icon: AppGlyph.bookmarkAdd,
+    title: '还没有书单',
+    subtitle: '把想一起读的书收进书单，写下名称和简介',
+    action: FilledButton.icon(
+      key: const ValueKey<String>('booklist-create-empty'),
+      onPressed: onCreate,
+      icon: const AppIcon(AppGlyph.add, size: 18),
+      label: const Text('新建书单'),
+    ),
+  );
 }
 
 class _LoadError extends StatelessWidget {
@@ -401,30 +543,21 @@ class _LoadError extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppIcon(
-            AppGlyph.warning,
-            size: 40,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 12),
-          Text(message),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            key: const ValueKey<String>('booklists-load-retry'),
-            onPressed: onRetry,
-            icon: const AppIcon(AppGlyph.refresh),
-            label: const Text('重新加载'),
-          ),
-        ],
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ReaderEmptyState(
+      icon: AppGlyph.warning,
+      iconColor: colors.error,
+      iconContainerColor: colors.errorContainer,
+      title: message,
+      action: FilledButton.icon(
+        key: const ValueKey<String>('booklists-load-retry'),
+        onPressed: onRetry,
+        icon: const AppIcon(AppGlyph.refresh, size: 18),
+        label: const Text('重新加载'),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// 书单详情：书籍列表、添加或移除书籍、编辑名称简介与删除书单。
@@ -548,25 +681,15 @@ class _BookListDetailSheetState extends State<_BookListDetailSheet> {
   }
 
   Future<void> _delete() async {
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text('删除书单「${_bookList.name}」？'),
-        content: const Text('只删除书单，书籍仍保留在书架。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('booklist-delete-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除书单「${_bookList.name}」？',
+      message: '只删除书单，书籍仍保留在书架。',
+      confirmLabel: '删除',
+      confirmKey: const ValueKey<String>('booklist-delete-confirm'),
+      destructive: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     try {
       await _store.delete(_bookList.id);
       if (mounted) Navigator.of(context).pop();
@@ -578,112 +701,333 @@ class _BookListDetailSheetState extends State<_BookListDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final semantics = AppSemanticColors.of(context);
     final entries = _entries;
     final description = _bookList.description.trim();
     return Material(
       key: const ValueKey<String>('booklist-detail'),
       type: MaterialType.transparency,
-      child: ReaderSheetForm(
-        title: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .82,
+        ),
+        child: ReaderSheetForm(
+          contentPadding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+          title: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _bookList.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: scheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${entries.length} 本书',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onPrimaryContainer,
+                              fontWeight: FontWeight.w600,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            '创建于 ${_BookListCard._formatCreatedDate(_bookList.createdAt)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                key: const ValueKey<String>('booklist-detail-edit'),
+                tooltip: '编辑名称和简介',
+                color: scheme.onSurfaceVariant,
+                constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                onPressed: _busy ? null : _edit,
+                icon: const AppIcon(AppGlyph.edit, size: 20),
+              ),
+            ],
+          ),
+          content: _loading
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (description.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerLow,
+                          borderRadius: ReaderUiStyle.controlRadius,
+                          border: Border.all(
+                            color: scheme.outlineVariant.withValues(alpha: .75),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 3,
+                              height: 16,
+                              margin: const EdgeInsets.only(top: 3, right: 10),
+                              decoration: BoxDecoration(
+                                color: scheme.primary,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                description,
+                                key: const ValueKey<String>(
+                                  'booklist-detail-description',
+                                ),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  height: 1.55,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    Row(
+                      children: [
+                        Text(
+                          '收录书籍',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (entries.isNotEmpty)
+                          Text(
+                            '共 ${entries.length} 本',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (entries.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 28,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerLow,
+                          borderRadius: ReaderUiStyle.controlRadius,
+                          border: Border.all(
+                            color: scheme.outlineVariant.withValues(alpha: .75),
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AppIcon(
+                              AppGlyph.bookshelf,
+                              size: 28,
+                              color: scheme.outline,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '还没有加入书籍',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '点击下方「添加书籍」从书架挑选收进此书单',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: .8,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerLow,
+                          borderRadius: const BorderRadius.all(
+                            Radius.circular(16),
+                          ),
+                          border: Border.all(
+                            color: scheme.outlineVariant.withValues(alpha: .8),
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (var i = 0; i < entries.length; i++) ...[
+                              if (i > 0)
+                                Divider(
+                                  height: 1,
+                                  indent: 70,
+                                  endIndent: 14,
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: .7,
+                                  ),
+                                ),
+                              _bookRow(context, entries[i], semantics),
+                            ],
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: Row(
                 children: [
-                  Text(_bookList.name),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${entries.length} 本书',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                  TextButton.icon(
+                    key: const ValueKey<String>('booklist-detail-delete'),
+                    onPressed: _busy ? null : _delete,
+                    icon: const AppIcon(AppGlyph.delete, size: 18),
+                    label: const Text('删除书单'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: scheme.error,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      key: const ValueKey<String>('booklist-detail-add'),
+                      onPressed: _busy ? null : _addBooks,
+                      icon: const AppIcon(AppGlyph.add, size: 18),
+                      label: const Text('添加书籍'),
                     ),
                   ),
                 ],
               ),
-            ),
-            IconButton(
-              key: const ValueKey<String>('booklist-detail-edit'),
-              tooltip: '编辑名称和简介',
-              onPressed: _busy ? null : _edit,
-              icon: const AppIcon(AppGlyph.edit),
             ),
           ],
         ),
-        content: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (description.isNotEmpty) ...[
-                    Text(
-                      description,
-                      key: const ValueKey<String>(
-                        'booklist-detail-description',
-                      ),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        height: 1.6,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  OutlinedButton.icon(
-                    key: const ValueKey<String>('booklist-detail-add'),
-                    onPressed: _busy ? null : _addBooks,
-                    icon: const AppIcon(AppGlyph.add),
-                    label: const Text('添加书籍'),
+      ),
+    );
+  }
+
+  Widget _bookRow(
+    BuildContext context,
+    BookEntry entry,
+    AppSemanticColors semantics,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      key: ValueKey<String>('booklist-book-${entry.id}'),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      child: Row(
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: semantics.bookCoverBorder),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: BookCoverImage(book: entry, width: 44, height: 60),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
                   ),
-                  const SizedBox(height: 8),
-                  if (entries.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 28),
-                      child: Text(
-                        '还没有加入书籍',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    )
-                  else
-                    for (final entry in entries)
-                      ListTile(
-                        key: ValueKey<String>('booklist-book-${entry.id}'),
-                        contentPadding: EdgeInsets.zero,
-                        leading: BookCoverImage(
-                          book: entry,
-                          width: 40,
-                          height: 54,
-                        ),
-                        title: Text(
-                          entry.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          entry.author.isEmpty ? '未知作者' : entry.author,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: IconButton(
-                          key: ValueKey<String>(
-                            'booklist-book-remove-${entry.id}',
-                          ),
-                          tooltip: '移出书单',
-                          onPressed: _busy ? null : () => _removeBook(entry),
-                          icon: const AppIcon(AppGlyph.close),
-                        ),
-                      ),
-                ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  entry.author.trim().isEmpty ? '未知作者' : entry.author.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            key: ValueKey<String>('booklist-book-remove-${entry.id}'),
+            tooltip: '移出书单',
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            padding: EdgeInsets.zero,
+            color: scheme.onSurfaceVariant,
+            onPressed: _busy ? null : () => _removeBook(entry),
+            icon: Container(
+              width: 28,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: scheme.outlineVariant),
               ),
-        actions: [
-          TextButton.icon(
-            key: const ValueKey<String>('booklist-detail-delete'),
-            onPressed: _busy ? null : _delete,
-            icon: const AppIcon(AppGlyph.delete),
-            label: const Text('删除书单'),
-            style: TextButton.styleFrom(
-              foregroundColor: theme.colorScheme.error,
+              child: AppIcon(
+                AppGlyph.close,
+                size: 15,
+                color: scheme.onSurfaceVariant,
+              ),
             ),
           ),
         ],
@@ -705,11 +1049,20 @@ class _BookPickerSheet extends StatefulWidget {
 
 class _BookPickerSheetState extends State<_BookPickerSheet> {
   late final Set<String> _selected = Set<String>.of(widget.selected);
+  final TextEditingController _searchController = TextEditingController();
   String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final semantics = AppSemanticColors.of(context);
     final query = _query.trim().toLowerCase();
     final visible = <BookEntry>[
       for (final book in widget.books)
@@ -721,58 +1074,130 @@ class _BookPickerSheetState extends State<_BookPickerSheet> {
     return Material(
       type: MaterialType.transparency,
       child: ReaderSheetForm(
-        title: const Text('添加书籍'),
+        title: Row(
+          children: [
+            const Text('添加书籍'),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '已选 ${_selected.length}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ],
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
         scrollContent: false,
         content: SizedBox(
-          height: MediaQuery.sizeOf(context).height * .55,
+          height: MediaQuery.sizeOf(context).height * .56,
           child: Column(
             children: [
-              TextField(
-                key: const ValueKey<String>('booklist-picker-search'),
-                decoration: const InputDecoration(
-                  hintText: '搜索书名或作者',
-                  prefixIcon: AppIcon(AppGlyph.search),
-                  isDense: true,
-                ),
+              ReaderSearchField(
+                fieldKey: const ValueKey<String>('booklist-picker-search'),
+                controller: _searchController,
+                hintText: '搜索书名或作者',
                 onChanged: (value) => setState(() => _query = value),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清除搜索',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const AppIcon(AppGlyph.close, size: 18),
+                      ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Expanded(
                 child: visible.isEmpty
-                    ? Center(
-                        child: Text(
-                          '没有匹配的书籍',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
+                    ? const ReaderEmptyState(
+                        icon: AppGlyph.searchOff,
+                        title: '没有匹配的书籍',
                       )
-                    : ListView.builder(
+                    : ListView.separated(
                         key: const ValueKey<String>('booklist-picker-list'),
                         itemCount: visible.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 6),
                         itemBuilder: (context, index) {
                           final book = visible[index];
-                          return CheckboxListTile(
-                            key: ValueKey<String>('booklist-picker-${book.id}'),
-                            contentPadding: EdgeInsets.zero,
-                            value: _selected.contains(book.id),
-                            title: Text(
-                              book.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                          final checked = _selected.contains(book.id);
+                          return Material(
+                            color: checked
+                                ? scheme.primaryContainer.withValues(alpha: .45)
+                                : scheme.surfaceContainerLow,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: ReaderUiStyle.controlRadius,
+                              side: BorderSide(
+                                color: checked
+                                    ? scheme.primary.withValues(alpha: .5)
+                                    : scheme.outlineVariant.withValues(
+                                        alpha: .75,
+                                      ),
+                              ),
                             ),
-                            subtitle: Text(
-                              book.author.isEmpty ? '未知作者' : book.author,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            clipBehavior: Clip.antiAlias,
+                            child: CheckboxListTile(
+                              key: ValueKey<String>(
+                                'booklist-picker-${book.id}',
+                              ),
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                10,
+                                4,
+                                6,
+                                4,
+                              ),
+                              secondary: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: semantics.bookCoverBorder,
+                                  ),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(5),
+                                  child: BookCoverImage(
+                                    book: book,
+                                    width: 36,
+                                    height: 48,
+                                  ),
+                                ),
+                              ),
+                              value: checked,
+                              title: Text(
+                                book.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: checked
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                              subtitle: Text(
+                                book.author.trim().isEmpty
+                                    ? '未知作者'
+                                    : book.author.trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onChanged: (value) => setState(() {
+                                if (value == true) {
+                                  _selected.add(book.id);
+                                } else {
+                                  _selected.remove(book.id);
+                                }
+                              }),
                             ),
-                            onChanged: (checked) => setState(() {
-                              if (checked == true) {
-                                _selected.add(book.id);
-                              } else {
-                                _selected.remove(book.id);
-                              }
-                            }),
                           );
                         },
                       ),
@@ -781,6 +1206,10 @@ class _BookPickerSheetState extends State<_BookPickerSheet> {
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
           FilledButton(
             key: const ValueKey<String>('booklist-picker-confirm'),
             onPressed: () => Navigator.of(context).pop(_selected),
@@ -884,51 +1313,98 @@ class _BookMembershipSheetState extends State<_BookMembershipSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Material(
       key: const ValueKey<String>('booklist-membership'),
       type: MaterialType.transparency,
       child: ReaderSheetForm(
         title: const Text('加入书单'),
+        contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
         content: _loading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Padding(
+                padding: EdgeInsets.symmetric(vertical: 32),
+                child: Center(child: CircularProgressIndicator()),
+              )
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (_bookLists.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 24,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerLow,
+                        borderRadius: ReaderUiStyle.controlRadius,
+                        border: Border.all(color: scheme.outlineVariant),
+                      ),
                       child: Text(
                         '还没有书单，先新建一个',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
                     )
                   else
-                    for (final bookList in _bookLists)
-                      CheckboxListTile(
-                        key: ValueKey<String>(
-                          'booklist-membership-${bookList.id}',
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                        value: _memberIds.contains(bookList.id),
-                        title: Text(
-                          bookList.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text('${bookList.bookIds.length} 本书'),
-                        onChanged: _busy
-                            ? null
-                            : (value) => _toggle(bookList, value ?? false),
+                    for (var i = 0; i < _bookLists.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 8),
+                      Builder(
+                        builder: (context) {
+                          final bookList = _bookLists[i];
+                          final joined = _memberIds.contains(bookList.id);
+                          return Material(
+                            color: joined
+                                ? scheme.primaryContainer.withValues(alpha: .45)
+                                : scheme.surfaceContainerLow,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: ReaderUiStyle.controlRadius,
+                              side: BorderSide(
+                                color: joined
+                                    ? scheme.primary.withValues(alpha: .5)
+                                    : scheme.outlineVariant.withValues(
+                                        alpha: .75,
+                                      ),
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: CheckboxListTile(
+                              key: ValueKey<String>(
+                                'booklist-membership-${bookList.id}',
+                              ),
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                14,
+                                2,
+                                8,
+                                2,
+                              ),
+                              value: joined,
+                              title: Text(
+                                bookList.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: joined
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                              subtitle: Text('${bookList.bookIds.length} 本书'),
+                              onChanged: _busy
+                                  ? null
+                                  : (value) => _toggle(bookList, value ?? false),
+                            ),
+                          );
+                        },
                       ),
+                    ],
                 ],
               ),
         actions: [
-          TextButton.icon(
+          FilledButton.icon(
             onPressed: _busy ? null : _create,
-            icon: const AppIcon(AppGlyph.add),
+            icon: const AppIcon(AppGlyph.add, size: 18),
             label: const Text('新建书单'),
           ),
         ],
@@ -1012,6 +1488,10 @@ class _BookListEditorSheetState extends State<_BookListEditorSheet> {
           ],
         ),
         actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
           FilledButton(
             key: const ValueKey<String>('booklist-editor-save'),
             onPressed: _canSave
