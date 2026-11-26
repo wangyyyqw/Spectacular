@@ -116,7 +116,11 @@ class ReaderBackgroundStore {
   }
 
   /// 清理一天前的废弃文件，避开正在导入或尚未保存的图片。
-  Future<void> cleanUnused(String id, {String? pendingId}) async {
+  Future<void> cleanUnused(
+    String id, {
+    String? pendingId,
+    Iterable<String> retainedIds = const [],
+  }) async {
     final directory = await _directory();
     if (!await directory.exists()) return;
     final cutoff = DateTime.now().subtract(const Duration(days: 1));
@@ -128,7 +132,8 @@ class ReaderBackgroundStore {
       if (file is! File ||
           !p.basename(file.path).startsWith('$filePrefix-') ||
           retained(id, file.path) ||
-          retained(pendingId, file.path)) {
+          retained(pendingId, file.path) ||
+          retainedIds.any((candidate) => retained(candidate, file.path))) {
         continue;
       }
       if ((await file.stat()).modified.isBefore(cutoff)) await file.delete();

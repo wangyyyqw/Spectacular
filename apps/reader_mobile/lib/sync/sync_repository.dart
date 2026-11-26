@@ -36,5 +36,7 @@ bool syncKeyEnabled(String key, SyncProfile profile) {
         'setting/app.fontFamily',
         'setting/reader.backgroundId',
         'setting/reader.customThemeId',
+        'setting/reader.dayBackground',
+        'setting/reader.nightBackground',
       }.contains(key);
 }

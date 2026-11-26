@@ -359,6 +359,10 @@ class BookOpener {
           await ReaderBackgroundStore().cleanUnused(
             settings.backgroundId,
             pendingId: _settings!.backgroundId,
+            retainedIds: [
+              ...settings.retainedBackgroundIds,
+              ..._settings!.retainedBackgroundIds,
+            ],
           );
         })
         .catchError((Object error) async {

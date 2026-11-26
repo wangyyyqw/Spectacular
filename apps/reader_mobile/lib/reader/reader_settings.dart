@@ -211,6 +211,58 @@ class ReaderTtsSettings {
   ]);
 }
 
+/// 日间和夜间各自保存背景及自定义配色，旧版单份设置按原主题迁移。
+class ReaderBackgroundPreference {
+  const ReaderBackgroundPreference({
+    this.id = 'none',
+    this.opacity = ReaderSettingsDefaults.backgroundImageOpacity,
+    this.customThemeId,
+  });
+
+  final String id;
+  final double opacity;
+  final String? customThemeId;
+
+  Map<String, Object?> toJson() => {
+    'backgroundId': id,
+    'opacity': opacity,
+    'customThemeId': customThemeId,
+  };
+
+  static ReaderBackgroundPreference? fromJson(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map<String, dynamic> || value['backgroundId'] is! String) {
+        return null;
+      }
+      final opacity = value['opacity'];
+      return ReaderBackgroundPreference(
+        id: value['backgroundId'] as String,
+        opacity: opacity is num && opacity.isFinite
+            ? opacity.toDouble().clamp(0, 1)
+            : ReaderSettingsDefaults.backgroundImageOpacity,
+        customThemeId: ReaderTheme.customById(value['customThemeId'] as String?)
+            ?.id,
+      );
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReaderBackgroundPreference &&
+      other.id == id &&
+      other.opacity == opacity &&
+      other.customThemeId == customThemeId;
+
+  @override
+  int get hashCode => Object.hash(id, opacity, customThemeId);
+}
+
 /// 阅读排版与主题设置（P4-21）：持久化在 settings 表。
 class ReaderSettings {
   /// 创建设置。
@@ -224,6 +276,8 @@ class ReaderSettings {
     this.themeId = ReaderSettingsDefaults.themeId,
     this.dayThemeId = ReaderSettingsDefaults.themeId,
     this.nightThemeId = 'black',
+    this.dayBackground,
+    this.nightBackground,
     this.backgroundId = 'none',
     this.backgroundImageOpacity = ReaderSettingsDefaults.backgroundImageOpacity,
     this.customThemeId,
@@ -265,6 +319,8 @@ class ReaderSettings {
   /// 日间和夜间分别记住上次选择的配色。
   final String dayThemeId;
   final String nightThemeId;
+  final ReaderBackgroundPreference? dayBackground;
+  final ReaderBackgroundPreference? nightBackground;
 
   /// 上次保存的自定义配色，切换内置主题后仍可复用。
   final String? customThemeId;
@@ -344,12 +400,32 @@ class ReaderSettings {
     ).resolveForBrightness(brightness);
   }
 
+  ReaderBackgroundPreference get _currentBackground =>
+      ReaderBackgroundPreference(
+        id: backgroundId,
+        opacity: backgroundImageOpacity,
+        customThemeId: customThemeId,
+      );
+
+  /// 软件或系统切换模式时只解析当前外观，不写入偏好或改变文本位置。
+  ReaderSettings forBrightness(Brightness brightness) =>
+      copyWithTheme(themeForBrightness(brightness).id);
+
+  /// 清理图片时同时保护日间、夜间和正在编辑的背景。
+  Iterable<String> get retainedBackgroundIds => [
+    backgroundId,
+    if (dayBackground != null) dayBackground!.id,
+    if (nightBackground != null) nightBackground!.id,
+  ];
+
   /// 从排版覆盖与主题还原（设置面板回调 → 持久化用）。
   static ReaderSettings fromOverrides(
     ReaderOverrides overrides, {
     required String themeId,
     String dayThemeId = ReaderSettingsDefaults.themeId,
     String nightThemeId = 'black',
+    ReaderBackgroundPreference? dayBackground,
+    ReaderBackgroundPreference? nightBackground,
     String backgroundId = 'none',
     double backgroundImageOpacity =
         ReaderSettingsDefaults.backgroundImageOpacity,
@@ -376,6 +452,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -404,6 +482,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -432,6 +512,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -452,6 +534,11 @@ class ReaderSettings {
   /// 复制并替换主题。
   ReaderSettings copyWithTheme(String id) {
     final next = ReaderTheme.byId(id);
+    final day = theme.isDark ? dayBackground : _currentBackground;
+    final night = theme.isDark ? _currentBackground : nightBackground;
+    final background = next.isDark == theme.isDark
+        ? _currentBackground
+        : (next.isDark ? night : day) ?? const ReaderBackgroundPreference();
     return ReaderSettings(
       fontSize: fontSize,
       fontFamily: fontFamily,
@@ -462,9 +549,11 @@ class ReaderSettings {
       themeId: id,
       dayThemeId: next.isDark ? themeForBrightness(Brightness.light).id : id,
       nightThemeId: next.isDark ? id : themeForBrightness(Brightness.dark).id,
-      customThemeId: ReaderTheme.customById(id)?.id ?? customThemeId,
-      backgroundId: backgroundId,
-      backgroundImageOpacity: backgroundImageOpacity,
+      dayBackground: day,
+      nightBackground: night,
+      customThemeId: ReaderTheme.customById(id)?.id ?? background.customThemeId,
+      backgroundId: background.id,
+      backgroundImageOpacity: background.opacity,
       inkMode: inkMode,
       cornerInfo: cornerInfo,
       margins: margins,
@@ -491,6 +580,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: id,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -520,6 +611,8 @@ class ReaderSettings {
         themeId: themeId,
         dayThemeId: dayThemeId,
         nightThemeId: nightThemeId,
+        dayBackground: dayBackground,
+        nightBackground: nightBackground,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
         backgroundImageOpacity: opacity,
@@ -548,6 +641,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -576,6 +671,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -604,6 +701,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -632,6 +731,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -660,6 +761,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -688,6 +791,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -716,6 +821,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -744,6 +851,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -772,6 +881,8 @@ class ReaderSettings {
         themeId: themeId,
         dayThemeId: dayThemeId,
         nightThemeId: nightThemeId,
+        dayBackground: dayBackground,
+        nightBackground: nightBackground,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
         backgroundImageOpacity: backgroundImageOpacity,
@@ -801,6 +912,8 @@ class ReaderSettings {
         themeId: themeId,
         dayThemeId: dayThemeId,
         nightThemeId: nightThemeId,
+        dayBackground: dayBackground,
+        nightBackground: nightBackground,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
         backgroundImageOpacity: backgroundImageOpacity,
@@ -830,6 +943,8 @@ class ReaderSettings {
         themeId: themeId,
         dayThemeId: dayThemeId,
         nightThemeId: nightThemeId,
+        dayBackground: dayBackground,
+        nightBackground: nightBackground,
         customThemeId: customThemeId,
         backgroundId: backgroundId,
         backgroundImageOpacity: backgroundImageOpacity,
@@ -857,6 +972,8 @@ class ReaderSettings {
     themeId: themeId,
     dayThemeId: dayThemeId,
     nightThemeId: nightThemeId,
+    dayBackground: dayBackground,
+    nightBackground: nightBackground,
     customThemeId: customThemeId,
     backgroundId: backgroundId,
     backgroundImageOpacity: backgroundImageOpacity,
@@ -886,6 +1003,8 @@ class ReaderSettings {
       other.themeId == themeId &&
       other.dayThemeId == dayThemeId &&
       other.nightThemeId == nightThemeId &&
+      other.dayBackground == dayBackground &&
+      other.nightBackground == nightBackground &&
       other.customThemeId == customThemeId &&
       other.backgroundId == backgroundId &&
       other.backgroundImageOpacity == backgroundImageOpacity &&
@@ -913,6 +1032,8 @@ class ReaderSettings {
     themeId,
     dayThemeId,
     nightThemeId,
+    dayBackground,
+    nightBackground,
     customThemeId,
     Object.hash(backgroundId, backgroundImageOpacity),
     inkMode,
@@ -949,6 +1070,8 @@ class ReaderSettingsStore {
   static const String keyThemeId = 'reader.themeId';
   static const String keyDayThemeId = 'reader.dayThemeId';
   static const String keyNightThemeId = 'reader.nightThemeId';
+  static const String keyDayBackground = 'reader.dayBackground';
+  static const String keyNightBackground = 'reader.nightBackground';
   static const String keyCustomThemeId = 'reader.customThemeId';
   static const String keyBackgroundId = 'reader.backgroundId';
   static const String keyBackgroundImageOpacity =
@@ -998,6 +1121,12 @@ class ReaderSettingsStore {
           await _library.getSetting(keyDayThemeId) ??
           ReaderSettingsDefaults.themeId,
       nightThemeId: await _library.getSetting(keyNightThemeId) ?? 'black',
+      dayBackground: ReaderBackgroundPreference.fromJson(
+        await _library.getSetting(keyDayBackground),
+      ),
+      nightBackground: ReaderBackgroundPreference.fromJson(
+        await _library.getSetting(keyNightBackground),
+      ),
       customThemeId: ReaderTheme.customById(
         await _library.getSetting(keyCustomThemeId),
       )?.id,
@@ -1159,6 +1288,18 @@ class ReaderSettingsStore {
     await _library.setSetting(keyThemeId, settings.themeId);
     await _library.setSetting(keyDayThemeId, settings.dayThemeId);
     await _library.setSetting(keyNightThemeId, settings.nightThemeId);
+    await _library.setSetting(
+      keyDayBackground,
+      settings.dayBackground == null
+          ? ''
+          : jsonEncode(settings.dayBackground!.toJson()),
+    );
+    await _library.setSetting(
+      keyNightBackground,
+      settings.nightBackground == null
+          ? ''
+          : jsonEncode(settings.nightBackground!.toJson()),
+    );
     await _library.setSetting(keyCustomThemeId, settings.customThemeId ?? '');
     await _library.setSetting(keyBackgroundId, settings.backgroundId);
     await _library.setSetting(

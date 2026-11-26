@@ -121,7 +121,11 @@ void main() {
     final reloaded = await store.load();
     expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.paper);
     expect(reloaded.themeForBrightness(Brightness.dark), ReaderTheme.moss);
-    expect(reloaded.backgroundImageOpacity, 0.65);
+    expect(reloaded.backgroundImageOpacity, 1);
+    expect(
+      reloaded.forBrightness(Brightness.dark).backgroundImageOpacity,
+      0.65,
+    );
     expect(
       ReaderSettings.fromOverrides(
         settings.overrides,

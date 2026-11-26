@@ -66,6 +66,7 @@ void main() {
     final mode = ValueNotifier(ThemeMode.system);
     addTearDown(mode.dispose);
     final changes = <ReaderSettings>[];
+    var nightBackground = 'none';
     var closed = false;
     await tester.pumpWidget(
       ValueListenableBuilder<ThemeMode>(
@@ -86,7 +87,10 @@ void main() {
           bytes: _book(),
           bookId: 'app-theme-flow',
           store: MemoryReaderProgressStore(),
-          settings: ReaderSettings.defaults.copyWithTheme('sepia'),
+          settings: ReaderSettings.defaults
+              .copyWithTheme('sepia')
+              .copyWithBackground('paper')
+              .copyWithBackgroundImageOpacity(0.65),
           onSettingsChanged: changes.add,
           onClosed: () => closed = true,
         ),
@@ -104,6 +108,9 @@ void main() {
     Future<void> verify(ReaderTheme expected) async {
       await tester.pumpAndSettle();
       expect(paper(), expected.background);
+      final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+      expect(reader.backgroundId, expected.isDark ? nightBackground : 'paper');
+      expect(reader.backgroundImageOpacity, expected.isDark ? 1 : 0.65);
       if (find.byType(SettingsPanel).evaluate().isEmpty) {
         await _themeMenu(tester);
       }
@@ -141,6 +148,12 @@ void main() {
     await verify(ReaderTheme.moss);
     expect(mode.value, ThemeMode.system, reason: '同模式选色保留跟随系统');
     expect(changes.single.themeId, 'moss');
+    await _tap(tester, 'settings-bg-gray');
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    nightBackground = 'gray';
+    await verify(ReaderTheme.moss);
     mode.value = ThemeMode.light;
     await verify(ReaderTheme.sepia);
     dispatcher.platformBrightnessTestValue = Brightness.light;
@@ -148,7 +161,7 @@ void main() {
     await verify(ReaderTheme.moss);
     mode.value = ThemeMode.light;
     await verify(ReaderTheme.sepia);
-    expect(changes, hasLength(1), reason: '环境变化不覆盖持久化的阅读配色');
+    expect(changes, hasLength(2), reason: '环境变化不覆盖持久化的阅读配色');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await pumpReaderUntilComplete(
@@ -309,16 +322,35 @@ void main() {
     await tester.pumpAndSettle();
     await _tap(tester, 'settings-theme-black');
     expect(changes.last.themeId, 'black');
-    expect(changes.last.backgroundId, 'paper');
+    expect(changes.last.backgroundId, 'none', reason: '夜间恢复自己的背景');
     final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
-    expect(reader.backgroundImageOpacity, 0.65);
+    expect(reader.backgroundImageOpacity, 1);
+    await _tap(tester, 'settings-bg-gray');
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pumpAndSettle();
     reader.onBackgroundImageOpacityChanged!(0.35);
     await tester.pump();
     expect(changes.last.backgroundImageOpacity, 0.35);
     expect(changes.last.themeId, 'black');
-    expect(changes.last.backgroundId, 'paper');
+    expect(changes.last.backgroundId, 'gray');
     expect(
       tester.widget<ReaderPage>(find.byType(ReaderPage)).backgroundImageOpacity,
+      0.35,
+    );
+    tester
+        .widget<ReaderMenuOverlay>(find.byType(ReaderMenuOverlay))
+        .onToggleDayNight();
+    await tester.pumpAndSettle();
+    await _tap(tester, 'settings-theme-sepia');
+    await tester.pumpAndSettle();
+    final light = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    expect(light.backgroundId, 'paper');
+    expect(light.backgroundImageOpacity, 0.65);
+    expect(changes.last.forBrightness(Brightness.dark).backgroundId, 'gray');
+    expect(
+      changes.last.forBrightness(Brightness.dark).backgroundImageOpacity,
       0.35,
     );
     expect(session.page, same(page));

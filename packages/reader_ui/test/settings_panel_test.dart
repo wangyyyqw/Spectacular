@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+
+import 'dart:ui' as ui;
+
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_core/css/reader_overrides.dart';
@@ -9,6 +13,55 @@ import 'package:reader_ui/tap_zones.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
+  for (final material3 in [false, true]) {
+    testWidgets('图片与边框圆角共用边界，${material3 ? "MD3" : "经典"}角内无空白', (tester) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final capture = GlobalKey();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(useMaterial3: material3),
+          home: Scaffold(
+            body: RepaintBoundary(
+              key: capture,
+              child: SettingsPanel(
+                section: SettingsSection.theme,
+                overrides: ReaderSettingsDefaults.overrides,
+                themeId: 'white',
+                onOverridesChanged: (_) {},
+                onThemeChanged: (_) {},
+                onBackgroundChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final tile = tester.getRect(
+        find.byKey(const ValueKey('settings-image-wood')),
+      );
+      final boundary =
+          capture.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final image = await tester.runAsync(() => boundary.toImage());
+      final pixels = await tester.runAsync(
+        () => image!.toByteData(format: ui.ImageByteFormat.rawRgba),
+      );
+      final origin = tester.getTopLeft(find.byKey(capture));
+      final point =
+          tile.topLeft -
+          origin +
+          (material3 ? const Offset(5, 10) : const Offset(3, 7));
+      final offset = (point.dy.floor() * image!.width + point.dx.floor()) * 4;
+      expect(pixels!.getUint8(offset), lessThan(200));
+      expect(pixels.getUint8(offset + 1), lessThan(150));
+      expect(pixels.getUint8(offset + 2), lessThan(120));
+      image.dispose();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final brightness in Brightness.values) {
     testWidgets('主题面板仅显示 $brightness 对应色块且不显示主题名称', (tester) async {
       final changes = <String>[];

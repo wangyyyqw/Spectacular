@@ -721,6 +721,15 @@ void main() {
     await image.writeAsBytes(bytes);
     await a.library.setSetting('reader.fontSize', '24');
     await a.library.setSetting('reader.backgroundId', 'image:${image.path}');
+    for (final mode in ['day', 'night']) {
+      await a.library.setSetting(
+        'reader.${mode}Background',
+        jsonEncode({
+          'backgroundId': 'image:${image.path}',
+          'opacity': mode == 'day' ? 0.65 : 0.35,
+        }),
+      );
+    }
     const profile = SyncProfile(
       provider: SyncProvider.webdav,
       endpoint: 'http://localhost',
@@ -744,11 +753,30 @@ void main() {
     );
     await b.engine().sync();
     expect(await b.library.getSetting('reader.fontSize'), isNull);
+    const preferencesOnly = SyncProfile(
+      provider: SyncProvider.webdav,
+      endpoint: 'http://localhost',
+      automatic: false,
+      preferences: true,
+      resources: false,
+    );
+    await b.engine(profile: preferencesOnly).sync();
+    expect(await b.library.getSetting('reader.dayBackground'), isNull);
+    expect(await b.library.getSetting('reader.nightBackground'), isNull);
     await b.engine(profile: profile).sync();
     expect(await b.library.getSetting('reader.fontSize'), '24');
     final background = (await b.library.getSetting('reader.backgroundId'))!;
     expect(background, isNot('image:${image.path}'));
     expect(await File(background.substring(6)).readAsBytes(), bytes);
+    for (final mode in ['day', 'night']) {
+      final preference = jsonDecode(
+        (await b.library.getSetting('reader.${mode}Background'))!,
+      ) as Map<String, dynamic>;
+      final path = preference['backgroundId'] as String;
+      expect(path, isNot('image:${image.path}'));
+      expect(await File(path.substring(6)).readAsBytes(), bytes);
+      expect(preference['opacity'], mode == 'day' ? 0.65 : 0.35);
+    }
   });
 
   test('各书装饰和规则按书归档，共用图片分别落入所属书和全局素材目录', () async {

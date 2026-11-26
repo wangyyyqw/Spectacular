@@ -910,6 +910,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
     final muted = ReaderDrawerStyle.mutedOf(theme);
     return <Widget>[
       Text(
+        _readingBrightness == Brightness.dark ? '深色阅读背景' : '浅色阅读背景',
+        key: const ValueKey('settings-background-mode'),
+        style: TextStyle(fontSize: 12, color: muted),
+      ),
+      const SizedBox(height: 10),
+      Text(
         '纯色',
         style: TextStyle(
           fontSize: 13,
@@ -1804,17 +1810,13 @@ class _ImageTileFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final radius = ReaderUiStyle.controlRadiusOf(Theme.of(context));
     return Container(
       width: 72,
       height: 160,
-      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: scheme.surface,
-        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
-        border: Border.all(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: 2,
-        ),
+        borderRadius: radius,
         boxShadow: <BoxShadow>[
           BoxShadow(
             color: scheme.shadow.withValues(alpha: .05),
@@ -1823,7 +1825,18 @@ class _ImageTileFrame extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(borderRadius: BorderRadius.circular(10), child: child),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        foregroundDecoration: BoxDecoration(
+          borderRadius: radius,
+          border: Border.all(
+            color: selected ? scheme.primary : scheme.outlineVariant,
+            width: 2,
+          ),
+        ),
+        decoration: BoxDecoration(borderRadius: radius),
+        child: child,
+      ),
     );
   }
 }

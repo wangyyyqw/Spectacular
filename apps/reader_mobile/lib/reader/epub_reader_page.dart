@@ -7,7 +7,9 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
@@ -288,7 +290,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   void _changeTheme(String themeId) {
-    _changeSettings(_settings.copyWithTheme(themeId));
+    _changeSettings(_activeSettings.copyWithTheme(themeId));
     final scope = AppThemeScope.maybeOf(context);
     if (scope == null) return;
     final dark = ReaderTheme.byId(themeId).isDark;
@@ -373,18 +375,15 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   Future<void> _editTtsSpeed(ReaderTtsController controller) async {
     var draft = _settings.tts;
     final systemMode = draft.mode == ReaderTtsMode.system;
-    final applied = await showModalBottomSheet<ReaderTtsSettings>(
+    final applied = await showReaderDrawer<ReaderTtsSettings>(
       context: context,
-      useSafeArea: true,
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-          child: Column(
+        builder: (context, setSheetState) => ReaderSheetForm(
+          title: const Text('语速'),
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('语速', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
               if (systemMode) ...[
                 _TtsSlider(
                   label: '语速',
@@ -422,14 +421,15 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                   ),
                 ),
               ],
-              const SizedBox(height: 12),
-              FilledButton(
-                key: const ValueKey<String>('tts-speed-apply'),
-                onPressed: () => Navigator.of(sheetContext).pop(draft),
-                child: const Text('完成'),
-              ),
             ],
           ),
+          actions: [
+            FilledButton(
+              key: const ValueKey<String>('tts-speed-apply'),
+              onPressed: () => Navigator.of(sheetContext).pop(draft),
+              child: const Text('完成'),
+            ),
+          ],
         ),
       ),
     );
@@ -439,30 +439,25 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   }
 
   Future<void> _editTtsTimer() async {
-    final selected = await showModalBottomSheet<Duration?>(
+    final selected = await showReaderActionSheet<Duration?>(
       context: context,
-      useSafeArea: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const ListTile(title: Text('定时暂停')),
-            for (final minutes in const [15, 30, 45, 60])
-              ListTile(
-                leading: const Icon(Icons.timer_outlined),
-                title: Text('$minutes 分钟后暂停'),
-                onTap: () =>
-                    Navigator.of(context).pop(Duration(minutes: minutes)),
-              ),
-            if (_ttsSleepDuration != null)
-              ListTile(
-                leading: const Icon(Icons.close),
-                title: const Text('取消定时'),
-                onTap: () => Navigator.of(context).pop(Duration.zero),
-              ),
-          ],
-        ),
-      ),
+      title: '定时暂停',
+      actions: [
+        for (final minutes in const [15, 30, 45, 60])
+          ReaderSheetAction<Duration?>(
+            value: Duration(minutes: minutes),
+            icon: const Icon(Icons.timer_outlined),
+            title: '$minutes 分钟后暂停',
+            selected: _ttsSleepDuration == Duration(minutes: minutes),
+          ),
+        if (_ttsSleepDuration != null)
+          const ReaderSheetAction<Duration?>(
+            value: Duration.zero,
+            icon: Icon(Icons.close),
+            title: '取消定时',
+            destructive: true,
+          ),
+      ],
     );
     if (selected == null || !mounted) return;
     _ttsSleepTimer?.cancel();
@@ -545,10 +540,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (draft.dialogueVoiceId == draft.narratorVoiceId) {
       draft = draft.copyWith(dialogueVoiceId: '');
     }
-    return showReaderBottomSheet<ReaderTtsSettings>(
+    return showReaderDrawer<ReaderTtsSettings>(
       context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
           ReaderOfflineVoice? selectedNarrator;
@@ -558,19 +551,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               break;
             }
           }
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              20,
-              18,
-              20,
-              24 + MediaQuery.viewInsetsOf(context).bottom,
-            ),
-            child: Column(
+          return ReaderSheetForm(
+            title: const Text('听书设置'),
+            content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text('听书设置', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 12),
                 SegmentedButton<ReaderTtsMode>(
                   key: const ValueKey<String>('tts-mode'),
                   segments: const <ButtonSegment<ReaderTtsMode>>[
@@ -593,10 +579,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                 const SizedBox(height: 12),
                 if (draft.mode == ReaderTtsMode.system) ...<Widget>[
                   if (systemVoicesUnavailable)
-                    Text(
-                      '无法读取系统音色，将使用系统默认语音。',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    )
+                    const ReaderInlineNotice(message: '无法读取系统音色，将使用系统默认语音。')
                   else
                     ReaderDropdownButtonFormField<String>(
                       key: ValueKey<String>(
@@ -646,10 +629,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                       },
                     ),
                 ] else if (installedVoices.isEmpty) ...<Widget>[
-                  Text(
-                    '尚未下载离线音色。下载后可离线使用阅微伴听，'
-                    '模型较大，建议连接 Wi-Fi。',
-                    style: Theme.of(context).textTheme.bodyMedium,
+                  const ReaderInlineNotice(
+                    message: '尚未下载离线音色。下载后可离线使用阅微伴听，模型较大，建议连接 Wi-Fi。',
                   ),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
@@ -711,7 +692,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                       );
                     },
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   ReaderDropdownButtonFormField<String>(
                     key: ValueKey<String>(
                       'tts-dialogue-${draft.dialogueVoiceId}',
@@ -742,6 +723,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     },
                   ),
                   if ((selectedNarrator?.speakerCount ?? 1) > 1) ...[
+                    const SizedBox(height: 12),
                     ReaderDropdownButtonFormField<int>(
                       key: ValueKey<int>(draft.narratorSpeakerId),
                       initialValue: draft.narratorSpeakerId.clamp(
@@ -769,8 +751,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                         );
                       },
                     ),
-                    const SizedBox(height: 8),
                   ],
+                  const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: TextButton.icon(
@@ -816,6 +798,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     ),
                   ),
                 ],
+                const SizedBox(height: 8),
                 ReaderSwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('连续朗读后续页'),
@@ -824,24 +807,25 @@ class _EpubReaderPageState extends State<EpubReaderPage>
                     () => draft = draft.copyWith(autoTurnPage: value),
                   ),
                 ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  key: const ValueKey<String>('tts-apply-settings'),
-                  onPressed: () {
-                    if (draft.mode == ReaderTtsMode.offline &&
-                        !draft.hasOfflineVoice) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('请先下载并选择离线旁白音色')),
-                      );
-                      return;
-                    }
-                    Navigator.of(context).pop(draft);
-                  },
-                  icon: const Icon(Icons.headphones),
-                  label: const Text('应用设置'),
-                ),
               ],
             ),
+            actions: [
+              FilledButton.icon(
+                key: const ValueKey<String>('tts-apply-settings'),
+                onPressed: () {
+                  if (draft.mode == ReaderTtsMode.offline &&
+                      !draft.hasOfflineVoice) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('请先下载并选择离线旁白音色')),
+                    );
+                    return;
+                  }
+                  Navigator.of(context).pop(draft);
+                },
+                icon: const Icon(Icons.headphones),
+                label: const Text('应用设置'),
+              ),
+            ],
           );
         },
       ),
@@ -1265,7 +1249,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
             ? ThemeColorScope.maybeOf(context)?.wallpaperSeed
             : null,
         theme: _pageTheme,
-        backgroundId: _settings.backgroundId,
+        backgroundId: _activeSettings.backgroundId,
         store: _backgroundStore,
         child: Stack(
           fit: StackFit.expand,
@@ -1318,6 +1302,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     return _settings.themeForBrightness(Theme.of(context).brightness);
   }
 
+  ReaderSettings get _activeSettings => _settings.forBrightness(
+    _pageTheme.isDark ? Brightness.dark : Brightness.light,
+  );
+
   Widget _buildBody() {
     if (_loading) {
       return ReaderLoadingSkeleton(title: widget.bookTitle);
@@ -1329,7 +1317,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         child: Text('打开失败：$error'),
       );
     }
-    final settings = _settings;
+    final settings = _activeSettings;
     return ReaderPage(
       key: const ValueKey<String>('reader-page'),
       readingDuration: _readingDuration,
@@ -1388,9 +1376,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
           ? null
           : _toggleDayNight,
       onBackgroundChanged: (backgroundId) =>
-          _changeSettings(_settings.copyWithBackground(backgroundId)),
-      onBackgroundImageOpacityChanged: (opacity) =>
-          _changeSettings(_settings.copyWithBackgroundImageOpacity(opacity)),
+          _changeSettings(_activeSettings.copyWithBackground(backgroundId)),
+      onBackgroundImageOpacityChanged: (opacity) => _changeSettings(
+        _activeSettings.copyWithBackgroundImageOpacity(opacity),
+      ),
       onInkModeChanged: (enabled) =>
           _changeSettings(_settings.copyWithInkMode(enabled)),
       onSearch: _search == null ? null : _searchResults,
