@@ -35,6 +35,9 @@ class AnnotationStyleOption {
   final String label;
 }
 
+/// 外观编辑器当前展示的设置分区。
+enum ReaderAnnotationAppearanceSection { all, color, background, line, width }
+
 /// 新建想法、划线编辑和全局设置共用的外观控件。
 class ReaderAnnotationAppearanceEditor extends StatelessWidget {
   /// 创建外观编辑器。
@@ -50,6 +53,7 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
     required this.onSettings,
     this.inkMode = false,
     this.showOpacity = true,
+    this.section = ReaderAnnotationAppearanceSection.all,
   });
 
   /// 五个快捷颜色。
@@ -97,45 +101,62 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
   /// 全局设置不单独保存透明度时隐藏该控制。
   final bool showOpacity;
 
+  /// 可按分区展示，以供全局设置页分页浏览。
+  final ReaderAnnotationAppearanceSection section;
+
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      if (inkMode)
-        const Padding(
-          key: ValueKey<String>('annotation-ink-color-hint'),
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text('墨水屏模式：划线统一为黑色，背景与染色显示为实线'),
-        )
-      else ...[
-        Text('划线颜色', style: Theme.of(context).textTheme.labelLarge),
-        const SizedBox(height: 8),
-        _colors(context),
-        if (showOpacity) _opacity(context),
-        _styles(
-          context,
-          '背景',
-          ReaderAnnotationStyle.values.take(1).toList()..addAll([
-            ReaderAnnotationStyle.halfBackground,
-            ReaderAnnotationStyle.tint,
-          ]),
-        ),
+  Widget build(BuildContext context) {
+    final backgroundStyles = [
+      ReaderAnnotationStyle.background,
+      ReaderAnnotationStyle.halfBackground,
+      ReaderAnnotationStyle.tint,
+    ];
+    final lineStyles = ReaderAnnotationStyle.values
+        .where((item) => !backgroundStyles.contains(item))
+        .toList();
+    final children = switch (section) {
+      ReaderAnnotationAppearanceSection.all => [
+        if (!inkMode) ...[
+          ..._colorControls(context),
+          _styles(context, '背景', backgroundStyles),
+        ],
+        _styles(context, '线条', lineStyles),
+        if (!inkMode) ..._widthControls(context, separate: true),
       ],
-      _styles(
-        context,
-        '线条',
-        ReaderAnnotationStyle.values
-            .where(
-              (item) => ![
-                ReaderAnnotationStyle.background,
-                ReaderAnnotationStyle.halfBackground,
-                ReaderAnnotationStyle.tint,
-              ].contains(item),
-            )
-            .toList(),
-      ),
-      if (!inkMode) ...[
-        const SizedBox(height: 14),
+      ReaderAnnotationAppearanceSection.color =>
+        inkMode ? <Widget>[] : _colorControls(context),
+      ReaderAnnotationAppearanceSection.background =>
+        inkMode ? <Widget>[] : [_styles(context, '背景', backgroundStyles)],
+      ReaderAnnotationAppearanceSection.line => [
+        _styles(context, '线条', lineStyles),
+      ],
+      ReaderAnnotationAppearanceSection.width =>
+        inkMode ? <Widget>[] : _widthControls(context),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (inkMode)
+          const Padding(
+            key: ValueKey<String>('annotation-ink-color-hint'),
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('墨水屏模式：划线统一为黑色，背景与染色显示为实线'),
+          ),
+        ...children,
+      ],
+    );
+  }
+
+  List<Widget> _colorControls(BuildContext context) => [
+    Text('划线颜色', style: Theme.of(context).textTheme.labelLarge),
+    const SizedBox(height: 8),
+    _colors(context),
+    if (showOpacity) _opacity(context),
+  ];
+
+  List<Widget> _widthControls(BuildContext context, {bool separate = false}) =>
+      [
+        if (separate) const SizedBox(height: 14),
         Text('线宽', style: Theme.of(context).textTheme.labelLarge),
         Wrap(
           spacing: 8,
@@ -159,9 +180,7 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
           onChanged: (value) =>
               onSettings(settings.copyWith(joinBackgroundLines: value)),
         ),
-      ],
-    ],
-  );
+      ];
 
   Widget _colors(BuildContext context) => Wrap(
     spacing: 6,

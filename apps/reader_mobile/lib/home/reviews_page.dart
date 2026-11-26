@@ -5,6 +5,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_section_slider.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../library/library_store.dart';
@@ -42,6 +43,7 @@ class ReviewsPage extends StatefulWidget {
 class _ReviewsPageState extends State<ReviewsPage> {
   int _section = 0;
   List<BookEntry>? _books;
+  final _loadedSections = <int>{};
   Map<String, BookNoteCounts> _counts = const {};
   Map<String, Duration> _durations = const {};
   Map<String, BookReview> _reviews = const <String, BookReview>{};
@@ -88,6 +90,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
       oldWidget.library.removeListener(_onLibraryChanged);
       widget.library.addListener(_onLibraryChanged);
       _books = null;
+      _loadedSections.clear();
     }
     if (oldWidget.active != widget.active ||
         libraryChanged ||
@@ -108,7 +111,6 @@ class _ReviewsPageState extends State<ReviewsPage> {
     setState(() {
       _section = index;
       _editToken++;
-      _books = null;
       _error = null;
       _searching = false;
       _query = '';
@@ -183,9 +185,10 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Future<void> _reload() async {
-    if (_bookListsTab) return;
     final token = ++_reloadToken;
+    if (_bookListsTab) return;
     final library = widget.library;
+    final section = _section;
     final notes = _notes;
     try {
       final books = <BookEntry>[
@@ -201,9 +204,13 @@ class _ReviewsPageState extends State<ReviewsPage> {
       final durations = notes
           ? _durations
           : await library.bookReadingDurations();
-      if (mounted && widget.active && token == _reloadToken) {
+      if (mounted &&
+          widget.active &&
+          token == _reloadToken &&
+          section == _section) {
         setState(() {
           _books = books;
+          _loadedSections.add(section);
           _finishedBooks = finished;
           _counts = counts;
           _reviews = {
@@ -215,9 +222,14 @@ class _ReviewsPageState extends State<ReviewsPage> {
         });
       }
     } catch (error, stackTrace) {
-      if (!mounted || !widget.active || token != _reloadToken) return;
+      if (!mounted ||
+          !widget.active ||
+          token != _reloadToken ||
+          section != _section) {
+        return;
+      }
       final label = notes ? '笔记' : '书评';
-      if (_books == null) {
+      if (!_loadedSections.contains(section)) {
         setState(() => _error = '$label加载失败，请重试');
       } else {
         recordAppError('reviews_reload_failed', error, stackTrace: stackTrace);
@@ -400,7 +412,12 @@ class _ReviewsPageState extends State<ReviewsPage> {
                                     constraints: BoxConstraints(
                                       maxWidth: desktop ? 320 : 252,
                                     ),
-                                    child: _SectionSlider(
+                                    child: ReaderSectionSlider(
+                                      sections: const [
+                                        (key: 'notes', label: '笔记'),
+                                        (key: 'reviews', label: '书评'),
+                                        (key: 'booklists', label: '书单'),
+                                      ],
                                       index: _section,
                                       onSelected: _changeSection,
                                     ),
@@ -552,7 +569,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
       );
     }
     final books = _books;
-    if (books == null) {
+    if (books == null || !_loadedSections.contains(_section)) {
       return _error == null
           ? const Center(child: CircularProgressIndicator())
           : _ReviewLoadError(message: _error!, onRetry: _reload);
@@ -629,96 +646,6 @@ class _SearchButton extends StatelessWidget {
   }
 }
 
-class _SectionSlider extends StatelessWidget {
-  const _SectionSlider({required this.index, required this.onSelected});
-
-  static const _sections = <({String key, String label})>[
-    (key: 'notes', label: '笔记'),
-    (key: 'reviews', label: '书评'),
-    (key: 'booklists', label: '书单'),
-  ];
-
-  final int index;
-  final ValueChanged<int> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final segment = constraints.maxWidth / _sections.length;
-          return Stack(
-            children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                left: index * segment,
-                top: 0,
-                width: segment,
-                height: constraints.maxHeight,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: scheme.surface,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: scheme.shadow.withValues(alpha: .08),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  for (var i = 0; i < _sections.length; i++)
-                    Expanded(
-                      child: Semantics(
-                        key: ValueKey('${_sections[i].key}-tab'),
-                        label: _sections[i].label,
-                        button: true,
-                        selected: index == i,
-                        onTap: () => onSelected(i),
-                        excludeSemantics: true,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(999),
-                          onTap: () => onSelected(i),
-                          child: Center(
-                            child: Text(
-                              _sections[i].label,
-                              style: TextStyle(
-                                fontSize: 14,
-                                height: 1.2,
-                                fontWeight: index == i
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: index == i
-                                    ? scheme.onSurface
-                                    : scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
 /// 切换笔记、书评、书单时沿用书架的轻微横向滑入淡入。
 class _SectionTransition extends StatefulWidget {
   const _SectionTransition({required this.index, required this.child});
@@ -763,7 +690,7 @@ class _SectionTransitionState extends State<_SectionTransition> {
                 begin: Offset(direction * .1, 0),
                 end: Offset.zero,
               ).animate(animation),
-              child: child,
+              child: RepaintBoundary(child: child),
             ),
           );
         },
