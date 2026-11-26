@@ -37,7 +37,7 @@ class PageTurnPainter extends CustomPainter {
   ContinuationPageGeometry? _originContinuation;
   ContinuationPageGeometry? _targetContinuation;
 
-  /// 堆叠覆盖中下一页只跟随当前页移动的一小段，形成搓纸视差。
+  /// 堆叠覆盖中底页只跟随上层纸面移动的一小段，形成搓纸视差。
   static const _coverStackShift = 0.08;
   static const _coverStackMask = Color(0xFF808080);
   static const _coverStackMaskAlpha = 0.22;
@@ -213,6 +213,22 @@ class PageTurnPainter extends CustomPainter {
   void _cover(Canvas canvas, Size size, ui.Image origin, ui.Image target) {
     final p = controller.progress;
     if (controller.mode == PageTurnMode.coverStack) {
+      if (!controller.next) {
+        final targetDx = (controller.rtl ? 1.0 : -1.0) * (1 - p) * size.width;
+        final originDx =
+            (controller.rtl ? -1.0 : 1.0) * _coverStackShift * p * size.width;
+        canvas.save();
+        canvas.translate(originDx, 0);
+        _image(canvas, origin, size);
+        _coverStackMaskPaint.color = _coverStackMask.withValues(
+          alpha: _coverStackMaskAlpha * p,
+        );
+        canvas.drawRect(Offset.zero & size, _coverStackMaskPaint);
+        canvas.restore();
+        _targetImage(canvas, size, origin, target, dx: targetDx);
+        _edgeShadow(canvas, size, targetDx, fromRight: !controller.rtl);
+        return;
+      }
       final exit =
           (controller.next ? -1.0 : 1.0) * (controller.rtl ? -1.0 : 1.0);
       final originDx = exit * p * size.width;
