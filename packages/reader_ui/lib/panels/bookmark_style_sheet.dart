@@ -1,13 +1,13 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
+import '../annotations/annotation_appearance_editor.dart';
 import '../bookmarks/bookmark_ribbon.dart';
 import '../bookmarks/bookmark_style.dart';
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
-import '../theme/reader_panel_reveal.dart';
+import '../theme/reader_section_slider.dart';
 
 /// 编辑全局书签样式与下拉开关，保存前只更新预览。
 class ReaderBookmarkStyleSheet extends StatefulWidget {
@@ -30,6 +30,7 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
   late ReaderBookmarkStyle _style = widget.style;
   bool _picking = false;
   String? _error;
+  int _sectionIndex = 0;
 
   Future<void> _pickImage() async {
     setState(() {
@@ -48,108 +49,80 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => Material(
-    color: ReaderFrostedSurface.panelColorOf(context),
-    child: SafeArea(
-      top: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Expanded(child: _buildList(context)),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: const ValueKey('bookmark-style-save'),
-                onPressed: _picking
-                    ? null
-                    : () => Navigator.of(context).pop(_style),
-                child: const Text('保存书签样式'),
-              ),
+  Widget _sectionTabs() => ReaderSectionSlider(
+    key: const ValueKey('bookmark-style-section-tabs'),
+    sections: const [
+      (key: 'image', label: '图片'),
+      (key: 'size', label: '尺寸/开关'),
+      (key: 'color', label: '颜色'),
+    ],
+    index: _sectionIndex,
+    onSelected: (index) => setState(() => _sectionIndex = index),
+  );
+
+  Widget _header(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('应用于所有书籍，显示在有书签的阅读页右上角。'),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 112,
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                var scale = 96 / _style.length;
+                final widthScale =
+                    constraints.maxWidth / (_style.rightInset + _style.width);
+                if (widthScale < scale) scale = widthScale;
+                if (scale > 1) scale = 1;
+                return Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    Positioned(
+                      top: 8,
+                      right: _style.rightInset * scale,
+                      child: Transform.scale(
+                        scale: scale,
+                        alignment: Alignment.topRight,
+                        child: ReaderBookmarkRibbon(
+                          style: _style,
+                          color: Color(
+                            _style.color ??
+                                Theme.of(context).colorScheme.primary
+                                    .toARGB32(),
+                          ),
+                          imageLoader: widget.imageLoader,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 8),
+        _sectionTabs(),
+      ],
     ),
   );
 
-  Widget _buildList(BuildContext context) {
-    final route = ModalRoute.of(context);
-    final animation = route is ModalBottomSheetRoute
-        ? route.animation!.drive(CurveTween(curve: Easing.legacyDecelerate))
-        : const AlwaysStoppedAnimation<double>(1);
-    // 固定表单视口，入场按露出范围创建控件，保存按钮始终在底部。
-    return ReaderPanelReveal(
-      animation: animation,
-      // 底部抽屉按整块表单高度平移，预建范围包含把手与固定操作区的位移。
-      extent: MediaQuery.sizeOf(context).height,
-      child: CustomScrollView(
-        scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.all(20),
-            sliver: ReaderPanelSliver(
-              sliver: SliverList.list(children: _fields(context)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  List<Widget> _sectionFields() => switch (_sectionIndex) {
+    0 => _imageFields(),
+    1 => _sizeFields(),
+    _ => _colorFields(),
+  };
 
-  // 声明式字段保持视觉顺序；草稿归当前面板持有，滚出视口不会丢失。
-  List<Widget> _fields(BuildContext context) => [
-    Row(
-      children: [
-        Text('书签样式', style: Theme.of(context).textTheme.titleLarge),
-        const Spacer(),
-        IconButton(
-          tooltip: '关闭',
-          onPressed: () => Navigator.of(context).pop(),
-          icon: const AppIcon(AppGlyph.close),
-        ),
-      ],
-    ),
-    const Text('应用于所有书籍，显示在有书签的阅读页右上角。'),
-    SwitchListTile.adaptive(
-      key: const ValueKey('bookmark-pull-enabled'),
-      contentPadding: EdgeInsets.zero,
-      title: const Text('下拉书签'),
-      subtitle: const Text('分页阅读时，下拉添加或移除当前页书签'),
-      value: _style.pullEnabled,
-      onChanged: (value) =>
-          setState(() => _style = _style.copyWith(pullEnabled: value)),
-    ),
-    const SizedBox(height: 12),
-    SizedBox(
-      height: ReaderBookmarkStyle.maxLength + 12,
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        child: Padding(
-          padding: EdgeInsets.only(right: _style.rightInset),
-          child: Align(
-            alignment: Alignment.topRight,
-            child: ReaderBookmarkRibbon(
-              style: _style,
-              color: Theme.of(context).colorScheme.primary,
-              imageLoader: widget.imageLoader,
-            ),
-          ),
-        ),
-      ),
-    ),
+  List<Widget> _imageFields() => [
     Wrap(
       spacing: 8,
       children: [
         OutlinedButton(
           key: const ValueKey('bookmark-pick-image'),
-          onPressed: _picking
-              ? null
-              : widget.onPickImage == null
-              ? null
-              : _pickImage,
+          onPressed: _picking || widget.onPickImage == null ? null : _pickImage,
           child: Text(_picking ? '正在导入…' : '选择本地图片'),
         ),
         TextButton(
@@ -165,8 +138,20 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
         _error!,
         style: TextStyle(color: Theme.of(context).colorScheme.error),
       ),
+    const SizedBox(height: 8),
     const Text('图片随宽度和长度缩放；透明 PNG 可保留镂空效果。'),
-    const SizedBox(height: 12),
+  ];
+
+  List<Widget> _sizeFields() => [
+    SwitchListTile.adaptive(
+      key: const ValueKey('bookmark-pull-enabled'),
+      contentPadding: EdgeInsets.zero,
+      title: const Text('下拉书签'),
+      subtitle: const Text('分页阅读时，下拉添加或移除当前页书签'),
+      value: _style.pullEnabled,
+      onChanged: (value) =>
+          setState(() => _style = _style.copyWith(pullEnabled: value)),
+    ),
     _dimension(
       '宽度',
       _style.width,
@@ -190,6 +175,107 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
     ),
   ];
 
+  List<Widget> _colorFields() => [
+    Text('书签颜色', style: Theme.of(context).textTheme.labelLarge),
+    const SizedBox(height: 8),
+    Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        _defaultColorButton(),
+        for (final option in ReaderAnnotationAppearanceEditor.colors)
+          _colorButton(option),
+      ],
+    ),
+  ];
+
+  Widget _defaultColorButton() {
+    final selected = _style.color == null;
+    final scheme = Theme.of(context).colorScheme;
+    final color = scheme.primary;
+    return Tooltip(
+      message: '跟随正文',
+      child: Semantics(
+        label: '跟随正文',
+        selected: selected,
+        button: true,
+        child: InkWell(
+          key: const ValueKey<String>('bookmark-color-default'),
+          onTap: () => setState(() => _style = _style.withColor(null)),
+          borderRadius: BorderRadius.circular(24),
+          child: SizedBox.square(
+            dimension: 44,
+            child: Padding(
+              padding: const EdgeInsets.all(5),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: selected ? scheme.onSurface : scheme.outlineVariant,
+                    width: selected ? 2 : 1,
+                  ),
+                ),
+                child: selected
+                    ? AppIcon(
+                        AppGlyph.check,
+                        size: 19,
+                        color: color.computeLuminance() > 0.5
+                            ? Colors.black
+                            : Colors.white,
+                      )
+                    : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _colorButton(AnnotationColorOption option) {
+    final selected = _style.color == option.value;
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: option.label,
+      child: Semantics(
+        label: option.label,
+        selected: selected,
+        button: true,
+        child: InkWell(
+          key: ValueKey<String>('bookmark-color-${option.value}'),
+          onTap: () => setState(() => _style = _style.withColor(option.value)),
+          borderRadius: BorderRadius.circular(24),
+          child: SizedBox.square(
+            dimension: 44,
+            child: Padding(
+              padding: const EdgeInsets.all(5),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(option.value),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: selected ? scheme.onSurface : scheme.outlineVariant,
+                    width: selected ? 2 : 1,
+                  ),
+                ),
+                child: selected
+                    ? AppIcon(
+                        AppGlyph.check,
+                        size: 19,
+                        color: Color(option.value).computeLuminance() > 0.5
+                            ? Colors.black
+                            : Colors.white,
+                      )
+                    : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _dimension(
     String label,
     double value,
@@ -211,5 +297,45 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
         onChanged: onChanged,
       ),
     ],
+  );
+
+  Widget _sectionContent() => SingleChildScrollView(
+    key: PageStorageKey<String>('bookmark-style-section-$_sectionIndex'),
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: _sectionFields(),
+    ),
+  );
+
+  Widget _saveButton(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+    child: SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        key: const ValueKey('bookmark-style-save'),
+        onPressed: _picking ? null : () => Navigator.of(context).pop(_style),
+        child: const Text('保存书签样式'),
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    key: const ValueKey('bookmark-style-fixed-height'),
+    height: MediaQuery.sizeOf(context).height * .64,
+    child: Material(
+      color: ReaderFrostedSurface.panelColorOf(context),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            _header(context),
+            Expanded(child: _sectionContent()),
+            _saveButton(context),
+          ],
+        ),
+      ),
+    ),
   );
 }

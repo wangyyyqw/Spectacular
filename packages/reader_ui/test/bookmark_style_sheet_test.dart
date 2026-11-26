@@ -39,21 +39,47 @@ void main() {
     await tester.pump();
     expect(find.byType(Slider), findsNothing);
     await tester.pumpAndSettle();
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('bookmark-style-fixed-height')))
+          .height,
+      closeTo(853 * .64, .1),
+    );
+    expect(find.text('书签样式'), findsNothing);
+    expect(find.byTooltip('关闭'), findsNothing);
+    for (final section in ['image', 'size', 'color']) {
+      expect(find.byKey(ValueKey('$section-tab')), findsOneWidget);
+    }
+
+    await tester.tap(find.byKey(const ValueKey('color-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('绿色'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderBookmarkRibbon>(find.byType(ReaderBookmarkRibbon).first)
+          .style
+          .color,
+      0xFFA5D6A7,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('size-tab')));
+    await tester.pumpAndSettle();
     final width = find.byKey(const ValueKey('bookmark-宽度'));
     final list = find.byType(Scrollable).last;
     await tester.scrollUntilVisible(width, 120, scrollable: list);
     tester.widget<Slider>(width).onChanged!(42);
     await tester.pump();
-    await tester.scrollUntilVisible(
-      find.byTooltip('关闭'),
-      -160,
-      scrollable: list,
-    );
+    await tester.tap(find.byKey(const ValueKey('color-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('size-tab')));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(width, 120, scrollable: list);
     expect(tester.widget<Slider>(width).value, 42);
     await tester.tap(find.byKey(const ValueKey('bookmark-style-save')));
     await tester.pumpAndSettle();
     expect(result!.width, 42);
+    expect(result!.color, 0xFFA5D6A7);
     expect(tester.takeException(), isNull);
   });
 
@@ -82,16 +108,18 @@ void main() {
       );
       await tester.tap(find.text('打开书签设置'));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('size-tab')));
+      await tester.pumpAndSettle();
       final toggle = find.byKey(const ValueKey('bookmark-pull-enabled'));
       expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
       expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
-      await tester.tap(
-        save
-            ? find.byKey(const ValueKey('bookmark-style-save'))
-            : find.byTooltip('关闭'),
-      );
+      if (save) {
+        await tester.tap(find.byKey(const ValueKey('bookmark-style-save')));
+      } else {
+        await tester.binding.handlePopRoute();
+      }
       await tester.pumpAndSettle();
       expect(
         result,
@@ -111,7 +139,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+          data: MediaQueryData.fromView(tester.view)
+              .copyWith(textScaler: const TextScaler.linear(1.3)),
           child: Scaffold(
             body: ReaderBookmarkStyleSheet(
               style: const ReaderBookmarkStyle(

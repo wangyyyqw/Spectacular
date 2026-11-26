@@ -1510,6 +1510,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      dragHandleHeight: 32,
       readerTheme: _effectiveTheme ?? ReaderTheme.white,
       builder: (_) => ReaderBookmarkStyleSheet(
         style: _bookmarkStyle,
@@ -2990,7 +2991,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   ? ReaderBookmarkRibbon(
                       key: const ValueKey('reader-bookmark-ribbon'),
                       style: _bookmarkStyle,
-                      color: (_effectiveTheme ?? ReaderTheme.white).text,
+                      color: _bookmarkStyle.color == null
+                          ? (_effectiveTheme ?? ReaderTheme.white).text
+                          : Color(_bookmarkStyle.color!),
                       image: _bookmarkImage,
                     )
                   : null,
@@ -3602,7 +3605,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 child: ReaderBookmarkRibbon(
                   key: const ValueKey('reader-bookmark-ribbon'),
                   style: _bookmarkStyle,
-                  color: (_effectiveTheme ?? ReaderTheme.white).text,
+                  color: _bookmarkStyle.color == null
+                      ? (_effectiveTheme ?? ReaderTheme.white).text
+                      : Color(_bookmarkStyle.color!),
                   image: _bookmarkImage,
                 ),
               ),
