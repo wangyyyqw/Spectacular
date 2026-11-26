@@ -1,140 +1,117 @@
 import 'package:flutter/material.dart';
 
-import '../icons/app_icon.dart';
 import '../page_furniture/corner_info.dart';
-import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_section_slider.dart';
 import '../theme/reader_ui_style.dart';
+import 'reader_settings_sheet.dart';
 
-/// 四角位置预览；选择后即时应用，宿主负责保存。
-class CornerInfoEditor extends StatelessWidget {
-  const CornerInfoEditor({
-    super.key,
-    required this.info,
-    required this.onChanged,
-  });
+/// 四角信息设置；保存前只更新面板中的预览。
+class CornerInfoEditor extends StatefulWidget {
+  const CornerInfoEditor({super.key, required this.info});
 
   final ReaderCornerInfo info;
-  final ValueChanged<ReaderCornerInfo>? onChanged;
-
-  Future<void> _choose(BuildContext context, ReaderCornerSlot slot) async {
-    final selected = await showReaderBottomSheet<ReaderCornerContent>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-        ),
-        child: _ContentChoices(slot: slot, selected: info.contentAt(slot)),
-      ),
-    );
-    if (selected != null) onChanged?.call(info.withContent(slot, selected));
-  }
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        border: Border.all(color: scheme.outlineVariant),
-        borderRadius: ReaderUiStyle.controlRadius,
-      ),
-      child: Column(
-        children: [
-          _row(context, ReaderCornerSlot.topLeft, ReaderCornerSlot.topRight),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Text(
-              '点击位置选择信息',
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-            ),
-          ),
-          _row(
-            context,
-            ReaderCornerSlot.bottomLeft,
-            ReaderCornerSlot.bottomRight,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(
-    BuildContext context,
-    ReaderCornerSlot left,
-    ReaderCornerSlot right,
-  ) => Row(
-    children: [
-      Expanded(child: _button(context, left)),
-      const SizedBox(width: 12),
-      Expanded(child: _button(context, right)),
-    ],
-  );
-
-  Widget _button(BuildContext context, ReaderCornerSlot slot) => OutlinedButton(
-    key: ValueKey('settings-corner-${_slotKey(slot)}'),
-    onPressed: onChanged == null ? null : () => _choose(context, slot),
-    style: OutlinedButton.styleFrom(
-      minimumSize: const Size(48, 48),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-    ),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(slot.label, style: const TextStyle(fontSize: 11)),
-        const SizedBox(height: 2),
-        Text(info.contentAt(slot).label, style: const TextStyle(fontSize: 13)),
-      ],
-    ),
-  );
-
-  String _slotKey(ReaderCornerSlot slot) => switch (slot) {
-    ReaderCornerSlot.topLeft => 'top-left',
-    ReaderCornerSlot.topRight => 'top-right',
-    ReaderCornerSlot.bottomLeft => 'bottom-left',
-    ReaderCornerSlot.bottomRight => 'bottom-right',
-  };
+  State<CornerInfoEditor> createState() => _CornerInfoEditorState();
 }
 
-class _ContentChoices extends StatelessWidget {
-  const _ContentChoices({required this.slot, required this.selected});
+class _CornerInfoEditorState extends State<CornerInfoEditor> {
+  late ReaderCornerInfo _info = widget.info;
+  int _slotIndex = 0;
 
-  final ReaderCornerSlot slot;
-  final ReaderCornerContent selected;
+  ReaderCornerSlot get _slot => ReaderCornerSlot.values[_slotIndex];
 
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            '${slot.label}显示',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-      ),
-      Flexible(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final content in ReaderCornerContent.values)
-              ListTile(
-                key: ValueKey('corner-choice-${content.name}'),
-                title: Text(content.label),
-                selected: selected == content,
-                trailing: selected == content
-                    ? const AppIcon(AppGlyph.check)
-                    : null,
-                onTap: () => Navigator.of(context).pop(content),
+  Widget _previewRow(ReaderCornerSlot left, ReaderCornerSlot right) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        for (final slot in [left, right])
+          Expanded(
+            child: Text(
+              _info.contentAt(slot).label,
+              key: ValueKey('corner-preview-${slot.name}'),
+              semanticsLabel: '${slot.label}：${_info.contentAt(slot).label}',
+              textAlign: slot == left ? TextAlign.left : TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: slot == _slot ? scheme.primary : scheme.onSurfaceVariant,
+                fontWeight: slot == _slot ? FontWeight.w600 : null,
               ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _header() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text('分别设置阅读页四个边角的显示内容；选择“隐藏”可关闭对应位置。'),
+      const SizedBox(height: 16),
+      Container(
+        key: const ValueKey('corner-settings-preview'),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          borderRadius: ReaderUiStyle.controlRadius,
+        ),
+        child: Column(
+          children: [
+            _previewRow(ReaderCornerSlot.topLeft, ReaderCornerSlot.topRight),
+            const SizedBox(height: 16),
+            _previewRow(
+              ReaderCornerSlot.bottomLeft,
+              ReaderCornerSlot.bottomRight,
+            ),
           ],
         ),
       ),
+      const SizedBox(height: 8),
+      ReaderSectionSlider(
+        key: const ValueKey('corner-settings-section-tabs'),
+        sections: [
+          for (final slot in ReaderCornerSlot.values)
+            (key: 'corner-${slot.name}', label: slot.label),
+        ],
+        index: _slotIndex,
+        onSelected: (index) => setState(() => _slotIndex = index),
+      ),
     ],
+  );
+
+  Widget _choices() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text('${_slot.label}显示', style: Theme.of(context).textTheme.labelLarge),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (final content in ReaderCornerContent.values)
+            ChoiceChip(
+              key: ValueKey('corner-choice-${content.name}'),
+              label: Text(content.label),
+              selected: _info.contentAt(_slot) == content,
+              showCheckmark: true,
+              onSelected: (_) =>
+                  setState(() => _info = _info.withContent(_slot, content)),
+            ),
+        ],
+      ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) => ReaderSettingsSheet(
+    key: const ValueKey('corner-settings-fixed-height'),
+    header: _header(),
+    footer: FilledButton(
+      key: const ValueKey('corner-settings-save'),
+      onPressed: () => Navigator.of(context).pop(_info),
+      child: const Text('保存边角设置'),
+    ),
+    child: _choices(),
   );
 }

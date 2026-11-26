@@ -417,6 +417,19 @@ class _SettingsPanelState extends State<SettingsPanel> {
     if (mounted && result != null) widget.onThemeChanged(result.id);
   }
 
+  Future<void> _editCornerInfo() async {
+    final info = await showReaderBottomSheet<ReaderCornerInfo>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      dragHandleHeight: 32,
+      builder: (_) => CornerInfoEditor(info: _cornerInfo),
+    );
+    if (!mounted || info == null) return;
+    setState(() => _cornerInfo = info);
+    widget.onCornerInfoChanged?.call(info);
+  }
+
   String get _fontLabel {
     if (_fontFamily == null) return '书籍字体';
     if (_fontFamily == ReaderSettingsDefaults.fontSong) return '宋体';
@@ -1179,15 +1192,21 @@ class _SettingsPanelState extends State<SettingsPanel> {
           color: ReaderDrawerStyle.textOf(theme),
         ),
       ),
-      const SizedBox(height: 6),
-      CornerInfoEditor(
-        info: _cornerInfo,
-        onChanged: widget.onCornerInfoChanged == null
-            ? null
-            : (info) {
-                setState(() => _cornerInfo = info);
-                widget.onCornerInfoChanged!(info);
-              },
+      const SizedBox(height: 4),
+      _SettingsEntryRow(
+        key: const ValueKey('settings-corner-info'),
+        icon: AppGlyph.pageMargin,
+        label: '四角位置与显示内容',
+        onTap: widget.onCornerInfoChanged == null ? null : _editCornerInfo,
+      ),
+      Text(
+        ReaderCornerSlot.values
+            .map((slot) => '${slot.label} ${_cornerInfo.contentAt(slot).label}')
+            .join(' · '),
+        style: TextStyle(
+          fontSize: 12,
+          color: ReaderDrawerStyle.secondaryOf(theme),
+        ),
       ),
       const SizedBox(height: 10),
       _SettingsDivider(color: ReaderDrawerStyle.dividerOf(theme)),
@@ -1817,7 +1836,7 @@ class _SettingsEntryRow extends StatelessWidget {
 
   final AppGlyph icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

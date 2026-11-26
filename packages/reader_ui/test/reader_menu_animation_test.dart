@@ -66,19 +66,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pumpWidget(_menu(open: true, drawer: true, content: settings));
     expect(find.byKey(const ValueKey('settings-page-turn')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('settings-corner-top-left')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey('settings-corner-info')), findsNothing);
     final list = find.byType(CustomScrollView);
     final size = tester.getSize(list);
     await tester.pump(const Duration(milliseconds: 70));
     expect(tester.getSize(list), size);
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('settings-corner-top-left')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('settings-corner-info')), findsOneWidget);
     expect(tester.getSize(list), size);
     await tester.pumpWidget(_menu(open: false));
     await tester.pumpAndSettle();
