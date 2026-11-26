@@ -243,15 +243,36 @@ Future<void> showReaderFootnotePopup({
   DecodedImageCache? imageCache,
   ReaderTheme? readerTheme,
 }) async {
+  final reduceMotion =
+      ReaderFrostedScope.inkModeOf(context) ||
+      readerTheme?.id == 'ink' ||
+      MediaQuery.disableAnimationsOf(context);
   await showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierLabel: '关闭注释',
     // 与底部弹窗注释一致：使用底部弹层遮罩色压暗阅读页。
     barrierColor:
-        Theme.of(context).bottomSheetTheme.modalBarrierColor ??
-        Colors.black54,
-    pageBuilder: (context, _, _) {
+        Theme.of(context).bottomSheetTheme.modalBarrierColor ?? Colors.black54,
+    pageBuilder: (context, animation, _) {
+      Widget dialog = ReaderFootnoteDialog(
+        footnote: footnote,
+        style: style,
+        anchor: anchor,
+        contentWidth: contentWidth,
+        imageCache: imageCache,
+      );
+      if (style == ReaderFootnoteStyle.paper && !reduceMotion) {
+        dialog = SlideTransition(
+          position: animation.drive(
+            Tween<Offset>(
+              begin: const Offset(-1, 0),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: Curves.easeOutCubic)),
+          ),
+          child: dialog,
+        );
+      }
       Widget child = Stack(
         fit: StackFit.expand,
         children: [
@@ -261,15 +282,7 @@ Future<void> showReaderFootnotePopup({
               onTap: () => Navigator.of(context).pop(),
             ),
           ),
-          Positioned.fill(
-            child: ReaderFootnoteDialog(
-              footnote: footnote,
-              style: style,
-              anchor: anchor,
-              contentWidth: contentWidth,
-              imageCache: imageCache,
-            ),
-          ),
+          Positioned.fill(child: dialog),
         ],
       );
       if (readerTheme != null) {
@@ -277,9 +290,15 @@ Future<void> showReaderFootnotePopup({
       }
       return child;
     },
-    transitionDuration: const Duration(milliseconds: 150),
-    transitionBuilder: (context, animation, _, child) =>
-        FadeTransition(opacity: animation, child: child),
+    transitionDuration: reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 220),
+    transitionBuilder: (context, animation, _, child) {
+      if (style == ReaderFootnoteStyle.paper || reduceMotion) {
+        return child;
+      }
+      return FadeTransition(opacity: animation, child: child);
+    },
   );
 }
 
