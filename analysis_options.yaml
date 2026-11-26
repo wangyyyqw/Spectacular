@@ -9,6 +9,7 @@ analyzer:
   exclude:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
+    - "third_party/flutter_inappwebview_android/**"
   errors:
     invalid_annotation_target: ignore
     # 严格模式命中即失败，避免“警告堆积”式退化。

@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:reader_mobile/cloud/cloud_import_page.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 
@@ -39,6 +41,12 @@ Future<void> _settle(WidgetTester tester, {int frames = 6}) async {
   }
 }
 
+Future<void> _chooseLocalImport(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('从本机导入'));
+}
+
 void main() {
   late Directory temp;
   late File epubFile;
@@ -69,7 +77,7 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+    await _chooseLocalImport(tester);
     await _settle(tester, frames: 2);
 
     expect(find.textContaining('正在导入'), findsOneWidget);
@@ -96,7 +104,7 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+    await _chooseLocalImport(tester);
     await _settle(tester, frames: 10);
     expect(find.text('山海小记'), findsWidgets);
     final book = (await library.list()).single;
@@ -134,7 +142,7 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+    await _chooseLocalImport(tester);
     await _settle(tester, frames: 10);
 
     await tester.longPress(find.text('山海小记').first);
@@ -167,7 +175,7 @@ void main() {
     );
     await _settle(tester);
 
-    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+    await _chooseLocalImport(tester);
     await _settle(tester, frames: 10);
 
     expect(find.text('山海小记'), findsWidgets);
@@ -200,6 +208,8 @@ void main() {
     await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await _settle(tester);
     expect(pickCalls, 0);
+    expect(find.text('从本机导入'), findsNothing);
+    expect(find.text('从网盘导入'), findsNothing);
     expect(await library.list(), isEmpty);
     expect(find.text('书库暂时不可用'), findsOneWidget);
     expect(find.text('书架还是空的'), findsNothing);
@@ -224,7 +234,8 @@ void main() {
     );
     await tester.pumpWidget(page(true));
     await _settle(tester);
-    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+    await _chooseLocalImport(tester);
+    await tester.pump();
     await tester.pumpWidget(page(false));
     pending.complete(<String>[epubFile.path]);
     await _settle(tester);
@@ -232,5 +243,48 @@ void main() {
     expect(readCalls, 0);
     expect(await library.list(), isEmpty);
     expect(find.textContaining('正在导入'), findsNothing);
+  });
+
+  testWidgets('导入入口显示两种来源，选择网盘进入七家网盘列表', (tester) async {
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
+    final library = LibraryStore.memory();
+    var pickCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+          pickEpubFiles: () async {
+            pickCalls++;
+            return <String>[];
+          },
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    await tester.tap(find.byTooltip('导入 EPUB / TXT'));
+    await tester.pumpAndSettle();
+    expect(find.text('从本机导入'), findsOneWidget);
+    expect(find.text('从网盘导入'), findsOneWidget);
+    expect(pickCalls, 0);
+
+    await tester.tap(find.text('从网盘导入'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CloudImportPage), findsOneWidget);
+    expect(find.text('网盘导入'), findsOneWidget);
+    expect(find.text('百度网盘'), findsOneWidget);
+    expect(find.text('夸克网盘'), findsOneWidget);
+    expect(find.text('阿里云盘'), findsOneWidget);
+    expect(find.text('123 网盘'), findsOneWidget);
+    expect(find.text('天翼网盘'), findsOneWidget);
+    expect(find.text('PikPak'), findsOneWidget);
+    expect(find.text('蓝奏云'), findsOneWidget);
+    expect(pickCalls, 0);
+    expect(tester.takeException(), isNull);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(CloudImportPage), findsNothing);
   });
 }

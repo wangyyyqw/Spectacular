@@ -34,6 +34,7 @@ import 'reading_insights.dart';
 import '../storage/import_queue.dart';
 import '../storage/reading_session_store.dart';
 import '../diagnostics/reader_log.dart';
+import '../cloud/cloud_import_page.dart';
 
 /// 书架条目及列表显示的阅读记录。
 typedef _ShelfItem = ({BookEntry entry, int? spineIndex, Duration duration});
@@ -802,6 +803,41 @@ class _BookshelfPageState extends State<BookshelfPage> {
       );
 
   /// 多选 EPUB/TXT 入队：后台串行导入，UI 不阻塞。
+  Future<void> _chooseImport() async {
+    if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const AppIcon(AppGlyph.folder),
+              title: const Text('从本机导入'),
+              subtitle: const Text('选择 EPUB 或 TXT 文件'),
+              onTap: () => Navigator.pop(context, 'local'),
+            ),
+            ListTile(
+              leading: const AppIcon(AppGlyph.link),
+              title: const Text('从网盘导入'),
+              subtitle: const Text('登录网盘，选择书籍下载到书架'),
+              onTap: () => Navigator.pop(context, 'cloud'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || !widget.allowImport) return;
+    if (choice == 'local') await _import();
+    if (choice == 'cloud' && mounted) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => CloudImportPage(library: widget.library),
+        ),
+      );
+    }
+  }
+
   Future<void> _import() async {
     if (!widget.allowImport || _pickingFiles || _queue.isBusy) return;
     setState(() => _pickingFiles = true);
@@ -1302,7 +1338,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           minimumSize: const Size(0, 44),
           visualDensity: VisualDensity.standard,
         ),
-        onPressed: busy || !widget.allowImport ? null : _import,
+        onPressed: busy || !widget.allowImport ? null : _chooseImport,
         icon: busy
             ? const SizedBox.square(
                 dimension: 18,
@@ -1331,7 +1367,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           color: colors.primary,
           tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
           constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-          onPressed: busy || !widget.allowImport ? null : _import,
+          onPressed: busy || !widget.allowImport ? null : _chooseImport,
           icon: busy
               ? const SizedBox(
                   width: 18,

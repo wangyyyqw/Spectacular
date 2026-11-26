@@ -25,6 +25,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('导入 EPUB / TXT'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('从本机导入'));
+    await tester.pumpAndSettle();
     // 文件选择提示结束后，显示排队的内容未变化通知。
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();

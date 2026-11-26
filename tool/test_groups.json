@@ -12,6 +12,8 @@
     "tooling": "本地 Python 工具回归"
   },
   "test_rules": [
+    {"group": "ui", "paths": ["apps/reader_mobile/test/cloud/cloud_page_test.dart"]},
+    {"group": "integration", "paths": ["apps/reader_mobile/test/cloud/*_test.dart"]},
     {
       "group": "tooling",
       "paths": ["tests/tool/*_test.py"]
@@ -273,6 +275,8 @@
     }
   ],
   "source_rules": [
+    {"groups": ["ui", "integration"], "paths": ["apps/reader_mobile/lib/cloud/*_page.dart"]},
+    {"groups": ["integration"], "paths": ["apps/reader_mobile/lib/cloud/*"]},
     {"groups": ["resources"], "paths": ["packages/epub_toolkit/lib/*", "packages/epub_toolkit/assets/*", "packages/epub_toolkit/test/support/*"]},
     {"groups": ["resources"], "paths": ["packages/reader_core/lib/txt.dart", "packages/reader_core/lib/txt/*"]},
     {"groups": ["resources", "position"], "paths": ["packages/reader_core/lib/editing/epub_rechapter*.dart"]},
