@@ -14,6 +14,8 @@ export 'paging/page_turn_mode.dart';
 export 'loading_skeleton.dart';
 export 'image_preview_page.dart';
 export 'theme/reader_theme.dart';
+export 'theme/reader_ui_components.dart';
+export 'theme/reader_ui_style.dart';
 export 'annotations/annotation.dart';
 export 'annotations/mark_settings.dart';
 export 'bookmarks/bookmark_style.dart';

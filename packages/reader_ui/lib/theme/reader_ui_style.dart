@@ -55,6 +55,35 @@ abstract final class ReaderUiStyle {
     borderRadius: cardRadiusOf(theme),
     border: Border.all(color: theme.colorScheme.outlineVariant),
   );
+
+  /// 统一危险按钮风格（删除、清理、放弃修改等不可逆操作）。
+  static ButtonStyle destructiveFilledButtonStyle(ThemeData theme) {
+    final colors = theme.colorScheme;
+    return FilledButton.styleFrom(
+      backgroundColor: colors.error,
+      foregroundColor: colors.onError,
+      disabledBackgroundColor: colors.onSurface.withValues(alpha: .12),
+      disabledForegroundColor: colors.onSurface.withValues(alpha: .38),
+      textStyle: theme.textTheme.labelLarge,
+      shape: buttonShapeOf(theme),
+      padding: controlPadding,
+      minimumSize: controlSize,
+      elevation: 0,
+    );
+  }
+
+  /// 统一危险文本按钮风格。
+  static ButtonStyle destructiveTextButtonStyle(ThemeData theme) {
+    final colors = theme.colorScheme;
+    return TextButton.styleFrom(
+      foregroundColor: colors.error,
+      disabledForegroundColor: colors.onSurface.withValues(alpha: .38),
+      textStyle: theme.textTheme.labelLarge,
+      shape: buttonShapeOf(theme),
+      padding: controlPadding,
+      minimumSize: controlSize,
+    );
+  }
 }
 
 /// 使用当前软件主题的语义色与字体统一界面外观。
@@ -69,21 +98,33 @@ ThemeData _surfaces(ThemeData base) {
   final colors = base.colorScheme;
   final card = RoundedRectangleBorder(
     borderRadius: ReaderUiStyle.cardRadiusOf(base),
-    side: BorderSide(color: colors.outlineVariant),
+    side: BorderSide(
+      color: base.useMaterial3
+          ? colors.outlineVariant.withValues(alpha: 0.72)
+          : colors.outlineVariant,
+    ),
   );
   return base.copyWith(
+    dividerTheme: base.dividerTheme.copyWith(
+      color: colors.outlineVariant,
+      thickness: 0.8,
+      space: 1,
+    ),
     cardTheme: base.cardTheme.copyWith(
       color: colors.surface,
+      surfaceTintColor: Colors.transparent,
       elevation: 0,
       margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
       shape: card,
     ),
     popupMenuTheme: base.popupMenuTheme.copyWith(
       color: colors.surface,
       surfaceTintColor: Colors.transparent,
-      elevation: 2,
+      elevation: base.useMaterial3 ? 3 : 2,
       shape: RoundedRectangleBorder(
         borderRadius: ReaderUiStyle.popupRadiusOf(base),
+        side: BorderSide(color: colors.outlineVariant.withValues(alpha: 0.65)),
       ),
       textStyle: base.textTheme.bodyMedium,
     ),
@@ -97,6 +138,18 @@ ThemeData _overlays(ThemeData base) {
       backgroundColor: colors.surface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      titleTextStyle: base.textTheme.titleLarge?.copyWith(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: colors.onSurface,
+      ),
+      contentTextStyle: base.textTheme.bodyMedium?.copyWith(
+        color: colors.onSurfaceVariant,
+        height: 1.5,
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
       shape: RoundedRectangleBorder(
         borderRadius: ReaderUiStyle.panelRadiusOf(base),
       ),
@@ -420,6 +473,11 @@ ChipThemeData _chips(ThemeData base) {
 ThemeData _feedback(ThemeData base) {
   final colors = base.colorScheme;
   return base.copyWith(
+    progressIndicatorTheme: base.progressIndicatorTheme.copyWith(
+      color: colors.primary,
+      linearTrackColor: colors.surfaceContainerHighest,
+      circularTrackColor: colors.surfaceContainerHighest,
+    ),
     tooltipTheme: base.tooltipTheme.copyWith(
       decoration: BoxDecoration(
         color: colors.inverseSurface,
@@ -431,10 +489,13 @@ ThemeData _feedback(ThemeData base) {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     ),
     snackBarTheme: base.snackBarTheme.copyWith(
+      behavior: SnackBarBehavior.floating,
       backgroundColor: colors.inverseSurface,
       contentTextStyle: base.textTheme.bodyMedium?.copyWith(
         color: colors.onInverseSurface,
       ),
+      actionTextColor: colors.inversePrimary,
+      elevation: base.useMaterial3 ? 2 : 0,
       shape: ReaderUiStyle.controlShapeOf(base),
     ),
     tabBarTheme: base.tabBarTheme.copyWith(
@@ -442,6 +503,7 @@ ThemeData _feedback(ThemeData base) {
       unselectedLabelColor: colors.onSurfaceVariant,
       labelStyle: base.textTheme.titleSmall,
       unselectedLabelStyle: base.textTheme.bodyMedium,
+      dividerColor: colors.outlineVariant,
       indicator: UnderlineTabIndicator(
         borderSide: BorderSide(color: colors.primary, width: 2),
       ),

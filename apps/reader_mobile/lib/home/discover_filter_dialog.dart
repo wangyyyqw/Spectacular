@@ -231,7 +231,7 @@ class _DiscoverFilterDialogState extends State<DiscoverFilterDialog> {
         Row(
           children: [
             Expanded(
-              child: FilledButton(
+              child: OutlinedButton(
                 onPressed: filter == null
                     ? null
                     : () => setState(

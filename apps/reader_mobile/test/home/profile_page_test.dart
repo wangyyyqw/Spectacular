@@ -96,13 +96,13 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('帮助与诊断'),
       160,
-      scrollable: find.byType(ListView).last,
+      scrollable: find.byType(Scrollable).last,
     );
     expect(find.text('帮助与诊断'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('关于'),
       200,
-      scrollable: find.byType(ListView).last,
+      scrollable: find.byType(Scrollable).last,
     );
     expect(find.text('关于'), findsOneWidget);
     await tester.pageBack();
@@ -154,7 +154,7 @@ void main() {
     expect(find.byType(SelectableText), findsOneWidget);
     expect(find.byType(Dialog), findsNothing);
     expect(find.byType(SnackBar), findsNothing);
-    await tester.pageBack();
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('诊断日志'), findsNothing);
     expect(find.text('查看诊断日志'), findsOneWidget);
@@ -184,7 +184,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);
       expect(find.byType(RadioListTile<ThemeMode>), findsNWidgets(3));
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(saved, isEmpty);
 
@@ -208,7 +208,7 @@ void main() {
         find.byType(RadioGroup<ThemeMode>),
       );
       expect(group.groupValue, ThemeMode.dark);
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_sheet_form.dart';
+import '../theme/reader_ui_components.dart';
 import '../theme/reader_ui_style.dart';
 
 import 'package:reader_core/css/font_face.dart';
@@ -113,43 +115,33 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     }
   }
 
-  Future<bool> _confirmRemove(ReaderFontOption font) async =>
-      await showReaderDialog<bool>(
-        context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: Text('移除“${font.label}”？'),
-          content: Text(
-            _selected == font.family
-                ? '当前字体移除后将使用书籍字体。可随时重新导入。'
-                : '从应用中移除字体文件，可随时重新导入。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const ValueKey('font-remove-confirm'),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('移除字体'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+  Future<bool> _confirmRemove(ReaderFontOption font) => showReaderConfirmDialog(
+    context: context,
+    title: '移除“${font.label}”？',
+    message: _selected == font.family
+        ? '当前字体移除后将使用书籍字体。可随时重新导入。'
+        : '从应用中移除字体文件，可随时重新导入。',
+    confirmLabel: '移除字体',
+    destructive: true,
+    confirmKey: const ValueKey('font-remove-confirm'),
+  );
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    child: ConstrainedBox(
+  Widget build(BuildContext context) => ReaderSheetForm(
+    title: const Text('选择字体'),
+    showCloseButton: true,
+    onClose: _busy ? null : () => Navigator.of(context).pop(),
+    contentPadding: EdgeInsets.zero,
+    scrollContent: false,
+    content: ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .78,
+        maxHeight: MediaQuery.sizeOf(context).height * .72,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _heading(context),
+          const SizedBox(height: 12),
           _previewBox(context),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null) _errorBanner(context),
@@ -159,31 +151,12 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
     ),
   );
 
-  Widget _heading(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text('选择字体', style: Theme.of(context).textTheme.titleMedium),
-        ),
-        IconButton(
-          tooltip: '关闭字体选择',
-          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          icon: const AppIcon(AppGlyph.close),
-        ),
-      ],
-    ),
-  );
-
   Widget _errorBanner(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-    child: Semantics(
-      liveRegion: true,
-      child: Text(
-        _error!,
-        key: const ValueKey('font-picker-error'),
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
-      ),
+    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+    child: ReaderInlineNotice(
+      key: const ValueKey('font-picker-error'),
+      message: _error!,
+      isError: true,
     ),
   );
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'welcome_announcement.dart';
@@ -97,27 +98,23 @@ class _AboutPageState extends State<AboutPage> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 30),
-            Card(
-              child: Column(
-                children: [
-                  _row(
-                    '阅微 Extend',
-                    onTap: () => showReaderDialog<void>(
-                      context: context,
-                      builder: (_) => WelcomeAnnouncementDialog(
-                        onAgree: () async {},
-                        onExit: () async {},
-                        onOpenLink: widget.onOpenLink,
-                        showActions: false,
-                      ),
+            ReaderSectionGroup(
+              children: [
+                _row(
+                  '阅微 Extend',
+                  onTap: () => showReaderDialog<void>(
+                    context: context,
+                    builder: (_) => WelcomeAnnouncementDialog(
+                      onAgree: () async {},
+                      onExit: () async {},
+                      onOpenLink: widget.onOpenLink,
+                      showActions: false,
                     ),
                   ),
-                  const Divider(height: 1, indent: 16, endIndent: 16),
-                  _row('阅微用户协议', onTap: () => _open(AboutPage.agreementUrl)),
-                  const Divider(height: 1, indent: 16, endIndent: 16),
-                  _row('阅微隐私政策', onTap: () => _open(AboutPage.privacyUrl)),
-                ],
-              ),
+                ),
+                _row('阅微用户协议', onTap: () => _open(AboutPage.agreementUrl)),
+                _row('阅微隐私政策', onTap: () => _open(AboutPage.privacyUrl)),
+              ],
             ),
           ],
         ),

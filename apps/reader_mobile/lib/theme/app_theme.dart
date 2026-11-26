@@ -145,20 +145,12 @@ ThemeData buildAppTheme({
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       minVerticalPadding: 8,
     ),
-    dialogTheme: styled.dialogTheme.copyWith(
-      clipBehavior: Clip.antiAlias,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      titleTextStyle: styled.textTheme.titleLarge?.copyWith(fontSize: 18),
-      contentTextStyle: styled.textTheme.bodyMedium?.copyWith(
-        color: colors.onSurfaceVariant,
-        height: 1.5,
-      ),
-      actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-    ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: colors.surface,
       indicatorColor: colors.secondaryContainer,
+      surfaceTintColor: Colors.transparent,
       elevation: 0,
+      height: 68,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       labelTextStyle: WidgetStateProperty.resolveWith(
         (states) => styled.textTheme.labelSmall?.copyWith(

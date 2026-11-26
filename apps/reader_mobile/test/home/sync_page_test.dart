@@ -148,6 +148,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('WebDAV'), findsOneWidget);
     expect(find.textContaining('统计页的时长'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('新同步库启用端到端加密'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('新同步库启用端到端加密'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('创建同步库'),

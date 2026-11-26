@@ -130,9 +130,10 @@ class _DictionarySheetState extends State<DictionarySheet> {
 
   Future<void> _configure() async {
     _generation++;
-    await showReaderDrawer<void>(
-      context: context,
-      builder: (_) => DictionarySettingsPage(store: widget.store),
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => DictionarySettingsPage(store: widget.store),
+      ),
     );
     if (mounted) await _load();
   }

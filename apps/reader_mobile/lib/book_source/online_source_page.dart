@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import 'book_source_models.dart';
 import 'book_source_login_dialog.dart';
@@ -34,38 +34,32 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
 
   Future<void> _showAddMenu() async {
     if (_importing) return;
-    final action = await showReaderBottomSheet<String>(
+    final action = await showReaderActionSheet<String>(
       context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            ListTile(
-              key: const ValueKey<String>('online-source-import-clipboard'),
-              leading: const AppIcon(AppGlyph.copy),
-              title: const Text('从剪贴板导入'),
-              subtitle: const Text('复制 JSON 书源或下载链接后点这里'),
-              onTap: () => Navigator.of(context).pop('clipboard'),
-            ),
-            ListTile(
-              key: const ValueKey<String>('online-source-import-file'),
-              leading: const AppIcon(AppGlyph.folder),
-              title: const Text('从文件导入'),
-              subtitle: const Text('支持 JSON、TXT 或含 JSON 的书源压缩包'),
-              onTap: () => Navigator.of(context).pop('file'),
-            ),
-            ListTile(
-              key: const ValueKey<String>('online-source-import-url'),
-              leading: const AppIcon(AppGlyph.link),
-              title: const Text('从链接导入'),
-              subtitle: const Text('下载远程 JSON 书源'),
-              onTap: () => Navigator.of(context).pop('url'),
-            ),
-            const SizedBox(height: 8),
-          ],
+      title: '导入书源',
+      actions: const [
+        ReaderSheetAction(
+          key: ValueKey<String>('online-source-import-clipboard'),
+          value: 'clipboard',
+          icon: AppIcon(AppGlyph.copy),
+          title: '从剪贴板导入',
+          subtitle: '复制 JSON 书源或下载链接后点这里',
         ),
-      ),
+        ReaderSheetAction(
+          key: ValueKey<String>('online-source-import-file'),
+          value: 'file',
+          icon: AppIcon(AppGlyph.folder),
+          title: '从文件导入',
+          subtitle: '支持 JSON、TXT 或含 JSON 的书源压缩包',
+        ),
+        ReaderSheetAction(
+          key: ValueKey<String>('online-source-import-url'),
+          value: 'url',
+          icon: AppIcon(AppGlyph.link),
+          title: '从链接导入',
+          subtitle: '下载远程 JSON 书源',
+        ),
+      ],
     );
     if (!mounted) return;
     switch (action) {
@@ -165,24 +159,14 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
   }
 
   Future<void> _confirmRemove(BookSource source) async {
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text('删除 ${source.name}'),
-        content: const Text('只删除本机保存的书源，不会删除已经导入书架的书籍。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除 ${source.name}',
+      message: '只删除本机保存的书源，不会删除已经导入书架的书籍。',
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     try {
       await widget.controller.removeSource(source.id);
     } on Object catch (error) {
@@ -193,32 +177,23 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
   Future<void> _handleLogin(BookSource source) async {
     if (!source.hasLoginConfig || _loggingInSourceId != null) return;
     if (widget.controller.isLoggedIn(source)) {
-      final action = await showReaderBottomSheet<String>(
+      final action = await showReaderActionSheet<String>(
         context: context,
-        showDragHandle: true,
-        builder: (context) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              ListTile(
-                leading: const AppIcon(AppGlyph.profile),
-                title: Text('${source.name} 已登录'),
-                subtitle: const Text('登录信息已保存在本机，可用于书源请求。'),
-              ),
-              ListTile(
-                leading: const AppIcon(AppGlyph.lock),
-                title: const Text('重新登录'),
-                onTap: () => Navigator.of(context).pop('login'),
-              ),
-              ListTile(
-                leading: const AppIcon(AppGlyph.delete),
-                title: const Text('清除登录'),
-                onTap: () => Navigator.of(context).pop('logout'),
-              ),
-              const SizedBox(height: 8),
-            ],
+        title: '${source.name} 已登录',
+        subtitle: '登录信息已保存在本机，可用于书源请求。',
+        actions: const [
+          ReaderSheetAction(
+            value: 'login',
+            icon: AppIcon(AppGlyph.lock),
+            title: '重新登录',
           ),
-        ),
+          ReaderSheetAction(
+            value: 'logout',
+            icon: AppIcon(AppGlyph.delete),
+            title: '清除登录',
+            destructive: true,
+          ),
+        ],
       );
       if (!mounted || action == null) return;
       if (action == 'logout') {
@@ -284,33 +259,40 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
       builder: (context, child) {
         final controller = widget.controller;
         final sources = controller.sources;
-        return ReaderSheetForm(
-          title: const Text('在线书源'),
-          contentPadding: EdgeInsets.zero,
-          scrollContent: false,
-          headerActions: <Widget>[
-            IconButton(
-              key: const ValueKey<String>('online-source-search'),
-              tooltip: '搜索在线书籍',
-              onPressed: controller.searchableCount == 0 ? null : _openSearch,
-              icon: const AppIcon(AppGlyph.search),
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('在线书源'),
+            actions: <Widget>[
+              IconButton(
+                key: const ValueKey<String>('online-source-search'),
+                tooltip: '搜索在线书籍',
+                onPressed: controller.searchableCount == 0 ? null : _openSearch,
+                icon: const AppIcon(AppGlyph.search),
+              ),
+              IconButton(
+                key: const ValueKey<String>('online-source-add'),
+                tooltip: '添加书源',
+                onPressed: _importing ? null : _showAddMenu,
+                icon: _importing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const AppIcon(AppGlyph.add),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            top: false,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: ReaderUiTokens.pageMaxWidth,
+                ),
+                child: _buildBody(sources, controller),
+              ),
             ),
-            IconButton(
-              key: const ValueKey<String>('online-source-add'),
-              tooltip: '添加书源',
-              onPressed: _importing ? null : _showAddMenu,
-              icon: _importing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const AppIcon(AppGlyph.add),
-            ),
-          ],
-          content: SizedBox(
-            height: MediaQuery.sizeOf(context).height * .82,
-            child: _buildBody(sources, controller),
           ),
         );
       },
@@ -323,167 +305,125 @@ class _OnlineSourcePageState extends State<OnlineSourcePage> {
     }
     final error = controller.error;
     if (error != null) {
-      return _ErrorState(
-        message: error,
-        onRetry: () => controller.initialize(refresh: true),
+      return ReaderEmptyState(
+        icon: const AppIcon(AppGlyph.warning),
+        title: '书源加载失败',
+        description: error,
+        action: FilledButton.tonal(
+          onPressed: () => controller.initialize(refresh: true),
+          child: const Text('重试'),
+        ),
       );
     }
     if (sources.isEmpty) {
-      return _EmptyState(onAdd: _showAddMenu);
+      return ReaderEmptyState(
+        icon: const AppIcon(AppGlyph.link),
+        title: '还没有在线书源',
+        description: '导入阅读/Legado JSON 书源',
+        action: FilledButton.icon(
+          onPressed: _showAddMenu,
+          icon: const AppIcon(AppGlyph.add),
+          label: const Text('添加书源'),
+        ),
+      );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      padding: ReaderUiTokens.pagePadding,
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-          child: Text(
-            '已启用 ${controller.enabledCount} / ${sources.length} 个书源。'
-            '搜索与下载会直接访问书源站点。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-        for (final source in sources)
-          Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              key: ValueKey<String>('online-source-${source.id}'),
-              title: Text(source.name, maxLines: 1),
-              subtitle: Text(
-                <String>[
-                  if (source.group.isNotEmpty) source.group,
-                  '${source.searchUrl.isEmpty || source.search.bookList.isEmpty ? '无搜索' : '可搜索'}'
-                      '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? ' · 已登录' : ' · 需登录') : ''}',
-                ].join('\n'),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  if (source.hasLoginConfig)
-                    IconButton(
-                      key: ValueKey<String>('online-source-login-${source.id}'),
-                      tooltip: controller.isLoggedIn(source) ? '登录状态' : '登录书源',
-                      onPressed: _loggingInSourceId == source.id
-                          ? null
-                          : () => _handleLogin(source),
-                      icon: _loggingInSourceId == source.id
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : AppIcon(
-                              controller.isLoggedIn(source)
-                                  ? AppGlyph.checkCircle
-                                  : AppGlyph.profile,
-                            ),
+        ReaderSectionGroup(
+          title: '书源列表（已启用 ${controller.enabledCount} / ${sources.length}）',
+          footer: '搜索与下载会直接访问书源站点。',
+          children: [
+            for (final source in sources)
+              ListTile(
+                key: ValueKey<String>('online-source-${source.id}'),
+                title: Text(source.name, maxLines: 1),
+                subtitle: Text(
+                  <String>[
+                    if (source.group.isNotEmpty) source.group,
+                    '${source.searchUrl.isEmpty || source.search.bookList.isEmpty ? '无搜索' : '可搜索'}'
+                        '${source.hasLoginConfig ? (controller.isLoggedIn(source) ? ' · 已登录' : ' · 需登录') : ''}',
+                  ].join('\n'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (source.hasLoginConfig)
+                      IconButton(
+                        key: ValueKey<String>(
+                          'online-source-login-${source.id}',
+                        ),
+                        tooltip: controller.isLoggedIn(source)
+                            ? '登录状态'
+                            : '登录书源',
+                        onPressed: _loggingInSourceId == source.id
+                            ? null
+                            : () => _handleLogin(source),
+                        icon: _loggingInSourceId == source.id
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : AppIcon(
+                                controller.isLoggedIn(source)
+                                    ? AppGlyph.checkCircle
+                                    : AppGlyph.profile,
+                              ),
+                      ),
+                    ReaderSwitch(
+                      key: ValueKey<String>(
+                        'online-source-enabled-${source.id}',
+                      ),
+                      value: source.enabled,
+                      onChanged: (value) async {
+                        try {
+                          await controller.setSourceEnabled(source.id, value);
+                        } on Object catch (error) {
+                          _showError('保存失败：$error');
+                        }
+                      },
                     ),
-                  ReaderSwitch(
-                    key: ValueKey<String>('online-source-enabled-${source.id}'),
-                    value: source.enabled,
-                    onChanged: (value) async {
-                      try {
-                        await controller.setSourceEnabled(source.id, value);
-                      } on Object catch (error) {
-                        _showError('保存失败：$error');
-                      }
-                    },
-                  ),
-                  PopupMenuButton<String>(
-                    tooltip: '书源选项',
-                    position: PopupMenuPosition.under,
-                    onSelected: (value) async {
-                      if (value == 'remove') {
-                        await _confirmRemove(source);
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      PopupMenuItem(
-                        value: 'remove',
-                        child: Row(
-                          children: [
-                            AppIcon(
-                              AppGlyph.delete,
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              '删除书源',
-                              style: TextStyle(
+                    PopupMenuButton<String>(
+                      tooltip: '书源选项',
+                      position: PopupMenuPosition.under,
+                      onSelected: (value) async {
+                        if (value == 'remove') {
+                          await _confirmRemove(source);
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                          value: 'remove',
+                          child: Row(
+                            children: [
+                              AppIcon(
+                                AppGlyph.delete,
                                 color: Theme.of(context).colorScheme.error,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 12),
+                              Text(
+                                '删除书源',
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
+          ],
+        ),
       ],
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onAdd});
-
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const AppIcon(AppGlyph.link, size: 48),
-            const SizedBox(height: 18),
-            Text('还没有在线书源', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            const Text('导入阅读/Legado JSON 书源', textAlign: TextAlign.center),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onAdd,
-              icon: const AppIcon(AppGlyph.add),
-              label: const Text('添加书源'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const AppIcon(AppGlyph.warning, size: 42),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ),
-      ),
     );
   }
 }

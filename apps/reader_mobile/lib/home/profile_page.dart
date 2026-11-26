@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
-import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../book_source/online_book_controller.dart';
@@ -101,76 +101,61 @@ class ProfilePage extends StatelessWidget {
             ),
             if (reaMicro != null) ReadingHeatmap(controller: reaMicro!),
             const SizedBox(height: 24),
-            Material(
-              color: Theme.of(context).colorScheme.surface,
-              shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
-              clipBehavior: Clip.antiAlias,
-              child: ListTileTheme(
-                data: const ListTileThemeData(
-                  minTileHeight: 48,
-                  minVerticalPadding: 6,
-                  visualDensity: VisualDensity(vertical: -1),
-                ),
-                child: Column(
-                  children: [
-                    if (reaMicro != null) ...[
-                      _YeSheEntry(controller: reaMicro!),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      _CommunityEntry(controller: reaMicro!),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      ListTile(
-                        key: const ValueKey('profile-lan-entry'),
-                        leading: const Icon(Icons.sync_alt),
-                        title: const Text('互联'),
-                        trailing: const AppIcon(AppGlyph.chevronRight),
-                        onTap: () => Navigator.of(context).push<void>(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ReaMicroLanPage(controller: reaMicro!),
-                          ),
-                        ),
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      ListTile(
-                        key: const ValueKey('profile-sync-entry'),
-                        leading: const Icon(Icons.cloud_upload_outlined),
-                        title: const Text('同步'),
-                        trailing: const AppIcon(AppGlyph.chevronRight),
-                        onTap: () => Navigator.of(context).push<void>(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ReaMicroS3Page(controller: reaMicro!),
-                          ),
-                        ),
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                    ],
-                    ListTile(
-                      key: const ValueKey('profile-settings-entry'),
-                      leading: const AppIcon(AppGlyph.settings),
-                      title: const Text('设置'),
-                      trailing: const AppIcon(AppGlyph.chevronRight),
-                      onTap: () => showReaderDrawer<void>(
-                        context: context,
-                        builder: (_) => AppSettingsPage(
-                          library: library,
-                          onlineBooks: onlineBooks,
-                          onReadOnline: onReadOnline,
-                          themeMode: themeMode,
-                          onThemeModeChanged: onThemeModeChanged,
-                          uiStyle: uiStyle,
-                          onUiStyleChanged: onUiStyleChanged,
-                          appFontFamily: appFontFamily,
-                          appFontStore: appFontStore,
-                          onAppFontFamilyChanged: onAppFontFamilyChanged,
-                          navigationSettings: navigationSettings,
-                          sync: sync,
-                        ),
+            ReaderSectionGroup(
+              children: [
+                if (reaMicro != null) ...[
+                  _YeSheEntry(controller: reaMicro!),
+                  _CommunityEntry(controller: reaMicro!),
+                  ListTile(
+                    key: const ValueKey('profile-lan-entry'),
+                    leading: const Icon(Icons.sync_alt),
+                    title: const Text('互联'),
+                    trailing: const AppIcon(AppGlyph.chevronRight),
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ReaMicroLanPage(controller: reaMicro!),
                       ),
                     ),
-                  ],
+                  ),
+                  ListTile(
+                    key: const ValueKey('profile-sync-entry'),
+                    leading: const Icon(Icons.cloud_upload_outlined),
+                    title: const Text('同步'),
+                    trailing: const AppIcon(AppGlyph.chevronRight),
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ReaMicroS3Page(controller: reaMicro!),
+                      ),
+                    ),
+                  ),
+                ],
+                ListTile(
+                  key: const ValueKey('profile-settings-entry'),
+                  leading: const AppIcon(AppGlyph.settings),
+                  title: const Text('设置'),
+                  trailing: const AppIcon(AppGlyph.chevronRight),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => AppSettingsPage(
+                        library: library,
+                        onlineBooks: onlineBooks,
+                        onReadOnline: onReadOnline,
+                        themeMode: themeMode,
+                        onThemeModeChanged: onThemeModeChanged,
+                        uiStyle: uiStyle,
+                        onUiStyleChanged: onUiStyleChanged,
+                        appFontFamily: appFontFamily,
+                        appFontStore: appFontStore,
+                        onAppFontFamilyChanged: onAppFontFamilyChanged,
+                        navigationSettings: navigationSettings,
+                        sync: sync,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
         ),

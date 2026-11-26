@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_mobile/home/discover_choice_dialog.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 void main() {
   test('日间和夜间主题使用一致的弹层几何与间距', () {
@@ -247,6 +248,38 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('discover-choice-历史')));
       await tester.pumpAndSettle();
       expect(result, '历史');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('${style.name} 统一设置骨架、分组卡片与内联提示无溢出并跟随主题', (
+      tester,
+    ) async {
+      final theme = buildAppTheme(uiStyle: style);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: ReaderSettingsScaffold(
+            title: const Text('统一设置'),
+            children: [
+              const ReaderInlineNotice(message: '提示信息', isError: true),
+              const SizedBox(height: 16),
+              ReaderSectionGroup(
+                title: '分组标题',
+                footer: '分组说明',
+                children: const [
+                  ListTile(title: Text('第一项')),
+                  ListTile(title: Text('第二项')),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('统一设置'), findsOneWidget);
+      expect(find.text('分组标题'), findsOneWidget);
+      expect(find.text('分组说明'), findsOneWidget);
+      expect(find.byType(Divider), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

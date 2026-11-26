@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import 'sync_controller.dart';
 import 'sync_crypto.dart';
@@ -274,16 +276,14 @@ class _SyncPageState extends State<SyncPage> {
       enabled: !_working && !widget.controller.syncing,
       autocorrect: false,
       enableSuggestions: !secret,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-      ),
+      decoration: InputDecoration(labelText: label),
     ),
   );
 
-  Widget _options(bool enabled) => Column(
+  Widget _options(bool enabled) => ReaderSectionGroup(
+    title: '同步选项',
     children: [
-      SwitchListTile(
+      ReaderSwitchListTile(
         title: const Text('自动同步'),
         subtitle: const Text('前台每两分钟、退出阅读及数据变化后同步，不阻塞本地阅读'),
         value: _automatic,
@@ -291,7 +291,7 @@ class _SyncPageState extends State<SyncPage> {
             ? (value) => setState(() => _automatic = value)
             : null,
       ),
-      SwitchListTile(
+      ReaderSwitchListTile(
         title: const Text('同步阅读偏好'),
         subtitle: const Text('排版、颜色、阅读主题；不同步设备操作和语音模型'),
         value: _preferences,
@@ -299,14 +299,14 @@ class _SyncPageState extends State<SyncPage> {
             ? (value) => setState(() => _preferences = value)
             : null,
       ),
-      SwitchListTile(
+      ReaderSwitchListTile(
         title: const Text('同步字体与阅读背景'),
         value: _resources,
         onChanged: enabled
             ? (value) => setState(() => _resources = value)
             : null,
       ),
-      SwitchListTile(
+      ReaderSwitchListTile(
         title: const Text('新同步库启用端到端加密'),
         subtitle: const Text('仅创建时选择；加入已有加密库时填写恢复密钥'),
         value: _encrypt,
@@ -315,46 +315,72 @@ class _SyncPageState extends State<SyncPage> {
     ],
   );
 
-  List<Widget> _actions(bool enabled) => [
-    OutlinedButton.icon(
-      onPressed: enabled ? () => unawaited(_test()) : null,
-      icon: const Icon(Icons.wifi_find),
-      label: const Text('测试连接'),
-    ),
-    OutlinedButton(
-      onPressed: enabled
-          ? () => unawaited(
-              _run(() async {
-                await widget.controller.saveProfile(_profile, _credentials);
-                if (mounted) _show(widget.controller.message);
-              }),
-            )
-          : null,
-      child: const Text('保存连接与选项'),
-    ),
-    FilledButton.icon(
-      onPressed: enabled ? () => unawaited(_join()) : null,
-      icon: const Icon(Icons.sync),
-      label: const Text('加入并同步'),
-    ),
-    OutlinedButton(
-      onPressed: enabled ? () => unawaited(_run(_create)) : null,
-      child: const Text('创建同步库'),
-    ),
-    OutlinedButton.icon(
-      onPressed: enabled && widget.controller.profile != null
-          ? () => unawaited(_run(_sync))
-          : null,
-      icon: const Icon(Icons.sync),
-      label: const Text('立即同步已保存连接'),
-    ),
-    TextButton(
-      onPressed: enabled && widget.controller.profile != null
-          ? () => unawaited(_clearBook())
-          : null,
-      child: const Text('仅清理本机 EPUB 副本'),
-    ),
-  ];
+  Widget _actionPanel(bool enabled) => ReaderSectionGroup(
+    title: '同步操作',
+    showDividers: false,
+    children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FilledButton.icon(
+              onPressed: enabled ? () => unawaited(_join()) : null,
+              icon: const Icon(Icons.sync),
+              label: const Text('加入并同步'),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: enabled ? () => unawaited(_test()) : null,
+                  icon: const Icon(Icons.wifi_find),
+                  label: const Text('测试连接'),
+                ),
+                OutlinedButton(
+                  onPressed: enabled
+                      ? () => unawaited(
+                          _run(() async {
+                            await widget.controller.saveProfile(
+                              _profile,
+                              _credentials,
+                            );
+                            if (mounted) _show(widget.controller.message);
+                          }),
+                        )
+                      : null,
+                  child: const Text('保存连接与选项'),
+                ),
+                OutlinedButton(
+                  onPressed: enabled ? () => unawaited(_run(_create)) : null,
+                  child: const Text('创建同步库'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: enabled && widget.controller.profile != null
+                      ? () => unawaited(_run(_sync))
+                      : null,
+                  icon: const Icon(Icons.sync),
+                  label: const Text('立即同步已保存连接'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: enabled && widget.controller.profile != null
+                    ? () => unawaited(_clearBook())
+                    : null,
+                child: const Text('仅清理本机 EPUB 副本'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
 
   List<Widget> _conflicts(bool enabled) => [
     if (widget.controller.state?.conflicts.isNotEmpty == true) ...[
@@ -417,78 +443,115 @@ class _SyncPageState extends State<SyncPage> {
           !_working &&
           !widget.controller.syncing &&
           widget.controller.available;
-      return Scaffold(
-        appBar: AppBar(title: const Text('多设备同步')),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
-            child: ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      '同步 EPUB、全部笔记、书签、书评、书单、分组标签与原始阅读会话。'
-                      '统计页的时长、日历、排行、次数、字数和翻页统计在每台设备重建。'
-                      '书架删除会同步到所有设备，已有阅读历史保留。',
+      return ReaderSettingsScaffold(
+        title: const Text('多设备同步'),
+        maxWidth: 720,
+        children: [
+          const ReaderInlineNotice(
+            message:
+                '同步 EPUB、全部笔记、书签、书评、书单、分组标签与原始阅读会话。'
+                '统计页的时长、日历、排行、次数、字数和翻页统计在每台设备重建。'
+                '书架删除会同步到所有设备，已有阅读历史保留。',
+          ),
+          if (_loading || _working || widget.controller.syncing) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+          ],
+          if (!widget.controller.available) ...[
+            const SizedBox(height: 12),
+            const ReaderInlineNotice(
+              message: '本地数据库不可用，临时模式已禁用同步。',
+              isError: true,
+            ),
+          ],
+          const SizedBox(height: ReaderUiTokens.spacingLg),
+          ReaderSectionGroup(
+            title: '连接配置',
+            showDividers: false,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ReaderDropdownButtonFormField<SyncProvider>(
+                      key: ValueKey('sync-provider-${_provider.name}'),
+                      initialValue: _provider,
+                      decoration: const InputDecoration(labelText: '存储后端'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: SyncProvider.webdav,
+                          child: Text('WebDAV'),
+                        ),
+                        DropdownMenuItem(
+                          value: SyncProvider.s3,
+                          child: Text('S3 兼容对象存储'),
+                        ),
+                      ],
+                      onChanged: enabled
+                          ? (value) => setState(() => _provider = value!)
+                          : null,
                     ),
-                  ),
-                ),
-                if (_loading || _working || widget.controller.syncing)
-                  const LinearProgressIndicator(),
-                if (!widget.controller.available)
-                  const Text('本地数据库不可用，临时模式已禁用同步。'),
-                const SizedBox(height: 16),
-                ReaderDropdownButtonFormField<SyncProvider>(
-                  key: ValueKey('sync-provider-${_provider.name}'),
-                  initialValue: _provider,
-                  decoration: const InputDecoration(
-                    labelText: '存储后端',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: SyncProvider.webdav,
-                      child: Text('WebDAV'),
+                    const SizedBox(height: 12),
+                    _field('HTTPS 服务地址', _endpoint),
+                    if (_provider == SyncProvider.s3) ...[
+                      _field('存储桶', _bucket),
+                      _field('区域', _region),
+                    ],
+                    _field('同步目录（所有设备填写相同目录）', _prefix),
+                    _field(
+                      _provider == SyncProvider.s3
+                          ? 'Access Key'
+                          : 'WebDAV 用户名',
+                      _access,
                     ),
-                    DropdownMenuItem(
-                      value: SyncProvider.s3,
-                      child: Text('S3 兼容对象存储'),
+                    _field(
+                      _provider == SyncProvider.s3
+                          ? 'Secret Key'
+                          : 'WebDAV 密码',
+                      _secret,
+                      secret: true,
                     ),
+                    _field('恢复密钥（加入已有加密同步库时填写）', _recovery, secret: true),
                   ],
-                  onChanged: enabled
-                      ? (value) => setState(() => _provider = value!)
-                      : null,
                 ),
-                const SizedBox(height: 12),
-                _field('HTTPS 服务地址', _endpoint),
-                if (_provider == SyncProvider.s3) ...[
-                  _field('存储桶', _bucket),
-                  _field('区域', _region),
-                ],
-                _field('同步目录（所有设备填写相同目录）', _prefix),
-                _field(
-                  _provider == SyncProvider.s3 ? 'Access Key' : 'WebDAV 用户名',
-                  _access,
+              ),
+            ],
+          ),
+          const SizedBox(height: ReaderUiTokens.spacingXl),
+          _options(enabled),
+          const SizedBox(height: ReaderUiTokens.spacingXl),
+          _actionPanel(enabled),
+          if (widget.controller.message.isNotEmpty ||
+              widget.controller.lastSync != null) ...[
+            const SizedBox(height: ReaderUiTokens.spacingLg),
+            ReaderSectionGroup(
+              title: '状态',
+              showDividers: false,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (widget.controller.message.isNotEmpty)
+                        Text(widget.controller.message),
+                      if (widget.controller.lastSync != null) ...[
+                        if (widget.controller.message.isNotEmpty)
+                          const SizedBox(height: 4),
+                        Text(
+                          '上次同步：${widget.controller.lastSync!.toLocal()}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-                _field(
-                  _provider == SyncProvider.s3 ? 'Secret Key' : 'WebDAV 密码',
-                  _secret,
-                  secret: true,
-                ),
-                _field('恢复密钥（加入已有加密同步库时填写）', _recovery, secret: true),
-                _options(enabled),
-                ..._actions(enabled),
-                const SizedBox(height: 16),
-                Text(widget.controller.message),
-                if (widget.controller.lastSync != null)
-                  Text('上次同步：${widget.controller.lastSync!.toLocal()}'),
-                ..._conflicts(enabled),
               ],
             ),
-          ),
-        ),
+          ],
+          ..._conflicts(enabled),
+        ],
       );
     },
   );

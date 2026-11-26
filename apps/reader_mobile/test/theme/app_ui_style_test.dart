@@ -123,6 +123,8 @@ void main() {
       tester.widget<MaterialApp>(find.byType(MaterialApp)).theme!.useMaterial3,
       isTrue,
     );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());

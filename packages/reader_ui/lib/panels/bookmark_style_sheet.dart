@@ -9,6 +9,8 @@ import '../bookmarks/bookmark_style.dart';
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_panel_reveal.dart';
+import '../theme/reader_ui_components.dart';
+import '../theme/reader_ui_style.dart';
 
 /// 编辑全局书签样式与下拉开关，保存前只更新预览。
 class ReaderBookmarkStyleSheet extends StatefulWidget {
@@ -124,10 +126,14 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
           setState(() => _style = _style.copyWith(pullEnabled: value)),
     ),
     const SizedBox(height: 12),
-    SizedBox(
-      height: ReaderBookmarkStyle.maxLength + 12,
-      child: ColoredBox(
+    DecoratedBox(
+      decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: SizedBox(
+        height: ReaderBookmarkStyle.maxLength + 12,
         child: Padding(
           padding: EdgeInsets.only(right: _style.rightInset),
           child: Align(
@@ -141,8 +147,10 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
         ),
       ),
     ),
+    const SizedBox(height: 12),
     Wrap(
       spacing: 8,
+      runSpacing: 8,
       children: [
         OutlinedButton(
           key: const ValueKey('bookmark-pick-image'),
@@ -161,12 +169,15 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
         ),
       ],
     ),
-    if (_error != null)
-      Text(
-        _error!,
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
-      ),
-    const Text('图片随宽度和长度缩放；透明 PNG 可保留镂空效果。'),
+    if (_error != null) ...[
+      const SizedBox(height: 8),
+      ReaderInlineNotice(message: _error!, isError: true),
+    ],
+    const SizedBox(height: 8),
+    Text(
+      '图片随宽度和长度缩放；透明 PNG 可保留镂空效果。',
+      style: Theme.of(context).textTheme.bodySmall,
+    ),
     const SizedBox(height: 12),
     _dimension(
       '宽度',

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import 'navigation_settings.dart';
 
@@ -12,12 +12,12 @@ class NavigationSettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: settings,
-    builder: (context, _) => ReaderSheetForm(
+    builder: (context, _) => ReaderSettingsScaffold(
       title: const Text('底栏设置'),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 680),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      children: [
+        ReaderSectionGroup(
+          title: '导航入口',
+          footer: '书架与我的为常驻入口，不可关闭。',
           children: [
             for (final entry in HomeDestination.values)
               ReaderSwitchListTile(
@@ -39,7 +39,7 @@ class NavigationSettingsPage extends StatelessWidget {
               ),
           ],
         ),
-      ),
+      ],
     ),
   );
 }

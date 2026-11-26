@@ -37,10 +37,7 @@ class _EncodingDialogState extends State<_EncodingDialog> {
           const SizedBox(height: 16),
           ReaderDropdownButtonFormField<int>(
             initialValue: _selected,
-            decoration: const InputDecoration(
-              labelText: '编码',
-              border: OutlineInputBorder(),
-            ),
+            decoration: const InputDecoration(labelText: '编码'),
             items: [
               for (final (index, candidate) in widget.candidates.indexed)
                 DropdownMenuItem(value: index, child: Text(candidate.name)),

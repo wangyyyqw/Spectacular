@@ -2,9 +2,12 @@ import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/material.dart';
 
+import '../icons/app_icon.dart';
 import 'reader_frosted_surface.dart';
 import 'reader_panel_theme.dart';
+import 'reader_sheet_form.dart';
 import 'reader_theme.dart';
+import 'reader_ui_components.dart';
 import 'reader_ui_style.dart';
 
 /// 磨砂对话框只缩放，不使用会隔离背景采样的整体淡入。
@@ -454,6 +457,155 @@ class ReaderFrostedSimpleDialog extends SimpleDialog {
       constraints: dialog.constraints,
       semanticsRole: dialog.semanticsRole,
       child: dialog.child!,
+    );
+  }
+}
+
+/// 统一的确认弹窗入口：规范按钮顺序（取消在左、确认在右）与危险操作配色。
+Future<bool> showReaderConfirmDialog({
+  required BuildContext context,
+  required String title,
+  required String message,
+  String cancelLabel = '取消',
+  String confirmLabel = '确定',
+  bool destructive = false,
+  Key? cancelKey,
+  Key? confirmKey,
+  bool barrierDismissible = true,
+}) async =>
+    await showReaderDialog<bool>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return ReaderFrostedAlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              key: cancelKey,
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(cancelLabel),
+            ),
+            FilledButton(
+              key: confirmKey,
+              style: destructive
+                  ? ReaderUiStyle.destructiveFilledButtonStyle(theme)
+                  : null,
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(confirmLabel),
+            ),
+          ],
+        );
+      },
+    ) ??
+    false;
+
+/// 统一的底部/侧边动作菜单：移动端底部抽屉，桌面端右抽屉，共用 `ReaderSheetForm`。
+Future<T?> showReaderActionSheet<T>({
+  required BuildContext context,
+  String? title,
+  String? subtitle,
+  required List<ReaderSheetAction<T>> actions,
+  bool showCloseButton = false,
+  ReaderTheme? readerTheme,
+  double maxWidth = 520,
+}) => showReaderDrawer<T>(
+  context: context,
+  readerTheme: readerTheme,
+  maxWidth: maxWidth,
+  builder: (context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final list = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < actions.length; i++) ...[
+          if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
+          _SheetActionTile<T>(action: actions[i]),
+        ],
+      ],
+    );
+    if (title == null) {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+          child: list,
+        ),
+      );
+    }
+    return ReaderSheetForm(
+      title: subtitle == null
+          ? Text(title)
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+      showCloseButton: showCloseButton,
+      contentPadding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      content: list,
+    );
+  },
+);
+
+class _SheetActionTile<T> extends StatelessWidget {
+  const _SheetActionTile({required this.action});
+
+  final ReaderSheetAction<T> action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final fg = action.destructive
+        ? colors.error
+        : action.selected
+        ? colors.onPrimaryContainer
+        : colors.onSurface;
+    return ListTile(
+      key: action.key,
+      enabled: action.enabled,
+      selected: action.selected,
+      leading: action.icon == null
+          ? null
+          : IconTheme(
+              data: IconThemeData(
+                size: 20,
+                color: action.destructive
+                    ? colors.error
+                    : action.selected
+                    ? colors.onPrimaryContainer
+                    : colors.onSurfaceVariant,
+              ),
+              child: action.icon!,
+            ),
+      title: Text(
+        action.title,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: action.enabled ? fg : colors.onSurface.withValues(alpha: .38),
+          fontWeight: action.selected ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
+      subtitle: action.subtitle == null ? null : Text(action.subtitle!),
+      trailing: action.selected
+          ? AppIcon(AppGlyph.check, size: 20, color: colors.onPrimaryContainer)
+          : null,
+      onTap: action.enabled
+          ? () => Navigator.of(context).pop(action.value)
+          : null,
     );
   }
 }

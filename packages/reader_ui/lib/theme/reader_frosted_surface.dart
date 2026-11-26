@@ -58,8 +58,10 @@ class ReaderFrostedSurface extends StatelessWidget {
                   border: flat || !rounded
                       ? null
                       : Border.all(
-                          color: Colors.white.withValues(alpha: 0.12),
-                          width: 0.5,
+                          color: scheme.brightness == Brightness.dark
+                              ? scheme.outlineVariant.withValues(alpha: 0.7)
+                              : scheme.outlineVariant.withValues(alpha: 0.6),
+                          width: 0.75,
                         ),
                   boxShadow:
                       flat || !rounded || scheme.brightness == Brightness.dark

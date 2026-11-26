@@ -9,6 +9,7 @@ import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import '../book_source/online_book_controller.dart';
 import '../dictionary/dictionary_store.dart';
@@ -351,9 +352,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               for (final mode in ThemeMode.values)
-                RadioListTile(
+                RadioListTile<ThemeMode>(
                   value: mode,
-                  activeColor: Theme.of(context).colorScheme.onSurface,
                   contentPadding: EdgeInsets.zero,
                   title: Text(switch (mode) {
                     ThemeMode.system => '跟随系统',
@@ -396,6 +396,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   title: Text(switch (style) {
                     AppUiStyle.classic => '经典',
                     AppUiStyle.material3 => 'Material 3',
+                  }),
+                  subtitle: Text(switch (style) {
+                    AppUiStyle.classic => '克制精炼的工具风，平面细描边与小圆角',
+                    AppUiStyle.material3 => 'Material 3 规范控件、大圆角与柔和色调容器',
                   }),
                 ),
             ],
@@ -464,25 +468,15 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   }
 
   Future<void> _clearLogs() async {
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('清理日志'),
-        content: const Text('将删除本机保存的全部诊断日志（含历史会话），确定吗？'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            key: const ValueKey<String>('logs-clear-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('清理'),
-          ),
-        ],
-      ),
+      title: '清理日志',
+      message: '将删除本机保存的全部诊断日志（含历史会话），确定吗？',
+      confirmLabel: '清理',
+      destructive: true,
+      confirmKey: const ValueKey<String>('logs-clear-confirm'),
     );
-    if (confirmed != true) {
+    if (!confirmed) {
       return;
     }
     try {
@@ -525,215 +519,191 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ReaderSheetForm(
+    return ReaderSettingsScaffold(
       title: const Text('设置'),
-      contentPadding: EdgeInsets.zero,
-      scrollContent: false,
-      content: SizedBox(
-        height: MediaQuery.sizeOf(context).height * .82,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                if (widget.sync != null) ...[
-                  _section(context, '数据', [
-                    ListTile(
-                      key: const ValueKey('multi-device-sync-entry'),
-                      leading: const Icon(Icons.cloud_sync_outlined),
-                      title: const Text('多设备同步'),
-                      subtitle: const Text('WebDAV / S3 · 完整阅读数据与可选加密'),
-                      trailing: const AppIcon(AppGlyph.chevronRight),
-                      onTap: () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (_) => SyncPage(controller: widget.sync!),
-                        ),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 24),
-                ],
-                _appearance(context),
-                const SizedBox(height: 24),
-                _section(context, '阅读', [
-                  ListTile(
-                    key: const ValueKey('dictionary-settings-entry'),
-                    leading: const AppIcon(AppGlyph.bookshelf),
-                    title: const Text('词典设置'),
-                    subtitle: const Text('释义服务、模型与查询预设'),
-                    trailing: const AppIcon(AppGlyph.chevronRight),
-                    onTap: () => showReaderDrawer<void>(
-                      context: context,
-                      builder: (_) => DictionarySettingsPage(
-                        store: DictionaryStore(widget.library),
-                      ),
-                    ),
+      children: [
+        if (widget.sync != null) ...[
+          ReaderSectionGroup(
+            title: '数据',
+            children: [
+              ListTile(
+                key: const ValueKey('multi-device-sync-entry'),
+                leading: const Icon(Icons.cloud_sync_outlined),
+                title: const Text('多设备同步'),
+                subtitle: const Text('WebDAV / S3 · 完整阅读数据与可选加密'),
+                trailing: const AppIcon(AppGlyph.chevronRight),
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => SyncPage(controller: widget.sync!),
                   ),
-                  if (widget.onlineBooks != null)
-                    _OnlineSourceEntry(
-                      controller: widget.onlineBooks!,
-                      onRead: widget.onReadOnline,
-                    ),
-                ]),
-                const SizedBox(height: 24),
-                _section(context, '帮助与诊断', [
-                  ListTile(
-                    leading: const AppIcon(AppGlyph.listBulleted),
-                    title: const Text('查看诊断日志'),
-                    subtitle: const Text('查看应用错误和运行记录'),
-                    onTap: _viewLogs,
-                  ),
-                  ListTile(
-                    leading: _exporting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const AppIcon(AppGlyph.share),
-                    title: const Text('导出诊断日志'),
-                    subtitle: const Text('遇到阅读问题时，可随反馈附上'),
-                    onTap: _exporting ? null : _exportLogs,
-                  ),
-                  ListTile(
-                    key: const ValueKey<String>('logs-clear'),
-                    leading: const AppIcon(AppGlyph.deleteSweep),
-                    title: const Text('清理日志'),
-                    subtitle: const Text('删除本机保存的全部诊断日志'),
-                    onTap: _exporting ? null : _clearLogs,
-                  ),
-                ]),
-                const SizedBox(height: 24),
-                _section(context, '应用信息', [
-                  ListTile(
-                    key: const ValueKey('about-entry'),
-                    title: const Text('关于'),
-                    trailing: const AppIcon(AppGlyph.chevronRight),
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(builder: (_) => const AboutPage()),
-                    ),
-                  ),
-                ]),
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: ReaderUiTokens.spacingXl),
+        ],
+        _appearance(context),
+        const SizedBox(height: ReaderUiTokens.spacingXl),
+        ReaderSectionGroup(
+          title: '阅读',
+          children: [
+            ListTile(
+              key: const ValueKey('dictionary-settings-entry'),
+              leading: const AppIcon(AppGlyph.bookshelf),
+              title: const Text('词典设置'),
+              subtitle: const Text('释义服务、模型与查询预设'),
+              trailing: const AppIcon(AppGlyph.chevronRight),
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(
+                  builder: (_) => DictionarySettingsPage(
+                    store: DictionaryStore(widget.library),
+                  ),
+                ),
+              ),
+            ),
+            if (widget.onlineBooks != null)
+              _OnlineSourceEntry(
+                controller: widget.onlineBooks!,
+                onRead: widget.onReadOnline,
+              ),
+          ],
         ),
-      ),
+        const SizedBox(height: ReaderUiTokens.spacingXl),
+        ReaderSectionGroup(
+          title: '帮助与诊断',
+          children: [
+            ListTile(
+              leading: const AppIcon(AppGlyph.listBulleted),
+              title: const Text('查看诊断日志'),
+              subtitle: const Text('查看应用错误和运行记录'),
+              onTap: _viewLogs,
+            ),
+            ListTile(
+              leading: _exporting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const AppIcon(AppGlyph.share),
+              title: const Text('导出诊断日志'),
+              subtitle: const Text('遇到阅读问题时，可随反馈附上'),
+              onTap: _exporting ? null : _exportLogs,
+            ),
+            ListTile(
+              key: const ValueKey<String>('logs-clear'),
+              leading: const AppIcon(AppGlyph.deleteSweep),
+              title: const Text('清理日志'),
+              subtitle: const Text('删除本机保存的全部诊断日志'),
+              onTap: _exporting ? null : _clearLogs,
+            ),
+          ],
+        ),
+        const SizedBox(height: ReaderUiTokens.spacingXl),
+        ReaderSectionGroup(
+          title: '应用信息',
+          children: [
+            ListTile(
+              key: const ValueKey('about-entry'),
+              title: const Text('关于'),
+              trailing: const AppIcon(AppGlyph.chevronRight),
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(builder: (_) => const AboutPage()),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _appearance(BuildContext context) {
     final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
     final uiStyle = AppThemeScope.maybeOf(context)?.uiStyle ?? _uiStyle;
-    return _section(context, '外观', [
-      ListTile(
-        key: const ValueKey('bookshelf-management-entry'),
-        leading: const AppIcon(AppGlyph.bookshelf),
-        title: const Text('书架管理'),
-        subtitle: const Text('书架显示、排序、更新和分组'),
-        trailing: const AppIcon(AppGlyph.chevronRight),
-        onTap: _openShelfManagement,
-      ),
-      ListTile(
-        key: const ValueKey('theme-color-settings-entry'),
-        leading: const AppIcon(AppGlyph.palette),
-        title: const Text('主题取色'),
-        trailing: const AppIcon(AppGlyph.chevronRight),
-        onTap: () async {
-          final shared = ThemeColorScope.maybeOf(context);
-          final settings = shared ?? ThemeColorSettings(widget.library);
-          if (shared == null) await settings.initialize();
-          if (!context.mounted) {
-            if (shared == null) settings.dispose();
-            return;
-          }
-          try {
-            await showReaderDrawer<void>(
-              context: context,
-              builder: (_) => ThemeColorSettingsPage(settings: settings),
-            );
-          } finally {
-            if (shared == null) settings.dispose();
-          }
-        },
-      ),
-      if (widget.onThemeModeChanged != null)
-        ListTile(
-          leading: const AppIcon(AppGlyph.palette),
-          title: const Text('界面主题'),
-          subtitle: Text(switch (mode) {
-            ThemeMode.system => '跟随系统',
-            ThemeMode.light => '日间模式',
-            ThemeMode.dark => '夜间模式',
-          }),
-          trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: _savingTheme ? null : () => _chooseTheme(mode),
-        ),
-      if ((AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
-              widget.onUiStyleChanged) !=
-          null)
-        ListTile(
-          key: const ValueKey('app-ui-style-setting'),
-          leading: const AppIcon(AppGlyph.palette),
-          title: const Text('界面样式'),
-          subtitle: Text(switch (uiStyle) {
-            AppUiStyle.classic => '经典',
-            AppUiStyle.material3 => 'Material 3',
-          }),
-          trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: _savingUiStyle ? null : () => _chooseUiStyle(uiStyle),
-        ),
-      if (widget.appFontStore != null && widget.onAppFontFamilyChanged != null)
-        ListTile(
-          key: const ValueKey('app-font-setting'),
-          leading: const AppIcon(AppGlyph.textFields),
-          title: const Text('应用字体'),
-          subtitle: Text(_appFontLabel),
-          trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: _chooseAppFont,
-        ),
-      if (widget.navigationSettings != null)
-        ListTile(
-          key: const ValueKey('navigation-settings-entry'),
-          leading: const AppIcon(AppGlyph.menuBook),
-          title: const Text('底栏设置'),
-          trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: () => showReaderDrawer<void>(
-            context: context,
-            builder: (_) =>
-                NavigationSettingsPage(settings: widget.navigationSettings!),
-          ),
-        ),
-    ]);
-  }
-
-  Widget _section(BuildContext context, String title, List<Widget> rows) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ReaderSectionGroup(
+      title: '外观',
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ListTile(
+          key: const ValueKey('bookshelf-management-entry'),
+          leading: const AppIcon(AppGlyph.bookshelf),
+          title: const Text('书架管理'),
+          subtitle: const Text('书架显示、排序、更新和分组'),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: _openShelfManagement,
+        ),
+        ListTile(
+          key: const ValueKey('theme-color-settings-entry'),
+          leading: const AppIcon(AppGlyph.palette),
+          title: const Text('主题取色'),
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          onTap: () async {
+            final shared = ThemeColorScope.maybeOf(context);
+            final settings = shared ?? ThemeColorSettings(widget.library);
+            if (shared == null) await settings.initialize();
+            if (!context.mounted) {
+              if (shared == null) settings.dispose();
+              return;
+            }
+            try {
+              await Navigator.of(context).push<void>(
+                MaterialPageRoute(
+                  builder: (_) => ThemeColorSettingsPage(settings: settings),
+                ),
+              );
+            } finally {
+              if (shared == null) settings.dispose();
+            }
+          },
+        ),
+        if (widget.onThemeModeChanged != null)
+          ListTile(
+            leading: const AppIcon(AppGlyph.palette),
+            title: const Text('界面主题'),
+            subtitle: Text(switch (mode) {
+              ThemeMode.system => '跟随系统',
+              ThemeMode.light => '日间模式',
+              ThemeMode.dark => '夜间模式',
+            }),
+            trailing: const AppIcon(AppGlyph.chevronRight),
+            onTap: _savingTheme ? null : () => _chooseTheme(mode),
+          ),
+        if ((AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
+                widget.onUiStyleChanged) !=
+            null)
+          ListTile(
+            key: const ValueKey('app-ui-style-setting'),
+            leading: const AppIcon(AppGlyph.palette),
+            title: const Text('界面样式'),
+            subtitle: Text(switch (uiStyle) {
+              AppUiStyle.classic => '经典',
+              AppUiStyle.material3 => 'Material 3',
+            }),
+            trailing: const AppIcon(AppGlyph.chevronRight),
+            onTap: _savingUiStyle ? null : () => _chooseUiStyle(uiStyle),
+          ),
+        if (widget.appFontStore != null &&
+            widget.onAppFontFamilyChanged != null)
+          ListTile(
+            key: const ValueKey('app-font-setting'),
+            leading: const AppIcon(AppGlyph.textFields),
+            title: const Text('应用字体'),
+            subtitle: Text(_appFontLabel),
+            trailing: const AppIcon(AppGlyph.chevronRight),
+            onTap: _chooseAppFont,
+          ),
+        if (widget.navigationSettings != null)
+          ListTile(
+            key: const ValueKey('navigation-settings-entry'),
+            leading: const AppIcon(AppGlyph.menuBook),
+            title: const Text('底栏设置'),
+            trailing: const AppIcon(AppGlyph.chevronRight),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) =>
+                    NavigationSettingsPage(settings: widget.navigationSettings!),
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 10),
-        Card(
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              for (var index = 0; index < rows.length; index++) ...[
-                if (index > 0)
-                  const Divider(height: 1, indent: 16, endIndent: 16),
-                rows[index],
-              ],
-            ],
-          ),
-        ),
       ],
     );
   }
@@ -765,10 +735,11 @@ class _OnlineSourceEntry extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: () => showReaderDrawer<void>(
-            context: context,
-            builder: (context) =>
-                OnlineSourcePage(controller: controller, onRead: onRead),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (context) =>
+                  OnlineSourcePage(controller: controller, onRead: onRead),
+            ),
           ),
         );
       },

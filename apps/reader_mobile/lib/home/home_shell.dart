@@ -528,10 +528,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               minWidth: 56,
               minExtendedWidth: 160,
               backgroundColor: Colors.transparent,
-              useIndicator: false,
+              useIndicator: theme.useMaterial3,
+              indicatorColor: colors.secondaryContainer,
               unselectedIconTheme: const IconThemeData(opacity: 1),
               selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
-                color: colors.primary,
+                color: theme.useMaterial3
+                    ? colors.onSurface
+                    : colors.primary,
                 fontWeight: FontWeight.w600,
               ),
               unselectedLabelTextStyle: theme.textTheme.bodyMedium?.copyWith(

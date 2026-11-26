@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../icons/app_icon.dart';
 import '../page_furniture/corner_info.dart';
 import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_ui_components.dart';
 import '../theme/reader_ui_style.dart';
 
 /// 四角位置预览；选择后即时应用，宿主负责保存。
@@ -17,17 +17,19 @@ class CornerInfoEditor extends StatelessWidget {
   final ValueChanged<ReaderCornerInfo>? onChanged;
 
   Future<void> _choose(BuildContext context, ReaderCornerSlot slot) async {
-    final selected = await showReaderBottomSheet<ReaderCornerContent>(
+    final current = info.contentAt(slot);
+    final selected = await showReaderActionSheet<ReaderCornerContent>(
       context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-        ),
-        child: _ContentChoices(slot: slot, selected: info.contentAt(slot)),
-      ),
+      title: '${slot.label}显示',
+      actions: [
+        for (final content in ReaderCornerContent.values)
+          ReaderSheetAction<ReaderCornerContent>(
+            key: ValueKey('corner-choice-${content.name}'),
+            value: content,
+            title: content.label,
+            selected: current == content,
+          ),
+      ],
     );
     if (selected != null) onChanged?.call(info.withContent(slot, selected));
   }
@@ -96,45 +98,4 @@ class CornerInfoEditor extends StatelessWidget {
     ReaderCornerSlot.bottomLeft => 'bottom-left',
     ReaderCornerSlot.bottomRight => 'bottom-right',
   };
-}
-
-class _ContentChoices extends StatelessWidget {
-  const _ContentChoices({required this.slot, required this.selected});
-
-  final ReaderCornerSlot slot;
-  final ReaderCornerContent selected;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            '${slot.label}显示',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-      ),
-      Flexible(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final content in ReaderCornerContent.values)
-              ListTile(
-                key: ValueKey('corner-choice-${content.name}'),
-                title: Text(content.label),
-                selected: selected == content,
-                trailing: selected == content
-                    ? const AppIcon(AppGlyph.check)
-                    : null,
-                onTap: () => Navigator.of(context).pop(content),
-              ),
-          ],
-        ),
-      ),
-    ],
-  );
 }

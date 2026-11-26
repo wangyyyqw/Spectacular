@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -95,68 +97,42 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
     }
   }
 
-  Future<bool> _confirmRemove(ReaderFontEntry font) async =>
-      await showReaderDialog<bool>(
-        context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: Text('移除“${font.displayName}”？'),
-          content: Text(
-            _selected == font.family
-                ? '移除后应用字体将恢复为思源宋体，可随时重新导入。'
-                : '从本机移除该字体文件，可随时重新导入。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const ValueKey('app-font-remove-confirm'),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('移除字体'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+  Future<bool> _confirmRemove(ReaderFontEntry font) => showReaderConfirmDialog(
+    context: context,
+    title: '移除“${font.displayName}”？',
+    message: _selected == font.family
+        ? '移除后应用字体将恢复为思源宋体，可随时重新导入。'
+        : '从本机移除该字体文件，可随时重新导入。',
+    confirmLabel: '移除字体',
+    destructive: true,
+    confirmKey: const ValueKey('app-font-remove-confirm'),
+  );
 
   static String _messageOf(Object error) =>
       error is FormatException ? error.message : '字体操作失败，请重试';
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    top: false,
-    child: ConstrainedBox(
+  Widget build(BuildContext context) => ReaderSheetForm(
+    title: const Text('应用字体'),
+    showCloseButton: true,
+    onClose: _busy ? null : () => Navigator.of(context).pop(),
+    contentPadding: EdgeInsets.zero,
+    scrollContent: false,
+    content: ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .78,
+        maxHeight: MediaQuery.sizeOf(context).height * .72,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _heading(context),
+          const SizedBox(height: 12),
           _preview(context),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null) _errorBanner(context),
           Flexible(child: _fontList(context)),
         ],
       ),
-    ),
-  );
-
-  Widget _heading(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text('应用字体', style: Theme.of(context).textTheme.titleMedium),
-        ),
-        IconButton(
-          tooltip: '关闭应用字体',
-          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          icon: const AppIcon(AppGlyph.close),
-        ),
-      ],
     ),
   );
 
@@ -183,14 +159,11 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
   );
 
   Widget _errorBanner(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-    child: Semantics(
-      liveRegion: true,
-      child: Text(
-        _error!,
-        key: const ValueKey('app-font-error'),
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
-      ),
+    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+    child: ReaderInlineNotice(
+      key: const ValueKey('app-font-error'),
+      message: _error!,
+      isError: true,
     ),
   );
 

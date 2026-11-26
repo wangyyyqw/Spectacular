@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'reader_ui_style.dart';
+
 /// 带有动画选中状态的胶囊分区切换控件。
 typedef ReaderSectionSliderItem = ({String key, String label});
 
@@ -18,13 +20,23 @@ class ReaderSectionSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final radius = theme.useMaterial3
+        ? BorderRadius.circular(999)
+        : ReaderUiStyle.controlRadiusOf(theme);
+    final thumbRadius = theme.useMaterial3
+        ? BorderRadius.circular(999)
+        : BorderRadius.circular(3);
     return Container(
       height: 40,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: radius,
+        border: theme.useMaterial3
+            ? null
+            : Border.all(color: scheme.outlineVariant),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -32,7 +44,9 @@ class ReaderSectionSlider extends StatelessWidget {
           return Stack(
             children: [
               AnimatedPositioned(
-                duration: const Duration(milliseconds: 180),
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
                 left: index * segment,
                 top: 0,
@@ -41,7 +55,7 @@ class ReaderSectionSlider extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: scheme.surface,
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: thumbRadius,
                     boxShadow: [
                       BoxShadow(
                         color: scheme.shadow.withValues(alpha: .08),
@@ -64,7 +78,7 @@ class ReaderSectionSlider extends StatelessWidget {
                         onTap: () => onSelected(i),
                         excludeSemantics: true,
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(999),
+                          borderRadius: thumbRadius,
                           onTap: () => onSelected(i),
                           child: Center(
                             child: Text(

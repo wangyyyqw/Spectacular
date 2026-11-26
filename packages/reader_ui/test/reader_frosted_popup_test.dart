@@ -7,6 +7,7 @@ import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 void main() {
   for (final platform in [
@@ -504,5 +505,81 @@ void main() {
       expect(find.byType(BackdropFilter), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     }
+  });
+
+  testWidgets('统一确认弹窗与动作抽屉遵守危险配色、选中态与返回值契约', (tester) async {
+    bool? confirmed;
+    String? action;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.light(useMaterial3: true),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Column(
+              children: [
+                TextButton(
+                  onPressed: () async {
+                    confirmed = await showReaderConfirmDialog(
+                      context: context,
+                      title: '删除条目',
+                      message: '删除后无法恢复。',
+                      confirmLabel: '删除',
+                      destructive: true,
+                      confirmKey: const ValueKey('confirm-delete'),
+                    );
+                  },
+                  child: const Text('打开确认'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    action = await showReaderActionSheet<String>(
+                      context: context,
+                      title: '选择操作',
+                      subtitle: '请挑选一项',
+                      actions: const [
+                        ReaderSheetAction(
+                          value: 'keep',
+                          title: '保留',
+                          selected: true,
+                        ),
+                        ReaderSheetAction(
+                          value: 'remove',
+                          title: '移除',
+                          destructive: true,
+                        ),
+                      ],
+                    );
+                  },
+                  child: const Text('打开动作'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开确认'));
+    await tester.pumpAndSettle();
+    final confirmButton = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('confirm-delete')),
+    );
+    expect(
+      confirmButton.style?.backgroundColor?.resolve({}),
+      Theme.of(
+        tester.element(find.byKey(const ValueKey('confirm-delete'))),
+      ).colorScheme.error,
+    );
+    await tester.tap(find.byKey(const ValueKey('confirm-delete')));
+    await tester.pumpAndSettle();
+    expect(confirmed, isTrue);
+
+    await tester.tap(find.text('打开动作'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择操作'), findsOneWidget);
+    expect(find.text('请挑选一项'), findsOneWidget);
+    await tester.tap(find.text('移除'));
+    await tester.pumpAndSettle();
+    expect(action, 'remove');
+    expect(tester.takeException(), isNull);
   });
 }

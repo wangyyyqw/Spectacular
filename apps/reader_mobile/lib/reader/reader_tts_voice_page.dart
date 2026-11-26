@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import 'reader_tts_voice_store.dart';
 
@@ -92,52 +93,55 @@ class _ReaderTtsVoiceLibraryPageState extends State<ReaderTtsVoiceLibraryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('离线音色')),
-      body: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        itemCount: _voices.length,
-        separatorBuilder: (_, _) => const Divider(height: 1),
-        itemBuilder: (context, index) {
-          final voice = _voices[index];
-          final busy = _busyId == voice.id;
-          return ListTile(
-            contentPadding: const EdgeInsets.symmetric(vertical: 6),
-            title: Text(voice.displayName),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                if (voice.detail.isNotEmpty) Text(voice.detail),
-                if (busy && _progress > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: LinearProgressIndicator(
-                      value: _progress.clamp(0, 1),
+    return ReaderSettingsScaffold(
+      title: const Text('离线音色'),
+      children: [
+        ReaderSectionGroup(
+          title: '可用音色',
+          children: [
+            for (final voice in _voices)
+              Builder(
+                builder: (context) {
+                  final busy = _busyId == voice.id;
+                  return ListTile(
+                    title: Text(voice.displayName),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        if (voice.detail.isNotEmpty) Text(voice.detail),
+                        if (busy && _progress > 0)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: LinearProgressIndicator(
+                              value: _progress.clamp(0, 1),
+                            ),
+                          ),
+                      ],
                     ),
-                  ),
-              ],
-            ),
-            trailing: busy
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : voice.installed
-                ? IconButton(
-                    tooltip: '删除',
-                    onPressed: () => _delete(voice),
-                    icon: const Icon(Icons.delete_outline),
-                  )
-                : FilledButton(
-                    onPressed: voice.downloadUrl.trim().isEmpty
-                        ? null
-                        : () => _download(voice),
-                    child: const Text('下载'),
-                  ),
-          );
-        },
-      ),
+                    trailing: busy
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : voice.installed
+                        ? IconButton(
+                            tooltip: '删除',
+                            onPressed: () => _delete(voice),
+                            icon: const Icon(Icons.delete_outline),
+                          )
+                        : FilledButton(
+                            onPressed: voice.downloadUrl.trim().isEmpty
+                                ? null
+                                : () => _download(voice),
+                            child: const Text('下载'),
+                          ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

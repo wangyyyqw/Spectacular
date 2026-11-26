@@ -81,7 +81,7 @@ class _ReaderSheetFormState extends State<ReaderSheetForm> {
 
   Widget _header(BuildContext context) => Padding(
     key: _headerKey,
-    padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
+    padding: const EdgeInsets.fromLTRB(20, 12, 12, 10),
     child: Row(
       children: [
         Expanded(
@@ -90,6 +90,7 @@ class _ReaderSheetFormState extends State<ReaderSheetForm> {
               fontSize: 18,
               height: 1.25,
               fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
             child: widget.title,
           ),
