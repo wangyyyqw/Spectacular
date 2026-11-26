@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 final _slider = find.byKey(const ValueKey('menu-progress-slider'));
 
@@ -36,6 +37,20 @@ Future<void> _open(WidgetTester tester, List<double> seeks) async {
 }
 
 void main() {
+  testWidgets('进度轨道到上方分隔线和下方入口图标的可见留白相等', (tester) async {
+    await _open(tester, []);
+    final entry = find.byKey(const ValueKey('menu-entry-toc'));
+    final icon = tester.getRect(
+      find.descendant(of: entry, matching: find.byType(AppIcon)),
+    );
+    final track = tester.getCenter(_slider).dy;
+    final dividerBottom = tester
+        .getRect(find.byKey(const ValueKey('menu-progress-divider')))
+        .bottom;
+    expect(track - dividerBottom, closeTo(icon.top - track, .01));
+    expect(tester.getSize(entry).height, 48);
+  });
+
   testWidgets('轨道上下留有触控区域，轻点松手后只跳转一次', (tester) async {
     final seeks = <double>[];
     await _open(tester, seeks);

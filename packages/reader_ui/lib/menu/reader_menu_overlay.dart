@@ -18,7 +18,8 @@ const _fallbackTheme = ReaderTheme(
 
 const double _topRowHeight = 48;
 const double _dividerHeight = .5;
-const double _progressTopPadding = 6;
+const double _progressTopPadding =
+    (_EntriesRow.itemHeight - _EntriesRow._iconSize) / 2;
 const double _progressRowHeight = 48;
 
 /// 底部菜单栏的实际高度（含安全区），供宿主把底部悬浮控件摆在菜单栏上方。
@@ -29,7 +30,7 @@ double readerMenuBarHeight(BuildContext context, {double safeBottom = 0}) {
       _dividerHeight +
       _progressTopPadding +
       _progressRowHeight +
-      _EntriesRow.padding.vertical +
+      _EntriesRow.padding.bottom +
       _EntriesRow.itemHeight +
       bottomInset;
 }
@@ -278,7 +279,11 @@ class ReaderMenuOverlay extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Container(height: _dividerHeight, color: line),
+                    Container(
+                      key: const ValueKey('menu-progress-divider'),
+                      height: _dividerHeight,
+                      color: line,
+                    ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(
                         14,
@@ -296,7 +301,7 @@ class ReaderMenuOverlay extends StatelessWidget {
                         onSeek: onSeek,
                       ),
                     ),
-                    _EntriesRow(fg: fg, onEntry: onEntry),
+                    _EntriesRow(fg: fg, onEntry: onEntry, belowProgress: true),
                   ],
                 ),
               ),
@@ -574,12 +579,14 @@ class _EntriesRow extends StatelessWidget {
     required this.onEntry,
     this.selected,
     this.keyPrefix = 'menu-entry',
+    this.belowProgress = false,
   });
 
   final Color fg;
   final ValueChanged<ReaderMenuEntry> onEntry;
   final ReaderMenuEntry? selected;
   final String keyPrefix;
+  final bool belowProgress;
 
   // 几何与 main 保持一致：条目高 48，左右 0，底部留出 6+22。
   // 不叠加系统栏安全区，否则显示状态栏和导航栏时整条底栏会上移。
@@ -630,7 +637,7 @@ class _EntriesRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: padding,
+      padding: belowProgress ? padding.copyWith(top: 0) : padding,
       child: Row(
         children: [
           for (final entry in items.entries)
