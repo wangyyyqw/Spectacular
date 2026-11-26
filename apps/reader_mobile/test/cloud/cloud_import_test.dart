@@ -157,13 +157,73 @@ void main() {
           file,
           onProgress: (_, _) {},
         ),
-        throwsA(isA<CloudException>()),
+        throwsA(
+          isA<CloudException>().having(
+            (error) => error.loginRequired,
+            '验证页可直接重新登录',
+            html,
+          ),
+        ),
       );
       expect(file.existsSync(), isFalse);
     }
   });
 
-  test('网盘下载经正式导入队列加入书架，重复书不新增，退出清理暂存文件', () async {
+  test('分块下载先报告大小，取消后不再写入并删除残留', () async {
+    final progress = <(int, int)>[];
+    final download = CloudBookDownload(
+      client: MockClient.streaming(
+        (_, _) async => http.StreamedResponse(
+          Stream.fromIterable([
+            [1, 2],
+            [3, 4],
+          ]),
+          200,
+        ),
+      ),
+    );
+    final file = File('${temporary.path}/cancelled.epub');
+    await expectLater(
+      download.save(
+        CloudDownload(Uri.parse('https://files.example/book'), size: 4),
+        file,
+        onProgress: (received, total) {
+          progress.add((received, total));
+          if (received > 0) download.cancel();
+        },
+      ),
+      throwsA(isA<CloudDownloadCancelled>()),
+    );
+    expect(progress, [(0, 4), (2, 4)]);
+    expect(file.existsSync(), isFalse);
+  });
+
+  test('无响应长度的分块下载超过文件大小时立即停止，不上报超额进度', () async {
+    final progress = <(int, int)>[];
+    final file = File('${temporary.path}/oversized.epub');
+    await expectLater(
+      CloudBookDownload(
+        client: MockClient.streaming(
+          (_, _) async => http.StreamedResponse(
+            Stream.fromIterable([
+              [1, 2],
+              [3, 4, 5],
+            ]),
+            200,
+          ),
+        ),
+      ).save(
+        CloudDownload(Uri.parse('https://files.example/book'), size: 4),
+        file,
+        onProgress: (received, total) => progress.add((received, total)),
+      ),
+      throwsA(isA<CloudException>()),
+    );
+    expect(progress, [(0, 4), (2, 4)]);
+    expect(file.existsSync(), isFalse);
+  });
+
+  test('正式队列转发导入进度，同批和重复选择不重复下载，退出清理暂存', () async {
     final epub = buildTestEpub(title: '云端山海');
     final library = LibraryStore.memory();
     final accounts = _Accounts();
@@ -182,18 +242,92 @@ void main() {
         client: MockClient((_) async => http.Response.bytes(epub, 200)),
       ),
     );
+    final importProgress = <double>[];
+    controller.addListener(() {
+      for (final item in controller.items) {
+        if (item.status == CloudImportStatus.importing &&
+            item.progress != null) {
+          importProgress.add(item.progress!);
+        }
+      }
+    });
     const file = CloudEntry(id: 'book', name: '山海.epub');
     await controller.start([
+      file,
       file,
       const CloudEntry(id: 'ignored', name: 'video.mp4'),
     ]);
     expect(controller.items.single.status, CloudImportStatus.completed);
+    expect(controller.items.single.progress, 1);
+    expect(importProgress.where((value) => value > 0 && value < 1), isNotEmpty);
     expect((await library.list()).single.title, '云端山海');
     await controller.start([file]);
     expect(await library.list(), hasLength(1));
+    expect(controller.items, hasLength(1));
+    expect(accounts.saved, 1);
+    await controller.start([const CloudEntry(id: 'copy', name: '副本.epub')]);
+    expect(await library.list(), hasLength(1));
+    expect(controller.items, hasLength(2));
     expect(accounts.saved, 2);
     await controller.close();
     expect(temporary.listSync(), isEmpty);
+    controller.dispose();
+  });
+
+  test('下载失败后重试清除旧进度，重新选择取消任务沿用原任务', () async {
+    final epub = buildTestEpub(title: '重试下载');
+    final library = LibraryStore.memory();
+    final retrySource = Completer<CloudDownload>();
+    final resolvingRetry = Completer<void>();
+    var attempts = 0;
+    final controller = CloudImportController(
+      provider: _Provider(() async {
+        attempts++;
+        if (attempts == 2) {
+          resolvingRetry.complete();
+          return retrySource.future;
+        }
+        return CloudDownload(
+          Uri.parse('https://files.example/book'),
+          size: epub.length,
+        );
+      }),
+      account: CloudAccount(CloudDrive.quark, {}),
+      accounts: _Accounts(),
+      library: library,
+      temporaryDirectory: () async => temporary,
+      downloadFactory: () => CloudBookDownload(
+        client: MockClient.streaming(
+          (_, _) async => http.StreamedResponse(
+            Stream.value(attempts == 1 ? [1, 2, 3] : epub),
+            200,
+          ),
+        ),
+      ),
+    );
+    const file = CloudEntry(id: 'book', name: '重试.epub');
+    await controller.start([file]);
+    final item = controller.items.single;
+    expect(item.status, CloudImportStatus.failed);
+    expect(item.received, 3);
+    expect(item.total, epub.length);
+    final retry = controller.retry(item);
+    await resolvingRetry.future;
+    expect(item.received, 0);
+    expect(item.total, 0);
+    expect(item.progress, isNull);
+    expect(item.error, isNull);
+    controller.cancel();
+    retrySource.complete(
+      CloudDownload(Uri.parse('https://files.example/book'), size: epub.length),
+    );
+    await retry;
+    expect(item.status, CloudImportStatus.cancelled);
+    await controller.start([file]);
+    expect(controller.items.single, same(item));
+    expect(item.status, CloudImportStatus.completed);
+    expect((await library.list()).single.title, '重试下载');
+    await controller.close();
     controller.dispose();
   });
 
@@ -226,6 +360,58 @@ void main() {
     expect(downloads, 0);
     expect(controller.items.single.status, CloudImportStatus.cancelled);
     expect(await library.list(), isEmpty);
+    await controller.close();
+    controller.dispose();
+  });
+
+  test('TXT 编码失败可复用已下载文件，选择编码后正式导入成功', () async {
+    // ASCII 样本后接 GBK「第一章\n正文」，触发正式导入器的编码纠错。
+    final bytes = [
+      ...List.filled(65536, 0x61),
+      0x0a,
+      0xb5,
+      0xda,
+      0xd2,
+      0xbb,
+      0xd5,
+      0xc2,
+      0x0a,
+      0xd5,
+      0xfd,
+      0xce,
+      0xc4,
+    ];
+    var downloads = 0;
+    final library = LibraryStore.memory();
+    final controller = CloudImportController(
+      provider: _Provider(
+        () async => CloudDownload(
+          Uri.parse('https://files.example/book'),
+          size: bytes.length,
+        ),
+      ),
+      account: CloudAccount(CloudDrive.quark, {}),
+      accounts: _Accounts(),
+      library: library,
+      temporaryDirectory: () async => temporary,
+      downloadFactory: () {
+        downloads++;
+        return CloudBookDownload(
+          client: MockClient((_) async => http.Response.bytes(bytes, 200)),
+        );
+      },
+    );
+    await controller.start([const CloudEntry(id: 'txt', name: '编码纠错.txt')]);
+    final item = controller.items.single;
+    expect(item.status, CloudImportStatus.failed);
+    expect(item.job!.encodingCandidates, isNotEmpty);
+    expect(item.localFile!.existsSync(), isTrue);
+    await controller.retry(item, encoding: 'GBK');
+    expect(item.status, CloudImportStatus.completed);
+    expect(item.error, isNull);
+    expect(item.localFile, isNull);
+    expect(downloads, 1);
+    expect((await library.list()).single.title, '编码纠错');
     await controller.close();
     controller.dispose();
   });

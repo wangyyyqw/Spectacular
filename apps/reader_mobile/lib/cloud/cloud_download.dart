@@ -110,28 +110,32 @@ class CloudBookDownload {
     final type = response.headers['content-type']?.toLowerCase() ?? '';
     if (type.contains('text/html') || type.contains('application/json')) {
       await response.stream.listen(null).cancel();
-      throw const CloudException('网盘返回了验证页，请重新登录后下载原文件');
+      throw const CloudException('网盘返回了验证页，请重新登录后下载原文件', loginRequired: true);
     }
     final length = response.contentLength ?? 0;
     if (source.size > 0 && length > 0 && length != source.size) {
       await response.stream.listen(null).cancel();
       throw const CloudException('下载内容大小与所选文件不一致，请刷新目录');
     }
+    final expected = source.size > 0 ? source.size : length;
     final output = await target.open(mode: FileMode.write);
     var received = 0;
     try {
+      onProgress(0, expected);
       await for (final chunk in response.stream.timeout(
         const Duration(seconds: 45),
       )) {
         _check();
+        if (expected > 0 && received + chunk.length > expected) {
+          throw const CloudException('下载内容大小与所选文件不一致，请刷新目录');
+        }
         await output.writeFrom(chunk);
         received += chunk.length;
-        onProgress(received, source.size > 0 ? source.size : length);
+        onProgress(received, expected);
       }
     } finally {
       await output.close();
     }
-    final expected = source.size > 0 ? source.size : length;
     if (received == 0 || expected > 0 && received != expected) {
       throw const CloudException('文件未下载完整，请重试');
     }

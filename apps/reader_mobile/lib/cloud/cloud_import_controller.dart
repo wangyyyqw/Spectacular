@@ -29,10 +29,17 @@ class CloudImportItem {
   bool loginRequired = false;
   ImportJob? job;
   File? localFile;
+  double? get progress => switch (status) {
+    CloudImportStatus.downloading =>
+      total > 0 ? (received / total).clamp(0.0, 1.0) : null,
+    CloudImportStatus.importing => job?.progress,
+    CloudImportStatus.completed => 1,
+    _ => null,
+  };
   String get label => switch (status) {
     CloudImportStatus.waiting => '等待下载',
     CloudImportStatus.downloading =>
-      total > 0 ? '下载中 ${(received * 100 / total).floor()}%' : '正在下载',
+      total > 0 ? '下载中 ${(progress! * 100).floor()}%' : '正在下载',
     CloudImportStatus.importing => '正在导入',
     CloudImportStatus.completed => '已导入书架',
     CloudImportStatus.failed => error ?? '导入失败',
@@ -54,7 +61,9 @@ class CloudImportController extends ChangeNotifier {
        queue = ImportQueue(
          library,
          readFile: (path) => File(path).readAsBytes(),
-       );
+       ) {
+    queue.addListener(_notify);
+  }
 
   final CloudProviderApi provider;
   final CloudAccount account;
@@ -71,16 +80,34 @@ class CloudImportController extends ChangeNotifier {
 
   Future<void> start(List<CloudEntry> files) async {
     if (busy || _disposed || _closing != null) return;
-    items.addAll(files.where((file) => file.isBook).map(CloudImportItem.new));
+    final existing = {for (final item in items) item.file.id: item};
+    for (final file in files.where((file) => file.isBook)) {
+      final item = existing[file.id];
+      if (item == null) {
+        final added = CloudImportItem(file);
+        items.add(added);
+        existing[file.id] = added;
+      } else if (item.status == CloudImportStatus.failed ||
+          item.status == CloudImportStatus.cancelled) {
+        _resetDownload(item);
+      }
+    }
+    if (!items.any((item) => item.status == CloudImportStatus.waiting)) return;
     await _run();
   }
 
   Future<void> retry(CloudImportItem item, {String? encoding}) async {
     if (busy || _disposed || _closing != null) return;
+    if (item.status != CloudImportStatus.failed &&
+        item.status != CloudImportStatus.cancelled) {
+      return;
+    }
     if (encoding != null && item.job != null) {
       _cancelled = false;
       busy = true;
       item.status = CloudImportStatus.importing;
+      item.error = null;
+      item.loginRequired = false;
       _notify();
       queue.retry(item.job!.id, encoding: encoding);
       _operation = _finishImport(item).whenComplete(() {
@@ -89,10 +116,18 @@ class CloudImportController extends ChangeNotifier {
       });
       return _operation;
     }
+    _resetDownload(item);
+    await _run();
+  }
+
+  void _resetDownload(CloudImportItem item) {
     item.status = CloudImportStatus.waiting;
+    item.received = 0;
+    item.total = 0;
     item.error = null;
     item.loginRequired = false;
-    await _run();
+    item.job = null;
+    item.localFile = null;
   }
 
   Future<void> _run() async {
@@ -130,6 +165,7 @@ class CloudImportController extends ChangeNotifier {
     try {
       item.status = CloudImportStatus.downloading;
       item.received = 0;
+      item.total = item.file.size;
       _notify();
       final source = await provider.resolve(account, item.file);
       if (_cancelled || _disposed) throw const CloudDownloadCancelled();
