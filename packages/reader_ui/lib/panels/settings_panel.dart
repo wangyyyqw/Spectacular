@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../reader_ui_diagnostics.dart';
 
@@ -25,6 +26,7 @@ import 'corner_info_editor.dart';
 import 'font_picker_sheet.dart';
 import '../theme/reader_frosted_popup.dart';
 import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_panel_reveal.dart';
 
 export 'font_picker_sheet.dart' show ReaderFontOption;
 
@@ -501,40 +503,55 @@ class _SettingsPanelState extends State<SettingsPanel> {
               ),
             ),
           Expanded(
-            child: ListView(
-              padding: switch (widget.section) {
-                SettingsSection.all => const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                SettingsSection.type => const EdgeInsets.fromLTRB(
-                  20,
-                  16,
-                  20,
-                  20,
+            child: CustomScrollView(
+              // 面板首次打开只创建可见项，屏外开关和字体预览随滚动再布局。
+              scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+              slivers: [
+                SliverPadding(
+                  padding: switch (widget.section) {
+                    SettingsSection.all => const EdgeInsets.fromLTRB(
+                      20,
+                      8,
+                      20,
+                      16,
+                    ),
+                    SettingsSection.type => const EdgeInsets.fromLTRB(
+                      20,
+                      16,
+                      20,
+                      20,
+                    ),
+                    SettingsSection.theme => const EdgeInsets.fromLTRB(
+                      16,
+                      12,
+                      16,
+                      20,
+                    ),
+                    SettingsSection.settings => const EdgeInsets.fromLTRB(
+                      16,
+                      10,
+                      16,
+                      16,
+                    ),
+                  },
+                  sliver: ReaderPanelSliver(
+                    sliver: SliverList.list(
+                      children: switch (widget.section) {
+                        SettingsSection.all => <Widget>[
+                          ..._typeChildren(theme, legacyPadding: true),
+                          const SizedBox(height: 24),
+                          ..._themeChildren(theme),
+                          const SizedBox(height: 24),
+                          ..._settingsChildren(theme, includeReset: false),
+                        ],
+                        SettingsSection.type => _typeChildren(theme),
+                        SettingsSection.theme => _themeChildren(theme),
+                        SettingsSection.settings => _settingsChildren(theme),
+                      },
+                    ),
+                  ),
                 ),
-                SettingsSection.theme => const EdgeInsets.fromLTRB(
-                  16,
-                  12,
-                  16,
-                  20,
-                ),
-                SettingsSection.settings => const EdgeInsets.fromLTRB(
-                  16,
-                  10,
-                  16,
-                  16,
-                ),
-              },
-              children: switch (widget.section) {
-                SettingsSection.all => <Widget>[
-                  ..._typeChildren(theme, legacyPadding: true),
-                  const SizedBox(height: 24),
-                  ..._themeChildren(theme),
-                  const SizedBox(height: 24),
-                  ..._settingsChildren(theme, includeReset: false),
-                ],
-                SettingsSection.type => _typeChildren(theme),
-                SettingsSection.theme => _themeChildren(theme),
-                SettingsSection.settings => _settingsChildren(theme),
-              },
+              ],
             ),
           ),
         ],

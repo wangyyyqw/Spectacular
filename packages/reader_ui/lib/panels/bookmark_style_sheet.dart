@@ -1,11 +1,13 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../bookmarks/bookmark_ribbon.dart';
 import '../bookmarks/bookmark_style.dart';
 import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
+import '../theme/reader_panel_reveal.dart';
 
 /// 编辑全局书签样式与下拉开关，保存前只更新预览。
 class ReaderBookmarkStyleSheet extends StatefulWidget {
@@ -46,7 +48,6 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
     }
   }
 
-  // 声明式表单保持预览、图片和尺寸顺序，行数较多但不增加分支或状态。
   @override
   Widget build(BuildContext context) => Material(
     color: ReaderFrostedSurface.panelColorOf(context),
@@ -55,115 +56,7 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        '书签样式',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: '关闭',
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const AppIcon(AppGlyph.close),
-                      ),
-                    ],
-                  ),
-                  const Text('应用于所有书籍，显示在有书签的阅读页右上角。'),
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('bookmark-pull-enabled'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('下拉书签'),
-                    subtitle: const Text('分页阅读时，下拉添加或移除当前页书签'),
-                    value: _style.pullEnabled,
-                    onChanged: (value) => setState(
-                      () => _style = _style.copyWith(pullEnabled: value),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: ReaderBookmarkStyle.maxLength + 12,
-                    child: ColoredBox(
-                      color: Theme.of(context).colorScheme.surfaceContainerLow,
-                      child: Padding(
-                        padding: EdgeInsets.only(right: _style.rightInset),
-                        child: Align(
-                          alignment: Alignment.topRight,
-                          child: ReaderBookmarkRibbon(
-                            style: _style,
-                            color: Theme.of(context).colorScheme.primary,
-                            imageLoader: widget.imageLoader,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      OutlinedButton(
-                        key: const ValueKey('bookmark-pick-image'),
-                        onPressed: _picking
-                            ? null
-                            : widget.onPickImage == null
-                            ? null
-                            : _pickImage,
-                        child: Text(_picking ? '正在导入…' : '选择本地图片'),
-                      ),
-                      TextButton(
-                        onPressed: _picking || _style.imageId == null
-                            ? null
-                            : () => setState(
-                                () => _style = _style.withImage(null),
-                              ),
-                        child: const Text('使用默认图标'),
-                      ),
-                    ],
-                  ),
-                  if (_error != null)
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  const Text('图片随宽度和长度缩放；透明 PNG 可保留镂空效果。'),
-                  const SizedBox(height: 12),
-                  _dimension(
-                    '宽度',
-                    _style.width,
-                    ReaderBookmarkStyle.minWidth,
-                    ReaderBookmarkStyle.maxWidth,
-                    (value) =>
-                        setState(() => _style = _style.copyWith(width: value)),
-                  ),
-                  _dimension(
-                    '长度',
-                    _style.length,
-                    ReaderBookmarkStyle.minLength,
-                    ReaderBookmarkStyle.maxLength,
-                    (value) =>
-                        setState(() => _style = _style.copyWith(length: value)),
-                  ),
-                  _dimension(
-                    '距右侧',
-                    _style.rightInset,
-                    ReaderBookmarkStyle.minRightInset,
-                    ReaderBookmarkStyle.maxRightInset,
-                    (value) => setState(
-                      () => _style = _style.copyWith(rightInset: value),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          Expanded(child: _buildList(context)),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
             child: SizedBox(
@@ -181,6 +74,121 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
       ),
     ),
   );
+
+  Widget _buildList(BuildContext context) {
+    final route = ModalRoute.of(context);
+    final animation = route is ModalBottomSheetRoute
+        ? route.animation!.drive(CurveTween(curve: Easing.legacyDecelerate))
+        : const AlwaysStoppedAnimation<double>(1);
+    // 固定表单视口，入场按露出范围创建控件，保存按钮始终在底部。
+    return ReaderPanelReveal(
+      animation: animation,
+      // 底部抽屉按整块表单高度平移，预建范围包含把手与固定操作区的位移。
+      extent: MediaQuery.sizeOf(context).height,
+      child: CustomScrollView(
+        scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.all(20),
+            sliver: ReaderPanelSliver(
+              sliver: SliverList.list(children: _fields(context)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 声明式字段保持视觉顺序；草稿归当前面板持有，滚出视口不会丢失。
+  List<Widget> _fields(BuildContext context) => [
+    Row(
+      children: [
+        Text('书签样式', style: Theme.of(context).textTheme.titleLarge),
+        const Spacer(),
+        IconButton(
+          tooltip: '关闭',
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const AppIcon(AppGlyph.close),
+        ),
+      ],
+    ),
+    const Text('应用于所有书籍，显示在有书签的阅读页右上角。'),
+    SwitchListTile.adaptive(
+      key: const ValueKey('bookmark-pull-enabled'),
+      contentPadding: EdgeInsets.zero,
+      title: const Text('下拉书签'),
+      subtitle: const Text('分页阅读时，下拉添加或移除当前页书签'),
+      value: _style.pullEnabled,
+      onChanged: (value) =>
+          setState(() => _style = _style.copyWith(pullEnabled: value)),
+    ),
+    const SizedBox(height: 12),
+    SizedBox(
+      height: ReaderBookmarkStyle.maxLength + 12,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: Padding(
+          padding: EdgeInsets.only(right: _style.rightInset),
+          child: Align(
+            alignment: Alignment.topRight,
+            child: ReaderBookmarkRibbon(
+              style: _style,
+              color: Theme.of(context).colorScheme.primary,
+              imageLoader: widget.imageLoader,
+            ),
+          ),
+        ),
+      ),
+    ),
+    Wrap(
+      spacing: 8,
+      children: [
+        OutlinedButton(
+          key: const ValueKey('bookmark-pick-image'),
+          onPressed: _picking
+              ? null
+              : widget.onPickImage == null
+              ? null
+              : _pickImage,
+          child: Text(_picking ? '正在导入…' : '选择本地图片'),
+        ),
+        TextButton(
+          onPressed: _picking || _style.imageId == null
+              ? null
+              : () => setState(() => _style = _style.withImage(null)),
+          child: const Text('使用默认图标'),
+        ),
+      ],
+    ),
+    if (_error != null)
+      Text(
+        _error!,
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
+      ),
+    const Text('图片随宽度和长度缩放；透明 PNG 可保留镂空效果。'),
+    const SizedBox(height: 12),
+    _dimension(
+      '宽度',
+      _style.width,
+      ReaderBookmarkStyle.minWidth,
+      ReaderBookmarkStyle.maxWidth,
+      (value) => setState(() => _style = _style.copyWith(width: value)),
+    ),
+    _dimension(
+      '长度',
+      _style.length,
+      ReaderBookmarkStyle.minLength,
+      ReaderBookmarkStyle.maxLength,
+      (value) => setState(() => _style = _style.copyWith(length: value)),
+    ),
+    _dimension(
+      '距右侧',
+      _style.rightInset,
+      ReaderBookmarkStyle.minRightInset,
+      ReaderBookmarkStyle.maxRightInset,
+      (value) => setState(() => _style = _style.copyWith(rightInset: value)),
+    ),
+  ];
 
   Widget _dimension(
     String label,

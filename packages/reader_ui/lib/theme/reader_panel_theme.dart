@@ -5,7 +5,7 @@ import 'reader_theme.dart';
 import 'reader_ui_style.dart';
 
 /// 阅读控件沿用宿主软件主题，正文配色独立；墨水屏仍使用黑白控件。
-class ReaderPanelTheme extends StatelessWidget {
+class ReaderPanelTheme extends StatefulWidget {
   /// 创建阅读面板主题。
   const ReaderPanelTheme({super.key, required this.theme, required this.child});
 
@@ -16,14 +16,29 @@ class ReaderPanelTheme extends StatelessWidget {
   final Widget child;
 
   @override
+  State<ReaderPanelTheme> createState() => _ReaderPanelThemeState();
+}
+
+class _ReaderPanelThemeState extends State<ReaderPanelTheme> {
+  ThemeData? _base;
+  ThemeData? _data;
+  bool? _inkMode;
+
+  @override
   Widget build(BuildContext context) {
     final base = Theme.of(context);
-    final inkMode = theme.id == 'ink' || ReaderFrostedScope.inkModeOf(context);
-    final scheme = inkMode ? _inkScheme : base.colorScheme;
-    final data = applyReaderUiStyle(_panelTypography(base, scheme));
+    final inkMode =
+        widget.theme.id == 'ink' || ReaderFrostedScope.inkModeOf(context);
+    // 开关抽屉不改变软件主题；避免重复派生状态样式并通知所有控件重建。
+    if (_base != base || _inkMode != inkMode) {
+      _base = base;
+      _inkMode = inkMode;
+      final scheme = inkMode ? _inkScheme : base.colorScheme;
+      _data = applyReaderUiStyle(_panelTypography(base, scheme));
+    }
     return ReaderFrostedScope(
       inkMode: inkMode,
-      child: Theme(data: data, child: child),
+      child: Theme(data: _data!, child: widget.child),
     );
   }
 }

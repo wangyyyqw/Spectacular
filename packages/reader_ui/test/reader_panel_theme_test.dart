@@ -9,6 +9,51 @@ import 'package:reader_ui/theme/reader_environment.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 
 void main() {
+  testWidgets('菜单状态变化复用派生主题，软件主题与墨水屏变化立即更新', (tester) async {
+    var host = ThemeData.light();
+    var reading = ReaderTheme.white;
+    late StateSetter update;
+    final values = <ThemeData>[];
+    final content = Builder(
+      builder: (context) {
+        values.add(Theme.of(context));
+        return const SizedBox.shrink();
+      },
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            update = setState;
+            return Theme(
+              data: host,
+              child: ReaderPanelTheme(theme: reading, child: content),
+            );
+          },
+        ),
+      ),
+    );
+    final initial = values.single;
+    update(() => reading = ReaderTheme.sepia);
+    await tester.pump();
+    expect(values, [initial], reason: '只改阅读状态不应通知主题依赖者重建');
+    update(
+      () => host = ThemeData.dark().copyWith(
+        textTheme: ThemeData.dark().textTheme.apply(fontFamily: '应用字体'),
+      ),
+    );
+    await tester.pump();
+    expect(values.last.brightness, Brightness.dark);
+    expect(values.last.textTheme.bodyMedium!.fontFamily, '应用字体');
+    update(() => reading = ReaderEnvironment.inkTheme);
+    await tester.pump();
+    expect(values.last.colorScheme.surface, Colors.white);
+    expect(values.last.colorScheme.onSurface, Colors.black);
+    update(() => reading = ReaderTheme.white);
+    await tester.pump();
+    expect(values.last.colorScheme, host.colorScheme);
+  });
+
   for (final brightness in Brightness.values) {
     testWidgets('阅读配色变化时面板保持宿主 $brightness 配色', (tester) async {
       final host = ThemeData(brightness: brightness);

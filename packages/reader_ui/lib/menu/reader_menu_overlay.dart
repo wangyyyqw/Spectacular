@@ -4,6 +4,7 @@ import '../icons/app_icon.dart';
 import '../theme/reader_ink.dart';
 import '../theme/reader_environment.dart';
 import '../theme/reader_panel_theme.dart';
+import '../theme/reader_panel_reveal.dart';
 import '../theme/reader_theme.dart';
 import '../theme/reader_frosted_surface.dart';
 
@@ -335,7 +336,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                   final drawer = child as _DrawerLayer;
                   return _DrawerLayer(
                     title: drawer.title,
-                    theme: drawer.theme,
                     onClose: drawer.onClose,
                     inkMode: drawer.inkMode,
                     safeBottom: drawer.safeBottom,
@@ -350,7 +350,6 @@ class ReaderMenuOverlay extends StatelessWidget {
                     : _DrawerLayer(
                         key: const ValueKey('reader-drawer'),
                         title: drawerTitle,
-                        theme: theme,
                         onClose: onCloseDrawer,
                         inkMode: inkMode,
                         safeBottom: safeBottom,
@@ -699,7 +698,6 @@ class _DrawerLayer extends StatefulWidget {
   const _DrawerLayer({
     super.key,
     required this.title,
-    required this.theme,
     required this.child,
     required this.onClose,
     required this.inkMode,
@@ -710,7 +708,6 @@ class _DrawerLayer extends StatefulWidget {
   });
 
   final String title;
-  final ReaderTheme? theme;
   final Widget child;
   final VoidCallback onClose;
   final bool inkMode;
@@ -818,7 +815,13 @@ class _DrawerLayerState extends State<_DrawerLayer>
           Column(
             children: [
               _buildHandle(),
-              Expanded(child: _buildScrollableContent()),
+              Expanded(
+                child: ReaderPanelReveal(
+                  animation: widget.animation,
+                  extent: contentHeight,
+                  child: _buildScrollableContent(),
+                ),
+              ),
             ],
           ),
           contentHeight,
@@ -868,17 +871,15 @@ class _DrawerLayerState extends State<_DrawerLayer>
       onVerticalDragUpdate: (details) => _move(details.primaryDelta ?? 0),
       onVerticalDragEnd: (details) => _release(details.primaryVelocity ?? 0),
       onVerticalDragCancel: () => _release(0),
-      child: ReaderPanelTheme(
-        theme: widget.theme ?? _fallbackTheme,
-        child: ReaderFrostedSurface(
-          key: const ValueKey<String>('reader-drawer-surface'),
-          radius: 24,
-          bottomRadius: 0,
-          inkMode: widget.inkMode,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: _buildRevealContent(content, contentHeight),
-          ),
+      // 菜单已经提供面板主题，抽屉直接继承，避免首次布局时再派生一整套主题。
+      child: ReaderFrostedSurface(
+        key: const ValueKey<String>('reader-drawer-surface'),
+        radius: 24,
+        bottomRadius: 0,
+        inkMode: widget.inkMode,
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: _buildRevealContent(content, contentHeight),
         ),
       ),
     ),

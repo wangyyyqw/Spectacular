@@ -5,10 +5,58 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/bookmarks/bookmark_ribbon.dart';
 import 'package:reader_ui/bookmarks/bookmark_style.dart';
 import 'package:reader_ui/panels/bookmark_style_sheet.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'support/decoration_test_images.dart';
 
 void main() {
+  testWidgets('正式弹窗首帧不创建屏外滑块，展开与滚动后草稿可保存', (tester) async {
+    tester.view.physicalSize = const Size(384, 853);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    ReaderBookmarkStyle? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await showReaderBottomSheet<ReaderBookmarkStyle>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => const ReaderBookmarkStyleSheet(
+                    style: ReaderBookmarkStyle(),
+                  ),
+                );
+              },
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pump();
+    expect(find.byType(Slider), findsNothing);
+    await tester.pumpAndSettle();
+    final width = find.byKey(const ValueKey('bookmark-宽度'));
+    final list = find.byType(Scrollable).last;
+    await tester.scrollUntilVisible(width, 120, scrollable: list);
+    tester.widget<Slider>(width).onChanged!(42);
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byTooltip('关闭'),
+      -160,
+      scrollable: list,
+    );
+    await tester.scrollUntilVisible(width, 120, scrollable: list);
+    expect(tester.widget<Slider>(width).value, 42);
+    await tester.tap(find.byKey(const ValueKey('bookmark-style-save')));
+    await tester.pumpAndSettle();
+    expect(result!.width, 42);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final save in [true, false]) {
     testWidgets('下拉书签开关${save ? '保存后返回新设置' : '取消后不保存'}', (tester) async {
       ReaderBookmarkStyle? result;
@@ -79,7 +127,7 @@ void main() {
       ),
     );
     final pick = find.byKey(const ValueKey('bookmark-pick-image'));
-    await tester.ensureVisible(pick);
+    await tester.scrollUntilVisible(pick, 100);
     await tester.tap(pick);
     await tester.pumpAndSettle();
     expect(

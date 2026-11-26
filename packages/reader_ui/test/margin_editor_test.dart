@@ -2,7 +2,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/page_furniture/page_furniture.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
@@ -152,7 +151,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(ReaderFrostedSurface), findsNWidgets(5));
-      expect(find.byType(AdaptiveGlass), findsNothing);
+      expect(find.byType(BackdropFilter), findsNothing);
       await tester.tap(find.bySemanticsLabel('增加左边距'));
       await tester.pump();
       expect(find.text('左 21'), findsOneWidget);
@@ -660,16 +659,17 @@ void main() {
       );
       expect(upper.top, inner.top);
       expect(inner.left - upper.right, 1);
-      expect(find.byType(GlassContainer), findsNWidgets(5));
-      final surfaces = tester.widgetList<GlassContainer>(
-        find.byType(GlassContainer),
-      );
-      expect(
-        surfaces.every((surface) => surface.quality == GlassQuality.minimal),
-        isTrue,
-      );
-      expect(tester.getSize(find.byType(GlassContainer).first).height, 36);
-      expect(tester.getSize(find.byType(GlassContainer).first).width, 272);
+      final surfaces = find.byType(ReaderFrostedSurface);
+      expect(surfaces, findsNWidgets(5));
+      final plate = find
+          .descendant(of: surfaces.first, matching: find.byType(DecoratedBox))
+          .first;
+      final decoration =
+          tester.widget<DecoratedBox>(plate).decoration as BoxDecoration;
+      expect(decoration.color!.a, 1);
+      expect(find.byType(BackdropFilter), findsNothing);
+      expect(tester.getSize(plate).height, 36);
+      expect(tester.getSize(plate).width, 272);
       expect(find.bySemanticsLabel('减少左边距'), findsOneWidget);
       expect(find.bySemanticsLabel('增加右边距'), findsOneWidget);
       expect(
