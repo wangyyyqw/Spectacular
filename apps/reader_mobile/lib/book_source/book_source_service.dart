@@ -1801,7 +1801,15 @@ class BookSourceService {
   }
 
   /// 影响正文的书源设置发生变化时，不复用旧章内容与章内坐标。
-  String contentRulesFingerprint(BookSource source) => sha256
+  // 书源规则字段不可变，更新规则会创建新对象；避免逐章重复编码整份脚本。
+  final Expando<String> _contentRulesFingerprints = Expando<String>();
+
+  String contentRulesFingerprint(BookSource source) =>
+      _contentRulesFingerprints[source] ??= _computeContentRulesFingerprint(
+        source,
+      );
+
+  String _computeContentRulesFingerprint(BookSource source) => sha256
       .convert(
         utf8.encode(
           jsonEncode({

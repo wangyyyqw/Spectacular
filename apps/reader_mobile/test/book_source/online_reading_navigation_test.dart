@@ -37,6 +37,14 @@ void main() {
   testWidgets('详情在线阅读复用封面动画及书签标注装饰存储，缓存目录显示云朵', (tester) async {
     final f = (await tester.runAsync(() => _ReadingFixture.create(4)))!;
     addTearDown(() => f.dispose(tester: tester));
+    await pumpReaderTask(
+      tester,
+      f.controller.addToShelf(
+        f.source,
+        f.readingBook.book,
+        f.readingBook.chapters,
+      ),
+    );
     final opener = BookOpener(
       library: f.library,
       progressStore: MemoryReaderProgressStore(),
@@ -100,6 +108,78 @@ void main() {
       ),
       isNotNull,
     );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('未入架在线试读退出后询问，拒绝不入架，确认保留文本位置', (tester) async {
+    final f = (await tester.runAsync(() => _ReadingFixture.create(4)))!;
+    addTearDown(() => f.dispose(tester: tester));
+    final opener = BookOpener(
+      library: f.library,
+      progressStore: MemoryReaderProgressStore(),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnlineBookDetailPage(
+          controller: f.controller,
+          source: f.source,
+          book: f.readingBook.book,
+          onRead: opener.openOnline,
+        ),
+      ),
+    );
+    await pumpReaderUntil(
+      tester,
+      find.byKey(const ValueKey('online-book-read')),
+    );
+    for (final accept in [false, true]) {
+      await tester.tap(find.byKey(const ValueKey('online-book-read')));
+      await pumpReaderUntil(
+        tester,
+        find.byKey(const ValueKey('reader-content')),
+      );
+      expect(f.controller.shelfEntryFor(f.source, f.readingBook.book), isNull);
+      final page = tester.widget<ReaderPage>(find.byType(ReaderPage));
+      expect(page.bookmarks, isNull);
+      final session = tester
+          .widget<PageTurnView>(find.byType(PageTurnView))
+          .session;
+      final initial = session.progress;
+      final content = tester.getRect(
+        find.byKey(const ValueKey('reader-content')),
+      );
+      await tester.tapAt(Offset(content.right - 24, content.center.dy));
+      await pumpReaderUntilComplete(tester, () => session.progress != initial);
+      Navigator.of(tester.element(find.byType(ReaderPage))).pop();
+      await pumpReaderUntil(tester, find.text('暂不加入'));
+      final trial = await pumpReaderTask(
+        tester,
+        OnlineReadingProgress.savedSnapshot(f.library, f.readingBook.id),
+      );
+      expect(trial?.cfi, isNotEmpty);
+      await tester.tap(find.text(accept ? '加入书架' : '暂不加入').last);
+      if (accept) {
+        await pumpReaderUntilComplete(
+          tester,
+          () =>
+              f.controller.shelfEntryFor(f.source, f.readingBook.book) != null,
+        );
+        final entry = f.controller.shelfEntryFor(f.source, f.readingBook.book)!;
+        final saved = await pumpReaderTask(
+          tester,
+          OnlineReadingProgress.savedSnapshot(f.library, entry.id),
+        );
+        expect(saved?.cfi, trial?.cfi);
+        expect(saved?.spineIndex, trial?.spineIndex);
+      } else {
+        await tester.pumpAndSettle();
+        expect(
+          f.controller.shelfEntryFor(f.source, f.readingBook.book),
+          isNull,
+        );
+      }
+    }
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -398,7 +478,10 @@ void main() {
     );
     await tester.pump();
     expect(selected, 6);
-    expect(f.controller.shelfEntryFor(f.source, f.readingBook.book), isNotNull);
+    expect(f.controller.shelfEntryFor(f.source, f.readingBook.book), isNull);
+    await pumpReaderUntil(tester, find.text('暂不加入'));
+    await tester.tap(find.text('暂不加入'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     f.catalogGate!.complete();
     await pumpReaderTask(
@@ -535,12 +618,12 @@ void main() {
     await pumpReaderTask(tester, opened!);
     final saved = await pumpReaderTask(
       tester,
-      OnlineReadingProgress.savedSnapshot(
-        f.library,
-        f.controller.shelfEntryFor(f.source, book.book)!.id,
-      ),
+      OnlineReadingProgress.savedSnapshot(f.library, book.id),
     );
     expect(saved?.spineIndex, 74);
+    await pumpReaderUntil(tester, find.text('暂不加入'));
+    await tester.tap(find.text('暂不加入'));
+    await tester.pumpAndSettle();
     expect(f.requested.where((path) => path == '/toc'), isEmpty);
     expect(
       (await pumpReaderTask(

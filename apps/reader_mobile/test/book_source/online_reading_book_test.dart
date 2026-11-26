@@ -26,6 +26,71 @@ import '../support/reader_pump.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('复用书源摘要仍隔离规则、章节边界及登录内容版本', () async {
+    final directory = await Directory.systemTemp.createTemp('source-revision-');
+    addTearDown(() => directory.delete(recursive: true));
+    final cookies = BookSourceCookieStore(
+      directoryProvider: () async => directory,
+    );
+    final service = BookSourceService(cookieStore: cookies);
+    addTearDown(service.dispose);
+    final book = _book(service, [1, 2, 3]);
+    final source = book.source.copyWith(
+      jsLib: List.filled(2000, 'var value=1;').join(),
+    );
+    final chapter = book.chapters.first;
+    final original = service.chapterContentRevision(
+      source,
+      chapter,
+      nextChapter: book.chapters[1],
+    );
+    expect(
+      service.chapterContentRevision(
+        source,
+        chapter,
+        nextChapter: book.chapters[1],
+      ),
+      original,
+    );
+    expect(
+      service.chapterContentRevision(
+        source,
+        chapter,
+        nextChapter: book.chapters[2],
+      ),
+      isNot(original),
+    );
+    expect(
+      service.chapterContentRevision(
+        source.copyWith(jsLib: 'var value=2;'),
+        chapter,
+        nextChapter: book.chapters[1],
+      ),
+      isNot(original),
+    );
+    expect(
+      service.chapterContentRevision(
+        source.copyWith(header: '{"X-Rule":"2"}'),
+        chapter,
+        nextChapter: book.chapters[1],
+      ),
+      isNot(original),
+    );
+    await cookies.saveSourceLogin(
+      source,
+      header: '{"X-Session":"new"}',
+      invalidateContent: true,
+    );
+    expect(
+      service.chapterContentRevision(
+        source,
+        chapter,
+        nextChapter: book.chapters[1],
+      ),
+      isNot(original),
+    );
+  });
+
   test('在线阅读目录复用分卷树且不改变章节索引', () {
     final service = BookSourceService();
     addTearDown(service.dispose);
@@ -129,7 +194,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('2. 第2章'));
     await pumpReaderUntil(tester, find.byKey(const ValueKey('reader-content')));
-    expect(tester.widget<ReaderPage>(find.byType(ReaderPage)).onSearch, isNull);
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).onSearch,
+      isNotNull,
+    );
     expect(requested.take(3), ['/book', '/toc', '/2']);
     Navigator.of(tester.element(find.byType(ReaderPage))).pop();
     await pumpReaderTask(tester, opened!);
