@@ -204,6 +204,9 @@ void main() {
       const ReaderMarkSettingsSheet(settings: ReaderMarkSettings()),
       (_) {},
     );
+    expect(find.text('划线设置'), findsNothing);
+    expect(find.byTooltip('关闭'), findsNothing);
+    expect(find.textContaining('快捷划线使用这里的默认样式'), findsOneWidget);
     final navigation = find.byKey(
       const ValueKey<String>('mark-settings-section-tabs'),
     );

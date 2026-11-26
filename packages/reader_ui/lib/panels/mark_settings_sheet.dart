@@ -5,7 +5,6 @@ import '../theme/reader_ui_style.dart';
 import '../annotations/annotation_appearance_editor.dart';
 import '../annotations/annotation_quote_preview.dart';
 import '../annotations/mark_settings.dart';
-import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_section_slider.dart';
 
@@ -59,22 +58,11 @@ class _ReaderMarkSettingsSheetState extends State<ReaderMarkSettingsSheet> {
     onSelected: (index) => setState(() => _sectionIndex = index),
   );
 
-  Widget _header(BuildContext context) => Padding(
+  Widget _header() => Padding(
     padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Text('划线设置', style: Theme.of(context).textTheme.titleLarge),
-            const Spacer(),
-            IconButton(
-              onPressed: () => Navigator.of(context).pop(),
-              tooltip: '关闭',
-              icon: const AppIcon(AppGlyph.close),
-            ),
-          ],
-        ),
         const Text('快捷划线使用这里的默认样式和默认颜色；自定义颜色长按可删除。'),
         const SizedBox(height: 16),
         AnnotationQuotePreview(
@@ -141,7 +129,7 @@ class _ReaderMarkSettingsSheetState extends State<ReaderMarkSettingsSheet> {
         top: false,
         child: Column(
           children: [
-            _header(context),
+            _header(),
             Expanded(child: _sectionContent()),
             _saveButton(),
           ],
