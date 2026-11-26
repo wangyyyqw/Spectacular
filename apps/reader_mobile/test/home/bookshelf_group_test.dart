@@ -193,7 +193,8 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('全部 3'), findsOneWidget);
+    expect(find.text('全部'), findsOneWidget);
+    expect(find.textContaining('全部 '), findsNothing);
     expect(find.text('未读 3'), findsNothing);
     expect(find.text('在读 0'), findsNothing);
     expect(find.text('已读完 0'), findsNothing);
@@ -221,13 +222,14 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('小说 1'), findsOneWidget);
+    expect(find.text('小说'), findsOneWidget);
+    expect(find.textContaining('小说 '), findsNothing);
     final allTab = tester.getRect(
       find.byKey(const ValueKey('bookshelf-group-all')),
     );
     expect(allTab.left, 16);
     expect(
-      tester.getTopLeft(find.text('小说 1')).dx,
+      tester.getTopLeft(find.text('小说')).dx,
       greaterThanOrEqualTo(allTab.right),
     );
     expect(find.text('分组甲'), findsWidgets);
@@ -273,7 +275,7 @@ void main() {
       find.byKey(ValueKey<String>('bookshelf-group-${group.id}')),
     );
     await _settle(tester, frames: 4);
-    expect(find.text('小说 2'), findsOneWidget);
+    expect(find.text('小说'), findsOneWidget);
     expect(find.text('分组甲'), findsWidgets);
     expect(find.text('分组乙'), findsNothing);
     expect(find.text('分组丙'), findsWidgets);
@@ -294,7 +296,7 @@ void main() {
       find.byKey(const ValueKey<String>('bookshelf-group-name-confirm')),
     );
     await _settle(tester);
-    expect(find.text('文学 2'), findsOneWidget);
+    expect(find.text('文学'), findsOneWidget);
   });
 
   testWidgets('多选底栏新建分组直接使用已选书籍', (tester) async {
@@ -340,7 +342,7 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('待读 1'), findsOneWidget);
+    expect(find.text('待读'), findsOneWidget);
     final groups = await library.listGroups();
     expect(groups, hasLength(1));
     expect(await library.groupAssignments(), <String, String>{

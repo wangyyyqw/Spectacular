@@ -71,10 +71,28 @@ void main() {
       await _settle(tester);
       final grid = find.byKey(const ValueKey('bookshelf-grid'));
       final list = find.byKey(const ValueKey('bookshelf-list'));
-      final toolbar = tester.getRect(
-        find.byKey(const ValueKey('bookshelf-group-toolbar')),
+      final toolbarFinder = find.byKey(
+        const ValueKey('bookshelf-group-toolbar'),
       );
-      final groupCenter = tester.getCenter(find.text('全部 1')).dy;
+      final toolbar = tester.getRect(toolbarFinder);
+      final groupCenter = tester.getCenter(find.text('全部')).dy;
+      expect(find.textContaining('全部 '), findsNothing);
+      final toolbarIcons = tester.widgetList<AppIcon>(
+        find.descendant(of: toolbarFinder, matching: find.byType(AppIcon)),
+      );
+      expect(toolbarIcons.map((icon) => icon.strokeWidth), <double>[1.3, 1.3]);
+      final toolbarButtons = tester.widgetList<IconButton>(
+        find.descendant(
+          of: toolbarFinder,
+          matching: find.byType(IconButton),
+        ),
+      );
+      final theme = Theme.of(tester.element(find.byType(BookshelfPage)));
+      expect(toolbarButtons, hasLength(2));
+      for (final button in toolbarButtons) {
+        expect(button.color, theme.colorScheme.onSurfaceVariant);
+        expect(button.disabledColor, theme.disabledColor);
+      }
       for (final button in [
         find.byTooltip('列表视图'),
         find.byKey(const ValueKey('bookshelf-multi-select')),

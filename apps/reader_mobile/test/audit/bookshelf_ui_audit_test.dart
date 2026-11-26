@@ -123,7 +123,8 @@ void main() {
       greaterThan(tester.getBottomLeft(cover).dy),
     );
     expect(_key('book-card-meta-${second.id}'), findsNothing);
-    expect(find.text('全部 4'), findsOneWidget);
+    expect(find.text('全部'), findsOneWidget);
+    expect(find.textContaining('全部 '), findsNothing);
 
     await _tap(tester, _key('bookshelf-group-${group.id}'));
     expect(_key('book-card-${third.id}'), findsNothing);
@@ -184,7 +185,7 @@ void main() {
     await tester.enterText(_key('bookshelf-group-create-name'), '待读');
     await tester.pump();
     await _tap(tester, _key('bookshelf-group-create-confirm'));
-    expect(find.text('待读 1'), findsOneWidget);
+    expect(find.text('待读'), findsOneWidget);
     expect(
       (await library.groupAssignments())[book.id],
       (await library.listGroups()).single.id,

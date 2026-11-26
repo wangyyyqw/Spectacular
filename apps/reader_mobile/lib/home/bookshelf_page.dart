@@ -49,6 +49,7 @@ const _shelfGridSpacing = 16.0;
 const _shelfCoverAspectRatio = 3 / 4;
 const _shelfTitleGap = 6.0;
 const _shelfTitleHeight = 20.0;
+const _shelfToolbarIconStroke = 1.3;
 const _pinnedCoverShadowOpacity = .42;
 final _bookPressOverlay = WidgetStateProperty.resolveWith<Color?>(
   (states) => states.contains(WidgetState.pressed) ? Colors.transparent : null,
@@ -1435,50 +1436,61 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  Widget _buildShelfControls(List<_ShelfItem> items) => Row(
-    key: const ValueKey('bookshelf-group-toolbar'),
-    children: [
-      Expanded(
-        child: _ShelfGroupBar(
-          items: items,
-          groups: _groups,
-          assignments: _bookGroups,
-          activeGroupId: _activeGroupId,
-          onToggle: _toggleGroup,
-          onShowAll: () => setState(() => _activeGroupId = null),
-          onManage: _manageGroup,
+  Widget _buildShelfControls(List<_ShelfItem> items) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      key: const ValueKey('bookshelf-group-toolbar'),
+      children: [
+        Expanded(
+          child: _ShelfGroupBar(
+            groups: _groups,
+            activeGroupId: _activeGroupId,
+            onToggle: _toggleGroup,
+            onShowAll: () => setState(() => _activeGroupId = null),
+            onManage: _manageGroup,
+          ),
         ),
-      ),
-      Theme(
-        data: _noFeedback(context),
-        child: IconButton(
-          tooltip: _grid ? '列表视图' : '网格视图',
-          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-          padding: EdgeInsets.zero,
-          onPressed: _toggleView,
-          icon: AppIcon(_grid ? AppGlyph.listView : AppGlyph.gridView),
+        Theme(
+          data: _noFeedback(context),
+          child: IconButton(
+            tooltip: _grid ? '列表视图' : '网格视图',
+            color: colors.onSurfaceVariant,
+            disabledColor: Theme.of(context).disabledColor,
+            constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+            padding: EdgeInsets.zero,
+            onPressed: _toggleView,
+            icon: AppIcon(
+              _grid ? AppGlyph.listView : AppGlyph.gridView,
+              strokeWidth: _shelfToolbarIconStroke,
+            ),
+          ),
         ),
-      ),
-      Theme(
-        data: _noFeedback(context),
-        child: IconButton(
-          key: const ValueKey('bookshelf-multi-select'),
-          tooltip: _selectionMode ? '退出多选' : '多选',
-          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-          padding: EdgeInsets.zero,
-          onPressed: _removing
-              ? null
-              : _selectionMode
-              ? _exitSelectionMode
-              : items.isEmpty
-              ? null
-              : _startSelection,
-          icon: AppIcon(_selectionMode ? AppGlyph.close : AppGlyph.multiSelect),
+        Theme(
+          data: _noFeedback(context),
+          child: IconButton(
+            key: const ValueKey('bookshelf-multi-select'),
+            tooltip: _selectionMode ? '退出多选' : '多选',
+            color: colors.onSurfaceVariant,
+            disabledColor: Theme.of(context).disabledColor,
+            constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+            padding: EdgeInsets.zero,
+            onPressed: _removing
+                ? null
+                : _selectionMode
+                ? _exitSelectionMode
+                : items.isEmpty
+                ? null
+                : _startSelection,
+            icon: AppIcon(
+              _selectionMode ? AppGlyph.close : AppGlyph.multiSelect,
+              strokeWidth: _shelfToolbarIconStroke,
+            ),
+          ),
         ),
-      ),
-      const SizedBox(width: 8),
-    ],
-  );
+        const SizedBox(width: 8),
+      ],
+    );
+  }
 
   Widget _buildBody(
     List<_ShelfItem>? items,
@@ -2260,18 +2272,14 @@ class _BookGroupSheetState extends State<_BookGroupSheet> {
 
 class _ShelfGroupBar extends StatelessWidget {
   const _ShelfGroupBar({
-    required this.items,
     required this.groups,
-    required this.assignments,
     required this.activeGroupId,
     required this.onToggle,
     required this.onShowAll,
     required this.onManage,
   });
 
-  final List<_ShelfItem> items;
   final List<ShelfGroup> groups;
-  final Map<String, String> assignments;
   final String? activeGroupId;
   final ValueChanged<String> onToggle;
   final VoidCallback onShowAll;
@@ -2279,13 +2287,6 @@ class _ShelfGroupBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final counts = <String, int>{};
-    for (final item in items) {
-      final groupId = assignments[item.entry.id];
-      if (groupId != null) {
-        counts[groupId] = (counts[groupId] ?? 0) + 1;
-      }
-    }
     return SizedBox(
       width: double.infinity,
       child: SingleChildScrollView(
@@ -2295,14 +2296,14 @@ class _ShelfGroupBar extends StatelessWidget {
           children: <Widget>[
             _ShelfGroupTab(
               key: const ValueKey<String>('bookshelf-group-all'),
-              label: '全部 ${items.length}',
+              label: '全部',
               selected: activeGroupId == null,
               onTap: onShowAll,
             ),
             for (final group in groups)
               _ShelfGroupTab(
                 key: ValueKey<String>('bookshelf-group-${group.id}'),
-                label: '${group.name} ${counts[group.id] ?? 0}',
+                label: group.name,
                 selected: group.id == activeGroupId,
                 onTap: () => onToggle(group.id),
                 onLongPress: () => onManage(group),
