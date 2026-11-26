@@ -81,6 +81,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('menu-entry-settings')));
       await tester.pumpAndSettle();
+      final modeEntry = find.byKey(const ValueKey('settings-page-turn'));
+      await tester.ensureVisible(modeEntry);
+      await tester.tap(modeEntry);
+      await tester.pumpAndSettle();
       final scrollOption = find.byKey(
         const ValueKey('settings-page-turn-scroll'),
       );
@@ -104,6 +108,9 @@ void main() {
       expect(visible?.page.spineIndex, targetSpine);
       expect(visible?.page.pageIndex, originalPage);
       expect(session.currentCfi, anchor);
+      await tester.ensureVisible(modeEntry);
+      await tester.tap(modeEntry);
+      await tester.pumpAndSettle();
       final coverOption = find.byKey(
         const ValueKey('settings-page-turn-cover'),
       );

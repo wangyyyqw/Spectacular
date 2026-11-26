@@ -732,6 +732,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('menu-entry-settings')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('settings-page-turn')));
+    await tester.pumpAndSettle();
     final target = find.byKey(
       const ValueKey<String>('settings-page-turn-cover'),
     );

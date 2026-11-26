@@ -7,8 +7,9 @@ import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
 void main() {
-  testWidgets('注释样式设置可切换气泡与纸条', (tester) async {
+  testWidgets('注释样式菜单显示当前项，切换后收起且取消不改设置', (tester) async {
     var style = ReaderFootnoteStyle.dialog;
+    final changes = <ReaderFootnoteStyle>[];
     await tester.pumpWidget(
       MaterialApp(
         home: StatefulBuilder(
@@ -18,7 +19,10 @@ void main() {
               overrides: ReaderSettingsDefaults.overrides,
               themeId: 'white',
               footnoteStyle: style,
-              onFootnoteStyleChanged: (value) => setState(() => style = value),
+              onFootnoteStyleChanged: (value) {
+                changes.add(value);
+                setState(() => style = value);
+              },
               onOverridesChanged: (_) {},
               onThemeChanged: (_) {},
             ),
@@ -27,18 +31,57 @@ void main() {
       ),
     );
 
+    final entry = find.byKey(const ValueKey('settings-footnote-style'));
     expect(find.text('注释样式'), findsOneWidget);
-    await tester.tap(
-      find.byKey(const ValueKey('settings-footnote-style-bubble')),
+    expect(
+      find.descendant(of: entry, matching: find.text('弹窗')),
+      findsOneWidget,
     );
-    await tester.pumpAndSettle();
-    expect(style, ReaderFootnoteStyle.bubble);
+    expect(
+      tester
+          .getRect(find.descendant(of: entry, matching: find.text('弹窗')))
+          .right,
+      closeTo(tester.getRect(entry).right - 26, .01),
+    );
+    expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNothing);
+    for (final next in [
+      ReaderFootnoteStyle.bubble,
+      ReaderFootnoteStyle.paper,
+    ]) {
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNWidgets(3));
+      final selected = find.byKey(
+        ValueKey('settings-footnote-style-${style.name}'),
+      );
+      final text = find.descendant(
+        of: selected,
+        matching: find.text(style.label),
+      );
+      expect(
+        DefaultTextStyle.of(tester.element(text)).style.color,
+        Theme.of(tester.element(entry)).colorScheme.primary,
+      );
+      await tester.tap(
+        find.byKey(ValueKey('settings-footnote-style-${next.name}')),
+      );
+      await tester.pumpAndSettle();
+      expect(style, next);
+      expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNothing);
+      expect(
+        find.descendant(of: entry, matching: find.text(next.label)),
+        findsOneWidget,
+      );
+    }
 
-    await tester.tap(
-      find.byKey(const ValueKey('settings-footnote-style-paper')),
-    );
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(8, 8));
     await tester.pumpAndSettle();
     expect(style, ReaderFootnoteStyle.paper);
+    expect(changes, [ReaderFootnoteStyle.bubble, ReaderFootnoteStyle.paper]);
+    expect(find.byType(PopupMenuItem<ReaderFootnoteStyle>), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   for (final anchor in [
