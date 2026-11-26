@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
+import 'package:reader_mobile/home/book_cover_image.dart';
 import 'package:reader_mobile/library/library_store.dart';
 
 import '../support/test_epub.dart';
@@ -86,7 +87,21 @@ void main() {
     expect(tester.getTopLeft(grids.first).dx, lessThan(0));
     expect(tester.getTopLeft(grids.last).dx, greaterThan(0));
     expect(grids.first.hitTestable(), findsNothing);
-    await tester.pump(const Duration(milliseconds: 125));
+    final rebuiltCovers = <Element>[];
+    final previousRebuild = debugOnRebuildDirtyWidget;
+    debugOnRebuildDirtyWidget = (element, builtBefore) {
+      previousRebuild?.call(element, builtBefore);
+      if (element.widget is BookCoverImage) rebuiltCovers.add(element);
+    };
+    try {
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(rebuiltCovers, isEmpty, reason: '分组动画只改变位置，不重复构建封面和书目');
+    } finally {
+      debugOnRebuildDirtyWidget = previousRebuild;
+    }
+    await tester.pump(const Duration(milliseconds: 61));
     expect(grids, findsOneWidget, reason: '分组过渡应在 200ms 内完成');
     await _settle(tester, frames: 3);
     expect(find.text('滑动甲'), findsWidgets);

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -255,13 +256,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (!mounted) {
       return;
     }
+    final nextSort = BookSortOrder.fromValue(sort);
+    final nextGrid = grid != 'false';
+    final nextShowTitles = showTitles != 'false';
+    final nextPinned = pinned == null
+        ? const <String>[]
+        : (jsonDecode(pinned) as List).cast<String>();
+    if (_sort == nextSort &&
+        _grid == nextGrid &&
+        _showTitles == nextShowTitles &&
+        listEquals(_pinnedIds, nextPinned)) {
+      return;
+    }
     setState(() {
-      _sort = BookSortOrder.fromValue(sort);
-      _grid = grid != 'false';
-      _showTitles = showTitles != 'false';
-      _pinnedIds = pinned == null
-          ? const <String>[]
-          : (jsonDecode(pinned) as List).cast<String>();
+      _sort = nextSort;
+      _grid = nextGrid;
+      _showTitles = nextShowTitles;
+      _pinnedIds = nextPinned;
     });
   }
 
@@ -1816,7 +1827,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late String? _displayId;
-  double _offset = 0;
+  final _offset = ValueNotifier<double>(0);
   double _from = 0;
   double _to = 0;
   double _distance = 0;
@@ -1833,10 +1844,8 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
           vsync: this,
           duration: const Duration(milliseconds: 200),
         )..addListener(() {
-          setState(() {
-            final t = Curves.easeOutCubic.transform(_controller.value);
-            _offset = _from + (_to - _from) * t;
-          });
+          final t = Curves.easeOutCubic.transform(_controller.value);
+          _offset.value = _from + (_to - _from) * t;
         });
   }
 
@@ -1846,7 +1855,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     if (!widget.enabled || !widget.groupIds.contains(_displayId)) {
       _controller.stop();
       _displayId = widget.groupId;
-      _offset = 0;
+      _offset.value = 0;
       _direction = 0;
     } else if (oldWidget.groupId != widget.groupId &&
         _displayId != widget.groupId) {
@@ -1854,7 +1863,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
       final previous = widget.groupIds.indexOf(_displayId);
       final next = widget.groupIds.indexOf(widget.groupId);
       _direction = (next - previous).sign;
-      _offset = 0;
+      _offset.value = 0;
       _settle(true, targetIndex: next);
     }
   }
@@ -1866,10 +1875,13 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     _distance += details.primaryDelta ?? 0;
     final direction = _distance < 0 ? 1 : -1;
     final next = widget.groupIds.indexOf(_displayId) + direction;
-    setState(() {
-      _direction = next >= 0 && next < widget.groupIds.length ? direction : 0;
-      _offset = _direction == 0 ? 0 : (_distance / _width).clamp(-1.0, 1.0);
-    });
+    final nextDirection = next >= 0 && next < widget.groupIds.length
+        ? direction
+        : 0;
+    if (_direction != nextDirection) {
+      setState(() => _direction = nextDirection);
+    }
+    _offset.value = _direction == 0 ? 0 : (_distance / _width).clamp(-1.0, 1.0);
   }
 
   void _dragEnd(DragEndDetails details) {
@@ -1887,7 +1899,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     final target = commit
         ? widget.groupIds[targetIndex ?? _neighborIndex]
         : _displayId;
-    _from = _offset;
+    _from = _offset.value;
     _to = commit ? -_direction.toDouble() : 0;
     if (!MediaQuery.disableAnimationsOf(context) && _from != _to) {
       try {
@@ -1899,7 +1911,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     if (!mounted) return;
     setState(() {
       _displayId = target;
-      _offset = 0;
+      _offset.value = 0;
       _direction = 0;
     });
     if (commit && widget.groupId != target) widget.onChanged(target);
@@ -1908,6 +1920,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
   @override
   void dispose() {
     _controller.dispose();
+    _offset.dispose();
     super.dispose();
   }
 
@@ -1916,8 +1929,14 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
     builder: (context, constraints) {
       _width = constraints.maxWidth;
       Widget page(String? id, double offset, {required bool active}) =>
-          FractionalTranslation(
-            translation: Offset(offset, 0),
+          AnimatedBuilder(
+            key: ValueKey(('bookshelf-group-page', id)),
+            animation: _offset,
+            builder: (_, child) => FractionalTranslation(
+              translation: Offset(_offset.value + offset, 0),
+              child: child,
+            ),
+            // 手势和补间只更新平移；筛选、封面构建与绘制复用本次页面。
             child: ExcludeFocus(
               excluding: !active,
               child: ExcludeSemantics(
@@ -1926,10 +1945,7 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
                   ignoring: !active,
                   child: HeroMode(
                     enabled: active,
-                    child: KeyedSubtree(
-                      key: ValueKey(('bookshelf-group-page', id)),
-                      child: widget.builder(id),
-                    ),
+                    child: RepaintBoundary(child: widget.builder(id)),
                   ),
                 ),
               ),
@@ -1957,11 +1973,11 @@ class _ShelfGroupPagesState extends State<_ShelfGroupPages>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              page(_displayId, _offset, active: _direction == 0),
+              page(_displayId, 0, active: _direction == 0),
               if (_direction != 0)
                 page(
                   widget.groupIds[_targetIndex ?? _neighborIndex],
-                  _offset + _direction,
+                  _direction.toDouble(),
                   active: false,
                 ),
             ],
@@ -2035,6 +2051,7 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     Animation<double> animation,
     Key currentKey,
   ) {
+    final page = RepaintBoundary(child: child);
     final direction = child.key == currentKey
         ? _groupDirection
         : -_groupDirection;
@@ -2048,14 +2065,14 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
               offset: Offset(0, viewDirection * 12 * (1 - animation.value)),
               child: child,
             ),
-            child: child,
+            child: page,
           )
         : SlideTransition(
             position: Tween(
               begin: Offset(direction * .1, 0),
               end: Offset.zero,
             ).animate(animation),
-            child: child,
+            child: page,
           );
     return FadeTransition(opacity: animation, child: content);
   }

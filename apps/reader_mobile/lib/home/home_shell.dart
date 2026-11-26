@@ -225,7 +225,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         for (final (index, page) in _pages.indexed)
           TickerMode(
             enabled: index == _index,
-            child: ExcludeFocus(excluding: index != _index, child: page),
+            child: ExcludeFocus(
+              excluding: index != _index,
+              child: RepaintBoundary(child: page),
+            ),
           ),
       ],
     );
