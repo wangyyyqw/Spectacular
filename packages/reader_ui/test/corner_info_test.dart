@@ -6,6 +6,8 @@ import 'package:reader_ui/page_furniture/battery_icon.dart';
 import 'package:reader_ui/page_furniture/corner_info.dart';
 import 'package:reader_ui/page_furniture/corner_row.dart';
 import 'package:reader_ui/panels/corner_info_editor.dart';
+import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 void main() {
   testWidgets('页眉标题使用页码之外的剩余宽度，过长时才省略且不挤压页码', (tester) async {
@@ -67,27 +69,178 @@ void main() {
     );
   });
 
-  testWidgets('点击四角选择信息后更新预览，其他位置保持原值', (tester) async {
+  testWidgets('边角设置先预览，保存后一次提交，重新打开保留设置，返回放弃修改', (tester) async {
     var info = ReaderCornerInfo.defaults;
+    final changes = <ReaderCornerInfo>[];
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: StatefulBuilder(
-            builder: (_, update) => CornerInfoEditor(
-              info: info,
-              onChanged: (value) => update(() => info = value),
+            builder: (_, update) => SettingsPanel(
+              section: SettingsSection.settings,
+              overrides: ReaderSettingsDefaults.overrides,
+              themeId: 'white',
+              onOverridesChanged: (_) {},
+              onThemeChanged: (_) {},
+              cornerInfo: info,
+              onCornerInfoChanged: (value) {
+                changes.add(value);
+                update(() => info = value);
+              },
             ),
           ),
         ),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('settings-corner-top-left')));
+    final entry = find.byKey(const ValueKey('settings-corner-info'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('corner-choice-bookTitle')));
     await tester.pumpAndSettle();
+    expect(changes, isEmpty);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('corner-preview-topLeft')))
+          .data,
+      '书名',
+    );
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('corner-preview-bottomLeft')))
+          .data,
+      '时间与电量',
+    );
+    const selections = {
+      'topRight': ReaderCornerContent.none,
+      'bottomLeft': ReaderCornerContent.clock,
+      'bottomRight': ReaderCornerContent.battery,
+    };
+    for (final selection in selections.entries) {
+      await tester.tap(find.byKey(ValueKey('corner-${selection.key}-tab')));
+      await tester.pumpAndSettle();
+      final choice = find.byKey(
+        ValueKey('corner-choice-${selection.value.name}'),
+      );
+      await tester.ensureVisible(choice);
+      await tester.tap(choice);
+      await tester.pumpAndSettle();
+    }
+    expect(changes, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('corner-settings-save')));
+    await tester.pumpAndSettle();
+    expect(changes, hasLength(1));
     expect(info.topLeft, ReaderCornerContent.bookTitle);
-    expect(info.bottomLeft, ReaderCornerContent.clockAndBattery);
-    expect(find.text('书名'), findsOneWidget);
+    expect(info.topRight, ReaderCornerContent.none);
+    expect(info.bottomLeft, ReaderCornerContent.clock);
+    expect(info.bottomRight, ReaderCornerContent.battery);
+    expect(find.byType(CornerInfoEditor), findsNothing);
+    expect(find.textContaining('左上 书名 · 右上 隐藏'), findsOneWidget);
+
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('corner-choice-bookTitle')),
+          )
+          .selected,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const ValueKey('corner-choice-none')));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(changes, hasLength(1));
+    expect(info.topLeft, ReaderCornerContent.bookTitle);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ChoiceChip>(
+            find.byKey(const ValueKey('corner-choice-bookTitle')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('边角设置在 $brightness 窄屏大字号下共用分区布局，滚动不移动保存按钮', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 720);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: applyReaderUiStyle(ThemeData(brightness: brightness)),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: const Scaffold(
+            body: CornerInfoEditor(info: ReaderCornerInfo.defaults),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final tabs = find.byKey(const ValueKey('corner-settings-section-tabs'));
+      final preview = find.byKey(const ValueKey('corner-settings-preview'));
+      final save = find.byKey(const ValueKey('corner-settings-save'));
+      final frame = find.byKey(const ValueKey('corner-settings-fixed-height'));
+      expect(
+        tester.getTopLeft(tabs).dy - tester.getBottomLeft(preview).dy,
+        closeTo(8, .1),
+      );
+      final footerRect = tester.getRect(save);
+      final height = tester.getSize(frame).height;
+      for (final slot in ReaderCornerSlot.values) {
+        await tester.tap(find.byKey(ValueKey('corner-${slot.name}-tab')));
+        await tester.pumpAndSettle();
+        for (final content in ReaderCornerContent.values) {
+          final chip = tester.widget<ChoiceChip>(
+            find.byKey(ValueKey('corner-choice-${content.name}')),
+          );
+          expect(
+            chip.selected,
+            ReaderCornerInfo.defaults.contentAt(slot) == content,
+          );
+        }
+        final choice = find.byKey(
+          const ValueKey('corner-choice-clockAndBattery'),
+        );
+        await tester.ensureVisible(choice);
+        await tester.pumpAndSettle();
+        expect(choice.hitTestable(), findsOneWidget);
+        expect(tester.getRect(save), footerRect);
+        expect(tester.getSize(frame).height, height);
+        expect(save.hitTestable(), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('未提供边角回调时不打开编辑面板', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsPanel(
+            section: SettingsSection.settings,
+            overrides: ReaderSettingsDefaults.overrides,
+            themeId: 'white',
+            onOverridesChanged: (_) {},
+            onThemeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    final entry = find.byKey(const ValueKey('settings-corner-info'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.byType(CornerInfoEditor), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('阅读信息显示真实电量与本页数据，隐藏项没有占位文字', (tester) async {

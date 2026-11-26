@@ -158,6 +158,8 @@ Future<void> _openBookmarkStyle(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('settings-bookmark-style')));
   await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('size-tab')));
+  await tester.pumpAndSettle();
 }
 
 Future<void> _expectBookmarkPullDisabled(WidgetTester tester) async {
@@ -1009,7 +1011,12 @@ void main() {
     final session = await _open(
       tester,
       bookmarks,
-      style: const ReaderBookmarkStyle(width: 32, length: 90, rightInset: 64),
+      style: const ReaderBookmarkStyle(
+        width: 32,
+        length: 90,
+        rightInset: 64,
+        color: 0xFFA5D6A7,
+      ),
       onStyle: (style) => saved = style,
     );
     await _move(tester, session.next());
@@ -1025,6 +1032,10 @@ void main() {
     final ribbon = find.byKey(const ValueKey('reader-bookmark-ribbon'));
     expect(ribbon, findsOneWidget);
     expect(tester.getSize(ribbon), const Size(32, 90));
+    expect(
+      tester.widget<ReaderBookmarkRibbon>(ribbon).color,
+      const Color(0xFFA5D6A7),
+    );
     final readerRect = tester.getRect(find.byType(ReaderView));
     expect(tester.getTopRight(ribbon).dx, readerRect.right - 64);
     expect(tester.getTopRight(ribbon).dy, readerRect.top);

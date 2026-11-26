@@ -6,6 +6,7 @@ class ReaderBookmarkStyle {
     this.rightInset = 37,
     this.imageId,
     this.pullEnabled = true,
+    this.color,
   });
 
   final double width;
@@ -13,6 +14,7 @@ class ReaderBookmarkStyle {
   final double rightInset;
   final String? imageId;
   final bool pullEnabled;
+  final int? color;
 
   static const minWidth = 12.0;
   static const maxWidth = 96.0;
@@ -26,12 +28,14 @@ class ReaderBookmarkStyle {
     double? length,
     double? rightInset,
     bool? pullEnabled,
+    int? color,
   }) => ReaderBookmarkStyle(
     width: width ?? this.width,
     length: length ?? this.length,
     rightInset: rightInset ?? this.rightInset,
     imageId: imageId,
     pullEnabled: pullEnabled ?? this.pullEnabled,
+    color: color ?? this.color,
   );
 
   ReaderBookmarkStyle withImage(String? id) => ReaderBookmarkStyle(
@@ -40,6 +44,16 @@ class ReaderBookmarkStyle {
     rightInset: rightInset,
     imageId: id,
     pullEnabled: pullEnabled,
+    color: color,
+  );
+
+  ReaderBookmarkStyle withColor(int? value) => ReaderBookmarkStyle(
+    width: width,
+    length: length,
+    rightInset: rightInset,
+    imageId: imageId,
+    pullEnabled: pullEnabled,
+    color: value,
   );
 
   Map<String, Object?> toJson() => {
@@ -48,6 +62,7 @@ class ReaderBookmarkStyle {
     'rightInset': rightInset,
     'imageId': imageId,
     'pullEnabled': pullEnabled,
+    'color': color,
   };
 
   factory ReaderBookmarkStyle.fromJson(Object? json) {
@@ -61,12 +76,14 @@ class ReaderBookmarkStyle {
 
     final image = json['imageId'];
     final pullEnabled = json['pullEnabled'];
+    final color = json['color'];
     return ReaderBookmarkStyle(
       width: dimension('width', 24, minWidth, maxWidth),
       length: dimension('length', 60, minLength, maxLength),
       rightInset: dimension('rightInset', 37, minRightInset, maxRightInset),
       imageId: image is String && image.startsWith('image:') ? image : null,
       pullEnabled: pullEnabled is bool ? pullEnabled : true,
+      color: color is int && color >= 0 && color <= 0xffffffff ? color : null,
     );
   }
 
@@ -77,9 +94,10 @@ class ReaderBookmarkStyle {
       other.length == length &&
       other.rightInset == rightInset &&
       other.imageId == imageId &&
-      other.pullEnabled == pullEnabled;
+      other.pullEnabled == pullEnabled &&
+      other.color == color;
 
   @override
   int get hashCode =>
-      Object.hash(width, length, rightInset, imageId, pullEnabled);
+      Object.hash(width, length, rightInset, imageId, pullEnabled, color);
 }

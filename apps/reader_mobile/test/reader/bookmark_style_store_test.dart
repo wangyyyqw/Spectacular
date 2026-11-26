@@ -26,6 +26,7 @@ void main() {
       rightInset: 72,
       imageId: 'image:/bookmark.png',
       pullEnabled: false,
+      color: 0xFFA5D6A7,
     );
     const tts = ReaderTtsSettings(
       mode: ReaderTtsMode.offline,
@@ -73,6 +74,7 @@ void main() {
       style.copyWith(width: 48),
       style.withImage('image:other'),
       style.withImage(null),
+      style.copyWith(color: 0xFFFFEB3B),
     ]) {
       expect(changed.pullEnabled, isFalse);
     }
@@ -95,6 +97,11 @@ void main() {
       (await store.load()).bookmarkStyle,
       const ReaderBookmarkStyle(width: 12, length: 200),
     );
+    await library.setSetting(
+      ReaderSettingsStore.keyBookmarkStyle,
+      '{"color":-1}',
+    );
+    expect((await store.load()).bookmarkStyle.color, isNull);
     for (final (value, expected) in [(-20, 0.0), (9999, 160.0)]) {
       await library.setSetting(
         ReaderSettingsStore.keyBookmarkStyle,
