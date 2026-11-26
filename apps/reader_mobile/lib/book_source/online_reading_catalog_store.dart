@@ -212,7 +212,7 @@ class OnlineReadingCatalogStore {
       }
       final isStale = json['rules'] != _rulesFingerprint(source);
       if (isStale && !allowStale) return null;
-      final book = _bookFromJson(json['book'] as Map<String, dynamic>);
+      final book = onlineBookFromJson(json['book'] as Map<String, dynamic>);
       final chapters = [
         for (final value in json['chapters'] as List)
           _chapterFromJson(value as Map<String, dynamic>, source),
@@ -245,7 +245,7 @@ class OnlineReadingCatalogStore {
       'sourceId': source.id,
       'bookUrl': book.bookUrl,
       'rules': _rulesFingerprint(source),
-      'book': _bookToJson(book),
+      'book': onlineBookToJson(book),
       'chapters': [for (final chapter in chapters) _chapterToJson(chapter)],
       'lastReadAt': lastReadAt?.toUtc().toIso8601String(),
     }),
@@ -374,7 +374,7 @@ class OnlineReadingCatalogStore {
       sha256.convert(utf8.encode(jsonEncode(value))).toString();
 }
 
-Map<String, Object?> _bookToJson(OnlineBook book) => {
+Map<String, Object?> onlineBookToJson(OnlineBook book) => {
   'sourceId': book.sourceId,
   'sourceName': book.sourceName,
   'name': book.name,
@@ -393,7 +393,7 @@ Map<String, Object?> _bookToJson(OnlineBook book) => {
   'tocOptions': book.tocOptions,
 };
 
-OnlineBook _bookFromJson(Map<String, dynamic> json) => OnlineBook(
+OnlineBook onlineBookFromJson(Map<String, dynamic> json) => OnlineBook(
   sourceId: json['sourceId'] as String,
   sourceName: json['sourceName'] as String,
   name: json['name'] as String,

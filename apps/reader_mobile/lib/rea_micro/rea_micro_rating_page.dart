@@ -26,8 +26,15 @@ class _ReaMicroRatingPageState extends State<ReaMicroRatingPage> {
   @override
   void initState() {
     super.initState();
+    widget.controller.pageRefresh.addListener(_refresh);
     unawaited(widget.controller.initialize());
     unawaited(widget.controller.refreshMilestones());
+  }
+
+  @override
+  void dispose() {
+    widget.controller.pageRefresh.removeListener(_refresh);
+    super.dispose();
   }
 
   Future<void> _refresh() async {

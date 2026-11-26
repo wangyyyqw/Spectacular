@@ -49,7 +49,14 @@ class _LibrarySyncRepository implements SyncRepository {
   Future<Directory> directory() => library._root();
 
   Future<List<Map<String, dynamic>>> rows(String table) async => [
-    for (final row in await db.customSelect('SELECT * FROM $table').get())
+    for (final row
+        in await db
+            .customSelect(
+              table == 'settings'
+                  ? "SELECT * FROM settings WHERE key NOT GLOB 'page-cache.*'"
+                  : 'SELECT * FROM $table',
+            )
+            .get())
       Map<String, dynamic>.of(row.data),
   ];
 

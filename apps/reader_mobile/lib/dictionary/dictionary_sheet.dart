@@ -94,11 +94,26 @@ class _DictionarySheetState extends State<DictionarySheet> {
     });
     if (api == null) return;
     try {
-      final result = await _client.lookup(
-        api: api,
-        preset: state.presets.firstWhere((p) => p.id == _presetId),
-        text: widget.text,
-        disableThinking: state.settings.disableThinking,
+      final preset = state.presets.firstWhere((p) => p.id == _presetId);
+      final result = await widget.store.library.pageCache.load(
+        identity: [
+          '词典',
+          api.baseUrl,
+          api.model,
+          api.apiKey,
+          preset.render(widget.text),
+          state.settings.disableThinking,
+        ],
+        fetch: () => _client.lookup(
+          api: api,
+          preset: preset,
+          text: widget.text,
+          disableThinking: state.settings.disableThinking,
+        ),
+        encode: (answer) => answer,
+        decode: (raw) => raw as String,
+        unavailable: (error) =>
+            error is DictionaryException && error.unavailable,
       );
       if (mounted && generation == _generation) {
         setState(() => _result = result);

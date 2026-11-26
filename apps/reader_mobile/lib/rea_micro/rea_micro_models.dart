@@ -399,6 +399,7 @@ class ReaMicroBookRecord {
     required this.listeningDurationSeconds,
     required this.readingDurationSeconds,
     this.lastReadTime = 0,
+    this.localBookId,
   });
 
   /// 阅微书籍标识。
@@ -436,6 +437,7 @@ class ReaMicroBookRecord {
 
   /// 接口提供时使用最后阅读时间；旧接口缺失时沿用响应顺序。
   final int lastReadTime;
+  final String? localBookId;
 
   /// 是否已读完。
   bool get finished => finishReadTime > 0 || progress >= 1;
@@ -471,6 +473,7 @@ class ReaMicroCloudStats {
     required this.books,
     required this.fetchedAt,
     this.monthDate,
+    this.periodDate,
   });
 
   /// 累计概览。
@@ -496,6 +499,7 @@ class ReaMicroCloudStats {
 
   /// 月统计所属月份，避免跨月请求完成后误认日期。
   final DateTime? monthDate;
+  final DateTime? periodDate;
 }
 
 /// 阅微有标注的书籍。
@@ -2296,6 +2300,7 @@ class ReaMicroException implements Exception {
     this.message, {
     this.statusCode,
     this.code,
+    this.transportFailure = false,
     this.unauthorized = false,
   });
 
@@ -2310,6 +2315,12 @@ class ReaMicroException implements Exception {
 
   /// 是否为登录失效。
   final bool unauthorized;
+
+  final bool transportFailure;
+
+  bool get unavailable =>
+      !unauthorized &&
+      (transportFailure || statusCode == 408 || (statusCode ?? 0) >= 500);
 
   @override
   String toString() => message;

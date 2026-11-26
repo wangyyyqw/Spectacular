@@ -19,6 +19,7 @@ import '../book_source/book_source_compat.dart';
 import '../book_source/online_reading_book.dart';
 import '../storage/reading_session_store.dart';
 import '../storage/drift_progress_store.dart';
+import '../storage/online_page_cache.dart';
 import 'rea_micro_api_client.dart';
 import 'rea_micro_aggregate_search.dart';
 import 'rea_micro_annotation_cfi.dart';
@@ -32,6 +33,8 @@ import 'rea_micro_progress_store.dart';
 import 'rea_micro_s3.dart';
 import 'rea_micro_store.dart';
 import 'rea_micro_webdav.dart';
+
+part 'rea_micro_offline.dart';
 
 /// 一次阅读时长同步的结果。
 class ReaMicroSyncResult {
@@ -102,10 +105,24 @@ class ReaMicroController extends ChangeNotifier {
 
   final LibraryStore _library;
   final ReaMicroApi _api;
+  OnlinePageCache get pageCache => _library.pageCache;
+  final _pageRevision = ValueNotifier(0);
+  Listenable get pageRefresh => _pageRevision;
+  void _pagesChanged() => _pageRevision.value++;
+  bool _offline = false;
+  bool get offline => _offline;
+  void reportUnavailable(String token) => _disconnected(token);
+  Timer? _reconnectTimer;
+  bool _recovering = false;
+  final _reviewUploads = <String, Future<String?>>{};
+  Map<String, dynamic> _pendingReviews = {};
+  Set<int> _pendingNoteDeletes = {};
   final ReaMicroStore _store;
   final DateTime Function() _now;
   final Future<String?> Function() _appVersion;
   Future<void> _uploadRetryWork = Future<void>.value();
+  Future<void> _sessionWrite = Future<void>.value();
+  final _sessionReaders = <Future<void>>{};
   late final ReaMicroAggregateSearch _aggregateSearch;
   final ReaderProgressStore? _rawProgressStore;
   final ReaMicroLanClient _lan;
@@ -307,6 +324,9 @@ class ReaMicroController extends ChangeNotifier {
     }
     _token = await _store.loadToken();
     _user = await _store.loadCachedUser();
+    if (_token case final token?) {
+      await _restoreOutbox(token);
+    }
     _links = await _store.loadLinks();
     _syncBooks = await _store.loadSyncBooks();
     _lastSyncAt = await _store.loadLastSyncAt();
@@ -398,7 +418,9 @@ class ReaMicroController extends ChangeNotifier {
       throw const ReaMicroException('请先登录阅微账号');
     }
     try {
-      final result = await _api.fetchS3CloudConfig(token);
+      final result = await _page(token, [
+        's3-config',
+      ], (api, _) => api.fetchS3CloudConfig(token));
       final config = result.encryptedConfig.trim().isEmpty
           ? null
           : ReaMicroS3ConfigCrypto.decrypt(result.encryptedConfig, user.id);
@@ -447,6 +469,7 @@ class ReaMicroController extends ChangeNotifier {
     if (_s3Config != null || !signedIn) return;
     try {
       final cloud = await fetchCloudS3Config();
+      if (_offline) return;
       final config = cloud.config;
       if (!cloud.enabled || config == null || !config.usable) return;
       _s3Config = config;
@@ -466,7 +489,9 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      return await _api.fetchStorageQuota(token);
+      return await _page(token, [
+        'quota',
+      ], (api, _) => api.fetchStorageQuota(token));
     } on ReaMicroException catch (error) {
       await _handleError(error);
       rethrow;
@@ -499,10 +524,11 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      return await _api.fetchCreditLedger(
+      return await _page(
         token,
-        page: page,
-        pageSize: pageSize,
+        ['ledger', page, pageSize],
+        (api, _) =>
+            api.fetchCreditLedger(token, page: page, pageSize: pageSize),
       );
     } on ReaMicroException catch (error) {
       await _handleError(error);
@@ -515,7 +541,7 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      return await _api.fetchTtsVoices(token);
+      return await _page(token, ['tts'], (api, _) => api.fetchTtsVoices(token));
     } on ReaMicroException catch (error) {
       await _handleError(error);
       rethrow;
@@ -531,21 +557,29 @@ class ReaMicroController extends ChangeNotifier {
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     if (!hasQingShi) throw const ReaMicroException('阅读统计需要阅微青士权限');
     try {
-      final records = await switch (period) {
-        ReaMicroRecordPeriod.week => _api.fetchBookRecordsByWeek(
-          token,
-          date: anchor,
-        ),
-        ReaMicroRecordPeriod.month => _api.fetchBookRecordsByMonth(
-          token,
-          year: anchor.year,
-          month: anchor.month,
-        ),
-        ReaMicroRecordPeriod.year => _api.fetchBookRecordsByYear(
-          token,
-          year: anchor.year,
-        ),
-      };
+      final periodKey = _periodKey(period, anchor);
+      final records = await _page(
+        token,
+        ['records', period.name, periodKey],
+        (api, _) => switch (period) {
+          ReaMicroRecordPeriod.week => api.fetchBookRecordsByWeek(
+            token,
+            date: DateTime.parse(periodKey),
+          ),
+          ReaMicroRecordPeriod.month => api.fetchBookRecordsByMonth(
+            token,
+            year: anchor.year,
+            month: anchor.month,
+          ),
+          ReaMicroRecordPeriod.year => api.fetchBookRecordsByYear(
+            token,
+            year: anchor.year,
+          ),
+        },
+        merge: (rows, baseline, _) async =>
+            (await _localReading(baseline))
+                .records(rows, period: period, anchor: anchor),
+      );
       if (_token != token) throw const ReaMicroException('账号已变更，请重新加载统计');
       return records;
     } on ReaMicroException catch (error) {
@@ -559,16 +593,18 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      final books = await _api.fetchMarkBooks(token);
+      final books = await _page(token, [
+        'mark-books',
+      ], (api, _) => api.fetchMarkBooks(token));
       try {
-        final marks = await _api.fetchMarks(token);
+        final marks = await _displayMarks(token);
         final updated = <String, int>{};
         for (final mark in marks) {
           if (mark.updatedAt > (updated[mark.bookId] ?? 0)) {
             updated[mark.bookId] = mark.updatedAt;
           }
         }
-        return [
+        final result = [
           for (final book in books)
             ReaMicroMarkBook(
               bookId: book.bookId,
@@ -585,9 +621,11 @@ class ReaMicroController extends ChangeNotifier {
               ].reduce((a, b) => a > b ? a : b),
             ),
         ];
-      } catch (_) {
+        return _offline ? await _mergeOfflineMarkBooks(result, marks) : result;
+      } on ReaMicroException catch (error) {
+        if (error.unauthorized || _token != token) rethrow;
         // 时间读取失败仍展示笔记书目，保留已知更新时间。
-        return books;
+        return _offline ? await _mergeOfflineMarkBooks(books, const []) : books;
       }
     } on ReaMicroException catch (error) {
       await _handleError(error);
@@ -605,7 +643,7 @@ class ReaMicroController extends ChangeNotifier {
     };
   }
 
-  /// 云端删除成功后才移除本地副本，失败时保留笔记供重试。
+  /// 在线删除云端记录；断网时先持久化待删标记，再移除本地副本。
   Future<ReaMicroActionResult> deleteNote(
     String bookId,
     ReaderAnnotation annotation, {
@@ -623,7 +661,17 @@ class ReaMicroController extends ChangeNotifier {
       if (remoteId != null && remoteId > 0) {
         final token = _token;
         if (token == null) throw const ReaMicroException('请先登录阅微账号');
-        await _api.deleteMark(token, id: remoteId);
+        try {
+          if (_offline) {
+            throw const ReaMicroException('离线中', transportFailure: true);
+          }
+          await _api.deleteMark(token, id: remoteId);
+        } on ReaMicroException catch (error) {
+          if (!error.unavailable || _token != token) rethrow;
+          _disconnected(token);
+          _pendingNoteDeletes.add(remoteId);
+          await _saveNoteDeletes(token);
+        }
       }
       await _library.removeBookAnnotation(bookId, annotation.id);
       if (remoteId != null) {
@@ -671,13 +719,25 @@ class ReaMicroController extends ChangeNotifier {
         if (cloudId.isNotEmpty && cloudId != internalId) cloudId,
       ];
       for (final id in ids) {
-        final marks = await _api.fetchMarks(token, bookId: id);
-        if (marks.isNotEmpty) return marks;
+        List<ReaMicroMark> marks;
+        try {
+          marks = await _displayMarks(token, bookId: id);
+        } on ReaMicroException catch (error) {
+          if (!error.unavailable) rethrow;
+          continue;
+        }
+        if (marks.isNotEmpty) {
+          return marks
+              .where((mark) => !_pendingNoteDeletes.contains(mark.id))
+              .toList();
+        }
       }
-      final all = await _api.fetchMarks(token);
+      final all = await _displayMarks(token);
       return <ReaMicroMark>[
         for (final mark in all)
-          if (ids.contains(mark.bookId.trim())) mark,
+          if (ids.contains(mark.bookId.trim()) &&
+              !_pendingNoteDeletes.contains(mark.id))
+            mark,
       ];
     } on ReaMicroException catch (error) {
       await _handleError(error);
@@ -717,7 +777,10 @@ class ReaMicroController extends ChangeNotifier {
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     if (reviewId <= 0) return ReaMicroReviewActionState.empty;
     try {
-      return await _api.checkReviewAction(token, reviewId: reviewId);
+      return await _page(token, [
+        'action',
+        reviewId,
+      ], (api, _) => api.checkReviewAction(token, reviewId: reviewId));
     } on ReaMicroException catch (error) {
       await _handleError(error);
       rethrow;
@@ -739,11 +802,15 @@ class ReaMicroController extends ChangeNotifier {
       );
     }
     try {
-      return await _api.fetchReviewActors(
+      return await _page(
         token,
-        reviewId: reviewId,
-        page: page,
-        pageSize: pageSize,
+        ['actors', reviewId, page, pageSize],
+        (api, _) => api.fetchReviewActors(
+          token,
+          reviewId: reviewId,
+          page: page,
+          pageSize: pageSize,
+        ),
       );
     } on ReaMicroException catch (error) {
       await _handleError(error);
@@ -760,11 +827,15 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      return await _api.fetchReviewFlow(
+      return await _page(
         token,
-        cloudBookId: cloudBookId,
-        page: page,
-        pageSize: pageSize,
+        ['flow', cloudBookId, page, pageSize],
+        (api, _) => api.fetchReviewFlow(
+          token,
+          cloudBookId: cloudBookId,
+          page: page,
+          pageSize: pageSize,
+        ),
       );
     } on ReaMicroException catch (error) {
       await _handleError(error);
@@ -820,6 +891,10 @@ class ReaMicroController extends ChangeNotifier {
 
   /// 账号变化后清空与云端标识绑定的同步状态，避免复用上一账号的映射。
   Future<void> _resetAccountSyncState() async {
+    _pendingReviews = {};
+    _pendingNoteDeletes = {};
+    _reconnectTimer?.cancel();
+    _offline = false;
     _finishedMirror = {};
     await _store.saveFinishedMirror(_finishedMirror);
     _cloudStats = null;
@@ -1071,6 +1146,11 @@ class ReaMicroController extends ChangeNotifier {
     _autoSyncTimer?.cancel();
     _autoSyncTimer = Timer(delay, () async {
       if (_disposed) return;
+      if (_offline) {
+        await refresh(silent: true);
+        if (!_disposed && _offline) _pagesChanged();
+        return;
+      }
       if (_syncing || _syncingProgress || _syncingMarks) {
         scheduleReadingSync(delay: delay);
         return;
@@ -1115,8 +1195,28 @@ class ReaMicroController extends ChangeNotifier {
     if (!silent) _error = null;
     _notify();
     try {
-      final userFuture = _api.fetchUser(token);
-      final chartFuture = _api.fetchReadTimeChart(token, limit: 366);
+      final userFuture = _page(
+        token,
+        ['user'],
+        (api, _) => api.fetchUser(token),
+        merge: (user, baseline, _) async {
+          final delta = (await _localReading(baseline)).days.values
+              .fold(0, (a, b) => a + b);
+          return delta == 0
+              ? user
+              : ReaMicroUser.fromJson({
+                  ...user.toJson(),
+                  'totalReadTime': user.totalReadTimeSeconds + delta,
+                });
+        },
+      );
+      final chartFuture = _page(
+        token,
+        ['chart'],
+        (api, _) => api.fetchReadTimeChart(token, limit: 366),
+        merge: (points, baseline, _) async =>
+            (await _localReading(baseline)).chart(points),
+      );
       final results = await Future.wait<Object?>(<Future<Object?>>[
         userFuture,
         chartFuture,
@@ -1253,9 +1353,19 @@ class ReaMicroController extends ChangeNotifier {
     bool silent = false,
   }) async {
     final token = _token;
-    if (token == null || _loadingCloudStats || !hasQingShi) return;
+    if (token == null || _loadingCloudStats) return;
+    if (!hasQingShi) {
+      if (_cloudStats != null) {
+        _cloudStats = null;
+        _cloudStatsAt = null;
+        _cloudStatsError = '阅读统计需要阅微青士权限';
+        _notify();
+      }
+      return;
+    }
     final last = _cloudStatsAt;
     if (!force &&
+        !_offline &&
         _cloudStats != null &&
         last != null &&
         DateTime.now().difference(last) < const Duration(minutes: 2)) {
@@ -1265,39 +1375,47 @@ class ReaMicroController extends ChangeNotifier {
     if (!silent) _cloudStatsError = null;
     _notify();
     try {
-      final now = DateTime.now();
-      final results = await Future.wait<Object?>(<Future<Object?>>[
-        _api.fetchOverview(token),
-        _api.fetchWeekStats(token, date: now),
-        _api.fetchMonthStats(token, year: now.year, month: now.month),
-        _api.fetchYearStats(token, year: now.year),
-        _api.fetchReadTimeChart(token, limit: 366),
-        _api.fetchBookRecords(token),
-      ]);
-      if (_token != token) return;
-      final books =
-          List<ReaMicroBookRecord>.of(results[5]! as List<ReaMicroBookRecord>)
-            ..sort((left, right) {
-              final compared = right.totalReadTimeSeconds.compareTo(
-                left.totalReadTimeSeconds,
-              );
-              return compared != 0 ? compared : left.name.compareTo(right.name);
-            });
-      _chart = List<ReaMicroChartPoint>.unmodifiable(
-        results[4]! as List<ReaMicroChartPoint>,
+      final stats = await _page(
+        token,
+        ['statistics'],
+        (api, now) async {
+          final results = await Future.wait<Object?>(<Future<Object?>>[
+            api.fetchOverview(token),
+            api.fetchWeekStats(token, date: now),
+            api.fetchMonthStats(token, year: now.year, month: now.month),
+            api.fetchYearStats(token, year: now.year),
+            api.fetchReadTimeChart(token, limit: 366),
+            api.fetchBookRecords(token),
+          ]);
+          final books =
+              List<ReaMicroBookRecord>.of(
+                results[5]! as List<ReaMicroBookRecord>,
+              )..sort((left, right) {
+                final compared = right.totalReadTimeSeconds.compareTo(
+                  left.totalReadTimeSeconds,
+                );
+                return compared != 0
+                    ? compared
+                    : left.name.compareTo(right.name);
+              });
+          return ReaMicroCloudStats(
+            overview: results[0]! as ReaMicroOverview,
+            week: results[1]! as ReaMicroPeriodStats,
+            month: results[2]! as ReaMicroPeriodStats,
+            year: results[3]! as ReaMicroPeriodStats,
+            chart: List<ReaMicroChartPoint>.unmodifiable(
+              results[4]! as List<ReaMicroChartPoint>,
+            ),
+            books: List<ReaMicroBookRecord>.unmodifiable(books),
+            fetchedAt: now,
+            monthDate: DateTime(now.year, now.month),
+          );
+        },
+        merge: (stats, baseline, _) async =>
+            (await _localReading(baseline)).stats(stats, _now()),
       );
-      _cloudStats = ReaMicroCloudStats(
-        overview: results[0]! as ReaMicroOverview,
-        week: results[1]! as ReaMicroPeriodStats,
-        month: results[2]! as ReaMicroPeriodStats,
-        year: results[3]! as ReaMicroPeriodStats,
-        chart: List<ReaMicroChartPoint>.unmodifiable(
-          results[4]! as List<ReaMicroChartPoint>,
-        ),
-        books: List<ReaMicroBookRecord>.unmodifiable(books),
-        fetchedAt: DateTime.now(),
-        monthDate: DateTime(now.year, now.month),
-      );
+      _chart = stats.chart;
+      _cloudStats = stats;
       _cloudStatsAt = _cloudStats!.fetchedAt;
       _cloudStatsError = null;
     } catch (error) {
@@ -1322,18 +1440,28 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     if (!hasQingShi) throw const ReaMicroException('阅读统计需要阅微青士权限');
-    final result = await switch (period) {
-      ReaMicroRecordPeriod.week => _api.fetchWeekStats(token, date: anchor),
-      ReaMicroRecordPeriod.month => _api.fetchMonthStats(
-        token,
-        year: anchor.year,
-        month: anchor.month,
-      ),
-      ReaMicroRecordPeriod.year => _api.fetchYearStats(
-        token,
-        year: anchor.year,
-      ),
-    };
+    final periodKey = _periodKey(period, anchor);
+    final result = await _page(
+      token,
+      ['period', period.name, periodKey],
+      (api, _) => switch (period) {
+        ReaMicroRecordPeriod.week => api.fetchWeekStats(
+          token,
+          date: DateTime.parse(periodKey),
+        ),
+        ReaMicroRecordPeriod.month => api.fetchMonthStats(
+          token,
+          year: anchor.year,
+          month: anchor.month,
+        ),
+        ReaMicroRecordPeriod.year => api.fetchYearStats(
+          token,
+          year: anchor.year,
+        ),
+      },
+      merge: (stats, baseline, _) async =>
+          (await _localReading(baseline)).period(stats, period, anchor),
+    );
     if (_token != token) throw const ReaMicroException('账号已变更，请重新加载统计');
     return result;
   }
@@ -1346,7 +1474,7 @@ class ReaMicroController extends ChangeNotifier {
     if (!silent) _milestonesError = null;
     _notify();
     try {
-      final items = await _api.fetchMilestones(token);
+      final items = await loadMilestones();
       if (_token != token) return;
       _milestones = List<ReaMicroMilestone>.unmodifiable(items);
       _milestonesError = null;
@@ -1364,7 +1492,17 @@ class ReaMicroController extends ChangeNotifier {
     final token = _token;
     if (token == null) throw const ReaMicroException('请先登录阅微账号');
     try {
-      return await _api.fetchMilestones(token);
+      final milestones = await _page(token, [
+        'milestones',
+      ], (api, _) => api.fetchMilestones(token));
+      return [
+        for (final item in milestones)
+          if (_pendingReviews['${item.cloudBookId}']
+              case final Map<String, dynamic> draft)
+            item.withDraft(draft)
+          else
+            item,
+      ];
     } on ReaMicroException catch (error) {
       await _handleError(error);
       rethrow;
@@ -1378,11 +1516,17 @@ class ReaMicroController extends ChangeNotifier {
   }) async {
     final token = _token;
     if (token == null || cloudBookId <= 0) return null;
+    final draft = _pendingReviews['$cloudBookId'];
+    if (draft is Map<String, dynamic>) return _draftReview(cloudBookId, draft);
     try {
-      return await _api.fetchBookReview(
+      return await _page(
         token,
-        cloudBookId: cloudBookId,
-        bookId: bookId,
+        ['review', cloudBookId, bookId ?? 0],
+        (api, _) => api.fetchBookReview(
+          token,
+          cloudBookId: cloudBookId,
+          bookId: bookId,
+        ),
       );
     } catch (error) {
       await _handleError(error);
@@ -1417,17 +1561,28 @@ class ReaMicroController extends ChangeNotifier {
   ) async {
     final link = _links[bookId];
     if (link == null || !signedIn) return;
-    final existing = await _api.fetchBookReview(
-      _token!,
-      cloudBookId: link.cloudBookId,
-      bookId: link.userBookId,
-    );
+    ReaMicroBookReview? existing;
+    try {
+      final token = _token!;
+      existing = await _page(
+        token,
+        ['review', link.cloudBookId, link.userBookId],
+        (api, _) => api.fetchBookReview(
+          token,
+          cloudBookId: link.cloudBookId,
+          bookId: link.userBookId,
+        ),
+      );
+    } on ReaMicroException catch (error) {
+      if (!error.unavailable) rethrow;
+    }
     final result = await saveReview(
       cloudBookId: link.cloudBookId,
       bookId: link.userBookId,
       rating: ((rating ?? 0) * 2).round(),
       comment: content,
       publish: existing?.published ?? false,
+      preservePublish: existing == null,
     );
     if (!result.success) throw FormatException(result.message);
   }
@@ -1439,6 +1594,7 @@ class ReaMicroController extends ChangeNotifier {
     required int rating,
     required String comment,
     required bool publish,
+    bool preservePublish = false,
   }) async {
     final token = _token;
     if (token == null) {
@@ -1462,6 +1618,9 @@ class ReaMicroController extends ChangeNotifier {
     }
     try {
       final pendingBefore = Map<String, int>.of(_pendingFinished);
+      if (_offline) {
+        throw const ReaMicroException('离线中', transportFailure: true);
+      }
       await _api.rateReview(
         token,
         cloudBookId: cloudBookId,
@@ -1471,6 +1630,9 @@ class ReaMicroController extends ChangeNotifier {
         publish: publish,
       );
       if (_token != token) throw const ReaMicroException('账号已变更，请重新加载书评');
+      if (_pendingReviews.remove('$cloudBookId') != null) {
+        await _saveReviewQueue(token);
+      }
       for (final entry in _links.entries) {
         if (entry.value.cloudBookId != cloudBookId) continue;
         if (_pendingFinished[entry.key] == pendingBefore[entry.key]) {
@@ -1486,6 +1648,24 @@ class ReaMicroController extends ChangeNotifier {
         message: publish ? '书评已发布到阅微' : '书评已保存到阅微',
       );
     } catch (error) {
+      if (error is ReaMicroException && error.unavailable && _token == token) {
+        _disconnected(token);
+        _pendingReviews['$cloudBookId'] = {
+          'cloudBookId': cloudBookId,
+          'bookId': bookId,
+          'rating': rating,
+          'comment': comment,
+          'status': publish ? 2 : 1,
+          'preservePublish': preservePublish,
+          'commentUpdateTime': _now().millisecondsSinceEpoch,
+        };
+        await _saveReviewQueue(token);
+        _notify();
+        return const ReaMicroActionResult(
+          success: true,
+          message: '书评已保存在本机，联网后自动上传',
+        );
+      }
       await _handleError(error);
       return ReaMicroActionResult(
         success: false,
@@ -1525,6 +1705,10 @@ class ReaMicroController extends ChangeNotifier {
   /// 应用回到前台时按当前数据源模式执行同步。
   void handleAppResumed() {
     if (_disposed || !signedIn) return;
+    if (_offline) {
+      unawaited(_checkConnection());
+      return;
+    }
     if (_cloudAsPrimary) {
       unawaited(_syncCloudNow());
     } else {
@@ -1534,6 +1718,7 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   Future<void> _syncCloudNow() async {
+    if (_offline) return;
     if (!_disposed && s3Configured) {
       await syncS3(silent: true, scheduleFollowUp: false);
     }
@@ -1607,12 +1792,16 @@ class ReaMicroController extends ChangeNotifier {
         email: normalizedEmail,
         code: normalizedCode,
       );
+      await _store.clearAuth();
+      _user = null;
       _token = token;
       await _store.saveToken(token);
       await _resetAccountSyncState();
       _links = await _store.loadLinks();
       _notice = '登录成功';
       await _refreshInternal(token, silent: true);
+      if (_token != token) return false;
+      await _restoreOutbox(token);
       await _seedProgressStatesFromLocal(markDirty: false);
       await _restoreCloudS3Config(silent: true);
       await _startLanAuthorization();
@@ -1673,10 +1862,11 @@ class ReaMicroController extends ChangeNotifier {
       throw const ReaMicroException('请填写书名');
     }
     try {
-      return await _api.searchCloudBooks(
+      return await _page(
         token,
-        name: query,
-        author: author.trim(),
+        ['search', query, author.trim()],
+        (api, _) =>
+            api.searchCloudBooks(token, name: query, author: author.trim()),
       );
     } catch (error) {
       await _handleError(error);
@@ -1736,9 +1926,10 @@ class ReaMicroController extends ChangeNotifier {
     await Future.wait([
       (() async {
         try {
-          final books = await _api
-              .searchCloudBooks(token, name: name.trim(), author: author.trim())
-              .timeout(const Duration(seconds: 20));
+          final books = await searchCloudBooks(
+            name: name,
+            author: author,
+          ).timeout(const Duration(seconds: 20));
           if (cancelled()) return;
           succeeded++;
           for (final group in groupPublicReadingCandidates(
@@ -2245,8 +2436,10 @@ class ReaMicroController extends ChangeNotifier {
   ///
   /// 未公开关联的书籍先登记内部用户书，再用稳定会话标识上传。
   /// 登记失败保留记录等待重试，不退回缺少幂等标识的累计接口。
-  Future<ReaMicroSyncResult> syncReadingSessions() =>
-      _limitUploadRetries('sessions', _syncReadingSessions);
+  Future<ReaMicroSyncResult> syncReadingSessions() => _limitUploadRetries(
+    'sessions',
+    () => _withSessionSnapshot(_syncReadingSessions, write: true),
+  );
 
   /// 四类阅读数据共用每天十次失败重试额度；首次尝试不计入重试。
   Future<ReaMicroSyncResult> _limitUploadRetries(
@@ -2256,6 +2449,12 @@ class ReaMicroController extends ChangeNotifier {
     final result = _uploadRetryWork.then((_) async {
       if (_disposed || !signedIn) {
         return const ReaMicroSyncResult(success: false, message: '请先登录阅微账号');
+      }
+      if (_offline) {
+        return const ReaMicroSyncResult(
+          success: false,
+          message: '离线中，阅读数据已保留在本机',
+        );
       }
       final token = _token;
       final budget = await _store.loadUploadRetryBudget();
@@ -2290,6 +2489,10 @@ class ReaMicroController extends ChangeNotifier {
       await _store.saveUploadRetryBudget(state());
       final outcome = await operation();
       if (_token == token) {
+        if (_offline) {
+          await _store.saveUploadRetryBudget(budget);
+          return outcome;
+        }
         if (outcome.success && !outcome.hasFailures) {
           failed.remove(kind);
         } else {
@@ -2393,17 +2596,7 @@ class ReaMicroController extends ChangeNotifier {
       final bookEnds = <String, int>{};
       final pendingGroupCount = <String, int>{};
       // 兼容旧台账中的累计快照，也处理跨日批次只成功了一部分的情况。
-      final uploadedEnds = <String, int>{};
-      for (final key in uploaded) {
-        final fields = key.split('|');
-        if (fields.length != 4) continue;
-        final end = int.tryParse(fields[2]);
-        if (end == null) continue;
-        final identity = '${fields[0]}|${fields[1]}|${fields[3]}';
-        if (end > (uploadedEnds[identity] ?? 0)) {
-          uploadedEnds[identity] = end;
-        }
-      }
+      final uploadedEnds = _uploadedEnds(uploaded);
       for (final session in sessions) {
         if (unresolvedBooks.contains(session.bookId)) continue;
         final endedAt = session.endedAt.millisecondsSinceEpoch;
@@ -2590,6 +2783,10 @@ class ReaMicroController extends ChangeNotifier {
           );
         } catch (error) {
           failure = _messageOf(error);
+          if (error is ReaMicroException && error.unavailable) {
+            _disconnected(token);
+            break;
+          }
           recordAppEvent(
             'reamicro_read_time_failed',
             fields: {
@@ -2693,13 +2890,31 @@ class ReaMicroController extends ChangeNotifier {
     String? failure;
     try {
       final remoteMarks = await _api.fetchMarks(token);
+      if (_token != token) {
+        return const ReaMicroSyncResult(success: false, message: '账号已变更');
+      }
+      final pendingDeletes = Set.of(_pendingNoteDeletes);
+      for (final id in pendingDeletes) {
+        if (_token != token) {
+          return const ReaMicroSyncResult(success: false, message: '账号已变更');
+        }
+        if (remoteMarks.any((mark) => mark.id == id)) {
+          await _api.deleteMark(token, id: id);
+          deleted++;
+        }
+        if (_token != token) {
+          return const ReaMicroSyncResult(success: false, message: '账号已变更');
+        }
+        _pendingNoteDeletes.remove(id);
+        await _saveNoteDeletes(token);
+      }
       final readingBooks = await _api.fetchBookRecords(token);
       if (_token != token) {
         return const ReaMicroSyncResult(success: false, message: '账号已变更，同步已停止');
       }
       final remoteById = <int, ReaMicroMark>{
         for (final mark in remoteMarks)
-          if (mark.id > 0) mark.id: mark,
+          if (mark.id > 0 && !pendingDeletes.contains(mark.id)) mark.id: mark,
       };
       final candidateBookIds = <String>{..._links.keys, ..._syncBooks.keys};
       for (final book in await _library.list()) {
@@ -2751,7 +2966,7 @@ class ReaMicroController extends ChangeNotifier {
         }
         final prefix = '$localBookId|';
         final remoteForBook = <ReaMicroMark>[
-          for (final mark in remoteMarks)
+          for (final mark in remoteById.values)
             if (_remoteMarkBelongsTo(
                   mark,
                   localBook,
@@ -3263,22 +3478,39 @@ class ReaMicroController extends ChangeNotifier {
   /// 先同步位置以建立书籍身份，让尚未公开关联的书籍也能把阅读时长
   /// 归到正确的阅微书籍记录。
   Future<ReaMicroSyncResult> syncAll() async {
+    final token = _token;
+    final reviewFailure = token != null && !_offline
+        ? await _flushReviews(token)
+        : null;
     final progress = await syncProgress();
     final durations = await syncReadingSessions();
     final marks = await syncMarks();
     final finished = await syncFinishedBooks();
+    if (!_disposed &&
+        _token == token &&
+        cloudAsPrimary &&
+        !_recovering &&
+        (durations.requests > 0 ||
+            progress.requests > 0 ||
+            marks.requests > 0 ||
+            finished.requests > 0)) {
+      await refresh(silent: true);
+      if (!_disposed && _token == token) _pagesChanged();
+    }
     final messages = <String>{
       durations.message,
       progress.message,
       marks.message,
       finished.message,
+      ?reviewFailure,
     }.where((message) => message.trim().isNotEmpty).toList(growable: false);
     return ReaMicroSyncResult(
       success:
           durations.success &&
           progress.success &&
           marks.success &&
-          finished.success,
+          finished.success &&
+          reviewFailure == null,
       message: messages.join('；'),
       requests:
           durations.requests +
@@ -3312,6 +3544,7 @@ class ReaMicroController extends ChangeNotifier {
       final reviews = await _library.reviewStore()?.snapshot() ?? {};
       for (final entry in _links.entries.toList()) {
         if (_token != token) break;
+        if (_pendingReviews.containsKey('${entry.value.cloudBookId}')) continue;
         final local = await progressStore.load(entry.key);
         if (!_pendingFinished.containsKey(entry.key) &&
             !_finishedMirror.containsKey(entry.key) &&
@@ -4275,6 +4508,7 @@ class ReaMicroController extends ChangeNotifier {
       await _resetAccountSyncState();
       _user = user;
       await _store.saveCachedUser(user);
+      await _restoreOutbox(token);
       _links = await _store.loadLinks();
       _lastRefreshAt = DateTime.now();
       await _seedProgressStatesFromLocal(markDirty: false);
@@ -4708,6 +4942,9 @@ class ReaMicroController extends ChangeNotifier {
   }
 
   Future<void> _handleError(Object error) async {
+    if (error is ReaMicroException && error.unavailable && _token != null) {
+      _disconnected(_token!);
+    }
     if (error is ReaMicroException && error.unauthorized) {
       await _clearExpiredAuth();
       _error = '阅微登录已失效，请重新登录';
@@ -4744,6 +4981,8 @@ class ReaMicroController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _reconnectTimer?.cancel();
+    _pageRevision.dispose();
     _autoSyncTimer?.cancel();
     _progressSyncTimer?.cancel();
     _cloudSyncTimer?.cancel();

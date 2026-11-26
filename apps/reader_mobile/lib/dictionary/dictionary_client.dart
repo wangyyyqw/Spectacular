@@ -8,8 +8,9 @@ import 'package:http/io_client.dart';
 import 'dictionary_store.dart';
 
 class DictionaryException implements Exception {
-  const DictionaryException(this.message);
+  const DictionaryException(this.message, {this.unavailable = false});
   final String message;
+  final bool unavailable;
   @override
   String toString() => message;
 }
@@ -159,17 +160,20 @@ class DictionaryClient {
               : _http.post(url, headers: headers, body: jsonEncode(body)))
           .timeout(const Duration(seconds: 25));
     } on TimeoutException {
-      throw const DictionaryException('查询超时，请重试');
+      throw const DictionaryException('查询超时，请重试', unavailable: true);
     } on DictionaryException {
       rethrow;
     } catch (_) {
-      throw const DictionaryException('连接失败，请检查服务地址与网络');
+      throw const DictionaryException('连接失败，请检查服务地址与网络', unavailable: true);
     }
   }
 
   Object? _decodeSuccess(http.Response response, DictionaryApi api) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw DictionaryException(_error(response, api));
+      throw DictionaryException(
+        _error(response, api),
+        unavailable: response.statusCode == 408 || response.statusCode >= 500,
+      );
     }
     try {
       return jsonDecode(utf8.decode(response.bodyBytes));

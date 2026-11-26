@@ -297,16 +297,31 @@ abstract interface class ReaMicroApi {
 class ReaMicroApiClient
     implements ReaMicroApi, ReaMicroMoteSyncApi, ReaMicroThirdPartyApi {
   /// 创建客户端。
-  ReaMicroApiClient({
+  factory ReaMicroApiClient({
     http.Client? client,
-    this.baseUrl = defaultBaseUrl,
-    this.timeout = const Duration(seconds: 20),
-  }) : _client = client ?? http.Client();
+    String baseUrl = defaultBaseUrl,
+    Duration timeout = const Duration(seconds: 20),
+  }) => _HttpReaMicroApi(client ?? http.Client(), baseUrl, timeout);
+
+  ReaMicroApiClient._(this._client, this.baseUrl, this.timeout);
+
+  static ReaMicroApiClient? transportOf(ReaMicroApi api) =>
+      api is _HttpReaMicroApi ? api : null;
 
   /// 阅微开放接口根地址。
   static const String defaultBaseUrl = 'https://api.reamicro.zhendong.ltd/';
 
   final http.Client _client;
+
+  Future<Object?> Function(String, Future<Object?> Function())? _pageRead;
+
+  Future<T> readPage<T>(
+    Future<T> Function(ReaMicroApi) load,
+    Future<Object?> Function(String, Future<Object?> Function()) exchange,
+  ) => load(
+    ReaMicroApiClient(client: _client, baseUrl: baseUrl, timeout: timeout)
+      .._pageRead = exchange,
+  );
 
   /// 接口根地址。
   final String baseUrl;
@@ -1235,7 +1250,16 @@ class ReaMicroApiClient
     String endpoint,
     Map<String, Object?> body, {
     String? token,
-  }) async {
+  }) {
+    Future<Object?> request() => _sendPost(endpoint, body, token);
+    return _pageRead?.call(jsonEncode([endpoint, body]), request) ?? request();
+  }
+
+  Future<Object?> _sendPost(
+    String endpoint,
+    Map<String, Object?> body,
+    String? token,
+  ) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     final headers = _headers(token);
     late final http.Response response;
@@ -1244,16 +1268,24 @@ class ReaMicroApiClient
           .post(uri, headers: headers, body: jsonEncode(body))
           .timeout(timeout);
     } on TimeoutException {
-      throw const ReaMicroException('阅微接口请求超时，请稍后重试');
+      throw const ReaMicroException('阅微接口请求超时，请稍后重试', transportFailure: true);
     } on SocketException {
-      throw const ReaMicroException('无法连接阅微服务器，请检查网络');
+      throw const ReaMicroException('无法连接阅微服务器，请检查网络', transportFailure: true);
     } on http.ClientException catch (error) {
-      throw ReaMicroException('阅微接口请求失败：${error.message}');
+      throw ReaMicroException(
+        '阅微接口请求失败：${error.message}',
+        transportFailure: true,
+      );
     }
     return _decodeResponse(response);
   }
 
-  Future<Object?> _get(String endpoint, {String? token}) async {
+  Future<Object?> _get(String endpoint, {String? token}) {
+    Future<Object?> request() => _sendGet(endpoint, token);
+    return _pageRead?.call(endpoint, request) ?? request();
+  }
+
+  Future<Object?> _sendGet(String endpoint, String? token) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     late final http.Response response;
     try {
@@ -1261,11 +1293,14 @@ class ReaMicroApiClient
           .get(uri, headers: _headers(token))
           .timeout(timeout);
     } on TimeoutException {
-      throw const ReaMicroException('阅微接口请求超时，请稍后重试');
+      throw const ReaMicroException('阅微接口请求超时，请稍后重试', transportFailure: true);
     } on SocketException {
-      throw const ReaMicroException('无法连接阅微服务器，请检查网络');
+      throw const ReaMicroException('无法连接阅微服务器，请检查网络', transportFailure: true);
     } on http.ClientException catch (error) {
-      throw ReaMicroException('阅微接口请求失败：${error.message}');
+      throw ReaMicroException(
+        '阅微接口请求失败：${error.message}',
+        transportFailure: true,
+      );
     }
     return _decodeResponse(response);
   }
@@ -1286,6 +1321,7 @@ class ReaMicroApiClient
       throw ReaMicroException(
         '阅微服务器返回了无法解析的数据（HTTP ${response.statusCode}）',
         statusCode: response.statusCode,
+        unauthorized: response.statusCode == 401 || response.statusCode == 403,
       );
     }
     final map = decoded is Map<String, Object?> ? decoded : null;
@@ -1325,6 +1361,10 @@ class ReaMicroApiClient
 
   @override
   void close() => _client.close();
+}
+
+final class _HttpReaMicroApi extends ReaMicroApiClient {
+  _HttpReaMicroApi(super.client, super.baseUrl, super.timeout) : super._();
 }
 
 int _intValue(Object? value) {

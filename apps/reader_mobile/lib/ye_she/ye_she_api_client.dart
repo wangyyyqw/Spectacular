@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../storage/online_page_cache.dart';
+
 /// 野社接口返回的 JSON 对象。
 typedef YeSheJson = Map<String, dynamic>;
 
@@ -16,6 +18,7 @@ class YeSheException implements Exception {
     this.statusCode,
     this.code,
     this.unauthorized = false,
+    this.transportFailure = false,
   });
 
   /// 可展示给用户的错误信息。
@@ -29,6 +32,7 @@ class YeSheException implements Exception {
 
   /// 登录状态是否已经失效。
   final bool unauthorized;
+  final bool transportFailure;
 
   @override
   String toString() => message;
@@ -318,12 +322,16 @@ class YeSheApiClient implements YeSheApi {
     this.baseUrl = defaultBaseUrl,
     this.timeout = const Duration(seconds: 12),
     this.retryDelay = const Duration(milliseconds: 300),
+    this.pageCache,
+    this.onUnavailable,
   }) : _client = client ?? http.Client();
 
   /// 阅微开放接口根地址。
   static const String defaultBaseUrl = 'https://api.reamicro.zhendong.ltd/';
 
   final http.Client _client;
+  final OnlinePageCache? pageCache;
+  final void Function(String token)? onUnavailable;
 
   /// 当前阅微令牌提供者。
   final String? Function() tokenProvider;
@@ -824,7 +832,7 @@ class YeSheApiClient implements YeSheApi {
       'Authorization': 'Bearer $token',
     };
     final mutation = _mutationEndpoints.contains(endpoint);
-    final cacheKey = '$token|$endpoint|${jsonEncode(body)}';
+    final cacheKey = '$baseUrl|$token|$endpoint|${jsonEncode(body)}';
     if (!mutation) {
       final cached = _responseCache.remove(cacheKey);
       if (cached != null) {
@@ -834,78 +842,102 @@ class YeSheApiClient implements YeSheApi {
         }
       }
     }
-    final response = await _sendWithRetry(
-      Uri.parse('$baseUrl$endpoint'),
-      headers,
-      jsonEncode(body),
-      retryable: !mutation,
-    );
+    Future<YeSheJson> fetch() async {
+      final response = await _sendWithRetry(
+        Uri.parse('$baseUrl$endpoint'),
+        headers,
+        jsonEncode(body),
+        retryable: !mutation,
+      );
 
-    final raw = utf8.decode(response.bodyBytes, allowMalformed: true);
-    Object? decoded;
-    try {
-      decoded = raw.isEmpty ? null : jsonDecode(raw);
-    } on FormatException {
-      throw YeSheException(
-        '阅微野社接口返回了无法解析的数据（HTTP ${response.statusCode}）',
-        statusCode: response.statusCode,
-      );
+      final raw = utf8.decode(response.bodyBytes, allowMalformed: true);
+      Object? decoded;
+      try {
+        decoded = raw.isEmpty ? null : jsonDecode(raw);
+      } on FormatException {
+        throw YeSheException(
+          '阅微野社接口返回了无法解析的数据（HTTP ${response.statusCode}）',
+          statusCode: response.statusCode,
+        );
+      }
+      final map = decoded is Map<String, dynamic> ? decoded : null;
+      final code = map == null ? null : _intValue(map['code']);
+      final message = map == null
+          ? null
+          : _stringValue(map['message'] ?? map['msg']);
+      final unauthorized =
+          response.statusCode == 401 ||
+          response.statusCode == 403 ||
+          code == 401 ||
+          code == 403;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw YeSheException(
+          message?.trim().isNotEmpty == true
+              ? message!.trim()
+              : '阅微野社接口请求失败（HTTP ${response.statusCode}）',
+          statusCode: response.statusCode,
+          code: code,
+          unauthorized: unauthorized,
+        );
+      }
+      if (code != null && code != 0 && code != 200) {
+        throw YeSheException(
+          message?.trim().isNotEmpty == true
+              ? message!.trim()
+              : '阅微野社接口返回业务码 $code',
+          statusCode: response.statusCode,
+          code: code,
+          unauthorized: code == 401 || code == 403,
+        );
+      }
+      if (map == null) {
+        throw YeSheException(
+          '阅微野社接口返回的数据格式不正确（HTTP ${response.statusCode}）',
+          statusCode: response.statusCode,
+        );
+      }
+      final data = map['data'];
+      final YeSheJson result;
+      if (data is Map<String, dynamic>) {
+        result = data;
+      } else if (data is Map) {
+        result = _mapValue(data);
+      } else if (data is List) {
+        result = <String, dynamic>{
+          'items': List<Object?>.from(data),
+          'message': message ?? '',
+        };
+      } else {
+        result = <String, dynamic>{'value': ?data, 'message': message ?? ''};
+      }
+      if (tokenProvider()?.trim() != token) throw const YeSheException('账号已变更');
+      if (mutation) {
+        _responseCache.clear();
+      } else {
+        _remember(cacheKey, result);
+      }
+      return result;
     }
-    final map = decoded is Map<String, dynamic> ? decoded : null;
-    final code = map == null ? null : _intValue(map['code']);
-    final message = map == null
-        ? null
-        : _stringValue(map['message'] ?? map['msg']);
-    final unauthorized =
-        response.statusCode == 401 ||
-        response.statusCode == 403 ||
-        code == 401 ||
-        code == 403;
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw YeSheException(
-        message?.trim().isNotEmpty == true
-            ? message!.trim()
-            : '阅微野社接口请求失败（HTTP ${response.statusCode}）',
-        statusCode: response.statusCode,
-        code: code,
-        unauthorized: unauthorized,
-      );
-    }
-    if (code != null && code != 0 && code != 200) {
-      throw YeSheException(
-        message?.trim().isNotEmpty == true
-            ? message!.trim()
-            : '阅微野社接口返回业务码 $code',
-        statusCode: response.statusCode,
-        code: code,
-        unauthorized: code == 401 || code == 403,
-      );
-    }
-    if (map == null) {
-      throw YeSheException(
-        '阅微野社接口返回的数据格式不正确（HTTP ${response.statusCode}）',
-        statusCode: response.statusCode,
-      );
-    }
-    final data = map['data'];
-    final YeSheJson result;
-    if (data is Map<String, dynamic>) {
-      result = data;
-    } else if (data is Map) {
-      result = _mapValue(data);
-    } else if (data is List) {
-      result = <String, dynamic>{
-        'items': List<Object?>.from(data),
-        'message': message ?? '',
-      };
-    } else {
-      result = <String, dynamic>{'value': ?data, 'message': message ?? ''};
-    }
-    if (mutation) {
-      _responseCache.clear();
-    } else {
-      _remember(cacheKey, result);
-    }
+
+    final cache = pageCache;
+    if (mutation || cache == null) return fetch();
+    final result = await cache.load(
+      identity: ['野社', baseUrl, token, endpoint, body],
+      fetch: fetch,
+      encode: (data) => data,
+      decode: (data) => data as YeSheJson,
+      unavailable: (error) {
+        final unavailable =
+            error is YeSheException &&
+            !error.unauthorized &&
+            (error.transportFailure ||
+                error.statusCode == 408 ||
+                (error.statusCode ?? 0) >= 500);
+        if (unavailable) onUnavailable?.call(token);
+        return unavailable;
+      },
+    );
+    if (tokenProvider()?.trim() != token) throw const YeSheException('账号已变更');
     return result;
   }
 
@@ -933,19 +965,22 @@ class YeSheApiClient implements YeSheApi {
           await Future<void>.delayed(retryDelay);
           continue;
         }
-        throw const YeSheException('阅微野社接口请求超时，请稍后重试');
+        throw const YeSheException('阅微野社接口请求超时，请稍后重试', transportFailure: true);
       } on SocketException {
         if (retryable && attempt + 1 < attempts) {
           await Future<void>.delayed(retryDelay);
           continue;
         }
-        throw const YeSheException('无法连接阅微服务器，请检查网络');
+        throw const YeSheException('无法连接阅微服务器，请检查网络', transportFailure: true);
       } on http.ClientException catch (error) {
         if (retryable && attempt + 1 < attempts) {
           await Future<void>.delayed(retryDelay);
           continue;
         }
-        throw YeSheException('阅微野社接口请求失败：${error.message}');
+        throw YeSheException(
+          '阅微野社接口请求失败：${error.message}',
+          transportFailure: true,
+        );
       }
     }
     throw const YeSheException('阅微野社接口请求失败，请稍后重试');

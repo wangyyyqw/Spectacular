@@ -41,6 +41,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
   @override
   void initState() {
     super.initState();
+    widget.controller.pageRefresh.addListener(_loadCloudOverview);
     final config = widget.controller.s3Config ?? ReaMicroS3Config.empty;
     _provider = config.normalizedProvider;
     if (!const <String>{'MOTE', 'S3', 'WEBDAV', 'GITHUB'}.contains(_provider)) {
@@ -58,6 +59,7 @@ class _ReaMicroS3PageState extends State<ReaMicroS3Page> {
 
   @override
   void dispose() {
+    widget.controller.pageRefresh.removeListener(_loadCloudOverview);
     _endpoint.dispose();
     _bucket.dispose();
     _region.dispose();

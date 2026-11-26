@@ -39,6 +39,7 @@ class _ReaMicroRecordsPageState extends State<ReaMicroRecordsPage>
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
+    widget.controller.pageRefresh.addListener(_refresh);
     unawaited(widget.controller.initialize());
     unawaited(_loadRecords());
     unawaited(_loadMarkBooks());
@@ -46,6 +47,7 @@ class _ReaMicroRecordsPageState extends State<ReaMicroRecordsPage>
 
   @override
   void dispose() {
+    widget.controller.pageRefresh.removeListener(_refresh);
     _tabs.dispose();
     super.dispose();
   }

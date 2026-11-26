@@ -60,7 +60,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
   Future<void> _editApi([DictionaryApi? api]) async {
     final next = await showReaderDrawer<DictionaryApi>(
       context: context,
-      builder: (_) => _ApiForm(api: api),
+      builder: (_) => _ApiForm(api: api, store: widget.store),
     );
     if (next != null && mounted) {
       await _operate(() => widget.store.saveApi(next));
@@ -203,9 +203,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
             Padding(
               padding: const EdgeInsets.all(16),
               child: ReaderDropdownButtonFormField<String>(
-                key: ValueKey(
-                  'dictionary-default-preset-${state.preset.id}',
-                ),
+                key: ValueKey('dictionary-default-preset-${state.preset.id}'),
                 initialValue: state.preset.id,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: '默认预设'),
@@ -304,7 +302,8 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
 }
 
 class _ApiForm extends StatefulWidget {
-  const _ApiForm({this.api});
+  const _ApiForm({this.api, required this.store});
+  final DictionaryStore store;
   final DictionaryApi? api;
   @override
   State<_ApiForm> createState() => _ApiFormState();
@@ -354,7 +353,14 @@ class _ApiFormState extends State<_ApiForm> {
     });
     try {
       if (models) {
-        final fetched = await _client.models(draft);
+        final fetched = await widget.store.library.pageCache.load(
+          identity: ['词典模型', draft.baseUrl, draft.apiKey],
+          fetch: () => _client.models(draft),
+          encode: (models) => models,
+          decode: (raw) => (raw! as List).cast<String>(),
+          unavailable: (error) =>
+              error is DictionaryException && error.unavailable,
+        );
         if (mounted) {
           setState(() {
             _models = fetched;

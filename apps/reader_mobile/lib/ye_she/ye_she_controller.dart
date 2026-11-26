@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'ye_she_api_client.dart';
+import '../storage/online_page_cache.dart';
 import 'ye_she_models.dart';
 
 /// 野社三页的数据加载与交互状态。
@@ -11,9 +12,19 @@ import 'ye_she_models.dart';
 /// 成功读取的数据。
 class YeSheController extends ChangeNotifier {
   /// 创建控制器。
-  YeSheController({required this.tokenProvider, YeSheApi? api})
-    : _api = api ?? YeSheApiClient(tokenProvider: tokenProvider),
-      _ownsApi = api == null;
+  YeSheController({
+    required this.tokenProvider,
+    YeSheApi? api,
+    OnlinePageCache? pageCache,
+    void Function(String)? onUnavailable,
+  }) : _api =
+           api ??
+           YeSheApiClient(
+             tokenProvider: tokenProvider,
+             pageCache: pageCache,
+             onUnavailable: onUnavailable,
+           ),
+       _ownsApi = api == null;
 
   /// 当前阅微令牌。
   final String? Function() tokenProvider;

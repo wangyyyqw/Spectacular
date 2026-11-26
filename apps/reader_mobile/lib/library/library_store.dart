@@ -25,6 +25,7 @@ import 'package:reader_ui/decorations/decoration_image_store.dart';
 
 import '../reader/reader_decoration_image_store.dart';
 import '../storage/book_review_store.dart';
+import '../storage/online_page_cache.dart';
 import 'book_list_store.dart';
 import '../storage/db.dart';
 import '../storage/drift_annotation_store.dart';
@@ -377,6 +378,8 @@ class LibraryStore {
 
   /// 是否连接了可持久化的数据库；临时模式不得执行磁盘清理。
   bool get supportsPersistence => _db != null;
+
+  late final pageCache = OnlinePageCache(_db);
 
   Future<T> _enqueueOperation<T>(Future<T> Function() operation) {
     final db = _db;

@@ -6,6 +6,7 @@ import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'ye_she_controller.dart';
+import '../rea_micro/rea_micro_controller.dart';
 import 'ye_she_models.dart';
 import 'ye_she_visuals.dart';
 
@@ -15,6 +16,7 @@ class CommunityPage extends StatefulWidget {
   const CommunityPage({
     super.key,
     this.controller,
+    this.account,
     this.tokenProvider,
     this.currentUserName = '',
     this.currentUserAvatar = '',
@@ -22,6 +24,7 @@ class CommunityPage extends StatefulWidget {
 
   /// 可注入的控制器，供页面测试使用。
   final YeSheController? controller;
+  final ReaMicroController? account;
 
   /// 当前阅微令牌提供者。
   final String? Function()? tokenProvider;
@@ -46,12 +49,18 @@ class _CommunityPageState extends State<CommunityPage> {
     _ownsController = widget.controller == null;
     _controller =
         widget.controller ??
-        YeSheController(tokenProvider: widget.tokenProvider!);
+        YeSheController(
+          tokenProvider: widget.tokenProvider!,
+          pageCache: widget.account?.pageCache,
+          onUnavailable: widget.account?.reportUnavailable,
+        );
+    widget.account?.pageRefresh.addListener(_controller.refreshCommunity);
     unawaited(_controller.loadCommunity());
   }
 
   @override
   void dispose() {
+    widget.account?.pageRefresh.removeListener(_controller.refreshCommunity);
     if (_ownsController) _controller.dispose();
     super.dispose();
   }

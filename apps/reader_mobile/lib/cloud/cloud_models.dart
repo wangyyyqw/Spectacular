@@ -64,9 +64,14 @@ class CloudDownload {
 }
 
 class CloudException implements Exception {
-  const CloudException(this.message, {this.loginRequired = false});
+  const CloudException(
+    this.message, {
+    this.loginRequired = false,
+    this.unavailable = false,
+  });
   final String message;
   final bool loginRequired;
+  final bool unavailable;
   @override
   String toString() => message;
 }

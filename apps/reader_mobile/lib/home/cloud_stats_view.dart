@@ -20,6 +20,7 @@ class CloudStatsView extends StatefulWidget {
     required this.stats,
     required this.linkedCloudBookIds,
     required this.loading,
+    this.offline = false,
     required this.onRefresh,
     required this.onOpenBook,
     this.linkedUserBookIds = const {},
@@ -39,6 +40,7 @@ class CloudStatsView extends StatefulWidget {
 
   /// 是否正在刷新。
   final bool loading;
+  final bool offline;
 
   /// 下拉刷新。
   final Future<void> Function() onRefresh;
@@ -92,12 +94,13 @@ class _CloudStatsViewState extends State<CloudStatsView> {
   };
 
   bool get _currentPeriod =>
-      _periodStart(_anchor) == _periodStart(widget.stats.fetchedAt);
+      _periodStart(_anchor) ==
+      _periodStart(widget.stats.periodDate ?? widget.stats.fetchedAt);
 
   @override
   void initState() {
     super.initState();
-    _anchor = widget.stats.fetchedAt;
+    _anchor = widget.stats.periodDate ?? widget.stats.fetchedAt;
     unawaited(_loadPeriod());
   }
 
@@ -216,6 +219,7 @@ class _CloudStatsViewState extends State<CloudStatsView> {
   }
 
   bool _linked(ReaMicroBookRecord book) =>
+      book.localBookId != null ||
       widget.linkedUserBookIds.contains(book.bookId) ||
       (book.cloudBookId > 0 &&
           widget.linkedCloudBookIds.contains(book.cloudBookId));
@@ -257,12 +261,12 @@ class _CloudStatsViewState extends State<CloudStatsView> {
             onOpen: _linked(books[index])
                 ? () => widget.onOpenBook(books[index])
                 : null,
-            onHide: widget.onHideBookRecord == null
+            onHide: widget.onHideBookRecord == null || books[index].bookId <= 0
                 ? null
                 : () => _hideRecord(books[index]),
             recentOrder: -index,
             rowKey: ValueKey(
-              '$prefix-${prefix == 'cloud-duration-record' ? books[index].bookId : books[index].cloudBookId}',
+              '$prefix-${books[index].localBookId ?? (prefix == 'cloud-duration-record' ? books[index].bookId : books[index].cloudBookId)}',
             ),
           ),
       ],
@@ -284,7 +288,8 @@ class _CloudStatsViewState extends State<CloudStatsView> {
             children: <Widget>[
               StatsSection(
                 title: '阅读概览',
-                detail: '更新于 ${_formatDateTime(stats.fetchedAt)}',
+                detail:
+                    '${widget.offline ? "离线 · 已合并本地记录 · " : ""}更新于 ${_formatDateTime(stats.fetchedAt)}',
                 showDivider: false,
                 child: _SummaryGrid(overview: stats.overview),
               ),

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reader_mobile/storage/online_page_cache.dart';
 import 'package:reader_mobile/ye_she/ye_she_api_client.dart';
 
 http.Response _json(Object? body, {int status = 200}) => http.Response(
@@ -13,6 +14,49 @@ http.Response _json(Object? body, {int status = 200}) => http.Response(
 
 void main() {
   setUp(YeSheApiClient.clearCache);
+
+  test('服务中断时只回退同账号的读请求，登录失效或竞价不回放', () async {
+    var token = '甲';
+    var status = 200;
+    final api = YeSheApiClient(
+      tokenProvider: () => token,
+      pageCache: OnlinePageCache(null),
+      retryDelay: Duration.zero,
+      client: MockClient(
+        (_) async => _json({
+          'code': 0,
+          'data': {'coin': 8},
+        }, status: status),
+      ),
+    );
+    addTearDown(api.close);
+    expect((await api.fetchCommunityStatus())['coin'], 8);
+    await api.bidAuction(id: 1, amount: 2);
+    YeSheApiClient.clearCache();
+    status = 503;
+    expect((await api.fetchCommunityStatus())['coin'], 8);
+    await expectLater(
+      api.bidAuction(id: 1, amount: 2),
+      throwsA(isA<YeSheException>()),
+    );
+    token = '乙';
+    await expectLater(
+      api.fetchCommunityStatus(),
+      throwsA(isA<YeSheException>()),
+    );
+    token = '甲';
+    status = 401;
+    await expectLater(
+      api.fetchCommunityStatus(),
+      throwsA(
+        isA<YeSheException>().having(
+          (error) => error.unauthorized,
+          '登录失效',
+          true,
+        ),
+      ),
+    );
+  });
 
   test('野社请求使用 Bearer 令牌、平台头和 JSON 请求体', () async {
     late http.Request request;

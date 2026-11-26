@@ -107,6 +107,7 @@ class _ReviewsPageState extends State<ReviewsPage>
     _tabs = TabController(length: 3, vsync: this)..addListener(_changeSection);
     widget.library.addListener(_onLibraryChanged);
     widget.reaMicro?.addListener(_onReaMicroChanged);
+    widget.reaMicro?.pageRefresh.addListener(_onLibraryChanged);
     _signedIn = widget.reaMicro?.signedIn ?? false;
     if (widget.active && !_bookListsTab) _reload();
   }
@@ -115,6 +116,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   void dispose() {
     widget.library.removeListener(_onLibraryChanged);
     widget.reaMicro?.removeListener(_onReaMicroChanged);
+    widget.reaMicro?.pageRefresh.removeListener(_onLibraryChanged);
     _tabs.dispose();
     _searchController.dispose();
     _searchFocus.dispose();
@@ -136,6 +138,8 @@ class _ReviewsPageState extends State<ReviewsPage>
     if (controllerChanged) {
       oldWidget.reaMicro?.removeListener(_onReaMicroChanged);
       widget.reaMicro?.addListener(_onReaMicroChanged);
+      oldWidget.reaMicro?.pageRefresh.removeListener(_onLibraryChanged);
+      widget.reaMicro?.pageRefresh.addListener(_onLibraryChanged);
       _signedIn = widget.reaMicro?.signedIn ?? false;
       _cloudMarkBooks = const {};
     }
@@ -357,6 +361,7 @@ class _ReviewsPageState extends State<ReviewsPage>
             ];
             visibleCounts = merge.counts;
             markBooks = merge.markBooks;
+            if (controller.offline) cloudError = '当前离线，显示上次同步的笔记和本地修改';
           } else {
             final milestones = await controller.loadMilestones();
             final records = <CloudReviewRecord>[
@@ -409,6 +414,7 @@ class _ReviewsPageState extends State<ReviewsPage>
             targets = merge.targets;
             cloudFinished = merge.finishedBooks;
             cloudRatings = merge.ratings;
+            if (controller.offline) cloudError = '当前离线，显示上次同步的书评和本地修改';
             for (final book in books) {
               final link = controller.links[book.id];
               if (link != null) {

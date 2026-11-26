@@ -178,6 +178,7 @@ void main() {
     final controller = ReaMicroController(
       library: library,
       api: api,
+      appVersion: () async => '测试版本',
       enableLanLoginServer: false,
     );
     await controller.initialize();
@@ -311,6 +312,7 @@ void main() {
       final controller = ReaMicroController(
         library: library,
         api: api,
+        appVersion: () async => '测试版本',
         enableLanLoginServer: false,
       );
       var disposed = false;

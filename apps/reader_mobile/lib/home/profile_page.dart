@@ -113,8 +113,7 @@ class ProfilePage extends StatelessWidget {
                     trailing: const AppIcon(AppGlyph.chevronRight),
                     onTap: () => Navigator.of(context).push<void>(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            ReaMicroLanPage(controller: reaMicro!),
+                        builder: (_) => ReaMicroLanPage(controller: reaMicro!),
                       ),
                     ),
                   ),
@@ -125,8 +124,7 @@ class ProfilePage extends StatelessWidget {
                     trailing: const AppIcon(AppGlyph.chevronRight),
                     onTap: () => Navigator.of(context).push<void>(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            ReaMicroS3Page(controller: reaMicro!),
+                        builder: (_) => ReaMicroS3Page(controller: reaMicro!),
                       ),
                     ),
                   ),
@@ -248,6 +246,7 @@ class _YeSheEntry extends StatelessWidget {
         onTap: () => Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
             builder: (context) => YeShePage(
+              account: controller,
               tokenProvider: () => controller.token,
               currentUserName: controller.user?.nickName ?? '',
               currentUserId: controller.user?.id ?? 0,
@@ -278,6 +277,7 @@ class _CommunityEntry extends StatelessWidget {
         onTap: () => Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
             builder: (context) => CommunityPage(
+              account: controller,
               tokenProvider: () => controller.token,
               currentUserName: controller.user?.nickName ?? '',
               currentUserAvatar: controller.user?.avatar ?? '',

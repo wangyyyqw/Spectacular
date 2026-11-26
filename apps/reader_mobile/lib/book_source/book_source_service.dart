@@ -20,6 +20,8 @@ import 'online_epub_builder.dart';
 import 'online_chapter_content_store.dart';
 import 'online_chapter_request.dart';
 import 'online_review.dart';
+import 'online_reading_catalog_store.dart';
+import '../storage/online_page_cache.dart';
 
 const List<String> _onlineWordCountFields = <String>[
   'wordCount',
@@ -291,11 +293,13 @@ class BookSourceService {
     BookSourceScriptFactory? scriptFactory,
     BookSourceCookieStore? cookieStore,
     OnlineChapterContentStore? chapterContentStore,
+    OnlinePageCache? pageCache,
     bool? backgroundOperations,
   }) {
     final store = cookieStore ?? BookSourceCookieStore();
     return BookSourceService._(
       cookieStore: store,
+      pageCache: pageCache,
       http: httpClient ?? BookSourceHttpClient(cookieStore: store),
       rules: ruleEngine,
       epubBuilder: epubBuilder,
@@ -325,6 +329,7 @@ class BookSourceService {
     required this.chapterContentStore,
     required this.scriptFactory,
     required this.backgroundToc,
+    required this.pageCache,
   });
 
   final BookSourceCookieStore cookieStore;
@@ -333,6 +338,36 @@ class BookSourceService {
   final OnlineEpubBuilder epubBuilder;
   final BookSourceScriptFactory scriptFactory;
   final bool backgroundToc;
+  final OnlinePageCache? pageCache;
+  final _listRuleDigests = Expando<String>();
+
+  Future<T> _cachedList<T>(
+    BookSource source,
+    List<Object?> request,
+    Future<T> Function() fetch,
+    Object? Function(T) encode,
+    T Function(Object?) decode,
+  ) async {
+    final cache = pageCache;
+    if (cache == null) return fetch();
+    await cookieStore.load();
+    return cache.load(
+      identity: [
+        '书源',
+        _listRuleDigests[source] ??= cache.key([source.toJson()]),
+        cookieStore.loginInfo(source),
+        cookieStore.loginHeader(source),
+        cookieStore.cookieHeader(source.baseUrl),
+        cookieStore.sourceVariable(source),
+        ...request,
+      ],
+      fetch: fetch,
+      encode: encode,
+      decode: decode,
+      unavailable: (error) => error is BookSourceException && error.isTransient,
+    );
+  }
+
   final Map<String, Map<String, Object?>> _scriptMemory = {};
   final Set<String> _memoryChapters = {};
 
@@ -537,11 +572,36 @@ class BookSourceService {
 
   /// 发现分类脚本中的联网请求异步重放，避免同步求值只生成降级榜单。
   Future<List<BookDiscoverCategory>> loadDiscoverCategories(BookSource source) {
-    final key = '${source.id}|${source.exploreUrl}|${source.jsLib}';
+    final key = jsonEncode([
+      source.id,
+      source.exploreUrl,
+      source.jsLib,
+      cookieStore.settingsRevision(source),
+      cookieStore.loginInfo(source),
+      cookieStore.loginHeader(source),
+      cookieStore.cookieHeader(source.baseUrl),
+    ]);
     final cached = _discoverCategoryTasks[key];
     if (cached != null) return cached;
     // 延后到事件队列，弹窗和切源状态可以先完成一帧绘制。
-    final task = Future(() => _readDiscoverCategories(source));
+    final task = Future(
+      () => _cachedList(
+        source,
+        ['分类'],
+        () => _readDiscoverCategories(source),
+        (items) => [
+          for (final item in items) [item.title, item.url, item.options],
+        ],
+        (raw) => [
+          for (final item in (raw as List).cast<List<Object?>>())
+            BookDiscoverCategory(
+              item[0]! as String,
+              item[1]! as String,
+              options: Map<String, Object?>.from(item[2]! as Map),
+            ),
+        ],
+      ),
+    );
     _discoverCategoryTasks[key] = task;
     while (_discoverCategoryTasks.length > 64) {
       _discoverCategoryTasks.remove(_discoverCategoryTasks.keys.first);
@@ -608,13 +668,19 @@ class BookSourceService {
     final rule = rawRule is Map
         ? BookListRule.fromJson(Map<String, Object?>.from(rawRule))
         : source.search;
-    return _loadBookList(
+    return _cachedList(
       source,
-      '',
-      page: page,
-      listRule: rule,
-      requestUrl: category.url,
-      requestOptions: category.options,
+      ['发现', category.key, page],
+      () => _loadBookList(
+        source,
+        '',
+        page: page,
+        listRule: rule,
+        requestUrl: category.url,
+        requestOptions: category.options,
+      ),
+      _encodeBookList,
+      _decodeBookList,
     );
   }
 
@@ -623,7 +689,20 @@ class BookSourceService {
     BookSource source,
     String rawQuery, {
     int page = 1,
-  }) => _loadBookList(source, rawQuery, page: page);
+  }) => _cachedList(
+    source,
+    ['搜索', rawQuery.trim(), page],
+    () => _loadBookList(source, rawQuery, page: page),
+    _encodeBookList,
+    _decodeBookList,
+  );
+
+  List<Object?> _encodeBookList(List<OnlineBook> items) =>
+      items.map(onlineBookToJson).toList();
+  List<OnlineBook> _decodeBookList(Object? raw) => [
+    for (final item in raw as List)
+      onlineBookFromJson(item as Map<String, dynamic>),
+  ];
 
   Future<List<OnlineBook>> _loadBookList(
     BookSource source,

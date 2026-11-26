@@ -55,11 +55,11 @@ class CloudHttp {
         maxBodyBytes,
       ).timeout(const Duration(seconds: 30));
     } on TimeoutException {
-      throw const CloudException('连接网盘超时，请检查网络后重试');
+      throw const CloudException('连接网盘超时，请检查网络后重试', unavailable: true);
     } on SocketException {
-      throw const CloudException('无法连接网盘，请检查网络后重试');
+      throw const CloudException('无法连接网盘，请检查网络后重试', unavailable: true);
     } on http.ClientException {
-      throw const CloudException('网盘连接中断，请重试');
+      throw const CloudException('网盘连接中断，请重试', unavailable: true);
     }
   }
 
@@ -89,6 +89,7 @@ class CloudHttp {
         response.statusCode == 429
             ? '网盘请求过于频繁，请稍后重试'
             : '网盘请求失败（${response.statusCode}），请稍后重试',
+        unavailable: response.statusCode == 408 || response.statusCode >= 500,
       );
     }
     return CloudResponse(

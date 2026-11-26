@@ -315,10 +315,50 @@ class _CloudFilesPageState extends State<CloudFilesPage> {
       }
     });
     try {
-      final listing = await widget.provider.list(
-        widget.account,
-        _path.last.id,
-        cursor: more ? _cursor : null,
+      final accountKey = widget.account.fields.putIfAbsent(
+        'pageCacheId',
+        () => widget.library.pageCache.key([
+          widget.account.drive.name,
+          widget.account.fields,
+        ]),
+      );
+      final listing = await widget.library.pageCache.load(
+        identity: [
+          '网盘目录',
+          widget.account.drive.name,
+          accountKey,
+          _path.last.id,
+          more ? _cursor : null,
+        ],
+        fetch: () => widget.provider.list(
+          widget.account,
+          _path.last.id,
+          cursor: more ? _cursor : null,
+        ),
+        encode: (listing) => {
+          'next': listing.nextPage,
+          'entries': [
+            for (final item in listing.entries)
+              [item.id, item.name, item.isFolder, item.size, item.extra],
+          ],
+        },
+        decode: (raw) {
+          final data = raw! as Map<String, Object?>;
+          return CloudListing([
+            for (final item in (data['entries']! as List).cast<List<Object?>>())
+              CloudEntry(
+                id: item[0]! as String,
+                name: item[1]! as String,
+                isFolder: item[2]! as bool,
+                size: item[3]! as int,
+                extra: Map<String, dynamic>.from(item[4]! as Map),
+              ),
+          ], nextPage: data['next'] as String?);
+        },
+        unavailable: (error) =>
+            error is CloudException &&
+            error.unavailable &&
+            !error.loginRequired,
       );
       if (!mounted || _leaving) return;
       _savingAccount = widget.accounts.save(widget.account);

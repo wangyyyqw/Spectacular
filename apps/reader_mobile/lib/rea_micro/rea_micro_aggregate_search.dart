@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:enough_convert/enough_convert.dart';
 import 'package:flutter/services.dart';
@@ -150,6 +151,7 @@ class ReaMicroAggregateSearch {
     await Future.wait(
       rules.entries.map((entry) async {
         final result = await searchRule(
+          token: token,
           name: entry.key,
           script: entry.value,
           title: title,
@@ -161,18 +163,39 @@ class ReaMicroAggregateSearch {
   }
 
   Future<ReaMicroPlatformSearchResult> searchRule({
+    String? token,
     required String name,
     required String script,
     required String title,
     bool Function()? isCancelled,
   }) async {
     final source = sourceNames[_type(name)] ?? _type(name);
+    final cache = library?.pageCache;
+    final key = cache?.key(['平台搜索', token, name, script, title.trim()]);
+    Future<ReaMicroPlatformSearchResult?> previous() async {
+      if (cache == null || key == null || isCancelled?.call() == true) {
+        return null;
+      }
+      try {
+        final saved = await cache.read(key);
+        if (saved is List) {
+          return ReaMicroPlatformSearchResult(source, [
+            for (final row in saved.cast<Map<String, dynamic>>())
+              ReaMicroThirdPartyBook.fromJson(name, row),
+          ]);
+        }
+      } catch (_) {}
+      return null;
+    }
+
     final client = _clientFactory();
     JavascriptRuntime? runtime;
     final deadline = DateTime.now().add(sourceTimeout);
     final responses = <String, Object?>{};
     var query = title.trim();
     var shortened = false;
+    var unavailable = false;
+    var denied = false;
     try {
       runtime = getJavascriptRuntime(xhr: false);
       runtime.onMessage('ReaMicroGbkEncode', (dynamic args) {
@@ -197,6 +220,7 @@ class ReaMicroAggregateSearch {
           return ReaMicroPlatformSearchResult(source, const []);
         }
         if (DateTime.now().isAfter(deadline)) {
+          unavailable = true;
           throw const ReaMicroException('搜索超时');
         }
         final evaluated = runtime.evaluate(
@@ -222,6 +246,7 @@ class ReaMicroAggregateSearch {
           }
           final seen = <String>{};
           final books = <ReaMicroThirdPartyBook>[];
+          final snapshot = <Map<String, Object?>>[];
           for (final raw in data['data'] as List) {
             if (raw is! Map) continue;
             final book = ReaMicroThirdPartyBook.fromJson(
@@ -232,6 +257,26 @@ class ReaMicroAggregateSearch {
                 _matchesTitle(title, book.title) &&
                 seen.add(book.key)) {
               books.add(book);
+              snapshot.add({
+                for (final field in const [
+                  'title',
+                  'author',
+                  'alias',
+                  'subtitle',
+                  'original',
+                  'intro',
+                  'cover',
+                  'translator',
+                  'publisher',
+                  'publish_date',
+                  'price',
+                  'isbn',
+                  'words',
+                  'detail',
+                  'status',
+                ])
+                  if (raw[field] != null) field: raw[field].toString(),
+              });
             }
           }
           if (books.isEmpty && !shortened && title.runes.length >= 10) {
@@ -239,6 +284,17 @@ class ReaMicroAggregateSearch {
             query = String.fromCharCodes(title.trim().runes.take(4));
             shortened = true;
             continue;
+          }
+          if (!denied && unavailable) {
+            final saved = await previous();
+            if (saved != null) return saved;
+          } else if (!denied &&
+              cache != null &&
+              key != null &&
+              isCancelled?.call() != true) {
+            try {
+              await cache.write(key, snapshot);
+            } catch (_) {}
           }
           return ReaMicroPlatformSearchResult(source, books);
         }
@@ -248,21 +304,36 @@ class ReaMicroAggregateSearch {
             return ReaMicroPlatformSearchResult(source, const []);
           }
           final remaining = deadline.difference(DateTime.now());
-          if (remaining <= Duration.zero) throw const ReaMicroException('搜索超时');
+          if (remaining <= Duration.zero) {
+            unavailable = true;
+            throw const ReaMicroException('搜索超时');
+          }
           await Future.wait(
             pending.skip(start).take(6).map((raw) async {
               final request = (raw as Map).cast<String, Object?>();
-              responses['${request['key']}'] = await _request(
+              final response = await _request(
                 client,
                 request,
                 remaining < requestTimeout ? remaining : requestTimeout,
               );
+              final status = response['status'] as int;
+              if (response['unavailable'] == true ||
+                  status == 408 ||
+                  status >= 500) {
+                unavailable = true;
+              }
+              if (status == 401 || status == 403) denied = true;
+              responses['${request['key']}'] = response;
             }),
           );
         }
       }
       throw const ReaMicroException('平台搜索请求过多，请缩小关键词范围');
     } catch (error) {
+      if (unavailable && !denied) {
+        final saved = await previous();
+        if (saved != null) return saved;
+      }
       return ReaMicroPlatformSearchResult(source, const [], error: '$error');
     } finally {
       runtime?.dispose();
@@ -322,6 +393,10 @@ class ReaMicroAggregateSearch {
       return {
         'ok': false,
         'status': 0,
+        'unavailable':
+            error is TimeoutException ||
+            error is SocketException ||
+            error is http.ClientException,
         'statusText': '$error',
         'body': '',
         'headers': <String, String>{},

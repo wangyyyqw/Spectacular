@@ -12,6 +12,36 @@ import 'package:reader_mobile/library/library_store.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('平台搜索断线回退最近完整结果，鉴权失败不读取缓存', () async {
+    var status = 200;
+    final search = ReaMicroAggregateSearch(
+      library: LibraryStore.memory(),
+      clientFactory: () => MockClient(
+        (_) async => http.Response.bytes(
+          utf8.encode(
+            status == 200
+                ? '{"code":200,"data":[{"title":"书","author":"作者"}]}'
+                : '',
+          ),
+          status,
+        ),
+      ),
+    );
+    Future<ReaMicroPlatformSearchResult> query(String token) =>
+        search.searchRule(
+          token: token,
+          title: '书',
+          name: 'qidian_1',
+          script: "function search(key){return fetch('https://example.test/list').text();}",
+        );
+    expect((await query('甲')).books.single.author, '作者');
+    status = 503;
+    expect((await query('甲')).books.single.author, '作者');
+    expect((await query('乙')).books, isEmpty);
+    status = 401;
+    expect((await query('甲')).error, isNotNull);
+  });
+
   test('菠萝包字数与更新时间分离，同版本旧缓存不覆盖内置修复', () async {
     final library = LibraryStore.memory();
     await library.setSetting(

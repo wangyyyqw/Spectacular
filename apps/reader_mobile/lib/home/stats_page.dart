@@ -415,9 +415,11 @@ class _StatsPageState extends State<StatsPage> {
   Future<void> _openCloudBook(ReaMicroBookRecord record) async {
     final controller = widget.reaMicro;
     if (controller == null) return;
-    String? localBookId;
+    String? localBookId = record.localBookId;
     for (final entry in controller.links.entries) {
-      if (entry.value.cloudBookId == record.cloudBookId) {
+      if (localBookId == null &&
+          record.cloudBookId > 0 &&
+          entry.value.cloudBookId == record.cloudBookId) {
         localBookId = entry.key;
         break;
       }
@@ -506,6 +508,7 @@ class _StatsPageState extends State<StatsPage> {
                   identity.userBookId,
               },
               loading: controller.loadingCloudStats,
+              offline: controller.offline,
               onRefresh: _refresh,
               onOpenBook: _openCloudBook,
               onLoadMonth: controller.loadCloudMonth,

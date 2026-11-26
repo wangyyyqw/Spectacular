@@ -78,7 +78,12 @@ class OnlineBookController extends ChangeNotifier {
        cookieStore = cookieStore ?? BookSourceCookieStore(),
        catalogs = readingCatalogStore ?? OnlineReadingCatalogStore(library),
        auth = authService ?? BookSourceAuthService() {
-    this.service = service ?? BookSourceService(cookieStore: this.cookieStore);
+    this.service =
+        service ??
+        BookSourceService(
+          cookieStore: this.cookieStore,
+          pageCache: library.pageCache,
+        );
     library.addListener(_libraryChanged);
   }
 

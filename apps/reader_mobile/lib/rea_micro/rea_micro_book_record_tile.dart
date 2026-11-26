@@ -39,7 +39,7 @@ ReadingBookItem cloudReadingBookItem(
   int? days,
   bool daysCumulative = false,
 }) => ReadingBookItem(
-  id: '${record.bookId}',
+  id: record.localBookId ?? '${record.bookId}',
   title: record.name,
   author: record.author,
   duration: Duration(seconds: record.totalReadTimeSeconds),

@@ -286,9 +286,15 @@ List<ReaderAnnotation> mergeCloudMarks(
   ReaMicroAnnotationCfis? cfis,
 }) {
   final merged = List<ReaderAnnotation>.of(local);
+  final present = {for (final annotation in local) annotation.id};
+  final deleted = {
+    for (final entry in cloudIds.entries)
+      if (!present.contains(entry.key)) entry.value,
+  };
   final seenCloudIds = <int>{};
   for (final mark in remote) {
     if (mark.startCfi.trim().isEmpty) continue;
+    if (deleted.contains(mark.id)) continue;
     if (mark.id > 0 && !seenCloudIds.add(mark.id)) continue;
     final end = mark.endCfi.trim().isEmpty ? mark.startCfi : mark.endCfi;
     ReaderAnnotation? existing;
