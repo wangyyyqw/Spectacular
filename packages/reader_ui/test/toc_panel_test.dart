@@ -48,7 +48,7 @@ void main() {
   });
 
   for (final (width, scale) in [(360.0, 1.0), (320.0, 1.5)]) {
-    testWidgets('目录页头在宽度$width、字号倍率$scale下完整显示时间', (tester) async {
+    testWidgets('目录页头在宽度$width、字号倍率$scale下完整显示卷章汇总', (tester) async {
       tester.view.physicalSize = Size(width, 640);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -56,8 +56,9 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(scale)),
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
             child: child!,
           ),
           home: Scaffold(
@@ -75,18 +76,19 @@ void main() {
           ),
         ),
       );
-      final time = find.byKey(const ValueKey('toc-reading-duration'));
+      final summary = find.byKey(const ValueKey('toc-summary-count'));
       expect(
-        tester.renderObject<RenderParagraph>(time).didExceedMaxLines,
+        tester.renderObject<RenderParagraph>(summary).didExceedMaxLines,
         isFalse,
       );
-      expect(find.textContaining('共 '), findsNothing);
+      expect(find.text('共 1515 章'), findsOneWidget);
+      expect(find.textContaining('累计阅读'), findsNothing);
       for (final key in [
         'toc-expand-all',
         'toc-collapse-all',
         'toc-locate-current',
       ]) {
-        expect(tester.getSize(find.byKey(ValueKey(key))), const Size(44, 44));
+        expect(tester.getSize(find.byKey(ValueKey(key))), const Size(44, 36));
       }
       final locateIcon = tester.widget<AppIcon>(
         find.descendant(
@@ -99,31 +101,46 @@ void main() {
     });
   }
 
-  testWidgets('累计阅读按整分钟更新并在一小时后显示小时', (tester) async {
-    final duration = ValueNotifier(const Duration(seconds: 59));
-    addTearDown(duration.dispose);
-    await tester.pumpWidget(
+  testWidgets('目录页头在有卷层级时显示共X卷Y章，无卷层级时仅显示共Y章', (tester) async {
+    Future<void> pumpToc(List<TocEntry> entries) => tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: TocPanel(
-            entries: [_entry('第一章', 0)],
+            entries: entries,
             currentSpineIndex: 0,
             onSelect: (_) {},
-            readingDuration: duration,
           ),
         ),
       ),
     );
-    expect(find.text('累计阅读 0 分钟'), findsOneWidget);
-    duration.value = const Duration(minutes: 1);
-    await tester.pump();
-    expect(find.text('累计阅读 1 分钟'), findsOneWidget);
-    duration.value = const Duration(minutes: 61, seconds: 59);
-    await tester.pump();
-    expect(find.text('累计阅读 1 小时 1 分钟'), findsOneWidget);
-    expect(find.textContaining('共 '), findsNothing);
+
+    await pumpToc([_entry('第一章', 0), _entry('第二章', 1)]);
+    expect(find.text('共 2 章'), findsOneWidget);
+    expect(find.textContaining('卷'), findsNothing);
+    expect(find.textContaining('累计阅读'), findsNothing);
+
+    await pumpToc([
+      _entry('卷一', 0, children: [_entry('第一章', 0), _entry('第二章', 1)]),
+      _entry('卷二', 2, children: [_entry('第三章', 2)]),
+    ]);
+    expect(find.text('共 2 卷 3 章'), findsOneWidget);
+
+    await pumpToc([
+      _entry('序章', 0),
+      _entry(
+        '卷一',
+        1,
+        children: [
+          _entry('第一章', 1, children: [_entry('第一节', 1), _entry('第二节', 2)]),
+          _entry('第二章', 3),
+        ],
+      ),
+    ]);
+    expect(find.text('共 1 卷 4 章'), findsOneWidget);
+
+    await pumpToc(const []);
+    expect(find.text('共 0 章'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
   });
 
   group('目录展开（P4-11）', () {
@@ -169,8 +186,8 @@ void main() {
         ),
       );
 
-      expect(find.text('累计阅读 0 分钟'), findsOneWidget);
-      expect(find.textContaining('共 '), findsNothing);
+      expect(find.text('共 1 卷 2 章'), findsOneWidget);
+      expect(find.textContaining('累计阅读'), findsNothing);
       expect(find.text('第一章'), findsOneWidget);
       expect(find.text('2.1'), findsOneWidget);
 
@@ -325,7 +342,7 @@ void main() {
       expect(find.text('1.1.1'), findsNothing);
       expect(find.text('第二章'), findsOneWidget);
       expect(find.text('2.1'), findsNothing);
-      expect(find.textContaining('共 '), findsNothing);
+      expect(find.text('共 2 卷 2 章'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byKey(const ValueKey<String>('toc-row-0-第一章')),
@@ -340,7 +357,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('toc-toggle-0-第一章')));
       await tester.pump();
       expect(find.text('1.1'), findsNothing);
-      expect(find.textContaining('共 '), findsNothing);
+      expect(find.text('共 2 卷 2 章'), findsOneWidget);
       expect(selected, isEmpty);
 
       await tester.tap(find.byKey(const ValueKey<String>('toc-toggle-0-第一章')));
@@ -358,14 +375,14 @@ void main() {
       expect(find.text('1.1.1'), findsNothing);
       expect(find.text('第二章'), findsOneWidget);
       expect(find.text('2.1'), findsNothing);
-      expect(find.textContaining('共 '), findsNothing);
+      expect(find.text('共 2 卷 2 章'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey<String>('toc-expand-all')));
       await tester.pump();
       expect(find.text('1.1'), findsOneWidget);
       expect(find.text('1.1.1'), findsOneWidget);
       expect(find.text('2.1'), findsOneWidget);
-      expect(find.textContaining('共 '), findsNothing);
+      expect(find.text('共 2 卷 2 章'), findsOneWidget);
     });
 
     testWidgets('当前卷目录行在原顺序中吸顶且可收起', (tester) async {
@@ -425,7 +442,16 @@ void main() {
       controller.jumpTo(controller.position.maxScrollExtent);
       await tester.pumpAndSettle();
       final viewport = tester.getRect(find.byType(CustomScrollView));
+      final summaryRect = tester.getRect(
+        find.byKey(const ValueKey<String>('toc-summary-count')),
+      );
+      final pinnedTitleRect = tester.getRect(find.text('第二卷'));
       expect(tester.getRect(currentVolume).top, closeTo(viewport.top, 0.5));
+      expect(
+        pinnedTitleRect.top - summaryRect.bottom,
+        lessThanOrEqualTo(22),
+        reason: '卷标吸顶时与上方汇总文案之间不应留出过大空白',
+      );
       await tester.tap(collapseCurrent);
       await tester.pumpAndSettle();
       controller.jumpTo(0);

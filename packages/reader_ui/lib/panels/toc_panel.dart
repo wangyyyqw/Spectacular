@@ -259,6 +259,38 @@ class _TocPanelState extends State<TocPanel> {
     return path.first;
   }
 
+  /// 统计目录顶层卷数与章节数：有卷层级（存在带子项的顶层项）时显示“共 X 卷 Y 章”，
+  /// 否则仅显示“共 Y 章”。
+  String _tocSummaryLabel() {
+    final hasVolumeHierarchy = widget.entries.any(
+      (entry) => entry.children.isNotEmpty,
+    );
+    if (!hasVolumeHierarchy) {
+      return '共 ${widget.entries.length} 章';
+    }
+    var volumes = 0;
+    var chapters = 0;
+    void countLeaves(List<TocEntry> entries) {
+      for (final entry in entries) {
+        if (entry.children.isEmpty) {
+          chapters += 1;
+        } else {
+          countLeaves(entry.children);
+        }
+      }
+    }
+
+    for (final entry in widget.entries) {
+      if (entry.children.isNotEmpty) {
+        volumes += 1;
+        countLeaves(entry.children);
+      } else {
+        chapters += 1;
+      }
+    }
+    return '共 $volumes 卷 $chapters 章';
+  }
+
   Widget _buildEntryTile(
     BuildContext context,
     TocRow row, {
@@ -293,6 +325,8 @@ class _TocPanelState extends State<TocPanel> {
       hoverColor: Colors.transparent,
       selectedTileColor: Colors.transparent,
       contentPadding: EdgeInsets.only(left: baseLeft, right: 24),
+      visualDensity: VisualDensity.compact,
+      minVerticalPadding: 0,
       title: Row(
         children: [
           if (row.depth == 1 && hasChildren) ...[
@@ -405,35 +439,24 @@ class _TocPanelState extends State<TocPanel> {
     final currentVolumeIndex = currentVolume == null
         ? -1
         : rows.indexWhere((row) => identical(row.entry, currentVolume));
+    final summaryLabel = _tocSummaryLabel();
     return Material(
       color: surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: Wrap(
               alignment: WrapAlignment.spaceBetween,
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 8,
               runSpacing: 4,
               children: [
-                ValueListenableBuilder<Duration>(
-                  valueListenable:
-                      widget.readingDuration ??
-                      const AlwaysStoppedAnimation<Duration>(Duration.zero),
-                  builder: (context, duration, _) {
-                    final minutes = duration.inMinutes;
-                    final hours = minutes ~/ 60;
-                    final label = hours > 0
-                        ? '累计阅读 $hours 小时 ${minutes % 60} 分钟'
-                        : '累计阅读 $minutes 分钟';
-                    return Text(
-                      label,
-                      key: const ValueKey<String>('toc-reading-duration'),
-                      style: metaStyle,
-                    );
-                  },
+                Text(
+                  summaryLabel,
+                  key: const ValueKey<String>('toc-summary-count'),
+                  style: metaStyle,
                 ),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -571,8 +594,9 @@ class _TocToolButton extends StatelessWidget {
         key: buttonKey,
         onTap: onTap,
         customBorder: const CircleBorder(),
-        child: SizedBox.square(
-          dimension: 44,
+        child: SizedBox(
+          width: 44,
+          height: 36,
           child: Center(
             child: AppIcon(
               icon,
