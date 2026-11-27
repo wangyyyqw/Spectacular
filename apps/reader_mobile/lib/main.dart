@@ -13,6 +13,7 @@ import 'diagnostics/reader_log.dart';
 import 'home/home_shell.dart';
 import 'library/library_store.dart';
 import 'reader/reader_font_store.dart';
+import 'reader/reader_route.dart';
 import 'reader/reader_text_warmup.dart';
 import 'storage/startup_storage.dart';
 import 'theme/app_theme.dart';
@@ -211,6 +212,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   static const _window = OptionalMethodChannel(
     'com.spectacular.reader_mobile/window',
   );
+  late final _readerWindowObserver = _ReaderWindowChromeObserver();
 
   late final ReaderFontStore _fontStore = ReaderFontStore(widget.library);
   late final ThemeColorSettings _themeColors = ThemeColorSettings(
@@ -280,6 +282,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
 
   @override
   void dispose() {
+    _readerWindowObserver.reset();
     WidgetsBinding.instance.removeObserver(this);
     _themeColors.removeListener(_colorsChanged);
     _themeColors.dispose();
@@ -508,10 +511,8 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
       ),
       themeMode: mode,
       themeAnimationDuration: Duration.zero,
+      navigatorObservers: [_readerWindowObserver],
       builder: (context, child) {
-        final topInset = defaultTargetPlatform == TargetPlatform.macOS
-            ? _windowTopInset
-            : 0.0;
         return AppThemeScope(
           preset: preset,
           onPresetChanged: _setPreset,
@@ -528,7 +529,11 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
               child: ColoredBox(
                 color: Theme.of(context).scaffoldBackgroundColor,
                 child: Padding(
-                  padding: EdgeInsets.only(top: topInset),
+                  padding: EdgeInsets.only(
+                    top: defaultTargetPlatform == TargetPlatform.macOS
+                        ? _windowTopInset
+                        : 0,
+                  ),
                   child: child!,
                 ),
               ),
@@ -566,4 +571,49 @@ class _AppPreferences {
   final ThemeMode mode;
   final String fontFamily;
   final AppUiStyle uiStyle;
+}
+
+class _ReaderWindowChromeObserver extends NavigatorObserver {
+  static const _window = OptionalMethodChannel(
+    'com.spectacular.reader_mobile/window',
+  );
+
+  Route<dynamic>? _currentRoute;
+  bool _readerVisible = false;
+
+  void _update(Route<dynamic>? route) {
+    _currentRoute = route;
+    final readerVisible = route?.settings.name == readerWindowRouteName;
+    if (readerVisible == _readerVisible) return;
+    _readerVisible = readerVisible;
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows)) {
+      unawaited(
+        _window.invokeMethod<void>('setReaderWindowMode', readerVisible),
+      );
+    }
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _update(route);
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _update(previousRoute);
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    _update(
+      newRoute ?? (identical(oldRoute, _currentRoute) ? null : _currentRoute),
+    );
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (identical(route, _currentRoute)) _update(previousRoute);
+  }
+
+  void reset() => _update(null);
 }

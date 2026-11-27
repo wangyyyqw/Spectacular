@@ -535,11 +535,12 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               title: const Text('词典设置'),
               subtitle: const Text('释义服务、模型与查询预设'),
               trailing: const AppIcon(AppGlyph.chevronRight),
-              onTap: () => Navigator.of(context).push<void>(
-                MaterialPageRoute(
-                  builder: (_) => DictionarySettingsPage(
-                    store: DictionaryStore(widget.library),
-                  ),
+              onTap: () => showReaderBottomSheet<void>(
+                context: context,
+                useSafeArea: true,
+                isScrollControlled: true,
+                builder: (_) => DictionarySettingsPage(
+                  store: DictionaryStore(widget.library),
                 ),
               ),
             ),

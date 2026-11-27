@@ -136,7 +136,7 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
-  UpdateTitleBar(window);
+  UpdateWindowFrame(window);
   RestorePlacement();
 
   return OnCreate();
@@ -260,7 +260,7 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
     case WM_SETTINGCHANGE:
     case WM_SYSCOLORCHANGE:
-      UpdateTitleBar(hwnd);
+      UpdateWindowFrame(hwnd);
       break;
   }
 
@@ -318,19 +318,30 @@ void Win32Window::OnDestroy() {
   // 默认不执行操作，供子类重写。
 }
 
-void Win32Window::SetTitleBarDarkMode(bool dark) {
-  dark_title_bar_ = dark;
-  UpdateTitleBar(window_handle_);
+void Win32Window::SetWindowDarkMode(bool dark) {
+  dark_window_frame_ = dark;
+  UpdateWindowFrame(window_handle_);
   RedrawWindow(window_handle_, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME);
 }
 
-void Win32Window::UpdateTitleBar(HWND const window) {
+void Win32Window::SetReaderWindowMode(bool reading) {
+  if (reader_window_mode_ == reading || !window_handle_) return;
+  reader_window_mode_ = reading;
+  LONG_PTR style = GetWindowLongPtr(window_handle_, GWL_STYLE);
+  style = reading ? style & ~WS_CAPTION : style | WS_CAPTION;
+  SetWindowLongPtr(window_handle_, GWL_STYLE, style);
+  SetWindowPos(window_handle_, nullptr, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                   SWP_FRAMECHANGED);
+}
+
+void Win32Window::UpdateWindowFrame(HWND const window) {
   HIGHCONTRASTW contrast{};
   contrast.cbSize = sizeof(contrast);
   const bool use_system_colors =
       SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
       (contrast.dwFlags & HCF_HIGHCONTRASTON);
-  const BOOL enable_dark_mode = dark_title_bar_ && !use_system_colors;
+  const BOOL enable_dark_mode = dark_window_frame_ && !use_system_colors;
   DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                         &enable_dark_mode, sizeof(enable_dark_mode));
   constexpr DWORD kCaptionColorAttribute = 35;
@@ -338,8 +349,6 @@ void Win32Window::UpdateTitleBar(HWND const window) {
   constexpr COLORREF kSystemColor = 0xFFFFFFFFu;
   const COLORREF caption = enable_dark_mode ? RGB(27, 29, 31) : RGB(246, 246, 244);
   const COLORREF caption_color = use_system_colors ? kSystemColor : caption;
-  // 标题栏融入内容：标题文字与底色同色，最小化/最大化/关闭按钮仍由系统绘制。
-  // 高对比度模式保留系统文字色，避免影响可访问性。
   const COLORREF text_color = use_system_colors ? kSystemColor : caption;
   DwmSetWindowAttribute(window, kCaptionColorAttribute, &caption_color,
                         sizeof(caption_color));

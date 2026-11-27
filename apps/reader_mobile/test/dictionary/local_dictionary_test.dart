@@ -23,6 +23,63 @@ void main() {
   });
   tearDown(() async => directory.delete(recursive: true));
 
+  test('本地词典显示隐藏单文件版后缀，原名称和持久化内容不变', () {
+    for (final name in ['大辞海（单文件版）', '大辞海 (单文件版) ']) {
+      final entry = LocalDictionaryEntry(
+        id: 'local-name',
+        name: name,
+        digest: 'digest',
+        wordCount: 1,
+      );
+      expect(entry.displayName, '大辞海');
+      expect(entry.name, name);
+      expect(entry.toJson()['name'], name);
+    }
+    const entry = LocalDictionaryEntry(
+      id: 'local-normal',
+      name: '单文件版说明词典',
+      digest: 'digest',
+      wordCount: 1,
+    );
+    expect(entry.displayName, entry.name);
+  });
+
+  test('本地排序重开保留，启停不改变位置，新导入追加到末尾', () async {
+    const first = LocalDictionaryEntry(
+      id: 'local-first',
+      name: '第一词典',
+      digest: 'first',
+      wordCount: 1,
+    );
+    const second = LocalDictionaryEntry(
+      id: 'local-second',
+      name: '第二词典',
+      digest: 'second',
+      wordCount: 2,
+    );
+    await library.setSetting(
+      LocalDictionaryStore.settingKey,
+      jsonEncode([first.toJson(), second.toJson()]),
+    );
+    await store.reorder([second.id, first.id]);
+    await store.setEnabled(second.id, false);
+    final imported = await store.importFiles([
+      (await createMdictFixture(directory)).path,
+    ]);
+    final reopened = LocalDictionaryStore(
+      library,
+      directoryProvider: () async => directory,
+    );
+    final entries = await reopened.load();
+    expect(entries.map((entry) => entry.id), [
+      second.id,
+      first.id,
+      imported.id,
+    ]);
+    expect(entries.first.toJson(), second.withEnabled(false).toJson());
+    expect(entries[1].toJson(), first.toJson());
+  });
+
   for (final version in [1, 2]) {
     test('MDX $version.x 导入、索引重开、别名、候选和移除不修改源文件', () async {
       final source = await createMdictFixture(

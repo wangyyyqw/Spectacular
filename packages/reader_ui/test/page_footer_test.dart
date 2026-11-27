@@ -221,6 +221,43 @@ void main() {
     _expectFurniture(tester);
   });
 
+  testWidgets(
+    '桌面阅读页续页显示页眉与页脚，并预留顶部信息空间',
+    (tester) async {
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.binding.setSurfaceSize(const Size(400, 800));
+      final source = _SizedPageSource();
+      late ReaderSession session;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReaderPage(
+            source: source,
+            store: MemoryReaderProgressStore(),
+            bookId: 'desktop-page-header',
+            pageTurnMode: PageTurnMode.none,
+            onSessionReady: (value) => session = value,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await session.next();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ReaderPageHeader), findsOneWidget);
+      expect(find.byType(ReaderPageFooter), findsOneWidget);
+      expect(
+        source.contentSize?.height,
+        800 - 32 - PageFurniture.reservedHeight,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    }),
+  );
+
   testWidgets('showPageFooter=false 关闭页脚', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

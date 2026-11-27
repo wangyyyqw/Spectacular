@@ -159,6 +159,49 @@ void main() {
     expect(loaded.toJson()['headers'], '{"x-test":"1"}');
   });
 
+  test('在线词典排序重开保留，编辑与启停保持位置且不改变查询来源', () async {
+    final library = LibraryStore.memory();
+    final store = DictionaryStore(library);
+    await store.saveRule(_jsonRule);
+    await store.changeSettings(
+      (settings) => settings.copyWith(sourceId: _jsonRule.sourceId),
+    );
+    final order = [
+      _jsonRule.id,
+      ...dictionaryBuiltInRules.reversed.map((rule) => rule.id),
+    ];
+    await store.reorderRules(order);
+    await store.saveRule(_jsonRule.copyWith(name: '修改后的名称'));
+    await store.setRuleEnabled('builtin-haici-zh', false);
+    final reopened = await DictionaryStore(library).load();
+    expect(reopened.rules.map((rule) => rule.id), order);
+    expect(reopened.rules.first.name, '修改后的名称');
+    expect(reopened.rules.last.enabled, isFalse);
+    expect(reopened.settings.sourceId, _jsonRule.sourceId);
+    expect(reopened.rules[1].url, dictionaryBuiltInRules.last.url);
+    await store.removeRule(_jsonRule.id);
+    expect((await store.load()).rules.map((rule) => rule.id), order.skip(1));
+  });
+
+  test('排序记录只覆盖已有词典时补入新增内置词典且过滤失效标识', () async {
+    final library = LibraryStore.memory();
+    await library.setSetting(
+      DictionaryStore.settingKey,
+      jsonEncode({
+        'rules': [_jsonRule.toJson()],
+        'ruleOrder': [_jsonRule.id, 'removed', 'builtin-bing'],
+      }),
+    );
+    final state = await DictionaryStore(library).load();
+    expect(state.rules.map((rule) => rule.id), [
+      _jsonRule.id,
+      'builtin-bing',
+      'builtin-haici-zh',
+      'builtin-zdic',
+      'builtin-zdic-trad',
+    ]);
+  });
+
   test('规则 JSON 支持单条、数组和 rules 包装，非法内容明确报错', () {
     final single = decodeDictionaryRules(jsonEncode(_jsonRule.toJson()));
     expect(single.single.name, _jsonRule.name);
