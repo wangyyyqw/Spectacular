@@ -302,7 +302,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       },
       if (_selectionMode || _searching)
         const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
-            _selectionMode ? _exitSelectionMode : _toggleSearch,
+            _selectionMode ? _exitSelectionMode : _closeSearch,
     };
     for (final binding in bindings.entries) {
       if (!binding.key.accepts(event, HardwareKeyboard.instance)) continue;
@@ -546,19 +546,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  void _toggleSearch() {
+  void _closeSearch() {
     setState(() {
-      _searching = !_searching;
-      if (!_searching) {
-        _query = '';
-        _searchController.clear();
-      }
+      _searching = false;
+      _query = '';
+      _searchController.clear();
     });
-    if (!_searching) {
-      _keyboardFocus.requestFocus();
-    } else {
-      _searchFocus.requestFocus();
-    }
+    _keyboardFocus.requestFocus();
   }
 
   void _resetFilters() {
@@ -1718,27 +1712,34 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final visible = items == null
         ? null
         : _visible(items, groupId: _activeGroupId);
-    return ExcludeFocus(
-      excluding: !widget.active,
-      child: Focus(
-        focusNode: _keyboardFocus,
-        autofocus: widget.active,
-        onKeyEvent: _handleShelfKey,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: usesDesktopLayout(context)
-                  ? desktopBookPageMaxWidth
-                  : double.infinity,
-            ),
-            child: LayoutBuilder(
-              builder: (_, bounds) => Scaffold(
-                appBar: _buildAppBar(busy || _pickingFiles, bounds.maxWidth),
-                bottomNavigationBar: _selectionMode
-                    ? _buildSelectionBar()
-                    : null,
-                body: _buildBody(items, visible, busy),
+    final closeOnBack = widget.active && _searching;
+    return PopScope<void>(
+      canPop: !closeOnBack,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && closeOnBack) _closeSearch();
+      },
+      child: ExcludeFocus(
+        excluding: !widget.active,
+        child: Focus(
+          focusNode: _keyboardFocus,
+          autofocus: widget.active,
+          onKeyEvent: _handleShelfKey,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: usesDesktopLayout(context)
+                    ? desktopBookPageMaxWidth
+                    : double.infinity,
+              ),
+              child: LayoutBuilder(
+                builder: (_, bounds) => Scaffold(
+                  appBar: _buildAppBar(busy || _pickingFiles, bounds.maxWidth),
+                  bottomNavigationBar: _selectionMode
+                      ? _buildSelectionBar()
+                      : null,
+                  body: _buildBody(items, visible, busy),
+                ),
               ),
             ),
           ),
@@ -1757,9 +1758,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
     onTap: _focusSearch,
     onSearch: _focusSearch,
     searchLabel: '搜索书架',
-    onChanged: (value) => setState(() => _query = value),
+    onChanged: (value) => setState(() {
+      _searching = true;
+      _query = value;
+    }),
     clearButton: !_searching ? null : IconButton(
-      tooltip: '关闭搜索', onPressed: _toggleSearch, icon: const AppIcon(AppGlyph.close),
+      tooltip: '关闭搜索', onPressed: _closeSearch, icon: const AppIcon(AppGlyph.close),
     ),
     actionKey: const ValueKey('bookshelf-import'),
     actionLabel: busy ? '导入中…' : '导入 EPUB / TXT',

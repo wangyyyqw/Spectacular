@@ -453,8 +453,9 @@ void main() {
     expect(resultText('第二来源备选'), findsNothing);
     expect(resultText('搜索书'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('返回发现'));
+    expect(await tester.binding.handlePopRoute(), isTrue);
     await pumpReaderUntil(tester, find.text('人气书'));
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
     await tester.tap(find.byTooltip('筛选管理'));
     await tester.pumpAndSettle();
     expect(find.text('筛选条件'), findsOneWidget);

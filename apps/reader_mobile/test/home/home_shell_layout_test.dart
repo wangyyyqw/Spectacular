@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/editing/epub_file_editor_page.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/home_shell.dart';
+import 'package:reader_mobile/home/navigation_settings.dart';
 import 'package:reader_mobile/home/profile_page.dart';
 import 'package:reader_mobile/home/reviews_page.dart';
 import 'package:reader_mobile/home/stats_page.dart';
@@ -72,6 +73,38 @@ Future<void> _shortcut(WidgetTester tester, LogicalKeyboardKey key) async {
 }
 
 void main() {
+  testWidgets('系统返回只关闭当前标签的搜索，隐藏书架保留搜索词', (tester) async {
+    final library = LibraryStore.memory();
+    await library.setSetting(
+      NavigationSettings.storageKey,
+      '["bookshelf","discover","profile"]',
+    );
+    await _showHome(tester, library);
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    final navigation = find.byType(BottomNavigationBar);
+    final shelf = find.byKey(const ValueKey('bookshelf-search-field'));
+    final discover = find.byKey(const ValueKey('discover-search-field'));
+    final route = ModalRoute.of(tester.element(shelf))!;
+    await tester.tap(shelf);
+    await tester.enterText(shelf, '书架关键词');
+    await _select(tester, navigation, '发现');
+    expect(route.popDisposition, RoutePopDisposition.bubble);
+    await tester.enterText(discover, '尚未提交');
+    await tester.pump();
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(discover).controller!.text, isEmpty);
+    expect(route.popDisposition, RoutePopDisposition.bubble);
+    await _select(tester, navigation, '书架');
+    expect(tester.widget<TextField>(shelf).controller!.text, '书架关键词');
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(shelf).controller!.text, isEmpty);
+    expect(find.byTooltip('关闭搜索'), findsNothing);
+    expect(route.popDisposition, RoutePopDisposition.bubble);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
   testWidgets('退出全屏阅读首帧保留书架搜索框和底栏位置，系统栏恢复时不弹动', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(360, 800);

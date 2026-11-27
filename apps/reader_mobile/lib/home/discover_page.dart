@@ -354,25 +354,29 @@ class _DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
+  Future<void> _closeSearch() async {
+    FocusScope.of(context).unfocus();
+    _query.clear();
+    if (!_searchMode) return;
+    ++_version;
+    setState(() {
+      _searchMode = false;
+      _searchGroups = const [];
+      _expandedSources.clear();
+      _loading = false;
+      _error = null;
+    });
+    final source = _source;
+    if (source != null && _category == null) {
+      await _selectSource(source);
+    } else {
+      await _load(reset: true);
+    }
+  }
+
   Future<void> _search() async {
     final query = _query.text.trim();
-    if (query.isEmpty) {
-      ++_version;
-      setState(() {
-        _searchMode = false;
-        _searchGroups = const [];
-        _expandedSources.clear();
-        _loading = false;
-        _error = null;
-      });
-      final source = _source;
-      if (source != null && _category == null) {
-        await _selectSource(source);
-      } else {
-        await _load(reset: true);
-      }
-      return;
-    }
+    if (query.isEmpty) return _closeSearch();
     FocusScope.of(context).unfocus();
     final version = ++_version;
     setState(() {
@@ -509,15 +513,29 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: usesDesktopLayout(context)
-              ? desktopBookPageMaxWidth
-              : double.infinity,
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _query,
+      builder: (context, value, child) {
+        final closeOnBack =
+            widget.active && (_searchMode || value.text.isNotEmpty);
+        return PopScope<void>(
+          canPop: !closeOnBack,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop && closeOnBack) unawaited(_closeSearch());
+          },
+          child: child!,
+        );
+      },
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: usesDesktopLayout(context)
+                ? desktopBookPageMaxWidth
+                : double.infinity,
+          ),
+          child: LayoutBuilder(builder: _buildPage),
         ),
-        child: LayoutBuilder(builder: _buildPage),
       ),
     );
   }
@@ -540,10 +558,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
             : IconButton(
                 tooltip: '返回发现',
                 icon: const AppIcon(AppGlyph.close),
-                onPressed: () {
-                  _query.clear();
-                  unawaited(_search());
-                },
+                onPressed: _closeSearch,
               ),
         actionKey: const ValueKey('discover-source-menu'),
         actionLabel: '筛选管理',
