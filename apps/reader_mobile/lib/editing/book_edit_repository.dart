@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:reader_core/editing.dart';
 
+import '../diagnostics/reader_log.dart';
 import '../library/book_edit_models.dart';
 import '../library/library_store.dart';
 
@@ -38,6 +39,73 @@ class BookEditRepository {
   ) => library.persistEditDraft(bookId, expectedRevision, serialize);
 
   Future<void> discardDraft(String bookId) => library.discardEditDraft(bookId);
+
+  Future<EpubParagraphEdit> openParagraph(
+    String bookId,
+    String revision,
+    File source,
+    int spineIndex,
+    String startCfi,
+    String endCfi,
+  ) async {
+    await verifyRevision(bookId, revision);
+    if (await openDraft(bookId) != null) {
+      throw const EpubEditException('本书有未完成的编辑草稿，请先在编辑器保存或放弃草稿');
+    }
+    final session = await EpubEditSession.open(source);
+    try {
+      if (session.baseDigest != revision) {
+        throw const EpubEditException('书籍文件已变化，请重新打开书籍');
+      }
+      return EpubParagraphEdit.fromSelection(
+        session,
+        spineIndex,
+        startCfi,
+        endCfi,
+      );
+    } catch (_) {
+      session.close();
+      rethrow;
+    }
+  }
+
+  Future<void> saveParagraph(
+    String bookId,
+    EpubParagraphEdit edit,
+    String input,
+  ) async {
+    final session = edit.session;
+    if (input == edit.initialText) return;
+    edit.apply(input);
+    Directory? temporary;
+    try {
+      await verifyRevision(bookId, session.baseDigest);
+      temporary = await Directory.systemTemp.createTemp('reader-paragraph-');
+      final file = File('${temporary.path}/edited.epub');
+      await EpubWriter.write(session, file);
+      await library.commitEditedFile(
+        bookId,
+        session.baseDigest,
+        file,
+        session.summary,
+        requireNoDraft: true,
+        preserveBookMetadata: true,
+      );
+    } catch (_) {
+      session.undo();
+      rethrow;
+    } finally {
+      try {
+        await temporary?.delete(recursive: true);
+      } on FileSystemException catch (error, stack) {
+        recordAppError(
+          'paragraph_edit_cleanup_failed',
+          error,
+          stackTrace: stack,
+        );
+      }
+    }
+  }
 
   Future<BookEntry> commitEditedFile(
     String bookId,

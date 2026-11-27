@@ -102,11 +102,13 @@ class ReaderEditTarget {
   const ReaderEditTarget({
     required this.spineIndex,
     required this.cfi,
+    this.endCfi,
     this.contentRevision,
   });
 
   final int spineIndex;
   final String cfi;
+  final String? endCfi;
   final String? contentRevision;
 }
 
@@ -2677,36 +2679,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
     _clearSelection();
     _showToast('已复制');
-  }
-
-  void _selectAll(PageContent page) {
-    final boxes = TextHitTester.lineBoxes(page);
-    if (boxes.isEmpty) {
-      return;
-    }
-    final first = boxes.first;
-    final last = boxes.last;
-    setState(() {
-      _selectionSpineIndex = page.spineIndex;
-      _selectionLayoutRevision = _session.layoutRevision;
-      _selection = ReaderSelection.normalized(
-        TextHit(
-          lineBox: first,
-          charOffset: 0,
-          textOffset: first.textOffset,
-          atLineStart: true,
-          atLineEnd: false,
-        ),
-        TextHit(
-          lineBox: last,
-          charOffset: last.text.length,
-          textOffset: last.textOffset + last.text.length,
-          atLineStart: false,
-          atLineEnd: true,
-        ),
-        pageIndex: page.pageIndex,
-      );
-    });
   }
 
   void _clearSelection() {

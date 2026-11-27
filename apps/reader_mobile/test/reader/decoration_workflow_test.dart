@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:drift/native.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -118,6 +117,7 @@ Future<void> _show(
   _Fixture fixture, {
   ReaderDecorationImageStore? images,
   Future<void> Function(String)? onDictionary,
+  ValueChanged<ReaderEditTarget>? onEdit,
 }) async {
   tester.view.physicalSize = const Size(320, 600);
   tester.view.devicePixelRatio = 1;
@@ -139,6 +139,7 @@ Future<void> _show(
           ),
           decorationImages: images ?? fixture.images,
           onDictionary: onDictionary,
+          onEditTarget: onEdit,
           decorationRules: fixture.library.decorationRuleStore(
             fixture.book.id,
             images: fixture.images,
@@ -547,10 +548,11 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('320dp 六按钮菜单保持紧凑顺序，词典提示后可直接全选并取消', (tester) async {
+  testWidgets('320dp 六按钮菜单保持紧凑顺序，词典提示后可直接编辑', (tester) async {
     final fixture = await _fixture(tester);
     addTearDown(() => tester.runAsync(fixture.close));
-    await _show(tester, fixture);
+    final targets = <ReaderEditTarget>[];
+    await _show(tester, fixture, onEdit: targets.add);
     await _selectText(tester, fixture);
     final positions = <Offset>[];
     for (final action in [
@@ -559,7 +561,7 @@ void main() {
       'thought',
       'decoration',
       'dictionary',
-      'select-all',
+      'edit-source',
     ]) {
       final finder = find.byKey(ValueKey('selection-action-$action'));
       final rect = tester.getRect(finder);
@@ -576,21 +578,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(_messages, contains('请在词典设置中配置释义服务'));
     expect(find.byKey(const ValueKey('selection-action-more')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('selection-action-select-all')));
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<SelectionLayer>(find.byType(SelectionLayer))
-          .selection
-          .start
-          .charOffset,
-      0,
+    await tester.tap(
+      find.byKey(const ValueKey('selection-action-edit-source')),
     );
-    await tester.tapAt(
-      tester.getRect(find.byType(ReaderView)).centerRight - const Offset(8, 0),
-    );
-    await tester.pump(kDoubleTapTimeout);
     await tester.pumpAndSettle();
+    expect(targets.single.spineIndex, fixture.session.page!.spineIndex);
     expect(find.byType(SelectionLayer), findsNothing);
     expect(fixture.session.pageTurns, 0);
     expect(

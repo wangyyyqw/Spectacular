@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,7 +29,11 @@ Uint8List _corpusBook(String name) {
   }
 }
 
-Future<void> _pumpReader(WidgetTester tester, EpubChapterSource source) async {
+Future<void> _pumpReader(
+  WidgetTester tester,
+  EpubChapterSource source, {
+  ValueChanged<ReaderEditTarget>? onEdit,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
@@ -42,6 +45,7 @@ Future<void> _pumpReader(WidgetTester tester, EpubChapterSource source) async {
               source: source,
               store: MemoryReaderProgressStore(),
               bookId: 'selection-menu',
+              onEditTarget: onEdit,
             ),
           ),
         ),
@@ -72,7 +76,7 @@ void main() {
 
   testWidgets('长按出现选区与菜单，点复制后清除（P4-16）', (tester) async {
     final source = await openTestChapterSource(_corpusBook('basic.epub'));
-    await _pumpReader(tester, source);
+    await _pumpReader(tester, source, onEdit: (_) {});
 
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
@@ -88,7 +92,7 @@ void main() {
       'thought',
       'decoration',
       'dictionary',
-      'select-all',
+      'edit-source',
     ]);
     expect(menu.actions.map((action) => action.label), [
       '复制',
@@ -96,7 +100,7 @@ void main() {
       '想法',
       '装饰',
       '词典',
-      '全选',
+      '编辑',
     ]);
     expect(find.byKey(const ValueKey('selection-action-more')), findsNothing);
     expect(
@@ -114,29 +118,15 @@ void main() {
     expect(clipboardData, {'text': selectedText}, reason: '复制按钮必须交付实际选区原文');
   });
 
-  testWidgets('全选直接覆盖整页，点击正文清除选区（P4-16）', (tester) async {
+  testWidgets('只读来源不显示编辑或全选，仍可复制', (tester) async {
     final source = await openTestChapterSource(_corpusBook('basic.epub'));
     await _pumpReader(tester, source);
 
     await tester.longPressAt(tester.getCenter(find.byType(ReaderView)));
     await tester.pumpAndSettle();
-    final before = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-select-all')),
-    );
-    await tester.pumpAndSettle();
-    final after = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
-    expect(after.selection.start.charOffset, 0);
-    expect(
-      after.selection.end.textOffset,
-      greaterThanOrEqualTo(before.selection.end.textOffset),
-    );
-
-    await tester.tapAt(
-      tester.getRect(find.byType(ReaderView)).centerRight - const Offset(8, 0),
-    );
-    await tester.pump(kDoubleTapTimeout);
+    expect(find.text('编辑'), findsNothing);
+    expect(find.text('全选'), findsNothing);
+    await tester.tap(find.text('复制'));
     await tester.pumpAndSettle();
     expect(find.byType(SelectionLayer), findsNothing);
   });

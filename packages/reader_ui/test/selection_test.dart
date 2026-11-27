@@ -17,7 +17,7 @@ const _menuLabels = <String, String>{
   'thought': '想法',
   'decoration': '装饰',
   'dictionary': '词典',
-  'select-all': '全选',
+  'edit-source': '编辑',
 };
 
 List<SelectionAction> _menuActions(ValueChanged<String> onTap) => [
@@ -338,9 +338,15 @@ void main() {
       );
     });
 
-    testWidgets('日夜正文及背景取色下均显示深色菜单，按钮可见且可点击', (tester) async {
+    testWidgets('日夜正文的选区按钮沿用面板取色，均可见且可点击', (tester) async {
       for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
         final selected = <String>[];
+        final panelScheme = ColorScheme.fromSeed(
+          seedColor: Colors.brown,
+          brightness: theme == ReaderTheme.white
+              ? Brightness.light
+              : Brightness.dark,
+        );
         await _pumpMenu(
           tester,
           SelectionMenu(
@@ -349,12 +355,7 @@ void main() {
             anchor: const Rect.fromLTWH(20, 180, 120, 24),
             bounds: const Size(360, 600),
           ),
-          panelScheme: ColorScheme.fromSeed(
-            seedColor: Colors.brown,
-            brightness: theme == ReaderTheme.white
-                ? Brightness.light
-                : Brightness.dark,
-          ),
+          panelScheme: panelScheme,
         );
         final menu = find.byKey(const ValueKey<String>('selection-menu'));
         final material = tester.widget<Material>(menu);
@@ -363,8 +364,8 @@ void main() {
         expect(tester.getSize(menu).width, lessThanOrEqualTo(300));
         expect(tester.getSize(menu).height, lessThanOrEqualTo(60));
         final scheme = Theme.of(tester.element(menu)).colorScheme;
-        expect(scheme.surface, const Color(0xFF282B31));
-        expect(scheme.onSurface, const Color(0xFFF5F5F5));
+        expect(scheme.surface, panelScheme.surface);
+        expect(scheme.onSurface, panelScheme.onSurface);
         final positions = <double>[];
         for (final entry in _menuLabels.entries) {
           final button = find.byKey(ValueKey('selection-action-${entry.key}'));
@@ -422,15 +423,12 @@ void main() {
       expect(positions.toSet(), hasLength(1));
       await tester.drag(scroll, const Offset(-400, 0));
       await tester.pumpAndSettle();
-      final selectAll = find.byKey(
-        const ValueKey<String>('selection-action-select-all'),
+      final edit = find.byKey(
+        const ValueKey<String>('selection-action-edit-source'),
       );
-      expect(
-        tester.getRect(menu).contains(tester.getCenter(selectAll)),
-        isTrue,
-      );
-      await tester.tap(selectAll);
-      expect(selected, ['select-all']);
+      expect(tester.getRect(menu).contains(tester.getCenter(edit)), isTrue);
+      await tester.tap(edit);
+      expect(selected, ['edit-source']);
       expect(tester.takeException(), isNull);
     });
 

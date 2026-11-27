@@ -252,6 +252,8 @@ extension _ReaderAnnotationController on _ReaderPageState {
         _selectionAction('dismiss', '取消选区', _clearSelection),
       ];
     }
+    final edit = widget.onEditTarget;
+    final range = edit == null ? null : SelectionOps.cfiOf(selection);
     return [
       _selectionAction(
         'copy',
@@ -280,16 +282,18 @@ extension _ReaderAnnotationController on _ReaderPageState {
         '词典',
         () => unawaited(_lookupDictionary(page, selection)),
       ),
-      _selectionAction('select-all', '全选', () => _selectAll(page)),
-      if (widget.onEditTarget != null && SelectionOps.cfiOf(selection) != null)
-        _selectionAction(
-          'edit-source',
-          '编辑原文',
-          () => _requestTextEdit(
-            page.spineIndex,
-            SelectionOps.cfiOf(selection)!.start,
-          ),
-        ),
+      if (edit != null && range != null)
+        _selectionAction('edit-source', '编辑', () {
+          _clearSelection();
+          edit(
+            ReaderEditTarget(
+              spineIndex: page.spineIndex,
+              cfi: range.start,
+              endCfi: range.end,
+              contentRevision: widget.contentRevision,
+            ),
+          );
+        }),
     ];
   }
 

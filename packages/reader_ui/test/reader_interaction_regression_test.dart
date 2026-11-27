@@ -892,9 +892,12 @@ void main() {
     final targets = <ReaderEditTarget>[];
     final session = await _showReader(tester, onEditTarget: targets.add);
     await _selectWord(tester, session.page!);
-    await tester.tap(find.text('编辑原文'));
+    final range = SelectionOps.cfiOf(_selectionLayer(tester).selection)!;
+    await tester.tap(find.text('编辑'));
     await tester.pumpAndSettle();
     expect(targets, hasLength(1));
+    expect(targets.single.cfi, range.start);
+    expect(targets.single.endCfi, range.end);
     expect(find.byType(SelectionLayer), findsNothing);
   });
 
@@ -1034,7 +1037,7 @@ void main() {
     );
   });
 
-  testWidgets('第二页长按、选句和全选保留当前页码', (tester) async {
+  testWidgets('第二页长按和选句保留当前页码', (tester) async {
     final session = await _showReader(tester);
     await session.next();
     await tester.pumpAndSettle();
@@ -1050,12 +1053,8 @@ void main() {
     expect(sentence.startPageIndex, 1);
     expect(sentence.endPageIndex, 1);
 
-    await tester.tap(find.byKey(const ValueKey('selection-action-select-all')));
-    await tester.pumpAndSettle();
-    expect(find.byType(SelectionLayer), findsOneWidget);
-    expect(_selectionLayer(tester).selection.startPageIndex, 1);
-    expect(_selectionLayer(tester).selection.endPageIndex, 1);
-    expect(_selectionLayer(tester).selection.start.charOffset, 0);
+    expect(find.text('全选'), findsNothing);
+    expect(find.text('编辑'), findsNothing);
   });
 
   testWidgets('正文内缩同步到手柄、选区菜单和拖拽命中', (tester) async {

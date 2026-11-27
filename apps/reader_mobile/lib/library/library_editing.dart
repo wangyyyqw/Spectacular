@@ -8,6 +8,7 @@ extension LibraryEditingOperations on LibraryStore {
     File file,
     EpubEditSummary changeSummary, {
     bool preserveTextPositions = false,
+    bool preserveBookMetadata = false,
     Map<String, String> elementCfiMap = const {},
     bool requireNoDraft = false,
     bool Function()? isCancelled,
@@ -18,6 +19,7 @@ extension LibraryEditingOperations on LibraryStore {
       file,
       changeSummary,
       preserveTextPositions: preserveTextPositions,
+      preserveBookMetadata: preserveBookMetadata,
       elementCfiMap: elementCfiMap,
       requireNoDraft: requireNoDraft,
       isCancelled: isCancelled,
@@ -50,6 +52,7 @@ extension LibraryEditingOperations on LibraryStore {
     File input,
     EpubEditSummary summary, {
     bool preserveTextPositions = false,
+    bool preserveBookMetadata = false,
     Map<String, String> elementCfiMap = const {},
     bool requireNoDraft = false,
     bool Function()? isCancelled,
@@ -72,6 +75,7 @@ extension LibraryEditingOperations on LibraryStore {
         file,
         summary,
         preserveTextPositions: preserveTextPositions,
+        preserveBookMetadata: preserveBookMetadata,
         elementCfiMap: elementCfiMap,
         requireNoDraft: requireNoDraft,
         isCancelled: isCancelled,
@@ -93,6 +97,7 @@ extension LibraryEditingOperations on LibraryStore {
     File file,
     EpubEditSummary summary, {
     bool preserveTextPositions = false,
+    bool preserveBookMetadata = false,
     Map<String, String> elementCfiMap = const {},
     bool requireNoDraft = false,
     bool Function()? isCancelled,
@@ -122,7 +127,7 @@ extension LibraryEditingOperations on LibraryStore {
         commit,
         analyzed.cssOnly,
         summary,
-        preserveBookMetadata: preserveTextPositions,
+        preserveBookMetadata: preserveBookMetadata || preserveTextPositions,
         requireNoDraft: requireNoDraft,
         isCancelled: isCancelled,
       );

@@ -5,6 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/editing/book_edit_repository.dart';
@@ -136,7 +137,10 @@ Future<void> _expectUnchanged(_Fixture f, BookRow before) async {
   if (await stages.exists()) {
     final abandoned = await stages
         .list()
-        .where((entry) => entry.path != File(before.sourcePath!).parent.path)
+        .where(
+          (entry) =>
+              !p.equals(entry.path, File(before.sourcePath!).parent.path),
+        )
         .toList();
     expect(abandoned, isEmpty);
   }
@@ -166,6 +170,45 @@ Future<void> _removeReimportedOriginal(_Fixture f, BookEntry current) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('段落写回不覆盖已有草稿，解除冲突后可重试且保留书架元数据', () async {
+    final fixture = await _fixture();
+    final entry = fixture.entry;
+    final repository = fixture.repository;
+    final progress = await fixture.db
+        .select(fixture.db.readingProgress)
+        .getSingle();
+    final edit = await repository.openParagraph(
+      entry.id,
+      entry.contentRevision!,
+      File(entry.filePath),
+      0,
+      progress.locatorCfi,
+      progress.locatorCfi,
+    );
+    addTearDown(edit.session.close);
+    final input = '${edit.initialText}补字';
+    await repository.saveDraft(
+      entry.id,
+      entry.contentRevision!,
+      (_) => {'保留': '草稿'},
+    );
+    await expectLater(
+      repository.saveParagraph(entry.id, edit, input),
+      throwsA(isA<LibraryImportException>()),
+    );
+    expect((await repository.openDraft(entry.id))!.data['保留'], '草稿');
+    expect(edit.session.changedPaths, isEmpty);
+    expect((await fixture.book).contentRevision, entry.contentRevision);
+    await repository.discardDraft(entry.id);
+    await fixture.db
+        .update(fixture.db.books)
+        .write(const BooksCompanion(title: Value('书架别名')));
+    await repository.saveParagraph(entry.id, edit, input);
+    final saved = await fixture.book;
+    expect(saved.title, '书架别名');
+    expect(saved.contentRevision, isNot(entry.contentRevision));
+  });
 
   test('正文和元数据保存保持书籍身份、迁移位置，原版与最近版可以恢复', () async {
     final f = await _fixture();

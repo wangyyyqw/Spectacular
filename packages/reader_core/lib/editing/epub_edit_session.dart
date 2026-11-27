@@ -238,14 +238,16 @@ class EpubEditSession {
     int spineIndex,
     String cfi, {
     bool preview = false,
+  }) => resolveEditableElements(spineIndex, [cfi], preview: preview).single;
+
+  List<EditableElementRef> resolveEditableElements(
+    int spineIndex,
+    List<String> cfis, {
+    bool preview = false,
   }) {
     final paths = preview ? previewPaths : spinePaths;
     if (spineIndex < 0 || spineIndex >= paths.length) {
       throw const EpubEditException('章节不存在');
-    }
-    final target = EpubCfi.parse(cfi);
-    if (target == null || target.isRange) {
-      throw const EpubEditException('需要精确的点 CFI');
     }
     final path = paths[spineIndex];
     final editable = editableDocument(path);
@@ -255,6 +257,18 @@ class EpubEditSession {
     );
     if (parsed.parseDiagnostics.isNotEmpty) {
       throw const EpubEditException('容错文档不能按 CFI 自动写入');
+    }
+    return [for (final cfi in cfis) _resolveElement(editable, parsed, cfi)];
+  }
+
+  EditableElementRef _resolveElement(
+    EditableDocument editable,
+    ParsedDocument parsed,
+    String cfi,
+  ) {
+    final target = EpubCfi.parse(cfi);
+    if (target == null || target.isRange) {
+      throw const EpubEditException('需要精确的点 CFI');
     }
     final node = parsed.nodeAtCfi(target);
     if (node == null ||
