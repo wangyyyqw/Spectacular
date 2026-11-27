@@ -156,7 +156,7 @@ void main() {
             );
             await pumpReaderUntil(
               tester,
-              find.byKey(const ValueKey('app-ui-style-setting')),
+              find.byKey(const ValueKey('theme-color-settings-entry')),
             );
             await tester.pumpAndSettle();
             expect(tester.takeException(), isNull, reason: '应用设置');

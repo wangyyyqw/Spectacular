@@ -214,6 +214,8 @@ void main() {
     expect(tester.state(find.byType(HomeShell)), same(shell));
     await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('主题外观'));
+    await tester.pumpAndSettle();
     expect(find.text('夜间模式'), findsOneWidget);
     await tester.tap(find.text('界面主题'));
     await tester.pumpAndSettle();

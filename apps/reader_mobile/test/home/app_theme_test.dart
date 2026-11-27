@@ -228,10 +228,16 @@ void main() {
     await tester.tap(settings);
     await tester.pumpAndSettle();
     final colors = find.byKey(const ValueKey('theme-color-settings-entry'));
+    expect(find.text('界面主题'), findsNothing);
+    expect(find.text('界面样式'), findsNothing);
     await tester.ensureVisible(colors);
     await tester.tap(colors);
     await tester.pumpAndSettle();
     final presetRow = find.widgetWithText(ListTile, '配色方案');
+    expect(find.widgetWithText(AppBar, '主题外观'), findsOneWidget);
+    for (final title in ['界面主题', '界面样式', '配色方案']) {
+      expect(tester.widget<ListTile>(find.widgetWithText(ListTile, title)).leading, isNull);
+    }
     Finder presetValue(String label) => find.descendant(
       of: find.byWidget(tester.widget<ListTile>(presetRow).trailing!),
       matching: find.text(label),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:reader_ui/icons/app_icon.dart';
@@ -74,8 +76,6 @@ class AppSettingsPage extends StatefulWidget {
 }
 
 class _AppSettingsPageState extends State<AppSettingsPage> {
-  bool _savingTheme = false;
-  bool _savingUiStyle = false;
   late ThemeMode _themeMode;
   late AppUiStyle _uiStyle;
   late String _appFontFamily;
@@ -118,34 +118,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       if (mounted) setState(() => _appFonts = fonts);
     } catch (error, stackTrace) {
       recordAppError('app_font_list_failed', error, stackTrace: stackTrace);
-    }
-  }
-
-  Future<void> _setTheme(ThemeMode selected) async {
-    setState(() => _savingTheme = true);
-    try {
-      await widget.onThemeModeChanged!(selected);
-      if (mounted) setState(() => _themeMode = selected);
-    } catch (error, stackTrace) {
-      recordAppError('theme_save_failed', error, stackTrace: stackTrace);
-    } finally {
-      if (mounted) setState(() => _savingTheme = false);
-    }
-  }
-
-  Future<void> _setUiStyle(AppUiStyle selected) async {
-    final onChanged =
-        AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
-        widget.onUiStyleChanged;
-    if (onChanged == null) return;
-    setState(() => _savingUiStyle = true);
-    try {
-      await onChanged(selected);
-      if (mounted) setState(() => _uiStyle = selected);
-    } catch (error, stackTrace) {
-      recordAppError('ui_style_save_failed', error, stackTrace: stackTrace);
-    } finally {
-      if (mounted) setState(() => _savingUiStyle = false);
     }
   }
 
@@ -259,8 +231,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   }
 
   Widget _appearance(BuildContext context) {
-    final mode = AppThemeScope.maybeOf(context)?.mode ?? _themeMode;
-    final uiStyle = AppThemeScope.maybeOf(context)?.uiStyle ?? _uiStyle;
     return ReaderSectionGroup(
       title: '外观',
       children: [
@@ -278,20 +248,36 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         ListTile(
           key: const ValueKey('theme-color-settings-entry'),
           leading: const AppIcon(AppGlyph.palette),
-          title: const Text('主题取色'),
+          title: const Text('主题外观'),
           trailing: const AppIcon(AppGlyph.chevronRight),
           onTap: () async {
             final shared = ThemeColorScope.maybeOf(context);
             final settings = shared ?? ThemeColorSettings(widget.library);
-            if (shared == null) await settings.initialize();
-            if (!context.mounted) {
-              if (shared == null) settings.dispose();
-              return;
+            if (shared == null) {
+              unawaited(settings.initialize().catchError((Object error, StackTrace stackTrace) {
+                recordAppError('theme_color_init_failed', error, stackTrace: stackTrace);
+              }));
             }
             try {
               await Navigator.of(context).push<void>(
                 MaterialPageRoute(
-                  builder: (_) => ThemeColorSettingsPage(settings: settings),
+                  builder: (_) => ThemeColorSettingsPage(
+                    settings: settings,
+                    themeMode: _themeMode,
+                    uiStyle: _uiStyle,
+                    onModeChanged: widget.onThemeModeChanged == null
+                        ? null
+                        : (mode) async {
+                            await widget.onThemeModeChanged!(mode);
+                            _themeMode = mode;
+                          },
+                    onStyleChanged: widget.onUiStyleChanged == null
+                        ? null
+                        : (style) async {
+                            await widget.onUiStyleChanged!(style);
+                            _uiStyle = style;
+                          },
+                  ),
                 ),
               );
             } finally {
@@ -299,32 +285,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             }
           },
         ),
-        if (widget.onThemeModeChanged != null)
-          SettingsChoiceTile<ThemeMode>(
-            title: '界面主题',
-            current: mode,
-            values: ThemeMode.values,
-            label: (mode) => switch (mode) {
-              ThemeMode.system => '跟随系统',
-              ThemeMode.light => '日间模式',
-              ThemeMode.dark => '夜间模式',
-            },
-            onChanged: _savingTheme ? null : _setTheme,
-          ),
-        if ((AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
-                widget.onUiStyleChanged) !=
-            null)
-          SettingsChoiceTile<AppUiStyle>(
-            key: const ValueKey('app-ui-style-setting'),
-            title: '界面样式',
-            current: uiStyle,
-            values: AppUiStyle.values,
-            label: (style) => switch (style) {
-              AppUiStyle.classic => '经典',
-              AppUiStyle.material3 => 'Material 3',
-            },
-            onChanged: _savingUiStyle ? null : _setUiStyle,
-          ),
         if (widget.appFontStore != null &&
             widget.onAppFontFamilyChanged != null)
           ListTile(

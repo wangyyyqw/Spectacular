@@ -292,6 +292,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(find.text('界面主题'), findsNothing);
+      await tester.tap(find.text('主题外观'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('界面主题'));
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);

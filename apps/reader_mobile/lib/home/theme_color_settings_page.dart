@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/theme/reader_ui_components.dart';
 
@@ -9,9 +8,20 @@ import 'settings_choice_tile.dart';
 
 /// 全局壁纸与阅读背景独立取色。
 class ThemeColorSettingsPage extends StatefulWidget {
-  const ThemeColorSettingsPage({super.key, required this.settings});
+  const ThemeColorSettingsPage({
+    super.key,
+    required this.settings,
+    this.themeMode = ThemeMode.system,
+    this.uiStyle = AppUiStyle.classic,
+    this.onModeChanged,
+    this.onStyleChanged,
+  });
 
   final ThemeColorSettings settings;
+  final ThemeMode themeMode;
+  final AppUiStyle uiStyle;
+  final Future<void> Function(ThemeMode)? onModeChanged;
+  final Future<void> Function(AppUiStyle)? onStyleChanged;
 
   @override
   State<ThemeColorSettingsPage> createState() => _ThemeColorSettingsPageState();
@@ -19,6 +29,8 @@ class ThemeColorSettingsPage extends StatefulWidget {
 
 class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
   bool _saving = false;
+  late ThemeMode _mode = widget.themeMode;
+  late AppUiStyle _style = widget.uiStyle;
 
   Future<void> _save(Future<void> Function() action) async {
     setState(() => _saving = true);
@@ -27,7 +39,7 @@ class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('取色设置保存失败，请重试')));
+            .showSnackBar(const SnackBar(content: Text('主题外观保存失败，请重试')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -41,38 +53,64 @@ class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
       final settings = widget.settings;
       final scope = AppThemeScope.maybeOf(context);
       final selectPreset = scope?.onPresetChanged;
+      final selectMode = scope?.onModeChanged ?? widget.onModeChanged;
+      final selectStyle = scope?.onUiStyleChanged ?? widget.onStyleChanged;
       return ReaderSettingsScaffold(
-        title: const Text('主题取色'),
+        title: const Text('主题外观'),
         children: [
-          if (scope != null && selectPreset != null) ...[
+          if (selectMode != null ||
+              selectStyle != null ||
+              selectPreset != null) ...[
             ReaderSectionGroup(
-              title: '软件配色',
+              title: '界面设置',
               children: [
-                SettingsChoiceTile<AppThemePreset>(
-                  key: const ValueKey('theme-preset-setting'),
-                  title: '配色方案',
-                  current: scope.preset,
-                  values: AppThemePreset.presets,
-                  label: (preset) => preset.name,
-                  optionKey: (preset) => ValueKey('theme-preset-${preset.id}'),
-                  optionBuilder: (preset) => Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      AppIcon(
-                        AppGlyph.palette,
-                        size: 18,
-                        color: preset
-                            .previewFor(Theme.of(context).brightness)
-                            .accent,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(child: Text(preset.name)),
-                    ],
+                if (selectMode != null)
+                  SettingsChoiceTile<ThemeMode>(
+                    title: '界面主题',
+                    current: scope?.mode ?? _mode,
+                    values: ThemeMode.values,
+                    label: (mode) => switch (mode) {
+                      ThemeMode.system => '跟随系统',
+                      ThemeMode.light => '日间模式',
+                      ThemeMode.dark => '夜间模式',
+                    },
+                    onChanged: _saving
+                        ? null
+                        : (mode) => _save(() async {
+                            await selectMode(mode);
+                            _mode = mode;
+                          }),
                   ),
-                  onChanged: _saving
-                      ? null
-                      : (preset) => _save(() => selectPreset(preset)),
-                ),
+                if (selectStyle != null)
+                  SettingsChoiceTile<AppUiStyle>(
+                    key: const ValueKey('app-ui-style-setting'),
+                    title: '界面样式',
+                    current: scope?.uiStyle ?? _style,
+                    values: AppUiStyle.values,
+                    label: (style) => switch (style) {
+                      AppUiStyle.classic => '经典',
+                      AppUiStyle.material3 => 'Material 3',
+                    },
+                    onChanged: _saving
+                        ? null
+                        : (style) => _save(() async {
+                            await selectStyle(style);
+                            _style = style;
+                          }),
+                  ),
+                if (scope != null && selectPreset != null)
+                  SettingsChoiceTile<AppThemePreset>(
+                    key: const ValueKey('theme-preset-setting'),
+                    title: '配色方案',
+                    current: scope.preset,
+                    values: AppThemePreset.presets,
+                    label: (preset) => preset.name,
+                    optionKey: (preset) =>
+                        ValueKey('theme-preset-${preset.id}'),
+                    onChanged: _saving
+                        ? null
+                        : (preset) => _save(() => selectPreset(preset)),
+                  ),
               ],
             ),
             const SizedBox(height: ReaderUiTokens.spacingXl),

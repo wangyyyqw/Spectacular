@@ -123,6 +123,10 @@ void main() {
         );
         expect(_style(tester, reviewTitle).fontFamily, primary.fontFamily);
         await _select(tester, '我的');
+        await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('主题外观'));
+        await tester.pumpAndSettle();
         expect(_style(tester, find.text('界面主题')).fontSize, primary.fontSize);
         final mode = find.text('跟随系统');
         expect(_style(tester, mode).fontSize, secondary.fontSize);

@@ -10,7 +10,6 @@ class SettingsChoiceTile<T> extends StatelessWidget {
     required this.values,
     required this.label,
     required this.onChanged,
-    this.optionBuilder,
     this.optionKey,
   });
 
@@ -19,12 +18,10 @@ class SettingsChoiceTile<T> extends StatelessWidget {
   final List<T> values;
   final String Function(T) label;
   final ValueChanged<T>? onChanged;
-  final Widget Function(T)? optionBuilder;
   final Key Function(T)? optionKey;
 
   @override
   Widget build(BuildContext context) => ListTile(
-    leading: const AppIcon(AppGlyph.palette),
     title: Text(title),
     trailing: SettingsTrailingValue(label(current)),
     onTap: onChanged == null
@@ -38,7 +35,7 @@ class SettingsChoiceTile<T> extends StatelessWidget {
                   DropdownMenuItem(
                     key: optionKey?.call(value),
                     value: value,
-                    child: optionBuilder?.call(value) ?? Text(label(value)),
+                    child: Text(label(value)),
                   ),
               ],
             );

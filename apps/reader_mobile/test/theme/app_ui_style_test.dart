@@ -75,6 +75,8 @@ void main() {
         find.byKey(const ValueKey('profile-settings-entry')),
       );
       await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
+      await pumpReaderUntil(tester, find.text('主题外观'));
+      await tester.tap(find.text('主题外观'));
       await pumpReaderUntil(
         tester,
         find.byKey(const ValueKey('app-ui-style-setting')),
@@ -110,6 +112,8 @@ void main() {
       tester.widget<MaterialApp>(find.byType(MaterialApp)).theme!.useMaterial3,
       isTrue,
     );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsOneWidget);
@@ -149,6 +153,9 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+    expect(find.text('界面样式'), findsNothing);
+    await tester.tap(find.text('主题外观'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('app-ui-style-setting')));
     await tester.pumpAndSettle();

@@ -50,6 +50,8 @@ Future<void> _openProfile(WidgetTester tester) async {
   await _pumpApp(tester);
   await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
   await _pumpApp(tester);
+  await tester.tap(find.text('主题外观'));
+  await _pumpApp(tester);
   await tester.ensureVisible(find.text('界面主题'));
   await _pumpApp(tester);
 }
