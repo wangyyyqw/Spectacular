@@ -3,7 +3,73 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import 'reader_frosted_surface.dart';
 import 'reader_ui_style.dart';
+
+Future<T?> showReaderChoiceMenu<T>(
+  BuildContext context, {
+  required List<DropdownMenuItem<T>> items,
+  required T? value,
+}) {
+  final theme = Theme.of(context);
+  final button = context.findRenderObject()! as RenderBox;
+  final overlay =
+      Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
+  final width = math.min(144.0, math.max(0.0, overlay.size.width - 16));
+  final anchor = button.localToGlobal(
+    button.size.topRight(Offset.zero),
+    ancestor: overlay,
+  );
+  return showMenu<T>(
+    context: context,
+    position: RelativeRect.fromRect(
+      anchor.translate(-width, 0) & Size(width, button.size.height),
+      Offset.zero & overlay.size,
+    ),
+    constraints: BoxConstraints(
+      minWidth: width,
+      maxWidth: width,
+      maxHeight: MediaQuery.sizeOf(context).height * .6,
+    ),
+    color: theme.colorScheme.surface,
+    surfaceTintColor: Colors.transparent,
+    elevation: 3,
+    shape: theme.popupMenuTheme.shape ?? ReaderUiStyle.controlShapeOf(theme),
+    clipBehavior: Clip.antiAlias,
+    popUpAnimationStyle:
+        ReaderFrostedScope.inkModeOf(context) ||
+            MediaQuery.disableAnimationsOf(context)
+        ? AnimationStyle.noAnimation
+        : null,
+    items: [
+      for (final item in items)
+        PopupMenuItem<T>(
+          key: item.key,
+          value: item.value,
+          enabled: item.enabled,
+          onTap: item.onTap,
+          height: 52,
+          child: Semantics(
+            selected: item.value == value,
+            child: Center(
+              child: DefaultTextStyle(
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  fontSize: 14,
+                  color: !item.enabled
+                      ? theme.disabledColor
+                      : item.value == value
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface,
+                ),
+                textAlign: TextAlign.center,
+                child: item.child,
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
 
 /// 选择框与书源菜单共用圆角浮层，保留当前项、键盘和菜单滚动行为。
 class ReaderDropdownButton<T> extends StatelessWidget {
@@ -43,103 +109,37 @@ class ReaderDropdownButton<T> extends StatelessWidget {
         icon ?? const AppIcon(AppGlyph.chevronDown, size: 20),
       ],
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final available = math.max(48.0, MediaQuery.sizeOf(context).width - 32);
-        final width = constraints.hasBoundedWidth && expanded
-            ? math.min(constraints.maxWidth, available)
-            : math.min(280.0, available);
-        return PopupMenuButton<T>(
-          enabled: enabled,
-          tooltip: decoration?.labelText ?? '选择',
-          position: PopupMenuPosition.under,
-          clipBehavior: Clip.antiAlias,
-          color: theme.popupMenuTheme.color ?? theme.colorScheme.surface,
-          surfaceTintColor: Colors.transparent,
-          elevation: theme.popupMenuTheme.elevation ?? 2,
-          shape:
-              theme.popupMenuTheme.shape ??
-              RoundedRectangleBorder(
-                borderRadius: ReaderUiStyle.popupRadiusOf(theme),
-              ),
-          constraints: BoxConstraints(
-            minWidth: width,
-            maxWidth: width,
-            maxHeight: MediaQuery.sizeOf(context).height * .6,
-          ),
-          onSelected: onChanged,
-          itemBuilder: (_) => [
-            for (final item in items)
-              PopupMenuItem<T>(
-                value: item.value,
-                enabled: item.enabled,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Semantics(
-                  selected: item.value == value,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 2),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: item.value == value
-                          ? theme.colorScheme.primaryContainer
-                          : Colors.transparent,
-                      borderRadius: ReaderUiStyle.controlRadiusOf(theme),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: DefaultTextStyle(
-                            style: theme.textTheme.bodyMedium!.copyWith(
-                              color: item.enabled
-                                  ? item.value == value
-                                        ? theme.colorScheme.onPrimaryContainer
-                                        : theme.colorScheme.onSurface
-                                  : theme.disabledColor,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            child: item.child,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox.square(
-                          dimension: 20,
-                          child: item.value == value
-                              ? AppIcon(
-                                  AppGlyph.check,
-                                  size: 18,
-                                  color: theme.colorScheme.onPrimaryContainer,
-                                )
-                              : null,
-                        ),
-                      ],
-                    ),
+    return Tooltip(
+      message: decoration?.labelText ?? '选择',
+      child: InkWell(
+        onTap: !enabled
+            ? null
+            : () async {
+                final selected = await showReaderChoiceMenu(
+                  context,
+                  items: items,
+                  value: value,
+                );
+                if (context.mounted && selected != null) onChanged!(selected);
+              },
+        child: decoration == null
+            ? ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: DefaultTextStyle(
+                  style: theme.textTheme.bodyMedium!.copyWith(
+                    color: enabled
+                        ? theme.colorScheme.onSurface
+                        : theme.disabledColor,
                   ),
-                ),
-              ),
-          ],
-          child: decoration == null
-              ? ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 44),
-                  child: DefaultTextStyle(
-                    style: theme.textTheme.bodyMedium!.copyWith(
-                      color: enabled
-                          ? theme.colorScheme.onSurface
-                          : theme.disabledColor,
-                    ),
-                    child: content,
-                  ),
-                )
-              : InputDecorator(
-                  decoration: decoration!.copyWith(enabled: enabled),
-                  isEmpty: selected == null,
                   child: content,
                 ),
-        );
-      },
+              )
+            : InputDecorator(
+                decoration: decoration!.copyWith(enabled: enabled),
+                isEmpty: selected == null,
+                child: content,
+              ),
+      ),
     );
   }
 }

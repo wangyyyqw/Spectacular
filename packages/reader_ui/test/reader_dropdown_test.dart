@@ -56,6 +56,20 @@ void main() {
         await tester.tap(field);
         await tester.pumpAndSettle();
         final menu = find.byType(PopupMenuItem<String>);
+        expect(tester.getSize(menu.first), const Size(144, 52));
+        expect(tester.getRect(menu.first).right, tester.getRect(field).right);
+        final selectedText = find.descendant(
+          of: menu.first,
+          matching: find.text('第一项'),
+        );
+        expect(
+          tester.getCenter(selectedText).dx,
+          tester.getCenter(menu.first).dx,
+        );
+        expect(
+          DefaultTextStyle.of(tester.element(selectedText)).style.color,
+          Theme.of(tester.element(field)).colorScheme.primary,
+        );
         final surface = tester
             .widgetList<Material>(
               find.ancestor(of: menu.first, matching: find.byType(Material)),

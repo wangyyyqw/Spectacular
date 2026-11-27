@@ -21,6 +21,7 @@ import '../page_furniture/corner_info.dart';
 import '../tap_zones.dart';
 import '../theme/reader_background.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_dropdown.dart';
 import '../theme/reader_ui_style.dart';
 import '../theme/reader_theme.dart';
 import 'custom_theme_dialog.dart';
@@ -1633,8 +1634,6 @@ class _OutlinedThumbShape extends SliderComponentShape {
 }
 
 class _SettingsChoiceRow<T> extends StatelessWidget {
-  static const _menuWidth = 144.0;
-
   const _SettingsChoiceRow({
     super.key,
     required this.label,
@@ -1702,69 +1701,15 @@ class _SettingsChoiceRow<T> extends StatelessWidget {
   );
 
   Future<void> _showMenu(BuildContext context) async {
-    final theme = Theme.of(context);
-    final button = context.findRenderObject()! as RenderBox;
-    final overlay =
-        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
-    final anchor = button.localToGlobal(
-      button.size.topRight(Offset.zero),
-      ancestor: overlay,
-    );
     onMenuVisibilityChanged?.call(true);
     try {
-      final result = await showMenu<T>(
-        context: context,
-        position: RelativeRect.fromRect(
-          anchor.translate(-_menuWidth, 0) &
-              Size(_menuWidth, button.size.height),
-          Offset.zero & overlay.size,
-        ),
-        items: _menuItems(theme),
-        constraints: BoxConstraints(
-          minWidth: _menuWidth,
-          maxWidth: _menuWidth,
-          maxHeight: MediaQuery.sizeOf(context).height * .6,
-        ),
-        color: theme.colorScheme.surface,
-        surfaceTintColor: Colors.transparent,
-        elevation: 3,
-        shape:
-            theme.popupMenuTheme.shape ?? ReaderUiStyle.controlShapeOf(theme),
-        clipBehavior: Clip.antiAlias,
-        popUpAnimationStyle:
-            ReaderFrostedScope.inkModeOf(context) ||
-                MediaQuery.disableAnimationsOf(context)
-            ? AnimationStyle.noAnimation
-            : null,
-      );
+      final result = await showReaderChoiceMenu(context, items: items, value: value);
       if (context.mounted && result != null) onChanged!(result);
     } finally {
       onMenuVisibilityChanged?.call(false);
     }
   }
 
-  List<PopupMenuEntry<T>> _menuItems(ThemeData theme) => [
-    for (final item in items)
-      PopupMenuItem<T>(
-        key: item.key,
-        value: item.value,
-        height: 52,
-        child: Semantics(
-          selected: item.value == value,
-          child: Center(
-            child: DefaultTextStyle(
-              style: theme.textTheme.bodyMedium!.copyWith(
-                fontSize: 14,
-                color: item.value == value
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface,
-              ),
-              child: item.child,
-            ),
-          ),
-        ),
-      ),
-  ];
 }
 
 class _SettingsDivider extends StatelessWidget {
