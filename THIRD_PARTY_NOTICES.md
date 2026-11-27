@@ -30,7 +30,9 @@
 
 ## 本地词典组件
 
-MDX/MDD 解析使用 [dict_reader 1.7.1](https://pub.dev/packages/dict_reader/versions/1.7.1)（MIT，Copyright 2024 Mumulhl），源码与许可见 [上游仓库](https://github.com/mumu-lhl/dict_reader)。依赖许可证保留在包内，并由 Flutter 许可清单收集。测试只生成自有的最小二进制词库，不随应用提供或分发第三方词典数据；用户导入的词库仍受其原始许可约束。
+MDX/MDD 解析使用 [dict_reader 1.7.1](https://pub.dev/packages/dict_reader/versions/1.7.1)（MIT，Copyright 2024 Mumulhl），源码与许可见 [上游仓库](https://github.com/mumu-lhl/dict_reader)。在线词典响应编码使用 [charset 2.0.1](https://pub.dev/packages/charset/versions/2.0.1)（Apache-2.0）。依赖许可证保留在包内，并由 Flutter 许可清单收集。测试只生成自有的最小二进制词库，不随应用提供或分发第三方词典数据；用户导入的词库和在线规则仍受其原始许可与站点条款约束。
+
+内置在线词典规则由用户提供的导出文件整理，只包含查询地址和提取配置，不包含词典正文。查询结果由对应站点实时返回，正文版权归各站点或原作者；规则失效时应停用，不表示与相关站点存在合作或授权关系。
 
 ## 内置思源宋体
 

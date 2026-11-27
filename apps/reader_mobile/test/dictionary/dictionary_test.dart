@@ -1,14 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_mobile/dictionary/dictionary_client.dart';
+import 'package:reader_mobile/dictionary/dictionary_rule.dart';
+import 'package:reader_mobile/dictionary/dictionary_rule_client.dart';
+import 'package:reader_mobile/dictionary/dictionary_rule_html.dart';
 import 'package:reader_mobile/dictionary/dictionary_sheet.dart';
 import 'package:reader_mobile/dictionary/dictionary_settings_page.dart';
 import 'package:reader_mobile/dictionary/dictionary_store.dart';
+import 'package:reader_mobile/dictionary/local_dictionary_store.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 
@@ -37,7 +43,214 @@ Future<DictionaryStore> configured({bool singleUse = true}) async {
   return store;
 }
 
+const _localEntry = LocalDictionaryEntry(
+  id: 'local-test',
+  name: '离线词典',
+  digest: 'test',
+  wordCount: 1,
+);
+
+class _LocalMissStore extends LocalDictionaryStore {
+  _LocalMissStore(super.library);
+  @override
+  Future<List<LocalDictionaryEntry>> load() async => [_localEntry];
+  @override
+  Future<LocalDictionarySession> open(LocalDictionaryEntry entry) async =>
+      _LocalMissSession();
+}
+
+class _LocalMissSession extends LocalDictionarySession {
+  _LocalMissSession() : super(_localEntry, Directory('unused'));
+  @override
+  Future<String?> lookup(String text) async => null;
+  @override
+  List<String> suggest(String text) => [];
+  @override
+  Future<void> close() async {}
+}
+
 void main() {
+  test('停用当前服务后只选择已启用服务，全部停用后不发起查询', () async {
+    final store = await configured();
+    await store.changeSettings((s) => s.copyWith(apiId: api.id));
+    await store.saveApi(
+      DictionaryApi(
+        id: api.id,
+        name: api.name,
+        baseUrl: api.baseUrl,
+        apiKey: api.apiKey,
+        model: api.model,
+        enabled: false,
+      ),
+    );
+    expect((await store.load()).api, isNull);
+    await store.saveApi(
+      const DictionaryApi(
+        id: 'enabled',
+        name: '可用',
+        baseUrl: 'https://e.test',
+        apiKey: 'test',
+        model: 'model',
+      ),
+    );
+    expect((await store.load()).api!.id, 'enabled');
+  });
+
+  testWidgets('在线词典规则可与 AI 来源切换，规则失败不阻塞 AI', (tester) async {
+    final store = await configured();
+    const rule = DictionaryRule(
+      id: 'online',
+      name: '在线测试',
+      url: 'https://r.test/?q={{word}}',
+      extract: DictionaryExtractMode.text,
+      format: DictionaryResultFormat.text,
+    );
+    await store.saveRule(rule);
+    await store.changeSettings((s) => s.copyWith(sourceId: rule.sourceId));
+    final loaded = await store.load();
+    expect(loaded.settings.sourceId, rule.sourceId);
+    expect(loaded.rules.where((item) => !item.builtIn), hasLength(1));
+    var aiCalls = 0;
+    final ai = DictionaryClient(
+      client: MockClient((_) async {
+        aiCalls++;
+        return answer('AI 释义');
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DictionarySheet(
+            store: store,
+            text: '测试',
+            client: ai,
+            ruleClientFactory: () => DictionaryRuleClient(
+              client: MockClient(
+                (_) async => http.Response(
+                  '服务异常',
+                  500,
+                  headers: {'content-type': 'text/plain; charset=utf-8'},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('在线 · 在线测试'), findsOneWidget);
+    expect(find.textContaining('HTTP 500'), findsOneWidget);
+    expect(aiCalls, 0);
+    await tester.tap(find.byKey(const ValueKey('dictionary-source-ai:one')));
+    await tester.pumpAndSettle();
+    expect(find.text('AI 释义'), findsOneWidget);
+    expect(aiCalls, 1);
+    expect((await store.load()).settings.sourceId, 'ai:one');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('在线词典纯文本结果正常显示并记住来源', (tester) async {
+    final store = await configured();
+    const rule = DictionaryRule(
+      id: 'online',
+      name: '在线测试',
+      url: 'https://r.test/?q={{word}}',
+      extract: DictionaryExtractMode.text,
+      format: DictionaryResultFormat.text,
+    );
+    await store.saveRule(rule);
+    await store.changeSettings((s) => s.copyWith(sourceId: rule.sourceId));
+    var calls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DictionarySheet(
+            store: store,
+            text: '测试',
+            ruleClientFactory: () => DictionaryRuleClient(
+              client: MockClient((request) async {
+                calls++;
+                expect(request.url.queryParameters['q'], '测试');
+                return http.Response(
+                  '在线释义',
+                  200,
+                  headers: {'content-type': 'text/plain; charset=utf-8'},
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('在线释义'), findsOneWidget);
+    expect(calls, 1);
+    expect((await store.load()).settings.sourceId, rule.sourceId);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('在线 HTML 清理脚本、事件、文件协议并注入基地址和 CSP', () {
+    final source = buildRuleDictionaryHtml(
+      '<html><body onload="x()"><script>alert(1)</script>'
+      '<img src="pic.png" onerror="x()"><a href="javascript:x()">危险</a>'
+      '<iframe src="file:///private"></iframe></body></html>',
+      Uri.parse('https://e.test/dict/'),
+    );
+    final document = html.parse(source);
+    expect(document.querySelector('script'), isNull);
+    expect(document.querySelector('iframe'), isNull);
+    expect(document.querySelector('img')!.attributes['onerror'], isNull);
+    expect(
+      document.querySelector('base')!.attributes['href'],
+      'https://e.test/dict/',
+    );
+    expect(
+      document.querySelector('a')!.attributes.containsKey('href'),
+      isFalse,
+    );
+    expect(
+      document
+          .querySelector('meta[http-equiv="Content-Security-Policy"]')!
+          .attributes['content'],
+      contains("default-src 'none'"),
+    );
+  });
+
+  testWidgets('优先离线查询，未命中不自动发送 AI，手动切换来源才请求并保存选择', (tester) async {
+    var requests = 0;
+    final configuredStore = await configured();
+    final store = DictionaryStore(
+      configuredStore.library,
+      localDictionaries: _LocalMissStore(configuredStore.library),
+    );
+    final client = DictionaryClient(
+      client: MockClient((_) async {
+        requests++;
+        return answer('AI 释义');
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DictionarySheet(store: store, text: '未收录词语', client: client),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('本地词典未找到该词条。可修改词语、切换词典，或手动选择 AI 释义。'), findsOneWidget);
+    expect(requests, 0);
+    await tester.tap(
+      find.byKey(const ValueKey('dictionary-source-local:local-test')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('AI · 测试服务').last);
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    expect(find.text('AI 释义'), findsOneWidget);
+    expect((await store.load()).settings.sourceId, 'ai:one');
+    expect(tester.takeException(), isNull);
+  });
+
   test('迁移 URL、预设替换与模型列表的兼容行为', () async {
     expect(
       DictionaryClient.endpoint('https://e.test'),
@@ -292,8 +505,43 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('请先配置词典释义服务，再查询选中文字。'), findsOneWidget);
+    expect(find.text('请选择上方词典来源后查询。'), findsOneWidget);
     expect(find.text('词典设置'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('在线词典规则可新增并保存 URL 与提取配置', (tester) async {
+    final store = DictionaryStore(LibraryStore.memory());
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: DictionarySettingsPage(store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('dictionary-rule-add')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const ValueKey('dictionary-rule-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('dictionary-rule-name')),
+      '测试在线词典',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('dictionary-rule-url')),
+      'https://e.test/search?q={{word}}',
+    );
+    await tester.tap(find.byKey(const ValueKey('dictionary-rule-save')));
+    await tester.pumpAndSettle();
+    final rule = (await store.load()).rules
+        .where((rule) => !rule.builtIn)
+        .single;
+    expect(rule.name, '测试在线词典');
+    expect(rule.url, contains('{{word}}'));
+    expect(rule.enabled, isTrue);
     expect(tester.takeException(), isNull);
   });
 
