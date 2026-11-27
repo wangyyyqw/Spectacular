@@ -91,25 +91,14 @@ Future<bool> editorConfirm(
   BuildContext context,
   String title,
   String message,
-) async =>
-    await _showEditorDialog<bool>(
+) =>
+    showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    ) ??
-    false;
+      title: title,
+      message: message,
+      confirmLabel: '确定',
+      waitForDismissal: true,
+    );
 
 /// 工作台与手机段落面板共用的书籍管理命令入口。
 class BookEditorTools {

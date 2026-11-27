@@ -88,7 +88,9 @@ void main() {
       tester.element(find.byKey(const ValueKey('book-detail-open-page'))),
     ).colorScheme;
     for (final card in [panel, deletePanel]) {
-      final material = tester.widget<Material>(card);
+      final material = tester.widget<Material>(
+        find.descendant(of: card, matching: find.byType(Material)).first,
+      );
       final shape = material.shape! as RoundedRectangleBorder;
       expect(shape.borderRadius, BorderRadius.circular(20));
       expect(shape.side.color, scheme.outlineVariant);

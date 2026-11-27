@@ -9,6 +9,43 @@ import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 void main() {
+  testWidgets('公共确认弹窗保留取消与确认结果并等待退场', (tester) async {
+    final results = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                results.add(await showReaderConfirmDialog(
+                  context: context,
+                  title: '删除资源？',
+                  message: '正文中的引用将失效。',
+                  cancelLabel: '保留资源',
+                  confirmLabel: '删除资源',
+                  waitForDismissal: true,
+                ));
+              },
+              child: const Text('打开确认'),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (final label in ['保留资源', '删除资源']) {
+      await tester.tap(find.text('打开确认'));
+      await tester.pumpAndSettle();
+      final previousCount = results.length;
+      await tester.tap(find.text(label));
+      await tester.pump();
+      expect(results, hasLength(previousCount));
+      await tester.pumpAndSettle();
+      expect(find.byType(ReaderFrostedAlertDialog), findsNothing);
+    }
+    expect(results, [false, true]);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final platform in [
     TargetPlatform.android,
     TargetPlatform.macOS,

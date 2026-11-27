@@ -14,6 +14,7 @@ import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import 'book_cover_image.dart';
 import 'book_lists_view.dart';
+import 'book_rating.dart';
 import 'finish_book_sheet.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
@@ -388,23 +389,13 @@ class _BookDetailPageState extends State<BookDetailPage> {
     if (progressStore == null) {
       return;
     }
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('取消读完标记？'),
-        content: const Text('书评和评分会保留，阅读进度不会改变。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('保留'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('book-detail-unmark-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('取消标记'),
-          ),
-        ],
-      ),
+      title: '取消读完标记？',
+      message: '书评和评分会保留，阅读进度不会改变。',
+      cancelLabel: '保留',
+      confirmLabel: '取消标记',
+      confirmKey: const ValueKey<String>('book-detail-unmark-confirm'),
     );
     if (confirmed != true || !mounted) {
       return;
@@ -1152,7 +1143,11 @@ class _ReadingStatusSection extends StatelessWidget {
                 ),
               ),
               if (review?.rating != null)
-                _ReviewStars(rating: review!.rating!, size: 18),
+                BookRatingStars(
+                  rating: review!.rating!,
+                  filledColor: theme.colorScheme.onSurface,
+                  emptyColor: theme.colorScheme.outlineVariant,
+                ),
             ],
           ),
           if (content.isNotEmpty) ...<Widget>[
@@ -1203,31 +1198,6 @@ class _ReadingStatusSection extends StatelessWidget {
           ],
         ],
       ),
-    );
-  }
-}
-
-class _ReviewStars extends StatelessWidget {
-  const _ReviewStars({required this.rating, required this.size});
-
-  final int rating;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        for (var star = 1; star <= 5; star++)
-          AppIcon(
-            AppGlyph.star,
-            filled: star <= rating,
-            size: size,
-            color: star <= rating
-                ? Theme.of(context).colorScheme.onSurface
-                : Theme.of(context).colorScheme.outlineVariant,
-          ),
-      ],
     );
   }
 }

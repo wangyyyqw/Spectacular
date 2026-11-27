@@ -90,27 +90,17 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
       return;
     }
     _dialogVisible = true;
-    final discard = await showReaderDialog<bool>(
+    final discard = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('放弃未保存的想法？'),
-        content: const Text('想法内容或划线外观还没有保存，离开后本次输入会丢失。'),
-        actions: [
-          TextButton(
-            key: const ValueKey<String>('note-discard-cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('继续编辑'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('note-discard-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放弃想法'),
-          ),
-        ],
-      ),
+      title: '放弃未保存的想法？',
+      message: '想法内容或划线外观还没有保存，离开后本次输入会丢失。',
+      cancelLabel: '继续编辑',
+      confirmLabel: '放弃想法',
+      cancelKey: const ValueKey<String>('note-discard-cancel'),
+      confirmKey: const ValueKey<String>('note-discard-confirm'),
     );
     _dialogVisible = false;
-    if (discard == true && mounted) _pop();
+    if (discard && mounted) _pop();
   }
 
   void _save() => _pop(

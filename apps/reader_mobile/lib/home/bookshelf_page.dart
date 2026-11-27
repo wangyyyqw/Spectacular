@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:reader_ui/annotations/text_value_dialog.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_common_widgets.dart';
@@ -338,7 +339,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }) {
     return showReaderDialog<String>(
       context: context,
-      builder: (_) => _GroupNameDialog(title: title, initial: initial),
+      builder: (_) => ReaderTextValueDialog(
+        title: title,
+        label: '分组名称',
+        hintText: '例如：小说、待读',
+        initialValue: initial,
+        inputKey: const ValueKey<String>('bookshelf-group-name-field'),
+        saveKey: const ValueKey<String>('bookshelf-group-name-confirm'),
+        confirmLabel: '确定',
+        disableWhenEmpty: true,
+        submitOnEnter: true,
+        validate: (value) => value.isEmpty ? '请输入分组名称' : null,
+      ),
     );
   }
 
@@ -1918,65 +1930,6 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
       ?current,
     ],
   );
-}
-
-class _GroupNameDialog extends StatefulWidget {
-  const _GroupNameDialog({required this.title, required this.initial});
-
-  final String title;
-  final String initial;
-
-  @override
-  State<_GroupNameDialog> createState() => _GroupNameDialogState();
-}
-
-class _GroupNameDialogState extends State<_GroupNameDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initial,
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final name = _controller.text.trim();
-    if (name.isNotEmpty) {
-      Navigator.of(context).pop(name);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ReaderFrostedAlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        key: const ValueKey<String>('bookshelf-group-name-field'),
-        controller: _controller,
-        autofocus: true,
-        textInputAction: TextInputAction.done,
-        decoration: const InputDecoration(
-          labelText: '分组名称',
-          hintText: '例如：小说、待读',
-        ),
-        onChanged: (_) => setState(() {}),
-        onSubmitted: (_) => _submit(),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          key: const ValueKey<String>('bookshelf-group-name-confirm'),
-          onPressed: _controller.text.trim().isEmpty ? null : _submit,
-          child: const Text('确定'),
-        ),
-      ],
-    );
-  }
 }
 
 class _BookGroupSheet extends StatefulWidget {

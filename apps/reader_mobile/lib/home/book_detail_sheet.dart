@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:reader_ui/theme/reader_ui_style.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 
@@ -206,88 +206,85 @@ class _DetailMenuState extends State<_DetailMenu> {
   late final Future<bool> _rechapter = TxtBookService(widget.library)
       .canRechapter(widget.entry);
 
-  Widget _card(List<Widget> children, {Key? key}) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      key: key,
-      color: scheme.surface,
-      shape: ReaderUiStyle.cardShapeOf(Theme.of(context)),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-
   @override
   Widget build(BuildContext context) => FutureBuilder<bool>(
     future: _rechapter,
     builder: (context, snapshot) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _card(key: const ValueKey('book-detail-actions'), [
-          _DetailActionPair(
-            left: _DetailAction(
-              key: const ValueKey<String>('book-detail-booklists'),
-              icon: AppGlyph.bookmarkAdd,
-              label: '加入书单',
-              onTap: () => Navigator.of(context).pop('booklists'),
+        ReaderSectionCard(
+          key: const ValueKey('book-detail-actions'),
+          divided: false,
+          children: [
+            _DetailActionPair(
+              left: _DetailAction(
+                key: const ValueKey<String>('book-detail-booklists'),
+                icon: AppGlyph.bookmarkAdd,
+                label: '加入书单',
+                onTap: () => Navigator.of(context).pop('booklists'),
+              ),
+              right: _DetailAction(
+                key: const ValueKey<String>('book-detail-open-page'),
+                icon: AppGlyph.menuBook,
+                label: '详情',
+                onTap: () => Navigator.of(context).pop('detail'),
+              ),
             ),
-            right: _DetailAction(
-              key: const ValueKey<String>('book-detail-open-page'),
-              icon: AppGlyph.menuBook,
-              label: '详情',
-              onTap: () => Navigator.of(context).pop('detail'),
-            ),
-          ),
-          const _MenuDivider(),
-          _DetailActionPair(
-            left: _DetailAction(
-              key: const ValueKey<String>('book-detail-create-group'),
-              icon: AppGlyph.folderMove,
-              label: '分组',
-              onTap: () => Navigator.of(context).pop('create-group'),
-            ),
-            right: _DetailAction(
-              key: const ValueKey<String>('book-detail-pin'),
-              icon: AppGlyph.pushPin,
-              label: widget.pinned ? '取消置顶' : '置顶',
-              onTap: () => Navigator.of(context).pop('pin'),
-            ),
-          ),
-          const _MenuDivider(),
-          _DetailActionPair(
-            left: _DetailAction(
-              key: const ValueKey<String>('book-detail-update'),
-              icon: AppGlyph.refresh,
-              label: '更新',
-              onTap: () => Navigator.of(context).pop('update'),
-            ),
-            right: _DetailAction(
-              key: const ValueKey<String>('book-detail-export'),
-              icon: AppGlyph.upload,
-              label: '导出',
-              onTap: () => Navigator.of(context).pop('export'),
-            ),
-          ),
-          if (snapshot.data == true) ...[
             const _MenuDivider(),
+            _DetailActionPair(
+              left: _DetailAction(
+                key: const ValueKey<String>('book-detail-create-group'),
+                icon: AppGlyph.folderMove,
+                label: '分组',
+                onTap: () => Navigator.of(context).pop('create-group'),
+              ),
+              right: _DetailAction(
+                key: const ValueKey<String>('book-detail-pin'),
+                icon: AppGlyph.pushPin,
+                label: widget.pinned ? '取消置顶' : '置顶',
+                onTap: () => Navigator.of(context).pop('pin'),
+              ),
+            ),
+            const _MenuDivider(),
+            _DetailActionPair(
+              left: _DetailAction(
+                key: const ValueKey<String>('book-detail-update'),
+                icon: AppGlyph.refresh,
+                label: '更新',
+                onTap: () => Navigator.of(context).pop('update'),
+              ),
+              right: _DetailAction(
+                key: const ValueKey<String>('book-detail-export'),
+                icon: AppGlyph.upload,
+                label: '导出',
+                onTap: () => Navigator.of(context).pop('export'),
+              ),
+            ),
+            if (snapshot.data == true) ...[
+              const _MenuDivider(),
+              _DetailAction(
+                key: const ValueKey<String>('book-detail-chapters'),
+                icon: AppGlyph.listBulleted,
+                label: '章节正则',
+                onTap: () => Navigator.of(context).pop('chapters'),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 10),
+        ReaderSectionCard(
+          key: const ValueKey('book-detail-actions-delete'),
+          divided: false,
+          children: [
             _DetailAction(
-              key: const ValueKey<String>('book-detail-chapters'),
-              icon: AppGlyph.listBulleted,
-              label: '章节正则',
-              onTap: () => Navigator.of(context).pop('chapters'),
+              key: const ValueKey<String>('book-detail-delete'),
+              icon: AppGlyph.delete,
+              label: '删除',
+              destructive: true,
+              onTap: () => Navigator.of(context).pop('delete'),
             ),
           ],
-        ]),
-        const SizedBox(height: 10),
-        _card(key: const ValueKey('book-detail-actions-delete'), [
-          _DetailAction(
-            key: const ValueKey<String>('book-detail-delete'),
-            icon: AppGlyph.delete,
-            label: '删除',
-            destructive: true,
-            onTap: () => Navigator.of(context).pop('delete'),
-          ),
-        ]),
+        ),
       ],
     ),
   );

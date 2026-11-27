@@ -140,25 +140,15 @@ class _ReaderDecorationEditorSheetState
       return;
     }
     _dialogVisible = true;
-    final discard = await showReaderDialog<bool>(
+    final discard = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('放弃未保存的装饰？'),
-        content: const Text('样式修改还没有保存，离开后本次修改会丢失。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('继续编辑'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放弃修改'),
-          ),
-        ],
-      ),
+      title: '放弃未保存的装饰？',
+      message: '样式修改还没有保存，离开后本次修改会丢失。',
+      cancelLabel: '继续编辑',
+      confirmLabel: '放弃修改',
     );
     _dialogVisible = false;
-    if (discard == true && mounted) _pop();
+    if (discard && mounted) _pop();
   }
 
   Future<void> _pickImage() async {
@@ -271,9 +261,9 @@ class _ReaderDecorationEditorSheetState
       if (_fontError != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: KeyedSubtree(
+          child: ReaderNoticeBanner(
             key: const ValueKey<String>('decoration-font-error'),
-            child: ReaderNoticeBanner(message: _fontError!),
+            message: _fontError!,
           ),
         ),
       const SizedBox(height: 16),

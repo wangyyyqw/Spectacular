@@ -220,25 +220,13 @@ class _ReaderDecorationRulePageState extends State<ReaderDecorationRulePage> {
     }
   }
 
-  Future<bool> _confirm(String title, String content) async =>
-      await showReaderDialog<bool>(
+  Future<bool> _confirm(String title, String content) =>
+      showReaderConfirmDialog(
         context: context,
-        builder: (context) => ReaderFrostedAlertDialog(
-          title: Text(title),
-          content: Text(content),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('删除'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+        title: title,
+        message: content,
+        confirmLabel: '删除',
+      );
 
   void _reorderGroups(int oldIndex, int newIndex) {
     final groups = _scopeGroups;

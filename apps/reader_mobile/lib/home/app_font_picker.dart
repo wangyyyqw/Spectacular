@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
-import 'package:reader_ui/theme/reader_ui_style.dart';
-import 'package:reader_core/css/font_face.dart';
+import 'package:reader_ui/theme/reader_font_preview.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
@@ -118,7 +117,8 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
     ),
     child: ReaderSheetForm(
       title: const Text('应用字体'),
-      onClose: _busy ? null : () => Navigator.of(context).pop(),
+      closeEnabled: !_busy,
+      onClose: () => Navigator.of(context).pop(),
       contentPadding: EdgeInsets.zero,
       scrollContent: false,
       content: Column(
@@ -126,7 +126,17 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 12),
-          _preview(context),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: ReaderFontPreview(
+              textKey: const ValueKey('app-font-preview'),
+              sample: '山水之间，字里行间。\nAa Bb 0123456789',
+              family: _selected,
+              fallback: _selected == AppFonts.defaultFamily
+                  ? null
+                  : AppFonts.fallback,
+            ),
+          ),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null) _errorBanner(context),
           Flexible(child: _fontList(context)),
@@ -135,36 +145,11 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
     ),
   );
 
-  Widget _preview(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: ReaderUiStyle.controlRadius,
-      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-    ),
-    child: Text(
-      '山水之间，字里行间。\nAa Bb 0123456789',
-      key: const ValueKey('app-font-preview'),
-      style: TextStyle(
-        fontFamily: FontFamilyAliases.resolve(_selected) ?? _selected,
-        fontFamilyFallback: _selected == AppFonts.defaultFamily
-            ? null
-            : AppFonts.fallback,
-        fontSize: 18,
-        height: 1.6,
-      ),
-    ),
-  );
-
   Widget _errorBanner(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-    child: Semantics(
-      liveRegion: true,
-      child: KeyedSubtree(
-        key: const ValueKey('app-font-error'),
-        child: ReaderNoticeBanner(message: _error!),
-      ),
+    child: ReaderNoticeBanner(
+      key: const ValueKey('app-font-error'),
+      message: _error!,
     ),
   );
 

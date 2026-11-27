@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
-import 'package:reader_ui/theme/app_semantic_colors.dart';
 import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_ink.dart';
@@ -15,6 +14,8 @@ import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 import 'book_lists_view.dart';
 import 'book_notes_list.dart';
+import 'book_rating.dart';
+import 'book_review_field.dart';
 import 'desktop_layout.dart';
 import 'horizontal_page_switcher.dart';
 import 'review_ticket.dart';
@@ -750,7 +751,7 @@ class _ReviewDetailSheet extends StatelessWidget {
                     spacing: 10,
                     runSpacing: 4,
                     children: [
-                      _StarRow(rating: review.rating, size: 18),
+                      BookRatingStars(rating: review.rating),
                       Text(
                         '${_reviewDate(review.updatedAt)} 更新',
                         style: theme.textTheme.bodySmall,
@@ -813,40 +814,6 @@ class _ReviewDetailSheet extends StatelessWidget {
             );
     },
   );
-}
-
-class _StarRow extends StatelessWidget {
-  const _StarRow({required this.rating, required this.size});
-
-  final int? rating;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = rating ?? 0;
-    final semantics = AppSemanticColors.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var star = 1; star <= 5; star++)
-          AppIcon(
-            AppGlyph.star,
-            filled: star <= value,
-            size: size,
-            color: star <= value ? semantics.starFilled : semantics.starEmpty,
-          ),
-        if (rating == null) ...[
-          const SizedBox(width: 4),
-          Text(
-            '未评分',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
 }
 
 class _EmptyReviews extends StatelessWidget {
@@ -961,24 +928,14 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       return false;
     }
     _discardDialogVisible = true;
-    final discard = await showReaderDialog<bool>(
+    final discard = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('放弃未保存的书评？'),
-        content: const Text('评分或正文还没有保存，离开后本次修改会丢失。'),
-        actions: [
-          TextButton(
-            key: const ValueKey<String>('review-discard-cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('继续编辑'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('review-discard-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放弃修改'),
-          ),
-        ],
-      ),
+      title: '放弃未保存的书评？',
+      message: '评分或正文还没有保存，离开后本次修改会丢失。',
+      cancelLabel: '继续编辑',
+      cancelKey: const ValueKey<String>('review-discard-cancel'),
+      confirmLabel: '放弃修改',
+      confirmKey: const ValueKey<String>('review-discard-confirm'),
     );
     _discardDialogVisible = false;
     return discard == true;
@@ -1041,22 +998,11 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   }
 
   Future<void> _delete() async {
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('删除书评？'),
-        content: const Text('评分和正文都会删除，且不可恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除书评？',
+      message: '评分和正文都会删除，且不可恢复。',
+      confirmLabel: '删除',
     );
     if (confirmed == true && mounted) {
       await _commit(const _ReviewDraft.delete());
@@ -1104,43 +1050,11 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
     children: [
       Text('评分', style: theme.textTheme.labelLarge),
       const SizedBox(height: 8),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          for (var star = 1; star <= 5; star++)
-            Semantics(
-              selected: star == _rating,
-              child: IconButton(
-                key: ValueKey<String>('review-rating-$star'),
-                tooltip: '$star 星',
-                onPressed: _saving ? null : () => _setRating(star),
-                iconSize: 34,
-                color: theme.colorScheme.onSurface,
-                icon: AppIcon(AppGlyph.star, filled: star <= (_rating ?? 0)),
-              ),
-            ),
-        ],
-      ),
-    ],
-  );
-
-  Widget _contentInput(ThemeData theme) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('书评内容', style: theme.textTheme.labelLarge),
-      const SizedBox(height: 8),
-      TextField(
-        key: const ValueKey<String>('review-content'),
-        controller: _controller,
-        readOnly: _saving,
-        minLines: 4,
-        maxLines: 8,
-        maxLength: BookReview.maxContentLength,
-        textInputAction: TextInputAction.newline,
-        decoration: const InputDecoration(
-          hintText: '写下这本书带给你的感受…',
-          alignLabelWithHint: true,
-        ),
+      BookRatingPicker(
+        rating: _rating,
+        onSelected: _saving ? null : _setRating,
+        keyPrefix: 'review-rating',
+        spread: true,
       ),
     ],
   );
@@ -1153,7 +1067,12 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       children: [
         _ratingPicker(theme),
         const SizedBox(height: 16),
-        _contentInput(theme),
+        BookReviewField(
+          label: '书评内容',
+          fieldKey: const ValueKey<String>('review-content'),
+          controller: _controller,
+          readOnly: _saving,
+        ),
       ],
     );
   }

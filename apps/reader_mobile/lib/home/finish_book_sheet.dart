@@ -7,6 +7,8 @@ import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
+import 'book_rating.dart';
+import 'book_review_field.dart';
 
 /// 读完时提交的评分与书评，不把未保存输入写入书籍资料。
 class FinishBookDraft {
@@ -174,43 +176,10 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     children: [
       Text('评分（可选）', style: theme.textTheme.labelLarge),
       const SizedBox(height: 6),
-      Wrap(
-        spacing: 2,
-        children: [
-          for (var star = 1; star <= 5; star++)
-            Semantics(
-              selected: _rating == star,
-              child: IconButton(
-                key: ValueKey<String>('book-detail-finish-rating-$star'),
-                tooltip: '$star 星',
-                onPressed: _saving ? null : () => _setRating(star),
-                iconSize: 34,
-                color: theme.colorScheme.onSurface,
-                icon: AppIcon(AppGlyph.star, filled: star <= (_rating ?? 0)),
-              ),
-            ),
-        ],
-      ),
-    ],
-  );
-
-  Widget _reviewInput(ThemeData theme) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('书评（可选）', style: theme.textTheme.labelLarge),
-      const SizedBox(height: 8),
-      TextField(
-        key: const ValueKey<String>('book-detail-finish-review'),
-        controller: _controller,
-        readOnly: _saving,
-        minLines: 4,
-        maxLines: 7,
-        maxLength: BookReview.maxContentLength,
-        textInputAction: TextInputAction.newline,
-        decoration: const InputDecoration(
-          hintText: '写下这本书带给你的感受…',
-          alignLabelWithHint: true,
-        ),
+      BookRatingPicker(
+        rating: _rating,
+        onSelected: _saving ? null : _setRating,
+        keyPrefix: 'book-detail-finish-rating',
       ),
     ],
   );
@@ -236,7 +205,13 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
           if (widget.allowReview) ...[
             _ratingPicker(theme),
             const SizedBox(height: 14),
-            _reviewInput(theme),
+            BookReviewField(
+              label: '书评（可选）',
+              fieldKey: const ValueKey<String>('book-detail-finish-review'),
+              controller: _controller,
+              readOnly: _saving,
+              maxLines: 7,
+            ),
           ] else
             const Text('当前无法保存书评，仅标记读完。'),
         ],
@@ -252,12 +227,9 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: Semantics(
-              liveRegion: true,
-              child: KeyedSubtree(
-                key: const ValueKey('book-detail-finish-error'),
-                child: ReaderNoticeBanner(message: _error!),
-              ),
+            child: ReaderNoticeBanner(
+              key: const ValueKey('book-detail-finish-error'),
+              message: _error!,
             ),
           ),
         OverflowBar(

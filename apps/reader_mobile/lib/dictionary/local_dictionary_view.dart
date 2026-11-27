@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'dictionary_webview_gestures.dart';
+import 'dictionary_webview_settings.dart';
 import 'local_dictionary_server.dart';
 import 'local_dictionary_store.dart';
 
@@ -106,23 +107,7 @@ class _LocalDictionaryViewState extends State<LocalDictionaryView> {
                         initialUrlRequest: URLRequest(
                           url: WebUri.uri(server.pageUri),
                         ),
-                        initialSettings: InAppWebViewSettings(
-                          javaScriptEnabled: false,
-                          javaScriptCanOpenWindowsAutomatically: false,
-                          allowFileAccess: false,
-                          allowContentAccess: false,
-                          allowFileAccessFromFileURLs: false,
-                          allowUniversalAccessFromFileURLs: false,
-                          useShouldOverrideUrlLoading: true,
-                          transparentBackground: true,
-                          useHybridComposition: true,
-                          disableVerticalScroll: false,
-                          disableHorizontalScroll: true,
-                          verticalScrollBarEnabled: true,
-                          horizontalScrollBarEnabled: false,
-                          supportZoom: false,
-                          textZoom: 100,
-                        ),
+                        initialSettings: dictionaryWebViewSettings(),
                         shouldOverrideUrlLoading: (_, action) =>
                             _navigate(action.request.url),
                         onLoadStop: (_, url) {

@@ -1,12 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/app_semantic_colors.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
+import 'book_rating.dart';
 
 /// 票纸封面内缩与圆角。
 const _coverInset = 6.0;
@@ -315,22 +315,11 @@ class ReviewTicket extends StatelessWidget {
     return FittedBox(
       fit: BoxFit.scaleDown,
       alignment: Alignment.center,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var star = 1; star <= 5; star++)
-            Padding(
-              padding: EdgeInsets.only(right: star < 5 ? 2 : 0),
-              child: AppIcon(
-                AppGlyph.star,
-                size: 13,
-                color: star <= rating
-                    ? semantics.starFilled
-                    : semantics.starEmpty.withValues(alpha: .48),
-                filled: star <= rating,
-              ),
-            ),
-        ],
+      child: BookRatingStars(
+        rating: rating,
+        size: 13,
+        spacing: 2,
+        emptyColor: semantics.starEmpty.withValues(alpha: .48),
       ),
     );
   }

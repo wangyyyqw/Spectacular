@@ -240,25 +240,15 @@ class _ReaderDecorationRuleEditorState
       return;
     }
     _confirming = true;
-    final discard = await showReaderDialog<bool>(
+    final discard = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('放弃未保存的规则？'),
-        content: const Text('本次匹配内容和样式修改将丢失。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('继续编辑'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放弃修改'),
-          ),
-        ],
-      ),
+      title: '放弃未保存的规则？',
+      message: '本次匹配内容和样式修改将丢失。',
+      cancelLabel: '继续编辑',
+      confirmLabel: '放弃修改',
     );
     _confirming = false;
-    if (discard == true && mounted) _pop();
+    if (discard && mounted) _pop();
   }
 
   @override

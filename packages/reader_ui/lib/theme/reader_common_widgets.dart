@@ -246,7 +246,7 @@ class ReaderSearchField extends StatelessWidget {
   }
 }
 
-/// 统一的页面内嵌错误/警告提示条，使用主题错误容器色与 12dp 圆角。
+/// 页面内嵌错误/警告提示条，共用主题样式并播报动态更新的提示。
 class ReaderNoticeBanner extends StatelessWidget {
   const ReaderNoticeBanner({
     super.key,
@@ -265,30 +265,33 @@ class ReaderNoticeBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: colors.errorContainer,
-        borderRadius: ReaderUiStyle.controlRadius,
-        border: Border.all(color: colors.error.withValues(alpha: .28)),
-      ),
-      child: Row(
-        children: <Widget>[
-          AppIcon(icon, size: 18, color: colors.error),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onErrorContainer,
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: colors.errorContainer,
+          borderRadius: ReaderUiStyle.controlRadius,
+          border: Border.all(color: colors.error.withValues(alpha: .28)),
+        ),
+        child: Row(
+          children: <Widget>[
+            AppIcon(icon, size: 18, color: colors.error),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onErrorContainer,
+                ),
               ),
             ),
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(width: 8),
-            TextButton(onPressed: onAction, child: Text(actionLabel!)),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(width: 8),
+              TextButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

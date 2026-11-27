@@ -491,6 +491,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('书评再次点击当前星级可清除评分并保留正文', (tester) async {
+    final book = _book('clear-rating', '仅保留书评', '作者');
+    final store = _MemoryReviewStore();
+    await _pumpReviews(tester, books: [book], store: store);
+    await tester.tap(find.text('写书评'));
+    await tester.pumpAndSettle();
+    final rating = find.byKey(const ValueKey('review-rating-4'));
+    await tester.tap(rating);
+    await tester.pump();
+    await tester.tap(rating);
+    await tester.enterText(
+      find.byKey(const ValueKey('review-content')),
+      '仅保存正文',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('review-save')));
+    await tester.pumpAndSettle();
+
+    expect(store.items[book.id]!.rating, isNull);
+    expect(store.items[book.id]!.content, '仅保存正文');
+    await tester.tap(find.byKey(ValueKey('review-card-${book.id}')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('review-detail')),
+        matching: find.text('未评分'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('仅保存正文'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('书评保存失败保留正文和评分，重试成功后才关闭编辑器', (tester) async {
     final book = _book('retry-save', '保存重试', '作者');
     final store = _MemoryReviewStore()..failSave = true;
@@ -545,6 +578,14 @@ void main() {
           .onPressed,
       isNull,
     );
+    for (var star = 1; star <= 5; star++) {
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(ValueKey('review-rating-$star')))
+            .onPressed,
+        isNull,
+      );
+    }
     expect(
       tester
           .widget<TextField>(find.byKey(const ValueKey('review-content')))

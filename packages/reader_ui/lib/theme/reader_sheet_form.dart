@@ -10,6 +10,7 @@ class ReaderSheetForm extends StatefulWidget {
     this.content,
     this.actions = const [],
     this.onClose,
+    this.closeEnabled = true,
     this.showCloseButton = true,
     this.contentPadding = const EdgeInsets.all(16),
     this.scrollContent = true,
@@ -19,6 +20,9 @@ class ReaderSheetForm extends StatefulWidget {
   final Widget? content;
   final List<Widget> actions;
   final VoidCallback? onClose;
+
+  /// 控制标题栏关闭按钮；未提供回调时仍沿用默认的返回操作。
+  final bool closeEnabled;
   final bool showCloseButton;
   final EdgeInsetsGeometry contentPadding;
 
@@ -104,7 +108,9 @@ class _ReaderSheetFormState extends State<ReaderSheetForm> {
               tooltip: '关闭',
               color: theme.colorScheme.onSurfaceVariant,
               constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-              onPressed: widget.onClose ?? () => Navigator.maybePop(context),
+              onPressed: widget.closeEnabled
+                  ? widget.onClose ?? () => Navigator.maybePop(context)
+                  : null,
               icon: const AppIcon(AppGlyph.close, size: 20),
             ),
         ],

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../annotations/annotation_appearance_editor.dart';
 import '../bookmarks/bookmark_ribbon.dart';
 import '../bookmarks/bookmark_style.dart';
-import '../icons/app_icon.dart';
+import '../theme/reader_color_option.dart';
 import '../theme/reader_common_widgets.dart';
 import '../theme/reader_section_slider.dart';
 import '../theme/reader_ui_style.dart';
@@ -199,92 +199,21 @@ class _BookmarkStyleSheetState extends State<ReaderBookmarkStyleSheet> {
     ),
   ];
 
-  Widget _defaultColorButton() {
-    final selected = _style.color == null;
-    final scheme = Theme.of(context).colorScheme;
-    final color = scheme.primary;
-    return Tooltip(
-      message: '跟随正文',
-      child: Semantics(
-        label: '跟随正文',
-        selected: selected,
-        button: true,
-        child: InkWell(
-          key: const ValueKey<String>('bookmark-color-default'),
-          onTap: () => setState(() => _style = _style.withColor(null)),
-          borderRadius: BorderRadius.circular(24),
-          child: SizedBox.square(
-            dimension: 44,
-            child: Padding(
-              padding: const EdgeInsets.all(5),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: selected ? scheme.onSurface : scheme.outlineVariant,
-                    width: selected ? 2 : 1,
-                  ),
-                ),
-                child: selected
-                    ? AppIcon(
-                        AppGlyph.check,
-                        size: 19,
-                        color: color.computeLuminance() > 0.5
-                            ? Colors.black
-                            : Colors.white,
-                      )
-                    : null,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _defaultColorButton() => ReaderColorOption(
+    buttonKey: const ValueKey<String>('bookmark-color-default'),
+    color: Theme.of(context).colorScheme.primary,
+    label: '跟随正文',
+    selected: _style.color == null,
+    onTap: () => setState(() => _style = _style.withColor(null)),
+  );
 
-  Widget _colorButton(AnnotationColorOption option) {
-    final selected = _style.color == option.value;
-    final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: option.label,
-      child: Semantics(
-        label: option.label,
-        selected: selected,
-        button: true,
-        child: InkWell(
-          key: ValueKey<String>('bookmark-color-${option.value}'),
-          onTap: () => setState(() => _style = _style.withColor(option.value)),
-          borderRadius: BorderRadius.circular(24),
-          child: SizedBox.square(
-            dimension: 44,
-            child: Padding(
-              padding: const EdgeInsets.all(5),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Color(option.value),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: selected ? scheme.onSurface : scheme.outlineVariant,
-                    width: selected ? 2 : 1,
-                  ),
-                ),
-                child: selected
-                    ? AppIcon(
-                        AppGlyph.check,
-                        size: 19,
-                        color: Color(option.value).computeLuminance() > 0.5
-                            ? Colors.black
-                            : Colors.white,
-                      )
-                    : null,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _colorButton(AnnotationColorOption option) => ReaderColorOption(
+    buttonKey: ValueKey<String>('bookmark-color-${option.value}'),
+    color: Color(option.value),
+    label: option.label,
+    selected: _style.color == option.value,
+    onTap: () => setState(() => _style = _style.withColor(option.value)),
+  );
 
   Widget _dimension(
     String label,

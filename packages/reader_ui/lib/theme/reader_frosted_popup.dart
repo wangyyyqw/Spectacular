@@ -2,6 +2,7 @@ import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/material.dart';
 
+import 'reader_drag_handle.dart';
 import 'reader_frosted_surface.dart';
 import 'reader_panel_theme.dart';
 import 'reader_theme.dart';
@@ -193,9 +194,19 @@ Widget _drawerPanel({
           mainAxisSize: MainAxisSize.min,
           children: [
             if (showDragHandle)
-              _DragHandle(
-                dismissible: isDismissible,
-                height: dragHandleHeight,
+              Builder(
+                builder: (context) => ReaderDragHandle(
+                  handleKey: const ValueKey<String>(
+                    'reader-drawer-drag-handle',
+                  ),
+                  label: MaterialLocalizations.of(
+                    context,
+                  ).modalBarrierDismissLabel,
+                  onDismiss: isDismissible
+                      ? () => Navigator.maybePop(context)
+                      : null,
+                  height: dragHandleHeight,
+                ),
               ),
             Flexible(child: Builder(builder: builder)),
           ],
@@ -318,35 +329,6 @@ class _ReaderDrawerRoute<T> extends PopupRoute<T> {
         );
 }
 
-class _DragHandle extends StatelessWidget {
-  const _DragHandle({required this.dismissible, this.height = 28});
-
-  final bool dismissible;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-    button: true,
-    onTap: dismissible ? () => Navigator.maybePop(context) : null,
-    child: SizedBox(
-      key: const ValueKey<String>('reader-drawer-drag-handle'),
-      height: height,
-      child: Center(
-        child: Container(
-          width: 36,
-          height: 4,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.onSurfaceVariant
-                .withValues(alpha: 0.36),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
 /// 保留原生对话框的定位与键盘避让，只替换实际内容范围内的底板。
 class ReaderFrostedDialog extends StatelessWidget {
   const ReaderFrostedDialog({
@@ -399,10 +381,12 @@ Future<bool> showReaderConfirmDialog({
   Key? cancelKey,
   Key? confirmKey,
   bool barrierDismissible = true,
+  bool waitForDismissal = false,
 }) async =>
     await showReaderDialog<bool>(
       context: context,
       barrierDismissible: barrierDismissible,
+      waitForDismissal: waitForDismissal,
       builder: (context) {
         final theme = Theme.of(context);
         return ReaderFrostedAlertDialog(

@@ -315,6 +315,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('自定义颜色长按仅移除该颜色，预设颜色仍可选择并保存', (tester) async {
+    ReaderMarkSettings? settings;
+    await _openSheet<ReaderMarkSettings>(
+      tester,
+      const ReaderMarkSettingsSheet(
+        settings: ReaderMarkSettings(customColors: [0xFF112233, 0xFF334455]),
+      ),
+      (result) => settings = result,
+    );
+    final custom = find.byKey(
+      const ValueKey<String>('annotation-color-0xFF112233'),
+    );
+    expect(tester.getSize(custom), const Size(44, 44));
+    await tester.tap(custom);
+    await tester.pump();
+    await tester.longPress(custom);
+    await tester.pumpAndSettle();
+    expect(custom, findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('annotation-color-0xFF334455')),
+      findsOneWidget,
+    );
+    final preset = find.byKey(
+      const ValueKey<String>('annotation-color-0xFF90CAF9'),
+    );
+    await tester.longPress(preset);
+    await tester.pumpAndSettle();
+    expect(preset, findsOneWidget);
+    await tester.tap(preset);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('mark-settings-save')));
+    await tester.pumpAndSettle();
+    expect(settings?.lastColor, 0xFF90CAF9);
+    expect(settings?.customColors, [0xFF334455]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('划线设置以分段按钮切换分区，预览紧邻按钮组上方', (tester) async {
     tester.view.physicalSize = const Size(320, 800);
     tester.view.devicePixelRatio = 1;
