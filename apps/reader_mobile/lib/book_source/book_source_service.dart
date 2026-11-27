@@ -1196,7 +1196,8 @@ class BookSourceService {
           if (isVolume) {
             if (name.isNotEmpty) volume = name;
             // 卷头没有正文地址时只分组，避免补成目录页或锚点章节。
-            if (chapterRequest.url.trim().startsWith('#') ||
+            if (_emptyVolumeBody(node) ||
+                chapterRequest.url.trim().startsWith('#') ||
                 (!_isHttpUrl(absolute) && !absolute.startsWith('data:')) ||
                 chapterIdentity == responseIdentity ||
                 chapterIdentity == tocIdentity ||
@@ -2284,6 +2285,12 @@ class BookSourceService {
     }
     return '';
   }
+
+  bool _emptyVolumeBody(Object? node) =>
+      node is Map &&
+      node['text_length'] == 0 &&
+      node['html_length'] == 0 &&
+      _commonJsonField(node, const ['text', 'html', 'content']).isEmpty;
 
   List<OnlineBook> _fallbackHtmlSearch(
     BookSource source,

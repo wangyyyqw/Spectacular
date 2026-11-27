@@ -261,8 +261,9 @@ class OnlineBookController extends ChangeNotifier {
       if (source == null) continue;
       final book = link.bookFor(source);
       try {
-        final info = await service.loadBookInfo(source, book);
-        final chapters = await service.fetchToc(source, info);
+        final catalog = await refreshCatalog(source, book);
+        final info = catalog.book;
+        final chapters = catalog.chapters;
         if (chapters.isEmpty) continue;
         if (skipFinished &&
             normalizeOnlineStatus(info.status, lastChapter: info.lastChapter) ==
@@ -360,22 +361,19 @@ class OnlineBookController extends ChangeNotifier {
         ? dated!
         : preferred ?? dated ?? candidates.last;
     final observedLatest = fresh.isNotEmpty || hasObservedLatest;
-    final title = !observedLatest && hinted == null && hint.isNotEmpty
-        ? hint
-        : latest.title;
+    final title = latest.title;
     final observedAt = DateTime.now().millisecondsSinceEpoch;
     final priorTime = previous?['updatedAt'] as int?;
     return {
       'chapterCount': chapters.length,
       'latestChapter': title,
       if (observedLatest) 'observedLatest': true,
-      if (title == latest.title)
-        'latestChapterId': onlineChapterIdentity(latest),
+      'latestChapterId': onlineChapterIdentity(latest),
       'updatedAt':
-          (title == latest.title
-              ? _parseSourceUpdateTime(latest.updateTime)
+          _parseSourceUpdateTime(latest.updateTime) ??
+          (hint.isEmpty || hint == title
+              ? _parseSourceUpdateTime(book.updateTime)
               : null) ??
-          _parseSourceUpdateTime(book.updateTime) ??
           (fresh.isEmpty && title == previous?['latestChapter']
               ? priorTime
               : null) ??
@@ -407,13 +405,18 @@ class OnlineBookController extends ChangeNotifier {
     }
     final parsed = DateTime.tryParse(value.replaceFirst(' ', 'T'));
     if (parsed != null) return parsed.millisecondsSinceEpoch;
-    final match = RegExp(r'^(\d{4})[-/.年 ](\d{1,2})[-/.月 ](\d{1,2})')
-        .firstMatch(value);
+    final match = RegExp(
+      r'(?:^|\s|\|)(\d{4})[-/.年 ](\d{1,2})[-/.月 ](\d{1,2})日?'
+      r'(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?\s*$',
+    ).firstMatch(value);
     if (match == null) return null;
     return DateTime(
       int.parse(match.group(1)!),
       int.parse(match.group(2)!),
       int.parse(match.group(3)!),
+      int.parse(match.group(4) ?? '0'),
+      int.parse(match.group(5) ?? '0'),
+      int.parse(match.group(6) ?? '0'),
     ).millisecondsSinceEpoch;
   }
 

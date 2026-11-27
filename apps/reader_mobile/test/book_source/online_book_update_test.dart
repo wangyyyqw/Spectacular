@@ -55,6 +55,7 @@ void main() {
           'chapterList': r'$.chapters[*]',
           'chapterName': r'$.title',
           'chapterUrl': r'$.url',
+          'isVolume': r'$.is_volume',
           'updateTime': r'$.time',
         },
         'ruleContent': {'content': r'$.content'},
@@ -138,7 +139,7 @@ void main() {
                 'name': '在线书',
                 'author': '作者',
                 'toc': 'https://example.test/toc',
-                if (datedCatalog) 'lastChapter': '第一章',
+                if (datedCatalog) 'lastChapter': '尚未入目录的章节',
               }),
               200,
               headers: {'content-type': 'application/json; charset=utf-8'},
@@ -156,7 +157,7 @@ void main() {
                       if (datedCatalog)
                         'time': index == 1
                             ? '2026-10-08T04:42:08.293Z'
-                            : '2026-11-25T01:41:07.215Z',
+                            : '正文  |  2026年11月25日 09:41:07',
                     },
                   {
                     'title': '旧番外',
@@ -164,6 +165,15 @@ void main() {
                     'volume_name': '番外',
                     'time': '2020-01-01',
                   },
+                  if (datedCatalog)
+                    {
+                      'title': '番外卷头',
+                      'url': 'https://example.test/extra-volume',
+                      'is_volume': true,
+                      'text_length': 0,
+                      'html_length': 0,
+                      'time': '2026-11-25T01:41:08.724Z',
+                    },
                 ],
               }),
               200,
@@ -257,8 +267,9 @@ void main() {
     final corrected = await record();
     expect(corrected['latestChapter'], '第2章');
     expect(corrected['updatedAt'],
-        DateTime.parse('2026-11-25T01:41:07.215Z').millisecondsSinceEpoch);
+        DateTime(2026, 11, 25, 9, 41, 7).millisecondsSinceEpoch);
     expect(corrected['updated'], isFalse);
+    expect(corrected['chapterCount'], 3);
     await library.setSetting(
       'online_reading_progress:${entry.id}',
       '{"spine":1,"finished":true}',
