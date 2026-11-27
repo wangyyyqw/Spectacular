@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:reader_core/editing.dart';
 
-import '../diagnostics/reader_log.dart';
 import '../library/book_edit_models.dart';
 import '../library/library_store.dart';
 
@@ -72,40 +71,9 @@ class BookEditRepository {
   Future<void> saveParagraph(
     String bookId,
     EpubParagraphEdit edit,
-    String input,
-  ) async {
-    final session = edit.session;
-    if (input == edit.initialText) return;
-    edit.apply(input);
-    Directory? temporary;
-    try {
-      await verifyRevision(bookId, session.baseDigest);
-      temporary = await Directory.systemTemp.createTemp('reader-paragraph-');
-      final file = File('${temporary.path}/edited.epub');
-      await EpubWriter.write(session, file);
-      await library.commitEditedFile(
-        bookId,
-        session.baseDigest,
-        file,
-        session.summary,
-        requireNoDraft: true,
-        preserveBookMetadata: true,
-      );
-    } catch (_) {
-      session.undo();
-      rethrow;
-    } finally {
-      try {
-        await temporary?.delete(recursive: true);
-      } on FileSystemException catch (error, stack) {
-        recordAppError(
-          'paragraph_edit_cleanup_failed',
-          error,
-          stackTrace: stack,
-        );
-      }
-    }
-  }
+    String input, {
+    void Function(String)? onStage,
+  }) => library.commitParagraphEdit(bookId, edit, input, onStage: onStage);
 
   Future<BookEntry> commitEditedFile(
     String bookId,

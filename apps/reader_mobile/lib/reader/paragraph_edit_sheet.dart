@@ -10,7 +10,12 @@ class ParagraphEditSheet extends StatefulWidget {
   const ParagraphEditSheet({super.key, required this.open, required this.save});
 
   final Future<EpubParagraphEdit> Function() open;
-  final Future<void> Function(EpubParagraphEdit edit, String input) save;
+  final Future<void> Function(
+    EpubParagraphEdit edit,
+    String input,
+    ValueChanged<String> onStage,
+  )
+  save;
 
   @override
   State<ParagraphEditSheet> createState() => _ParagraphEditSheetState();
@@ -20,7 +25,8 @@ class _ParagraphEditSheetState extends State<ParagraphEditSheet> {
   final _input = TextEditingController();
   EpubParagraphEdit? _edit;
   String? _openError;
-  bool _saving = false;
+  String? _saveStage;
+  bool get _saving => _saveStage != null;
   bool _dirty = false;
   bool _confirming = false;
   String? _toast;
@@ -56,16 +62,20 @@ class _ParagraphEditSheetState extends State<ParagraphEditSheet> {
     }
     _timer?.cancel();
     setState(() {
-      _saving = true;
+      _saveStage = '正在检查段落…';
       _toast = null;
     });
     try {
-      await widget.save(edit, _input.text);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      await widget.save(edit, _input.text, (stage) {
+        if (mounted) setState(() => _saveStage = stage);
+      });
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _saving = false;
+        _saveStage = null;
         _toast = '未保存：$error';
       });
       _timer = Timer(const Duration(seconds: 4), () {
@@ -144,7 +154,7 @@ class _ParagraphEditSheetState extends State<ParagraphEditSheet> {
               ),
               FilledButton(
                 onPressed: _saving || edit == null ? null : _save,
-                child: Text(_saving ? '保存中…' : '保存'),
+                child: Text(_saveStage ?? '保存'),
               ),
             ],
           ),

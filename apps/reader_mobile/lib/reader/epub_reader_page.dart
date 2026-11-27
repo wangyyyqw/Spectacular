@@ -1737,7 +1737,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               target.endCfi ?? target.cfi,
             );
           },
-          save: (edit, input) => repository.saveParagraph(bookId, edit, input),
+          save: (edit, input, onStage) =>
+              repository.saveParagraph(bookId, edit, input, onStage: onStage),
         ),
       );
       updated = saved == true;

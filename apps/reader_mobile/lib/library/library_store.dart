@@ -23,6 +23,7 @@ import 'package:reader_core/position/revision_relocator.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration_image_store.dart';
 
+import '../diagnostics/reader_log.dart' show recordAppEvent;
 import '../reader/reader_decoration_image_store.dart';
 import '../storage/book_review_store.dart';
 import '../storage/online_page_cache.dart';

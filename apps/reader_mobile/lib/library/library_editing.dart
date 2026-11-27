@@ -1,6 +1,62 @@
 part of 'library_store.dart';
 
 extension LibraryEditingOperations on LibraryStore {
+  Future<void> commitParagraphEdit(
+    String bookId,
+    EpubParagraphEdit edit,
+    String input, {
+    void Function(String)? onStage,
+  }) async {
+    if (input == edit.initialText) return;
+    final session = edit.session;
+    if (session.changedPaths.isNotEmpty) {
+      throw const EpubEditException('段落编辑会话已变化，请重新打开编辑');
+    }
+    final timer = Stopwatch()..start();
+    edit.apply(input);
+    final revision = session.revision;
+    try {
+      await _editQueue(() async {
+        final paths = session.spinePaths;
+        final spine = paths.indexOf(edit.first.path);
+        var writeFinishedMs = 0;
+        await _commitEditedFile(
+          bookId,
+          session.baseDigest,
+          (target) async {
+            if (session.revision != revision ||
+                session.changedPaths.length != 1 ||
+                !session.changedPaths.contains(edit.first.path)) {
+              throw const EpubEditException('段落编辑会话已变化，请重新打开编辑');
+            }
+            onStage?.call('正在写入 EPUB…');
+            await EpubWriter.write(session, target);
+            await _flushEditFile(target);
+            writeFinishedMs = timer.elapsedMilliseconds;
+            onStage?.call('正在更新书库和阅读位置…');
+          },
+          EpubEditSummary(changedPaths: {edit.first.path}, cssOnly: false),
+          editedSpine: spine >= 0 && paths.lastIndexOf(edit.first.path) == spine
+              ? spine
+              : null,
+          requireNoDraft: true,
+          preserveBookMetadata: true,
+        );
+        recordAppEvent(
+          'paragraph_edit_saved',
+          fields: {
+            'chapters': paths.length,
+            'write_finished_ms': writeFinishedMs,
+            'library_ms': timer.elapsedMilliseconds - writeFinishedMs,
+          },
+        );
+      });
+    } catch (_) {
+      if (!session.isClosed && session.revision == revision) session.undo();
+      rethrow;
+    }
+  }
+
   /// 独立文件先落盘、验证，再以单事务切换；调用方的文件从不被移动或删除。
   Future<BookEntry> commitEditedFile(
     String bookId,
@@ -16,7 +72,7 @@ extension LibraryEditingOperations on LibraryStore {
     () => _commitEditedFile(
       bookId,
       expectedRevision,
-      file,
+      (target) => _copyEditFile(file, target),
       changeSummary,
       preserveTextPositions: preserveTextPositions,
       preserveBookMetadata: preserveBookMetadata,
@@ -41,7 +97,7 @@ extension LibraryEditingOperations on LibraryStore {
     return _commitEditedFile(
       bookId,
       expectedRevision,
-      File(version.sourcePath),
+      (target) => _copyEditFile(File(version.sourcePath), target),
       const EpubEditSummary(changedPaths: {}, cssOnly: false),
     );
   });
@@ -49,8 +105,9 @@ extension LibraryEditingOperations on LibraryStore {
   Future<BookEntry> _commitEditedFile(
     String bookId,
     String expectedRevision,
-    File input,
+    Future<void> Function(File) writeStage,
     EpubEditSummary summary, {
+    int? editedSpine,
     bool preserveTextPositions = false,
     bool preserveBookMetadata = false,
     Map<String, String> elementCfiMap = const {},
@@ -66,14 +123,13 @@ extension LibraryEditingOperations on LibraryStore {
     final stage = await versions.createTemp('edit-');
     var committed = false;
     try {
-      final file = await _copyEditFile(
-        input,
-        File(p.join(stage.path, 'source.epub')),
-      );
+      final file = File(p.join(stage.path, 'source.epub'));
+      await writeStage(file);
       committed = await _saveEditedStage(
         old,
         file,
         summary,
+        editedSpine: editedSpine,
         preserveTextPositions: preserveTextPositions,
         preserveBookMetadata: preserveBookMetadata,
         elementCfiMap: elementCfiMap,
@@ -96,13 +152,14 @@ extension LibraryEditingOperations on LibraryStore {
     BookRow old,
     File file,
     EpubEditSummary summary, {
+    int? editedSpine,
     bool preserveTextPositions = false,
     bool preserveBookMetadata = false,
     Map<String, String> elementCfiMap = const {},
     bool requireNoDraft = false,
     bool Function()? isCancelled,
   }) async {
-    final analyzed = await _analyzeEdit(old, file, summary);
+    final analyzed = await _analyzeEdit(old, file, summary, editedSpine);
     _checkImportCancelled(isCancelled);
     if (analyzed.analysis.revision == old.contentRevision) return false;
     final parsed = await openAnalyzedFile(file.path, analyzed.analysis);
@@ -118,6 +175,10 @@ extension LibraryEditingOperations on LibraryStore {
         file,
         revision: analyzed.analysis.revision,
         cssOnly: analyzed.cssOnly,
+        editedSpine:
+            parsed.document!.progressExcludedSpineIndexes.contains(editedSpine)
+            ? null
+            : editedSpine,
         preserveTextPositions: preserveTextPositions,
         elementCfiMap: elementCfiMap,
       );
@@ -157,21 +218,25 @@ extension LibraryEditingOperations on LibraryStore {
     await stage.delete(recursive: true);
   }
 
-  Future<File> _copyEditFile(File input, File target) async {
+  Future<void> _copyEditFile(File input, File target) async {
     await input.copy(target.path);
+    await _flushEditFile(target);
+  }
+
+  Future<void> _flushEditFile(File target) async {
     final handle = await target.open(mode: FileMode.append);
     try {
       await handle.flush();
     } finally {
       await handle.close();
     }
-    return target;
   }
 
   Future<({ImportAnalysis analysis, bool cssOnly})> _analyzeEdit(
     BookRow old,
     File file,
     EpubEditSummary summary,
+    int? editedSpine,
   ) async {
     final spine =
         await (_db!.select(_db.spineItems)
@@ -183,6 +248,14 @@ extension LibraryEditingOperations on LibraryStore {
       oldPath: old.sourcePath!,
       cssOnly: summary.cssOnly,
       knownCounts: [for (final row in spine) row.charCount ?? 0],
+      recountSpine:
+          spine.indexed.every(
+            (item) =>
+                item.$1 == item.$2.spineIndex && item.$2.charCount != null,
+          )
+          ? editedSpine
+          : null,
+      includeCover: editedSpine == null,
     );
   }
 
@@ -209,6 +282,7 @@ extension LibraryEditingOperations on LibraryStore {
     File file, {
     required String revision,
     required bool cssOnly,
+    int? editedSpine,
     bool preserveTextPositions = false,
     Map<String, String> elementCfiMap = const {},
   }) async {
@@ -229,35 +303,26 @@ extension LibraryEditingOperations on LibraryStore {
         const {},
       );
     }
+    if (editedSpine != null &&
+        data.hasRangeAcross(editedSpine, old.contentRevision)) {
+      editedSpine = null;
+    }
     final oldBook = await buildRevisionAnchorBookFile(
       File(old.sourcePath!),
       revision: old.contentRevision,
+      spineIndex: editedSpine,
     );
-    final next = await buildRevisionAnchorBookFile(file, revision: revision);
-    return _RevisionMigration(
+    final next = await buildRevisionAnchorBookFile(
+      file,
+      revision: revision,
+      spineIndex: editedSpine,
+    );
+    return _migrateRevisionUserData(
       _RevisionBooks(old, oldBook, next),
       data,
-      _migrateRevisionAnnotations(
-        data.annotations,
-        oldBook,
-        next,
-        preserveTextPositions: preserveTextPositions,
-        elementCfiMap: elementCfiMap,
-      ),
-      _migrateRevisionProgress(
-        data.progress,
-        oldBook,
-        next,
-        preserveTextPositions: preserveTextPositions,
-        elementCfiMap: elementCfiMap,
-      ),
-      _migrateRevisionDecorations(
-        data.decorations,
-        oldBook,
-        next,
-        preserveTextPositions: preserveTextPositions,
-        elementCfiMap: elementCfiMap,
-      ),
+      editedSpine: editedSpine,
+      preserveTextPositions: preserveTextPositions,
+      elementCfiMap: elementCfiMap,
     );
   }
 

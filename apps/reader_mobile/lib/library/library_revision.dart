@@ -288,57 +288,68 @@ extension LibraryRevisionOperations on LibraryStore {
         ? null
         : await buildRevisionAnchorBook(oldBytes, revision: oldRevision);
     final newBook = await buildRevisionAnchorBook(bytes, revision: revision);
-    final migrated = _migrateRevisionAnnotations(annotations, oldBook, newBook);
-    final position = _migrateRevisionProgress(progress, oldBook, newBook);
-    return _RevisionMigration(
+    return _migrateRevisionUserData(
       _RevisionBooks(old, oldBook, newBook),
       _RevisionUserData(annotations, decorations, progress),
-      migrated,
-      position,
-      _migrateRevisionDecorations(decorations, oldBook, newBook),
     );
   }
 
-  Map<String, AnchorRecord> _migrateRevisionAnnotations(
-    List<AnnotationRow> annotations,
-    AnchorBook? oldBook,
-    AnchorBook newBook, {
+  _RevisionMigration _migrateRevisionUserData(
+    _RevisionBooks books,
+    _RevisionUserData data, {
+    int? editedSpine,
     bool preserveTextPositions = false,
     Map<String, String> elementCfiMap = const {},
   }) {
-    final migrated = <String, AnchorRecord>{};
-    for (final annotation in annotations) {
-      final record = requireAnchorRecord(annotation.anchorJson);
-      migrated[annotation.id] = RevisionRelocator.relocate(
-        oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
-        newBook: newBook,
+    final oldBook =
+        books.oldBook ?? AnchorBook(revision: 'missing', chapters: []);
+    AnchorRecord migrate(AnchorRecord record, {bool progress = false}) {
+      final anchor = record.effective;
+      if (editedSpine != null) {
+        if (anchor.revision != oldBook.revision) return record;
+        final end = anchor.end?.spineIndex ?? anchor.start.spineIndex;
+        if (editedSpine < anchor.start.spineIndex || editedSpine > end) {
+          return AnchorRecord(
+            original: record.original,
+            status: record.status,
+            reason: record.reason,
+            current: LocationAnchor(
+              revision: books.newBook.revision,
+              start: anchor.start,
+              end: anchor.end,
+              quote: anchor.quote,
+              approximate: anchor.approximate,
+            ),
+          );
+        }
+      }
+      return RevisionRelocator.relocate(
+        oldBook: oldBook,
+        newBook: books.newBook,
         record: record,
+        progress: progress,
         preserveTextPositions: preserveTextPositions,
         elementCfiMap: elementCfiMap,
       );
     }
-    return migrated;
-  }
 
-  Map<String, AnchorRecord> _migrateRevisionDecorations(
-    List<DecorationRow> decorations,
-    AnchorBook? oldBook,
-    AnchorBook newBook, {
-    bool preserveTextPositions = false,
-    Map<String, String> elementCfiMap = const {},
-  }) {
-    final migrated = <String, AnchorRecord>{};
-    for (final row in decorations) {
-      migrated[row.id] = RevisionRelocator.relocate(
-        oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
-        newBook: newBook,
-        record: requireAnchorRecord(row.anchorJson),
-        preserveTextPositions: preserveTextPositions,
-        elementCfiMap: elementCfiMap,
-      );
-    }
-    _resolveDecorationCollisions(decorations, migrated);
-    return migrated;
+    final annotations = {
+      for (final row in data.annotations)
+        row.id: migrate(requireAnchorRecord(row.anchorJson)),
+    };
+    final decorations = {
+      for (final row in data.decorations)
+        row.id: migrate(requireAnchorRecord(row.anchorJson)),
+    };
+    _resolveDecorationCollisions(data.decorations, decorations);
+    final progress = AnchorRecord.decode(data.progress?.anchorJson);
+    return _RevisionMigration(
+      books,
+      data,
+      annotations,
+      progress == null ? null : migrate(progress, progress: true),
+      decorations,
+    );
   }
 
   void _resolveDecorationCollisions(
@@ -373,25 +384,6 @@ extension LibraryRevisionOperations on LibraryStore {
       }
       if (!changed) return;
     }
-  }
-
-  AnchorRecord? _migrateRevisionProgress(
-    ProgressRow? progress,
-    AnchorBook? oldBook,
-    AnchorBook newBook, {
-    bool preserveTextPositions = false,
-    Map<String, String> elementCfiMap = const {},
-  }) {
-    final record = AnchorRecord.decode(progress?.anchorJson);
-    if (record == null) return null;
-    return RevisionRelocator.relocate(
-      oldBook: oldBook ?? AnchorBook(revision: 'missing', chapters: []),
-      newBook: newBook,
-      record: record,
-      progress: true,
-      preserveTextPositions: preserveTextPositions,
-      elementCfiMap: elementCfiMap,
-    );
   }
 
   /// 版本校验、文件指向及全部用户位置仍统一在同一事务提交。
@@ -534,26 +526,25 @@ extension LibraryRevisionOperations on LibraryStore {
   }
 
   Future<void> _writeRevisionToc(int bookId, EpubDocumentImpl document) async {
-    var order = 0;
-    Future<void> write(List<TocEntry> entries, int depth) async {
+    final chapters = <ChaptersCompanion>[];
+    void collect(List<TocEntry> entries, int depth) {
       for (final entry in entries) {
-        await _db!
-            .into(_db.chapters)
-            .insert(
-              ChaptersCompanion.insert(
-                bookId: bookId,
-                depth: Value(depth),
-                title: entry.title,
-                href: document.spine[entry.spineIndex].href,
-                cfi: Value(entry.cfi?.serialize()),
-                orderIndex: order++,
-              ),
-            );
-        await write(entry.children, depth + 1);
+        chapters.add(
+          ChaptersCompanion.insert(
+            bookId: bookId,
+            depth: Value(depth),
+            title: entry.title,
+            href: document.spine[entry.spineIndex].href,
+            cfi: Value(entry.cfi?.serialize()),
+            orderIndex: chapters.length,
+          ),
+        );
+        collect(entry.children, depth + 1);
       }
     }
 
-    await write(document.toc, 1);
+    collect(document.toc, 1);
+    await _db!.batch((batch) => batch.insertAll(_db.chapters, chapters));
   }
 
   Future<void> _writeRevisionUserData(
@@ -719,6 +710,22 @@ class _RevisionUserData {
   final List<AnnotationRow> annotations;
   final List<DecorationRow> decorations;
   final ProgressRow? progress;
+
+  bool hasRangeAcross(int spine, String revision) =>
+      [
+        for (final row in annotations) row.anchorJson,
+        for (final row in decorations) row.anchorJson,
+        progress?.anchorJson,
+      ].any((json) {
+        final anchor = AnchorRecord.decode(json)?.effective;
+        if (anchor == null ||
+            anchor.revision != revision ||
+            anchor.end == null) {
+          return false;
+        }
+        final start = anchor.start.spineIndex, end = anchor.end!.spineIndex;
+        return start != end && start <= spine && spine <= end;
+      });
 }
 
 /// 调用方必须放在事务中，整数主键保持不变。
