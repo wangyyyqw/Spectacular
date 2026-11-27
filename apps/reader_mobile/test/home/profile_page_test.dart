@@ -10,6 +10,7 @@ import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/theme/reader_switch.dart';
 
 class _AccountController extends ReaMicroController {
   _AccountController()
@@ -219,10 +220,11 @@ void main() {
   );
 
   testWidgets(
-    '书架排序抽屉标记当前项，取消保留设置，选择保存原存储',
+    '书架管理恢复新书置顶偏好，关闭不改值，切换后持久化且不改旧排序',
     (tester) async {
       final library = LibraryStore.memory();
-      await library.setSetting(bookshelfSortKey, BookSortOrder.recent.value);
+      await library.setSetting(bookshelfSortKey, BookSortOrder.title.value);
+      await library.setSetting(bookshelfNewestFirstKey, 'true');
       await tester.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(),
@@ -230,27 +232,33 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final entry = find.byKey(const ValueKey('bookshelf-sort-setting'));
-      await tester.tap(entry);
-      await tester.pumpAndSettle();
-      expect(find.byType(Dialog), findsNothing);
-      expect(
-        tester
-            .widget<ListTile>(
-              find.byKey(const ValueKey('bookshelf-sort-recent')),
-            )
-            .selected,
-        isTrue,
+      final entry = find.byKey(const ValueKey('bookshelf-management-entry'));
+      final toggle = find.byKey(
+        const ValueKey('bookshelf-newest-first-setting'),
       );
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      expect(await library.getSetting(bookshelfSortKey), 'recent');
       await tester.tap(entry);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('bookshelf-sort-title')));
+      expect(tester.widget<ReaderSwitchListTile>(toggle).value, isTrue);
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(await library.getSetting(bookshelfSortKey), 'title');
-      expect((tester.widget<ListTile>(entry).subtitle! as Text).data, '书名');
+      expect(toggle, findsNothing);
+      expect(await library.getSetting(bookshelfNewestFirstKey), 'true');
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(tester.widget<ReaderSwitchListTile>(toggle).value, isFalse);
+      expect(await library.getSetting(bookshelfNewestFirstKey), 'false');
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(tester.widget<ReaderSwitchListTile>(toggle).value, isFalse);
+      expect(
+        await library.getSetting(bookshelfSortKey),
+        BookSortOrder.title.value,
+      );
       expect(tester.takeException(), isNull);
     },
     variant: const TargetPlatformVariant({
