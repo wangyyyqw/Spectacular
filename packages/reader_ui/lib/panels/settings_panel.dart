@@ -287,6 +287,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
   Timer? _sliderCommitTimer;
   ReaderOverrides? _pendingSliderOverrides;
   double? _pendingBackgroundImageOpacity;
+  String? _submittedOverridesFingerprint;
+  double? _submittedBackgroundImageOpacity;
 
   ReaderOverrides _build() => ReaderOverrides(
     fontSize: _fontSize,
@@ -318,11 +320,13 @@ class _SettingsPanelState extends State<SettingsPanel> {
     final next = _pendingSliderOverrides;
     _pendingSliderOverrides = null;
     if (next != null) {
+      _submittedOverridesFingerprint = next.fingerprint;
       widget.onOverridesChanged(next);
     }
     final opacity = _pendingBackgroundImageOpacity;
     _pendingBackgroundImageOpacity = null;
     if (opacity != null) {
+      _submittedBackgroundImageOpacity = opacity;
       widget.onBackgroundImageOpacityChanged?.call(opacity);
     }
   }
@@ -337,17 +341,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   void didUpdateWidget(covariant SettingsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.overrides.fingerprint != widget.overrides.fingerprint) {
-      _fontSize = widget.overrides.fontSize ?? ReaderSettingsDefaults.fontSize;
-      _fontFamily = widget.overrides.fontFamily;
-      _overrideEmbeddedFonts = widget.overrides.overrideEmbeddedFonts;
-      _lineHeight =
-          widget.overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight;
-      _paragraphSpacing =
-          widget.overrides.paragraphSpacing ??
-          ReaderSettingsDefaults.paragraphSpacing;
-      _horizontalPadding =
-          widget.overrides.padding?.left ??
-          ReaderSettingsDefaults.horizontalPadding;
+      _syncOverrides();
     }
     if (oldWidget.customFonts != widget.customFonts) {
       _customFonts = List.of(widget.customFonts);
@@ -356,8 +350,39 @@ class _SettingsPanelState extends State<SettingsPanel> {
       _cornerInfo = widget.cornerInfo;
     }
     if (oldWidget.backgroundImageOpacity != widget.backgroundImageOpacity) {
-      _backgroundImageOpacity = widget.backgroundImageOpacity;
+      final isSubmitted =
+          widget.backgroundImageOpacity == _submittedBackgroundImageOpacity;
+      _submittedBackgroundImageOpacity = null;
+      if (!isSubmitted || _pendingBackgroundImageOpacity == null) {
+        _pendingBackgroundImageOpacity = null;
+        _backgroundImageOpacity = widget.backgroundImageOpacity;
+      }
     }
+    if (_pendingSliderOverrides == null &&
+        _pendingBackgroundImageOpacity == null) {
+      _sliderCommitTimer?.cancel();
+      _sliderCommitTimer = null;
+    }
+  }
+
+  void _syncOverrides() {
+    final isSubmitted =
+        widget.overrides.fingerprint == _submittedOverridesFingerprint;
+    _submittedOverridesFingerprint = null;
+    // 宿主下一帧回传已提交值时，滑杆可能已有更新的草稿。
+    if (isSubmitted && _pendingSliderOverrides != null) return;
+    _pendingSliderOverrides = null;
+    _fontSize = widget.overrides.fontSize ?? ReaderSettingsDefaults.fontSize;
+    _fontFamily = widget.overrides.fontFamily;
+    _overrideEmbeddedFonts = widget.overrides.overrideEmbeddedFonts;
+    _lineHeight =
+        widget.overrides.lineHeight ?? ReaderSettingsDefaults.lineHeight;
+    _paragraphSpacing =
+        widget.overrides.paragraphSpacing ??
+        ReaderSettingsDefaults.paragraphSpacing;
+    _horizontalPadding =
+        widget.overrides.padding?.left ??
+        ReaderSettingsDefaults.horizontalPadding;
   }
 
   bool get _isCustomFont => _fontFamily?.startsWith('user_') ?? false;
@@ -611,6 +636,8 @@ class _SettingsPanelState extends State<SettingsPanel> {
     _sliderCommitTimer = null;
     _pendingSliderOverrides = null;
     _pendingBackgroundImageOpacity = null;
+    _submittedOverridesFingerprint = null;
+    _submittedBackgroundImageOpacity = null;
     setState(() {
       _fontSize = ReaderSettingsDefaults.fontSize;
       _fontFamily = null;
