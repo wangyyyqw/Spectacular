@@ -51,8 +51,6 @@ import '../cloud/cloud_import_page.dart';
 typedef _ShelfItem = ({
   BookEntry entry,
   int? spineIndex,
-  String? chapterTitle,
-  double readingPercent,
   Duration duration,
   int? onlineSpineIndex,
   int? onlineSpineCount,
@@ -916,25 +914,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
             for (final book in books)
               _readOnlineShelfProgress(book, progress[book.id]),
           ]);
-    final (weights, chapterTitles) = await (
-      widget.library.progressWeightsForBooks(progress.keys),
-      widget.library.readingChapterTitles({
-        for (final item in progress.entries) item.key: item.value.spineIndex,
-      }),
-    ).wait;
     final items = <_ShelfItem>[
       for (final (index, book) in books.indexed)
         (
           entry: book,
           spineIndex: progress[book.id]?.spineIndex,
-          chapterTitle: chapterTitles[book.id],
-          readingPercent: switch (progress[book.id]) {
-            null => 0.0,
-            final current => current.readingPercent?.clamp(0.0, 1.0) ??
-                ((weights[book.id]?.total ?? 0) > 0
-                    ? weights[book.id]!.percentOf(current.spineIndex)
-                    : ((current.spineIndex + 1) / (book.spineCount ?? 1).clamp(1, 1 << 30)).clamp(0.0, 1.0)),
-          },
           duration: durations[book.id] ?? Duration.zero,
           onlineSpineIndex: onlineProgress[index].spineIndex,
           onlineSpineCount: onlineProgress[index].chapterCount,
@@ -2732,38 +2716,17 @@ class _BookRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: metadataStyle,
                       ),
-                    ] else if (isOnline && finished) ...[
+                    ] else ...[
                       Text(
                         '已读 ${formatReadingDuration(item.duration)}',
                         style: metadataStyle,
                       ),
                       Text(
                         formatReadingChapters(
-                          item.onlineSpineIndex,
-                          item.onlineSpineCount,
+                          isOnline ? item.onlineSpineIndex : item.spineIndex,
+                          isOnline ? item.onlineSpineCount : entry.spineCount,
                         ),
                         style: metadataStyle,
-                      ),
-                    ] else ...[
-                      Text(
-                        item.spineIndex == null ? '尚未开始阅读' : '已读 · ${item.chapterTitle ?? '第 ${item.spineIndex! + 1} 章'}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: metadataStyle,
-                      ),
-                      const SizedBox(height: 6),
-                      Semantics(
-                        key: ValueKey('book-row-progress-semantics-${entry.id}'),
-                        container: true,
-                        label: '全文进度 ${(item.readingPercent * 100).round()}%',
-                        child: LinearProgressIndicator(
-                          key: ValueKey('book-row-progress-${entry.id}'),
-                          value: item.readingPercent,
-                          minHeight: 4,
-                          borderRadius: BorderRadius.circular(8),
-                          color: theme.colorScheme.primary.withValues(alpha: .68),
-                          backgroundColor: theme.colorScheme.outlineVariant.withValues(alpha: .35),
-                        ),
                       ),
                     ],
                   ],

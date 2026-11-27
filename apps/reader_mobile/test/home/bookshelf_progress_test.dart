@@ -66,7 +66,7 @@ Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
 }
 
 void main() {
-  testWidgets('本地书列表分行显示作者、当前章节与全文进度', (tester) async {
+  testWidgets('本地书列表依次显示作者、阅读时长与已读章数', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookshelf-progress');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -125,16 +125,18 @@ void main() {
     Finder line(String label) =>
         find.descendant(of: row, matching: find.text(label));
     final author = tester.getRect(line('佚名'));
-    final chapters = tester.getRect(line('已读 · 第二章 乙'));
-    final progress = find.byKey(ValueKey('book-row-progress-${entry.id}'));
-    expect(author.bottom, lessThanOrEqualTo(chapters.top));
-    expect(chapters.bottom, lessThanOrEqualTo(tester.getRect(progress).top));
-    expect(tester.widget<LinearProgressIndicator>(progress).value, .5);
-    expect(find.textContaining('50%'), findsNothing);
-    expect(find.text('尚未开始阅读'), findsOneWidget);
+    final duration = tester.getRect(line('已读 1 小时 16 分'));
+    final chapters = tester.getRect(line('已读 2 / 3 章'));
+    expect(author.bottom, lessThanOrEqualTo(duration.top));
+    expect(duration.bottom, lessThanOrEqualTo(chapters.top));
+    expect(
+      find.descendant(of: row, matching: find.byType(LinearProgressIndicator)),
+      findsNothing,
+    );
+    expect(find.text('已读 0 / 1 章'), findsOneWidget);
   });
 
-  testWidgets('已读完的书回翻后列表显示当前章节与全文进度', (tester) async {
+  testWidgets('已读完的本地书回翻后按当前位置显示章数', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookshelf-finished');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -176,15 +178,8 @@ void main() {
     await tester.pump();
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    expect(find.text('已读 · 第一章 甲'), findsOneWidget);
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(
-            find.byKey(ValueKey('book-row-progress-${entry.id}')),
-          )
-          .value,
-      .375,
-    );
+    expect(find.text('已读 1 / 2 章'), findsOneWidget);
+    expect(find.text('已读 0 分钟'), findsOneWidget);
   });
 
   testWidgets('在线书架章节进度忽略封面 spine 并读取在线读完状态', (tester) async {
