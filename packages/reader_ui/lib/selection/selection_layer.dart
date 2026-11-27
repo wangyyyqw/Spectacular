@@ -69,7 +69,7 @@ class _SelectionLayerState extends State<SelectionLayer>
   late final AnimationController _entranceController;
   late final Animation<double> _entrance;
   late final Animation<double> _handleScale;
-  // 跨页手势归一化后端点可能交换，继续移动时仍保留原来的固定端点。
+  // 手势归一化后端点可能交换，继续移动时仍保留拖拽开始时的固定端点。
   final _dragOrigins = <bool, ReaderSelection>{};
 
   @override
@@ -179,11 +179,7 @@ class _SelectionLayerState extends State<SelectionLayer>
         key: key,
         behavior: HitTestBehavior.opaque,
         onPanStart: (_) {
-          if (widget.selection.isMultiPage) {
-            _dragOrigins[start] = widget.selection;
-          } else {
-            _dragOrigins.remove(start);
-          }
+          _dragOrigins[start] = widget.selection;
         },
         onPanEnd: (_) => _dragOrigins.remove(start),
         onPanCancel: () => _dragOrigins.remove(start),
@@ -256,28 +252,12 @@ class _SelectionLayerState extends State<SelectionLayer>
     // 拖拽是字符级（§63.2），命中已钳制在页内；跨页由边缘翻页扩展。
     final hit = SelectionOps.charAt(widget.page, local);
     final origin = _dragOrigins[start] ?? current;
-    if (origin.isMultiPage) {
-      return ReaderSelection.spanning(
-        start: start ? hit : origin.start,
-        startPageIndex: start ? widget.pageIndex : origin.startPageIndex,
-        end: start ? origin.end : hit,
-        endPageIndex: start ? origin.endPageIndex : widget.pageIndex,
-      );
-    }
-    final localSelection =
-        SelectionOps.localSelectionOf(widget.page, widget.pageIndex, current) ??
-        current;
-    return start
-        ? ReaderSelection.normalized(
-            hit,
-            localSelection.end,
-            pageIndex: widget.pageIndex,
-          )
-        : ReaderSelection.normalized(
-            localSelection.start,
-            hit,
-            pageIndex: widget.pageIndex,
-          );
+    return ReaderSelection.spanning(
+      start: start ? hit : origin.start,
+      startPageIndex: start ? widget.pageIndex : origin.startPageIndex,
+      end: start ? origin.end : hit,
+      endPageIndex: start ? origin.endPageIndex : widget.pageIndex,
+    );
   }
 }
 
