@@ -204,9 +204,10 @@ final Finder _composerInput = find.byKey(
 final Finder _composerSave = find.byKey(
   const ValueKey<String>('note-composer-save'),
 );
-final Finder _composerClose = find.byKey(
-  const ValueKey<String>('note-composer-close'),
-);
+Future<void> _dismissComposer(WidgetTester tester) async {
+  await tester.tapAt(const Offset(5, 5));
+  await tester.pumpAndSettle();
+}
 
 Future<_Notes> _showEditor(WidgetTester tester) async {
   final source = _Source();
@@ -291,8 +292,7 @@ void main() {
     );
     expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
 
-    await tester.tap(_composerClose);
-    await tester.pumpAndSettle();
+    await _dismissComposer(tester);
     expect(
       find.byKey(const ValueKey<String>('note-composer-sheet')),
       findsNothing,
@@ -336,6 +336,7 @@ void main() {
     final rect = tester.getRect(_composerSave);
     expect(rect.top, greaterThanOrEqualTo(0), reason: '保存按钮顶部不可见');
     expect(rect.bottom, lessThanOrEqualTo(300), reason: '保存按钮被键盘遮挡');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('目录抽屉可打开标注页签并展示划线', (tester) async {
@@ -706,6 +707,14 @@ void main() {
     expect(
       find.byKey(const ValueKey<String>('note-composer-quote-preview')),
       findsNothing,
+    );
+    expect(find.byKey(const ValueKey<String>('line-tab')), findsOneWidget);
+    for (final section in ['color', 'background', 'width']) {
+      expect(find.byKey(ValueKey<String>('$section-tab')), findsNothing);
+    }
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-underline')),
+      findsOneWidget,
     );
 
     await tester.pumpWidget(sheet(inkMode: false));
@@ -1377,14 +1386,12 @@ void main() {
     expect(find.text('已删除想法，保留划线'), findsNothing);
   });
 
-  for (final action in ['取消', '遮罩', '系统返回']) {
+  for (final action in ['遮罩', '系统返回']) {
     testWidgets('$action 关闭想法时确认放弃，可继续编辑且再次打开为空', (tester) async {
       final notes = await _showEditor(tester);
       await tester.enterText(find.byType(TextField), '未保存的草稿');
       await tester.pump();
       switch (action) {
-        case '取消':
-          await tester.tap(_composerClose);
         case '遮罩':
           await tester.tapAt(const Offset(5, 5));
         case '系统返回':
@@ -1405,7 +1412,7 @@ void main() {
         '未保存的草稿',
       );
 
-      await tester.tap(_composerClose);
+      await tester.tapAt(const Offset(5, 5));
       await tester.pumpAndSettle();
       expect(find.text('放弃未保存的想法？'), findsOneWidget);
       await tester.tap(
@@ -1419,7 +1426,7 @@ void main() {
         tester.widget<EditableText>(find.byType(EditableText)).controller.text,
         isEmpty,
       );
-      await tester.tap(_composerClose);
+      await tester.tapAt(const Offset(5, 5));
       await _finishExit(tester);
       expect(notes.items, isEmpty);
     });
@@ -1438,7 +1445,7 @@ void main() {
     expect(notes.items, isEmpty);
     expect(find.byType(SelectionLayer), findsOneWidget);
 
-    await tester.tap(_composerClose);
+    await tester.tapAt(const Offset(5, 5));
     await _finishExit(tester);
     expect(find.byType(SelectionLayer), findsOneWidget);
   });

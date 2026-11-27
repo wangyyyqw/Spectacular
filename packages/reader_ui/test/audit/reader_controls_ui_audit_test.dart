@@ -10,11 +10,13 @@ import 'package:reader_ui/footnote_dialog.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
+import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/panels/tap_zone_editor.dart';
 import 'package:reader_ui/selection/selection_menu.dart';
 import 'package:reader_ui/tap_zones.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 Finder _key(String value) => find.byKey(ValueKey<String>(value));
 
@@ -213,7 +215,17 @@ void main() {
       const ReaderNoteComposerSheet(quote: '这是一段原文'),
       (value) => result = value,
     );
-    _expectSheet(tester, 'note-composer-sheet');
+    expect(find.byType(ReaderSettingsSheet), findsOneWidget);
+    final material = tester.widget<Material>(
+      find
+          .descendant(
+            of: _key('note-composer-sheet'),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    expect(material.borderRadius, ReaderUiStyle.sheetRadius);
+    expect(tester.takeException(), isNull);
     await tester.enterText(_key('note-composer-input'), '  我的读书笔记  ');
     await tester.pump();
     await tester.tap(_key('note-composer-save'));

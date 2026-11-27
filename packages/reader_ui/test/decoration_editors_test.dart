@@ -7,13 +7,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart';
 import 'package:reader_ui/decorations/decoration.dart';
+import 'package:reader_ui/decorations/decoration_border_editor.dart';
 import 'package:reader_ui/decorations/decoration_editor_sheet.dart';
 import 'package:reader_ui/decorations/decoration_rule_editor.dart';
 import 'package:reader_ui/decorations/decoration_rule_page.dart';
 import 'package:reader_ui/decorations/decoration_rule_preview.dart';
 import 'package:reader_ui/decorations/decoration_rules.dart';
 import 'package:reader_ui/decorations/decoration_style_preview.dart';
+import 'package:reader_ui/decorations/decoration_typography_editor.dart';
 import 'package:reader_ui/panels/decoration_panel.dart';
+import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/panels/settings_panel.dart' show ReaderFontOption;
 import 'package:reader_ui/decorations/decoration_highlight_editor.dart';
@@ -22,6 +25,8 @@ import 'package:reader_ui/decorations/decoration_image_store.dart';
 import 'package:reader_ui/decorations/decoration_image_codec.dart';
 import 'package:reader_ui/decorations/decoration_nine_slice_editor.dart';
 import 'package:reader_ui/decorations/style_controls.dart';
+import 'package:reader_ui/theme/reader_section_slider.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import 'support/decoration_test_images.dart';
 
@@ -366,9 +371,7 @@ void main() {
       ReaderDecorationEditorSheet(quote: '点九图片', images: images),
       (result) => saved = result,
     );
-    final background = find.byKey(
-      const ValueKey<String>('decoration-background'),
-    );
+    final background = find.byKey(const ValueKey<String>('decoration-image'));
     await tester.ensureVisible(background);
     await tester.tap(background);
     await tester.pumpAndSettle();
@@ -672,6 +675,8 @@ void main() {
     final swatch = find.byKey(
       const ValueKey('decoration-highlight-style-wavyUnderline'),
     );
+    await tester.tap(find.byKey(const ValueKey<String>('decoration-preset')));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(swatch);
     await tester.tap(swatch);
     await tester.pumpAndSettle();
@@ -749,6 +754,208 @@ void main() {
     expect(style?.paddingLeft, 6);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('装饰复用设置面板和六分栏，样式归预设、细化归高亮，一次保存完整草稿', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    ReaderDecorationStyle? saved;
+    await _openSheet<ReaderDecorationStyle>(
+      tester,
+      const ReaderDecorationEditorSheet(
+        quote: '各分栏共同编辑同一份装饰草稿。',
+        initialStyle: ReaderDecorationStyle(
+          highlight: ReaderDecorationHighlight(),
+        ),
+      ),
+      (result) => saved = result,
+    );
+    expect(find.byType(ReaderSettingsSheet), findsOneWidget);
+    expect(find.byType(ReaderSectionSlider), findsOneWidget);
+    final sheet = find.byKey(const ValueKey('decoration-editor-sheet'));
+    final tabs = find.byKey(const ValueKey('decoration-section-tabs'));
+    final preview = find.byType(ReaderDecorationStylePreview);
+    final save = find.byKey(const ValueKey('decoration-save'));
+    final saveRect = tester.getRect(save);
+    expect(
+      tester.getSize(sheet).height,
+      closeTo(800 * ReaderUiStyle.settingsSheetHeightFraction, 0.1),
+    );
+    expect(
+      tester.getTopLeft(tabs).dy - tester.getBottomLeft(preview).dy,
+      closeTo(8, 0.1),
+    );
+    for (final section in [
+      'preset',
+      'highlight',
+      'typography',
+      'background',
+      'image',
+      'border',
+    ]) {
+      expect(
+        find.byKey(ValueKey<String>('decoration-$section')),
+        findsOneWidget,
+      );
+    }
+
+    expect(find.byType(ReaderDecorationHighlightEditor), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('decoration-highlight-style-wavyUnderline')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('蓝色'), findsNothing);
+    final wavy = find.byKey(
+      const ValueKey('decoration-highlight-style-wavyUnderline'),
+    );
+    await tester.ensureVisible(wavy);
+    await tester.tap(wavy);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderDecorationHighlightEditor>(
+            find.byType(ReaderDecorationHighlightEditor),
+          )
+          .showDetails,
+      isFalse,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('decoration-highlight')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('decoration-highlight-style-wavyUnderline')),
+      findsNothing,
+    );
+    final blue = find.byTooltip('蓝色');
+    await tester.ensureVisible(blue);
+    await tester.tap(blue);
+    await tester.pump();
+
+    await _openTypography(tester);
+    expect(find.byType(ReaderDecorationTypographyEditor), findsOneWidget);
+    tester
+        .widget<ReaderDropdownButtonFormField<int>>(
+          find.byKey(const ValueKey('decoration-weight')),
+        )
+        .onChanged!(700);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('decoration-background')));
+    await tester.pumpAndSettle();
+    tester
+        .widget<ReaderStyleColorField>(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is ReaderStyleColorField && widget.label == '背景色',
+          ),
+        )
+        .onChanged(0xFFB6D7A8);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('decoration-image')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('图片按每行装饰区间铺放'), findsOneWidget);
+    expect(find.text('选择本地背景图'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('decoration-border')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReaderDecorationBorderEditor), findsOneWidget);
+    tester
+        .widget<ReaderStyleSlider>(
+          find.byWidgetPredicate(
+            (widget) => widget is ReaderStyleSlider && widget.label == '四边宽度',
+          ),
+        )
+        .onChanged(2);
+    await tester.pump();
+    tester
+        .widget<ReaderStyleSlider>(
+          find.byWidgetPredicate(
+            (widget) => widget is ReaderStyleSlider && widget.label == '左内边距',
+          ),
+        )
+        .onChanged(6);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('decoration-preset')));
+    await tester.pumpAndSettle();
+    final highlight = tester.widget<ReaderDecorationHighlightEditor>(
+      find.byType(ReaderDecorationHighlightEditor),
+    );
+    expect(highlight.value!.style, ReaderAnnotationStyle.wavyUnderline);
+    expect(highlight.value!.color, 0xFF90CAF9);
+    expect(highlight.showStyles, isTrue);
+    final previewStyle = tester
+        .widget<ReaderDecorationStylePreview>(preview)
+        .style;
+    expect(previewStyle.fontWeight, 700);
+    expect(previewStyle.backgroundColor, 0xFFB6D7A8);
+    expect(previewStyle.borderTop.width, 2);
+    expect(previewStyle.borderRight.width, 2);
+    expect(previewStyle.borderBottom.width, 2);
+    expect(previewStyle.borderLeft.width, 2);
+    expect(previewStyle.paddingLeft, 6);
+    expect(tester.getRect(save), saveRect);
+    expect(tabs.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(saved!.toJson(), previewStyle.toJson());
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final scenario in [
+    (label: '320dp 大字', size: const Size(320, 600), scale: 1.6, inset: 0.0),
+    (label: '键盘弹出', size: const Size(360, 800), scale: 1.0, inset: 500.0),
+  ]) {
+    testWidgets('${scenario.label}装饰分栏可切换，预览和保存固定可见', (tester) async {
+      tester.view.physicalSize = scenario.size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await _openSheet<ReaderDecorationStyle>(
+        tester,
+        MediaQuery(
+          data: MediaQueryData(
+            size: scenario.size,
+            textScaler: TextScaler.linear(scenario.scale),
+            viewInsets: EdgeInsets.only(bottom: scenario.inset),
+          ),
+          child: const ReaderDecorationEditorSheet(
+            quote: '较长的选区原文用于检查窄屏、大字号和键盘场景，预览不会把保存操作挤出屏幕。',
+          ),
+        ),
+        (_) {},
+      );
+      final preview = find.byType(ReaderDecorationStylePreview);
+      final save = find.byKey(const ValueKey('decoration-save'));
+      final previewRect = tester.getRect(preview);
+      final saveRect = tester.getRect(save);
+      for (final section in [
+        'preset',
+        'highlight',
+        'typography',
+        'background',
+        'image',
+        'border',
+      ]) {
+        final tab = find.byKey(ValueKey('decoration-$section'));
+        expect(tab.hitTestable(), findsOneWidget);
+        await tester.tap(tab);
+        await tester.pumpAndSettle();
+        expect(preview.hitTestable(), findsOneWidget);
+        expect(save.hitTestable(), findsOneWidget);
+        expect(tester.getRect(preview), previewRect);
+        expect(tester.getRect(save), saveRect);
+        expect(
+          saveRect.bottom,
+          lessThanOrEqualTo(scenario.size.height - scenario.inset),
+        );
+        expect(tester.takeException(), isNull);
+      }
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.text('放弃未保存的装饰？'), findsNothing);
+      expect(find.byType(ReaderDecorationEditorSheet), findsNothing);
+    });
+  }
 
   testWidgets('字体注册完成前禁用保存，完成后保存所选字体', (tester) async {
     final pending = Completer<void>();

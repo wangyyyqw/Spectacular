@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/annotations/annotation_appearance_editor.dart';
 import 'package:reader_ui/annotations/annotation_editor_sheet.dart';
 import 'package:reader_ui/annotations/mark_settings.dart';
 import 'package:reader_ui/annotations/note_composer_sheet.dart';
 import 'package:reader_ui/panels/mark_settings_sheet.dart';
+import 'package:reader_ui/panels/reader_settings_sheet.dart';
+import 'package:reader_ui/theme/reader_section_slider.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 Future<void> _openSheet<T>(
   WidgetTester tester,
@@ -158,6 +162,123 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('note-composer-save')));
     await tester.pumpAndSettle();
     expect(action?.opacity, 0.6);
+  });
+
+  testWidgets('320dp 想法弹窗复用设置面板和分栏，切换保留正文与外观', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    AnnotationEditAction? action;
+    await _openSheet<AnnotationEditAction>(
+      tester,
+      const ReaderNoteComposerSheet(quote: '需要记录想法的原文'),
+      (result) => action = result,
+    );
+
+    expect(find.byType(ReaderSettingsSheet), findsOneWidget);
+    expect(find.byType(ReaderSectionSlider), findsOneWidget);
+    final sheet = find.byKey(const ValueKey<String>('note-composer-sheet'));
+    final initialHeight = tester.getSize(sheet).height;
+    expect(
+      initialHeight,
+      closeTo(800 * ReaderUiStyle.settingsSheetHeightFraction, 0.1),
+    );
+    final input = find.byKey(const ValueKey<String>('note-composer-input'));
+    await tester.enterText(input, '切换外观分栏后仍保留的想法');
+    await tester.pump();
+
+    for (final section in ['color', 'background', 'line', 'width']) {
+      expect(find.byKey(ValueKey<String>('$section-tab')), findsOneWidget);
+    }
+    expect(
+      tester
+          .widget<ReaderAnnotationAppearanceEditor>(
+            find.byType(ReaderAnnotationAppearanceEditor),
+          )
+          .section,
+      ReaderAnnotationAppearanceSection.color,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-background')),
+      findsNothing,
+    );
+
+    final background = find.byKey(const ValueKey<String>('background-tab'));
+    await tester.ensureVisible(background);
+    await tester.tap(background);
+    await tester.pumpAndSettle();
+    final halfBackground = find.byKey(
+      const ValueKey<String>('annotation-style-halfBackground'),
+    );
+    await tester.ensureVisible(halfBackground);
+    await tester.tap(halfBackground);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-style-underline')),
+      findsNothing,
+    );
+
+    final line = find.byKey(const ValueKey<String>('line-tab'));
+    await tester.ensureVisible(line);
+    await tester.tap(line);
+    await tester.pumpAndSettle();
+    final dotted = find.byKey(
+      const ValueKey<String>('annotation-style-dottedUnderline'),
+    );
+    await tester.ensureVisible(dotted);
+    await tester.tap(dotted);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('annotation-width-2.6')),
+      findsNothing,
+    );
+
+    final width = find.byKey(const ValueKey<String>('width-tab'));
+    await tester.ensureVisible(width);
+    await tester.tap(width);
+    await tester.pumpAndSettle();
+    final thick = find.byKey(const ValueKey<String>('annotation-width-2.6'));
+    await tester.ensureVisible(thick);
+    await tester.tap(thick);
+    await tester.pump();
+    final join = find.byKey(const ValueKey<String>('annotation-join-lines'));
+    await tester.ensureVisible(join);
+    await tester.tap(join);
+    await tester.pump();
+
+    final color = find.byKey(const ValueKey<String>('color-tab'));
+    await tester.ensureVisible(color);
+    await tester.tap(color);
+    await tester.pumpAndSettle();
+    final blue = find.byKey(
+      const ValueKey<String>('annotation-color-0xFF90CAF9'),
+    );
+    await tester.ensureVisible(blue);
+    await tester.tap(blue);
+    await tester.pump();
+    final opacity = find.byKey(const ValueKey<String>('annotation-opacity'));
+    await tester.ensureVisible(opacity);
+    await tester.tap(opacity);
+    await tester.pump();
+    final savedOpacity = tester.widget<Slider>(opacity).value;
+    expect(
+      savedOpacity,
+      isNot(ReaderAnnotationStyle.dottedUnderline.defaultOpacity),
+    );
+    expect(tester.widget<TextField>(input).controller?.text, '切换外观分栏后仍保留的想法');
+    expect(tester.getSize(sheet).height, initialHeight);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-composer-save')));
+    await tester.pumpAndSettle();
+    expect(action?.note, '切换外观分栏后仍保留的想法');
+    expect(action?.style, ReaderAnnotationStyle.dottedUnderline);
+    expect(action?.color, 0xFF90CAF9);
+    expect(action?.opacity, savedOpacity);
+    expect(action?.markSettings?.strokeWidth, 2.6);
+    expect(action?.markSettings?.joinBackgroundLines, isTrue);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('自定义色保存不覆盖刚选择的默认样式', (tester) async {

@@ -13,89 +13,99 @@ class ReaderDecorationHighlightEditor extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.inkMode = false,
+    this.showStyles = true,
+    this.showDetails = true,
   });
 
   final ReaderDecorationHighlight? value;
   final ValueChanged<ReaderDecorationHighlight?> onChanged;
   final bool inkMode;
 
+  /// 是否展示样式样本。
+  final bool showStyles;
+
+  /// 是否展示颜色、透明度、圆角、线宽与连块。
+  final bool showDetails;
+
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _styles(context),
-      if (inkMode)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
-          child: Text('墨水屏模式：背景与染色显示为黑色实线。'),
-        ),
-      if (value case final highlight?) ...[
-        if (!inkMode) ...[
-          const SizedBox(height: 12),
-          _colors(context, highlight),
-          ReaderStyleColorField(
-            label: '自定义颜色',
-            color: highlight.color,
-            allowClear: false,
-            onChanged: (color) =>
-                onChanged(highlight.withValues({'color': color})),
+      if (showStyles) _styles(context),
+      if (showDetails) ...[
+        if (inkMode)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('墨水屏模式：背景与染色显示为黑色实线。'),
           ),
-          ReaderStyleSlider(
-            key: const ValueKey('decoration-highlight-opacity'),
-            label: '高亮透明度',
-            value: highlight.effectiveOpacity,
-            min: 0,
-            max: 1,
-            divisions: 100,
-            digits: 2,
-            onChanged: (opacity) =>
-                onChanged(highlight.withValues({'opacity': opacity})),
-          ),
-          if ([
-            ReaderAnnotationStyle.background,
-            ReaderAnnotationStyle.halfBackground,
-          ].contains(highlight.style))
-            ReaderStyleSlider(
-              key: const ValueKey('decoration-highlight-radius'),
-              label: '高亮圆角',
-              value: highlight.borderRadius,
-              min: 0,
-              max: 12,
-              divisions: 12,
-              digits: 0,
-              suffix: ' dp',
-              onChanged: (radius) =>
-                  onChanged(highlight.withValues({'borderRadius': radius})),
+        if (value case final highlight?) ...[
+          if (!inkMode) ...[
+            const SizedBox(height: 12),
+            _colors(context, highlight),
+            ReaderStyleColorField(
+              label: '自定义颜色',
+              color: highlight.color,
+              allowClear: false,
+              onChanged: (color) =>
+                  onChanged(highlight.withValues({'color': color})),
             ),
-        ],
-        if (!inkMode &&
-            ![
+            ReaderStyleSlider(
+              key: const ValueKey('decoration-highlight-opacity'),
+              label: '高亮透明度',
+              value: highlight.effectiveOpacity,
+              min: 0,
+              max: 1,
+              divisions: 100,
+              digits: 2,
+              onChanged: (opacity) =>
+                  onChanged(highlight.withValues({'opacity': opacity})),
+            ),
+            if ([
               ReaderAnnotationStyle.background,
               ReaderAnnotationStyle.halfBackground,
-              ReaderAnnotationStyle.tint,
             ].contains(highlight.style))
-          ReaderStyleSlider(
-            label: '高亮线宽',
-            value: highlight.strokeWidth,
-            min: 0.5,
-            max: 6,
-            divisions: 11,
-            suffix: ' dp',
-            onChanged: (width) =>
-                onChanged(highlight.withValues({'strokeWidth': width})),
-          ),
-        if (!inkMode && highlight.style == ReaderAnnotationStyle.background)
-          SwitchListTile(
-            key: const ValueKey('decoration-highlight-join-lines'),
-            contentPadding: EdgeInsets.zero,
-            title: const Text('跨行背景连块'),
-            subtitle: const Text('只连接同一段落内的连续高亮，不跨段或跨页'),
-            value: highlight.joinLines,
-            onChanged: (join) =>
-                onChanged(highlight.withValues({'joinLines': join})),
-          ),
+              ReaderStyleSlider(
+                key: const ValueKey('decoration-highlight-radius'),
+                label: '高亮圆角',
+                value: highlight.borderRadius,
+                min: 0,
+                max: 12,
+                divisions: 12,
+                digits: 0,
+                suffix: ' dp',
+                onChanged: (radius) =>
+                    onChanged(highlight.withValues({'borderRadius': radius})),
+              ),
+          ],
+          if (!inkMode &&
+              ![
+                ReaderAnnotationStyle.background,
+                ReaderAnnotationStyle.halfBackground,
+                ReaderAnnotationStyle.tint,
+              ].contains(highlight.style))
+            ReaderStyleSlider(
+              label: '高亮线宽',
+              value: highlight.strokeWidth,
+              min: 0.5,
+              max: 6,
+              divisions: 11,
+              suffix: ' dp',
+              onChanged: (width) =>
+                  onChanged(highlight.withValues({'strokeWidth': width})),
+            ),
+          if (!inkMode && highlight.style == ReaderAnnotationStyle.background)
+            SwitchListTile(
+              key: const ValueKey('decoration-highlight-join-lines'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('跨行背景连块'),
+              subtitle: const Text('只连接同一段落内的连续高亮，不跨段或跨页'),
+              value: highlight.joinLines,
+              onChanged: (join) =>
+                  onChanged(highlight.withValues({'joinLines': join})),
+            ),
+        ],
+        const SizedBox(height: 12),
       ],
-      const SizedBox(height: 12),
     ],
   );
 

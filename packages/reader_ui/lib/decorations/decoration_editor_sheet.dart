@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import '../reader_ui_diagnostics.dart';
 
 import '../icons/app_icon.dart';
+import '../panels/reader_settings_sheet.dart';
 import '../panels/settings_panel.dart' show ReaderFontOption;
+import '../theme/reader_section_slider.dart';
 import 'decoration_border_editor.dart';
 import 'decoration_image_store.dart';
 import 'decoration_image_codec.dart';
@@ -18,8 +20,6 @@ import 'decoration_typography_editor.dart';
 import 'style_controls.dart';
 import '../theme/reader_common_widgets.dart';
 import '../theme/reader_frosted_popup.dart';
-import '../theme/reader_frosted_surface.dart';
-import '../theme/reader_ui_style.dart';
 
 /// 手工装饰预设与高级属性编辑面板。
 class ReaderDecorationEditorSheet extends StatefulWidget {
@@ -66,6 +66,7 @@ class _ReaderDecorationEditorSheetState
   bool _loadingFont = false;
   String? _fontError;
   int _fontGeneration = 0;
+  int _sectionIndex = 0;
   final _loadedFonts = <String>{};
   bool get _dirty =>
       jsonEncode(_style.toJson()) != jsonEncode(widget.initialStyle.toJson());
@@ -207,82 +208,47 @@ class _ReaderDecorationEditorSheetState
     child: AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: Material(
+      child: ReaderSettingsSheet(
         key: const ValueKey<String>('decoration-editor-sheet'),
-        color: ReaderFrostedSurface.panelColorOf(context),
-        borderRadius: ReaderUiStyle.sheetRadius,
-        clipBehavior: Clip.antiAlias,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 6, 8, 8),
-                child: Row(
-                  children: [
-                    const AppIcon(AppGlyph.formatPaint, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '装饰',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: _close,
-                      tooltip: '关闭',
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      constraints: const BoxConstraints(
-                        minWidth: 44,
-                        minHeight: 44,
-                      ),
-                      icon: const AppIcon(AppGlyph.close, size: 20),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: ReaderDecorationStylePreview(
-                  text: widget.quote,
-                  style: _loadingFont || _fontError != null
-                      ? _style.withValues({'fontFamily': null})
-                      : _style,
-                  images: widget.images,
-                  inkMode: widget.inkMode,
-                  maxLines: 2,
-                ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                  child: _content(context),
-                ),
-              ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    key: const ValueKey<String>('decoration-save'),
-                    onPressed: _canSave ? () => _pop(_style) : null,
-                    icon: const AppIcon(AppGlyph.check),
-                    label: const Text('保存装饰'),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        header: _header(context),
+        footer: FilledButton(
+          key: const ValueKey<String>('decoration-save'),
+          onPressed: _canSave ? () => _pop(_style) : null,
+          child: const Text('保存装饰'),
         ),
+        child: _content(context),
       ),
     ),
+  );
+
+  Widget _header(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      ReaderDecorationStylePreview(
+        text: widget.quote,
+        style: _loadingFont || _fontError != null
+            ? _style.withValues({'fontFamily': null})
+            : _style,
+        images: widget.images,
+        inkMode: widget.inkMode,
+        maxLines: 2,
+      ),
+      const SizedBox(height: 8),
+      ReaderSectionSlider(
+        key: const ValueKey<String>('decoration-section-tabs'),
+        sections: const [
+          (key: 'preset', label: '预设'),
+          (key: 'highlight', label: '高亮'),
+          (key: 'typography', label: '字体'),
+          (key: 'background', label: '背景'),
+          (key: 'image', label: '图片'),
+          (key: 'border', label: '边框'),
+        ],
+        itemKeyBuilder: (item) => ValueKey<String>('decoration-${item.key}'),
+        index: _sectionIndex,
+        onSelected: (index) => setState(() => _sectionIndex = index),
+      ),
+    ],
   );
 
   Widget _content(BuildContext context) => Column(
@@ -311,6 +277,32 @@ class _ReaderDecorationEditorSheetState
           ),
         ),
       const SizedBox(height: 16),
+      switch (_sectionIndex) {
+        0 => _presets(),
+        1 => ReaderDecorationHighlightEditor(
+          value: _style.highlight,
+          onChanged: (value) => _set('highlight', value?.toJson()),
+          inkMode: widget.inkMode,
+          showStyles: false,
+        ),
+        2 => ReaderDecorationTypographyEditor(
+          style: _style,
+          fonts: widget.fonts,
+          onChanged: _changeStyle,
+        ),
+        3 => _backgroundColor(),
+        4 => _backgroundImage(),
+        _ => ReaderDecorationBorderEditor(
+          style: _style,
+          onChanged: _changeStyle,
+        ),
+      },
+    ],
+  );
+
+  Widget _presets() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
       Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -327,52 +319,17 @@ class _ReaderDecorationEditorSheetState
           ),
         ],
       ),
-      AppExpansionTile(
-        key: const ValueKey<String>('decoration-highlight'),
-        title: const Text('高亮与划线'),
-        subtitle: Text(_style.highlight?.style.label ?? '底色、染色、线条与跨行连块'),
-        initiallyExpanded: widget.initialStyle.highlight != null,
-        tilePadding: EdgeInsets.zero,
-        children: [
-          ReaderDecorationHighlightEditor(
-            value: _style.highlight,
-            onChanged: (value) => _set('highlight', value?.toJson()),
-            inkMode: widget.inkMode,
-          ),
-        ],
-      ),
-      AppExpansionTile(
-        key: const ValueKey<String>('decoration-typography'),
-        title: const Text('字体'),
-        subtitle: const Text('字体、字号、字重、斜体、字距、文字色'),
-        tilePadding: EdgeInsets.zero,
-        children: [
-          ReaderDecorationTypographyEditor(
-            style: _style,
-            fonts: widget.fonts,
-            onChanged: _changeStyle,
-          ),
-        ],
-      ),
-      AppExpansionTile(
-        key: const ValueKey<String>('decoration-background'),
-        title: const Text('背景'),
-        subtitle: const Text('颜色、透明度、圆角、本地背景图'),
-        tilePadding: EdgeInsets.zero,
-        children: [_background()],
-      ),
-      AppExpansionTile(
-        title: const Text('边框与内边距'),
-        subtitle: const Text('统一或分别设置四边'),
-        tilePadding: EdgeInsets.zero,
-        children: [
-          ReaderDecorationBorderEditor(style: _style, onChanged: _changeStyle),
-        ],
+      const SizedBox(height: 16),
+      ReaderDecorationHighlightEditor(
+        value: _style.highlight,
+        onChanged: (value) => _set('highlight', value?.toJson()),
+        inkMode: widget.inkMode,
+        showDetails: false,
       ),
     ],
   );
 
-  Widget _background() => Column(
+  Widget _backgroundColor() => Column(
     children: [
       ReaderStyleColorField(
         label: '背景色',
@@ -399,6 +356,12 @@ class _ReaderDecorationEditorSheetState
         suffix: ' dp',
         onChanged: (value) => _set('borderRadius', value),
       ),
+      const SizedBox(height: 12),
+    ],
+  );
+
+  Widget _backgroundImage() => Column(
+    children: [
       if (widget.images != null)
         OutlinedButton.icon(
           onPressed: _picking ? null : _pickImage,
