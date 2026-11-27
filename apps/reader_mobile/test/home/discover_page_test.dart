@@ -391,10 +391,10 @@ void main() {
     );
     expect(searchSourceName, findsOneWidget);
     expect(groupCount, findsOneWidget);
-    expect(
-      tester.getCenter(arrow(AppGlyph.chevronDown)).dx,
-      greaterThan(tester.getRect(groupCount).right),
-    );
+    expect(tester.getSize(toggle).height, lessThan(kMinInteractiveDimension));
+    final countRight = tester.getRect(groupCount).right;
+    final arrowLeft = tester.getRect(arrow(AppGlyph.chevronDown)).left;
+    expect(arrowLeft - countRight, inInclusiveRange(0, 8));
     expect(
       tester.getRect(toggle).bottom,
       lessThanOrEqualTo(tester.getRect(searchCard).top),

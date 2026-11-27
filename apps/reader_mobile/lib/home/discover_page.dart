@@ -811,7 +811,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
     final theme = Theme.of(context);
     final name = source.name.trim().isEmpty ? '未知来源' : source.name;
     final header = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+      constraints: const BoxConstraints(minHeight: 44),
       child: Row(
         children: [
           AppIcon(
@@ -821,31 +821,27 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  '（$count）',
-                  semanticsLabel: '$count 条结果',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleSmall,
             ),
           ),
-          if (count > 1)
+          const SizedBox(width: 4),
+          Text(
+            '（$count）',
+            semanticsLabel: '$count 条结果',
+            style: theme.textTheme.bodySmall,
+          ),
+          if (count > 1) ...[
+            const SizedBox(width: 4),
             AppIcon(
               expanded ? AppGlyph.chevronUp : AppGlyph.chevronDown,
               size: 18,
               color: theme.colorScheme.onSurfaceVariant,
             ),
+          ],
         ],
       ),
     );
