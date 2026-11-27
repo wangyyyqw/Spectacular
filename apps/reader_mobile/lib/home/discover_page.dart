@@ -360,11 +360,11 @@ class _DiscoverPageState extends State<DiscoverPage> {
       final results = await widget.controller.search(query);
       if (!mounted || version != _version) return;
       setState(() {
-        _books = [
+        _books = rankOnlineSearchResults(query, [
           for (final result in results)
             for (final book in result.books)
               (source: result.source, book: book),
-        ];
+        ], (item) => item.book);
         final failures = results.where((result) => result.error.isNotEmpty);
         _error = _books.isEmpty && failures.isNotEmpty
             ? failures

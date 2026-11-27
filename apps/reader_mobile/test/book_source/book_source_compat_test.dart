@@ -7,6 +7,36 @@ import 'package:reader_mobile/book_source/book_source_models.dart';
 
 void main() {
   group('在线书籍字段兼容', () {
+    test('搜索先精确匹配书名和作者，再比较前缀和包含；同级与无匹配保持原序', () {
+      final books = [
+        for (final pair in [
+          ('无关', '其他'),
+          ('乙', '作·星河人'),
+          ('甲', '星河客'),
+          ('夜星河', ''),
+          ('星 河：传', ''),
+          ('作品', '星河'),
+          ('《星河》', '作者甲'),
+          ('星-河', '作者乙'),
+        ])
+          OnlineBook(
+            sourceId: '源',
+            sourceName: '源',
+            name: pair.$1,
+            author: pair.$2,
+            bookUrl: pair.$1,
+          ),
+      ];
+      expect(
+        rankOnlineSearchResults(
+          '【星 河】',
+          books,
+          (book) => book,
+        ).map((book) => book.name),
+        ['《星河》', '星-河', '作品', '星 河：传', '夜星河', '甲', '乙', '无关'],
+      );
+      expect(rankOnlineSearchResults('《 》', books, (book) => book), books);
+    });
     test('字数单位与无效值归一', () {
       expect(normalizeOnlineWordCount('12.30万'), '12.3万字');
       expect(normalizeOnlineWordCount('123456'), '12.3万字');

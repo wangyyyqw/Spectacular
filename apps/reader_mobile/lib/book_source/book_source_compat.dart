@@ -6,6 +6,36 @@ import 'package:html/parser.dart' as html_parser;
 import 'book_source_discovery.dart';
 import 'book_source_models.dart';
 
+final _searchPunctuation = RegExp(r'[\s·•・:：,，。!！?？《》〈〉【】\[\]()（）_-]+');
+
+List<T> rankOnlineSearchResults<T>(
+  String query,
+  Iterable<T> results,
+  OnlineBook Function(T) bookOf,
+) {
+  String normalize(String value) =>
+      value.toLowerCase().replaceAll(_searchPunctuation, '');
+  final needle = normalize(query);
+  if (needle.isEmpty) return results.toList();
+  int rank(OnlineBook book) {
+    final name = normalize(book.name);
+    final author = normalize(book.author);
+    if (name == needle) return 0;
+    if (author == needle) return 1;
+    if (name.startsWith(needle)) return 2;
+    if (name.contains(needle)) return 3;
+    if (author.startsWith(needle)) return 4;
+    if (author.contains(needle)) return 5;
+    return 6;
+  }
+
+  final groups = List.generate(7, (_) => <T>[]);
+  for (final result in results) {
+    groups[rank(bookOf(result))].add(result);
+  }
+  return [for (final group in groups) ...group];
+}
+
 /// 列表卡片只展示列表返回的字段，分类与简介填入现有行位，不触发详情请求。
 ({String author, String latest, String description}) onlineBookCardSummary(
   OnlineBook book,

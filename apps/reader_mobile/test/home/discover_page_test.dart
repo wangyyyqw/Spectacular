@@ -126,9 +126,12 @@ void main() {
           return http.Response(
             jsonEncode({
               'books': [
+                if (request.url.path.contains('search') && request.url.host != 'second.example.com')
+                  {'name': '第一来源弱匹配', 'author': '其他', 'url': '/book/weak'},
                 {
                   'name': name,
-                  'author': '作者',
+                  'author': request.url.path.contains('search') && request.url.host == 'second.example.com'
+                      ? '搜索书' : '作者',
                   'status': '连载',
                   'wordCount': '25万字',
                   'lastChapter': '第十章',
@@ -235,7 +238,7 @@ void main() {
     final searchBook = (await pumpReaderTask(tester, controller.search('搜索书')))
         .singleWhere((result) => result.source.id == searchSource.id)
         .books
-        .single;
+        .singleWhere((book) => book.name == '搜索书');
     await pumpReaderTask(
       tester,
       controller.addToShelf(searchSource, searchBook, const [
@@ -337,6 +340,9 @@ void main() {
     await pumpReaderUntil(tester, find.text('搜索书'));
     await tester.pumpAndSettle();
     expect(find.text('搜索书'), findsWidgets);
+    double bookTop(String title) => tester.getTopLeft(find.text(title).first).dy;
+    expect(bookTop('搜索书'), lessThan(bookTop('第二来源书')));
+    expect(bookTop('第二来源书'), lessThan(bookTop('第一来源弱匹配')));
     final searchCard = find.byKey(
       ValueKey('discover-book-${searchSource.id}-${searchBook.bookUrl}'),
     );
