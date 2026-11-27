@@ -195,6 +195,7 @@ bool _portableSyncSetting(String key) =>
       'app.themePreset',
       'app.fontFamily',
       'bookshelf.sort',
+      'bookshelf.newBooksFirst',
       'bookshelf.showTitles',
       'bookshelf.grid',
     }.contains(key);

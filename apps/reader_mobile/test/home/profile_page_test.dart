@@ -40,6 +40,48 @@ class _FakeAppFontStore extends ReaderFontStore {
 }
 
 void main() {
+  testWidgets('新书位置开关持久化，书名排序禁用但保留所选位置', (tester) async {
+    tester.view
+      ..physicalSize = const Size(320, 640)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final library = LibraryStore.memory();
+    final setting = find.byKey(
+      const ValueKey('bookshelf-new-books-first-setting'),
+    );
+    Future<void> show() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ProfilePage(key: UniqueKey(), library: library),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(setting);
+    }
+
+    await show();
+    expect(tester.widget<SwitchListTile>(setting).value, isTrue);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    expect(await library.getSetting(bookshelfNewBooksFirstKey), 'false');
+    await show();
+    expect(tester.widget<SwitchListTile>(setting).value, isFalse);
+
+    await library.setSetting(bookshelfSortKey, 'title');
+    await show();
+    expect(tester.widget<SwitchListTile>(setting).onChanged, isNull);
+    expect(tester.widget<SwitchListTile>(setting).value, isFalse);
+    expect(find.text('按书名排序时不调整新书位置'), findsOneWidget);
+    await library.setSetting(bookshelfSortKey, 'added');
+    await show();
+    expect(tester.widget<SwitchListTile>(setting).onChanged, isNotNull);
+    expect(tester.widget<SwitchListTile>(setting).value, isFalse);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    expect(await library.getSetting(bookshelfNewBooksFirstKey), 'true');
+    expect(tester.takeException(), isNull);
+  });
+
   for (final scenario in [
     (label: '320dp 窄屏', size: const Size(320, 600), scale: 1.0),
     (label: '大字', size: const Size(400, 800), scale: 1.3),

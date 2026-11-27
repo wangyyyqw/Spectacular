@@ -97,6 +97,8 @@ void main() {
       const ValueKey<String>('bookshelf-title-setting'),
     );
     expect(tester.widget<SwitchListTile>(switchTile).value, isTrue);
+    await tester.ensureVisible(switchTile);
+    await tester.pumpAndSettle();
     await tester.tap(switchTile);
     await _settle(tester);
     expect(tester.widget<SwitchListTile>(switchTile).value, isFalse);

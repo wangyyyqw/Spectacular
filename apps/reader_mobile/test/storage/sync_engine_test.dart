@@ -765,6 +765,7 @@ void main() {
     );
     await image.writeAsBytes(bytes);
     await a.library.setSetting('reader.fontSize', '24');
+    await a.library.setSetting('bookshelf.newBooksFirst', 'false');
     await a.library.setSetting('reader.backgroundId', 'image:${image.path}');
     const profile = SyncProfile(
       provider: SyncProvider.webdav,
@@ -789,8 +790,10 @@ void main() {
     );
     await b.engine().sync();
     expect(await b.library.getSetting('reader.fontSize'), isNull);
+    expect(await b.library.getSetting('bookshelf.newBooksFirst'), isNull);
     await b.engine(profile: profile).sync();
     expect(await b.library.getSetting('reader.fontSize'), '24');
+    expect(await b.library.getSetting('bookshelf.newBooksFirst'), 'false');
     final background = (await b.library.getSetting('reader.backgroundId'))!;
     expect(background, isNot('image:${image.path}'));
     expect(await File(background.substring(6)).readAsBytes(), bytes);

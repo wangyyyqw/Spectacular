@@ -142,6 +142,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   String? _error;
   ImportJob? _encodingJob;
   BookSortOrder _sort = BookSortOrder.recent;
+  bool _newBooksFirst = true;
   List<String> _pinnedIds = const <String>[];
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
@@ -260,6 +261,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
   /// 读持久化的排序、视图模式与书名显示（settings 表）。
   Future<void> _loadPreferences() async {
     final sort = await widget.library.getSetting(bookshelfSortKey);
+    final newBooksFirst = await widget.library.getSetting(
+      bookshelfNewBooksFirstKey,
+    );
     final grid = await widget.library.getSetting(_viewKey);
     final pinned = await widget.library.getSetting(_pinnedKey);
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
@@ -267,12 +271,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     final nextSort = BookSortOrder.fromValue(sort);
+    final nextNewBooksFirst = newBooksFirst != 'false';
     final nextGrid = grid != 'false';
     final nextShowTitles = showTitles != 'false';
     final nextPinned = pinned == null
         ? const <String>[]
         : (jsonDecode(pinned) as List).cast<String>();
     if (_sort == nextSort &&
+        _newBooksFirst == nextNewBooksFirst &&
         _grid == nextGrid &&
         _showTitles == nextShowTitles &&
         listEquals(_pinnedIds, nextPinned)) {
@@ -280,6 +286,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     setState(() {
       _sort = nextSort;
+      _newBooksFirst = nextNewBooksFirst;
       _grid = nextGrid;
       _showTitles = nextShowTitles;
       _pinnedIds = nextPinned;
@@ -604,15 +611,20 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   /// 置顶书籍按置顶先后排在前面，其余沿用当前排序。
   List<_ShelfItem> _sorted(List<_ShelfItem> items) {
-    final sorted = List<_ShelfItem>.of(items);
-    switch (_sort) {
-      case BookSortOrder.recent:
-        break;
-      case BookSortOrder.added:
-        sorted.sort((a, b) => b.entry.addedAt.compareTo(a.entry.addedAt));
-      case BookSortOrder.title:
-        sorted.sort((a, b) => a.entry.title.compareTo(b.entry.title));
-    }
+    final positions = {
+      for (final (index, item) in items.indexed) item.entry.id: index,
+    };
+    final sorted = List<_ShelfItem>.of(items)
+      ..sort((a, b) {
+        final compared = _sort.compare(
+          a.entry,
+          b.entry,
+          newBooksFirst: _newBooksFirst,
+        );
+        return compared != 0
+            ? compared
+            : positions[a.entry.id]!.compareTo(positions[b.entry.id]!);
+      });
     final byId = {for (final item in sorted) item.entry.id: item};
     final pinnedIds = _pinnedIds.toSet();
     return [

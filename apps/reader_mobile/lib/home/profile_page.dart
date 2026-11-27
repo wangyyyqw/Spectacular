@@ -71,6 +71,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _savingTheme = false;
   bool _savingPreset = false;
   BookSortOrder _shelfSort = BookSortOrder.recent;
+  bool _newBooksFirst = true;
   bool _showShelfTitles = true;
   List<ReaderFontEntry> _appFonts = const [];
 
@@ -112,10 +113,14 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadShelfPreferences() async {
     final sort = await widget.library.getSetting(bookshelfSortKey);
+    final newBooksFirst = await widget.library.getSetting(
+      bookshelfNewBooksFirstKey,
+    );
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
     if (mounted) {
       setState(() {
         _shelfSort = BookSortOrder.fromValue(sort);
+        _newBooksFirst = newBooksFirst != 'false';
         _showShelfTitles = showTitles != 'false';
       });
     }
@@ -154,6 +159,11 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _toggleShelfTitles(bool value) async {
     setState(() => _showShelfTitles = value);
     await widget.library.setSetting(bookshelfShowTitlesKey, '$value');
+  }
+
+  Future<void> _toggleNewBooksFirst(bool value) async {
+    setState(() => _newBooksFirst = value);
+    await widget.library.setSetting(bookshelfNewBooksFirstKey, '$value');
   }
 
   Future<void> _chooseTheme(ThemeMode current) async {
@@ -370,6 +380,24 @@ class _ProfilePageState extends State<ProfilePage> {
                     title: '书架排序',
                     subtitle: _shelfSort.label,
                     onTap: _chooseShelfSort,
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('bookshelf-new-books-first-setting'),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 4,
+                    ),
+                    secondary: _iconBadge(context, AppGlyph.sort),
+                    title: const Text('新书排在最前'),
+                    subtitle: Text(
+                      _shelfSort == BookSortOrder.title
+                          ? '按书名排序时不调整新书位置'
+                          : '关闭后新导入书籍排在最后，置顶书籍优先',
+                    ),
+                    value: _newBooksFirst,
+                    onChanged: _shelfSort == BookSortOrder.title
+                        ? null
+                        : _toggleNewBooksFirst,
                   ),
                   SwitchListTile(
                     key: const ValueKey<String>('bookshelf-title-setting'),
