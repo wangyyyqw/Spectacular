@@ -1167,6 +1167,13 @@ packages:
       relative: true
     source: path
     version: "1.0.0"
+  spectacular_opencc:
+    dependency: "direct main"
+    description:
+      path: "../../packages/opencc_native"
+      relative: true
+    source: path
+    version: "1.0.0"
   sqlite3:
     dependency: "direct main"
     description:

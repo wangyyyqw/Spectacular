@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reader_core/text/reader_text_conversion.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_ink.dart';
@@ -79,6 +80,9 @@ class ReaderMenuOverlay extends StatelessWidget {
     this.onAddBookmark,
     this.bookmarked = false,
     this.onShowShortcuts,
+    this.chineseMode = ReaderChineseMode.original,
+    this.onChineseModeChanged,
+    this.chineseConversionBusy = false,
   });
 
   /// 菜单是否展开（设计稿 `.menu-open`）。
@@ -108,6 +112,10 @@ class ReaderMenuOverlay extends StatelessWidget {
 
   /// 当前是否夜间（决定图标）。
   final bool nightMode;
+
+  final ReaderChineseMode chineseMode;
+  final ValueChanged<ReaderChineseMode>? onChineseModeChanged;
+  final bool chineseConversionBusy;
 
   /// 上一章 / 下一章；无相邻章节时传 null，按钮禁用。
   final VoidCallback? onPreviousChapter;
@@ -239,6 +247,12 @@ class ReaderMenuOverlay extends StatelessWidget {
                                   'menu-daynight',
                                 ),
                               ),
+                              if (onChineseModeChanged != null)
+                                _ChineseModeButton(
+                                  mode: chineseMode,
+                                  busy: chineseConversionBusy,
+                                  onChanged: onChineseModeChanged!,
+                                ),
                               if (onAddBookmark != null)
                                 _IconButton(
                                   icon: bookmarked
@@ -392,6 +406,60 @@ class _SlidingMenuBar extends StatelessWidget {
       // 完全收起后停止绘制，防止屏外阴影和模糊继续影响正文。
       offstage: offset == closedOffset,
       child: FractionalTranslation(translation: offset, child: child),
+    ),
+  );
+}
+
+class _ChineseModeButton extends StatelessWidget {
+  const _ChineseModeButton({
+    required this.mode,
+    required this.busy,
+    required this.onChanged,
+  });
+
+  final ReaderChineseMode mode;
+  final bool busy;
+  final ValueChanged<ReaderChineseMode> onChanged;
+
+  String _label(ReaderChineseMode value) => switch (value) {
+    ReaderChineseMode.original => '原文',
+    ReaderChineseMode.simplified => '简体',
+    ReaderChineseMode.traditional => '繁体',
+  };
+
+  @override
+  Widget build(BuildContext context) => Theme(
+    data: quietInk(Theme.of(context)),
+    child: PopupMenuButton<ReaderChineseMode>(
+      key: const ValueKey('menu-chinese-conversion'),
+      enabled: !busy,
+      initialValue: mode,
+      tooltip: busy ? '正在转换' : '简繁转换（${_label(mode)}）',
+      onSelected: onChanged,
+      itemBuilder: (_) => [
+        for (final value in ReaderChineseMode.values)
+          CheckedPopupMenuItem(
+            key: ValueKey('menu-chinese-${value.name}'),
+            value: value,
+            checked: mode == value,
+            child: Text(_label(value)),
+          ),
+      ],
+      child: SizedBox.square(
+        dimension: 48,
+        child: Center(
+          child: busy
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(switch (mode) {
+                  ReaderChineseMode.original => '简繁',
+                  ReaderChineseMode.simplified => '简',
+                  ReaderChineseMode.traditional => '繁',
+                }, style: Theme.of(context).textTheme.titleSmall),
+        ),
+      ),
     ),
   );
 }

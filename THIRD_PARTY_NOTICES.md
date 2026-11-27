@@ -14,6 +14,7 @@
 | 仅供测试的思源黑体 | [Adobe 版权声明与 SIL Open Font License 1.1](test_fonts/OFL-SourceHanSans.txt) |
 | 英文断词数据 | [原始归属与 BSD 风格许可证](packages/reader_core/third_party/hyph_en_US/LICENSE.txt) |
 | OpenCC 字典 | [Apache License 2.0](packages/epub_toolkit/assets/opencc/LICENSE) |
+| OpenCC 原生引擎 | [Apache License 2.0](packages/opencc_native/vendor/opencc/LICENSE)；附带 marisa（BSD-2-Clause）、RapidJSON（MIT，声明保存在头文件）与 Darts（BSD-2-Clause） |
 | HarfBuzz FFI 绑定 | [MIT 许可证及本地修改说明](packages/epub_toolkit/third_party/harfbuzz_ffi/LICENSE) |
 | HarfBuzz 源码 | [原始版权与 Old MIT 许可证](packages/epub_toolkit/third_party/harfbuzz_ffi/third_party/harfbuzz/COPYING) |
 
@@ -26,6 +27,10 @@
 标准密码算法使用 [pointycastle 4.0.0](https://pub.dev/packages/pointycastle/versions/4.0.0)（MIT），网页解析使用 [html 0.15.7](https://pub.dev/packages/html/versions/0.15.7)（MIT）。对应许可随依赖保留，并由 Flutter 许可清单收集。
 
 七个网盘连接器根据官方网页接口与协议字段独立实现。未纳入 wenxi 的 AGPL 源码或 Gopeed 下载内核；网盘名称归各服务提供方所有，不表示官方合作或授权。协议核对来源包括 [阿里官方网页](https://www.alipan.com/drive)、[123 官方网页](https://yun.123pan.cn/)、[PikPak 官方网页](https://mypikpak.com/drive/all)，网页及接口可能随服务更新而变化。
+
+## 本地词典组件
+
+MDX/MDD 解析使用 [dict_reader 1.7.1](https://pub.dev/packages/dict_reader/versions/1.7.1)（MIT，Copyright 2024 Mumulhl），源码与许可见 [上游仓库](https://github.com/mumu-lhl/dict_reader)。依赖许可证保留在包内，并由 Flutter 许可清单收集。测试只生成自有的最小二进制词库，不随应用提供或分发第三方词典数据；用户导入的词库仍受其原始许可约束。
 
 ## 内置思源宋体
 
@@ -52,6 +57,10 @@ python3 tool/subset_bundled_fonts.py \
 ```
 
 脚本验证上游 SHA-256、保留码点清单、每个保留字符的字形边界及横竖度量。字体与派生文件均遵守 [OFL 1.1](apps/reader_mobile/assets/fonts/LICENSE.txt)，许可随源码和应用资源分发。`test_fonts/` 和 `assets/test_fonts/` 中的测试字库不作为正式 APK 资产打包。
+
+## 简繁转换
+
+阅读页的简繁显示使用 [BYVoid/OpenCC](https://github.com/BYVoid/OpenCC) `ver.1.4.2` 原生引擎，源码归档 SHA-256 为 `8e5f5cf7fe195bd9b9be851adc9738c1ef7dc5c24441dd5878a56db4087a9a70`。`packages/opencc_native/vendor/` 保留原生库、marisa、RapidJSON、Darts 的必要源码与许可证，`packages/opencc_native/assets/opencc/` 为同版本官方配置和字典；旧 `epub_toolkit` 词典只在官方转换后原样保留的词组上补充词汇，单字与官方已知转换保持一致。许可随源码和 APK 资源分发，引擎不修改原书。
 
 ## 听书组件与音色
 

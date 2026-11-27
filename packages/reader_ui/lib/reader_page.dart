@@ -17,6 +17,7 @@ import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/text/reader_text_conversion.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/paint/paragraph_cache.dart';
 import 'package:reader_core/paint/page_renderer.dart';
@@ -137,6 +138,9 @@ class ReaderPage extends StatefulWidget {
     this.onOverridesChanged,
     this.onThemeChanged,
     this.onToggleDayNight,
+    this.chineseMode = ReaderChineseMode.original,
+    this.onChineseModeChanged,
+    this.chineseConversionBusy = false,
     this.customTheme,
     this.backgroundImageLoader,
     this.onPickBackgroundImage,
@@ -237,6 +241,10 @@ class ReaderPage extends StatefulWidget {
 
   /// 宿主切换软件日夜模式，保留两种模式各自选择的阅读配色。
   final VoidCallback? onToggleDayNight;
+
+  final ReaderChineseMode chineseMode;
+  final ValueChanged<ReaderChineseMode>? onChineseModeChanged;
+  final bool chineseConversionBusy;
 
   /// 上次保存的自定义主题。
   final ReaderTheme? customTheme;
@@ -3119,6 +3127,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               onBack: _exitReader,
               onEdit: widget.onOpenEditor,
               onToggleDayNight: _toggleDayNight,
+              chineseMode: widget.chineseMode,
+              onChineseModeChanged: widget.onChineseModeChanged,
+              chineseConversionBusy: widget.chineseConversionBusy,
               onAddBookmark: widget.bookmarks == null
                   ? null
                   : () => unawaited(_addBookmark()),

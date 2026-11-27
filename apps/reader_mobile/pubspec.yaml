@@ -41,6 +41,8 @@ dependencies:
     path: ../../packages/reader_ui
   spectacular_epub_tools:
     path: ../../packages/epub_toolkit
+  spectacular_opencc:
+    path: ../../packages/opencc_native
   sqlite3: ^3.7.1
   sqlite3_flutter_libs: ^0.6.0+eol
   drift: ^2.35.2

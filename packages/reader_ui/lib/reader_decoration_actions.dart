@@ -30,7 +30,32 @@ extension _ReaderDecorationActions on _ReaderPageState {
     final pages = selection.isMultiPage
         ? await _session.chapterPages()
         : [page];
-    final supported = ReaderSelectionSupport.capture(pages, selection);
+    var supported = ReaderSelectionSupport.capture(pages, selection);
+    final source = widget.source;
+    if (supported != null &&
+        widget.chineseMode != ReaderChineseMode.original &&
+        source is AnchorChapterSource) {
+      final chapter = await source.loadAnchorChapter(page.spineIndex);
+      final start = chapter.offsetFor(supported.startCfi);
+      final end = chapter.offsetFor(supported.endCfi);
+      if (start == null || end == null || end <= start) {
+        supported = null;
+      } else {
+        supported = ReaderSupportedSelection(
+          startCfi: supported.startCfi,
+          endCfi: supported.endCfi,
+          quote: chapter.text.substring(start, end),
+          contextBefore: chapter.text.substring(
+            (start - 20).clamp(0, start),
+            start,
+          ),
+          contextAfter: chapter.text.substring(
+            end,
+            (end + 20).clamp(end, chapter.text.length),
+          ),
+        );
+      }
+    }
     if (mounted && supported == null) _showToast('当前位置不支持标注');
     return supported;
   }
