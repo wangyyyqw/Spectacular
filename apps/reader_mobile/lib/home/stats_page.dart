@@ -15,6 +15,7 @@ import 'desktop_layout.dart';
 import 'reading_calendar.dart';
 import 'reading_book_color.dart';
 import 'reading_insights.dart';
+import 'reading_metric.dart';
 import 'book_reading_ranking.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
@@ -579,33 +580,33 @@ class _StatsOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final entries = <_OverviewEntry>[
-      _OverviewEntry(
+    final entries = <ReadingMetric>[
+      ReadingMetric(
         label: '阅读总时长',
         value: formatReadingDuration(stats.totalReading),
         valueKey: const ValueKey<String>('stats-overview-total-duration'),
       ),
-      _OverviewEntry(
+      ReadingMetric(
         label: '今日阅读时长',
         value: formatReadingDuration(stats.todayReading),
         valueKey: const ValueKey<String>('stats-overview-today-duration'),
       ),
-      _OverviewEntry(
+      ReadingMetric(
         label: '已阅读',
         value: _formatOverviewCharacters(stats.charactersRead),
         valueKey: const ValueKey<String>('stats-overview-characters'),
       ),
-      _OverviewEntry(
+      ReadingMetric(
         label: '已读完',
         value: '${stats.finished} 本',
         valueKey: const ValueKey<String>('stats-overview-finished'),
       ),
-      _OverviewEntry(
+      ReadingMetric(
         label: '划线／笔记',
         value: '${stats.annotationCount} 条',
         valueKey: const ValueKey<String>('stats-overview-annotations'),
       ),
-      _OverviewEntry(
+      ReadingMetric(
         label: '阅读天数',
         value: '${stats.readingDays} 天',
         valueKey: const ValueKey<String>('stats-overview-reading-days'),
@@ -656,59 +657,6 @@ class _StatsOverviewCard extends StatelessWidget {
               ],
             );
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _OverviewEntry extends StatelessWidget {
-  const _OverviewEntry({
-    required this.label,
-    required this.value,
-    required this.valueKey,
-  });
-
-  final String label;
-  final String value;
-  final Key valueKey;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Semantics(
-      container: true,
-      label: '$label：$value',
-      child: ExcludeSemantics(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              maxLines: 2,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.3,
-              ),
-            ),
-            const SizedBox(height: 8),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                value,
-                key: valueKey,
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: 22,
-                  height: 1.15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.3,
-                  fontFeatures: _tabularFigures,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

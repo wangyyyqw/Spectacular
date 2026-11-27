@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -15,6 +16,9 @@ import '../txt/txt_chapter_rule_page.dart';
 import 'book_cover_image.dart';
 import 'book_lists_view.dart';
 import 'book_rating.dart';
+import 'book_reading_chart.dart';
+import 'reading_insights.dart';
+import 'reading_metric.dart';
 import 'finish_book_sheet.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
@@ -149,6 +153,24 @@ class _BookDetailPageState extends State<BookDetailPage> {
   }
 
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      await _loadDetails();
+    } catch (error, stackTrace) {
+      recordAppError('book_detail_load_failed', error, stackTrace: stackTrace);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = '图书详情加载失败';
+        });
+      }
+    }
+  }
+
+  Future<void> _loadDetails() async {
     final entry = await widget.library.bookById(_entry.id);
     final tags = await widget.library.listTags();
     final selected = await widget.library.bookTags(_entry.id);
@@ -212,7 +234,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
       return;
     }
     if (_titleController.text.trim().isEmpty) {
-      _showMessage('书名不能为空');
+      _showMessage('书名不能为空', isWriteError: true);
       return;
     }
     setState(() {
@@ -505,22 +527,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
         !_writingBook && !_loading && _hasMetadataChanges && _loadError == null;
     return Scaffold(
       backgroundColor: widget.inDrawer ? Colors.transparent : null,
-      bottomNavigationBar: _writeError == null
-          ? null
-          : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    _writeError!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.error,
-                    ),
-                  ),
-                ),
-              ),
-            ),
       appBar: AppBar(
         backgroundColor: widget.inDrawer ? theme.colorScheme.surface : null,
         automaticallyImplyLeading: !widget.inDrawer,
@@ -531,158 +537,188 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 icon: const AppIcon(AppGlyph.close),
               )
             : null,
-        title: const Text('图书详情'),
-        titleTextStyle: widget.inDrawer ? theme.textTheme.titleSmall : null,
-        actions: <Widget>[
-          TextButton(
-            key: const ValueKey<String>('book-detail-save'),
-            onPressed: canSave ? _saveMetadata : null,
-            child: _saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('保存'),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text('图书详情'),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: TextButton.icon(
+              key: const ValueKey('book-detail-save'),
+              onPressed: canSave ? _saveMetadata : null,
+              icon: _saving
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const AppIcon(AppGlyph.check, size: 18),
+              label: Text(_saving ? '保存中…' : '保存'),
+            ),
           ),
         ],
       ),
+      bottomNavigationBar: _writeError == null
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: ReaderUiStyle.pagePadding,
+                child: ReaderNoticeBanner(message: _writeError!),
+              ),
+            ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _loadError != null
-          ? Center(child: Text(_loadError!))
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              children: <Widget>[
-                _CoverEditor(
-                  entry: _entry,
-                  busy: _writingBook,
-                  onChange: _changeCover,
-                  titleController: _titleController,
-                  authorController: _authorController,
-                ),
-                const Divider(height: 32),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey<String>('book-detail-description-field'),
-                  enabled: !_writingBook,
-                  controller: _descriptionController,
-                  minLines: 3,
-                  maxLines: 6,
-                  decoration: const InputDecoration(
-                    labelText: '简介',
-                    hintText: '写下这本书的简介',
-                    alignLabelWithHint: true,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text('标签', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 4),
-                Text(
-                  '点击标签可添加或移除；输入新名称创建标签。',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                if (_tags.isEmpty)
-                  Text(
-                    '暂无标签',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+          ? ReaderEmptyState(
+              icon: AppGlyph.error,
+              title: _loadError!,
+              action: TextButton(onPressed: _load, child: const Text('重试')),
+            )
+          : Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: ListView(
+                  key: const ValueKey('book-detail-content'),
+                  padding: ReaderUiStyle.pagePadding,
+                  children: [
+                    _metadataSection(),
+                    const SizedBox(height: 24),
+                    _tagsSection(),
+                    const SizedBox(height: 24),
+                    _ReadingStatusSection(
+                      progress: _progress,
+                      review: _review,
+                      busy: _writingBook,
+                      canEdit: widget.progressStore != null,
+                      onEdit: _editFinished,
+                      onUnmark: _unmarkFinished,
                     ),
-                  )
-                else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: <Widget>[
-                      for (final tag in _tags)
-                        FilterChip(
-                          key: ValueKey<String>('book-detail-tag-${tag.id}'),
-                          label: Text(tag.name),
-                          selected: _selectedTagIds.contains(tag.id),
-                          showCheckmark: false,
-                          onSelected: _writingBook
-                              ? null
-                              : (_) => _toggleTag(tag),
-                        ),
-                    ],
-                  ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const ValueKey<String>('book-detail-new-tag-field'),
-                  enabled: !_writingBook,
-                  controller: _tagController,
-                  textInputAction: TextInputAction.done,
-                  decoration: InputDecoration(
-                    labelText: '新建标签',
-                    hintText: '例如：科幻、待读',
-                    suffixIcon: IconButton(
-                      key: const ValueKey<String>('book-detail-add-tag'),
-                      tooltip: '创建并添加标签',
-                      onPressed:
-                          _writingBook || _tagController.text.trim().isEmpty
-                          ? null
-                          : _createTag,
-                      icon: const AppIcon(AppGlyph.add),
-                    ),
-                  ),
-                  onSubmitted: (_) => _createTag(),
+                    const SizedBox(height: 24),
+                    _ReadingStatsSection(stats: _readingStats),
+                    const SizedBox(height: 24),
+                    _bookActions(),
+                  ],
                 ),
-                if (_canRechapter)
-                  ListTile(
-                    key: const ValueKey('book-detail-page-chapters'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('章节正则'),
-                    subtitle: const Text('预览并重新划分当前正文的章节'),
-                    trailing: const AppIcon(AppGlyph.chevronRight),
-                    onTap: _writingBook ? null : _openChapterRules,
-                  ),
-                const Divider(height: 40),
-                Text('阅读记录', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 10),
-                _ReadingStatsSection(stats: _readingStats),
-                const Divider(height: 40),
-                Text('阅读状态', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 10),
-                _ReadingStatusSection(
-                  progress: _progress,
-                  review: _review,
-                  canEdit: !_writingBook && widget.progressStore != null,
-                  onEdit: _editFinished,
-                  onUnmark: _unmarkFinished,
-                ),
-                const Divider(height: 40),
-                ListTile(
-                  key: const ValueKey<String>('book-detail-booklists'),
-                  contentPadding: EdgeInsets.zero,
-                  leading: const AppIcon(AppGlyph.bookmarkAdd),
-                  title: const Text('加入书单'),
-                  subtitle: const Text('选择这本书所在的书单'),
-                  trailing: const AppIcon(AppGlyph.chevronRight),
-                  onTap: _openBookLists,
-                ),
-              ],
+              ),
             ),
     );
   }
-}
 
-String _formatReadingDuration(Duration duration) {
-  if (duration <= Duration.zero) {
-    return '0 分钟';
-  }
-  final minutes = (duration.inSeconds / 60).ceil();
-  if (minutes < 1) {
-    return '<1 分钟';
-  }
-  if (minutes < 60) {
-    return '$minutes 分钟';
-  }
-  final hours = minutes ~/ 60;
-  final rest = minutes % 60;
-  return rest == 0 ? '$hours 小时' : '$hours 小时 $rest 分';
+  Widget _metadataSection() => ReaderSectionCard(
+    title: '图书资料',
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _CoverEditor(
+          entry: _entry,
+          busy: _writingBook,
+          changingCover: _changingCover,
+          onChange: _changeCover,
+          titleController: _titleController,
+          authorController: _authorController,
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          key: const ValueKey('book-detail-description-field'),
+          enabled: !_writingBook,
+          controller: _descriptionController,
+          minLines: 3,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            labelText: '简介',
+            hintText: '添加简介',
+            alignLabelWithHint: true,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _tagsSection() => ReaderSectionCard(
+    title: '标签',
+    trailing: Text(
+      _savingTags ? '保存中…' : '已选 ${_selectedTagIds.length} 个',
+      style: Theme.of(context).textTheme.bodySmall,
+    ),
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_tags.isEmpty)
+          Text('暂无标签，添加后可用于书架堆叠。', style: Theme.of(context).textTheme.bodySmall)
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in _tags)
+                FilterChip(
+                  key: ValueKey('book-detail-tag-${tag.id}'),
+                  label: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 180),
+                    child: Text(
+                      tag.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  tooltip: tag.name,
+                  selected: _selectedTagIds.contains(tag.id),
+                  showCheckmark: true,
+                  onSelected: _writingBook ? null : (_) => _toggleTag(tag),
+                ),
+            ],
+          ),
+        const SizedBox(height: 12),
+        TextField(
+          key: const ValueKey('book-detail-new-tag-field'),
+          enabled: !_writingBook,
+          controller: _tagController,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(
+            labelText: '新建标签',
+            hintText: '例如：科幻、待读',
+            suffixIcon: IconButton(
+              key: const ValueKey('book-detail-add-tag'),
+              tooltip: '创建并添加标签',
+              onPressed: _writingBook || _tagController.text.trim().isEmpty
+                  ? null
+                  : _createTag,
+              icon: const AppIcon(AppGlyph.add),
+            ),
+          ),
+          onSubmitted: (_) => _createTag(),
+        ),
+      ],
+    ),
+  );
+
+  Widget _bookActions() => ReaderSectionCard(
+    title: '书籍管理',
+    children: [
+      ReaderOptionTile(
+        tileKey: const ValueKey('book-detail-booklists'),
+        leading: const AppIcon(AppGlyph.bookmarkAdd),
+        title: '加入书单',
+        subtitle: '选择这本书所在的书单',
+        trailing: const AppIcon(AppGlyph.chevronRight),
+        onTap: _openBookLists,
+      ),
+      if (_canRechapter)
+        ReaderOptionTile(
+          tileKey: const ValueKey('book-detail-page-chapters'),
+          leading: const AppIcon(AppGlyph.listBulleted),
+          title: '章节正则',
+          subtitle: '预览并重新划分当前正文的章节',
+          trailing: const AppIcon(AppGlyph.chevronRight),
+          enabled: !_writingBook,
+          onTap: _openChapterRules,
+        ),
+    ],
+  );
 }
 
 String _formatReadingCharacters(int count) {
@@ -724,6 +760,7 @@ class _CoverEditor extends StatelessWidget {
   const _CoverEditor({
     required this.entry,
     required this.busy,
+    required this.changingCover,
     required this.onChange,
     required this.titleController,
     required this.authorController,
@@ -731,98 +768,91 @@ class _CoverEditor extends StatelessWidget {
 
   final BookEntry entry;
   final bool busy;
+  final bool changingCover;
   final VoidCallback onChange;
   final TextEditingController titleController;
   final TextEditingController authorController;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Semantics(
-          button: true,
-          enabled: !busy,
-          label: '点击更换封面',
-          child: GestureDetector(
-            key: const ValueKey('book-detail-page-cover'),
-            onTap: busy ? null : onChange,
-            child: SizedBox(
-              width: 120,
-              height: 160,
-              child: Stack(
-                fit: StackFit.expand,
-                children: <Widget>[
-                  BookCoverImage(book: entry, width: 120, height: 160),
-                  Positioned(
-                    right: 8,
-                    bottom: 8,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(alpha: .9),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: busy
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : AppIcon(
-                                AppGlyph.image,
-                                size: 18,
-                                color: theme.colorScheme.onSurface,
-                              ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, bounds) {
+      final stacked =
+          bounds.maxWidth < 300 ||
+          MediaQuery.textScalerOf(context).scale(14) > 21;
+      final fields = Column(
+        children: [
+          TextField(
+            key: const ValueKey('book-detail-title-field'),
+            enabled: !busy,
+            controller: titleController,
+            textInputAction: TextInputAction.next,
+            minLines: 1,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: '书名'),
           ),
-        ),
-        const SizedBox(width: 20),
-        Expanded(
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('book-detail-author-field'),
+            enabled: !busy,
+            controller: authorController,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(labelText: '作者', hintText: '未填写'),
+          ),
+        ],
+      );
+      final cover = _cover(context);
+      return stacked
+          ? Column(children: [cover, const SizedBox(height: 20), fields])
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                cover,
+                const SizedBox(width: 20),
+                Expanded(child: fields),
+              ],
+            );
+    },
+  );
+
+  Widget _cover(BuildContext context) => SizedBox(
+    width: 96,
+    child: Semantics(
+      label: '更换封面',
+      button: true,
+      enabled: !busy,
+      child: InkWell(
+        key: const ValueKey('book-detail-page-cover'),
+        onTap: busy ? null : onChange,
+        borderRadius: BorderRadius.circular(4),
+        child: ExcludeSemantics(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text('图书资料', style: theme.textTheme.titleSmall),
-              const SizedBox(height: 6),
-              TextField(
-                key: const ValueKey<String>('book-detail-title-field'),
-                enabled: !busy,
-                controller: titleController,
-                textInputAction: TextInputAction.next,
-                minLines: 1,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: '书名',
-                  isDense: true,
-                ),
+            children: [
+              BookCoverImage(
+                book: entry,
+                width: 96,
+                height: 128,
+                showShadow: true,
               ),
-              const SizedBox(height: 10),
-              TextField(
-                key: const ValueKey<String>('book-detail-author-field'),
-                enabled: !busy,
-                controller: authorController,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: '作者',
-                  hintText: '未填写',
-                  isDense: true,
+              const SizedBox(height: 8),
+              if (changingCover)
+                const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Text(
+                  '更换封面',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
-      ],
-    );
-  }
+      ),
+    ),
+  );
 }
 
 class _BookReadingStats {
@@ -847,63 +877,28 @@ class _BookReadingStats {
     List<ReadingSession> sessions,
     DateTime now,
   ) {
-    final byDay = <DateTime, _BookDailyReading>{};
-    var totalDuration = Duration.zero;
-    var sessionCount = 0;
-    var pageTurns = 0;
-    var charactersRead = 0;
-
-    for (final session in sessions) {
-      if (session.duration <= Duration.zero ||
-          !session.endedAt.isAfter(session.startedAt)) {
-        continue;
-      }
-      sessionCount += 1;
-      totalDuration += session.duration;
-      pageTurns += session.pageTurns;
-      charactersRead += session.charactersRead;
-
-      final startedDay = DateTime(
-        session.startedAt.year,
-        session.startedAt.month,
-        session.startedAt.day,
-      );
-      final started = byDay.putIfAbsent(
-        startedDay,
-        () => _BookDailyReading(date: startedDay),
-      );
-      started.sessionCount += 1;
-      started.pageTurns += session.pageTurns;
-      started.charactersRead += session.charactersRead;
-
-      var cursor = session.startedAt;
-      while (cursor.isBefore(session.endedAt)) {
-        final dayStart = DateTime(cursor.year, cursor.month, cursor.day);
-        final nextDay = DateTime(cursor.year, cursor.month, cursor.day + 1);
-        final segmentEnd = session.endedAt.isBefore(nextDay)
-            ? session.endedAt
-            : nextDay;
-        final overlap = segmentEnd.difference(cursor);
-        if (overlap > Duration.zero) {
-          final day = byDay.putIfAbsent(
-            dayStart,
-            () => _BookDailyReading(date: dayStart),
-          );
-          day.duration += overlap;
-        }
-        cursor = segmentEnd;
-      }
+    final insights = ReadingInsights(sessions, now: now);
+    final byDay = {
+      for (final day in insights.byDay.entries)
+        day.key: _BookDailyReading(date: day.key)..duration = day.value,
+    };
+    // 每日次数、翻页和字数沿用会话开始日归属；时长复用公共的跨日有效时长。
+    for (final session in insights.sessions) {
+      final start = session.startedAt.toLocal();
+      final date = DateTime(start.year, start.month, start.day);
+      final day = byDay.putIfAbsent(date, () => _BookDailyReading(date: date));
+      day.sessionCount++;
+      day.pageTurns += session.pageTurns;
+      day.charactersRead += session.charactersRead;
     }
 
     final today = DateTime(now.year, now.month, now.day);
     return _BookReadingStats(
-      totalDuration: totalDuration,
-      sessionCount: sessionCount,
-      pageTurns: pageTurns,
-      charactersRead: charactersRead,
-      readingDays: byDay.values
-          .where((day) => day.duration > Duration.zero)
-          .length,
+      totalDuration: insights.totalReading,
+      sessionCount: insights.sessions.length,
+      pageTurns: insights.pageTurns,
+      charactersRead: insights.charactersRead,
+      readingDays: insights.byDay.length,
       recentDays: <_BookDailyReading>[
         for (var offset = 0; offset < 7; offset++)
           byDay[DateTime(today.year, today.month, today.day - offset)] ??
@@ -939,80 +934,94 @@ class _ReadingStatsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     if (stats.sessionCount == 0) {
-      return Text(
-        '暂无阅读记录，开始阅读后会在这里汇总。',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
+      return const ReaderSectionCard(
+        title: '阅读记录',
+        padding: EdgeInsets.all(16),
+        child: Text('暂无阅读记录，开始阅读后会在这里汇总。'),
       );
     }
-    final maxDailyDuration = stats.recentDays.fold<Duration>(
+    final maximum = stats.recentDays.fold<Duration>(
       Duration.zero,
       (longest, day) => day.duration > longest ? day.duration : longest,
     );
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Container(
-          key: const ValueKey<String>('book-detail-reading-summary'),
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: ReaderUiStyle.cardDecorationOf(theme),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ReaderSectionCard(
+          title: '阅读记录',
+          key: const ValueKey('book-detail-reading-summary'),
+          padding: const EdgeInsets.all(16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                '累计时长',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ReadingMetric(
+                label: '累计时长',
+                value: formatReadingDuration(stats.totalDuration),
+                valueKey: const ValueKey('book-detail-total-duration'),
+                valueSize: 26,
+              ),
+              const Divider(height: 32),
+              _ReadingMetricRow(
+                left: ReadingMetric(
+                  label: '阅读次数',
+                  value: '${stats.sessionCount}',
+                  valueSize: 20,
+                  valueKey: const ValueKey('book-detail-session-count'),
+                ),
+                right: ReadingMetric(
+                  label: '阅读天数',
+                  value: '${stats.readingDays}',
+                  valueSize: 20,
+                  valueKey: const ValueKey('book-detail-reading-days'),
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                _formatReadingDuration(stats.totalDuration),
-                key: const ValueKey<String>('book-detail-total-duration'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+              const SizedBox(height: 16),
+              _ReadingMetricRow(
+                left: ReadingMetric(
+                  label: '翻页次数',
+                  value: '${stats.pageTurns}',
+                  valueSize: 20,
+                  valueKey: const ValueKey('book-detail-page-turns'),
+                ),
+                right: ReadingMetric(
+                  label: '阅读字数',
+                  value: _formatReadingCharacters(stats.charactersRead),
+                  valueSize: 20,
+                  valueKey: const ValueKey('book-detail-characters-read'),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        _ReadingMetricRow(
-          left: _ReadingMetric(
-            label: '阅读次数',
-            value: '${stats.sessionCount}',
-            valueKey: const ValueKey<String>('book-detail-session-count'),
-          ),
-          right: _ReadingMetric(
-            label: '阅读天数',
-            value: '${stats.readingDays}',
-            valueKey: const ValueKey<String>('book-detail-reading-days'),
-          ),
-        ),
         const SizedBox(height: 12),
-        _ReadingMetricRow(
-          left: _ReadingMetric(
-            label: '翻页次数',
-            value: '${stats.pageTurns}',
-            valueKey: const ValueKey<String>('book-detail-page-turns'),
-          ),
-          right: _ReadingMetric(
-            label: '阅读字数',
-            value: _formatReadingCharacters(stats.charactersRead),
-            valueKey: const ValueKey<String>('book-detail-characters-read'),
+        if (maximum > Duration.zero)
+          BookReadingChart(
+            durations: [
+              for (final day in stats.recentDays.reversed) day.duration,
+            ],
+            endDate: stats.recentDays.first.date,
+          )
+        else
+          const Text('最近 7 天暂无阅读记录'),
+        const SizedBox(height: 12),
+        ReaderSectionCard(
+          child: AppExpansionTile(
+            title: const Text('每日明细'),
+            subtitle: const Text('查看最近 7 天的时长、次数与翻页'),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Column(
+                  children: [
+                    for (final day in stats.recentDays)
+                      _DailyReadingRow(day: day, maxDuration: maximum),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 20),
-        Text('最近 7 天', style: theme.textTheme.labelLarge),
-        const SizedBox(height: 6),
-        for (final day in stats.recentDays)
-          _DailyReadingRow(day: day, maxDuration: maxDailyDuration),
       ],
     );
   }
@@ -1021,60 +1030,18 @@ class _ReadingStatsSection extends StatelessWidget {
 class _ReadingMetricRow extends StatelessWidget {
   const _ReadingMetricRow({required this.left, required this.right});
 
-  final _ReadingMetric left;
-  final _ReadingMetric right;
+  final ReadingMetric left;
+  final ReadingMetric right;
 
   @override
   Widget build(BuildContext context) => Row(
-    children: <Widget>[
-      Expanded(
-        child: Padding(padding: const EdgeInsets.only(right: 12), child: left),
-      ),
-      Container(
-        width: 1,
-        height: 32,
-        color: Theme.of(context).colorScheme.outlineVariant,
-      ),
-      Expanded(
-        child: Padding(padding: const EdgeInsets.only(left: 12), child: right),
-      ),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(child: left),
+      const SizedBox(width: 20),
+      Expanded(child: right),
     ],
   );
-}
-
-class _ReadingMetric extends StatelessWidget {
-  const _ReadingMetric({
-    required this.label,
-    required this.value,
-    required this.valueKey,
-  });
-
-  final String label;
-  final String value;
-  final Key valueKey;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        Text(
-          value,
-          key: valueKey,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _DailyReadingRow extends StatelessWidget {
@@ -1106,7 +1073,7 @@ class _DailyReadingRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           SizedBox(
-            width: 64,
+            width: MediaQuery.textScalerOf(context).scale(54),
             child: Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(
@@ -1124,7 +1091,7 @@ class _DailyReadingRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  _formatReadingDuration(day.duration),
+                  formatReadingDuration(day.duration),
                   key: ValueKey<String>('book-detail-daily-duration-$dateKey'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: hasActivity
@@ -1171,6 +1138,7 @@ class _ReadingStatusSection extends StatelessWidget {
     required this.progress,
     required this.review,
     required this.canEdit,
+    required this.busy,
     required this.onEdit,
     required this.onUnmark,
   });
@@ -1178,6 +1146,7 @@ class _ReadingStatusSection extends StatelessWidget {
   final ReaderProgress? progress;
   final BookReview? review;
   final bool canEdit;
+  final bool busy;
   final VoidCallback onEdit;
   final VoidCallback onUnmark;
 
@@ -1186,11 +1155,10 @@ class _ReadingStatusSection extends StatelessWidget {
     final theme = Theme.of(context);
     final finished = progress?.finished ?? false;
     final content = review?.content ?? '';
-    return Container(
+    return ReaderSectionCard(
+      title: '阅读状态',
       key: const ValueKey<String>('book-detail-reading-status'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: ReaderUiStyle.cardDecorationOf(theme),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -1235,18 +1203,21 @@ class _ReadingStatusSection extends StatelessWidget {
           ],
           const SizedBox(height: 12),
           if (finished)
-            Row(
+            OverflowBar(
+              alignment: MainAxisAlignment.start,
+              overflowAlignment: OverflowBarAlignment.start,
+              spacing: 8,
+              overflowSpacing: 8,
               children: <Widget>[
                 OutlinedButton.icon(
                   key: const ValueKey<String>('book-detail-edit-finished'),
-                  onPressed: canEdit ? onEdit : null,
+                  onPressed: canEdit && !busy ? onEdit : null,
                   icon: const AppIcon(AppGlyph.rateReview, size: 18),
                   label: const Text('编辑读完信息'),
                 ),
-                const SizedBox(width: 8),
                 TextButton(
                   key: const ValueKey<String>('book-detail-unmark-finished'),
-                  onPressed: canEdit ? onUnmark : null,
+                  onPressed: canEdit && !busy ? onUnmark : null,
                   child: const Text('取消读完'),
                 ),
               ],
@@ -1254,7 +1225,7 @@ class _ReadingStatusSection extends StatelessWidget {
           else
             FilledButton.tonalIcon(
               key: const ValueKey<String>('book-detail-mark-finished'),
-              onPressed: canEdit ? onEdit : null,
+              onPressed: canEdit && !busy ? onEdit : null,
               icon: const AppIcon(AppGlyph.checkCircle),
               label: const Text('标记读完'),
             ),

@@ -1,12 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:reader_ui/theme/reader_ui_style.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 
 import '../storage/reading_session_store.dart';
 import 'reading_insights.dart';
 
-/// 长按菜单折线图固定展示的天数。
+/// 图书详情与长按菜单折线图固定展示的天数。
 const bookReadingChartDayCount = 7;
 
 /// 汇总目标书籍最近 7 个自然日的有序阅读时长。
@@ -27,7 +27,7 @@ List<Duration> recentBookReadingDurations(
   ];
 }
 
-/// 书架长按菜单中的单折线日阅读时长图。
+/// 图书详情与长按菜单共用的每日阅读时长折线图。
 class BookReadingChart extends StatelessWidget {
   /// 创建图表；[durations] 按时间从早到晚排列。
   const BookReadingChart({super.key, required this.durations, this.endDate});
@@ -41,6 +41,8 @@ class BookReadingChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final textScale = math.max(1.0, textScaler.scale(14) / 14);
     final dark = theme.brightness == Brightness.dark;
     final lineColor = theme.colorScheme.primary;
     final end = endDate ?? DateTime.now();
@@ -66,45 +68,54 @@ class BookReadingChart extends StatelessWidget {
       image: true,
       label: label,
       child: ExcludeSemantics(
-        child: Container(
+        child: SizedBox(
           key: const ValueKey<String>('book-detail-reading-chart'),
-          height: 166,
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          decoration: ReaderUiStyle.cardDecorationOf(theme),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Text('最近 7 天', style: theme.textTheme.labelLarge),
-                  const Spacer(),
-                  Text(
-                    '每日阅读时长',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: SizedBox.expand(
-                  child: CustomPaint(
-                    painter: _ReadingLinePainter(
-                      durations: durations,
-                      dates: dates,
-                      lineColor: lineColor,
-                      gridColor: theme.colorScheme.outlineVariant.withValues(
-                        alpha: dark ? 0.22 : 0.38,
+          height: 166 * textScale,
+          child: ReaderSectionCard(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                OverflowBar(
+                  alignment: MainAxisAlignment.spaceBetween,
+                  spacing: 8,
+                  overflowSpacing: 4,
+                  overflowAlignment: OverflowBarAlignment.start,
+                  children: <Widget>[
+                    Text('最近 7 天', style: theme.textTheme.labelLarge),
+                    Text(
+                      '每日阅读时长',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                      axisColor: theme.colorScheme.outlineVariant,
-                      labelColor: theme.colorScheme.onSurfaceVariant,
-                      textScaler: MediaQuery.textScalerOf(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: SizedBox.expand(
+                    child: CustomPaint(
+                      painter: _ReadingLinePainter(
+                        durations: durations,
+                        dates: dates,
+                        lineColor: lineColor,
+                        gridColor: theme.colorScheme.outlineVariant.withValues(
+                          alpha: dark ? 0.22 : 0.38,
+                        ),
+                        axisColor: theme.colorScheme.outlineVariant,
+                        labelStyle: theme.textTheme.labelSmall!.copyWith(
+                          fontSize: 9,
+                          height: 1.2,
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                        textScaler: textScaler,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -119,7 +130,7 @@ class _ReadingLinePainter extends CustomPainter {
     required this.lineColor,
     required this.gridColor,
     required this.axisColor,
-    required this.labelColor,
+    required this.labelStyle,
     required this.textScaler,
   });
 
@@ -128,7 +139,7 @@ class _ReadingLinePainter extends CustomPainter {
   final Color lineColor;
   final Color gridColor;
   final Color axisColor;
-  final Color labelColor;
+  final TextStyle labelStyle;
   final TextScaler textScaler;
 
   @override
@@ -268,15 +279,7 @@ class _ReadingLinePainter extends CustomPainter {
   }
 
   TextPainter _labelPainter(String text) => TextPainter(
-    text: TextSpan(
-      text: text,
-      style: TextStyle(
-        fontSize: 9,
-        height: 1.2,
-        color: labelColor,
-        fontFeatures: const [FontFeature.tabularFigures()],
-      ),
-    ),
+    text: TextSpan(text: text, style: labelStyle),
     textDirection: TextDirection.ltr,
     textAlign: TextAlign.right,
     textScaler: textScaler,
@@ -320,7 +323,7 @@ class _ReadingLinePainter extends CustomPainter {
     if (lineColor != oldDelegate.lineColor ||
         gridColor != oldDelegate.gridColor ||
         axisColor != oldDelegate.axisColor ||
-        labelColor != oldDelegate.labelColor ||
+        labelStyle != oldDelegate.labelStyle ||
         textScaler != oldDelegate.textScaler ||
         dates.length != oldDelegate.dates.length ||
         durations.length != oldDelegate.durations.length) {

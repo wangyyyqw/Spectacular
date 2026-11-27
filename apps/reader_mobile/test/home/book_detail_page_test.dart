@@ -94,6 +94,11 @@ void main() {
     expect(find.text('可读性'), findsNothing);
     expect(find.text('导入报告'), findsNothing);
     expect(find.text('E_MANIFEST_MEDIA_TYPE_INFERRED'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('阅读记录'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('阅读记录'), findsOneWidget);
   });
 
@@ -470,6 +475,14 @@ void main() {
 
     final todayKey = _dateKey(today);
     final yesterdayKey = _dateKey(yesterday);
+    await tester.scrollUntilVisible(
+      find.text('每日明细'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('每日明细'));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.byKey(ValueKey<String>('book-detail-daily-$yesterdayKey')),
       200,
