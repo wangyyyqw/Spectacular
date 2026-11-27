@@ -41,4 +41,5 @@ const bookshelfAutoCheckUpdatesKey = 'bookshelf.autoCheckUpdates';
 const bookshelfSkipFinishedUpdatesKey = 'bookshelf.skipFinishedUpdates';
 const bookshelfAllAsGroupKey = 'bookshelf.allAsGroup';
 const bookshelfDefaultGroupNameKey = 'bookshelf.defaultGroupName';
+const bookshelfGroupOrderKey = 'bookshelf.groupOrder';
 const bookshelfOnlineUpdatesKey = 'bookshelf.onlineUpdates.v1';

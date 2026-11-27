@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/annotations/text_value_dialog.dart';
@@ -169,6 +170,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   ImportJob? _encodingJob;
   List<String> _pinnedIds = const <String>[];
   List<ShelfGroup> _groups = const <ShelfGroup>[];
+  List<String?> _groupOrder = const [];
   Map<String, String> _bookGroups = const <String, String>{};
   String? _activeGroupId;
   bool _grid = true;
@@ -337,6 +339,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final defaultGroupName = await widget.library.getSetting(
       bookshelfDefaultGroupNameKey,
     );
+    final order = await widget.library.getSetting(bookshelfGroupOrderKey);
+    List<String?> nextOrder = const [];
+    try {
+      final decoded = order == null ? null : jsonDecode(order);
+      if (decoded is List) nextOrder = decoded.whereType<String?>().toList();
+    } on FormatException {
+      nextOrder = const [];
+    }
     if (!mounted) {
       return;
     }
@@ -357,6 +367,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _autoUpdateFirst == nextAutoUpdate &&
         _allAsGroup == nextAllAsGroup &&
         _defaultGroupName == nextDefaultName &&
+        listEquals(_groupOrder, nextOrder) &&
         listEquals(_pinnedIds, nextPinned)) {
       return;
     }
@@ -368,6 +379,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _autoUpdateFirst = nextAutoUpdate;
       _allAsGroup = nextAllAsGroup;
       _defaultGroupName = nextDefaultName;
+      _groupOrder = nextOrder;
       _pinnedIds = nextPinned;
     });
   }
@@ -389,6 +401,27 @@ class _BookshelfPageState extends State<BookshelfPage> {
     setState(() {
       _activeGroupId = _activeGroupId == id ? null : id;
     });
+  }
+
+  List<String?> get _orderedGroupIds {
+    final remaining = <String?>{
+      if (_allAsGroup) null,
+      for (final group in _groups) group.id,
+    };
+    return [
+      if (!_allAsGroup) null,
+      for (final id in _groupOrder)
+        if (remaining.remove(id)) id,
+      ...remaining,
+    ];
+  }
+
+  Future<void> _reorderGroups(int oldIndex, int newIndex) async {
+    final ids = _orderedGroupIds;
+    final moved = ids.removeAt(oldIndex);
+    ids.insert(newIndex, moved);
+    setState(() => _groupOrder = ids);
+    await widget.library.setSetting(bookshelfGroupOrderKey, jsonEncode(ids));
   }
 
   int _groupBookCount(String? groupId) => (_items ?? const <_ShelfItem>[])
@@ -1778,7 +1811,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
       children: [
         Expanded(
           child: _ShelfGroupBar(
-            groups: _groups,
+            order: _orderedGroupIds,
+            groups: {for (final group in _groups) group.id: group},
+            onReorder: _reorderGroups,
             activeGroupId: _activeGroupId,
             onToggle: _toggleGroup,
             onShowAll: () => setState(() => _activeGroupId = null),
@@ -1865,7 +1900,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         Expanded(
           child: HorizontalPageSwitcher<String?>(
             gestureKey: const ValueKey('bookshelf-group-pages'),
-            items: [null, for (final group in _groups) group.id],
+            items: _orderedGroupIds,
             value: _activeGroupId,
             enabled: canSwipe,
             onChanged: (id) => setState(() => _activeGroupId = id),
@@ -2373,9 +2408,11 @@ class _BookGroupSheetState extends State<_BookGroupSheet> {
   );
 }
 
-class _ShelfGroupBar extends StatelessWidget {
+class _ShelfGroupBar extends StatefulWidget {
   const _ShelfGroupBar({
+    required this.order,
     required this.groups,
+    required this.onReorder,
     required this.activeGroupId,
     required this.onToggle,
     required this.onShowAll,
@@ -2385,7 +2422,9 @@ class _ShelfGroupBar extends StatelessWidget {
     required this.onManageDefault,
   });
 
-  final List<ShelfGroup> groups;
+  final List<String?> order;
+  final Map<String, ShelfGroup> groups;
+  final ReorderCallback onReorder;
   final String? activeGroupId;
   final ValueChanged<String> onToggle;
   final VoidCallback onShowAll;
@@ -2395,32 +2434,76 @@ class _ShelfGroupBar extends StatelessWidget {
   final VoidCallback onManageDefault;
 
   @override
+  State<_ShelfGroupBar> createState() => _ShelfGroupBarState();
+}
+
+class _ShelfGroupBarState extends State<_ShelfGroupBar> {
+  Offset? _pressPosition;
+  bool _moved = false;
+  int? _heldIndex;
+
+  @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: <Widget>[
-            _ShelfGroupTab(
-              key: const ValueKey<String>('bookshelf-group-all'),
-              label: allAsGroup ? defaultGroupName : '全部',
-              selected: activeGroupId == null,
-              onTap: onShowAll,
-              onLongPress: allAsGroup ? onManageDefault : null,
-            ),
-            for (final group in groups)
-              _ShelfGroupTab(
-                key: ValueKey<String>('bookshelf-group-${group.id}'),
-                label: group.name,
-                selected: group.id == activeGroupId,
-                onTap: () => onToggle(group.id),
-                onLongPress: () => onManage(group),
-              ),
-          ],
+    final offset = widget.allAsGroup ? 0 : 1;
+    return Listener(
+      onPointerDown: (event) {
+        _pressPosition = event.position;
+        _moved = false;
+      },
+      onPointerMove: (event) {
+        final start = _pressPosition;
+        if (start != null && (event.position - start).distance > kTouchSlop) {
+          _moved = true;
+        }
+      },
+      child: SizedBox(
+        height: 44,
+        child: ReorderableListView.builder(
+          key: const ValueKey('bookshelf-group-strip'),
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          buildDefaultDragHandles: false,
+          proxyDecorator: (child, _, _) =>
+              Material(type: MaterialType.transparency, child: child),
+          header: widget.allAsGroup ? null : _tab(null),
+          itemCount: widget.order.length - offset,
+          onReorderStart: (index) => _heldIndex = index,
+          onReorderEnd: (index) {
+            final held = _heldIndex;
+            _heldIndex = null;
+            if (_moved || held != index || held == null) return;
+            final group = widget.groups[widget.order[held + offset]];
+            if (group != null) {
+              widget.onManage(group);
+            } else if (widget.allAsGroup) {
+              widget.onManageDefault();
+            }
+          },
+          onReorderItem: (from, to) =>
+              widget.onReorder(from + offset, to + offset),
+          itemBuilder: (_, index) {
+            final id = widget.order[index + offset];
+            return ReorderableDelayedDragStartListener(
+              key: ValueKey(('shelf-drag', id)),
+              index: index,
+              child: _tab(id),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  Widget _tab(String? id) {
+    final group = widget.groups[id];
+    return _ShelfGroupTab(
+      key: ValueKey('bookshelf-group-${id ?? 'all'}'),
+      label: group?.name ?? (widget.allAsGroup ? widget.defaultGroupName : '全部'),
+      selected: widget.activeGroupId == id,
+      onTap: id == null ? widget.onShowAll : () => widget.onToggle(id),
+      onManage: group != null
+          ? () => widget.onManage(group)
+          : widget.allAsGroup ? widget.onManageDefault : null,
     );
   }
 }
@@ -2432,13 +2515,13 @@ class _ShelfGroupTab extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onTap,
-    this.onLongPress,
+    this.onManage,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final VoidCallback? onLongPress;
+  final VoidCallback? onManage;
 
   @override
   State<_ShelfGroupTab> createState() => _ShelfGroupTabState();
@@ -2469,9 +2552,11 @@ class _ShelfGroupTabState extends State<_ShelfGroupTab> {
     return Semantics(
       selected: widget.selected,
       button: true,
+      onLongPress: widget.onManage,
       child: InkWell(
         onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.transparent,
         child: Container(
           margin: const EdgeInsets.only(right: 20),
           height: 44,

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
@@ -16,6 +18,71 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
+  testWidgets('分组点击无背景，长按拖动保存顺序并保留选中分组', (tester) async {
+    final library = LibraryStore.memory();
+    final group = await library.createGroup('收藏');
+    await library.setSetting(bookshelfAllAsGroupKey, 'true');
+    Widget page() => MaterialApp(
+      home: BookshelfPage(
+        library: library,
+        progressStore: MemoryReaderProgressStore(),
+      ),
+    );
+    await tester.pumpWidget(page());
+    await _settle(tester);
+    final custom = find.text('收藏');
+    final defaultTab = find.text('默认');
+    final ink = tester.widget<InkWell>(
+      find.ancestor(of: custom, matching: find.byType(InkWell)).first,
+    );
+    expect(ink.splashFactory, NoSplash.splashFactory);
+    expect(ink.highlightColor, Colors.transparent);
+    await tester.tap(custom);
+    await _settle(tester);
+    final start = tester.getCenter(custom);
+    final end = tester.getCenter(defaultTab);
+    final drag = await tester.startGesture(start);
+    await tester.pump(const Duration(milliseconds: 600));
+    for (var step = 1; step <= 8; step++) {
+      await drag.moveTo(Offset.lerp(start, end, step / 8)!);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+    await drag.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(
+      tester.getCenter(custom).dx,
+      lessThan(tester.getCenter(defaultTab).dx),
+    );
+    expect(tester.widget<Text>(custom).style?.fontWeight, FontWeight.w600);
+    expect(jsonDecode((await library.getSetting(bookshelfGroupOrderKey))!), [
+      group.id,
+      null,
+    ]);
+    await tester.drag(
+      find.byKey(const ValueKey('bookshelf-group-pages')),
+      const Offset(-240, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(defaultTab).style?.fontWeight, FontWeight.w600);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(page());
+    await _settle(tester);
+    expect(
+      tester.getCenter(custom).dx,
+      lessThan(tester.getCenter(defaultTab).dx),
+    );
+    await library.setSetting(bookshelfAllAsGroupKey, 'false');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(page());
+    await _settle(tester);
+    expect(
+      tester.getCenter(find.text('全部')).dx,
+      lessThan(tester.getCenter(custom).dx),
+    );
+  });
+
   testWidgets('默认分组可管理、重命名，并接收单书与批量移回', (tester) async {
     final library = LibraryStore.memory();
     final books = (await tester.runAsync(
@@ -216,7 +283,9 @@ void main() {
       final tab = tester.getRect(
         find.byKey(ValueKey('bookshelf-group-${group.id}')),
       );
-      final bar = tester.getRect(find.byType(SingleChildScrollView).first);
+      final bar = tester.getRect(
+        find.byKey(const ValueKey('bookshelf-group-strip')),
+      );
       expect(tab.left, greaterThanOrEqualTo(bar.left));
       expect(tab.right, lessThanOrEqualTo(bar.right));
     }
