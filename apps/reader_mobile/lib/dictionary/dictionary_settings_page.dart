@@ -313,14 +313,39 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
     );
   }
 
-  // 分区内保留原有声明式表单与操作回调，避免拆散同一设置的展示和保存逻辑。
+  TextStyle get _sectionTitleStyle =>
+      Theme.of(context).textTheme.titleSmall!
+          .copyWith(fontSize: 16, height: 1.25);
+
+  Widget _headerAction(
+    String key,
+    String tooltip,
+    AppGlyph glyph,
+    VoidCallback? action,
+  ) {
+    final style = _sectionTitleStyle;
+    return IconButton(
+      key: ValueKey(key),
+      tooltip: tooltip,
+      onPressed: action,
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      icon: AppIcon(
+        glyph,
+        size:
+            MediaQuery.textScalerOf(context).scale(style.fontSize!) *
+            style.height!,
+      ),
+    );
+  }
+
   Widget _apiSettings(DictionaryState state) => ReaderSectionGroup(
     title: '释义服务',
-    trailing: TextButton.icon(
-      key: const ValueKey('dictionary-api-add'),
-      onPressed: _busy ? null : _editApi,
-      icon: const AppIcon(AppGlyph.add, size: 18),
-      label: const Text('添加释义服务'),
+    titleStyle: _sectionTitleStyle,
+    trailing: _headerAction(
+      'dictionary-api-add',
+      '添加释义服务',
+      AppGlyph.add,
+      _busy ? null : _editApi,
     ),
     children: [
       Padding(
@@ -400,11 +425,12 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
 
   Widget _presetSettings(DictionaryState state) => ReaderSectionGroup(
     title: '释义预设',
-    trailing: TextButton.icon(
-      key: const ValueKey('dictionary-preset-add'),
-      onPressed: _busy ? null : () => _editPreset(null),
-      icon: const AppIcon(AppGlyph.add, size: 18),
-      label: const Text('添加自定义预设'),
+    titleStyle: _sectionTitleStyle,
+    trailing: _headerAction(
+      'dictionary-preset-add',
+      '添加自定义预设',
+      AppGlyph.add,
+      _busy ? null : () => _editPreset(null),
     ),
     children: [
       Padding(
@@ -492,22 +518,23 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
 
   Widget _onlineSettings(DictionaryState state) => ReaderSectionGroup(
     title: '在线词典规则',
+    titleStyle: _sectionTitleStyle,
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          key: const ValueKey('dictionary-online-sort'),
-          tooltip: '在线词典排序',
-          onPressed: _busy || state.rules.length < 2
+        _headerAction(
+          'dictionary-online-sort',
+          '在线词典排序',
+          AppGlyph.sort,
+          _busy || state.rules.length < 2
               ? null
               : () => _sortDictionaries(local: false),
-          icon: const AppIcon(AppGlyph.sort),
         ),
-        TextButton.icon(
-          key: const ValueKey('dictionary-rule-add'),
-          onPressed: _busy ? null : () => _editRule(),
-          icon: const AppIcon(AppGlyph.add, size: 18),
-          label: const Text('添加在线词典'),
+        _headerAction(
+          'dictionary-rule-add',
+          '添加在线词典',
+          AppGlyph.add,
+          _busy ? null : () => _editRule(),
         ),
       ],
     ),
@@ -577,24 +604,23 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
 
   Widget _localSettings() => ReaderSectionGroup(
     title: '本地词典',
+    titleStyle: _sectionTitleStyle,
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          key: const ValueKey('dictionary-local-sort'),
-          tooltip: '本地词典排序',
-          onPressed: _busy || _locals.length < 2
+        _headerAction(
+          'dictionary-local-sort',
+          '本地词典排序',
+          AppGlyph.sort,
+          _busy || _locals.length < 2
               ? null
               : () => _sortDictionaries(local: true),
-          icon: const AppIcon(AppGlyph.sort),
         ),
-        TextButton.icon(
-          key: const ValueKey('dictionary-local-import'),
-          onPressed: _busy || !widget.store.locals.canImport
-              ? null
-              : _importLocal,
-          icon: const AppIcon(AppGlyph.add, size: 18),
-          label: const Text('导入 MDX/MDD'),
+        _headerAction(
+          'dictionary-local-import',
+          '导入 MDX/MDD',
+          AppGlyph.add,
+          _busy || !widget.store.locals.canImport ? null : _importLocal,
         ),
       ],
     ),

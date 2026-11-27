@@ -45,6 +45,7 @@ class ReaderSectionGroup extends StatelessWidget {
   const ReaderSectionGroup({
     super.key,
     this.title,
+    this.titleStyle,
     this.footer,
     required this.children,
     this.trailing,
@@ -53,6 +54,7 @@ class ReaderSectionGroup extends StatelessWidget {
   });
 
   final String? title;
+  final TextStyle? titleStyle;
   final String? footer;
   final Widget? trailing;
   final List<Widget> children;
@@ -80,11 +82,12 @@ class ReaderSectionGroup extends StatelessWidget {
                   Expanded(
                     child: Text(
                       title!,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: headerColor,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: theme.useMaterial3 ? 0.2 : 0,
-                      ),
+                      style: (titleStyle ?? theme.textTheme.labelMedium)
+                          ?.copyWith(
+                            color: headerColor,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: theme.useMaterial3 ? 0.2 : 0,
+                          ),
                     ),
                   ),
                 ?trailing,
@@ -152,7 +155,13 @@ class ReaderSettingsScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final list = ListView(padding: padding, children: children);
+    final insets = padding.resolve(Directionality.of(context));
+    final list = ListView(
+      padding: fixedHeader == null
+          ? insets
+          : insets.copyWith(top: ReaderUiTokens.spacingXs),
+      children: children,
+    );
     return Scaffold(
       appBar: AppBar(title: title, actions: actions),
       floatingActionButton: floatingActionButton,
@@ -167,7 +176,10 @@ class ReaderSettingsScaffold extends StatelessWidget {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Padding(padding: padding, child: fixedHeader),
+                      Padding(
+                        padding: insets.copyWith(bottom: 0),
+                        child: fixedHeader,
+                      ),
                       Expanded(child: list),
                     ],
                   ),

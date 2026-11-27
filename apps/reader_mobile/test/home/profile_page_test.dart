@@ -96,6 +96,23 @@ void main() {
       final page = find.byType(DictionarySettingsPage);
       final tabs = find.byType(ReaderSectionSlider);
       final tabsRect = tester.getRect(tabs);
+      void checkHeader(String title, String addKey, [String? sortKey]) {
+        final add = find.byKey(ValueKey(addKey));
+        final heading = find.descendant(of: page, matching: find.text(title)).last;
+        final button = tester.widget<IconButton>(add);
+        expect(button.tooltip, isNotEmpty);
+        expect(tester.widget<Text>(heading).style?.fontSize, 16);
+        expect(tester.getRect(add).top - tabsRect.bottom, closeTo(4, .01));
+        expect(tester.getCenter(add).dy, closeTo(tester.getCenter(heading).dy, .01));
+        expect(tester.getSize(add).shortestSide, greaterThanOrEqualTo(48));
+        if (sortKey != null) {
+          final sort = find.byKey(ValueKey(sortKey));
+          expect(tester.getSize(sort), tester.getSize(add));
+          expect((tester.widget<IconButton>(sort).icon as AppIcon).size,
+              (button.icon as AppIcon).size);
+        }
+      }
+      checkHeader('释义服务', 'dictionary-api-add');
       expect(find.byType(BottomSheet), findsNothing);
       expect(find.byType(ReaderSettingsSheet), findsNothing);
       expect(find.widgetWithText(AppBar, '词典设置'), findsOneWidget);
@@ -131,6 +148,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('dictionary-api-add')), findsNothing);
+      checkHeader('在线词典规则', 'dictionary-rule-add', 'dictionary-online-sort');
       expect(find.byKey(const ValueKey('dictionary-preset-add')), findsNothing);
       expect(tester.getRect(tabs), tabsRect);
       await tester.tap(find.byKey(const ValueKey('dictionary-settings-local')));
@@ -141,6 +159,7 @@ void main() {
       );
       expect(find.text('新世纪汉英大词典'), findsOneWidget);
       expect(find.text('大辞海'), findsOneWidget);
+      checkHeader('本地词典', 'dictionary-local-import', 'dictionary-local-sort');
       expect(find.text('下载词典'), findsNWidgets(2));
       expect(find.byKey(const ValueKey('dictionary-rule-add')), findsNothing);
       expect(tester.getRect(tabs), tabsRect);
