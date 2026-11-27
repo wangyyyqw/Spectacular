@@ -1789,33 +1789,30 @@ class _BookshelfPageState extends State<BookshelfPage> {
             onManageDefault: () => _manageGroup(null),
           ),
         ),
-        if (_selectionMode)
-          IconButton(
-            key: const ValueKey('bookshelf-select-all'),
-            tooltip: _allSelected(items) ? '取消全选' : '全选',
-            onPressed: _removing ? null : () => _toggleSelectAll(items),
+        Theme(
+          data: _noFeedback(context),
+          child: IconButton(
+            key: ValueKey(
+              _selectionMode ? 'bookshelf-select-all' : 'bookshelf-view-style',
+            ),
+            tooltip: _selectionMode
+                ? (_allSelected(items) ? '取消全选' : '全选')
+                : (_grid ? '列表视图' : '网格视图'),
+            color: colors.onSurfaceVariant,
+            disabledColor: Theme.of(context).disabledColor,
+            constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+            padding: EdgeInsets.zero,
+            onPressed: _selectionMode
+                ? (_removing ? null : () => _toggleSelectAll(items))
+                : _toggleView,
             icon: AppIcon(
-              _allSelected(items) ? AppGlyph.check : AppGlyph.multiSelect,
+              _selectionMode
+                  ? (_allSelected(items) ? AppGlyph.check : AppGlyph.multiSelect)
+                  : (_grid ? AppGlyph.listView : AppGlyph.gridView),
               strokeWidth: _shelfToolbarIconStroke,
             ),
           ),
-        if (!_selectionMode)
-          Theme(
-            data: _noFeedback(context),
-            child: IconButton(
-              key: const ValueKey('bookshelf-view-style'),
-              tooltip: _grid ? '列表视图' : '网格视图',
-              color: colors.onSurfaceVariant,
-              disabledColor: Theme.of(context).disabledColor,
-              constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-              padding: EdgeInsets.zero,
-              onPressed: _toggleView,
-              icon: AppIcon(
-                _grid ? AppGlyph.listView : AppGlyph.gridView,
-                strokeWidth: _shelfToolbarIconStroke,
-              ),
-            ),
-          ),
+        ),
         Theme(
           data: _noFeedback(context),
           child: IconButton(

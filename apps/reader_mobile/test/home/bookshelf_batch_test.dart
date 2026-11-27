@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
@@ -22,6 +23,42 @@ Future<void> _enterMultiSelect(WidgetTester tester, String bookId) async {
 }
 
 void main() {
+  testWidgets('手机书架进入和退出多选时工具栏和首本书不下移', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final library = LibraryStore.memory();
+    final book = (await tester.runAsync(
+      () => library.importBytes(buildTestEpub(title: '位置基准')),
+    ))!;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    final bar = find.byKey(const ValueKey('bookshelf-group-toolbar'));
+    for (final style in ['card', 'row']) {
+      if (style == 'row') {
+        await tester.tap(find.byTooltip('列表视图'));
+        await _settle(tester);
+      }
+      final first = find.byKey(ValueKey('book-$style-${book.id}'));
+      final normal = tester.getRect(bar);
+      final top = tester.getTopLeft(first).dy;
+      for (final label in ['多选', '退出多选']) {
+        await tester.tap(find.byTooltip(label));
+        await tester.pump();
+        expect(tester.getRect(bar), normal);
+        expect(tester.getTopLeft(first).dy, top);
+      }
+    }
+  });
+
   testWidgets('书架支持全选、取消全选和确认后批量删除', (tester) async {
     final library = LibraryStore.memory();
     final progressStore = MemoryReaderProgressStore();
@@ -54,7 +91,7 @@ void main() {
     final multiple = tester.getRect(find.byTooltip('多选'));
     final view = tester.getRect(find.byTooltip('列表视图'));
     expect(multiple.center.dy, closeTo(view.center.dy, .1));
-    expect(view.left, greaterThanOrEqualTo(multiple.right));
+    expect(multiple.left, greaterThanOrEqualTo(view.right));
 
     await _enterMultiSelect(tester, first.id);
     expect(find.byKey(const ValueKey('bookshelf-view-style')), findsNothing);
