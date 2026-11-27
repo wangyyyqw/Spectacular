@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
+import 'package:reader_mobile/home/bookshelf_sort.dart';
 import 'package:reader_mobile/home/book_cover_image.dart';
 import 'package:reader_mobile/library/library_store.dart';
 
@@ -15,6 +16,82 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
+  testWidgets('默认分组可管理、重命名，并接收单书与批量移回', (tester) async {
+    final library = LibraryStore.memory();
+    final books = (await tester.runAsync(
+      () async => [
+        for (final title in ['甲书', '乙书', '丙书'])
+          await library.importBytes(buildTestEpub(title: title)),
+      ],
+    ))!;
+    final custom = await library.createGroup('收藏');
+    await library.setBooksGroup(
+      books.map((book) => book.id),
+      groupId: custom.id,
+    );
+    await library.setSetting(bookshelfAllAsGroupKey, 'true');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    expect(find.text('这个分组还没有书'), findsOneWidget);
+    await tester.longPress(find.text('默认'));
+    await _settle(tester);
+    expect(find.text('0 本书'), findsOneWidget);
+    expect(find.text('删除分组'), findsNothing);
+    await tester.tap(find.text('重命名分组'));
+    await _settle(tester);
+    await tester.enterText(find.byType(TextField).last, '收件箱');
+    await tester.tap(
+      find.byKey(const ValueKey('bookshelf-group-name-confirm')),
+    );
+    await _settle(tester);
+    expect(await library.getSetting(bookshelfDefaultGroupNameKey), '收件箱');
+    await tester.tap(find.text('收藏'));
+    await _settle(tester);
+    await tester.longPress(find.byKey(ValueKey('book-card-${books.first.id}')));
+    await _settle(tester);
+    await tester.tap(find.text('分组'));
+    await _settle(tester);
+    final target = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.text('收件箱'),
+    );
+    await tester.tap(target);
+    await _settle(tester);
+    expect(find.text('甲书'), findsWidgets);
+    expect(find.text('乙书'), findsNothing);
+    expect(
+      (await library.groupAssignments()).keys,
+      isNot(contains(books.first.id)),
+    );
+    await tester.tap(find.text('收藏'));
+    await _settle(tester);
+    await tester.tap(find.byTooltip('多选'));
+    await _settle(tester);
+    for (final book in books.skip(1)) {
+      await tester.tap(find.byKey(ValueKey('book-card-${book.id}')));
+      await _settle(tester);
+    }
+    await tester.tap(find.byKey(const ValueKey('bookshelf-batch-group')));
+    await _settle(tester);
+    expect(find.text('移出分组'), findsNothing);
+    await tester.tap(target);
+    await _settle(tester);
+    expect(await library.groupAssignments(), isEmpty);
+    expect((await library.listGroups()).single.id, custom.id);
+    await tester.tap(find.text('收件箱'));
+    await _settle(tester);
+    for (final book in books) {
+      expect(find.byKey(ValueKey('book-card-${book.id}')), findsOneWidget);
+    }
+  });
+
   testWidgets('内容区左右滑动切换分组，兼容空组、列表、多选及溢出标签', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;

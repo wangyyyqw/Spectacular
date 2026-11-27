@@ -239,9 +239,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               }
               if (key == bookshelfAllAsGroupKey) allAsGroup = value;
             });
-            final saved = key == bookshelfAllAsGroupKey
-                ? await _setAllAsGroup(value)
-                : await _toggleShelfSetting(key, value);
+            final saved = await _toggleShelfSetting(key, value);
             if (!saved && context.mounted) {
               setDrawerState(() {
                 if (key == bookshelfGridShowTitlesKey) {
@@ -322,22 +320,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         },
       ),
     );
-  }
-
-  Future<bool> _setAllAsGroup(bool value) async {
-    try {
-      if (value) {
-        await widget.library.setSetting(bookshelfDefaultGroupNameKey, '默认');
-      }
-      return await _toggleShelfSetting(bookshelfAllAsGroupKey, value);
-    } catch (error, stackTrace) {
-      recordAppError(
-        'bookshelf_group_setting_save_failed',
-        error,
-        stackTrace: stackTrace,
-      );
-      return false;
-    }
   }
 
   Future<void> _chooseTheme(ThemeMode current) async {
