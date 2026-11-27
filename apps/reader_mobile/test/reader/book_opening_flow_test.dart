@@ -109,7 +109,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: BookOpeningReader(
-          book: _book,
+          openingView: BookOpeningView(book: _book),
           readerBuilder: (onReady, readingActive) => EpubReaderPage(
             sourceFuture: Future.value(source),
             contentRevision: 'background-cover',
@@ -160,7 +160,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: BookOpeningReader(
-          book: _book,
+          openingView: BookOpeningView(book: _book),
           readerBuilder: (onReady, readingActive) => EpubReaderPage(
             bytes: bytes,
             sourceFuture: openingSource.future,
@@ -237,7 +237,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: BookOpeningReader(
-          book: _book,
+          openingView: BookOpeningView(book: _book),
           readerBuilder: (onReady, readingActive) => EpubReaderPage(
             bytes: bytes,
             sourceFuture: Future.value(source),
@@ -323,7 +323,7 @@ void main() {
           child: child!,
         ),
         home: BookOpeningReader(
-          book: _book,
+          openingView: BookOpeningView(book: _book),
           readerBuilder: (onReady, readingActive) => EpubReaderPage(
             bytes: Uint8List.fromList([1, 2, 3]),
             bookId: _book.id,

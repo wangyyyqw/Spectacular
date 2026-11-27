@@ -20,6 +20,7 @@ import '../rea_micro/rea_micro_models.dart';
 import '../rea_micro/rea_micro_progress_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_opening_reader.dart';
+import 'book_opening_view.dart';
 import 'epub_reader_page.dart';
 import 'reader_settings.dart';
 import 'reader_background_store.dart';
@@ -195,6 +196,19 @@ class BookOpener {
         : library.decorationRuleStore(entry.id);
     final settings = _loadSettings()..ignore();
     final revision = prepared.then((book) => book.revision)..ignore();
+    final openingView = entry == null
+        ? BookOpeningView.preview(
+            title: title,
+            bookId: bookId,
+            coverBytes: reading.then(
+              (book) => book.service.loadCover(
+                book.source,
+                book.book.coverUrl,
+                referer: book.book.bookUrl,
+              ),
+            ),
+          )
+        : BookOpeningView(book: entry);
     Future<EpubChapterSource>? source;
     final route = _OnlineReaderRoute(
       builder: (_) {
@@ -240,11 +254,10 @@ class BookOpener {
                 if (!closed.isCompleted) closed.complete();
               },
             );
-        final localEntry = entry;
-        if (localEntry == null) {
-          return buildReader(() {}, true);
-        }
-        return BookOpeningReader(book: localEntry, readerBuilder: buildReader);
+        return BookOpeningReader(
+          openingView: openingView,
+          readerBuilder: buildReader,
+        );
       },
     );
     try {
@@ -388,7 +401,7 @@ class BookOpener {
       pageBuilder: (_, _, _) {
         opening.created = true;
         return BookOpeningReader(
-          book: entry,
+          openingView: BookOpeningView(book: entry),
           onRevealed: () => opening.revealed = true,
           readerBuilder: readerBuilder,
         );

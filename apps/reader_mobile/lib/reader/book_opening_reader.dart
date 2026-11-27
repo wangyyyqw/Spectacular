@@ -2,19 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../library/library_store.dart';
 import 'book_opening_view.dart';
 
 /// 正文先在同一路由内准备，封面展开和首屏绘制均完成后再揭开。
 class BookOpeningReader extends StatefulWidget {
   const BookOpeningReader({
     super.key,
-    required this.book,
+    required this.openingView,
     required this.readerBuilder,
     this.onRevealed,
   });
 
-  final BookEntry book;
+  final BookOpeningView openingView;
 
   /// 第二个参数为正文是否已经可交互，用于前台阅读计时。
   final Widget Function(VoidCallback onReady, bool readingActive) readerBuilder;
@@ -94,7 +93,7 @@ class _BookOpeningReaderState extends State<BookOpeningReader> {
               ? Duration.zero
               : const Duration(milliseconds: 220),
           onEnd: _finishReveal,
-          child: BookOpeningView(book: widget.book),
+          child: widget.openingView,
         ),
     ],
   );

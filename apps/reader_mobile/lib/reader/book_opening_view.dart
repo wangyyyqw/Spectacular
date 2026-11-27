@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -12,12 +13,26 @@ const _coverRadius = BorderRadius.all(Radius.circular(4));
 ///
 /// 独立成路由页，保证读盘期间有明确反馈，同时允许系统返回取消打开。
 class BookOpeningView extends StatefulWidget {
-  const BookOpeningView({super.key, required this.book});
+  BookOpeningView({super.key, required BookEntry book})
+    : title = book.title,
+      bookId = book.id,
+      coverPath = book.coverPath,
+      coverBytes = null;
+
+  const BookOpeningView.preview({
+    super.key,
+    required this.title,
+    required this.bookId,
+    required this.coverBytes,
+  }) : coverPath = null;
 
   /// 封面完整展开所需时长；打开器据此避免快速读盘时提前切页。
   static const Duration revealDuration = Duration(milliseconds: 560);
 
-  final BookEntry book;
+  final String title;
+  final String bookId;
+  final String? coverPath;
+  final Future<Uint8List?>? coverBytes;
 
   @override
   State<BookOpeningView> createState() => _BookOpeningViewState();
@@ -62,7 +77,7 @@ class _BookOpeningViewState extends State<BookOpeningView>
     child: Semantics(
       container: true,
       liveRegion: true,
-      label: '正在打开《${widget.book.title}》',
+      label: '正在打开《${widget.title}》',
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
@@ -106,7 +121,7 @@ class _BookOpeningViewState extends State<BookOpeningView>
             opacity: ((_reveal.value - 0.3) / 0.7).clamp(0.0, 1.0).toDouble(),
             child: child,
           ),
-          child: _OpeningStatus(book: widget.book),
+          child: _OpeningStatus(title: widget.title),
         ),
         const Spacer(flex: 4),
       ],
@@ -133,14 +148,50 @@ class _BookOpeningViewState extends State<BookOpeningView>
         ),
       );
     },
-    child: _OpeningCover(book: widget.book, width: width),
+    child: SizedBox(
+      width: width,
+      height: width * 4 / 3,
+      child: Hero(
+        tag: bookCoverHeroTag(widget.bookId),
+        transitionOnUserGestures: true,
+        child: ClipRRect(borderRadius: _coverRadius, child: _coverContent()),
+      ),
+    ),
   );
+
+  Widget _coverContent() {
+    final fallback = _CoverFallback(title: widget.title);
+    final path = widget.coverPath;
+    if (path != null) {
+      return Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        cacheWidth: 720,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => fallback,
+      );
+    }
+    if (widget.coverBytes == null) return fallback;
+    return FutureBuilder<Uint8List?>(
+      future: widget.coverBytes,
+      builder: (_, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null || bytes.isEmpty) return fallback;
+        return Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          cacheWidth: 720,
+          errorBuilder: (_, _, _) => fallback,
+        );
+      },
+    );
+  }
 }
 
 class _OpeningStatus extends StatelessWidget {
-  const _OpeningStatus({required this.book});
+  const _OpeningStatus({required this.title});
 
-  final BookEntry book;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -150,7 +201,7 @@ class _OpeningStatus extends StatelessWidget {
       child: Column(
         children: <Widget>[
           Text(
-            book.title,
+            title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
@@ -176,46 +227,10 @@ class _OpeningStatus extends StatelessWidget {
   }
 }
 
-class _OpeningCover extends StatelessWidget {
-  const _OpeningCover({required this.book, required this.width});
-
-  final BookEntry book;
-  final double width;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    height: width * 4 / 3,
-    child: Hero(
-      tag: bookCoverHeroTag(book.id),
-      transitionOnUserGestures: true,
-      child: ClipRRect(
-        borderRadius: _coverRadius,
-        child: _coverContent(context),
-      ),
-    ),
-  );
-
-  Widget _coverContent(BuildContext context) {
-    final coverPath = book.coverPath;
-    final fallback = _CoverFallback(book: book);
-    if (coverPath == null) {
-      return fallback;
-    }
-    return Image.file(
-      File(coverPath),
-      fit: BoxFit.cover,
-      cacheWidth: 720,
-      gaplessPlayback: true,
-      errorBuilder: (_, _, _) => fallback,
-    );
-  }
-}
-
 class _CoverFallback extends StatelessWidget {
-  const _CoverFallback({required this.book});
+  const _CoverFallback({required this.title});
 
-  final BookEntry book;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -228,7 +243,7 @@ class _CoverFallback extends StatelessWidget {
       ),
       child: Center(
         child: Text(
-          book.title.characters.isEmpty ? '书' : book.title.characters.first,
+          title.characters.isEmpty ? '书' : title.characters.first,
           style: theme.textTheme.displayMedium,
         ),
       ),

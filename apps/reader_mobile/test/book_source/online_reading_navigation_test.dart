@@ -134,10 +134,14 @@ void main() {
     );
     for (final accept in [false, true]) {
       await tester.tap(find.byKey(const ValueKey('online-book-read')));
+      final opening = find.byKey(const ValueKey('book-opening-view'));
+      await pumpReaderUntil(tester, opening);
+      expect(find.text('正在排版…').hitTestable(), findsNothing);
       await pumpReaderUntil(
         tester,
         find.byKey(const ValueKey('reader-content')),
       );
+      await pumpReaderUntilComplete(tester, () => opening.evaluate().isEmpty);
       expect(f.controller.shelfEntryFor(f.source, f.readingBook.book), isNull);
       final page = tester.widget<ReaderPage>(find.byType(ReaderPage));
       expect(page.bookmarks, isNull);
