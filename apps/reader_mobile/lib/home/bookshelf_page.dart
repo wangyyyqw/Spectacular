@@ -2635,54 +2635,59 @@ class _BookRow extends StatelessWidget {
               cover,
               const SizedBox(width: BookCollectionLayout.rowTextGap),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    if (showTitle) ...[
-                      Text(
-                        entry.title,
-                        key: ValueKey<String>('book-row-title-${entry.id}'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: BookCollectionLayout.rowCover.height,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    spacing: MediaQuery.textScalerOf(context).scale(4),
+                    children: <Widget>[
+                      if (showTitle)
+                        Text(
+                          entry.title,
+                          key: ValueKey<String>('book-row-title-${entry.id}'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                    ],
-                    Text(
-                      author.isEmpty ? '佚名' : author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: metadataStyle,
-                    ),
-                    if (isOnline && !finished) ...[
                       Text(
-                        '已读 ${formatReadingDuration(item.duration)} · ${_readingChapterCount(item.onlineSpineIndex, item.onlineSpineCount)}',
+                        author.isEmpty ? '佚名' : author,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: metadataStyle,
                       ),
-                      Text(
-                        _onlineUpdateLabel(onlineUpdate),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: metadataStyle,
-                      ),
-                    ] else ...[
-                      Text(
-                        '已读 ${formatReadingDuration(item.duration)}',
-                        style: metadataStyle,
-                      ),
-                      Text(
-                        formatReadingChapters(
-                          isOnline ? item.onlineSpineIndex : item.spineIndex,
-                          isOnline ? item.onlineSpineCount : entry.spineCount,
+                      if (isOnline && !finished) ...[
+                        Text(
+                          '已读 ${formatReadingDuration(item.duration)} · ${_readingChapterCount(item.onlineSpineIndex, item.onlineSpineCount)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: metadataStyle,
                         ),
-                        style: metadataStyle,
-                      ),
+                        Text(
+                          _onlineUpdateLabel(onlineUpdate),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: metadataStyle,
+                        ),
+                      ] else ...[
+                        Text(
+                          '已读 ${formatReadingDuration(item.duration)}',
+                          style: metadataStyle,
+                        ),
+                        Text(
+                          formatReadingChapters(
+                            isOnline ? item.onlineSpineIndex : item.spineIndex,
+                            isOnline ? item.onlineSpineCount : entry.spineCount,
+                          ),
+                          style: metadataStyle,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               if (trailing.isNotEmpty) ...<Widget>[

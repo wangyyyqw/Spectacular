@@ -127,8 +127,8 @@ void main() {
     final author = tester.getRect(line('佚名'));
     final duration = tester.getRect(line('已读 1 小时 16 分'));
     final chapters = tester.getRect(line('已读 2 / 3 章'));
-    expect(author.bottom, lessThanOrEqualTo(duration.top));
-    expect(duration.bottom, lessThanOrEqualTo(chapters.top));
+    expect(duration.top - author.bottom, greaterThanOrEqualTo(3.99));
+    expect(chapters.top - duration.bottom, greaterThanOrEqualTo(3.99));
     expect(
       find.descendant(of: row, matching: find.byType(LinearProgressIndicator)),
       findsNothing,

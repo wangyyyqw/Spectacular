@@ -24,6 +24,7 @@ import 'package:reader_mobile/book_source/online_chapter_request.dart';
 import 'package:reader_mobile/book_source/online_epub_metadata.dart';
 import 'package:reader_mobile/book_source/online_epub_export.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
+import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
 import 'package:reader_mobile/book_source/online_reading_book.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -738,7 +739,91 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('无本地差集时书架展示最新章节时间或详情标题，不默认显示末卷', (tester) async {
+  testWidgets('在线书列表按字体与系统字号分配行距，字号增大时书目自然增高', (tester) async {
+    tester.view
+      ..physicalSize = const Size(384, 836)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final fixture = (await tester.runAsync(_Fixture.create))!;
+    addTearDown(fixture.dispose);
+    final entry = await pumpReaderTask(
+      tester,
+      fixture.library.importBytes(_epub()),
+    );
+    await pumpReaderTask(tester, fixture.controller.registerImportedBooks());
+    await pumpReaderTask(
+      tester,
+      fixture.library.setSetting('bookshelf.grid', 'false'),
+    );
+    const customFont = '书架测试黑体';
+    await tester.runAsync(() async {
+      await (FontLoader(
+        AppFonts.defaultFamily,
+      )..addFont(rootBundle.load('assets/fonts/MoyuSerif-Regular.otf'))).load();
+      final bytes = await File('../../test_fonts/SourceHanSansSC-Regular.otf')
+          .readAsBytes();
+      await (FontLoader(
+        customFont,
+      )..addFont(Future.value(ByteData.sublistView(bytes)))).load();
+    });
+    final row = find.byKey(ValueKey('book-row-${entry.id}'));
+    for (final family in [AppFonts.defaultFamily, customFont]) {
+      for (final scale in [1.0, 2.0]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(fontFamily: family),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: BookshelfPage(
+              library: fixture.library,
+              progressStore: fixture.progress,
+              onlineBooks: fixture.controller,
+            ),
+          ),
+        );
+        await pumpReaderUntil(tester, row);
+        await tester.pumpAndSettle();
+        Rect line(Finder finder) =>
+            tester.getRect(find.descendant(of: row, matching: finder));
+        final lines = [
+          line(find.byKey(ValueKey('book-row-title-${entry.id}'))),
+          line(find.text(entry.author.isEmpty ? '佚名' : entry.author)),
+          line(find.textContaining(RegExp(r'^已读 .* · .*章$'))),
+          line(find.textContaining('最新章节未知')),
+        ];
+        for (var index = 1; index < lines.length; index++) {
+          expect(
+            lines[index].top - lines[index - 1].bottom,
+            greaterThanOrEqualTo(4 * scale - .01),
+          );
+        }
+        final cover = tester.getRect(
+          find.descendant(
+            of: row,
+            matching: find.byKey(const ValueKey('book-row-cover')),
+          ),
+        );
+        expect(
+          lines.last.bottom - lines.first.top,
+          greaterThanOrEqualTo(cover.height - .01),
+        );
+        if (scale == 2) {
+          expect(
+            lines.last.bottom - lines.first.top,
+            greaterThan(cover.height),
+          );
+        }
+        expect(tester.getRect(row).contains(lines.last.bottomLeft), isTrue);
+        expect(tester.takeException(), isNull);
+      }
+    }
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('书架展示可读目录中的最新章节，不把旧番外或目录外公告当作更新', (tester) async {
     final f = (await tester.runAsync(_Fixture.create))!;
     addTearDown(f.dispose);
     await pumpReaderTask(tester, f.library.importBytes(_epub()));
@@ -768,6 +853,15 @@ void main() {
     );
     await pumpReaderUntil(tester, find.textContaining(' · 第一章正文'));
     f.latestTitle = '书源公告的新章';
+    await pumpReaderTask(tester, f.controller.refreshShelfOnlineUpdates());
+    expect(find.textContaining(' · 第一章正文'), findsOneWidget);
+    expect(find.textContaining(' · 书源公告的新章'), findsNothing);
+    f.remoteChapters!.insert(1, {
+      'title': f.latestTitle,
+      'url': '/3',
+      'volume_name': '正文',
+      'time': '2026-11-22',
+    });
     await pumpReaderTask(tester, f.controller.refreshShelfOnlineUpdates());
     await pumpReaderUntil(tester, find.textContaining(' · 书源公告的新章'));
     expect(find.textContaining(' · 旧番外'), findsNothing);
