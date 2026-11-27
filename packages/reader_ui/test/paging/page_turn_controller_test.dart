@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_view.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
 import '../support/progressive_source.dart';
@@ -155,6 +157,35 @@ Future<void> _startDrag(
   }
 }
 
+Future<void> _showReaderView(
+  WidgetTester tester,
+  PageTurnController controller,
+) => tester.pumpWidget(
+  MaterialApp(
+    home: MediaQuery(
+      data: const MediaQueryData(
+        gestureSettings: DeviceGestureSettings(touchSlop: 36),
+      ),
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: SizedBox.fromSize(
+          size: controller.size,
+          child: ReaderView(
+            config: ReaderGestureConfig(verticalWriting: controller.rtl),
+            onPrevious: () => controller.request(false),
+            onNext: () => controller.request(true),
+            onPointerDown: controller.pointerDown,
+            onDragStart: controller.beginDrag,
+            onDragUpdate: controller.updateDrag,
+            onDragEnd: controller.endDrag,
+            onDragCancel: controller.cancelDrag,
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
 void _drag(
   PageTurnController controller,
   ui.Offset point, {
@@ -227,6 +258,118 @@ Completer<void> _requestWithActivationCancellation(
 }
 
 void main() {
+  for (final mode in PageTurnMode.values.where(
+    (mode) => !mode.is3d && mode != PageTurnMode.scroll,
+  )) {
+    for (final rtl in [false, true]) {
+      for (final next in [false, true]) {
+        testWidgets('${mode.label} $rtl/$next 单次 MOVE 起拖立即响应并在 UP 后翻页', (
+          tester,
+        ) async {
+          final controller = (await _controller(tester, rtl: rtl))..mode = mode;
+          await _showReaderView(tester, controller);
+          final fromRight = next != rtl;
+          final down = ui.Offset(fromRight ? 280 : 40, 240);
+          final gesture = await tester.startGesture(down);
+          await gesture.moveBy(
+            ui.Offset(fromRight ? -160 : 160, 0),
+            timeStamp: const Duration(milliseconds: 30),
+          );
+          expect(
+            controller.phase,
+            anyOf(PageTurnPhase.preparing, PageTurnPhase.dragging),
+            reason: '识别器交付起拖时立即准备，不等待下一次 MOVE',
+          );
+          expect(controller.next, next);
+          expect(controller.session.pageTurns, 0);
+          await tester.pump();
+          expect(controller.phase, PageTurnPhase.dragging);
+          if (mode != PageTurnMode.none) {
+            expect(controller.originImage, isNotNull);
+            expect(controller.progress, greaterThan(0));
+          }
+          await gesture.up(timeStamp: const Duration(milliseconds: 40));
+          await tester.pumpAndSettle();
+          expect(controller.session.page!.pageIndex, next ? 2 : 0);
+          expect(controller.session.pageTurns, 1);
+          expect(controller.phase, PageTurnPhase.idle);
+          await controller.session.flushProgress();
+        });
+      }
+    }
+    testWidgets('${mode.label} 单次 MOVE 未越过设备容差不准备翻页', (tester) async {
+      final controller = (await _controller(tester))..mode = mode;
+      await _showReaderView(tester, controller);
+      final gesture = await tester.startGesture(const ui.Offset(280, 240));
+      await gesture.moveBy(const ui.Offset(-30, 0));
+      await tester.pump();
+      expect(controller.phase, PageTurnPhase.idle);
+      expect(controller.originImage, isNull);
+      expect(controller.turn, isNull);
+      await gesture.cancel();
+      expect(controller.session.pageTurns, 0);
+    });
+  }
+
+  testWidgets('3D 相同几何输入复用当前对象和已计算网格', (tester) async {
+    final controller = await _curlController(tester);
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 240),
+      const ui.Offset(220, 240),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    final geometry = controller.curl3dGeometry!;
+    final strips = geometry.strips;
+    final shadow = geometry.dropShadow;
+    expect(controller.curl3dGeometry, same(geometry));
+    controller.point = const ui.Offset(220, 240);
+    expect(controller.curl3dGeometry, same(geometry));
+    expect(controller.curl3dGeometry!.strips, same(strips));
+    expect(controller.curl3dGeometry!.dropShadow, same(shadow));
+    controller.cancel();
+  });
+
+  testWidgets('3D 几何输入变化重新计算，取消后清除本轮缓存', (tester) async {
+    final controller = await _curlController(tester);
+    await _startCurlDrag(
+      tester,
+      controller,
+      const ui.Offset(310, 240),
+      const ui.Offset(220, 240),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    var previous = controller.curl3dGeometry!;
+    for (final change in <VoidCallback>[
+      () => controller.point = const ui.Offset(210, 240),
+      () => controller.grab = const ui.Offset(320, 200),
+      () => controller.size = const ui.Size(360, 480),
+    ]) {
+      change();
+      final geometry = controller.curl3dGeometry!;
+      expect(geometry, isNot(same(previous)));
+      expect(geometry.size, controller.size);
+      expect(geometry.grab, controller.grab);
+      expect(geometry.touch, controller.point);
+      expect(controller.curl3dGeometry, same(geometry));
+      previous = geometry;
+    }
+    controller.point = const ui.Offset(400, 200);
+    expect(controller.curl3dGeometry, same(previous), reason: '越界保留最后有效网格');
+    expect(controller.curl3dGeometry, same(previous));
+    controller.cancel();
+    expect(controller.curl3dGeometry, isNull);
+    controller.request(true);
+    final initial = controller.curl3dGeometry!;
+    expect(initial.active, isFalse);
+    expect(initial, isNot(same(previous)));
+    expect(controller.curl3dGeometry, same(initial));
+    controller.cancel();
+    await tester.pumpAndSettle();
+    expect(controller.session.pageTurns, 0);
+  });
+
   for (final mode in PageTurnMode.values.where(
     (mode) => mode != PageTurnMode.scroll,
   )) {

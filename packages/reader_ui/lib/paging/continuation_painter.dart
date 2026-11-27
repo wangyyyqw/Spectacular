@@ -18,6 +18,8 @@ class ContinuationPainter {
     required double progress,
     required double direction,
   }) {
+    // 保留非整数倍率下的边缘像素，只剔除引擎保守裁剪边界之外的条带。
+    final viewport = canvas.getLocalClipBounds();
     for (final part in originGeometry.parts) {
       final t = originGeometry.progressFor(
         part,
@@ -25,7 +27,12 @@ class ContinuationPainter {
         outgoing: true,
         direction: direction,
       );
-      _part(canvas, size, origin, part.clip, -direction * t * size.width);
+      final dx = -direction * t * size.width;
+      if (part.clip.right + dx <= viewport.left ||
+          part.clip.left + dx >= viewport.right) {
+        continue;
+      }
+      _part(canvas, size, origin, part.clip, dx);
     }
     for (final part in targetGeometry.parts) {
       final t = targetGeometry.progressFor(
@@ -34,7 +41,12 @@ class ContinuationPainter {
         outgoing: false,
         direction: direction,
       );
-      _part(canvas, size, target, part.clip, direction * (1 - t) * size.width);
+      final dx = direction * (1 - t) * size.width;
+      if (part.clip.right + dx <= viewport.left ||
+          part.clip.left + dx >= viewport.right) {
+        continue;
+      }
+      _part(canvas, size, target, part.clip, dx);
     }
   }
 

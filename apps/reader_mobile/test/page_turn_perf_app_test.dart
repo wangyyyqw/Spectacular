@@ -5,7 +5,10 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/source/chapter_source.dart';
 import 'package:reader_ui/paging/continuous_scroll_view.dart';
+import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_view.dart';
 
 import '../integration_test/page_turn_perf_app.dart' as perf;
 
@@ -48,6 +51,98 @@ class _Source implements ReaderChapterSource {
 }
 
 void main() {
+  for (final mode in PageTurnMode.values.where(
+    (mode) => mode != PageTurnMode.scroll && mode != PageTurnMode.none,
+  )) {
+    testWidgets('${mode.label}性能轨迹经正式手势完成前后拖动、快扫与回拖取消', (tester) async {
+      final store = MemoryReaderProgressStore();
+      await store.save(
+        '分页采样',
+        const ReaderProgress(spineIndex: 1, pageIndex: 2),
+      );
+      final session = ReaderSession(
+        source: _Source(),
+        store: store,
+        bookId: '分页采样',
+      );
+      await session.open();
+      addTearDown(session.dispose);
+      final key = GlobalKey<PageTurnViewState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 320,
+              height: 480,
+              child: ReaderView(
+                config: ReaderGestureConfig(
+                  minimumFlingVelocity: mode.is3d ? 20 : null,
+                ),
+                onPointerDown: (point) =>
+                    key.currentState!.controller.pointerDown(point),
+                onDragStart: (details) =>
+                    key.currentState!.controller.beginDrag(details),
+                onDragUpdate: (details) =>
+                    key.currentState!.controller.updateDrag(details),
+                onDragEnd: (details) =>
+                    key.currentState!.controller.endDrag(details),
+                onDragCancel: () => key.currentState!.controller.cancelDrag(),
+                child: PageTurnView(
+                  key: key,
+                  session: session,
+                  mode: mode,
+                  revision: 1,
+                  paperColor: Colors.white,
+                  paperBuilder: (page, _) => ColoredBox(
+                    color: Colors.white,
+                    child: Text('${page.spineIndex}:${page.pageIndex}'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final next in [true, false]) {
+        for (final scene in ['drag', 'fling', 'reverse']) {
+          final before = session.pageTurns;
+          final origin = session.page;
+          var complete = false;
+          final inputStart = tester.binding.clock.now();
+          final input = perf
+              .dispatchPageTurnDrag(
+                key.currentContext!.findRenderObject()! as RenderBox,
+                next: next,
+                fling: scene == 'fling',
+                reverse: scene == 'reverse',
+                timeStamp: () =>
+                    tester.binding.clock.now().difference(inputStart),
+              )
+              .then((_) => complete = true);
+          for (
+            var frame = 0;
+            frame < 160 && (!complete || key.currentState!.controller.active);
+            frame++
+          ) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          expect(complete, isTrue, reason: '$scene 输入完成');
+          await input;
+          expect(key.currentState!.controller.active, isFalse);
+          expect(
+            session.pageTurns - before,
+            scene == 'reverse' ? 0 : 1,
+            reason: scene,
+          );
+          expect(identical(session.page, origin), scene == 'reverse');
+        }
+      }
+      await session.flushProgress();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('翻屏后等待暂未命中的布局，位置变化时重新累计稳定帧', (tester) async {
     final session = ReaderSession(
       source: _Source(),

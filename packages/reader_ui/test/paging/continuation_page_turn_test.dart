@@ -13,6 +13,7 @@ import 'package:reader_core/layout/page_background.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/source/chapter_source.dart';
 import 'package:reader_ui/paging/continuation_geometry.dart';
+import 'package:reader_ui/paging/continuation_painter.dart';
 import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
@@ -220,7 +221,253 @@ int _solidInk(ByteData bytes, Color color) {
   return count;
 }
 
+const _paintSheet = Size(83, 125);
+
+ContinuationPageGeometry _stripeGeometry({
+  bool vertical = false,
+  int count = 6,
+}) {
+  final parts = <ContinuationPartGeometry>[];
+  for (var index = 0; index < count; index++) {
+    final clip = vertical
+        ? Rect.fromLTRB(
+            index * _paintSheet.width / count,
+            0,
+            (index + 1) * _paintSheet.width / count,
+            _paintSheet.height,
+          )
+        : Rect.fromLTRB(
+            0,
+            index * _paintSheet.height / count,
+            _paintSheet.width,
+            (index + 1) * _paintSheet.height / count,
+          );
+    parts.add(ContinuationPartGeometry(clip: clip, bounds: clip));
+  }
+  return ContinuationPageGeometry(
+    body: Offset.zero & _paintSheet,
+    vertical: vertical,
+    parts: parts,
+  );
+}
+
+/// 固定条带位移，精确覆盖刚好接触视口边缘与微量进入视口的情况。
+class _BoundaryGeometry extends ContinuationPageGeometry {
+  _BoundaryGeometry(ContinuationPageGeometry geometry)
+    : super(parts: geometry.parts, body: geometry.body);
+
+  @override
+  double progressFor(
+    ContinuationPartGeometry part,
+    double progress, {
+    required bool outgoing,
+    required double direction,
+  }) => progress;
+}
+
+/// 保留原始逐条绘图路径，作为不剔除条带的像素参照。
+void _paintAllParts(
+  Canvas canvas,
+  ContinuationPageGeometry geometry,
+  ui.Image origin,
+  ui.Image target, {
+  required double progress,
+  required double direction,
+}) {
+  final paint = Paint()..filterQuality = FilterQuality.low;
+  for (final outgoing in [true, false]) {
+    final image = outgoing ? origin : target;
+    for (final part in geometry.parts) {
+      final t = geometry.progressFor(
+        part,
+        progress,
+        outgoing: outgoing,
+        direction: direction,
+      );
+      final dx = direction * (outgoing ? -t : 1 - t) * _paintSheet.width;
+      canvas.save();
+      canvas.translate(dx, 0);
+      canvas.clipRect(part.clip, doAntiAlias: false);
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        Offset.zero & _paintSheet,
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+}
+
+ui.Image _patternImage(Color color) {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawColor(color, BlendMode.src);
+  for (var y = 0; y < 126; y += 7) {
+    canvas.drawRect(
+      Rect.fromLTWH(y % 9 + .25, y.toDouble(), 70, 3.5),
+      Paint()..color = const Color(0xFF182735),
+    );
+  }
+  final picture = recorder.endRecording();
+  final image = picture.toImageSync(84, 126);
+  picture.dispose();
+  return image;
+}
+
+Future<Uint8List> _paintedBytes(
+  void Function(Canvas canvas) paint,
+  double ratio,
+) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder)..scale(ratio);
+  canvas.clipRect(Offset.zero & _paintSheet);
+  canvas.drawColor(_paper, BlendMode.src);
+  paint(canvas);
+  final picture = recorder.endRecording();
+  final image = picture.toImageSync(
+    (_paintSheet.width * ratio).ceil(),
+    (_paintSheet.height * ratio).ceil(),
+  );
+  final bytes = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+  image.dispose();
+  picture.dispose();
+  return bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
+}
+
+/// 原生 Canvas 仍接收所有命令，只统计正式画家实际提交的图片绘制。
+class _CountingContinuationCanvas implements Canvas {
+  _CountingContinuationCanvas(this.canvas);
+
+  final Canvas canvas;
+  int imageDraws = 0;
+
+  @override
+  void save() => canvas.save();
+
+  @override
+  void restore() => canvas.restore();
+
+  @override
+  Rect getLocalClipBounds() => canvas.getLocalClipBounds();
+
+  @override
+  void translate(double dx, double dy) => canvas.translate(dx, dy);
+
+  @override
+  void clipRect(
+    Rect rect, {
+    ui.ClipOp clipOp = ui.ClipOp.intersect,
+    bool doAntiAlias = true,
+  }) => canvas.clipRect(rect, clipOp: clipOp, doAntiAlias: doAntiAlias);
+
+  @override
+  void drawImageRect(ui.Image image, Rect source, Rect target, Paint paint) {
+    imageDraws++;
+    canvas.drawImageRect(image, source, target, paint);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<void> _expectSamePartPixels(
+  ContinuationPageGeometry geometry,
+  ({ui.Image origin, ui.Image target}) images, {
+  required double progress,
+  required double direction,
+  required double ratio,
+}) async {
+  final reference = await _paintedBytes(
+    (canvas) => _paintAllParts(
+      canvas,
+      geometry,
+      images.origin,
+      images.target,
+      progress: progress,
+      direction: direction,
+    ),
+    ratio,
+  );
+  final actual = await _paintedBytes(
+    (canvas) => ContinuationPainter().paint(
+      canvas,
+      _paintSheet,
+      origin: images.origin,
+      target: images.target,
+      originGeometry: geometry,
+      targetGeometry: geometry,
+      progress: progress,
+      direction: direction,
+    ),
+    ratio,
+  );
+  expect(actual, orderedEquals(reference));
+}
+
 void main() {
+  test('接续不提交尚未进入视口的目标条带', () {
+    final image = _patternImage(_oldInk);
+    addTearDown(image.dispose);
+    final geometry = _stripeGeometry(count: 30);
+    final baselineRecorder = ui.PictureRecorder();
+    final baseline = _CountingContinuationCanvas(
+      Canvas(baselineRecorder)..clipRect(Offset.zero & _paintSheet),
+    );
+    _paintAllParts(baseline, geometry, image, image, progress: .01, direction: 1);
+    baselineRecorder.endRecording().dispose();
+    expect(baseline.imageDraws, 60);
+    final recorder = ui.PictureRecorder();
+    final canvas = _CountingContinuationCanvas(
+      Canvas(recorder)..clipRect(Offset.zero & _paintSheet),
+    );
+    ContinuationPainter().paint(
+      canvas,
+      _paintSheet,
+      origin: image,
+      target: image,
+      originGeometry: geometry,
+      targetGeometry: geometry,
+      progress: .01,
+      direction: 1,
+    );
+    recorder.endRecording().dispose();
+    debugPrint(
+      '接续绘图计数：30 条原文、30 条待进入目标，'
+      '原路径 ${baseline.imageDraws} 次，正式画家 ${canvas.imageDraws} 次',
+    );
+    expect(canvas.imageDraws, 30, reason: '目标条带全部位于右边界之外，没有可见像素');
+  });
+
+  test('接续剔除保持正反横竖及非整数倍率下的全部像素', () async {
+    final origin = _patternImage(_oldInk);
+    final target = _patternImage(_newInk);
+    addTearDown(origin.dispose);
+    addTearDown(target.dispose);
+    for (final vertical in [false, true]) {
+      final normal = _stripeGeometry(vertical: vertical);
+      for (final boundary in [false, true]) {
+        final geometry = boundary ? _BoundaryGeometry(normal) : normal;
+        final steps = boundary
+            ? [0.0, .5 - 1e-6, .5, .5 + 1e-6, 1.0]
+            : [.01, .5, .99];
+        for (final direction in [-1.0, 1.0]) {
+          for (final ratio in [1.0, 1.75]) {
+            for (final progress in steps) {
+              await _expectSamePartPixels(
+                geometry,
+                (origin: origin, target: target),
+                progress: progress,
+                direction: direction,
+                ratio: ratio,
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
   test('接续使用稳定标识并与连续滚动分离', () {
     expect(PageTurnMode.fromId('continuation'), PageTurnMode.continuation);
     expect(PageTurnMode.continuation.label, '接续');

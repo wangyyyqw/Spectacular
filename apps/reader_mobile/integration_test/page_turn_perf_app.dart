@@ -85,7 +85,7 @@ void _describeRun(String revision) {
       'rounds': _rounds,
       'start': [_spine, _startPage],
       'far_spines': _farSpines,
-      'input': '分页调用生产 request；滚动拖动注入 Flutter 指针事件，不计 Android 触摸与合成延迟',
+      'input': '分页点击调用生产 request；分页和滚动拖动注入 Flutter 指针事件，不计 Android 触摸与合成延迟',
       'ready': '快照交付和 Flutter 绘制完成分别记录；不是屏幕实际呈现时间',
       'frames': '按 buildStart 归属；UI/Raster 按 display 刷新率分别统计，非系统丢帧',
       'temperature': '每轮重建阅读页，系统文件缓存不清空；开书首翻不等预热',
@@ -209,7 +209,11 @@ Future<void> _runRound(File file, String revision, int round) async {
     await WidgetsBinding.instance.endOfFrame;
     await _turn('resume', round, true);
   }
-  if (_mode == PageTurnMode.scroll) await _scrollScenes(round);
+  if (_mode == PageTurnMode.scroll) {
+    await _scrollScenes(round);
+  } else {
+    await _pagedDragScenes(round);
+  }
   if (_has('cold-cross')) {
     await _jump(_spine);
     final pages = await _session.chapterPages();
@@ -288,15 +292,24 @@ Future<void> _turn(String scene, int round, bool next) =>
       }
     });
 
-Future<void> _pagedTurn(Map<String, Object?> sample, bool next) async {
+Future<void> _pagedTurn(
+  Map<String, Object?> sample,
+  bool next, {
+  Future<void> Function()? input,
+  bool completes = true,
+}) async {
   final controller = _view!.controller;
   final origin = controller.session.page;
   final landed = Completer<void>();
   var firstFrameScheduled = false;
   var originFrameScheduled = false;
+  var accepted = false;
   void changed() {
     double elapsed() => (Timeline.now - _eventStart) / 1000;
-    if (controller.active) sample.putIfAbsent('input_accepted_ms', elapsed);
+    if (controller.active) {
+      accepted = true;
+      sample.putIfAbsent('input_accepted_ms', elapsed);
+    }
     if (controller.originImage != null) {
       sample.putIfAbsent('origin_ready_ms', elapsed);
       if (!originFrameScheduled) {
@@ -318,9 +331,7 @@ Future<void> _pagedTurn(Map<String, Object?> sample, bool next) async {
         sample['animation_start_us'] = Timeline.now;
       });
     }
-    if (!controller.active &&
-        !identical(controller.session.page, origin) &&
-        !landed.isCompleted) {
+    if (accepted && !controller.active && !landed.isCompleted) {
       sample['landed_ms'] = elapsed();
       landed.complete();
     }
@@ -328,12 +339,87 @@ Future<void> _pagedTurn(Map<String, Object?> sample, bool next) async {
 
   controller.addListener(changed);
   try {
-    controller.request(next);
+    if (input == null) {
+      controller.request(next);
+    } else {
+      await input();
+    }
     changed();
     await landed.future.timeout(const Duration(seconds: 60));
+    if (identical(controller.session.page, origin) == completes) {
+      throw StateError(completes ? '翻页未推进正文位置' : '回拖取消却改变正文位置');
+    }
   } finally {
     controller.removeListener(changed);
   }
+}
+
+Future<void> _pagedDragScenes(int round) async {
+  for (final scene in ['drag', 'fling', 'reverse']) {
+    if (!_has(scene)) continue;
+    for (final next in [true, false]) {
+      // 各次输入均从同一章内位置与暖缓存开始，回拖取消不借用上次的落页状态。
+      await _jump(_spine);
+      final pages = await _session.chapterPages();
+      final page = pages[pages.length > 2 ? 2 : pages.length - 1];
+      final cfi = _session.cfiAtPageOffset(page, null);
+      if (cfi == null) throw StateError('手势基准缺少页首锚点');
+      await _session.jumpToCfi(cfi);
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await _measure(scene, round, next, (sample) {
+        final box = _view!.context.findRenderObject()! as RenderBox;
+        return _pagedTurn(
+          sample,
+          next,
+          completes: scene != 'reverse',
+          input: () => dispatchPageTurnDrag(
+            box,
+            next: next,
+            fling: scene == 'fling',
+            reverse: scene == 'reverse',
+          ),
+        );
+      });
+    }
+  }
+}
+
+/// 使用正式手势识别器输入；测试与真机测量共用同一轨迹。
+Future<void> dispatchPageTurnDrag(
+  RenderBox box, {
+  required bool next,
+  bool fling = false,
+  bool reverse = false,
+  Duration Function()? timeStamp,
+}) async {
+  final stamp = timeStamp ?? () => Duration(microseconds: Timeline.now);
+  final start = box.localToGlobal(
+    Offset(box.size.width * (next ? .88 : .12), box.size.height * .5),
+  );
+  final steps = fling ? 6 : 24;
+  final travel = box.size.width * (next ? -.7 : .7);
+  var position = start;
+  GestureBinding.instance.handlePointerEvent(
+    PointerDownEvent(pointer: 43, position: start, timeStamp: stamp()),
+  );
+  for (var step = 1; step <= steps; step++) {
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+    final t = step / steps;
+    final fraction = reverse && t > .5 ? 1.9 - 1.8 * t : t * (reverse ? 2 : 1);
+    final target = start + Offset(travel * fraction, 0);
+    GestureBinding.instance.handlePointerEvent(
+      PointerMoveEvent(
+        pointer: 43,
+        position: target,
+        delta: target - position,
+        timeStamp: stamp(),
+      ),
+    );
+    position = target;
+  }
+  GestureBinding.instance.handlePointerEvent(
+    PointerUpEvent(pointer: 43, position: position, timeStamp: stamp()),
+  );
 }
 
 Future<void> _measure(

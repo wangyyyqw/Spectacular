@@ -49,6 +49,7 @@ class PageTurnController extends ChangeNotifier {
   bool _lifting = false, _rejected3dDrag = false;
   bool _starting3dAnimation = false;
   bool _tapTurn = false;
+  Curl3dGeometry? _currentCurlGeometry;
   Curl3dGeometry? _lastCurlGeometry;
 
   static const _catchUpFrameLimit = Duration(milliseconds: 16);
@@ -103,7 +104,17 @@ class PageTurnController extends ChangeNotifier {
     final anchor = grab;
     final current = point;
     if (anchor == null || current == null) return null;
-    final geometry = Curl3dGeometry(size: size, grab: anchor, touch: current);
+    var geometry = _currentCurlGeometry;
+    if (geometry == null ||
+        geometry.size != size ||
+        geometry.grab != anchor ||
+        geometry.touch != current) {
+      geometry = _currentCurlGeometry = Curl3dGeometry(
+        size: size,
+        grab: anchor,
+        touch: current,
+      );
+    }
     if (geometry.active) _lastCurlGeometry = geometry;
     // 越过右缘时保留最后网格；尚未起卷的新轮仍使用平面初态。
     return geometry.active ? geometry : _lastCurlGeometry ?? geometry;
@@ -170,6 +181,11 @@ class PageTurnController extends ChangeNotifier {
     _latest = details.localPosition;
     _dragMotion = _DragMotion(down.dx)..update(details.localPosition.dx);
     _dragging = true;
+    // 默认识别器在越过容差时只交付起点，首笔位移已足够确定方向。
+    final initialSign = _dragMotion!.initialSign;
+    if (initialSign != null) {
+      unawaited(_prepare((initialSign < 0) != rtl, dragging: true));
+    }
   }
 
   void updateDrag(DragUpdateDetails details) {
@@ -849,6 +865,7 @@ class PageTurnController extends ChangeNotifier {
     _dragAtBookEnd = false;
     _tapTurn = false;
     _lifting = false;
+    _currentCurlGeometry = null;
     _lastCurlGeometry = null;
     _settlingClock?.stop(canceled: true);
     _targetFadeClock?.stop(canceled: true);

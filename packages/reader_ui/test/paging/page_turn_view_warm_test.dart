@@ -12,6 +12,7 @@ import 'package:reader_ui/paging/page_turn_controller.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/paging/page_turn_view.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/reader_ui_diagnostics.dart';
 import 'package:reader_core/source/chapter_source.dart';
 
 ComputedStyle _style() => ComputedStyle(const <String, String>{
@@ -213,6 +214,56 @@ class _PreparseSource extends _Source implements ScheduledAnchorChapterSource {
 }
 
 void main() {
+  for (final mode in [PageTurnMode.cover, PageTurnMode.simulation3d]) {
+    testWidgets('${mode.label}暖缓存拖动帧只更新绘制，不重复维护窗口', (tester) async {
+      final session = await _openInputSession();
+      final key = GlobalKey<PageTurnViewState>();
+      addTearDown(session.dispose);
+      await tester.pumpWidget(_inputView(session, key, mode: mode));
+      await tester.pumpAndSettle();
+      final controller = key.currentState!.controller;
+      controller.pointerDown(const Offset(750, 300));
+      controller.beginDrag(
+        DragStartDetails(localPosition: const Offset(750, 300)),
+      );
+      controller.updateDrag(
+        DragUpdateDetails(
+          localPosition: const Offset(700, 300),
+          globalPosition: const Offset(700, 300),
+          delta: const Offset(-50, 0),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.phase, PageTurnPhase.dragging);
+      final snapshots = key.currentState!.snapshotCount;
+      final target = controller.targetImage;
+      var maintenance = 0;
+      final previous = ReaderUiDiagnostics.onEvent;
+      ReaderUiDiagnostics.onEvent = (event, fields) {
+        previous?.call(event, fields);
+        if (event == 'turn.maintenance') maintenance++;
+      };
+      addTearDown(() => ReaderUiDiagnostics.onEvent = previous);
+      for (var frame = 0; frame < 20; frame++) {
+        controller.updateDrag(
+          DragUpdateDetails(
+            localPosition: Offset(690 - frame * 10, 300),
+            globalPosition: Offset(690 - frame * 10, 300),
+            delta: const Offset(-10, 0),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 8));
+      }
+      expect(maintenance, 0, reason: '纯动画帧不重复扫描快照窗口与启动预热检查');
+      expect(controller.targetImage, same(target));
+      expect(key.currentState!.snapshotCount, snapshots);
+      controller.cancel();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('page-turn-animation')), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   // 保留完整交互顺序，才能核验章内翻页、后台取消和前台重试共享同一准备任务。
   testWidgets('本章首屏空闲就准备邻章，切后台取消，回前台继续准备', (tester) async {
     final source = _PreparseSource();
