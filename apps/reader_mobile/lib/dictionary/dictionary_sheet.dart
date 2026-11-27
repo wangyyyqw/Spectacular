@@ -10,7 +10,6 @@ import 'dictionary_client.dart';
 import 'dictionary_rule.dart';
 import 'dictionary_rule_client.dart';
 import 'dictionary_rule_view.dart';
-import 'dictionary_settings_page.dart';
 import 'dictionary_store.dart';
 import 'local_dictionary_store.dart';
 import 'local_dictionary_view.dart';
@@ -160,7 +159,7 @@ class _DictionarySheetState extends State<DictionarySheet> {
       if (mounted && generation == _generation) {
         setState(() {
           _loading = false;
-          _error = '词典设置读取失败，请重试';
+          _error = '词典设置读取失败，请关闭后重新打开词典';
         });
       }
     }
@@ -211,7 +210,7 @@ class _DictionarySheetState extends State<DictionarySheet> {
     await _selectSource(id);
   }
 
-  Future<void> _query({bool refresh = false}) async {
+  Future<void> _query() async {
     final state = _state;
     if (state == null) return;
     final api = _api;
@@ -260,7 +259,7 @@ class _DictionarySheetState extends State<DictionarySheet> {
         final cacheKey = (rule, text);
         final cached = _ruleResults.remove(cacheKey);
         final DictionaryRuleResult result;
-        if (!refresh && cached != null) {
+        if (cached != null) {
           result = cached;
         } else {
           ruleClient = (widget.ruleClientFactory ?? DictionaryRuleClient.new)();
@@ -357,27 +356,6 @@ class _DictionarySheetState extends State<DictionarySheet> {
     await query;
   }
 
-  Future<void> _configure() async {
-    _generation++;
-    final session = _session;
-    final ruleClient = _ruleClient;
-    setState(() {
-      _session = null;
-      _ruleClient = null;
-      _result = null;
-      _resultHtml = false;
-    });
-    ruleClient?.close();
-    await session?.close();
-    if (!mounted) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => DictionarySettingsPage(store: widget.store),
-      ),
-    );
-    if (mounted) await _load();
-  }
-
   @override
   Widget build(BuildContext context) => AnimatedPadding(
     duration: const Duration(milliseconds: 180),
@@ -385,7 +363,6 @@ class _DictionarySheetState extends State<DictionarySheet> {
     child: ReaderSettingsSheet(
       key: const ValueKey('dictionary-sheet'),
       header: _header(),
-      footer: _footer(),
       child: _content(context),
     ),
   );
@@ -393,15 +370,6 @@ class _DictionarySheetState extends State<DictionarySheet> {
   Widget _header() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      TextField(
-        key: const ValueKey('dictionary-query-text'),
-        controller: _text,
-        decoration: const InputDecoration(labelText: '查询词语'),
-        textInputAction: TextInputAction.search,
-        onChanged: (_) => setState(() {}),
-        onSubmitted: (_) => _query(refresh: true),
-      ),
-      const SizedBox(height: 8),
       ReaderSectionSlider(
         key: const ValueKey('dictionary-section-tabs'),
         sections: [
@@ -481,24 +449,7 @@ class _DictionarySheetState extends State<DictionarySheet> {
             ],
           ),
         ),
-      if (_result != null)
-        _session != null
-            ? LocalDictionaryView(
-                key: ObjectKey(_session),
-                session: _session!,
-                definition: _result!,
-                onLookup: _selectWord,
-              )
-            : _resultHtml
-            ? DictionaryRuleView(
-                key: ValueKey((_result, _resultBaseUrl)),
-                html: _result!,
-                baseUrl: _resultBaseUrl ?? 'about:blank',
-              )
-            : SelectableText(
-                _result!,
-                key: const ValueKey('dictionary-result'),
-              ),
+      if (_result != null) _resultCard(context),
       if (_error != null)
         Text(
           _error!,
@@ -515,37 +466,38 @@ class _DictionarySheetState extends State<DictionarySheet> {
     ],
   );
 
-  Widget _footer() => Row(
-    children: [
-      Expanded(
-        child: TextButton(
-          key: const ValueKey('dictionary-settings'),
-          onPressed: _configure,
-          child: const Text('词典设置'),
-        ),
+  Widget _resultCard(BuildContext context) {
+    final result = _result!;
+    final child = _session != null
+        ? LocalDictionaryView(
+            key: ObjectKey(_session),
+            session: _session!,
+            definition: result,
+            onLookup: _selectWord,
+          )
+        : _resultHtml
+        ? DictionaryRuleView(
+            key: ValueKey((result, _resultBaseUrl)),
+            html: result,
+            baseUrl: _resultBaseUrl ?? 'about:blank',
+          )
+        : SelectableText(
+            result,
+            key: const ValueKey('dictionary-result'),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(fontSize: 16, height: 1.6),
+          );
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('dictionary-result-card'),
+      margin: const EdgeInsets.only(top: 4),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outlineVariant),
       ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: FilledButton(
-          key: const ValueKey('dictionary-query-retry'),
-          onPressed: _state == null
-              ? (!_loading && _error != null ? _load : null)
-              : _sourceId == null ||
-                    _text.text.trim().isEmpty ||
-                    (_loading && _text.text.trim() == _queriedText)
-              ? null
-              : () => _query(refresh: true),
-          child: Text(
-            _error != null
-                ? '重试'
-                : _text.text.trim() != _queriedText
-                ? '查询'
-                : _loading
-                ? '查询中…'
-                : '重新查询',
-          ),
-        ),
-      ),
-    ],
-  );
+      child: child,
+    );
+  }
 }

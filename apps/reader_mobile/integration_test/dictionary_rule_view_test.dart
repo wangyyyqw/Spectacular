@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:reader_mobile/dictionary/dictionary_webview_gestures.dart';
 import 'package:reader_mobile/dictionary/dictionary_rule_view.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 
@@ -64,6 +67,56 @@ void main() {
               .isEmpty,
     );
     expect(find.text('在线词典内容显示失败'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 100));
+  });
+
+  testWidgets('词典网页内的纵向手势滚动 WebView 而不是底部弹窗', (tester) async {
+    final controller = Completer<InAppWebViewController>();
+    final loaded = Completer<void>();
+    final outerScrollController = ScrollController();
+    addTearDown(outerScrollController.dispose);
+    final rows = List.generate(40, (index) => '<p>词条内容 $index</p>').join();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: outerScrollController,
+            child: SizedBox(
+              height: 300,
+              child: InAppWebView(
+                gestureRecognizers: dictionaryWebViewGestureRecognizers,
+                initialData: InAppWebViewInitialData(
+                  data: '<!doctype html><html><body>$rows</body></html>',
+                  mimeType: 'text/html',
+                  encoding: 'utf-8',
+                ),
+                onWebViewCreated: (value) => controller.complete(value),
+                onLoadStop: (_, _) {
+                  if (!loaded.isCompleted) loaded.complete();
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _until(tester, () => controller.isCompleted && loaded.isCompleted);
+    final webView = await controller.future;
+    final before =
+        await webView.evaluateJavascript(source: 'window.scrollY') as num;
+    await tester.drag(find.byType(InAppWebView), const Offset(0, -200));
+    var after =
+        await webView.evaluateJavascript(source: 'window.scrollY') as num;
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (after <= before) {
+      if (DateTime.now().isAfter(deadline)) fail('词典 WebView 未随手势滚动');
+      await tester.pump(const Duration(milliseconds: 50));
+      after = await webView.evaluateJavascript(source: 'window.scrollY') as num;
+    }
+    expect(after, greaterThan(before));
+    expect(outerScrollController.offset, 0);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 100));

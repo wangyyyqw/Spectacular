@@ -237,12 +237,17 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('在线释义'), findsOneWidget);
+    final resultText = tester.widget<SelectableText>(
+      find.byKey(const ValueKey('dictionary-result')),
+    );
+    expect(resultText.style?.fontSize, 16);
+    expect(resultText.style?.height, 1.6);
     expect(calls, 1);
     expect((await store.load()).settings.sourceId, rule.sourceId);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('切回已查在线词典复用结果，手动重新查询始终刷新', (tester) async {
+  testWidgets('切回已查在线词典复用结果', (tester) async {
     final store = await onlineConfigured();
     final other = _onlineRule.copyWith(
       id: 'other',
@@ -281,12 +286,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('r.test 释义 1'), findsOneWidget);
     expect(calls, {'r.test': 1, 'other.test': 1});
-    final retry = find.byKey(const ValueKey('dictionary-query-retry'));
-    await tester.ensureVisible(retry);
-    await tester.tap(retry);
-    await tester.pumpAndSettle();
-    expect(find.text('r.test 释义 2'), findsOneWidget);
-    expect(calls['r.test'], 2);
+    expect(find.text('词典设置'), findsNothing);
+    expect(find.text('重新查询'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -399,14 +400,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('尚未导入或启用本地词典，请前往词典设置导入。'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(
-      tester
-          .widget<FilledButton>(
-            find.byKey(const ValueKey('dictionary-query-retry')),
-          )
-          .onPressed,
-      isNull,
-    );
+    expect(find.byKey(const ValueKey('dictionary-query-retry')), findsNothing);
     pending.complete(onlineAnswer('已离开的网页结果'));
     await tester.pumpAndSettle();
     expect(find.text('已离开的网页结果'), findsNothing);
@@ -416,9 +410,7 @@ void main() {
     expect(find.text('尚未配置或启用 AI 释义服务，请前往词典设置添加。'), findsOneWidget);
     expect(calls, 1);
     expect((await store.load()).settings.sourceId, _onlineRule.sourceId);
-    await tester.tap(find.byKey(const ValueKey('dictionary-settings')));
-    await tester.pumpAndSettle();
-    expect(find.byType(DictionarySettingsPage), findsOneWidget);
+    expect(find.byKey(const ValueKey('dictionary-settings')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -426,7 +418,7 @@ void main() {
     (label: '320dp 大字', size: const Size(320, 600), scale: 1.6, inset: 0.0),
     (label: '键盘弹出', size: const Size(360, 800), scale: 1.0, inset: 500.0),
   ]) {
-    testWidgets('${scenario.label}词典弹窗保持查询栏、三分栏和底部操作固定可见', (tester) async {
+    testWidgets('${scenario.label}词典弹窗保持三分栏且不显示底部操作栏', (tester) async {
       tester.view.physicalSize = scenario.size;
       tester.view.devicePixelRatio = 1;
       tester.view.viewInsets = FakeViewPadding(bottom: scenario.inset);
@@ -461,14 +453,13 @@ void main() {
       await tester.tap(find.text('打开词典'));
       await tester.pumpAndSettle();
       final sheet = find.byKey(const ValueKey('dictionary-sheet'));
-      final input = find.byKey(const ValueKey('dictionary-query-text'));
       final tabs = find.byKey(const ValueKey('dictionary-section-tabs'));
-      final settings = find.byKey(const ValueKey('dictionary-settings'));
-      final query = find.byKey(const ValueKey('dictionary-query-retry'));
-      final inputRect = tester.getRect(input);
       final tabsRect = tester.getRect(tabs);
-      final queryRect = tester.getRect(query);
       expect(tester.widget<ReaderSettingsSheet>(sheet).title, isNull);
+      expect(find.byKey(const ValueKey('dictionary-query-text')), findsNothing);
+      expect(find.text('词典设置'), findsNothing);
+      expect(find.text('重新查询'), findsNothing);
+      expect(tester.widget<ReaderSettingsSheet>(sheet).footer, isNull);
       if (scenario.inset == 0) {
         expect(
           tester.getSize(sheet).height,
@@ -486,15 +477,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       for (final tab in ['local', 'ai']) {
-        expect(tester.getRect(input), inputRect);
         expect(tester.getRect(tabs), tabsRect);
-        expect(tester.getRect(query), queryRect);
-        expect(input.hitTestable(), findsOneWidget);
-        expect(settings.hitTestable(), findsOneWidget);
-        expect(
-          queryRect.bottom,
-          lessThanOrEqualTo(scenario.size.height - scenario.inset),
-        );
+        expect(find.text('词典设置'), findsNothing);
+        expect(find.text('重新查询'), findsNothing);
         await tester.tap(find.byKey(ValueKey('dictionary-$tab')));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
@@ -506,7 +491,7 @@ void main() {
     });
   }
 
-  testWidgets('加载时重复提交不重发，修改词语可立即查询且晚到旧结果不覆盖', (tester) async {
+  testWidgets('加载时重复查询不重发，加载完成后显示词典结果', (tester) async {
     final pending = <Completer<http.Response>>[];
     final words = <String>[];
     await showOnlineDictionary(
@@ -524,56 +509,15 @@ void main() {
     await tester.pump();
     expect(words, ['测试']);
     expect(find.text('正在查询「测试」…'), findsOneWidget);
-    final input = find.byKey(const ValueKey('dictionary-query-text'));
-    await tester.showKeyboard(input);
-    await tester.testTextInput.receiveAction(TextInputAction.search);
-    await tester.pump();
+    expect(find.byKey(const ValueKey('dictionary-query-retry')), findsNothing);
+    pending.first.complete(onlineAnswer('测试释义'));
+    await tester.pumpAndSettle();
+    expect(find.text('测试释义'), findsOneWidget);
     expect(words, ['测试']);
-    await tester.enterText(input, '新词');
-    await tester.pump();
-    final button = find.byKey(const ValueKey('dictionary-query-retry'));
-    expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
-    await tester.ensureVisible(button);
-    await tester.tap(button);
-    await tester.pump();
-    expect(words, ['测试', '新词']);
-    pending.last.complete(onlineAnswer('新词释义'));
-    await tester.pumpAndSettle();
-    pending.first.complete(onlineAnswer('旧词释义'));
-    await tester.pumpAndSettle();
-    expect(find.text('新词释义'), findsOneWidget);
-    expect(find.text('旧词释义'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('在线查询失败可直接重试，失败结果不进入缓存', (tester) async {
-    var calls = 0;
-    await showOnlineDictionary(
-      tester,
-      await onlineConfigured(),
-      () => DictionaryRuleClient(
-        client: MockClient((_) async {
-          calls++;
-          return calls == 1
-              ? onlineAnswer('错误正文', 503)
-              : onlineAnswer('恢复后的释义');
-        }),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('HTTP 503'), findsOneWidget);
-    expect(find.text('重试'), findsOneWidget);
-    final retry = find.byKey(const ValueKey('dictionary-query-retry'));
-    await tester.ensureVisible(retry);
-    await tester.tap(retry);
-    await tester.pumpAndSettle();
-    expect(calls, 2);
-    expect(find.text('恢复后的释义'), findsOneWidget);
-    expect(find.textContaining('HTTP 503'), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('词典设置暂时读取失败后可用重试按钮恢复', (tester) async {
+  testWidgets('词典设置读取失败显示提示且不显示已移除的底部操作', (tester) async {
     final store = _RecoveringDictionaryStore();
     await tester.pumpWidget(
       MaterialApp(
@@ -583,14 +527,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('词典设置读取失败，请重试'), findsOneWidget);
-    final retry = find.byKey(const ValueKey('dictionary-query-retry'));
-    expect(tester.widget<FilledButton>(retry).onPressed, isNotNull);
-    await tester.tap(retry);
-    await tester.pumpAndSettle();
-    expect(store.attempts, 2);
-    expect(find.text('词典设置读取失败，请重试'), findsNothing);
-    expect(find.text('请选择上方词典来源后查询。'), findsOneWidget);
+    expect(find.text('词典设置读取失败，请关闭后重新打开词典'), findsOneWidget);
+    expect(store.attempts, 1);
+    expect(find.text('词典设置'), findsNothing);
+    expect(find.text('重试'), findsNothing);
+    expect(find.byKey(const ValueKey('dictionary-query-retry')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -873,15 +814,18 @@ void main() {
     expect(find.text('新的百科释义'), findsOneWidget);
     expect(find.text('旧的简短释义'), findsNothing);
     expect((await store.load()).preset.id, 'dictionary_short');
-    await tester.tap(find.byKey(const ValueKey('dictionary-query-retry')));
+    await tester.tap(find.byKey(const ValueKey('dictionary-query-preset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('文言文/古诗词').last);
     await tester.pump();
+    expect(pending, hasLength(3));
     await tester.pumpWidget(const SizedBox());
     pending.last.complete(answer('关闭后的结果'));
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('持久切换预设用于下次查询，无服务显示配置入口', (tester) async {
+  testWidgets('持久切换预设用于下次查询，无服务显示提示且不显示底部操作', (tester) async {
     final store = await configured(singleUse: false);
     final client = DictionaryClient(
       client: MockClient((_) async => answer('释义')),
@@ -911,7 +855,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('请选择上方词典来源后查询。'), findsOneWidget);
-    expect(find.text('词典设置'), findsOneWidget);
+    expect(find.text('词典设置'), findsNothing);
+    expect(find.text('重新查询'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

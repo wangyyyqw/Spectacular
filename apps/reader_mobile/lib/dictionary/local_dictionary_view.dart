@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import 'dictionary_webview_gestures.dart';
 import 'local_dictionary_server.dart';
 import 'local_dictionary_store.dart';
 
@@ -101,6 +102,7 @@ class _LocalDictionaryViewState extends State<LocalDictionaryView> {
                   children: [
                     Positioned.fill(
                       child: InAppWebView(
+                        gestureRecognizers: dictionaryWebViewGestureRecognizers,
                         initialUrlRequest: URLRequest(
                           url: WebUri.uri(server.pageUri),
                         ),
@@ -113,6 +115,13 @@ class _LocalDictionaryViewState extends State<LocalDictionaryView> {
                           allowUniversalAccessFromFileURLs: false,
                           useShouldOverrideUrlLoading: true,
                           transparentBackground: true,
+                          useHybridComposition: true,
+                          disableVerticalScroll: false,
+                          disableHorizontalScroll: true,
+                          verticalScrollBarEnabled: true,
+                          horizontalScrollBarEnabled: false,
+                          supportZoom: false,
+                          textZoom: 100,
                         ),
                         shouldOverrideUrlLoading: (_, action) =>
                             _navigate(action.request.url),

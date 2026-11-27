@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'dictionary_rule_html.dart';
+import 'dictionary_webview_gestures.dart';
 
 class DictionaryRuleView extends StatefulWidget {
   const DictionaryRuleView({
@@ -42,6 +43,7 @@ class _DictionaryRuleViewState extends State<DictionaryRuleView> {
           child: _error != null
               ? Center(child: Text(_error!))
               : InAppWebView(
+                  gestureRecognizers: dictionaryWebViewGestureRecognizers,
                   initialData: InAppWebViewInitialData(
                     data: _html!,
                     baseUrl: WebUri(widget.baseUrl),
@@ -57,6 +59,13 @@ class _DictionaryRuleViewState extends State<DictionaryRuleView> {
                     allowUniversalAccessFromFileURLs: false,
                     useShouldOverrideUrlLoading: true,
                     transparentBackground: true,
+                    useHybridComposition: true,
+                    disableVerticalScroll: false,
+                    disableHorizontalScroll: true,
+                    verticalScrollBarEnabled: true,
+                    horizontalScrollBarEnabled: false,
+                    supportZoom: false,
+                    textZoom: 100,
                     disableContextMenu: true,
                     mixedContentMode:
                         MixedContentMode.MIXED_CONTENT_COMPATIBILITY_MODE,

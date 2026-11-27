@@ -53,11 +53,14 @@ String buildRuleDictionaryHtml(
     dom.Element.tag('style')
       ..text =
           '''
-body { margin: 12px; font: 16px/1.65 sans-serif; overflow-wrap: anywhere;
-  color: ${dark ? '#e8e6e0' : '#25231f'}; background: ${dark ? '#20201e' : '#faf9f6'}; }
-img, video, audio, table { max-width: 100%; }
-img { height: auto; }
-pre { white-space: pre-wrap; }
+ body, body * { box-sizing: border-box; font-family: sans-serif !important;
+   font-size: 16px !important; line-height: 1.6 !important; }
+ body { margin: 0; padding: 16px 16px 20px; overflow-x: hidden;
+   overflow-y: auto; overflow-wrap: anywhere;
+   color: ${dark ? '#e8e6e0' : '#25231f'}; background: transparent; }
+ img, video, audio, table { max-width: 100%; }
+ img { height: auto; }
+ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 a { color: ${dark ? '#8ab4f8' : '#2155aa'}; }
 ''',
   );

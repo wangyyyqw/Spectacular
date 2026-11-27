@@ -258,4 +258,15 @@ void main() {
       isNot(contains('remote.test')),
     );
   });
+
+  test('本地释义页面统一字号并允许结果纵向滚动', () {
+    final html = buildLocalDictionaryHtml(
+      '<h1>词条</h1><p>释义</p>',
+      Uri.parse('http://127.0.0.1:1234/test/'),
+    );
+    expect(html, contains('font-size:16px !important'));
+    expect(html, contains('line-height:1.6 !important'));
+    expect(html, contains('overflow-y:auto'));
+    expect(html, contains('overflow-x:hidden'));
+  });
 }

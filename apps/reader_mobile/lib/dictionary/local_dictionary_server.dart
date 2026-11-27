@@ -99,9 +99,13 @@ String buildLocalDictionaryHtml(String source, Uri base, {bool dark = false}) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root {color-scheme:${dark ? 'dark' : 'light'};}
-body {margin:12px;font:16px/1.65 sans-serif;overflow-wrap:anywhere;
-color:${dark ? '#e8e6e0' : '#25231f'};background:${dark ? '#20201e' : '#faf9f6'};}
-img,video,audio {max-width:100%;} pre {white-space:pre-wrap;}
+body, body * {box-sizing:border-box;font-family:sans-serif !important;
+font-size:16px !important;line-height:1.6 !important;}
+body {margin:0;padding:16px 16px 20px;overflow-x:hidden;overflow-y:auto;
+overflow-wrap:anywhere;color:${dark ? '#e8e6e0' : '#25231f'};background:transparent;}
+img,video,audio {max-width:100%;height:auto;} table {max-width:100%;}
+pre {white-space:pre-wrap;overflow-wrap:anywhere;}
+a {color:${dark ? '#8ab4f8' : '#2155aa'};}
 </style>'''),
   );
   return '<!doctype html>${document.documentElement!.outerHtml}';

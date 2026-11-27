@@ -4,22 +4,22 @@ import '../icons/app_icon.dart';
 import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_ui_style.dart';
 
-/// 设置菜单共用的固定高度面板：支持统一的标题栏 + 预览/分段头部 + 滚动正文 + 固定底部操作栏。
+/// 设置菜单共用的固定高度面板：支持标题栏、滚动正文和可选的固定底部操作栏。
 class ReaderSettingsSheet extends StatelessWidget {
   const ReaderSettingsSheet({
     super.key,
     this.title,
     this.onClose,
+    this.footer,
     required this.header,
     required this.child,
-    required this.footer,
   });
 
   final String? title;
   final VoidCallback? onClose;
+  final Widget? footer;
   final Widget header;
   final Widget child;
-  final Widget footer;
 
   @override
   Widget build(BuildContext context) {
@@ -59,8 +59,7 @@ class ReaderSettingsSheet extends StatelessWidget {
                           minWidth: 44,
                           minHeight: 44,
                         ),
-                        onPressed:
-                            onClose ?? () => Navigator.maybePop(context),
+                        onPressed: onClose ?? () => Navigator.maybePop(context),
                         icon: const AppIcon(AppGlyph.close, size: 20),
                       ),
                     ],
@@ -78,11 +77,13 @@ class ReaderSettingsSheet extends StatelessWidget {
                   child: child,
                 ),
               ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-                child: SizedBox(width: double.infinity, child: footer),
-              ),
+              if (footer != null) ...[
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+                  child: SizedBox(width: double.infinity, child: footer!),
+                ),
+              ],
             ],
           ),
         ),
